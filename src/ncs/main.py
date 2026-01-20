@@ -2,8 +2,9 @@
 
 import sys
 
-from loguru import logger
 from PySide6.QtWidgets import QApplication, QMainWindow
+
+from ncs.utils.logging import configure_logging, logger
 
 
 class NCSMainWindow(QMainWindow):
@@ -17,6 +18,7 @@ class NCSMainWindow(QMainWindow):
 
 def main() -> int:
     """Run the NCS application."""
+    configure_logging(level="DEBUG")
     logger.info("Starting NCS application")
 
     app = QApplication(sys.argv)
