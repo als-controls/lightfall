@@ -124,10 +124,12 @@ class PanelRegistry:
         count = 0
 
         # Import built-in panels
+        from ncs.ui.panels.device_panel import DevicePanel
         from ncs.ui.panels.logbook_panel import LogbookPanel
 
         builtin_panels = [
             LogbookPanel,
+            DevicePanel,
         ]
 
         for panel_class in builtin_panels:

@@ -12,6 +12,8 @@ from ncs.auth.providers import LocalAuthProvider
 from ncs.auth.session import SessionManager
 from ncs.config import ConfigManager
 from ncs.core import NCSApplication
+from ncs.devices import DeviceCatalog
+from ncs.devices.backends import MockBackend
 from ncs.project import ProjectService, create_welcome_project
 from ncs.ui import NCSMainWindow
 from ncs.ui.panels.registry import PanelRegistry
@@ -84,7 +86,30 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     project_service = ProjectService.get_instance()
     services.register_instance(ProjectService, project_service)
 
+    # Device catalog with mock backend
+    device_catalog = DeviceCatalog.get_instance()
+    services.register_instance(DeviceCatalog, device_catalog)
+
     logger.debug("Application services registered")
+
+
+def _setup_devices() -> None:
+    """Setup the device catalog with mock backend.
+
+    Initializes the DeviceCatalog with a MockBackend containing
+    simulated ophyd.sim devices for development and testing.
+    """
+    catalog = DeviceCatalog.get_instance()
+
+    # Use mock backend with simulated devices
+    backend = MockBackend(include_noisy=True)
+    catalog.set_backend(backend)
+
+    if catalog.connect():
+        device_count = len(catalog.get_all_devices())
+        logger.info("Device catalog initialized with {} simulated devices", device_count)
+    else:
+        logger.error("Failed to connect device catalog")
 
 
 def _setup_first_launch(project_service: ProjectService) -> None:
@@ -139,6 +164,9 @@ def main() -> int:
 
     # Setup authentication
     _setup_auth(config)
+
+    # Setup device catalog with mock backend
+    _setup_devices()
 
     # Setup first launch (welcome project)
     project_service = ProjectService.get_instance()
