@@ -91,7 +91,7 @@ class DeviceTreeItem:
 
     def column_count(self) -> int:
         """Number of columns."""
-        return 4  # Name, Value, Type, Status
+        return 5  # Name, Value, Type, Kind, Status
 
     def data(self, column: int) -> Any:
         """Get data for column."""
@@ -102,6 +102,8 @@ class DeviceTreeItem:
         elif column == 2:
             return self._get_type_string()
         elif column == 3:
+            return self._get_kind_string()
+        elif column == 4:
             return self._get_status()
         return None
 
@@ -149,6 +151,34 @@ class DeviceTreeItem:
             return ""
 
         return type(self.ophyd_obj).__name__
+
+    def _get_kind_string(self) -> str:
+        """Get the ophyd Kind as a string."""
+        if self.ophyd_obj is None:
+            return ""
+
+        try:
+            if hasattr(self.ophyd_obj, "kind"):
+                return self.ophyd_obj.kind.name
+        except Exception:
+            pass
+        return ""
+
+    def get_kind(self) -> str | None:
+        """Get the ophyd Kind name for filtering.
+
+        Returns:
+            Kind name (hinted, normal, config, omitted) or None.
+        """
+        if self.ophyd_obj is None:
+            return None
+
+        try:
+            if hasattr(self.ophyd_obj, "kind"):
+                return self.ophyd_obj.kind.name
+        except Exception:
+            pass
+        return None
 
     def _get_status(self) -> str:
         """Get status string."""
@@ -201,10 +231,11 @@ class DeviceTreeModel(QAbstractItemModel):
         0: Name - device/signal name
         1: Value - current value (for signals) or position (for motors)
         2: Type - device class type
-        3: Status - connection status
+        3: Kind - ophyd Kind (hinted, normal, config, omitted)
+        4: Status - connection status
     """
 
-    COLUMNS = ["Name", "Value", "Type", "Status"]
+    COLUMNS = ["Name", "Value", "Type", "Kind", "Status"]
 
     def __init__(
         self,
@@ -413,14 +444,23 @@ class DeviceTreeModel(QAbstractItemModel):
 
         elif role == Qt.ItemDataRole.ForegroundRole:
             # Color status column
-            if index.column() == 3:
-                status = item.data(3)
+            if index.column() == 4:
+                status = item.data(4)
                 if status == "online" or status == "connected":
                     return QColor("#4CAF50")  # Green
                 elif status == "error":
                     return QColor("#F44336")  # Red
                 elif status == "offline":
                     return QColor("#9E9E9E")  # Gray
+            # Color kind column
+            elif index.column() == 3:
+                kind = item.data(3)
+                if kind == "hinted":
+                    return QColor("#4CAF50")  # Green - important
+                elif kind == "config":
+                    return QColor("#FF9800")  # Orange - configuration
+                elif kind == "omitted":
+                    return QColor("#9E9E9E")  # Gray - hidden
 
         elif role == Qt.ItemDataRole.UserRole:
             # Return the ophyd object
@@ -433,6 +473,10 @@ class DeviceTreeModel(QAbstractItemModel):
         elif role == Qt.ItemDataRole.UserRole + 2:
             # Return the node type
             return item.node_type
+
+        elif role == Qt.ItemDataRole.UserRole + 3:
+            # Return the kind string for filtering
+            return item.get_kind()
 
         return None
 
@@ -459,9 +503,12 @@ class DeviceTreeModel(QAbstractItemModel):
 class DeviceFilterProxyModel(QSortFilterProxyModel):
     """Filter proxy for searching devices.
 
-    Filters the device tree by name, showing matching items
+    Filters the device tree by name and/or kind, showing matching items
     and their parents (to maintain tree structure).
     """
+
+    # Role for accessing kind data
+    KIND_ROLE = Qt.ItemDataRole.UserRole + 3
 
     def __init__(self, parent: Any = None) -> None:
         """Initialize the filter proxy."""
@@ -469,31 +516,60 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
         self.setRecursiveFilteringEnabled(True)
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
+        # Kind filter: set of kinds to show (None means show all)
+        self._visible_kinds: set[str] | None = None
+
+    def set_visible_kinds(self, kinds: set[str] | None) -> None:
+        """Set which kinds should be visible.
+
+        Args:
+            kinds: Set of kind names to show (hinted, normal, config, omitted),
+                   or None to show all kinds.
+        """
+        self._visible_kinds = kinds
+        self.invalidateFilter()
+
+    def get_visible_kinds(self) -> set[str] | None:
+        """Get the currently visible kinds."""
+        return self._visible_kinds
+
     def filterAcceptsRow(
         self, source_row: int, source_parent: QModelIndex
     ) -> bool:
         """Check if row should be shown.
 
-        Shows items that match the filter or have descendants that match.
+        Shows items that match both text filter and kind filter,
+        or have descendants that match.
         """
-        # Get the filter pattern
-        pattern = self.filterRegularExpression().pattern()
-        if not pattern:
-            return True
-
         source_model = self.sourceModel()
         index = source_model.index(source_row, 0, source_parent)
 
-        # Check if this item matches
-        if self._item_matches(index, pattern):
+        # Check text filter
+        pattern = self.filterRegularExpression().pattern()
+        text_matches = not pattern or self._item_matches_text(index, pattern)
+
+        # Check kind filter
+        kind_matches = self._item_matches_kind(index)
+
+        # For top-level devices (no kind), always show if they have matching children
+        item_kind = index.data(self.KIND_ROLE)
+
+        if item_kind is None:
+            # This is likely a top-level device - show if any descendant matches
+            if self._has_matching_descendant(index, pattern):
+                return True
+            # If no text pattern, show top-level devices
+            return not pattern
+
+        # For items with kind, must match both filters
+        if text_matches and kind_matches:
             return True
 
-        # Check if any descendant matches (recursive filtering handles this,
-        # but we implement it explicitly for clarity)
+        # Check if any descendant matches
         return self._has_matching_descendant(index, pattern)
 
-    def _item_matches(self, index: QModelIndex, pattern: str) -> bool:
-        """Check if item matches the filter pattern."""
+    def _item_matches_text(self, index: QModelIndex, pattern: str) -> bool:
+        """Check if item matches the text filter pattern."""
         if not index.isValid():
             return False
 
@@ -511,15 +587,35 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
 
         return False
 
+    def _item_matches_kind(self, index: QModelIndex) -> bool:
+        """Check if item matches the kind filter."""
+        if self._visible_kinds is None:
+            return True  # No filter, show all
+
+        item_kind = index.data(self.KIND_ROLE)
+
+        # Items without kind (top-level devices) always pass kind filter
+        if item_kind is None:
+            return True
+
+        return item_kind in self._visible_kinds
+
     def _has_matching_descendant(self, index: QModelIndex, pattern: str) -> bool:
-        """Check if any descendant matches."""
+        """Check if any descendant matches both text and kind filters."""
         source_model = self.sourceModel()
         rows = source_model.rowCount(index)
 
         for row in range(rows):
             child_index = source_model.index(row, 0, index)
-            if self._item_matches(child_index, pattern):
+
+            # Check if child matches both filters
+            text_matches = not pattern or self._item_matches_text(child_index, pattern)
+            kind_matches = self._item_matches_kind(child_index)
+
+            if text_matches and kind_matches:
                 return True
+
+            # Recursively check descendants
             if self._has_matching_descendant(child_index, pattern):
                 return True
 

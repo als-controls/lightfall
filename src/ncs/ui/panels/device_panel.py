@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -240,13 +241,28 @@ class DevicePanel(BasePanel):
         toolbar = self._create_toolbar()
         left_layout.addWidget(toolbar)
 
+        # Search and filter row
+        filter_layout = QHBoxLayout()
+
         # Search box
-        search_layout = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search devices and signals...")
         self._search_input.setClearButtonEnabled(True)
-        search_layout.addWidget(self._search_input)
-        left_layout.addLayout(search_layout)
+        filter_layout.addWidget(self._search_input, stretch=1)
+
+        # Kind filter checkboxes
+        filter_layout.addWidget(QLabel("Kind:"))
+
+        self._kind_checkboxes: dict[str, QCheckBox] = {}
+        for kind in ["hinted", "normal", "config", "omitted"]:
+            cb = QCheckBox(kind.title())
+            cb.setChecked(True)  # All kinds visible by default
+            cb.setToolTip(f"Show {kind} signals/devices")
+            cb.stateChanged.connect(self._on_kind_filter_changed)
+            self._kind_checkboxes[kind] = cb
+            filter_layout.addWidget(cb)
+
+        left_layout.addLayout(filter_layout)
 
         # Tree view
         self._tree_view = QTreeView()
@@ -257,13 +273,14 @@ class DevicePanel(BasePanel):
         self._tree_view.setSortingEnabled(True)
         self._tree_view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
-        # Configure header
+        # Configure header (5 columns: Name, Value, Type, Kind, Status)
         header = self._tree_view.header()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
 
         # Set reasonable default column widths
         self._tree_view.setColumnWidth(0, 200)
@@ -360,6 +377,26 @@ class DevicePanel(BasePanel):
             self._tree_view.collapseAll()
 
     @Slot()
+    def _on_kind_filter_changed(self) -> None:
+        """Handle kind filter checkbox change."""
+        # Collect checked kinds
+        visible_kinds = {
+            kind for kind, cb in self._kind_checkboxes.items() if cb.isChecked()
+        }
+
+        # If all are checked, use None (no filtering)
+        if len(visible_kinds) == len(self._kind_checkboxes):
+            self._proxy_model.set_visible_kinds(None)
+        else:
+            self._proxy_model.set_visible_kinds(visible_kinds)
+
+        # Expand tree to show filtered results
+        if visible_kinds and len(visible_kinds) < len(self._kind_checkboxes):
+            self._tree_view.expandAll()
+        else:
+            self._tree_view.collapseAll()
+
+    @Slot()
     def _on_selection_changed(self) -> None:
         """Handle tree selection change."""
         index = self._tree_view.currentIndex()
@@ -400,9 +437,14 @@ class DevicePanel(BasePanel):
                     "has_device_info": item.device_info is not None,
                 }
 
+        # Get visible kinds
+        visible_kinds = self._proxy_model.get_visible_kinds()
+        kind_filter = list(visible_kinds) if visible_kinds else None
+
         return {
             "selected_item": selected_item,
             "search_text": self._search_input.text(),
+            "kind_filter": kind_filter,
             "device_count": self._model.rowCount(),
             "catalog_connected": self._catalog.is_connected,
         }
@@ -432,6 +474,12 @@ class DevicePanel(BasePanel):
                 "description": "Collapse entire tree",
                 "method": "action_collapse_all",
             },
+            {
+                "name": "filter_by_kind",
+                "description": "Filter by signal/device kind",
+                "method": "action_filter_by_kind",
+                "parameters": {"kinds": "list of kind names (hinted, normal, config, omitted)"},
+            },
         ])
         return actions
 
@@ -460,4 +508,27 @@ class DevicePanel(BasePanel):
     def action_collapse_all(self) -> bool:
         """Action: Collapse all tree nodes."""
         self._tree_view.collapseAll()
+        return True
+
+    def action_filter_by_kind(self, kinds: list[str] | None) -> bool:
+        """Action: Filter by signal/device kind.
+
+        Args:
+            kinds: List of kind names to show (hinted, normal, config, omitted),
+                   or None to show all.
+
+        Returns:
+            True if filter was applied.
+        """
+        valid_kinds = {"hinted", "normal", "config", "omitted"}
+
+        if kinds is None:
+            # Show all - check all boxes
+            for cb in self._kind_checkboxes.values():
+                cb.setChecked(True)
+        else:
+            # Filter to specified kinds
+            for kind, cb in self._kind_checkboxes.items():
+                cb.setChecked(kind in kinds)
+
         return True
