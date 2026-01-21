@@ -1,0 +1,517 @@
+"""Device tree model for Qt Model/View architecture.
+
+Provides a hierarchical model of ophyd devices showing the actual
+device/signal tree structure.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+from PySide6.QtCore import (
+    QAbstractItemModel,
+    QModelIndex,
+    QPersistentModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+)
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from ncs.devices import DeviceCatalog, DeviceInfo
+
+
+class NodeType(Enum):
+    """Type of node in the device tree."""
+
+    ROOT = "root"
+    DEVICE = "device"
+    SIGNAL = "signal"
+    COMPONENT = "component"
+
+
+class DeviceTreeItem:
+    """Item in the device tree model.
+
+    Represents either a device or a signal/component in the
+    ophyd device hierarchy.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        node_type: NodeType,
+        parent: DeviceTreeItem | None = None,
+        ophyd_obj: Any = None,
+        device_info: DeviceInfo | None = None,
+    ) -> None:
+        """Initialize a tree item.
+
+        Args:
+            name: Display name for this item.
+            node_type: Type of node (device, signal, etc.).
+            parent: Parent item in the tree.
+            ophyd_obj: The ophyd object (Device or Signal).
+            device_info: DeviceInfo from the catalog (for top-level devices).
+        """
+        self.name = name
+        self.node_type = node_type
+        self.parent_item = parent
+        self.ophyd_obj = ophyd_obj
+        self.device_info = device_info
+        self.children: list[DeviceTreeItem] = []
+
+        # Cache some properties
+        self._value_cache: Any = None
+        self._status_cache: str = ""
+
+    def append_child(self, child: DeviceTreeItem) -> None:
+        """Add a child item."""
+        self.children.append(child)
+
+    def child(self, row: int) -> DeviceTreeItem | None:
+        """Get child at row."""
+        if 0 <= row < len(self.children):
+            return self.children[row]
+        return None
+
+    def child_count(self) -> int:
+        """Get number of children."""
+        return len(self.children)
+
+    def row(self) -> int:
+        """Get this item's row in its parent."""
+        if self.parent_item:
+            return self.parent_item.children.index(self)
+        return 0
+
+    def column_count(self) -> int:
+        """Number of columns."""
+        return 4  # Name, Value, Type, Status
+
+    def data(self, column: int) -> Any:
+        """Get data for column."""
+        if column == 0:
+            return self.name
+        elif column == 1:
+            return self._get_value()
+        elif column == 2:
+            return self._get_type_string()
+        elif column == 3:
+            return self._get_status()
+        return None
+
+    def _get_value(self) -> str:
+        """Get current value as string."""
+        if self.ophyd_obj is None:
+            return ""
+
+        try:
+            if hasattr(self.ophyd_obj, "get"):
+                val = self.ophyd_obj.get()
+                if isinstance(val, float):
+                    return f"{val:.4g}"
+                return str(val)
+            elif hasattr(self.ophyd_obj, "position"):
+                return f"{self.ophyd_obj.position:.4g}"
+        except Exception:
+            pass
+        return ""
+
+    def _get_type_string(self) -> str:
+        """Get type description."""
+        if self.ophyd_obj is None:
+            return ""
+
+        cls_name = type(self.ophyd_obj).__name__
+
+        # Simplify common types
+        if "Signal" in cls_name:
+            return "Signal"
+        elif "Motor" in cls_name or "Axis" in cls_name:
+            return "Motor"
+        elif "Detector" in cls_name or "Gauss" in cls_name:
+            return "Detector"
+        elif "Device" in cls_name:
+            return "Device"
+
+        return cls_name
+
+    def _get_status(self) -> str:
+        """Get status string."""
+        if self.device_info and self.device_info.state:
+            return self.device_info.state.status.value
+        if self.ophyd_obj is not None:
+            return "connected"
+        return ""
+
+    def get_device_category(self) -> str:
+        """Get device category for icon selection."""
+        if self.device_info:
+            return self.device_info.category.value
+
+        if self.ophyd_obj is None:
+            return "other"
+
+        cls_name = type(self.ophyd_obj).__name__.lower()
+
+        if "motor" in cls_name or "axis" in cls_name or "positioner" in cls_name:
+            return "motor"
+        elif "detector" in cls_name or "gauss" in cls_name:
+            return "detector"
+        elif "camera" in cls_name or "img" in cls_name or "image" in cls_name:
+            return "camera"
+        elif "signal" in cls_name:
+            return "signal"
+
+        # Check by ophyd base classes
+        try:
+            from ophyd import Signal
+
+            if isinstance(self.ophyd_obj, Signal):
+                return "signal"
+        except ImportError:
+            pass
+
+        return "device"
+
+
+class DeviceTreeModel(QAbstractItemModel):
+    """Qt model for ophyd device tree hierarchy.
+
+    This model displays the actual ophyd device structure with
+    parent/child relationships. Top-level items are devices from
+    the DeviceCatalog, and children are their components (signals
+    or sub-devices).
+
+    Columns:
+        0: Name - device/signal name
+        1: Value - current value (for signals) or position (for motors)
+        2: Type - device class type
+        3: Status - connection status
+    """
+
+    COLUMNS = ["Name", "Value", "Type", "Status"]
+
+    def __init__(
+        self,
+        catalog: DeviceCatalog,
+        parent: Any = None,
+    ) -> None:
+        """Initialize the model.
+
+        Args:
+            catalog: Device catalog to populate from.
+            parent: Qt parent.
+        """
+        super().__init__(parent)
+        self._catalog = catalog
+        self._root = DeviceTreeItem("root", NodeType.ROOT)
+        self._icons: dict[str, QIcon] = {}
+
+        self._create_icons()
+        self._populate()
+
+    def _create_icons(self) -> None:
+        """Create icons for device types."""
+        icon_specs = {
+            "motor": ("#4CAF50", "M"),  # Green
+            "detector": ("#2196F3", "D"),  # Blue
+            "camera": ("#9C27B0", "C"),  # Purple
+            "sensor": ("#FF9800", "S"),  # Orange
+            "signal": ("#607D8B", "s"),  # Gray
+            "device": ("#795548", "d"),  # Brown
+            "other": ("#9E9E9E", "?"),  # Gray
+        }
+
+        for name, (color, letter) in icon_specs.items():
+            self._icons[name] = self._create_letter_icon(color, letter)
+
+    def _create_letter_icon(self, color: str, letter: str) -> QIcon:
+        """Create a simple colored icon with a letter."""
+        size = 16
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw colored circle
+        painter.setBrush(QColor(color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(1, 1, size - 2, size - 2)
+
+        # Draw letter
+        painter.setPen(QColor("white"))
+        font = painter.font()
+        font.setBold(True)
+        font.setPixelSize(10)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, letter)
+
+        painter.end()
+
+        return QIcon(pixmap)
+
+    def _populate(self) -> None:
+        """Populate the model from the catalog."""
+        self.beginResetModel()
+        self._root.children.clear()
+
+        # Get all devices from catalog
+        devices = self._catalog.get_all_devices()
+
+        for device_info in sorted(devices, key=lambda d: d.name):
+            device_item = self._create_device_item(device_info)
+            if device_item:
+                self._root.append_child(device_item)
+
+        self.endResetModel()
+        logger.debug("Populated device tree with {} top-level devices", len(self._root.children))
+
+    def _create_device_item(self, device_info: DeviceInfo) -> DeviceTreeItem | None:
+        """Create a tree item for a device and its components."""
+        ophyd_device = device_info.ophyd_device
+
+        item = DeviceTreeItem(
+            name=device_info.name,
+            node_type=NodeType.DEVICE,
+            parent=self._root,
+            ophyd_obj=ophyd_device,
+            device_info=device_info,
+        )
+
+        # Add components as children
+        if ophyd_device is not None:
+            self._add_components(item, ophyd_device)
+
+        return item
+
+    def _add_components(self, parent_item: DeviceTreeItem, ophyd_obj: Any) -> None:
+        """Recursively add components as children."""
+        try:
+            # Get component names
+            if not hasattr(ophyd_obj, "component_names"):
+                return
+
+            for comp_name in ophyd_obj.component_names:
+                try:
+                    comp = getattr(ophyd_obj, comp_name)
+                except Exception:
+                    continue
+
+                # Determine if this is a device or signal
+                is_device = False
+                try:
+                    from ophyd import Device
+
+                    is_device = isinstance(comp, Device)
+                except ImportError:
+                    is_device = hasattr(comp, "component_names")
+
+                node_type = NodeType.DEVICE if is_device else NodeType.SIGNAL
+
+                child_item = DeviceTreeItem(
+                    name=comp_name,
+                    node_type=node_type,
+                    parent=parent_item,
+                    ophyd_obj=comp,
+                )
+                parent_item.append_child(child_item)
+
+                # Recursively add sub-components for devices
+                if is_device:
+                    self._add_components(child_item, comp)
+
+        except Exception as e:
+            logger.debug("Error adding components for {}: {}", parent_item.name, e)
+
+    def refresh(self) -> None:
+        """Refresh the model from the catalog."""
+        self._populate()
+
+    def get_icon(self, category: str) -> QIcon:
+        """Get icon for a device category."""
+        return self._icons.get(category, self._icons["other"])
+
+    # === QAbstractItemModel implementation ===
+
+    def index(
+        self, row: int, column: int, parent: QModelIndex = QModelIndex()
+    ) -> QModelIndex:
+        """Create index for item at row, column under parent."""
+        if not self.hasIndex(row, column, parent):
+            return QModelIndex()
+
+        if not parent.isValid():
+            parent_item = self._root
+        else:
+            parent_item = parent.internalPointer()
+
+        child_item = parent_item.child(row)
+        if child_item:
+            return self.createIndex(row, column, child_item)
+
+        return QModelIndex()
+
+    def parent(self, index: QModelIndex) -> QModelIndex:
+        """Get parent index of item."""
+        if not index.isValid():
+            return QModelIndex()
+
+        child_item: DeviceTreeItem = index.internalPointer()
+        parent_item = child_item.parent_item
+
+        if parent_item is None or parent_item is self._root:
+            return QModelIndex()
+
+        return self.createIndex(parent_item.row(), 0, parent_item)
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        """Get number of rows under parent."""
+        if parent.column() > 0:
+            return 0
+
+        if not parent.isValid():
+            parent_item = self._root
+        else:
+            parent_item = parent.internalPointer()
+
+        return parent_item.child_count()
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        """Get number of columns."""
+        return len(self.COLUMNS)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Get data for index and role."""
+        if not index.isValid():
+            return None
+
+        item: DeviceTreeItem = index.internalPointer()
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            return item.data(index.column())
+
+        elif role == Qt.ItemDataRole.DecorationRole:
+            if index.column() == 0:
+                category = item.get_device_category()
+                return self.get_icon(category)
+
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            # Color status column
+            if index.column() == 3:
+                status = item.data(3)
+                if status == "online" or status == "connected":
+                    return QColor("#4CAF50")  # Green
+                elif status == "error":
+                    return QColor("#F44336")  # Red
+                elif status == "offline":
+                    return QColor("#9E9E9E")  # Gray
+
+        elif role == Qt.ItemDataRole.UserRole:
+            # Return the ophyd object
+            return item.ophyd_obj
+
+        elif role == Qt.ItemDataRole.UserRole + 1:
+            # Return the device info
+            return item.device_info
+
+        elif role == Qt.ItemDataRole.UserRole + 2:
+            # Return the node type
+            return item.node_type
+
+        return None
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
+        """Get header data."""
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            if 0 <= section < len(self.COLUMNS):
+                return self.COLUMNS[section]
+        return None
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+        """Get item flags."""
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+
+class DeviceFilterProxyModel(QSortFilterProxyModel):
+    """Filter proxy for searching devices.
+
+    Filters the device tree by name, showing matching items
+    and their parents (to maintain tree structure).
+    """
+
+    def __init__(self, parent: Any = None) -> None:
+        """Initialize the filter proxy."""
+        super().__init__(parent)
+        self.setRecursiveFilteringEnabled(True)
+        self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def filterAcceptsRow(
+        self, source_row: int, source_parent: QModelIndex
+    ) -> bool:
+        """Check if row should be shown.
+
+        Shows items that match the filter or have descendants that match.
+        """
+        # Get the filter pattern
+        pattern = self.filterRegularExpression().pattern()
+        if not pattern:
+            return True
+
+        source_model = self.sourceModel()
+        index = source_model.index(source_row, 0, source_parent)
+
+        # Check if this item matches
+        if self._item_matches(index, pattern):
+            return True
+
+        # Check if any descendant matches (recursive filtering handles this,
+        # but we implement it explicitly for clarity)
+        return self._has_matching_descendant(index, pattern)
+
+    def _item_matches(self, index: QModelIndex, pattern: str) -> bool:
+        """Check if item matches the filter pattern."""
+        if not index.isValid():
+            return False
+
+        # Check name (column 0)
+        name = index.data(Qt.ItemDataRole.DisplayRole)
+        if name and pattern.lower() in name.lower():
+            return True
+
+        # Check type (column 2)
+        source_model = self.sourceModel()
+        type_index = source_model.index(index.row(), 2, index.parent())
+        type_str = type_index.data(Qt.ItemDataRole.DisplayRole)
+        if type_str and pattern.lower() in type_str.lower():
+            return True
+
+        return False
+
+    def _has_matching_descendant(self, index: QModelIndex, pattern: str) -> bool:
+        """Check if any descendant matches."""
+        source_model = self.sourceModel()
+        rows = source_model.rowCount(index)
+
+        for row in range(rows):
+            child_index = source_model.index(row, 0, index)
+            if self._item_matches(child_index, pattern):
+                return True
+            if self._has_matching_descendant(child_index, pattern):
+                return True
+
+        return False
