@@ -647,10 +647,11 @@ class NCSMainWindow(QMainWindow):
         if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
             self._prefs_manager.save_window_state(self)
 
-        # Close all panels
+        # Check if any panel has unsaved work (force=True to ignore closable flag)
         for panel_id in list(self._panel_docks.keys()):
             panel = self.get_panel(panel_id)
-            if panel and not panel.can_close():
+            if panel and not panel.can_close(force=True):
+                # Panel has unsaved work or other reason to prevent shutdown
                 event.ignore()
                 return
 

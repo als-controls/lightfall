@@ -185,15 +185,22 @@ class BasePanel(QWidget):
         """Whether this panel is currently active."""
         return self._is_active
 
-    def can_close(self) -> bool:
+    def can_close(self, force: bool = False) -> bool:
         """Check if the panel can be closed.
 
         Override to implement confirmation dialogs or prevent
         closing when work is in progress.
 
+        Args:
+            force: If True, ignore the closable metadata flag (used for
+                   application shutdown). Subclasses may still return False
+                   if they have unsaved work.
+
         Returns:
             True if panel can close.
         """
+        if force:
+            return True
         return self.panel_metadata.closable
 
     def closeEvent(self, event) -> None:
