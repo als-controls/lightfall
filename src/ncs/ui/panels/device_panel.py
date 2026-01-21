@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QFormLayout,
     QGroupBox,
@@ -34,6 +35,7 @@ from ncs.ui.models.device_tree import (
     NodeType,
 )
 from ncs.ui.panels.base import BasePanel, PanelMetadata
+from ncs.ui.widgets import DeviceControlWidget
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -209,7 +211,8 @@ class DevicePanel(BasePanel):
     )
 
     # Signals
-    item_selected = Signal(object)  # DeviceTreeItem
+    item_selected = Signal(object)  # DeviceTreeItem (single, for backwards compat)
+    items_selected = Signal(list)  # list[DeviceTreeItem] (multi-selection)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the device panel."""
@@ -268,9 +271,10 @@ class DevicePanel(BasePanel):
 
         left_layout.addLayout(filter_layout)
 
-        # Tree view
+        # Tree view with multi-selection support
         self._tree_view = QTreeView()
         self._tree_view.setModel(self._proxy_model)
+        self._tree_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._tree_view.setAlternatingRowColors(True)
         self._tree_view.setAnimated(True)
         self._tree_view.setExpandsOnDoubleClick(True)
@@ -293,27 +297,25 @@ class DevicePanel(BasePanel):
         splitter.addWidget(left_widget)
 
         # Right side: tabs with details
-        right_widget = QTabWidget()
+        self._right_tabs = QTabWidget()
 
         # Overview tab
         self._overview_widget = DeviceOverviewWidget()
-        right_widget.addTab(self._overview_widget, "Overview")
+        self._right_tabs.addTab(self._overview_widget, "Overview")
 
-        # Configuration tab (placeholder)
-        config_widget = QWidget()
-        config_layout = QVBoxLayout(config_widget)
-        config_layout.addWidget(QLabel("Configuration management coming soon..."))
-        config_layout.addStretch()
-        right_widget.addTab(config_widget, "Configuration")
+        # Control tab (dynamic device control UI)
+        self._control_widget = DeviceControlWidget()
+        self._control_widget.control_error.connect(self._on_control_error)
+        self._right_tabs.addTab(self._control_widget, "Control")
 
-        splitter.addWidget(right_widget)
+        splitter.addWidget(self._right_tabs)
 
         # Set initial splitter sizes
         splitter.setSizes([350, 350])
 
         # Connect signals after UI is set up
         self._search_input.textChanged.connect(self._on_search_changed)
-        self._tree_view.selectionModel().currentChanged.connect(self._on_selection_changed)
+        self._tree_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
         # Tree starts collapsed
         self._tree_view.collapseAll()
@@ -402,22 +404,44 @@ class DevicePanel(BasePanel):
 
     @Slot()
     def _on_selection_changed(self) -> None:
-        """Handle tree selection change."""
-        index = self._tree_view.currentIndex()
-        if not index.isValid():
-            self._overview_widget.set_item(None)
-            return
+        """Handle tree selection change (supports multi-selection)."""
+        # Get all selected indices
+        selection = self._tree_view.selectionModel().selectedIndexes()
 
-        # Map proxy index to source
-        source_index = self._proxy_model.mapToSource(index)
+        # Filter to only column 0 (name column) to avoid duplicates
+        selected_items: list[DeviceTreeItem] = []
+        seen_items: set[int] = set()
 
-        # Get the tree item
-        item = source_index.internalPointer()
-        if isinstance(item, DeviceTreeItem):
-            self._overview_widget.set_item(item)
-            self.item_selected.emit(item)
+        for proxy_index in selection:
+            if proxy_index.column() != 0:
+                continue
+
+            source_index = self._proxy_model.mapToSource(proxy_index)
+            item = source_index.internalPointer()
+
+            if isinstance(item, DeviceTreeItem):
+                item_id = id(item)
+                if item_id not in seen_items:
+                    seen_items.add(item_id)
+                    selected_items.append(item)
+
+        # Update overview with first selected item (or clear)
+        if selected_items:
+            self._overview_widget.set_item(selected_items[0])
+            # Emit both signals for compatibility
+            self.item_selected.emit(selected_items[0])
+            self.items_selected.emit(selected_items)
         else:
             self._overview_widget.set_item(None)
+            self.items_selected.emit([])
+
+        # Update control widget with all selected items
+        self._control_widget.set_items(selected_items)
+
+    @Slot(str)
+    def _on_control_error(self, message: str) -> None:
+        """Handle control error from device control widget."""
+        logger.warning("Device control error: {}", message)
 
     @Slot(object)
     def _on_device_changed(self, _: Any) -> None:
@@ -428,30 +452,49 @@ class DevicePanel(BasePanel):
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
         """Get device panel-specific introspection data."""
-        selected_item = None
-        index = self._tree_view.currentIndex()
-        if index.isValid():
-            source_index = self._proxy_model.mapToSource(index)
-            item = source_index.internalPointer()
-            if isinstance(item, DeviceTreeItem):
-                selected_item = {
-                    "name": item.name,
-                    "type": item.node_type.value,
-                    "value": item._get_value(),
-                    "has_device_info": item.device_info is not None,
-                }
+        # Get all selected items
+        selected_items = self._get_selected_items()
+        selected_items_data = [
+            {
+                "name": item.name,
+                "type": item.node_type.value,
+                "value": item._get_value(),
+                "has_device_info": item.device_info is not None,
+            }
+            for item in selected_items
+        ]
 
         # Get visible kinds
         visible_kinds = self._proxy_model.get_visible_kinds()
         kind_filter = list(visible_kinds) if visible_kinds else None
 
         return {
-            "selected_item": selected_item,
+            "selected_items": selected_items_data,
+            "selected_count": len(selected_items),
             "search_text": self._search_input.text(),
             "kind_filter": kind_filter,
             "device_count": self._model.rowCount(),
             "catalog_connected": self._catalog.is_connected,
+            "control_widget": self._control_widget.get_introspection_data(),
         }
+
+    def _get_selected_items(self) -> list[DeviceTreeItem]:
+        """Get all currently selected DeviceTreeItems."""
+        selection = self._tree_view.selectionModel().selectedIndexes()
+        items: list[DeviceTreeItem] = []
+        seen: set[int] = set()
+
+        for proxy_index in selection:
+            if proxy_index.column() != 0:
+                continue
+            source_index = self._proxy_model.mapToSource(proxy_index)
+            item = source_index.internalPointer()
+            if isinstance(item, DeviceTreeItem):
+                item_id = id(item)
+                if item_id not in seen:
+                    seen.add(item_id)
+                    items.append(item)
+        return items
 
     def _get_available_actions(self) -> list[dict[str, Any]]:
         """Get available actions for this panel."""
