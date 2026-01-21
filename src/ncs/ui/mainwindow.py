@@ -1,0 +1,698 @@
+"""Main window for the NCS application.
+
+Provides the primary application window with:
+- Dock-based panel system
+- Menu and toolbar
+- Status bar with auth and connection status
+- Theme management
+- Window state persistence
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QDockWidget,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QStatusBar,
+    QToolBar,
+    QWidget,
+)
+
+from ncs.auth.policy import Permission
+from ncs.auth.session import AuthState, SessionManager
+from ncs.ui.panels.base import BasePanel
+from ncs.ui.panels.registry import PanelRegistry
+from ncs.ui.preferences.manager import PreferencesManager
+from ncs.ui.theme import Theme, ThemeManager
+from ncs.utils.logging import logger
+
+if TYPE_CHECKING:
+    from ncs.config import ConfigManager
+
+
+class NCSMainWindow(QMainWindow):
+    """
+    Main application window for NCS.
+
+    NCSMainWindow provides:
+    - Menu bar with standard and custom menus
+    - Toolbar with common actions
+    - Dock widget system for panels
+    - Status bar with user, auth state, and connection info
+    - Theme switching support
+    - Window state persistence
+
+    Signals:
+        panel_activated: Emitted when a panel becomes active.
+        about_to_close: Emitted when window is about to close.
+
+    Example:
+        >>> window = NCSMainWindow()
+        >>> window.show()
+    """
+
+    panel_activated = Signal(str)  # panel_id
+    about_to_close = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the main window.
+
+        Args:
+            parent: Optional parent widget.
+        """
+        super().__init__(parent)
+        self._config_manager: ConfigManager | None = None
+        self._panel_docks: dict[str, QDockWidget] = {}
+        self._active_panel_id: str | None = None
+
+        # Get manager instances
+        self._session_manager = SessionManager.get_instance()
+        self._theme_manager = ThemeManager.get_instance()
+        self._prefs_manager = PreferencesManager.get_instance()
+        self._panel_registry = PanelRegistry.get_instance()
+
+        # Setup UI
+        self._setup_window()
+        self._setup_menus()
+        self._setup_toolbar()
+        self._setup_statusbar()
+        self._setup_central_widget()
+
+        # Connect signals
+        self._connect_signals()
+
+        # Apply initial theme
+        self._apply_theme()
+
+        logger.info("Main window initialized")
+
+    def _setup_window(self) -> None:
+        """Configure window properties."""
+        self.setWindowTitle("NCS - New Control System")
+        self.setMinimumSize(1024, 768)
+
+        # Enable dock nesting and tabbing
+        self.setDockNestingEnabled(True)
+
+        # Set object name for state saving
+        self.setObjectName("NCSMainWindow")
+
+    def _setup_menus(self) -> None:
+        """Create the menu bar."""
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("&File")
+
+        # Open action
+        open_action = QAction("&Open...", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self._on_open)
+        file_menu.addAction(open_action)
+
+        # Recent files submenu
+        self._recent_menu = file_menu.addMenu("Recent Files")
+        self._update_recent_menu()
+
+        file_menu.addSeparator()
+
+        # Save layout action
+        save_layout_action = QAction("Save Layout", self)
+        save_layout_action.triggered.connect(self._save_window_state)
+        file_menu.addAction(save_layout_action)
+
+        # Restore layout action
+        restore_layout_action = QAction("Restore Layout", self)
+        restore_layout_action.triggered.connect(self._restore_window_state)
+        file_menu.addAction(restore_layout_action)
+
+        file_menu.addSeparator()
+
+        # Exit action
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+
+        # Panels submenu
+        self._panels_menu = view_menu.addMenu("Panels")
+        self._update_panels_menu()
+
+        view_menu.addSeparator()
+
+        # Theme submenu
+        theme_menu = view_menu.addMenu("Theme")
+
+        light_action = QAction("Light", self)
+        light_action.setCheckable(True)
+        light_action.triggered.connect(lambda: self._set_theme(Theme.LIGHT))
+        theme_menu.addAction(light_action)
+
+        dark_action = QAction("Dark", self)
+        dark_action.setCheckable(True)
+        dark_action.triggered.connect(lambda: self._set_theme(Theme.DARK))
+        theme_menu.addAction(dark_action)
+
+        system_action = QAction("System", self)
+        system_action.setCheckable(True)
+        system_action.setChecked(True)
+        system_action.triggered.connect(lambda: self._set_theme(Theme.SYSTEM))
+        theme_menu.addAction(system_action)
+
+        self._theme_actions = {
+            Theme.LIGHT: light_action,
+            Theme.DARK: dark_action,
+            Theme.SYSTEM: system_action,
+        }
+
+        view_menu.addSeparator()
+
+        # Show/hide toolbar
+        self._toolbar_action = QAction("Show Toolbar", self)
+        self._toolbar_action.setCheckable(True)
+        self._toolbar_action.setChecked(self._prefs_manager.show_toolbar)
+        self._toolbar_action.triggered.connect(self._toggle_toolbar)
+        view_menu.addAction(self._toolbar_action)
+
+        # Show/hide statusbar
+        self._statusbar_action = QAction("Show Status Bar", self)
+        self._statusbar_action.setCheckable(True)
+        self._statusbar_action.setChecked(self._prefs_manager.show_statusbar)
+        self._statusbar_action.triggered.connect(self._toggle_statusbar)
+        view_menu.addAction(self._statusbar_action)
+
+        # Tools menu
+        tools_menu = menubar.addMenu("&Tools")
+
+        # Preferences action
+        prefs_action = QAction("&Preferences...", self)
+        prefs_action.setShortcut("Ctrl+,")
+        prefs_action.triggered.connect(self._on_preferences)
+        tools_menu.addAction(prefs_action)
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+
+        # About action
+        about_action = QAction("&About NCS", self)
+        about_action.triggered.connect(self._on_about)
+        help_menu.addAction(about_action)
+
+    def _setup_toolbar(self) -> None:
+        """Create the main toolbar."""
+        self._toolbar = QToolBar("Main Toolbar")
+        self._toolbar.setObjectName("MainToolbar")
+        self.addToolBar(self._toolbar)
+
+        # Example toolbar actions
+        # These would be expanded with actual functionality
+
+        # Set visibility from preferences
+        self._toolbar.setVisible(self._prefs_manager.show_toolbar)
+
+    def _setup_statusbar(self) -> None:
+        """Create the status bar."""
+        statusbar = QStatusBar()
+        self.setStatusBar(statusbar)
+
+        # User status label
+        self._user_label = QLabel()
+        self._update_user_status()
+        statusbar.addPermanentWidget(self._user_label)
+
+        # Auth state indicator
+        self._auth_label = QLabel()
+        self._update_auth_status()
+        statusbar.addPermanentWidget(self._auth_label)
+
+        # Connection status
+        self._connection_label = QLabel()
+        self._update_connection_status()
+        statusbar.addPermanentWidget(self._connection_label)
+
+        # Set visibility from preferences
+        statusbar.setVisible(self._prefs_manager.show_statusbar)
+
+    def _setup_central_widget(self) -> None:
+        """Setup the central widget area."""
+        # Use a placeholder central widget
+        # Panels will be docked around this
+        central = QWidget()
+        central.setMinimumSize(200, 200)
+        self.setCentralWidget(central)
+
+    def _connect_signals(self) -> None:
+        """Connect to manager signals."""
+        # Session signals
+        self._session_manager.state_changed.connect(self._on_auth_state_changed)
+        self._session_manager.user_changed.connect(self._on_user_changed)
+        self._session_manager.offline_mode_changed.connect(self._on_offline_mode_changed)
+
+        # Theme signals
+        self._theme_manager.theme_changed.connect(self._on_theme_changed)
+
+        # Preferences signals
+        self._prefs_manager.preference_changed.connect(self._on_preference_changed)
+
+    def set_config_manager(self, config_manager: ConfigManager) -> None:
+        """Set the config manager for the window.
+
+        Args:
+            config_manager: ConfigManager instance.
+        """
+        self._config_manager = config_manager
+        self._prefs_manager.set_config_manager(config_manager)
+
+        # Apply theme from config
+        theme_str = config_manager.get("ui.theme", "system")
+        try:
+            theme = Theme(theme_str)
+            self._theme_manager.set_theme(theme)
+        except ValueError:
+            pass
+
+    # Panel management
+
+    def add_panel(
+        self,
+        panel_id: str,
+        area: Qt.DockWidgetArea = Qt.DockWidgetArea.LeftDockWidgetArea,
+    ) -> BasePanel | None:
+        """Add a panel to the window.
+
+        Args:
+            panel_id: Panel identifier.
+            area: Dock area to add panel to.
+
+        Returns:
+            The panel instance or None if failed.
+        """
+        # Check if already open
+        if panel_id in self._panel_docks:
+            dock = self._panel_docks[panel_id]
+            dock.show()
+            dock.raise_()
+            return dock.widget()
+
+        # Create panel
+        panel = self._panel_registry.create(panel_id)
+        if panel is None:
+            logger.warning("Failed to create panel: {}", panel_id)
+            return None
+
+        # Check permission
+        if not panel.check_access(self._session_manager.current_user):
+            logger.warning(
+                "User lacks permission for panel: {}", panel_id
+            )
+            return None
+
+        # Create dock widget
+        dock = QDockWidget(panel.panel_metadata.name, self)
+        dock.setObjectName(f"dock_{panel_id}")
+        dock.setWidget(panel)
+
+        # Configure dock
+        if panel.panel_metadata.closable:
+            dock.setFeatures(
+                QDockWidget.DockWidgetFeature.DockWidgetClosable
+                | QDockWidget.DockWidgetFeature.DockWidgetMovable
+                | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            )
+        else:
+            dock.setFeatures(
+                QDockWidget.DockWidgetFeature.DockWidgetMovable
+                | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            )
+
+        # Connect dock signals
+        dock.visibilityChanged.connect(
+            lambda visible, pid=panel_id: self._on_dock_visibility_changed(pid, visible)
+        )
+
+        # Add to window
+        self.addDockWidget(area, dock)
+        self._panel_docks[panel_id] = dock
+
+        logger.debug("Added panel to window: {}", panel_id)
+        return panel
+
+    def remove_panel(self, panel_id: str) -> bool:
+        """Remove a panel from the window.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if panel was removed.
+        """
+        dock = self._panel_docks.pop(panel_id, None)
+        if dock is None:
+            return False
+
+        self.removeDockWidget(dock)
+        dock.deleteLater()
+
+        logger.debug("Removed panel from window: {}", panel_id)
+        return True
+
+    def get_panel(self, panel_id: str) -> BasePanel | None:
+        """Get a panel by ID.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            The panel instance or None.
+        """
+        dock = self._panel_docks.get(panel_id)
+        if dock:
+            return dock.widget()
+        return None
+
+    def list_open_panels(self) -> list[str]:
+        """Get list of open panel IDs.
+
+        Returns:
+            List of panel identifiers.
+        """
+        return list(self._panel_docks.keys())
+
+    def activate_panel(self, panel_id: str) -> bool:
+        """Activate (focus) a panel.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if panel was activated.
+        """
+        dock = self._panel_docks.get(panel_id)
+        if dock is None:
+            return False
+
+        dock.show()
+        dock.raise_()
+        dock.widget().activate()
+
+        if self._active_panel_id != panel_id:
+            # Deactivate previous
+            if self._active_panel_id:
+                prev_dock = self._panel_docks.get(self._active_panel_id)
+                if prev_dock:
+                    prev_dock.widget().deactivate()
+
+            self._active_panel_id = panel_id
+            self.panel_activated.emit(panel_id)
+
+        return True
+
+    # Menu updates
+
+    def _update_panels_menu(self) -> None:
+        """Update the panels submenu."""
+        self._panels_menu.clear()
+
+        # Group by category
+        by_category = self._panel_registry.list_by_category(
+            self._session_manager.current_user
+        )
+
+        for category in sorted(by_category.keys()):
+            if len(by_category) > 1:
+                cat_menu = self._panels_menu.addMenu(category)
+            else:
+                cat_menu = self._panels_menu
+
+            for meta in by_category[category]:
+                action = QAction(meta.name, self)
+                action.setToolTip(meta.description)
+                action.triggered.connect(
+                    lambda checked, pid=meta.id: self.add_panel(pid)
+                )
+                cat_menu.addAction(action)
+
+    def _update_recent_menu(self) -> None:
+        """Update the recent files menu."""
+        self._recent_menu.clear()
+
+        recent = self._prefs_manager.get_recent_files()
+        if not recent:
+            action = QAction("(No recent files)", self)
+            action.setEnabled(False)
+            self._recent_menu.addAction(action)
+            return
+
+        for path in recent:
+            action = QAction(path, self)
+            action.triggered.connect(lambda checked, p=path: self._open_file(p))
+            self._recent_menu.addAction(action)
+
+        self._recent_menu.addSeparator()
+        clear_action = QAction("Clear Recent Files", self)
+        clear_action.triggered.connect(self._prefs_manager.clear_recent_files)
+        self._recent_menu.addAction(clear_action)
+
+    # Status bar updates
+
+    def _update_user_status(self) -> None:
+        """Update user display in status bar."""
+        user = self._session_manager.current_user
+        self._user_label.setText(f"User: {user.display_name}")
+
+    def _update_auth_status(self) -> None:
+        """Update auth state in status bar."""
+        state = self._session_manager.state
+
+        state_text = {
+            AuthState.UNAUTHENTICATED: "Not logged in",
+            AuthState.AUTHENTICATING: "Authenticating...",
+            AuthState.AUTHENTICATED: "Authenticated",
+            AuthState.OFFLINE: "Offline Mode",
+            AuthState.ERROR: "Auth Error",
+        }
+
+        self._auth_label.setText(state_text.get(state, "Unknown"))
+
+        # Style based on state
+        if state == AuthState.AUTHENTICATED:
+            self._auth_label.setStyleSheet(
+                f"color: {self._theme_manager.colors.success};"
+            )
+        elif state in (AuthState.OFFLINE, AuthState.ERROR):
+            self._auth_label.setStyleSheet(
+                f"color: {self._theme_manager.colors.warning};"
+            )
+        else:
+            self._auth_label.setStyleSheet("")
+
+    def _update_connection_status(self) -> None:
+        """Update connection status in status bar."""
+        if self._session_manager.is_offline:
+            self._connection_label.setText("Offline")
+            self._connection_label.setStyleSheet(
+                f"color: {self._theme_manager.colors.error};"
+            )
+        else:
+            self._connection_label.setText("Online")
+            self._connection_label.setStyleSheet(
+                f"color: {self._theme_manager.colors.success};"
+            )
+
+    # Theme handling
+
+    def _apply_theme(self) -> None:
+        """Apply current theme to the window."""
+        self._theme_manager.apply_to_application()
+
+        # Update theme action checkmarks
+        current = self._theme_manager.theme
+        for theme, action in self._theme_actions.items():
+            action.setChecked(theme == current)
+
+    def _set_theme(self, theme: Theme) -> None:
+        """Set the application theme.
+
+        Args:
+            theme: Theme to apply.
+        """
+        self._theme_manager.set_theme(theme)
+        self._prefs_manager.theme = theme.value
+
+    # Signal handlers
+
+    @Slot(AuthState, AuthState)
+    def _on_auth_state_changed(
+        self, new_state: AuthState, old_state: AuthState
+    ) -> None:
+        """Handle auth state change."""
+        self._update_auth_status()
+        self._update_panels_menu()  # Permissions may have changed
+
+    @Slot(object)
+    def _on_user_changed(self, user: Any) -> None:
+        """Handle user change."""
+        self._update_user_status()
+        self._update_panels_menu()  # Available panels may change
+
+    @Slot(bool)
+    def _on_offline_mode_changed(self, offline: bool) -> None:
+        """Handle offline mode change."""
+        self._update_connection_status()
+        self._update_auth_status()
+
+    @Slot(Theme)
+    def _on_theme_changed(self, theme: Theme) -> None:
+        """Handle theme change."""
+        self._apply_theme()
+
+    @Slot(str, object)
+    def _on_preference_changed(self, key: str, value: Any) -> None:
+        """Handle preference change."""
+        if key == "theme":
+            try:
+                self._set_theme(Theme(value))
+            except ValueError:
+                pass
+
+    def _on_dock_visibility_changed(self, panel_id: str, visible: bool) -> None:
+        """Handle dock visibility change."""
+        panel = self.get_panel(panel_id)
+        if panel:
+            if visible:
+                panel.activate()
+            else:
+                panel.deactivate()
+
+    # Action handlers
+
+    def _on_open(self) -> None:
+        """Handle open action."""
+        # TODO: Implement file open dialog
+        pass
+
+    def _open_file(self, path: str) -> None:
+        """Open a file by path."""
+        # TODO: Implement file opening
+        self._prefs_manager.add_recent_file(path)
+        self._update_recent_menu()
+
+    def _on_preferences(self) -> None:
+        """Open preferences dialog."""
+        # TODO: Implement preferences dialog
+        pass
+
+    def _on_about(self) -> None:
+        """Show about dialog."""
+        from PySide6.QtWidgets import QMessageBox
+
+        QMessageBox.about(
+            self,
+            "About NCS",
+            "NCS - New Control System\n\n"
+            "A modern control system for the ALS facility.\n\n"
+            "Version: Development",
+        )
+
+    def _toggle_toolbar(self, checked: bool) -> None:
+        """Toggle toolbar visibility."""
+        self._toolbar.setVisible(checked)
+        self._prefs_manager.show_toolbar = checked
+
+    def _toggle_statusbar(self, checked: bool) -> None:
+        """Toggle statusbar visibility."""
+        self.statusBar().setVisible(checked)
+        self._prefs_manager.show_statusbar = checked
+
+    # Window state
+
+    def _save_window_state(self) -> None:
+        """Save window state to preferences."""
+        self._prefs_manager.save_window_state(self)
+        self.statusBar().showMessage("Layout saved", 3000)
+
+    def _restore_window_state(self) -> None:
+        """Restore window state from preferences."""
+        if self._prefs_manager.restore_window_state(self):
+            self.statusBar().showMessage("Layout restored", 3000)
+        else:
+            self.statusBar().showMessage("No saved layout found", 3000)
+
+    # Lifecycle
+
+    def showEvent(self, event) -> None:
+        """Handle show event."""
+        super().showEvent(event)
+
+        # Restore window state if preference set
+        if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
+            self._prefs_manager.restore_window_state(self)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Handle close event."""
+        self.about_to_close.emit()
+
+        # Save window state if preference set
+        if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
+            self._prefs_manager.save_window_state(self)
+
+        # Close all panels
+        for panel_id in list(self._panel_docks.keys()):
+            panel = self.get_panel(panel_id)
+            if panel and not panel.can_close():
+                event.ignore()
+                return
+
+        event.accept()
+        logger.info("Main window closed")
+
+    # Introspection for MCP tools
+
+    def get_introspection_data(self) -> dict[str, Any]:
+        """Get introspection data for Claude MCP tools.
+
+        Returns:
+            Dictionary with window state and panel information.
+        """
+        return {
+            "window_title": self.windowTitle(),
+            "geometry": {
+                "x": self.x(),
+                "y": self.y(),
+                "width": self.width(),
+                "height": self.height(),
+            },
+            "is_visible": self.isVisible(),
+            "is_maximized": self.isMaximized(),
+            "is_fullscreen": self.isFullScreen(),
+            "open_panels": [
+                {
+                    "id": panel_id,
+                    "title": dock.windowTitle(),
+                    "visible": dock.isVisible(),
+                    "floating": dock.isFloating(),
+                }
+                for panel_id, dock in self._panel_docks.items()
+            ],
+            "active_panel": self._active_panel_id,
+            "available_panels": [
+                meta.id
+                for meta in self._panel_registry.list_available(
+                    self._session_manager.current_user
+                )
+            ],
+            "theme": self._theme_manager.theme.value,
+            "user": self._session_manager.current_user.username,
+            "auth_state": self._session_manager.state.name,
+        }
