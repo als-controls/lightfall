@@ -363,6 +363,45 @@ class MarkdownConverter:
             flags=re.DOTALL | re.IGNORECASE,
         )
 
+        # Tables
+        def convert_table(match: re.Match) -> str:
+            table_content = match.group(1)
+            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_content, re.DOTALL | re.IGNORECASE)
+            if not rows:
+                return ""
+
+            md_rows = []
+            header_row = None
+
+            for i, row in enumerate(rows):
+                # Check for header cells
+                header_cells = re.findall(r"<th[^>]*>(.*?)</th>", row, re.DOTALL | re.IGNORECASE)
+                data_cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+
+                cells = header_cells if header_cells else data_cells
+                if not cells:
+                    continue
+
+                # Clean cell content (strip tags and whitespace)
+                cleaned = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+                md_row = "| " + " | ".join(cleaned) + " |"
+                md_rows.append(md_row)
+
+                # Add separator after header row
+                if header_cells and header_row is None:
+                    header_row = i
+                    separator = "| " + " | ".join(["---"] * len(cells)) + " |"
+                    md_rows.append(separator)
+
+            return "\n" + "\n".join(md_rows) + "\n\n" if md_rows else ""
+
+        text = re.sub(
+            r"<table[^>]*>(.*?)</table>",
+            convert_table,
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+
         # Paragraphs
         text = re.sub(
             r"<p[^>]*>(.*?)</p>",
