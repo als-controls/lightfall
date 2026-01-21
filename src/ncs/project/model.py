@@ -71,6 +71,28 @@ class LogbookEntry(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    def get_title(self) -> str:
+        """Generate a title from entry content or timestamp.
+
+        Returns first non-empty line of content (stripped of markdown heading
+        markers), truncated to 50 characters. Falls back to formatted timestamp
+        if content is empty.
+
+        Returns:
+            A short title string suitable for display.
+        """
+        if self.content:
+            for line in self.content.split("\n"):
+                line = line.strip()
+                if line:
+                    # Strip markdown heading markers
+                    title = line.lstrip("#").strip()
+                    if len(title) > 50:
+                        return title[:47] + "..."
+                    return title
+        # Fallback to timestamp
+        return self.timestamp.strftime("%Y-%m-%d %H:%M")
+
     def to_markdown(self) -> str:
         """Render this entry as markdown.
 
@@ -137,15 +159,48 @@ class Logbook(BaseModel):
     created: datetime = Field(default_factory=datetime.now)
     modified: datetime = Field(default_factory=datetime.now)
     entries: list[LogbookEntry] = Field(default_factory=list)
+    active_entry_id: UUID | None = None
 
-    def add_entry(self, entry: LogbookEntry) -> None:
+    @property
+    def active_entry(self) -> LogbookEntry | None:
+        """Get the currently active entry.
+
+        If no entry is explicitly set as active, returns the most recent entry.
+
+        Returns:
+            The active entry or None if logbook is empty.
+        """
+        if self.active_entry_id is None:
+            return self.entries[-1] if self.entries else None
+        return self.get_entry(self.active_entry_id)
+
+    def set_active_entry(self, entry_id: UUID) -> bool:
+        """Set the active entry by ID.
+
+        Args:
+            entry_id: ID of the entry to activate.
+
+        Returns:
+            True if successful, False if entry not found.
+        """
+        entry = self.get_entry(entry_id)
+        if entry is not None:
+            self.active_entry_id = entry_id
+            self.modified = datetime.now()
+            return True
+        return False
+
+    def add_entry(self, entry: LogbookEntry, activate: bool = True) -> None:
         """Add an entry to the logbook.
 
         Args:
             entry: The entry to add.
+            activate: Whether to make this the active entry (default True).
         """
         self.entries.append(entry)
         self.modified = datetime.now()
+        if activate:
+            self.active_entry_id = entry.id
 
     def add_note(self, content: str) -> LogbookEntry:
         """Add a user note entry.

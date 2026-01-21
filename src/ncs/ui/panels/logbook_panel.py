@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, Signal, Slot
+from uuid import UUID
+
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -72,6 +74,8 @@ class LogbookPanel(BasePanel):
             parent: Parent widget.
         """
         self._project_service = ProjectService.get_instance()
+        self._current_entry_id: UUID | None = None
+        self._sync_timer: QTimer | None = None
         super().__init__(parent)
 
         # Connect to project service signals
@@ -118,17 +122,37 @@ class LogbookPanel(BasePanel):
 
         layout.addLayout(top_row)
 
+        # Entry info row
+        entry_row = QHBoxLayout()
+        entry_row.setSpacing(8)
+
+        self._entry_type_label = QLabel()
+        self._entry_type_label.setStyleSheet("color: gray;")
+        entry_row.addWidget(self._entry_type_label)
+
+        self._entry_title_label = QLabel()
+        self._entry_title_label.setStyleSheet("font-style: italic;")
+        entry_row.addWidget(self._entry_title_label)
+
+        entry_row.addStretch()
+
+        self._entry_timestamp_label = QLabel()
+        self._entry_timestamp_label.setStyleSheet("color: gray; font-size: 12px;")
+        entry_row.addWidget(self._entry_timestamp_label)
+
+        layout.addLayout(entry_row)
+
         # Toolbar
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
 
-        # Add note action
-        self._add_note_action = QAction("Add Note", self)
-        self._add_note_action.setToolTip("Add a new note entry (Ctrl+N)")
-        self._add_note_action.setShortcut("Ctrl+N")
-        self._add_note_action.triggered.connect(self._on_add_note)
-        toolbar.addAction(self._add_note_action)
+        # New entry action
+        self._new_entry_action = QAction("New Entry", self)
+        self._new_entry_action.setToolTip("Create a new note entry (Ctrl+N)")
+        self._new_entry_action.setShortcut("Ctrl+N")
+        self._new_entry_action.triggered.connect(self._on_new_entry)
+        toolbar.addAction(self._new_entry_action)
 
         toolbar.addSeparator()
 
@@ -147,29 +171,76 @@ class LogbookPanel(BasePanel):
         self._project_service.project_opened.connect(self._on_project_opened)
         self._project_service.project_closed.connect(self._on_project_closed)
         self._project_service.active_logbook_changed.connect(self._on_logbook_changed)
+        self._project_service.active_entry_changed.connect(self._on_entry_changed)
         self._project_service.entry_added.connect(self._on_entry_added)
 
     # === Content Management ===
 
     def _refresh_content(self) -> None:
-        """Refresh the logbook content from the active project."""
+        """Refresh to show the active entry."""
+        entry = self._project_service.active_entry
         logbook = self._project_service.active_logbook
 
         if logbook is None:
             self._title_label.setText("No Logbook")
-            self._logbook_widget.set_content("")
-            self._add_note_action.setEnabled(False)
+            self._show_empty_state("No project open")
             return
 
-        # Update title
         self._title_label.setText(logbook.title)
-        self._add_note_action.setEnabled(True)
+        self._new_entry_action.setEnabled(True)
 
-        # Render logbook to markdown and display
-        markdown = logbook.to_markdown()
-        self._logbook_widget.set_content(markdown)
+        if entry is None:
+            self._show_empty_state("No entries. Click 'New Entry' to create one.")
+            return
 
-        logger.debug("Refreshed logbook content: {}", logbook.title)
+        self._show_entry(entry)
+
+    def _show_entry(self, entry: LogbookEntry) -> None:
+        """Display a single entry.
+
+        Args:
+            entry: The entry to display.
+        """
+        from ncs.project.model import EntryType
+
+        # Update entry metadata display
+        type_labels = {
+            EntryType.NOTE: "",
+            EntryType.ACTION: "[Action]",
+            EntryType.SCAN: "[Scan]",
+            EntryType.SNAPSHOT: "[Snapshot]",
+            EntryType.SYSTEM: "[System]",
+        }
+        self._entry_type_label.setText(type_labels.get(entry.entry_type, ""))
+        self._entry_title_label.setText(entry.get_title())
+        self._entry_timestamp_label.setText(
+            entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+        # Show content - just raw content for editing, not wrapped in markdown header
+        self._logbook_widget.set_content(entry.content)
+
+        # Set read-only if protected
+        self._logbook_widget.setEnabled(not entry.protected)
+
+        # Track current entry for content sync
+        self._current_entry_id = entry.id
+
+        logger.debug("Showing entry: {}", entry.get_title())
+
+    def _show_empty_state(self, message: str) -> None:
+        """Show empty state placeholder.
+
+        Args:
+            message: Message to display.
+        """
+        self._entry_type_label.setText("")
+        self._entry_title_label.setText("")
+        self._entry_timestamp_label.setText("")
+        self._logbook_widget.set_content(f"*{message}*")
+        self._logbook_widget.setEnabled(False)
+        self._current_entry_id = None
+        self._new_entry_action.setEnabled(self._project_service.has_project)
 
     def _scroll_to_bottom(self) -> None:
         """Scroll the logbook widget to the bottom."""
@@ -181,8 +252,8 @@ class LogbookPanel(BasePanel):
 
     # === Actions ===
 
-    def _on_add_note(self) -> None:
-        """Handle add note action."""
+    def _on_new_entry(self) -> None:
+        """Handle new entry action."""
         if not self._project_service.has_project:
             QMessageBox.warning(
                 self,
@@ -191,19 +262,10 @@ class LogbookPanel(BasePanel):
             )
             return
 
-        # For now, use a simple input dialog
-        # TODO: Replace with a proper note entry dialog
-        text, ok = QInputDialog.getMultiLineText(
-            self,
-            "Add Note",
-            "Enter your note (markdown supported):",
-        )
-
-        if ok and text.strip():
-            entry = self._project_service.add_note(text.strip())
-            if entry:
-                self.note_added.emit(text.strip())
-                logger.info("Added note to logbook")
+        # Create empty entry - user edits directly in the editor
+        entry = self._project_service.create_note_entry()
+        if entry:
+            logger.info("Created new entry")
 
     def _on_switch_logbook(self) -> None:
         """Handle switch logbook action."""
@@ -258,8 +320,13 @@ class LogbookPanel(BasePanel):
     @Slot(object)
     def _on_entry_added(self, entry: LogbookEntry) -> None:
         """Handle new entry added to logbook."""
+        # Entry should already be active, just refresh
         self._refresh_content()
-        self._scroll_to_bottom()
+
+    @Slot(object)
+    def _on_entry_changed(self, entry: LogbookEntry | None) -> None:
+        """Handle active entry changed."""
+        self._refresh_content()
 
     @Slot(str, int)
     def _on_protection_violated(self, region_id: str, position: int) -> None:
@@ -275,11 +342,28 @@ class LogbookPanel(BasePanel):
     @Slot()
     def _on_content_changed(self) -> None:
         """Handle content changed in the editor."""
-        # Currently we don't sync edits back to the model
-        # This would require parsing the markdown and identifying
-        # which entries were modified. For now, notes are added
-        # via the Add Note action.
-        pass
+        if self._current_entry_id is None:
+            return
+
+        # Debounce: Only sync after typing stops
+        if self._sync_timer is None:
+            self._sync_timer = QTimer(self)
+            self._sync_timer.setSingleShot(True)
+            self._sync_timer.timeout.connect(self._sync_content_to_model)
+
+        self._sync_timer.start(500)  # 500ms debounce
+
+    def _sync_content_to_model(self) -> None:
+        """Sync editor content back to the entry model."""
+        if self._current_entry_id is None:
+            return
+
+        content = self._logbook_widget.get_content()
+        if self._project_service.update_entry_content(self._current_entry_id, content):
+            # Update the title label since it may have changed
+            entry = self._project_service.active_entry
+            if entry:
+                self._entry_title_label.setText(entry.get_title())
 
     # === Introspection ===
 
@@ -287,16 +371,22 @@ class LogbookPanel(BasePanel):
         """Get logbook-specific introspection data."""
         logbook = self._project_service.active_logbook
         project = self._project_service.active_project
+        entry = self._project_service.active_entry
 
         return {
             "logbook": {
                 "title": logbook.title if logbook else None,
                 "entry_count": len(logbook.entries) if logbook else 0,
-                "protected_regions": len(
-                    self._logbook_widget.get_protected_regions()
-                ),
             }
             if logbook
+            else None,
+            "active_entry": {
+                "id": str(entry.id),
+                "title": entry.get_title(),
+                "type": entry.entry_type.value,
+                "protected": entry.protected,
+            }
+            if entry
             else None,
             "project_name": project.name if project else None,
             "editor_mode": self._logbook_widget.get_mode(),
@@ -307,9 +397,9 @@ class LogbookPanel(BasePanel):
         actions = super()._get_available_actions()
         actions.extend([
             {
-                "name": "add_note",
-                "description": "Add a new note entry",
-                "method": "action_add_note",
+                "name": "new_entry",
+                "description": "Create a new note entry",
+                "method": "action_new_entry",
                 "enabled": self._project_service.has_project,
             },
             {
@@ -326,21 +416,14 @@ class LogbookPanel(BasePanel):
         ])
         return actions
 
-    def action_add_note(self, content: str | None = None) -> bool:
-        """Action: Add a note to the logbook.
-
-        Args:
-            content: Note content. If None, shows dialog.
+    def action_new_entry(self) -> bool:
+        """Action: Create a new note entry.
 
         Returns:
-            True if note was added.
+            True if entry was created.
         """
-        if content:
-            entry = self._project_service.add_note(content)
-            return entry is not None
-        else:
-            self._on_add_note()
-            return True
+        entry = self._project_service.create_note_entry()
+        return entry is not None
 
     def action_refresh(self) -> bool:
         """Action: Refresh the logbook content."""

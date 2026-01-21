@@ -8,6 +8,7 @@ This module provides ProjectService, a singleton that:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
@@ -54,6 +55,7 @@ class ProjectService(QObject):
     project_opened = Signal(object)  # Project
     project_closed = Signal()
     active_logbook_changed = Signal(object)  # Logbook
+    active_entry_changed = Signal(object)  # LogbookEntry | None
     entry_added = Signal(object)  # LogbookEntry
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -100,6 +102,14 @@ class ProjectService(QObject):
     def has_project(self) -> bool:
         """Check if a project is currently open."""
         return self._active_project is not None
+
+    @property
+    def active_entry(self) -> LogbookEntry | None:
+        """Get the active entry from the active logbook."""
+        logbook = self.active_logbook
+        if logbook is None:
+            return None
+        return logbook.active_entry
 
     @property
     def recent_projects(self) -> list[dict[str, Any]]:
@@ -217,6 +227,70 @@ class ProjectService(QObject):
         logbook = self._active_project.create_logbook(title, description)
         logger.debug("Created logbook: {}", title)
         return logbook
+
+    # === Entry Management ===
+
+    def set_active_entry(self, entry_id: UUID) -> bool:
+        """Set the active entry in the current logbook.
+
+        Args:
+            entry_id: ID of the entry to activate.
+
+        Returns:
+            True if successful.
+        """
+        logbook = self.active_logbook
+        if logbook is None:
+            return False
+
+        if logbook.set_active_entry(entry_id):
+            entry = logbook.active_entry
+            logger.debug(
+                "Active entry changed: {}", entry.get_title() if entry else None
+            )
+            self.active_entry_changed.emit(entry)
+            return True
+        return False
+
+    def create_note_entry(self) -> LogbookEntry | None:
+        """Create a new note entry and activate it.
+
+        Creates an empty note entry that the user can immediately edit.
+
+        Returns:
+            The created entry or None if no logbook is active.
+        """
+        logbook = self.active_logbook
+        if logbook is None:
+            return None
+
+        entry = logbook.add_note("")  # Empty content - user will edit
+        logger.info("Created new note entry")
+        self.entry_added.emit(entry)
+        self.active_entry_changed.emit(entry)
+        return entry
+
+    def update_entry_content(self, entry_id: UUID, content: str) -> bool:
+        """Update the content of an entry.
+
+        Args:
+            entry_id: ID of the entry to update.
+            content: New markdown content.
+
+        Returns:
+            True if successful.
+        """
+        logbook = self.active_logbook
+        if logbook is None:
+            return False
+
+        entry = logbook.get_entry(entry_id)
+        if entry is None or entry.protected:
+            return False
+
+        entry.content = content
+        logbook.modified = datetime.now()
+        return True
 
     # === Entry Creation Helpers ===
 
