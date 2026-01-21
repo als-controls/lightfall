@@ -250,17 +250,21 @@ class DevicePanel(BasePanel):
         self._search_input.setClearButtonEnabled(True)
         filter_layout.addWidget(self._search_input, stretch=1)
 
-        # Kind filter checkboxes
+        # Kind filter checkboxes (hinted and normal shown by default)
         filter_layout.addWidget(QLabel("Kind:"))
 
         self._kind_checkboxes: dict[str, QCheckBox] = {}
+        default_visible = {"hinted", "normal"}
         for kind in ["hinted", "normal", "config", "omitted"]:
             cb = QCheckBox(kind.title())
-            cb.setChecked(True)  # All kinds visible by default
+            cb.setChecked(kind in default_visible)
             cb.setToolTip(f"Show {kind} signals/devices")
             cb.stateChanged.connect(self._on_kind_filter_changed)
             self._kind_checkboxes[kind] = cb
             filter_layout.addWidget(cb)
+
+        # Apply default filter
+        self._proxy_model.set_visible_kinds(default_visible)
 
         left_layout.addLayout(filter_layout)
 
