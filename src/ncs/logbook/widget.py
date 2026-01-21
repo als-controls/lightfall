@@ -241,6 +241,10 @@ class LogbookWidget(QWidget):
         self._rich_editor.protection_violated.connect(self.protection_violated)
         self._markdown_editor.protection_violated.connect(self.protection_violated)
 
+        # Track cursor position to update formatting button states
+        self._rich_editor.cursorPositionChanged.connect(self._update_formatting_button_states)
+        self._rich_editor.selectionChanged.connect(self._update_formatting_button_states)
+
     # === Public API ===
 
     def set_content(self, markdown: str) -> None:
@@ -484,20 +488,46 @@ class LogbookWidget(QWidget):
         for action in self._formatting_actions:
             action.setEnabled(enabled)
 
+    @Slot()
+    def _update_formatting_button_states(self) -> None:
+        """Update formatting button checked states based on cursor position."""
+        if self._current_mode != "wysiwyg":
+            return
+
+        cursor = self._rich_editor.textCursor()
+        char_format = cursor.charFormat()
+
+        # Block signals to avoid triggering formatting changes
+        self._bold_action.blockSignals(True)
+        self._italic_action.blockSignals(True)
+        self._strike_action.blockSignals(True)
+
+        # Update button states to reflect current format
+        self._bold_action.setChecked(
+            char_format.fontWeight() == QFont.Weight.Bold
+        )
+        self._italic_action.setChecked(char_format.fontItalic())
+        self._strike_action.setChecked(char_format.fontStrikeOut())
+
+        self._bold_action.blockSignals(False)
+        self._italic_action.blockSignals(False)
+        self._strike_action.blockSignals(False)
+
     def _toggle_bold(self) -> None:
-        """Toggle bold formatting."""
+        """Apply bold formatting based on button state."""
         if self._current_mode == "wysiwyg":
-            self._rich_editor.toggle_bold()
+            # Set the format to match the button's new checked state
+            self._rich_editor.set_bold(self._bold_action.isChecked())
 
     def _toggle_italic(self) -> None:
-        """Toggle italic formatting."""
+        """Apply italic formatting based on button state."""
         if self._current_mode == "wysiwyg":
-            self._rich_editor.toggle_italic()
+            self._rich_editor.set_italic(self._italic_action.isChecked())
 
     def _toggle_strikethrough(self) -> None:
-        """Toggle strikethrough formatting."""
+        """Apply strikethrough formatting based on button state."""
         if self._current_mode == "wysiwyg":
-            self._rich_editor.toggle_strikethrough()
+            self._rich_editor.set_strikethrough(self._strike_action.isChecked())
 
     def _set_heading(self, level: int) -> None:
         """Set heading level."""

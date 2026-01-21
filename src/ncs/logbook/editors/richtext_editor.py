@@ -430,41 +430,66 @@ class RichTextEditor(QTextEdit):
 
     # Formatting methods
 
-    def toggle_bold(self) -> None:
-        """Toggle bold formatting on the selection."""
+    def set_bold(self, bold: bool) -> None:
+        """Set bold formatting on the selection.
+
+        Args:
+            bold: Whether text should be bold.
+        """
         cursor = self.textCursor()
         is_protected, _ = self._is_cursor_in_protected(cursor)
         if is_protected:
             return
 
         fmt = QTextCharFormat()
-        if cursor.charFormat().fontWeight() == QFont.Weight.Bold:
-            fmt.setFontWeight(QFont.Weight.Normal)
-        else:
-            fmt.setFontWeight(QFont.Weight.Bold)
+        fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
         cursor.mergeCharFormat(fmt)
+
+    def set_italic(self, italic: bool) -> None:
+        """Set italic formatting on the selection.
+
+        Args:
+            italic: Whether text should be italic.
+        """
+        cursor = self.textCursor()
+        is_protected, _ = self._is_cursor_in_protected(cursor)
+        if is_protected:
+            return
+
+        fmt = QTextCharFormat()
+        fmt.setFontItalic(italic)
+        cursor.mergeCharFormat(fmt)
+
+    def set_strikethrough(self, strikethrough: bool) -> None:
+        """Set strikethrough formatting on the selection.
+
+        Args:
+            strikethrough: Whether text should have strikethrough.
+        """
+        cursor = self.textCursor()
+        is_protected, _ = self._is_cursor_in_protected(cursor)
+        if is_protected:
+            return
+
+        fmt = QTextCharFormat()
+        fmt.setFontStrikeOut(strikethrough)
+        cursor.mergeCharFormat(fmt)
+
+    def toggle_bold(self) -> None:
+        """Toggle bold formatting on the selection."""
+        cursor = self.textCursor()
+        is_bold = cursor.charFormat().fontWeight() == QFont.Weight.Bold
+        self.set_bold(not is_bold)
 
     def toggle_italic(self) -> None:
         """Toggle italic formatting on the selection."""
         cursor = self.textCursor()
-        is_protected, _ = self._is_cursor_in_protected(cursor)
-        if is_protected:
-            return
-
-        fmt = QTextCharFormat()
-        fmt.setFontItalic(not cursor.charFormat().fontItalic())
-        cursor.mergeCharFormat(fmt)
+        self.set_italic(not cursor.charFormat().fontItalic())
 
     def toggle_strikethrough(self) -> None:
         """Toggle strikethrough formatting on the selection."""
         cursor = self.textCursor()
-        is_protected, _ = self._is_cursor_in_protected(cursor)
-        if is_protected:
-            return
-
-        fmt = QTextCharFormat()
-        fmt.setFontStrikeOut(not cursor.charFormat().fontStrikeOut())
-        cursor.mergeCharFormat(fmt)
+        self.set_strikethrough(not cursor.charFormat().fontStrikeOut())
 
     def set_heading(self, level: int) -> None:
         """

@@ -11,6 +11,7 @@ import html
 import re
 from typing import Any
 
+import markdownify
 import mistune
 from loguru import logger
 
@@ -215,216 +216,141 @@ class MarkdownConverter:
         """
         Internal HTML to markdown conversion.
 
-        Uses regex-based transformation for the Qt HTML subset.
+        Pre-processes Qt's inline styles to semantic tags, then uses
+        markdownify library for conversion.
         """
         text = html_content
 
         # Extract body content if wrapped in full document
-        body_match = re.search(r"<body[^>]*>(.*?)</body>", text, re.DOTALL | re.IGNORECASE)
+        body_match = re.search(
+            r"<body[^>]*>(.*?)</body>", text, re.DOTALL | re.IGNORECASE
+        )
         if body_match:
             text = body_match.group(1)
 
-        # Process protected regions - restore markers
-        def restore_protected(match: re.Match) -> str:
+        # Extract protected regions before conversion and replace with placeholders
+        protected_regions: dict[str, tuple[str, str]] = {}
+        placeholder_counter = 0
+
+        def extract_protected(match: re.Match) -> str:
+            nonlocal placeholder_counter
             region_id = match.group(1)
             content = match.group(2)
-            # Recursively process content
-            processed = self._convert_html_to_markdown(content)
-            return f"<!-- PROTECTED:{region_id} -->{processed}<!-- /PROTECTED:{region_id} -->"
+            placeholder = f"__PROTECTED_{placeholder_counter}__"
+            placeholder_counter += 1
+            # Store both the region_id and the content to convert
+            protected_regions[placeholder] = (region_id, content)
+            return placeholder
 
+        # Match protected spans - handle both data-region orders
         text = re.sub(
             r'<span[^>]*class="protected"[^>]*data-region="([^"]+)"[^>]*>(.*?)</span>',
-            restore_protected,
+            extract_protected,
+            text,
+            flags=re.DOTALL,
+        )
+        text = re.sub(
+            r'<span[^>]*data-region="([^"]+)"[^>]*class="protected"[^>]*>(.*?)</span>',
+            extract_protected,
             text,
             flags=re.DOTALL,
         )
 
-        # Headers
-        for i in range(6, 0, -1):
-            text = re.sub(
-                rf"<h{i}[^>]*>(.*?)</h{i}>",
-                lambda m, lvl=i: "#" * lvl + " " + m.group(1).strip() + "\n\n",
-                text,
-                flags=re.DOTALL | re.IGNORECASE,
+        # Pre-process Qt's inline styles to semantic HTML tags
+        text = self._convert_qt_styles_to_semantic(text)
+
+        # Use markdownify to convert HTML to markdown
+        markdown = markdownify.markdownify(
+            text,
+            heading_style="ATX",  # Use # style headings
+            bullets="-",  # Use - for unordered lists
+            strip=["script"],  # Strip script tags
+        )
+
+        # Restore protected regions with their markers
+        for placeholder, (region_id, content) in protected_regions.items():
+            # Convert the protected content too
+            processed_content = self._convert_qt_styles_to_semantic(content)
+            protected_md = markdownify.markdownify(
+                processed_content,
+                heading_style="ATX",
+                bullets="-",
+                strip=["script"],
+            ).strip()
+            restored = (
+                f"<!-- PROTECTED:{region_id} -->\n"
+                f"{protected_md}\n"
+                f"<!-- /PROTECTED:{region_id} -->"
             )
-
-        # Bold
-        text = re.sub(
-            r"<strong[^>]*>(.*?)</strong>",
-            r"**\1**",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-        text = re.sub(
-            r"<b[^>]*>(.*?)</b>",
-            r"**\1**",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Italic
-        text = re.sub(
-            r"<em[^>]*>(.*?)</em>",
-            r"*\1*",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-        text = re.sub(
-            r"<i[^>]*>(.*?)</i>",
-            r"*\1*",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Strikethrough
-        text = re.sub(
-            r"<s[^>]*>(.*?)</s>",
-            r"~~\1~~",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Inline code
-        text = re.sub(
-            r"<code[^>]*>(.*?)</code>",
-            r"`\1`",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Code blocks
-        def convert_pre(match: re.Match) -> str:
-            content = match.group(1)
-            # Remove inner code tags
-            content = re.sub(r"</?code[^>]*>", "", content, flags=re.IGNORECASE)
-            # Unescape HTML entities
-            content = html.unescape(content)
-            return f"\n```\n{content.strip()}\n```\n"
-
-        text = re.sub(
-            r"<pre[^>]*>(.*?)</pre>",
-            convert_pre,
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Links
-        text = re.sub(
-            r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
-            r"[\2](\1)",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Images
-        text = re.sub(
-            r'<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*/?>',
-            r"![\2](\1)",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        # Blockquotes
-        def convert_blockquote(match: re.Match) -> str:
-            content = match.group(1)
-            lines = content.strip().split("\n")
-            return "\n".join("> " + line for line in lines) + "\n\n"
-
-        text = re.sub(
-            r"<blockquote[^>]*>(.*?)</blockquote>",
-            convert_blockquote,
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Unordered lists
-        def convert_ul(match: re.Match) -> str:
-            content = match.group(1)
-            items = re.findall(r"<li[^>]*>(.*?)</li>", content, re.DOTALL | re.IGNORECASE)
-            return "\n".join("- " + item.strip() for item in items) + "\n\n"
-
-        text = re.sub(
-            r"<ul[^>]*>(.*?)</ul>",
-            convert_ul,
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Ordered lists
-        def convert_ol(match: re.Match) -> str:
-            content = match.group(1)
-            items = re.findall(r"<li[^>]*>(.*?)</li>", content, re.DOTALL | re.IGNORECASE)
-            return "\n".join(f"{i+1}. {item.strip()}" for i, item in enumerate(items)) + "\n\n"
-
-        text = re.sub(
-            r"<ol[^>]*>(.*?)</ol>",
-            convert_ol,
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Tables
-        def convert_table(match: re.Match) -> str:
-            table_content = match.group(1)
-            rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_content, re.DOTALL | re.IGNORECASE)
-            if not rows:
-                return ""
-
-            md_rows = []
-            separator_added = False
-
-            for i, row in enumerate(rows):
-                # Check for header cells
-                header_cells = re.findall(r"<th[^>]*>(.*?)</th>", row, re.DOTALL | re.IGNORECASE)
-                data_cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
-
-                cells = header_cells if header_cells else data_cells
-                if not cells:
-                    continue
-
-                # Clean cell content (strip tags and whitespace)
-                cleaned = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-                md_row = "| " + " | ".join(cleaned) + " |"
-                md_rows.append(md_row)
-
-                # Add separator after first row (header row)
-                # Qt may convert <th> to <td>, so treat first row as header
-                if not separator_added:
-                    separator_added = True
-                    separator = "| " + " | ".join(["---"] * len(cells)) + " |"
-                    md_rows.append(separator)
-
-            return "\n" + "\n".join(md_rows) + "\n\n" if md_rows else ""
-
-        text = re.sub(
-            r"<table[^>]*>(.*?)</table>",
-            convert_table,
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Paragraphs
-        text = re.sub(
-            r"<p[^>]*>(.*?)</p>",
-            r"\1\n\n",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-        # Horizontal rules
-        text = re.sub(r"<hr[^>]*/?>", "\n---\n", text, flags=re.IGNORECASE)
-
-        # Line breaks
-        text = re.sub(r"<br[^>]*/?>", "  \n", text, flags=re.IGNORECASE)
-
-        # Remove remaining HTML tags
-        text = re.sub(r"<[^>]+>", "", text)
-
-        # Unescape HTML entities
-        text = html.unescape(text)
+            markdown = markdown.replace(placeholder, restored)
 
         # Clean up whitespace
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = text.strip()
+        markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+        markdown = markdown.strip()
+
+        return markdown
+
+    def _convert_qt_styles_to_semantic(self, html_content: str) -> str:
+        """
+        Convert Qt's inline style spans to semantic HTML tags.
+
+        Qt's QTextEdit outputs formatting as inline styles like:
+        - font-weight:600 or font-weight:bold -> <strong>
+        - font-style:italic -> <em>
+        - text-decoration:line-through -> <del>
+
+        Args:
+            html_content: HTML with Qt inline styles.
+
+        Returns:
+            HTML with semantic tags.
+        """
+        text = html_content
+
+        # Convert bold spans: font-weight:600, font-weight:700, font-weight:bold
+        def convert_bold(match: re.Match) -> str:
+            style = match.group(1)
+            content = match.group(2)
+            # Check if this span has bold styling
+            if re.search(r"font-weight\s*:\s*(bold|[6-9]\d{2})", style, re.IGNORECASE):
+                return f"<strong>{content}</strong>"
+            return match.group(0)
+
+        text = re.sub(
+            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
+            convert_bold,
+            text,
+            flags=re.DOTALL,
+        )
+
+        # Convert italic spans
+        def convert_italic(match: re.Match) -> str:
+            style = match.group(1)
+            content = match.group(2)
+            if re.search(r"font-style\s*:\s*italic", style, re.IGNORECASE):
+                return f"<em>{content}</em>"
+            return match.group(0)
+
+        text = re.sub(
+            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
+            convert_italic,
+            text,
+            flags=re.DOTALL,
+        )
+
+        # Convert strikethrough spans
+        def convert_strike(match: re.Match) -> str:
+            style = match.group(1)
+            content = match.group(2)
+            if re.search(r"text-decoration\s*:[^;]*line-through", style, re.IGNORECASE):
+                return f"<del>{content}</del>"
+            return match.group(0)
+
+        text = re.sub(
+            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
+            convert_strike,
+            text,
+            flags=re.DOTALL,
+        )
 
         return text
