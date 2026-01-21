@@ -299,6 +299,8 @@ class MarkdownConverter:
         - font-style:italic -> <em>
         - text-decoration:line-through -> <del>
 
+        Handles combined styles by nesting semantic tags.
+
         Args:
             html_content: HTML with Qt inline styles.
 
@@ -307,48 +309,40 @@ class MarkdownConverter:
         """
         text = html_content
 
-        # Convert bold spans: font-weight:600, font-weight:700, font-weight:bold
-        def convert_bold(match: re.Match) -> str:
+        def convert_span_styles(match: re.Match) -> str:
+            """Convert a single span with potentially multiple styles."""
             style = match.group(1)
             content = match.group(2)
-            # Check if this span has bold styling
-            if re.search(r"font-weight\s*:\s*(bold|[6-9]\d{2})", style, re.IGNORECASE):
-                return f"<strong>{content}</strong>"
-            return match.group(0)
+
+            # Check for each style type
+            is_bold = bool(
+                re.search(r"font-weight\s*:\s*(bold|[6-9]\d{2})", style, re.IGNORECASE)
+            )
+            is_italic = bool(
+                re.search(r"font-style\s*:\s*italic", style, re.IGNORECASE)
+            )
+            is_strike = bool(
+                re.search(r"text-decoration\s*:[^;]*line-through", style, re.IGNORECASE)
+            )
+
+            # If no recognized styles, return original
+            if not (is_bold or is_italic or is_strike):
+                return match.group(0)
+
+            # Nest semantic tags (order: strong > em > del)
+            result = content
+            if is_strike:
+                result = f"<del>{result}</del>"
+            if is_italic:
+                result = f"<em>{result}</em>"
+            if is_bold:
+                result = f"<strong>{result}</strong>"
+
+            return result
 
         text = re.sub(
             r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
-            convert_bold,
-            text,
-            flags=re.DOTALL,
-        )
-
-        # Convert italic spans
-        def convert_italic(match: re.Match) -> str:
-            style = match.group(1)
-            content = match.group(2)
-            if re.search(r"font-style\s*:\s*italic", style, re.IGNORECASE):
-                return f"<em>{content}</em>"
-            return match.group(0)
-
-        text = re.sub(
-            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
-            convert_italic,
-            text,
-            flags=re.DOTALL,
-        )
-
-        # Convert strikethrough spans
-        def convert_strike(match: re.Match) -> str:
-            style = match.group(1)
-            content = match.group(2)
-            if re.search(r"text-decoration\s*:[^;]*line-through", style, re.IGNORECASE):
-                return f"<del>{content}</del>"
-            return match.group(0)
-
-        text = re.sub(
-            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
-            convert_strike,
+            convert_span_styles,
             text,
             flags=re.DOTALL,
         )
