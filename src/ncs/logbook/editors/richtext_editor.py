@@ -146,6 +146,9 @@ class RichTextEditor(QTextEdit):
             # Convert to HTML
             html = self._converter.markdown_to_html(markdown)
 
+            # Clear document before loading new content to ensure clean state
+            self.clear()
+
             # Load into editor
             self.setHtml(html)
 
