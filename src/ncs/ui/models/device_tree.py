@@ -106,40 +106,49 @@ class DeviceTreeItem:
         return None
 
     def _get_value(self) -> str:
-        """Get current value as string."""
+        """Get current value as string.
+
+        Only shows values for:
+        - Signals (leaf nodes)
+        - Devices with a 'readback' component (shows the readback value)
+        """
         if self.ophyd_obj is None:
             return ""
 
         try:
-            if hasattr(self.ophyd_obj, "get"):
-                val = self.ophyd_obj.get()
-                if isinstance(val, float):
-                    return f"{val:.4g}"
-                return str(val)
-            elif hasattr(self.ophyd_obj, "position"):
-                return f"{self.ophyd_obj.position:.4g}"
+            # For signals, show their value directly
+            if self.node_type == NodeType.SIGNAL:
+                if hasattr(self.ophyd_obj, "get"):
+                    val = self.ophyd_obj.get()
+                    if isinstance(val, float):
+                        return f"{val:.4g}"
+                    return str(val)
+
+            # For devices, only show value if they have a readback signal
+            elif self.node_type == NodeType.DEVICE:
+                if hasattr(self.ophyd_obj, "readback"):
+                    readback = self.ophyd_obj.readback
+                    if hasattr(readback, "get"):
+                        val = readback.get()
+                        if isinstance(val, float):
+                            return f"{val:.4g}"
+                        return str(val)
+                # Also check for position (motors)
+                elif hasattr(self.ophyd_obj, "position"):
+                    pos = self.ophyd_obj.position
+                    if isinstance(pos, float):
+                        return f"{pos:.4g}"
+                    return str(pos)
         except Exception:
             pass
         return ""
 
     def _get_type_string(self) -> str:
-        """Get type description."""
+        """Get type description (actual class name)."""
         if self.ophyd_obj is None:
             return ""
 
-        cls_name = type(self.ophyd_obj).__name__
-
-        # Simplify common types
-        if "Signal" in cls_name:
-            return "Signal"
-        elif "Motor" in cls_name or "Axis" in cls_name:
-            return "Motor"
-        elif "Detector" in cls_name or "Gauss" in cls_name:
-            return "Detector"
-        elif "Device" in cls_name:
-            return "Device"
-
-        return cls_name
+        return type(self.ophyd_obj).__name__
 
     def _get_status(self) -> str:
         """Get status string."""

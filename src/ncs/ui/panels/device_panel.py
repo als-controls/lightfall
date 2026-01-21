@@ -294,8 +294,8 @@ class DevicePanel(BasePanel):
         self._search_input.textChanged.connect(self._on_search_changed)
         self._tree_view.selectionModel().currentChanged.connect(self._on_selection_changed)
 
-        # Expand top-level items by default
-        self._tree_view.expandToDepth(0)
+        # Tree starts collapsed
+        self._tree_view.collapseAll()
 
     def _create_toolbar(self) -> QToolBar:
         """Create the panel toolbar."""
@@ -344,7 +344,6 @@ class DevicePanel(BasePanel):
     def _refresh(self) -> None:
         """Refresh the device model."""
         self._model.refresh()
-        self._tree_view.expandToDepth(0)
         logger.debug("Device tree refreshed")
 
     # === Signal Handlers ===
@@ -354,12 +353,11 @@ class DevicePanel(BasePanel):
         """Handle search text change."""
         self._proxy_model.setFilterRegularExpression(text)
 
-        # Expand all when searching to show results
+        # Expand all when searching to show results, collapse when cleared
         if text:
             self._tree_view.expandAll()
         else:
             self._tree_view.collapseAll()
-            self._tree_view.expandToDepth(0)
 
     @Slot()
     def _on_selection_changed(self) -> None:
