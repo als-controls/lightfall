@@ -23,6 +23,7 @@ from ncs.logbook.style import (
     get_marker_color,
     get_protected_background_color,
     get_protected_border_color,
+    get_protected_text_color,
     get_strong_color,
 )
 
@@ -135,6 +136,9 @@ class ProtectedMarkdownHighlighter(QSyntaxHighlighter):
         self._protected_content_format.setBackground(
             QColor(get_protected_background_color())
         )
+        self._protected_content_format.setForeground(
+            QColor(get_protected_text_color())
+        )
 
         # Strikethrough format
         self._strikethrough_format = QTextCharFormat()
@@ -223,13 +227,16 @@ class ProtectedMarkdownHighlighter(QSyntaxHighlighter):
                     # Don't override marker highlighting
                     for i in range(highlight_start, highlight_end):
                         current_format = self.format(i)
-                        # Only apply background if not already a marker
+                        # Only apply if not already a marker
                         if current_format.background().color() != QColor(
                             get_protected_background_color()
                         ):
                             merged = QTextCharFormat(current_format)
                             merged.setBackground(
                                 QColor(get_protected_background_color())
+                            )
+                            merged.setForeground(
+                                QColor(get_protected_text_color())
                             )
                             self.setFormat(i, 1, merged)
 

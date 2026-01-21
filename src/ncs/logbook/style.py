@@ -40,9 +40,9 @@ def get_protected_background_color() -> str:
         CSS color string appropriate for the current theme.
     """
     if is_dark_theme():
-        return "#3d3d2d"  # Dark muted amber
+        return "#2d2d2d"  # Dark gray
     else:
-        return "#fff8dc"  # Light cornsilk
+        return "#f0f0f0"  # Light gray
 
 
 def get_protected_border_color() -> str:
@@ -53,9 +53,9 @@ def get_protected_border_color() -> str:
         CSS color string appropriate for the current theme.
     """
     if is_dark_theme():
-        return "#8b7355"  # Dark tan
+        return "#555555"  # Medium gray
     else:
-        return "#daa520"  # Goldenrod
+        return "#b0b0b0"  # Medium-light gray
 
 
 def get_protected_text_color() -> str:
@@ -66,9 +66,9 @@ def get_protected_text_color() -> str:
         CSS color string appropriate for the current theme.
     """
     if is_dark_theme():
-        return "#d4c4a8"  # Muted cream
+        return "#888888"  # Medium gray
     else:
-        return "#5d4e37"  # Dark brown
+        return "#707070"  # Dark gray
 
 
 def get_header_color() -> str:
@@ -245,6 +245,7 @@ def get_qt_html_stylesheet() -> str:
     blockquote_border = get_blockquote_color()
     protected_bg = get_protected_background_color()
     protected_border = get_protected_border_color()
+    protected_text = get_protected_text_color()
 
     return f"""
         h1, h2, h3, h4, h5, h6 {{
@@ -307,5 +308,6 @@ def get_qt_html_stylesheet() -> str:
             background-color: {protected_bg};
             border-left: 3px solid {protected_border};
             padding-left: 8px;
+            color: {protected_text};
         }}
     """
