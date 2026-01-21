@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ncs.ui.toast import ToastManager
+
 from ncs.logbook import LogbookWidget
 from ncs.project import Logbook, LogbookEntry, ProjectService
 from ncs.ui.panels.base import BasePanel, PanelMetadata
@@ -265,12 +267,8 @@ class LogbookPanel(BasePanel):
         logger.debug("Protection violation at region: {}", region_id)
         self.protection_violated.emit(region_id, position)
 
-        # Show a brief status message
-        # TODO: Use status bar or toast notification
-        QMessageBox.information(
-            self,
+        ToastManager.get_instance().warning(
             "Protected Content",
-            "This section is protected and cannot be edited.\n"
             "System-generated entries are read-only.",
         )
 
