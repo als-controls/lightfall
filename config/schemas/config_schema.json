@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://als.lbl.gov/ncs/config-schema.json",
+  "title": "NCS Configuration Schema",
+  "description": "Configuration schema for the NCS (New Control System) application",
+  "type": "object",
+  "properties": {
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"],
+          "default": "INFO",
+          "description": "Minimum log level"
+        },
+        "file": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Log file path"
+        },
+        "rotation": {
+          "type": "string",
+          "default": "10 MB",
+          "description": "Log rotation size/time"
+        },
+        "retention": {
+          "type": "string",
+          "default": "1 week",
+          "description": "Log retention period"
+        },
+        "console": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable console logging"
+        },
+        "colorize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable colored output"
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "description": "User interface configuration",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "system"],
+          "default": "system",
+          "description": "Theme name"
+        },
+        "font_family": {
+          "type": "string",
+          "default": "",
+          "description": "UI font family (empty = system default)"
+        },
+        "font_size": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 24,
+          "default": 10,
+          "description": "Base font size in points"
+        },
+        "show_statusbar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show status bar"
+        },
+        "show_toolbar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show toolbar"
+        },
+        "remember_geometry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remember window position/size"
+        },
+        "recent_files_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 10,
+          "description": "Max recent files"
+        }
+      }
+    },
+    "acquisition": {
+      "type": "object",
+      "description": "Data acquisition configuration",
+      "properties": {
+        "default_timeout": {
+          "type": "number",
+          "minimum": 1.0,
+          "default": 30.0,
+          "description": "Default operation timeout in seconds"
+        },
+        "auto_save": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save acquired data"
+        },
+        "data_directory": {
+          "type": "string",
+          "default": "~/ncs_data",
+          "description": "Default data storage directory"
+        },
+        "file_format": {
+          "type": "string",
+          "enum": ["hdf5", "nexus", "csv"],
+          "default": "hdf5",
+          "description": "Default file format"
+        },
+        "compression": {
+          "type": "string",
+          "enum": ["none", "gzip", "lz4"],
+          "default": "gzip",
+          "description": "Compression method"
+        }
+      }
+    },
+    "beamline": {
+      "type": "object",
+      "description": "Beamline-specific configuration",
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "",
+          "description": "Beamline identifier"
+        },
+        "description": {
+          "type": "string",
+          "default": "",
+          "description": "Beamline description"
+        },
+        "sector": {
+          "type": "string",
+          "default": "",
+          "description": "Sector/location"
+        },
+        "epics_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "EPICS PV prefix for this beamline"
+        },
+        "custom": {
+          "type": "object",
+          "default": {},
+          "description": "Beamline-specific custom settings"
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "default": {},
+      "description": "Extension/plugin configuration namespace"
+    }
+  },
+  "additionalProperties": true
+}

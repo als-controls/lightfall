@@ -1,0 +1,36 @@
+# NCS Default Configuration
+# These settings are applied as the lowest priority defaults.
+# Override them in global, beamline, or user configuration files.
+
+logging:
+  level: INFO
+  file: null
+  rotation: "10 MB"
+  retention: "1 week"
+  console: true
+  colorize: true
+
+ui:
+  theme: system
+  font_family: ""
+  font_size: 10
+  show_statusbar: true
+  show_toolbar: true
+  remember_geometry: true
+  recent_files_limit: 10
+
+acquisition:
+  default_timeout: 30.0
+  auto_save: true
+  data_directory: ~/ncs_data
+  file_format: hdf5
+  compression: gzip
+
+beamline:
+  name: ""
+  description: ""
+  sector: ""
+  epics_prefix: ""
+  custom: {}
+
+extensions: {}
