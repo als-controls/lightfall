@@ -333,20 +333,24 @@ class DevicePanel(BasePanel):
 
         toolbar.addSeparator()
 
-        # Expand all
+        # Expand all - use lambda to defer access to _device_tree
         expand_action = QAction("Expand All", self)
-        expand_action.triggered.connect(self._device_tree.expandAll)
+        expand_action.triggered.connect(lambda: self._device_tree.expandAll())
         toolbar.addAction(expand_action)
 
-        # Collapse all
+        # Collapse all - use lambda to defer access to _device_tree
         collapse_action = QAction("Collapse All", self)
-        collapse_action.triggered.connect(self._device_tree.collapseAll)
+        collapse_action.triggered.connect(lambda: self._device_tree.collapseAll())
         toolbar.addAction(collapse_action)
 
         return toolbar
 
     def _refresh_device_list(self) -> None:
         """Refresh the device list from the catalog."""
+        # Guard against being called before UI is fully initialized
+        if not hasattr(self, '_device_tree'):
+            return
+
         self._device_tree.clear()
 
         # Get filter settings
