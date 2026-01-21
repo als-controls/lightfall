@@ -6,10 +6,13 @@ import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
+
 from ncs.auth.providers import LocalAuthProvider
 from ncs.auth.session import SessionManager
 from ncs.config import ConfigManager
 from ncs.core import NCSApplication
+from ncs.project import ProjectService, create_welcome_project
 from ncs.ui import NCSMainWindow
 from ncs.ui.panels.registry import PanelRegistry
 from ncs.ui.preferences import PreferencesManager
@@ -77,7 +80,47 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     registry.discover_plugins()
     services.register_instance(PanelRegistry, registry)
 
+    # Project service
+    project_service = ProjectService.get_instance()
+    services.register_instance(ProjectService, project_service)
+
     logger.debug("Application services registered")
+
+
+def _setup_first_launch(project_service: ProjectService) -> None:
+    """Setup the welcome project for first launch.
+
+    If no project is currently open (first launch or no recent project),
+    creates and opens the welcome project with introductory content.
+
+    Args:
+        project_service: The ProjectService instance.
+    """
+    # Check if we have a recent project to restore
+    # For now, always create welcome project (persistence comes later)
+    if not project_service.has_project:
+        logger.info("First launch detected, creating welcome project")
+        welcome = create_welcome_project()
+        project_service.open_project(welcome)
+
+
+def _setup_default_panels(window: NCSMainWindow) -> None:
+    """Setup default panels for the main window.
+
+    Opens panels that should be visible by default on startup.
+
+    Args:
+        window: The main window instance.
+    """
+    # Open the logbook panel on the right side
+    panel = window.add_panel(
+        "ncs.panels.logbook",
+        area=Qt.DockWidgetArea.RightDockWidgetArea,
+    )
+    if panel:
+        logger.info("Opened default logbook panel")
+    else:
+        logger.warning("Failed to open default logbook panel")
 
 
 def main() -> int:
@@ -97,10 +140,17 @@ def main() -> int:
     # Setup authentication
     _setup_auth(config)
 
+    # Setup first launch (welcome project)
+    project_service = ProjectService.get_instance()
+    _setup_first_launch(project_service)
+
     # Create and set main window
     window = NCSMainWindow()
     window.set_config_manager(config)
     app.set_main_window(window)
+
+    # Setup default panels (logbook)
+    _setup_default_panels(window)
 
     # Run the application
     return app.run()

@@ -115,6 +115,35 @@ class PanelRegistry:
             return True
         return False
 
+    def register_builtin_panels(self) -> int:
+        """Register built-in NCS panels.
+
+        Returns:
+            Number of panels registered.
+        """
+        count = 0
+
+        # Import built-in panels
+        from ncs.ui.panels.logbook_panel import LogbookPanel
+
+        builtin_panels = [
+            LogbookPanel,
+        ]
+
+        for panel_class in builtin_panels:
+            try:
+                self.register(panel_class, replace=True)
+                count += 1
+            except Exception as e:
+                logger.error(
+                    "Failed to register built-in panel {}: {}",
+                    panel_class.__name__,
+                    e,
+                )
+
+        logger.info("Registered {} built-in panels", count)
+        return count
+
     def discover_plugins(self) -> int:
         """Discover and register panel plugins via entry points.
 
@@ -123,6 +152,9 @@ class PanelRegistry:
         """
         if self._discovered:
             return 0
+
+        # First register built-in panels
+        self.register_builtin_panels()
 
         count = 0
 
