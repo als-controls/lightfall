@@ -371,7 +371,7 @@ class MarkdownConverter:
                 return ""
 
             md_rows = []
-            header_row = None
+            separator_added = False
 
             for i, row in enumerate(rows):
                 # Check for header cells
@@ -387,9 +387,10 @@ class MarkdownConverter:
                 md_row = "| " + " | ".join(cleaned) + " |"
                 md_rows.append(md_row)
 
-                # Add separator after header row
-                if header_cells and header_row is None:
-                    header_row = i
+                # Add separator after first row (header row)
+                # Qt may convert <th> to <td>, so treat first row as header
+                if not separator_added:
+                    separator_added = True
                     separator = "| " + " | ".join(["---"] * len(cells)) + " |"
                     md_rows.append(separator)
 
