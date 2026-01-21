@@ -12,18 +12,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -399,14 +393,165 @@ class MotorControlWidget(BaseControlWidget):
         super().closeEvent(event)
 
 
+class MotorRowWidget(QWidget):
+    """Individual motor row for multi-motor control."""
+
+    move_requested = Signal(str, float, bool)  # name, value, is_relative
+    stop_requested = Signal(str)  # name
+
+    def __init__(
+        self,
+        name: str,
+        motor: Any,
+        item: DeviceTreeItem,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.name = name
+        self.motor = motor
+        self.item = item
+        self._precision = 4
+        if item.device_info and item.device_info.metadata:
+            self._precision = item.device_info.metadata.get("precision", 4)
+
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(8)
+
+        # Motor name
+        self._name_label = QLabel(self.name)
+        self._name_label.setStyleSheet("font-weight: bold;")
+        self._name_label.setMinimumWidth(80)
+        layout.addWidget(self._name_label)
+
+        # Position display
+        self._pos_label = QLabel("---")
+        self._pos_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
+        self._pos_label.setMinimumWidth(90)
+        self._pos_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._pos_label)
+
+        # Status indicator
+        self._status_indicator = StatusIndicator()
+        layout.addWidget(self._status_indicator)
+
+        # Spacer
+        layout.addSpacing(16)
+
+        # Tweak reverse button
+        self._twr_btn = QPushButton("\u25C0")
+        self._twr_btn.setFixedWidth(30)
+        self._twr_btn.setToolTip("Move negative")
+        self._twr_btn.clicked.connect(self._on_tweak_reverse)
+        layout.addWidget(self._twr_btn)
+
+        # Value entry (setpoint or step size depending on mode)
+        self._value_edit = QLineEdit()
+        self._value_edit.setValidator(QDoubleValidator())
+        self._value_edit.setMaximumWidth(100)
+        self._value_edit.returnPressed.connect(self._on_go)
+        layout.addWidget(self._value_edit)
+
+        # Tweak forward button
+        self._twf_btn = QPushButton("\u25B6")
+        self._twf_btn.setFixedWidth(30)
+        self._twf_btn.setToolTip("Move positive")
+        self._twf_btn.clicked.connect(self._on_tweak_forward)
+        layout.addWidget(self._twf_btn)
+
+        # Go button
+        self._go_btn = QPushButton("Go")
+        self._go_btn.setFixedWidth(40)
+        self._go_btn.clicked.connect(self._on_go)
+        layout.addWidget(self._go_btn)
+
+        # Stop button
+        self._stop_btn = QPushButton("\u25A0")
+        self._stop_btn.setFixedWidth(30)
+        self._stop_btn.setToolTip("Stop")
+        self._stop_btn.setStyleSheet("color: #F44336; font-weight: bold;")
+        self._stop_btn.clicked.connect(self._on_stop)
+        layout.addWidget(self._stop_btn)
+
+    def set_mode(self, is_relative: bool) -> None:
+        """Set the movement mode (absolute or relative)."""
+        self._is_relative = is_relative
+        if is_relative:
+            self._value_edit.setPlaceholderText("Step")
+            self._go_btn.setVisible(False)
+            self._twr_btn.setVisible(True)
+            self._twf_btn.setVisible(True)
+        else:
+            self._value_edit.setPlaceholderText("Target")
+            self._go_btn.setVisible(True)
+            self._twr_btn.setVisible(False)
+            self._twf_btn.setVisible(False)
+
+    def update_display(self) -> None:
+        """Update position and status display."""
+        try:
+            pos = None
+            if hasattr(self.motor, "position"):
+                pos = self.motor.position
+            elif hasattr(self.motor, "readback") and hasattr(self.motor.readback, "get"):
+                pos = self.motor.readback.get()
+
+            if pos is not None:
+                self._pos_label.setText(f"{pos:.{self._precision}f}")
+
+            is_moving = False
+            if hasattr(self.motor, "moving"):
+                is_moving = bool(self.motor.moving)
+
+            self._status_indicator.set_state("on" if is_moving else "off")
+        except Exception:
+            pass
+
+    @Slot()
+    def _on_go(self) -> None:
+        """Handle Go button - absolute move."""
+        try:
+            value = float(self._value_edit.text())
+            self.move_requested.emit(self.name, value, False)
+        except ValueError:
+            pass
+
+    @Slot()
+    def _on_tweak_forward(self) -> None:
+        """Handle tweak forward - relative move positive."""
+        try:
+            value = float(self._value_edit.text())
+            self.move_requested.emit(self.name, value, True)
+        except ValueError:
+            pass
+
+    @Slot()
+    def _on_tweak_reverse(self) -> None:
+        """Handle tweak reverse - relative move negative."""
+        try:
+            value = float(self._value_edit.text())
+            self.move_requested.emit(self.name, -value, True)
+        except ValueError:
+            pass
+
+    @Slot()
+    def _on_stop(self) -> None:
+        """Handle stop button."""
+        self.stop_requested.emit(self.name)
+
+
 @register_control_widget
 class MultiMotorControlWidget(BaseControlWidget):
     """Control widget for multiple motor devices.
 
-    Displays a table of motors with:
-    - Name, Position, Setpoint columns
-    - Individual Go buttons per motor
-    - Shared tweak controls for synchronized relative motion
+    Displays individual motor controls with:
+    - Position display and status indicator per motor
+    - Toggle between Absolute and Relative movement modes
+    - Absolute mode: setpoint entry with Go button
+    - Relative mode: step size with +/- tweak buttons
     - Global Stop All button
     """
 
@@ -414,14 +559,15 @@ class MultiMotorControlWidget(BaseControlWidget):
     priority: ClassVar[int] = 90  # Slightly lower than single motor
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        self._motors: list[tuple[str, Any, DeviceTreeItem]] = []  # (name, ophyd_obj, item)
+        self._motors: list[tuple[str, Any, DeviceTreeItem]] = []
+        self._motor_rows: list[MotorRowWidget] = []
         self._update_timer: QTimer | None = None
+        self._is_relative_mode = False
         super().__init__(parent)
 
     @classmethod
     def can_control(cls, items: list[DeviceTreeItem]) -> bool:
         """Check if this widget can control the given items."""
-        # Can control two or more motors
         if len(items) < 2:
             return False
         return all(is_motor_item(item) for item in items)
@@ -435,7 +581,7 @@ class MultiMotorControlWidget(BaseControlWidget):
             if is_motor_item(item) and item.ophyd_obj is not None:
                 self._motors.append((item.name, item.ophyd_obj, item))
 
-        self._rebuild_table()
+        self._rebuild_motor_list()
         if self._motors:
             self._start_updates()
         else:
@@ -443,50 +589,42 @@ class MultiMotorControlWidget(BaseControlWidget):
 
     def _setup_ui(self) -> None:
         """Setup the multi-motor control UI."""
-        # Header
+        # Header with mode toggle
+        header_layout = QHBoxLayout()
+
         header_label = QLabel("Multi-Motor Control")
         header_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        self._layout.addWidget(header_label)
+        header_layout.addWidget(header_label)
 
-        # Motor table
-        self._table = QTableWidget()
-        self._table.setColumnCount(5)
-        self._table.setHorizontalHeaderLabels(["Name", "Position", "Setpoint", "", "Status"])
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        header_layout.addStretch()
 
-        header = self._table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setColumnWidth(3, 50)
+        # Mode toggle button
+        self._mode_btn = QPushButton("Absolute")
+        self._mode_btn.setCheckable(True)
+        self._mode_btn.setToolTip("Toggle between Absolute and Relative movement modes")
+        self._mode_btn.clicked.connect(self._on_mode_toggled)
+        self._mode_btn.setStyleSheet("""
+            QPushButton {
+                padding: 4px 12px;
+                border: 1px solid #666;
+                border-radius: 4px;
+            }
+            QPushButton:checked {
+                background-color: #4CAF50;
+                color: white;
+                border-color: #4CAF50;
+            }
+        """)
+        header_layout.addWidget(self._mode_btn)
 
-        self._layout.addWidget(self._table)
+        self._layout.addLayout(header_layout)
 
-        # Tweak controls
-        tweak_group = QGroupBox("Synchronized Relative Motion")
-        tweak_layout = QHBoxLayout(tweak_group)
-
-        self._twr_btn = QPushButton("\u25C0 All")
-        self._twr_btn.setToolTip("Move all motors negative")
-        self._twr_btn.clicked.connect(self._on_tweak_all_reverse)
-        tweak_layout.addWidget(self._twr_btn)
-
-        self._tweak_edit = QLineEdit("1.0")
-        self._tweak_edit.setValidator(QDoubleValidator(0.0001, 1000000, 6))
-        self._tweak_edit.setToolTip("Step size for all motors")
-        self._tweak_edit.setMaximumWidth(80)
-        tweak_layout.addWidget(self._tweak_edit)
-
-        self._twf_btn = QPushButton("All \u25B6")
-        self._twf_btn.setToolTip("Move all motors positive")
-        self._twf_btn.clicked.connect(self._on_tweak_all_forward)
-        tweak_layout.addWidget(self._twf_btn)
-
-        tweak_layout.addStretch()
-        self._layout.addWidget(tweak_group)
+        # Container for motor rows
+        self._motors_container = QWidget()
+        self._motors_layout = QVBoxLayout(self._motors_container)
+        self._motors_layout.setContentsMargins(0, 0, 0, 0)
+        self._motors_layout.setSpacing(2)
+        self._layout.addWidget(self._motors_container)
 
         # Stop All button
         btn_layout = QHBoxLayout()
@@ -513,46 +651,27 @@ class MultiMotorControlWidget(BaseControlWidget):
 
         self._layout.addStretch()
 
-    def _rebuild_table(self) -> None:
-        """Rebuild the motor table."""
-        self._table.setRowCount(len(self._motors))
-        self._setpoint_edits: list[QLineEdit] = []
-        self._go_buttons: list[QPushButton] = []
+    def _rebuild_motor_list(self) -> None:
+        """Rebuild the motor row widgets."""
+        # Clear existing rows
+        for row in self._motor_rows:
+            row.deleteLater()
+        self._motor_rows.clear()
 
-        for row, (name, motor, item) in enumerate(self._motors):
-            # Name
-            name_item = QTableWidgetItem(name)
-            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, 0, name_item)
-
-            # Position (updated periodically)
-            pos_item = QTableWidgetItem("---")
-            pos_item.setFlags(pos_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, 1, pos_item)
-
-            # Setpoint edit
-            setpoint_edit = QLineEdit()
-            setpoint_edit.setValidator(QDoubleValidator())
-            setpoint_edit.setPlaceholderText("Target")
-            self._setpoint_edits.append(setpoint_edit)
-            self._table.setCellWidget(row, 2, setpoint_edit)
-
-            # Go button
-            go_btn = QPushButton("Go")
-            go_btn.clicked.connect(lambda checked, r=row: self._on_go_row(r))
-            self._go_buttons.append(go_btn)
-            self._table.setCellWidget(row, 3, go_btn)
-
-            # Status
-            status_item = QTableWidgetItem("Idle")
-            status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._table.setItem(row, 4, status_item)
+        # Create new rows
+        for name, motor, item in self._motors:
+            row = MotorRowWidget(name, motor, item, self._motors_container)
+            row.set_mode(self._is_relative_mode)
+            row.move_requested.connect(self._on_move_requested)
+            row.stop_requested.connect(self._on_stop_requested)
+            self._motors_layout.addWidget(row)
+            self._motor_rows.append(row)
 
     def _start_updates(self) -> None:
         """Start periodic updates."""
         if self._update_timer is None:
             self._update_timer = QTimer(self)
-            self._update_timer.timeout.connect(self._update_table)
+            self._update_timer.timeout.connect(self._update_display)
         self._update_timer.start(200)
 
     def _stop_updates(self) -> None:
@@ -560,78 +679,36 @@ class MultiMotorControlWidget(BaseControlWidget):
         if self._update_timer is not None:
             self._update_timer.stop()
 
-    def _update_table(self) -> None:
-        """Update position and status columns."""
-        for row, (name, motor, item) in enumerate(self._motors):
-            try:
-                # Position
-                pos = None
-                if hasattr(motor, "position"):
-                    pos = motor.position
-                elif hasattr(motor, "readback") and hasattr(motor.readback, "get"):
-                    pos = motor.readback.get()
+    def _update_display(self) -> None:
+        """Update all motor row displays."""
+        for row in self._motor_rows:
+            row.update_display()
 
-                if pos is not None:
-                    precision = 4
-                    if item.device_info and item.device_info.metadata:
-                        precision = item.device_info.metadata.get("precision", 4)
-                    pos_item = self._table.item(row, 1)
-                    if pos_item:
-                        pos_item.setText(f"{pos:.{precision}f}")
+    @Slot(bool)
+    def _on_mode_toggled(self, checked: bool) -> None:
+        """Handle mode toggle button."""
+        self._is_relative_mode = checked
+        self._mode_btn.setText("Relative" if checked else "Absolute")
 
-                # Status
-                is_moving = False
-                if hasattr(motor, "moving"):
-                    is_moving = bool(motor.moving)
+        for row in self._motor_rows:
+            row.set_mode(checked)
 
-                status_item = self._table.item(row, 4)
-                if status_item:
-                    status_item.setText("Moving" if is_moving else "Idle")
+    @Slot(str, float, bool)
+    def _on_move_requested(self, name: str, value: float, is_relative: bool) -> None:
+        """Handle move request from a motor row."""
+        # Find the motor
+        motor = None
+        for n, m, item in self._motors:
+            if n == name:
+                motor = m
+                break
 
-            except Exception as e:
-                logger.warning("Error updating motor {}: {}", name, e)
-
-    @Slot()
-    def _on_go_row(self, row: int) -> None:
-        """Move a single motor to its setpoint."""
-        if row >= len(self._motors):
+        if motor is None:
             return
 
-        name, motor, item = self._motors[row]
-        setpoint_edit = self._setpoint_edits[row]
-
         try:
-            target = float(setpoint_edit.text())
-            if hasattr(motor, "set"):
-                self.motion_started.emit(name)
-                motor.set(target)
-                logger.info("Moving {} to {}", name, target)
-        except ValueError:
-            self.control_error.emit(f"Invalid setpoint for {name}")
-        except Exception as e:
-            self.control_error.emit(f"Move failed for {name}: {e}")
-            logger.error("Motor move failed for {}: {}", name, e)
-
-    @Slot()
-    def _on_tweak_all_forward(self) -> None:
-        """Tweak all motors forward."""
-        self._tweak_all(1)
-
-    @Slot()
-    def _on_tweak_all_reverse(self) -> None:
-        """Tweak all motors reverse."""
-        self._tweak_all(-1)
-
-    def _tweak_all(self, direction: int) -> None:
-        """Move all motors by tweak amount."""
-        try:
-            step = float(self._tweak_edit.text())
-        except ValueError:
-            self.control_error.emit("Invalid tweak value")
-            return
-
-        for name, motor, item in self._motors:
-            try:
+            if is_relative:
+                # Relative move
                 current = None
                 if hasattr(motor, "position"):
                     current = motor.position
@@ -639,14 +716,34 @@ class MultiMotorControlWidget(BaseControlWidget):
                     current = motor.readback.get()
 
                 if current is not None:
-                    target = current + (direction * step)
+                    target = current + value
                     if hasattr(motor, "set"):
                         self.motion_started.emit(name)
                         motor.set(target)
-            except Exception as e:
-                logger.error("Tweak failed for {}: {}", name, e)
+                        logger.info("Relative move {} by {} to {}", name, value, target)
+            else:
+                # Absolute move
+                if hasattr(motor, "set"):
+                    self.motion_started.emit(name)
+                    motor.set(value)
+                    logger.info("Absolute move {} to {}", name, value)
+        except Exception as e:
+            self.control_error.emit(f"Move failed for {name}: {e}")
+            logger.error("Motor move failed for {}: {}", name, e)
 
-        logger.info("Tweaked all motors by {}", direction * step)
+    @Slot(str)
+    def _on_stop_requested(self, name: str) -> None:
+        """Handle stop request from a motor row."""
+        for n, motor, item in self._motors:
+            if n == name:
+                try:
+                    if hasattr(motor, "stop"):
+                        motor.stop()
+                        self.motion_finished.emit(name)
+                        logger.info("Stopped motor {}", name)
+                except Exception as e:
+                    logger.error("Stop failed for {}: {}", name, e)
+                break
 
     @Slot()
     def _on_stop_all(self) -> None:

@@ -299,14 +299,14 @@ class DevicePanel(BasePanel):
         # Right side: tabs with details
         self._right_tabs = QTabWidget()
 
-        # Overview tab
-        self._overview_widget = DeviceOverviewWidget()
-        self._right_tabs.addTab(self._overview_widget, "Overview")
-
-        # Control tab (dynamic device control UI)
+        # Control tab (dynamic device control UI) - first tab
         self._control_widget = DeviceControlWidget()
         self._control_widget.control_error.connect(self._on_control_error)
         self._right_tabs.addTab(self._control_widget, "Control")
+
+        # Info tab (device details)
+        self._overview_widget = DeviceOverviewWidget()
+        self._right_tabs.addTab(self._overview_widget, "Info")
 
         splitter.addWidget(self._right_tabs)
 
