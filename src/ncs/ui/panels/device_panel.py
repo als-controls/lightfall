@@ -268,14 +268,12 @@ class DevicePanel(BasePanel):
         search_layout = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search devices...")
-        self._search_input.textChanged.connect(self._on_search_changed)
         search_layout.addWidget(self._search_input)
 
         self._category_filter = QComboBox()
         self._category_filter.addItem("All Categories", None)
         for cat in DeviceCategory:
             self._category_filter.addItem(cat.value.title(), cat)
-        self._category_filter.currentIndexChanged.connect(self._on_filter_changed)
         search_layout.addWidget(self._category_filter)
 
         left_layout.addLayout(search_layout)
@@ -285,9 +283,13 @@ class DevicePanel(BasePanel):
         self._device_tree.setHeaderLabels(["Name", "Status", "Type"])
         self._device_tree.setRootIsDecorated(True)
         self._device_tree.setAlternatingRowColors(True)
-        self._device_tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._device_tree.header().setStretchLastSection(True)
         left_layout.addWidget(self._device_tree)
+
+        # Connect signals AFTER all widgets are created
+        self._search_input.textChanged.connect(self._on_search_changed)
+        self._category_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self._device_tree.itemSelectionChanged.connect(self._on_selection_changed)
 
         splitter.addWidget(left_widget)
 
