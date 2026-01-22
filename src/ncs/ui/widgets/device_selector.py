@@ -1,7 +1,13 @@
-"""Device selector widget for plan parameters.
+"""Device selector for plan parameters.
 
-Provides a reusable widget for selecting devices from the DeviceCatalog,
-used in plan configuration for parameters like 'detectors' or 'motor'.
+Provides a custom pyqtgraph ParameterTree type for selecting devices from
+the DeviceCatalog. Includes a dialog for device selection and a custom
+parameter type that integrates with the ParameterTree system.
+
+Usage:
+    In parameter specs, use type='device':
+        {'name': 'detectors', 'type': 'device', 'multi_select': True, 'catalog': catalog}
+        {'name': 'motor', 'type': 'device', 'multi_select': False, 'catalog': catalog}
 """
 
 from __future__ import annotations
@@ -10,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFontMetricsF, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -24,6 +30,19 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    from pyqtgraph.parametertree import Parameter
+    from pyqtgraph.parametertree.parameterTypes import StrParameterItem, registerParameterType
+    from pyqtgraph.parametertree.Parameter import PARAM_TYPES
+
+    HAS_PYQTGRAPH = True
+except ImportError:
+    HAS_PYQTGRAPH = False
+    Parameter = None
+    StrParameterItem = object
+    registerParameterType = None
+    PARAM_TYPES = {}
 
 if TYPE_CHECKING:
     from ncs.devices import DeviceCatalog, DeviceInfo
@@ -243,161 +262,144 @@ class DeviceSelectorDialog(QDialog):
         return devices
 
 
-class DeviceSelectorWidget(QWidget):
-    """Compact widget for selecting devices, embeddable in forms.
+if HAS_PYQTGRAPH:
 
-    Shows a text field with selected device names and a button to open
-    the selection dialog.
+    class DeviceParameterItem(StrParameterItem):
+        """Parameter item for device selection with dialog button.
 
-    Signals:
-        selection_changed: Emitted when the selection changes.
-            Argument is list of device names.
-
-    Args:
-        catalog: DeviceCatalog to select from.
-        multi_select: Allow multiple device selection.
-        category_filter: Filter devices by category.
-        parent: Parent widget.
-    """
-
-    selection_changed = Signal(list)  # list[str] device names
-
-    def __init__(
-        self,
-        catalog: DeviceCatalog | None = None,
-        multi_select: bool = True,
-        category_filter: str | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._catalog = catalog
-        self._multi_select = multi_select
-        self._category_filter = category_filter
-        self._selected_names: list[str] = []
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        """Set up the widget UI."""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Display current selection
-        self._display = QLineEdit()
-        self._display.setReadOnly(True)
-        self._display.setPlaceholderText("No devices selected")
-        layout.addWidget(self._display)
-
-        # Select button
-        self._select_btn = QPushButton("...")
-        self._select_btn.setFixedWidth(30)
-        self._select_btn.setToolTip("Select devices")
-        self._select_btn.clicked.connect(self._on_select_clicked)
-        layout.addWidget(self._select_btn)
-
-        # Clear button
-        self._clear_btn = QPushButton("x")
-        self._clear_btn.setFixedWidth(24)
-        self._clear_btn.setToolTip("Clear selection")
-        self._clear_btn.clicked.connect(self._on_clear_clicked)
-        layout.addWidget(self._clear_btn)
-
-    def set_catalog(self, catalog: DeviceCatalog) -> None:
-        """Set the device catalog.
-
-        Args:
-            catalog: DeviceCatalog to use.
+        Similar to FileParameterItem, shows a read-only text field with
+        a button that opens a device selection dialog.
         """
-        self._catalog = catalog
 
-    def set_category_filter(self, category: str | None) -> None:
-        """Set the category filter.
+        def __init__(self, param, depth):
+            self._value: list[str] = []
+            super().__init__(param, depth)
 
-        Args:
-            category: Category to filter by, or None for all.
-        """
-        self._category_filter = category
+            # Add the "..." button to open dialog
+            button = QPushButton("...")
+            button.setFixedWidth(25)
+            button.setContentsMargins(0, 0, 0, 0)
+            button.clicked.connect(self._open_device_dialog)
+            self.layoutWidget.layout().insertWidget(2, button)
 
-    def set_multi_select(self, multi: bool) -> None:
-        """Set whether multiple selection is allowed.
+            # Handle resize for text elision
+            self.displayLabel.resizeEvent = self._new_resize_event
 
-        Args:
-            multi: True for multi-select, False for single.
-        """
-        self._multi_select = multi
+        def makeWidget(self):
+            """Create the widget for editing."""
+            w = super().makeWidget()
+            w.setValue = self.setValue
+            w.value = self.value
+            # Remove sigChanging since selection is complete when dialog closes
+            if hasattr(w, "sigChanging"):
+                delattr(w, "sigChanging")
+            return w
 
-    def get_selected_names(self) -> list[str]:
-        """Get the currently selected device names.
+        def _new_resize_event(self, ev):
+            """Handle resize to update elided text."""
+            ret = type(self.displayLabel).resizeEvent(self.displayLabel, ev)
+            self.updateDisplayLabel()
+            return ret
 
-        Returns:
-            List of device names.
-        """
-        return list(self._selected_names)
-
-    def set_selected_names(self, names: list[str]) -> None:
-        """Set the selected device names.
-
-        Args:
-            names: List of device names to select.
-        """
-        self._selected_names = list(names)
-        self._update_display()
-
-    def _update_display(self) -> None:
-        """Update the display text."""
-        if not self._selected_names:
-            self._display.setText("")
-        else:
-            self._display.setText(", ".join(self._selected_names))
-
-    @Slot()
-    def _on_select_clicked(self) -> None:
-        """Open the device selection dialog."""
-        if self._catalog is None:
-            logger.warning("No DeviceCatalog set for DeviceSelectorWidget")
-            return
-
-        dialog = DeviceSelectorDialog(
-            catalog=self._catalog,
-            multi_select=self._multi_select,
-            category_filter=self._category_filter,
-            parent=self,
-        )
-        dialog.set_selected_names(self._selected_names)
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._selected_names = dialog.get_selected_names()
-            self._update_display()
-            self.selection_changed.emit(self._selected_names)
-            logger.debug(f"Device selection changed: {self._selected_names}")
-
-    @Slot()
-    def _on_clear_clicked(self) -> None:
-        """Clear the selection."""
-        if self._selected_names:
-            self._selected_names = []
-            self._update_display()
-            self.selection_changed.emit(self._selected_names)
-
-    def get_value(self) -> list[str]:
-        """Get the widget value (for parameter tree integration).
-
-        Returns:
-            List of selected device names.
-        """
-        return self.get_selected_names()
-
-    def set_value(self, value: list[str] | str) -> None:
-        """Set the widget value (for parameter tree integration).
-
-        Args:
-            value: Device name(s) as list or comma-separated string.
-        """
-        if isinstance(value, str):
-            if value:
-                names = [n.strip() for n in value.split(",")]
+        def setValue(self, value):
+            """Set the parameter value."""
+            if isinstance(value, str):
+                if value:
+                    self._value = [n.strip() for n in value.split(",")]
+                else:
+                    self._value = []
+            elif isinstance(value, list):
+                self._value = list(value)
             else:
-                names = []
-        else:
-            names = list(value)
-        self.set_selected_names(names)
+                self._value = []
+
+            # Update widget display
+            display_text = ", ".join(self._value) if self._value else ""
+            self.widget.setText(display_text)
+
+        def value(self):
+            """Get the current value."""
+            return self._value
+
+        def _open_device_dialog(self):
+            """Open the device selection dialog."""
+            opts = self.param.opts
+            catalog = opts.get("catalog")
+
+            if catalog is None:
+                logger.warning("No DeviceCatalog set for DeviceParameter")
+                return
+
+            multi_select = opts.get("multi_select", True)
+            category_filter = opts.get("category_filter")
+
+            dialog = DeviceSelectorDialog(
+                catalog=catalog,
+                multi_select=multi_select,
+                category_filter=category_filter,
+                parent=None,
+            )
+
+            # Pre-select current values
+            current = self.param.value() if self.param.hasValue() else []
+            if current:
+                dialog.set_selected_names(current)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected = dialog.get_selected_names()
+                self.param.setValue(selected)
+
+        def updateDefaultBtn(self):
+            """Update the default button state."""
+            self.defaultBtn.setEnabled(
+                not self.param.valueIsDefault() and self.param.opts["enabled"]
+            )
+            self.defaultBtn.setVisible(self.param.hasDefault())
+
+        def updateDisplayLabel(self, value=None):
+            """Update the display label with elided text."""
+            lbl = self.displayLabel
+            if value is None:
+                value = self.param.value()
+
+            # Format as comma-separated string
+            if isinstance(value, list):
+                value = ", ".join(value) if value else ""
+            else:
+                value = str(value) if value else ""
+
+            # Elide text if too long
+            font = lbl.font()
+            metrics = QFontMetricsF(font)
+            value = metrics.elidedText(
+                value, Qt.TextElideMode.ElideRight, lbl.width() - 5
+            )
+            return super().updateDisplayLabel(value)
+
+    class DeviceParameter(Parameter):
+        """Parameter type for selecting devices from a DeviceCatalog.
+
+        Options:
+            catalog: DeviceCatalog instance to select devices from.
+            multi_select: If True, allow selecting multiple devices (default: True).
+            category_filter: Optional category string to filter devices by.
+
+        Example:
+            >>> params = Parameter.create(name='params', type='group', children=[
+            ...     {'name': 'detectors', 'type': 'device', 'catalog': catalog, 'multi_select': True},
+            ...     {'name': 'motor', 'type': 'device', 'catalog': catalog, 'multi_select': False},
+            ... ])
+        """
+
+        itemClass = DeviceParameterItem
+
+        def __init__(self, **opts):
+            opts.setdefault("readonly", True)
+            opts.setdefault("value", [])
+            opts.setdefault("multi_select", True)
+            super().__init__(**opts)
+
+    # Register the parameter type
+    if "device" not in PARAM_TYPES:
+        registerParameterType("device", DeviceParameter)
+        logger.debug("Registered 'device' parameter type")

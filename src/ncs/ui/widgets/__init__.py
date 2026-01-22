@@ -26,8 +26,17 @@ from ncs.ui.widgets.device_control import (
 )
 from ncs.ui.widgets.device_selector import (
     DeviceSelectorDialog,
-    DeviceSelectorWidget,
 )
+
+# Import conditionally since DeviceParameter requires pyqtgraph
+try:
+    from ncs.ui.widgets.device_selector import (
+        DeviceParameter,
+        DeviceParameterItem,
+    )
+except ImportError:
+    DeviceParameter = None  # type: ignore
+    DeviceParameterItem = None  # type: ignore
 from ncs.ui.widgets.document_stream import (
     DocumentStreamModel,
     DocumentStreamWidget,
@@ -59,9 +68,10 @@ __all__ = [
     # Container
     "DeviceControlWidget",
     "ControlWidgetFactory",
-    # Device selector
-    "DeviceSelectorWidget",
+    # Device selector (for ParameterTree integration)
     "DeviceSelectorDialog",
+    "DeviceParameter",
+    "DeviceParameterItem",
     # Motor widgets
     "MotorControlWidget",
     "MultiMotorControlWidget",
