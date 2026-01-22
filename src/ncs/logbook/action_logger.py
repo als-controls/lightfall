@@ -302,26 +302,68 @@ class DeviceActionLogger(QObject):
         self.close_current_group()
 
     def _on_motion_started(self, device_name: str) -> None:
-        """Handle motion started signal from control widget."""
-        # Store pending move to capture old value
-        self._pending_moves[device_name] = {
-            "start_time": datetime.now(),
-            "old_value": None,  # Could be populated if we track device state
-        }
+        """Handle motion started signal from control widget.
+
+        Note: This basic handler doesn't capture values. For full value tracking,
+        use record_move_start() and record_move_complete() directly.
+        """
+        # Store pending move - values will be None unless set via record_move_start
+        if device_name not in self._pending_moves:
+            self._pending_moves[device_name] = {
+                "start_time": datetime.now(),
+                "old_value": None,
+                "target_value": None,
+                "unit": "",
+            }
         logger.debug(f"Motion started: {device_name}")
 
     def _on_motion_finished(self, device_name: str) -> None:
         """Handle motion finished signal from control widget."""
         pending = self._pending_moves.pop(device_name, None)
-        old_value = pending.get("old_value") if pending else None
+
+        if pending:
+            old_value = pending.get("old_value")
+            new_value = pending.get("target_value")
+            unit = pending.get("unit", "")
+        else:
+            old_value = None
+            new_value = None
+            unit = ""
 
         # Record the move action
         self.record_action(
             device_name=device_name,
             action_type="move",
             old_value=old_value,
-            new_value=None,  # Could be populated with final position
+            new_value=new_value,
+            unit=unit,
         )
+
+    def record_move_start(
+        self,
+        device_name: str,
+        old_value: Any,
+        target_value: Any,
+        unit: str = "",
+    ) -> None:
+        """Record the start of a move with full value tracking.
+
+        Call this instead of relying on motion_started signal when you
+        want to capture old and target values.
+
+        Args:
+            device_name: Name of the device.
+            old_value: Current position before move.
+            target_value: Target position.
+            unit: Position unit string.
+        """
+        self._pending_moves[device_name] = {
+            "start_time": datetime.now(),
+            "old_value": old_value,
+            "target_value": target_value,
+            "unit": unit,
+        }
+        logger.debug(f"Move started: {device_name} {old_value} -> {target_value} {unit}")
 
     def format_action_markdown(self, action: DeviceAction) -> str:
         """Format a single action as markdown.

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ncs.devices.model import DeviceCategory
+from ncs.logbook import DeviceActionLogger
 from ncs.ui.models.device_tree import DeviceTreeItem, NodeType
 from ncs.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from ncs.utils.logging import logger
@@ -321,20 +322,70 @@ class MotorControlWidget(BaseControlWidget):
 
         try:
             target = float(self._setpoint_edit.text())
-            if hasattr(self._motor, "set"):
-                self.motion_started.emit(self._motor_name)
-                status = self._motor.set(target)
-                # Optionally wait or handle async
-                logger.info("Moving {} to {}", self._motor_name, target)
-            elif hasattr(self._motor, "move"):
-                self.motion_started.emit(self._motor_name)
-                self._motor.move(target)
-                logger.info("Moving {} to {}", self._motor_name, target)
+            current = self._get_current_position()
+            self._start_move(target, current)
         except ValueError:
             self.control_error.emit("Invalid setpoint value")
         except Exception as e:
             self.control_error.emit(f"Move failed: {e}")
             logger.error("Motor move failed: {}", e)
+
+    def _get_current_position(self) -> float | None:
+        """Get the current motor position."""
+        if self._motor is None:
+            return None
+        if hasattr(self._motor, "position"):
+            return self._motor.position
+        if hasattr(self._motor, "readback") and hasattr(self._motor.readback, "get"):
+            return self._motor.readback.get()
+        return None
+
+    def _start_move(self, target: float, start_position: float | None = None) -> None:
+        """Start a motor move with completion tracking.
+
+        Args:
+            target: Target position.
+            start_position: Starting position (for logging).
+        """
+        if self._motor is None:
+            return
+
+        motor_name = self._motor_name
+
+        # Record move start with values for action logging
+        action_logger = DeviceActionLogger.get_instance()
+        action_logger.record_move_start(
+            device_name=motor_name,
+            old_value=start_position,
+            target_value=target,
+            unit=self._units,
+        )
+
+        self.motion_started.emit(motor_name)
+
+        if hasattr(self._motor, "set"):
+            status = self._motor.set(target)
+            logger.info("Moving {} to {}", motor_name, target)
+
+            # Add completion callback
+            def on_complete(status=None):
+                # Emit signal with move details for action logging
+                self.motion_finished.emit(motor_name)
+
+            if hasattr(status, "add_callback"):
+                status.add_callback(on_complete)
+            elif hasattr(status, "finished"):
+                # Alternative: check if it has a finished signal
+                status.finished.connect(on_complete)
+            else:
+                # No async tracking available, emit immediately
+                on_complete()
+
+        elif hasattr(self._motor, "move"):
+            self._motor.move(target)
+            logger.info("Moving {} to {}", motor_name, target)
+            # Synchronous move, emit completion
+            self.motion_finished.emit(motor_name)
 
     @Slot()
     def _on_tweak_forward(self) -> None:
@@ -353,19 +404,11 @@ class MotorControlWidget(BaseControlWidget):
 
         try:
             step = float(self._tweak_edit.text())
-            current = None
-
-            if hasattr(self._motor, "position"):
-                current = self._motor.position
-            elif hasattr(self._motor, "readback") and hasattr(self._motor.readback, "get"):
-                current = self._motor.readback.get()
+            current = self._get_current_position()
 
             if current is not None:
                 target = current + (direction * step)
-                if hasattr(self._motor, "set"):
-                    self.motion_started.emit(self._motor_name)
-                    self._motor.set(target)
-                    logger.info("Tweaking {} to {}", self._motor_name, target)
+                self._start_move(target, current)
         except ValueError:
             self.control_error.emit("Invalid tweak value")
         except Exception as e:
@@ -696,37 +739,65 @@ class MultiMotorControlWidget(BaseControlWidget):
     @Slot(str, float, bool)
     def _on_move_requested(self, name: str, value: float, is_relative: bool) -> None:
         """Handle move request from a motor row."""
-        # Find the motor
+        # Find the motor and item
         motor = None
-        for n, m, item in self._motors:
+        item = None
+        for n, m, i in self._motors:
             if n == name:
                 motor = m
+                item = i
                 break
 
         if motor is None:
             return
 
         try:
-            if is_relative:
-                # Relative move
-                current = None
-                if hasattr(motor, "position"):
-                    current = motor.position
-                elif hasattr(motor, "readback") and hasattr(motor.readback, "get"):
-                    current = motor.readback.get()
+            # Get current position
+            current = None
+            if hasattr(motor, "position"):
+                current = motor.position
+            elif hasattr(motor, "readback") and hasattr(motor.readback, "get"):
+                current = motor.readback.get()
 
-                if current is not None:
-                    target = current + value
-                    if hasattr(motor, "set"):
-                        self.motion_started.emit(name)
-                        motor.set(target)
-                        logger.info("Relative move {} by {} to {}", name, value, target)
+            target = value
+            if is_relative:
+                if current is None:
+                    return
+                target = current + value
+                logger.info("Relative move {} by {} to {}", name, value, target)
             else:
-                # Absolute move
-                if hasattr(motor, "set"):
-                    self.motion_started.emit(name)
-                    motor.set(value)
-                    logger.info("Absolute move {} to {}", name, value)
+                logger.info("Absolute move {} to {}", name, value)
+
+            # Get units from item metadata
+            unit = ""
+            if item and item.device_info and item.device_info.metadata:
+                unit = item.device_info.metadata.get("units", "")
+
+            # Record move start with values for action logging
+            action_logger = DeviceActionLogger.get_instance()
+            action_logger.record_move_start(
+                device_name=name,
+                old_value=current,
+                target_value=target,
+                unit=unit,
+            )
+
+            # Start the move with completion tracking
+            if hasattr(motor, "set"):
+                self.motion_started.emit(name)
+                status = motor.set(target)
+
+                # Add completion callback
+                def on_complete(status=None, motor_name=name):
+                    self.motion_finished.emit(motor_name)
+
+                if hasattr(status, "add_callback"):
+                    status.add_callback(on_complete)
+                elif hasattr(status, "finished"):
+                    status.finished.connect(on_complete)
+                else:
+                    on_complete()
+
         except Exception as e:
             self.control_error.emit(f"Move failed for {name}: {e}")
             logger.error("Motor move failed for {}: {}", name, e)
