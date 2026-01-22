@@ -276,14 +276,24 @@ if HAS_PYQTGRAPH:
             super().__init__(param, depth)
 
             # Add the "..." button to open dialog
-            button = QPushButton("...")
-            button.setFixedWidth(25)
-            button.setContentsMargins(0, 0, 0, 0)
-            button.clicked.connect(self._open_device_dialog)
-            self.layoutWidget.layout().insertWidget(2, button)
+            self._select_button = QPushButton("...")
+            self._select_button.setFixedWidth(25)
+            self._select_button.setContentsMargins(0, 0, 0, 0)
+            self._select_button.clicked.connect(self._open_device_dialog)
+            self.layoutWidget.layout().insertWidget(2, self._select_button)
 
             # Handle resize for text elision
             self.displayLabel.resizeEvent = self._new_resize_event
+
+        def showEditor(self):
+            """Show the editor widget, keeping button visible."""
+            super().showEditor()
+            self._select_button.show()
+
+        def hideEditor(self):
+            """Hide the editor widget, keeping button visible."""
+            super().hideEditor()
+            self._select_button.show()
 
         def makeWidget(self):
             """Create the widget for editing."""
