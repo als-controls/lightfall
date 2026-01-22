@@ -175,6 +175,45 @@ def get_marker_color() -> str:
         return "#6c757d"  # Bootstrap gray
 
 
+def get_action_group_background_color() -> str:
+    """
+    Get the background color for action group entries.
+
+    Returns:
+        CSS color string appropriate for the current theme.
+    """
+    if is_dark_theme():
+        return "#1e3a5f"  # Dark blue
+    else:
+        return "#e3f2fd"  # Light blue
+
+
+def get_action_group_border_color() -> str:
+    """
+    Get the border color for action group entries.
+
+    Returns:
+        CSS color string appropriate for the current theme.
+    """
+    if is_dark_theme():
+        return "#2196f3"  # Blue
+    else:
+        return "#1976d2"  # Darker blue
+
+
+def get_action_group_icon_color() -> str:
+    """
+    Get the color for action group expand/collapse icon.
+
+    Returns:
+        CSS color string appropriate for the current theme.
+    """
+    if is_dark_theme():
+        return "#64b5f6"  # Light blue
+    else:
+        return "#1565c0"  # Dark blue
+
+
 class LogbookStyles:
     """
     Centralized style definitions for logbook widgets.
@@ -246,6 +285,9 @@ def get_qt_html_stylesheet() -> str:
     protected_bg = get_protected_background_color()
     protected_border = get_protected_border_color()
     protected_text = get_protected_text_color()
+    action_bg = get_action_group_background_color()
+    action_border = get_action_group_border_color()
+    action_icon = get_action_group_icon_color()
 
     return f"""
         h1, h2, h3, h4, h5, h6 {{
@@ -309,5 +351,26 @@ def get_qt_html_stylesheet() -> str:
             border-left: 3px solid {protected_border};
             padding-left: 8px;
             color: {protected_text};
+        }}
+
+        .action-group {{
+            background-color: {action_bg};
+            border-left: 3px solid {action_border};
+            padding-left: 8px;
+        }}
+
+        .action-group-summary {{
+            background-color: {action_bg};
+            border-left: 3px solid {action_border};
+            padding: 8px 12px;
+            margin: 4px 0;
+            cursor: pointer;
+        }}
+
+        .expand-icon {{
+            color: {action_icon};
+            font-family: monospace;
+            font-weight: bold;
+            margin-right: 8px;
         }}
     """

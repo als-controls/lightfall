@@ -25,13 +25,13 @@ from PySide6.QtWidgets import (
 
 from ncs.ui.toast import ToastManager
 
-from ncs.logbook import LogbookWidget
+from ncs.logbook import DeviceActionLogger, LogbookWidget
 from ncs.project import Logbook, LogbookEntry, ProjectService
 from ncs.ui.panels.base import BasePanel, PanelMetadata
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
-    pass
+    from ncs.logbook.action_logger import ActionGroup
 
 
 class LogbookPanel(BasePanel):
@@ -76,10 +76,14 @@ class LogbookPanel(BasePanel):
         self._project_service = ProjectService.get_instance()
         self._current_entry_id: UUID | None = None
         self._sync_timer: QTimer | None = None
+        self._action_logger: DeviceActionLogger | None = None
         super().__init__(parent)
 
         # Connect to project service signals
         self._connect_service_signals()
+
+        # Connect to device action logger
+        self._connect_action_logger()
 
         # Load initial content
         self._refresh_content()
@@ -426,3 +430,69 @@ class LogbookPanel(BasePanel):
             return True
         except ValueError:
             return False
+
+    # === Device Action Logging ===
+
+    def _connect_action_logger(self) -> None:
+        """Connect to the DeviceActionLogger for automatic action recording."""
+        self._action_logger = DeviceActionLogger.get_instance()
+        self._action_logger.group_updated.connect(self._on_action_group_updated)
+        self._action_logger.group_closed.connect(self._on_action_group_closed)
+        logger.debug("Connected to DeviceActionLogger")
+
+    @Slot(object)
+    def _on_action_group_updated(self, group: ActionGroup) -> None:
+        """Handle action group update (new action added to group).
+
+        Args:
+            group: The updated action group.
+        """
+        if not self._project_service.has_project:
+            return
+
+        region_id = f"action-{group.id}"
+
+        # Check if this group already exists in the logbook
+        existing_region = self._logbook_widget._protection_manager.get_region(region_id)
+
+        if existing_region:
+            # Update existing group
+            self._logbook_widget.update_action_group(region_id, group)
+        else:
+            # Insert new group
+            self._logbook_widget.insert_action_group(group)
+            self._scroll_to_bottom()
+
+        logger.debug(f"Action group {group.id} updated with {group.count} actions")
+
+    @Slot(object)
+    def _on_action_group_closed(self, group: ActionGroup) -> None:
+        """Handle action group closed (finalized).
+
+        Args:
+            group: The closed action group.
+        """
+        if not self._project_service.has_project:
+            return
+
+        # Update the group one final time to ensure it's in sync
+        region_id = f"action-{group.id}"
+        existing_region = self._logbook_widget._protection_manager.get_region(region_id)
+
+        if existing_region:
+            self._logbook_widget.update_action_group(region_id, group)
+
+        logger.debug(f"Action group {group.id} closed with {group.count} actions")
+
+    def connect_control_widget(self, widget) -> None:
+        """Connect a control widget to the action logger.
+
+        This should be called when control widgets are created to enable
+        automatic action logging.
+
+        Args:
+            widget: A BaseControlWidget instance.
+        """
+        if self._action_logger:
+            self._action_logger.connect_to_control_widget(widget)
+            logger.debug(f"Connected control widget {widget.__class__.__name__} to action logger")

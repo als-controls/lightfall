@@ -24,6 +24,46 @@ PROTECTED_PATTERN = re.compile(
     re.DOTALL,
 )
 
+# Regex pattern for action group metadata: <!-- ACTION_GROUP:count=N:start=...:end=...:collapsed=... -->
+ACTION_GROUP_PATTERN = re.compile(
+    r"<!--\s*ACTION_GROUP:"
+    r"count=(\d+):"
+    r"start=([^:]+):"
+    r"end=([^:]+):"
+    r"collapsed=(true|false)\s*-->",
+)
+
+
+@dataclass
+class ActionGroupInfo:
+    """
+    Metadata about an action group within a protected region.
+
+    Attributes:
+        count: Number of actions in the group.
+        start_time: ISO timestamp of first action.
+        end_time: ISO timestamp of last action.
+        collapsed: Whether the group is displayed collapsed.
+        region_id: ID of the containing protected region.
+    """
+
+    count: int
+    start_time: str
+    end_time: str
+    collapsed: bool
+    region_id: str = ""
+
+    @classmethod
+    def from_match(cls, match: re.Match, region_id: str = "") -> ActionGroupInfo:
+        """Create from regex match."""
+        return cls(
+            count=int(match.group(1)),
+            start_time=match.group(2),
+            end_time=match.group(3),
+            collapsed=match.group(4) == "true",
+            region_id=region_id,
+        )
+
 
 @dataclass
 class ProtectedRegion:
@@ -295,3 +335,53 @@ class ProtectionManager(QObject):
             elif region.end_offset > position:
                 # Edit is within or at the end of the region
                 region.end_offset += delta
+
+    def get_action_groups(self) -> list[tuple[ProtectedRegion, ActionGroupInfo]]:
+        """
+        Get all action groups from protected regions.
+
+        Returns:
+            List of (region, action_group_info) tuples for regions
+            that contain action group metadata.
+        """
+        result = []
+        for region in self._regions:
+            # Check if this region contains action group metadata
+            match = ACTION_GROUP_PATTERN.search(region.content)
+            if match:
+                info = ActionGroupInfo.from_match(match, region.region_id)
+                result.append((region, info))
+        return result
+
+    def is_action_group_region(self, region_id: str) -> bool:
+        """
+        Check if a protected region is an action group.
+
+        Args:
+            region_id: The region ID to check.
+
+        Returns:
+            True if the region contains action group metadata.
+        """
+        region = self.get_region(region_id)
+        if region is None:
+            return False
+        return bool(ACTION_GROUP_PATTERN.search(region.content))
+
+    def get_action_group_info(self, region_id: str) -> ActionGroupInfo | None:
+        """
+        Get action group info for a protected region.
+
+        Args:
+            region_id: The region ID.
+
+        Returns:
+            ActionGroupInfo if the region is an action group, None otherwise.
+        """
+        region = self.get_region(region_id)
+        if region is None:
+            return None
+        match = ACTION_GROUP_PATTERN.search(region.content)
+        if match:
+            return ActionGroupInfo.from_match(match, region_id)
+        return None

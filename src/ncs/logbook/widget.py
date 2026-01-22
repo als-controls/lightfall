@@ -31,6 +31,12 @@ from ncs.logbook.editors.richtext_editor import RichTextEditor
 from ncs.logbook.protection import ProtectedRegion, ProtectionManager
 from ncs.logbook.style import LogbookStyles
 
+# Import type hints only to avoid circular imports
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ncs.logbook.action_logger import ActionGroup
+
 
 class LogbookWidget(QWidget):
     """
@@ -546,3 +552,128 @@ class LogbookWidget(QWidget):
         """Set heading level."""
         if self._current_mode == "wysiwyg":
             self._rich_editor.set_heading(level)
+
+    # === Action Logging Methods ===
+
+    def insert_action_group(self, action_group: ActionGroup) -> None:
+        """
+        Insert an action group into the logbook.
+
+        The action group is formatted as protected markdown and appended
+        to the current content.
+
+        Args:
+            action_group: The ActionGroup to insert.
+        """
+        from ncs.logbook.action_logger import DeviceActionLogger
+
+        logger_instance = DeviceActionLogger.get_instance()
+        markdown = logger_instance.format_group_markdown(action_group)
+
+        self.append_content(markdown)
+        logger.debug(f"Inserted action group {action_group.id} with {action_group.count} actions")
+
+    def append_content(self, markdown: str) -> None:
+        """
+        Append markdown content to the end of the logbook.
+
+        Args:
+            markdown: The markdown content to append.
+        """
+        current = self.get_content()
+        # Ensure there's a newline separator
+        if current and not current.endswith("\n"):
+            current += "\n"
+        if current and not current.endswith("\n\n"):
+            current += "\n"
+
+        new_content = current + markdown
+        self.set_content(new_content)
+
+    def update_action_group(self, region_id: str, action_group: ActionGroup) -> bool:
+        """
+        Update an existing action group entry in the logbook.
+
+        Replaces the content of the protected region with the new action
+        group content.
+
+        Args:
+            region_id: The ID of the action group region to update.
+            action_group: The updated ActionGroup.
+
+        Returns:
+            True if the region was found and updated, False otherwise.
+        """
+        from ncs.logbook.action_logger import DeviceActionLogger
+
+        region = self._protection_manager.get_region(region_id)
+        if region is None:
+            logger.warning(f"Action group region not found: {region_id}")
+            return False
+
+        # Format the new content
+        logger_instance = DeviceActionLogger.get_instance()
+        new_markdown = logger_instance.format_group_markdown(action_group)
+
+        # Replace the old region with new content
+        content = self.get_content()
+        new_content = content[:region.start_offset] + new_markdown + content[region.end_offset:]
+
+        self.set_content(new_content)
+        logger.debug(f"Updated action group {region_id} with {action_group.count} actions")
+        return True
+
+    def show_action_group_details(self, region_id: str) -> None:
+        """
+        Show a dialog with action group details.
+
+        Args:
+            region_id: The ID of the action group region.
+        """
+        from ncs.logbook.action_dialog import ActionGroupDialog
+        from ncs.logbook.action_logger import DeviceActionLogger
+
+        # Get the action group info
+        info = self._protection_manager.get_action_group_info(region_id)
+        if info is None:
+            logger.warning(f"Action group info not found: {region_id}")
+            return
+
+        # Get the actions from the DeviceActionLogger if it's the current group
+        logger_instance = DeviceActionLogger.get_instance()
+        if logger_instance.current_group and logger_instance.current_group.id == region_id.replace("action-", ""):
+            actions = logger_instance.current_group.actions
+        else:
+            # TODO: Parse actions from markdown content for historical groups
+            actions = []
+            logger.debug(f"Historical action group {region_id} - parsing not yet implemented")
+
+        # Show the dialog
+        dialog = ActionGroupDialog(region_id, actions, self)
+        dialog.exec()
+
+    def get_last_action_group_id(self) -> str | None:
+        """
+        Get the ID of the most recent action group in the logbook.
+
+        Returns:
+            The region ID of the last action group, or None if there are none.
+        """
+        groups = self._protection_manager.get_action_groups()
+        if not groups:
+            return None
+        # Return the last one (highest offset)
+        last = max(groups, key=lambda g: g[0].start_offset)
+        return last[0].region_id
+
+    def notify_user_edit(self) -> None:
+        """
+        Notify that the user has made a manual edit.
+
+        This closes any active action group to prevent it from being
+        extended with future device actions.
+        """
+        from ncs.logbook.action_logger import DeviceActionLogger
+
+        logger_instance = DeviceActionLogger.get_instance()
+        logger_instance.close_current_group()

@@ -21,6 +21,21 @@ from ncs.logbook.style import get_qt_html_stylesheet
 PROTECTED_START_PATTERN = re.compile(r"<!--\s*PROTECTED:(\S+)\s*-->")
 PROTECTED_END_PATTERN = re.compile(r"<!--\s*/PROTECTED:(\S+)\s*-->")
 
+# Pattern to match action group metadata
+ACTION_GROUP_METADATA_PATTERN = re.compile(
+    r"<!--\s*ACTION_GROUP:"
+    r"count=(\d+):"
+    r"start=([^:]+):"
+    r"end=([^:]+):"
+    r"collapsed=(true|false)\s*-->"
+)
+
+# Pattern to match details/summary (for action groups)
+DETAILS_PATTERN = re.compile(
+    r"<details[^>]*>\s*<summary>(.+?)</summary>(.*?)</details>",
+    re.DOTALL,
+)
+
 
 class QtHtmlRenderer(mistune.HTMLRenderer):
     """
@@ -34,26 +49,81 @@ class QtHtmlRenderer(mistune.HTMLRenderer):
         super().__init__(escape=False)
         self._in_protected = False
         self._protected_id: str | None = None
+        self._in_action_group = False
+        self._action_group_collapsed = True
+        self._action_group_count = 0
 
     def text(self, text: str) -> str:
-        """Render plain text, checking for protected markers."""
+        """Render plain text, checking for protected and action group markers."""
+        result_parts = []
+        remaining = text
+
         # Check for protected start marker
-        start_match = PROTECTED_START_PATTERN.search(text)
+        start_match = PROTECTED_START_PATTERN.search(remaining)
         if start_match:
             self._in_protected = True
             self._protected_id = start_match.group(1)
+            # Check if this is an action group (starts with "action-")
+            is_action = self._protected_id.startswith("action-")
+            css_class = "action-group protected" if is_action else "protected"
             # Remove the marker from output but add a span
-            text = PROTECTED_START_PATTERN.sub("", text)
-            return f'<span class="protected" data-region="{self._protected_id}">{html.escape(text)}'
+            remaining = PROTECTED_START_PATTERN.sub("", remaining)
+            result_parts.append(
+                f'<span class="{css_class}" data-region="{self._protected_id}">'
+            )
+
+        # Check for action group metadata marker
+        action_match = ACTION_GROUP_METADATA_PATTERN.search(remaining)
+        if action_match:
+            self._in_action_group = True
+            self._action_group_count = int(action_match.group(1))
+            self._action_group_collapsed = action_match.group(4) == "true"
+            # Remove the metadata marker (it's just for parsing, not display)
+            remaining = ACTION_GROUP_METADATA_PATTERN.sub("", remaining)
 
         # Check for protected end marker
-        end_match = PROTECTED_END_PATTERN.search(text)
+        end_match = PROTECTED_END_PATTERN.search(remaining)
         if end_match:
             self._in_protected = False
+            self._in_action_group = False
             self._protected_id = None
-            text = PROTECTED_END_PATTERN.sub("", text)
-            return f"{html.escape(text)}</span>"
+            remaining = PROTECTED_END_PATTERN.sub("", remaining)
+            result_parts.append(html.escape(remaining))
+            result_parts.append("</span>")
+            return "".join(result_parts)
 
+        result_parts.append(html.escape(remaining))
+        return "".join(result_parts)
+
+    def html_block(self, text: str) -> str:
+        """Render raw HTML block, handling details/summary for action groups."""
+        # Check for details/summary pattern (action groups)
+        details_match = DETAILS_PATTERN.search(text)
+        if details_match:
+            summary_content = details_match.group(1)
+            details_content = details_match.group(2)
+
+            # Render as a clickable summary with expand indicator
+            # The full content is in a data attribute for the dialog
+            region_id = self._protected_id or ""
+            return (
+                f'<div class="action-group-summary" data-region="{region_id}" '
+                f'data-collapsed="true">'
+                f'<span class="expand-icon">[+]</span> {summary_content}'
+                f'</div>\n'
+            )
+
+        # For other HTML blocks, pass through (but escape for safety in Qt)
+        return f"<p>{html.escape(text)}</p>\n"
+
+    def raw_html(self, text: str) -> str:
+        """Handle inline raw HTML."""
+        # Check for details/summary
+        if "<details" in text or "</details>" in text:
+            # Will be handled by html_block
+            return ""
+        if "<summary" in text or "</summary>" in text:
+            return ""
         return html.escape(text)
 
     def paragraph(self, text: str) -> str:
@@ -168,6 +238,9 @@ class MarkdownConverter:
             # Reset renderer state
             self._renderer._in_protected = False
             self._renderer._protected_id = None
+            self._renderer._in_action_group = False
+            self._renderer._action_group_collapsed = True
+            self._renderer._action_group_count = 0
 
             # Parse markdown to HTML
             body = self._parser(markdown)
