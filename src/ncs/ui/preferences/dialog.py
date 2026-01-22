@@ -1,46 +1,47 @@
 """Preferences dialog for NCS.
 
-Provides a dialog for viewing and editing user preferences.
+Provides a plugin-driven dialog for viewing and editing user preferences.
+Settings plugins are discovered from the PluginRegistry and rendered
+dynamically.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from loguru import logger
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
-    QSpinBox,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from ncs.ui.preferences.manager import PreferencesManager
-from ncs.ui.theme import Theme, ThemeManager
-
 if TYPE_CHECKING:
-    pass
+    from ncs.plugins.settings_plugin import SettingsPlugin
 
 
 class PreferencesDialog(QDialog):
-    """
-    Dialog for editing user preferences.
+    """Plugin-driven dialog for editing user preferences.
 
-    Provides controls for:
-    - Theme selection (Light/Dark/System)
-    - Font size adjustment
-    - UI visibility options
+    Discovers all registered SettingsPlugin instances and renders them
+    as pages in a sidebar-navigated dialog. Each plugin provides its own
+    widget and handles loading/saving its settings.
 
     Example:
         >>> dialog = PreferencesDialog(parent)
         >>> if dialog.exec() == QDialog.DialogCode.Accepted:
         ...     # Preferences were applied
+
+    The dialog supports:
+    - Live preview via apply_preview()
+    - Validation before save via validate()
+    - Revert on cancel via revert_preview()
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -50,90 +51,161 @@ class PreferencesDialog(QDialog):
             parent: Parent widget.
         """
         super().__init__(parent)
-        self._prefs_manager = PreferencesManager.get_instance()
-        self._theme_manager = ThemeManager.get_instance()
+        self._plugins: dict[str, SettingsPlugin] = {}
+        self._plugin_widgets: dict[str, QWidget] = {}
 
         self._setup_ui()
-        self._load_current_values()
+        self._load_plugins()
 
     def _setup_ui(self) -> None:
-        """Setup the dialog UI."""
+        """Setup the dialog UI with sidebar navigation."""
         self.setWindowTitle("Preferences")
-        self.setMinimumWidth(400)
+        self.setMinimumSize(600, 400)
 
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setSpacing(16)
 
-        # Appearance group
-        appearance_group = QGroupBox("Appearance")
-        appearance_layout = QFormLayout(appearance_group)
+        # Left sidebar for navigation
+        self._sidebar = QListWidget()
+        self._sidebar.setMaximumWidth(150)
+        self._sidebar.setMinimumWidth(120)
+        self._sidebar.currentRowChanged.connect(self._on_page_changed)
+        layout.addWidget(self._sidebar)
 
-        # Theme selector
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItem("Light", Theme.LIGHT.value)
-        self._theme_combo.addItem("Dark", Theme.DARK.value)
-        self._theme_combo.addItem("System", Theme.SYSTEM.value)
-        self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        appearance_layout.addRow("Theme:", self._theme_combo)
+        # Right content area
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Font size
-        font_layout = QHBoxLayout()
-        self._font_spin = QSpinBox()
-        self._font_spin.setRange(8, 24)
-        self._font_spin.setSuffix(" pt")
-        self._font_spin.valueChanged.connect(self._on_font_size_changed)
-        font_layout.addWidget(self._font_spin)
-        font_layout.addStretch()
-        appearance_layout.addRow("Font Size:", font_layout)
-
-        layout.addWidget(appearance_group)
-
-        # Add stretch to push buttons to bottom
-        layout.addStretch()
+        # Stack for plugin widgets
+        self._stack = QStackedWidget()
+        right_layout.addWidget(self._stack, 1)
 
         # Buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
+            | QDialogButtonBox.StandardButton.Apply
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
 
-    def _load_current_values(self) -> None:
-        """Load current preference values into controls."""
-        # Theme
-        current_theme = self._prefs_manager.theme
-        index = self._theme_combo.findData(current_theme)
-        if index >= 0:
-            self._theme_combo.setCurrentIndex(index)
+        apply_button = button_box.button(QDialogButtonBox.StandardButton.Apply)
+        if apply_button:
+            apply_button.clicked.connect(self._apply)
 
-        # Font size
-        self._font_spin.setValue(self._prefs_manager.font_size)
+        right_layout.addWidget(button_box)
+        layout.addLayout(right_layout, 1)
 
-    def _on_theme_changed(self, index: int) -> None:
-        """Handle theme selection change - apply immediately for preview."""
-        theme_value = self._theme_combo.itemData(index)
-        if theme_value:
+    def _load_plugins(self) -> None:
+        """Load all settings plugins and create their widgets."""
+        from ncs.core.services import ServiceRegistry
+        from ncs.plugins.registry import PluginRegistry
+
+        try:
+            services = ServiceRegistry.get_instance()
+            registry = services.get(PluginRegistry)
+        except Exception:
+            # PluginRegistry may not be initialized yet
+            logger.warning("PluginRegistry not available, preferences dialog will be empty")
+            return
+
+        if registry is None:
+            logger.warning("PluginRegistry not registered, preferences dialog will be empty")
+            return
+
+        plugin_infos = registry.get_ready_by_type("settings")
+
+        if not plugin_infos:
+            logger.debug("No settings plugins found")
+            return
+
+        # Sort by category, then priority
+        plugin_infos.sort(key=lambda p: (p.instance.category, p.instance.priority))
+
+        for info in plugin_infos:
+            plugin = info.instance
+            self._plugins[plugin.name] = plugin
+
+            # Create and cache widget
             try:
-                theme = Theme(theme_value)
-                self._theme_manager.set_theme(theme)
-            except ValueError:
-                pass
+                widget = plugin.create_widget(self)
+                self._plugin_widgets[plugin.name] = widget
+                plugin.load_settings()
 
-    def _on_font_size_changed(self, value: int) -> None:
-        """Handle font size change - apply immediately for preview."""
-        # Font size changes are applied on accept
-        pass
+                # Add to UI
+                item = QListWidgetItem(plugin.display_name)
+                if plugin.icon:
+                    item.setIcon(plugin.icon)
+                self._sidebar.addItem(item)
+                self._stack.addWidget(widget)
+
+                logger.debug("Loaded settings plugin: {}", plugin.name)
+            except Exception as e:
+                logger.error("Failed to load settings plugin '{}': {}", plugin.name, e)
+
+        # Select first item
+        if self._sidebar.count() > 0:
+            self._sidebar.setCurrentRow(0)
+
+    def _on_page_changed(self, row: int) -> None:
+        """Handle sidebar selection change.
+
+        Args:
+            row: The selected row index.
+        """
+        self._stack.setCurrentIndex(row)
+
+    def _apply(self) -> bool:
+        """Apply settings without closing.
+
+        Returns:
+            True if settings were applied successfully.
+        """
+        # Validate all plugins
+        errors: list[str] = []
+        for name, plugin in self._plugins.items():
+            try:
+                plugin_errors = plugin.validate()
+                if plugin_errors:
+                    for err in plugin_errors:
+                        errors.append(f"{plugin.display_name}: {err}")
+            except Exception as e:
+                errors.append(f"{plugin.display_name}: Validation error - {e}")
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Validation Error",
+                "Please fix the following errors:\n\n" + "\n".join(errors),
+            )
+            return False
+
+        # Save all plugins
+        for plugin in self._plugins.values():
+            try:
+                plugin.save_settings()
+                logger.debug("Saved settings for plugin: {}", plugin.name)
+            except Exception as e:
+                logger.error("Failed to save settings for '{}': {}", plugin.name, e)
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to save {plugin.display_name} settings: {e}",
+                )
+                return False
+
+        return True
 
     def accept(self) -> None:
-        """Save preferences and close dialog."""
-        # Save theme
-        theme_value = self._theme_combo.currentData()
-        if theme_value:
-            self._prefs_manager.theme = theme_value
+        """Validate, save preferences, and close dialog."""
+        if self._apply():
+            super().accept()
 
-        # Save font size
-        self._prefs_manager.font_size = self._font_spin.value()
-
-        super().accept()
+    def reject(self) -> None:
+        """Revert any preview changes and close dialog."""
+        for plugin in self._plugins.values():
+            try:
+                plugin.revert_preview()
+            except Exception as e:
+                logger.error("Error reverting preview for '{}': {}", plugin.name, e)
+        super().reject()

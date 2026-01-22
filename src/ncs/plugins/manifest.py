@@ -39,6 +39,7 @@ class PluginEntry:
         name: Unique plugin name within this type.
         import_path: Python import path in format "module.path:ClassName".
         metadata: Additional plugin-specific metadata (optional).
+        preload: If True, load synchronously before main window creation.
 
     Example::
 
@@ -48,12 +49,23 @@ class PluginEntry:
             import_path="my_beamline.plans:MyScanPlan",
             metadata={"priority": 10},
         )
+
+    Preload plugins are loaded before the main window is created,
+    allowing them to apply settings (like theme) immediately::
+
+        PluginEntry(
+            type_name="settings",
+            name="appearance",
+            import_path="ncs.ui.preferences.builtin:AppearanceSettingsPlugin",
+            preload=True,
+        )
     """
 
     type_name: str
     name: str
     import_path: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    preload: bool = False
 
     @property
     def unique_id(self) -> str:

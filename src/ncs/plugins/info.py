@@ -31,6 +31,7 @@ class PluginInfo:
         manifest_name: Name of manifest that provided this plugin.
         load_time: When the plugin was loaded.
         error: Error message if loading failed.
+        preload: If True, load synchronously before main window.
 
     Example::
 
@@ -51,6 +52,7 @@ class PluginInfo:
     manifest_name: str = ""
     load_time: datetime | None = None
     error: str | None = None
+    preload: bool = False
 
     @property
     def unique_id(self) -> str:

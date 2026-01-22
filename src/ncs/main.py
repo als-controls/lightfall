@@ -116,25 +116,74 @@ def _setup_devices() -> None:
 
 def _setup_bluesky(app: NCSApplication) -> None:
     """Setup Bluesky RunEngine and plan registry.
-    
+
     Initializes the QRunEngine singleton and plan registry
     for use by the BlueskyPanel.
     """
     services = app.services
-    
+
     # Get/create RunEngine singleton
     run_engine = get_run_engine()
     services.register_instance(type(run_engine), run_engine)
-    
+
     # Get/create plan registry with standard bluesky plans
     plan_registry = get_plan_registry()
     services.register_instance(type(plan_registry), plan_registry)
-    
+
     logger.info(
         "Bluesky initialized: RunEngine state={}, {} plans available",
         run_engine.state,
         len(plan_registry),
     )
+
+
+def _setup_plugins(app: NCSApplication) -> None:
+    """Setup the plugin system and load preload plugins.
+
+    This must be called BEFORE creating the main window to ensure
+    preload plugins (like appearance/theme) can apply settings before
+    any UI is shown.
+
+    Args:
+        app: The NCS application instance.
+    """
+    from ncs.plugins import PluginLoader, PluginRegistry
+    from ncs.plugins.builtin_manifest import builtin_manifest
+    from ncs.plugins.settings_plugin import SettingsPlugin
+
+    services = app.services
+
+    # Create registry and loader
+    registry = PluginRegistry()
+    loader = PluginLoader(registry)
+
+    # Register plugin types
+    loader.register_plugin_type("settings", SettingsPlugin)
+
+    # Load built-in manifest first
+    loader.load_manifest(builtin_manifest)
+
+    # Discover external manifests from entry points
+    loader.discover_manifests()
+
+    # Load preload plugins synchronously BEFORE creating main window
+    # This ensures theme is applied before any UI appears
+    preload_ok, preload_failed = loader.load_preload_plugins()
+    if preload_ok > 0 or preload_failed > 0:
+        logger.info(
+            "Preload plugins: {} successful, {} failed",
+            preload_ok,
+            preload_failed,
+        )
+
+    # Register services
+    services.register_instance(PluginRegistry, registry)
+    services.register_instance(PluginLoader, loader)
+
+    # Start background loading for remaining plugins
+    loader.start_loading()
+
+    logger.debug("Plugin system initialized")
 
 
 def _setup_first_launch(project_service: ProjectService) -> None:
@@ -225,11 +274,14 @@ def main() -> int:
     # Setup Bluesky RunEngine and plans
     _setup_bluesky(app)
 
+    # Setup plugin system and load preload plugins (before main window)
+    _setup_plugins(app)
+
     # Setup first launch (welcome project)
     project_service = ProjectService.get_instance()
     _setup_first_launch(project_service)
 
-    # Create and set main window
+    # Create and set main window (after preload plugins applied theme)
     window = NCSMainWindow()
     window.set_config_manager(config)
     app.set_main_window(window)

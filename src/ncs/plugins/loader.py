@@ -215,6 +215,7 @@ class PluginLoader(QObject):
                 import_path=entry.import_path,
                 manifest_name=manifest.name,
                 status=PluginStatus.DISCOVERED,
+                preload=entry.preload,
             )
 
             # Try to register (checks for duplicates)
@@ -222,6 +223,89 @@ class PluginLoader(QObject):
                 self._load_queue.append(plugin_info)
                 plugin_info.status = PluginStatus.QUEUED_LOAD
                 logger.debug("Queued plugin for loading: {}", plugin_info.unique_id)
+
+    def load_preload_plugins(self) -> tuple[int, int]:
+        """Load all plugins marked with preload=True synchronously.
+
+        Call this BEFORE creating the main window to ensure preload plugins
+        (like appearance/theme) are ready before any UI is shown.
+
+        Returns:
+            Tuple of (successful_count, failed_count).
+
+        Example::
+
+            loader = PluginLoader(registry)
+            loader.register_plugin_type("settings", SettingsPlugin)
+            loader.load_manifest(builtin_manifest)
+            loader.discover_manifests()
+
+            # Load preload plugins before creating window
+            ok, failed = loader.load_preload_plugins()
+            logger.info("Preload plugins: {} ok, {} failed", ok, failed)
+
+            # NOW create main window (after theme is applied)
+            window = MainWindow()
+
+            # Start background loading for remaining plugins
+            loader.start_loading()
+        """
+        # Separate preload plugins from regular queue
+        preload_infos: list[PluginInfo] = []
+        remaining: deque[PluginInfo] = deque()
+
+        for info in self._load_queue:
+            if info.preload:
+                preload_infos.append(info)
+            else:
+                remaining.append(info)
+
+        self._load_queue = remaining
+
+        if not preload_infos:
+            logger.debug("No preload plugins to load")
+            return 0, 0
+
+        logger.info("Loading {} preload plugin(s) synchronously", len(preload_infos))
+
+        # Load preload plugins synchronously
+        successful = 0
+        failed = 0
+
+        for info in preload_infos:
+            if self._load_plugin_class(info):
+                if self._instantiate_plugin(info):
+                    successful += 1
+                    self._register_with_type_registry(info)
+                    self.plugin_loaded.emit(info)
+
+                    # Call on_loaded for immediate application (e.g., theme)
+                    if hasattr(info.instance, "on_loaded"):
+                        try:
+                            info.instance.on_loaded()
+                            logger.debug(
+                                "Called on_loaded() for preload plugin: {}",
+                                info.unique_id,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "Error in on_loaded() for {}: {}",
+                                info.unique_id,
+                                e,
+                            )
+                else:
+                    failed += 1
+                    self.plugin_failed.emit(info)
+            else:
+                failed += 1
+                self.plugin_failed.emit(info)
+
+        logger.info(
+            "Preload plugin loading complete: {} successful, {} failed",
+            successful,
+            failed,
+        )
+        return successful, failed
 
     def start_loading(self) -> None:
         """Start background loading of queued plugins.

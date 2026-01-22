@@ -89,6 +89,7 @@ from ncs.plugins.loader import PluginLoader
 from ncs.plugins.manifest import PluginEntry, PluginManifest
 from ncs.plugins.plan_plugin import PlanPlugin
 from ncs.plugins.registry import PluginRegistry
+from ncs.plugins.settings_plugin import SettingsPlugin
 from ncs.plugins.types import PluginType
 
 __all__ = [
@@ -101,6 +102,7 @@ __all__ = [
     "PluginLoader",
     # Plugin types
     "PlanPlugin",
+    "SettingsPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",
