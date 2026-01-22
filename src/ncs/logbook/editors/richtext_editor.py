@@ -288,10 +288,25 @@ class RichTextEditor(QTextEdit):
         return False, None
 
     def _visual_to_md_pos(self, visual_pos: int) -> int:
-        """Convert visual position to markdown position."""
+        """Convert visual position to markdown position.
+
+        This accounts for the difference between QTextEdit's visual representation
+        (single newline between paragraphs) and markdown (double newline).
+        """
         if self._mapping is None:
             return visual_pos
-        return self._position_mapper.visual_to_markdown(self._mapping, visual_pos)
+
+        # Count how many paragraph breaks (blocks) precede this position
+        # Each paragraph break in markdown is \n\n but renders as single \n in QTextEdit
+        cursor = self.textCursor()
+        cursor.setPosition(visual_pos)
+        block_num = cursor.blockNumber()
+
+        # Add one character per paragraph break we've passed
+        # (to account for \n\n in markdown vs \n in visual)
+        adjusted_pos = visual_pos + block_num
+
+        return self._position_mapper.visual_to_markdown(self._mapping, adjusted_pos)
 
     def _apply_edit_and_rerender(self, new_markdown: str, new_visual_pos: int) -> None:
         """Apply markdown edit and re-render."""
@@ -430,10 +445,10 @@ class RichTextEditor(QTextEdit):
                 self._apply_edit_and_rerender(new_markdown, visual_pos + len(text))
                 return
 
-        new_markdown, new_visual_pos = self._position_mapper.apply_insert(
-            self._markdown, visual_pos, text, self._mapping
-        )
-        self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+        # Convert visual position to markdown position (accounting for paragraph breaks)
+        md_pos = self._visual_to_md_pos(visual_pos)
+        new_markdown = self._markdown[:md_pos] + text + self._markdown[md_pos:]
+        self._apply_edit_and_rerender(new_markdown, visual_pos + len(text))
 
     def _handle_paragraph_break(self, cursor: QTextCursor) -> None:
         """Handle Enter key - insert paragraph break in markdown.
@@ -444,11 +459,8 @@ class RichTextEditor(QTextEdit):
         visual_pos = cursor.position()
         current_block = cursor.blockNumber()
 
-        # Map to markdown position
-        if self._mapping is None:
-            md_pos = visual_pos
-        else:
-            md_pos = self._position_mapper.visual_to_markdown(self._mapping, visual_pos)
+        # Map to markdown position (accounting for paragraph breaks)
+        md_pos = self._visual_to_md_pos(visual_pos)
 
         # Check if we're at the end (nothing after cursor in markdown)
         at_end = md_pos >= len(self._markdown) or self._markdown[md_pos:].strip() == ""
@@ -479,30 +491,63 @@ class RichTextEditor(QTextEdit):
     def _handle_backspace(self, cursor: QTextCursor) -> None:
         """Handle backspace at cursor position."""
         visual_pos = cursor.position()
-        if visual_pos > 0:
-            new_markdown, new_visual_pos = self._position_mapper.apply_delete(
-                self._markdown, visual_pos - 1, visual_pos, self._mapping
-            )
-            self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+        if visual_pos <= 0:
+            return
+
+        # Check if we're at start of a block (would delete paragraph break)
+        if cursor.atBlockStart() and cursor.blockNumber() > 0:
+            # Deleting a paragraph break - need to remove \n\n from markdown
+            md_pos = self._visual_to_md_pos(visual_pos)
+            # Find the paragraph break before this position
+            # It should be \n\n just before md_pos
+            if md_pos >= 2 and self._markdown[md_pos-2:md_pos] == "\n\n":
+                new_markdown = self._markdown[:md_pos-2] + self._markdown[md_pos:]
+                self._apply_edit_and_rerender(new_markdown, visual_pos - 1)
+                return
+
+        # Regular backspace - delete one character
+        md_pos = self._visual_to_md_pos(visual_pos)
+        if md_pos > 0:
+            new_markdown = self._markdown[:md_pos-1] + self._markdown[md_pos:]
+            self._apply_edit_and_rerender(new_markdown, visual_pos - 1)
 
     def _handle_delete(self, cursor: QTextCursor) -> None:
         """Handle delete at cursor position."""
         visual_pos = cursor.position()
-        plain_len = len(self._mapping.plain_text) if self._mapping else len(self._markdown)
-        if visual_pos < plain_len:
-            new_markdown, new_visual_pos = self._position_mapper.apply_delete(
-                self._markdown, visual_pos, visual_pos + 1, self._mapping
-            )
-            self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+        md_pos = self._visual_to_md_pos(visual_pos)
+
+        if md_pos >= len(self._markdown):
+            return
+
+        # Check if we're at end of a block (would delete paragraph break)
+        if cursor.atBlockEnd():
+            # Deleting forward into paragraph break - remove \n\n
+            if self._markdown[md_pos:md_pos+2] == "\n\n":
+                new_markdown = self._markdown[:md_pos] + self._markdown[md_pos+2:]
+                self._apply_edit_and_rerender(new_markdown, visual_pos)
+                return
+
+        # Regular delete - delete one character
+        new_markdown = self._markdown[:md_pos] + self._markdown[md_pos+1:]
+        self._apply_edit_and_rerender(new_markdown, visual_pos)
 
     def _handle_delete_selection(self, cursor: QTextCursor) -> None:
         """Handle deletion of selected text."""
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-        new_markdown, new_visual_pos = self._position_mapper.apply_delete(
-            self._markdown, start, end, self._mapping
-        )
-        self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+        # Get visual positions
+        vis_start = cursor.selectionStart()
+        vis_end = cursor.selectionEnd()
+
+        # Convert to markdown positions
+        # For start, use a cursor at the start position
+        temp_cursor = self.textCursor()
+        temp_cursor.setPosition(vis_start)
+        md_start = self._visual_to_md_pos(vis_start)
+
+        temp_cursor.setPosition(vis_end)
+        md_end = self._visual_to_md_pos(vis_end)
+
+        new_markdown = self._markdown[:md_start] + self._markdown[md_end:]
+        self._apply_edit_and_rerender(new_markdown, vis_start)
 
     def _is_editing_key(self, event: QKeyEvent) -> bool:
         """
