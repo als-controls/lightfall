@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ncs.ui.widgets.base_control import BaseControlWidget, ControlWidgetRegistry
+from ncs.logbook import DeviceActionLogger
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -214,6 +215,10 @@ class DeviceControlWidget(QWidget):
             self._widget_instances[class_name] = widget
             self._stack.addWidget(widget)
 
+            # Connect to DeviceActionLogger for automatic action recording
+            action_logger = DeviceActionLogger.get_instance()
+            action_logger.connect_to_control_widget(widget)
+
         widget = self._widget_instances[class_name]
 
         # Set items and show
@@ -294,6 +299,11 @@ class ControlWidgetFactory:
 
         widget = widget_class(parent)
         widget.set_items(items)
+
+        # Connect to DeviceActionLogger for automatic action recording
+        action_logger = DeviceActionLogger.get_instance()
+        action_logger.connect_to_control_widget(widget)
+
         return widget
 
     @staticmethod
