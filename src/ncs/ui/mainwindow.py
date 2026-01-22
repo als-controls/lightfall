@@ -30,7 +30,7 @@ from ncs.auth.policy import Permission
 from ncs.auth.session import AuthState, SessionManager
 from ncs.ui.panels.base import BasePanel
 from ncs.ui.panels.registry import PanelRegistry
-from ncs.ui.preferences.manager import PreferencesManager
+from ncs.ui.preferences import PreferencesDialog, PreferencesManager
 from ncs.ui.theme import Theme, ThemeManager
 from ncs.utils.logging import logger
 from ncs.ui.widgets.runengine_control import RunEngineControlWidget
@@ -655,8 +655,8 @@ class NCSMainWindow(QMainWindow):
 
     def _on_preferences(self) -> None:
         """Open preferences dialog."""
-        # TODO: Implement preferences dialog
-        pass
+        dialog = PreferencesDialog(self)
+        dialog.exec()
 
     def _on_about(self) -> None:
         """Show about dialog."""
