@@ -382,7 +382,7 @@ class RichTextEditor(QTextEdit):
                 self._handle_delete(cursor)
             return
 
-        # Handle enter
+        # Handle enter - insert paragraph break in markdown
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if is_protected and region_id:
                 self.protection_violated.emit(region_id, cursor.position())
@@ -390,7 +390,8 @@ class RichTextEditor(QTextEdit):
             if cursor.hasSelection():
                 self._handle_delete_selection(cursor)
                 cursor = self.textCursor()
-            self._handle_insert(cursor, "\n")
+            # Use double newline for proper markdown paragraph break
+            self._handle_paragraph_break(cursor)
             return
 
         # Handle regular text input
@@ -411,10 +412,69 @@ class RichTextEditor(QTextEdit):
     def _handle_insert(self, cursor: QTextCursor, text: str) -> None:
         """Handle text insertion at cursor position."""
         visual_pos = cursor.position()
+
+        # Check if we're in a placeholder paragraph (contains only nbsp)
+        # If so, replace the placeholder instead of inserting
+        block = cursor.block()
+        block_text = block.text()
+        if block_text.strip() in ("", "\u00a0") and cursor.atBlockStart():
+            # Find this block's position in markdown and replace the placeholder
+            # The placeholder paragraph is "\n\n\xa0" at the end
+            if self._markdown.endswith("\n\n\u00a0") or self._markdown.endswith("\n\n "):
+                # Replace the trailing placeholder with the new text
+                base = self._markdown.rstrip("\u00a0 ")
+                if base.endswith("\n\n"):
+                    new_markdown = base + text
+                else:
+                    new_markdown = base + "\n\n" + text
+                self._apply_edit_and_rerender(new_markdown, visual_pos + len(text))
+                return
+
         new_markdown, new_visual_pos = self._position_mapper.apply_insert(
             self._markdown, visual_pos, text, self._mapping
         )
         self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+
+    def _handle_paragraph_break(self, cursor: QTextCursor) -> None:
+        """Handle Enter key - insert paragraph break in markdown.
+
+        This needs special handling because QTextEdit's visual representation
+        of paragraphs doesn't match markdown newlines character-for-character.
+        """
+        visual_pos = cursor.position()
+        current_block = cursor.blockNumber()
+
+        # Map to markdown position
+        if self._mapping is None:
+            md_pos = visual_pos
+        else:
+            md_pos = self._position_mapper.visual_to_markdown(self._mapping, visual_pos)
+
+        # Check if we're at the end (nothing after cursor in markdown)
+        at_end = md_pos >= len(self._markdown) or self._markdown[md_pos:].strip() == ""
+
+        if at_end:
+            # At end of content - insert newlines and a non-breaking space placeholder
+            # The nbsp ensures a new paragraph is created in HTML rendering
+            # It will be replaced/removed when user types
+            new_markdown = self._markdown[:md_pos].rstrip() + "\n\n\u00a0"
+        else:
+            # In middle of content - just insert double newline
+            new_markdown = self._markdown[:md_pos] + "\n\n" + self._markdown[md_pos:]
+
+        # Update and re-render
+        self._markdown = new_markdown
+        self.markdown_edit_requested.emit(new_markdown)
+        self.render_markdown(new_markdown)
+
+        # Position cursor at start of new paragraph (next block)
+        new_cursor = self.textCursor()
+        new_cursor.movePosition(QTextCursor.MoveOperation.Start)
+        for _ in range(current_block + 1):
+            new_cursor.movePosition(QTextCursor.MoveOperation.NextBlock)
+        self.setTextCursor(new_cursor)
+
+        self.content_changed.emit()
 
     def _handle_backspace(self, cursor: QTextCursor) -> None:
         """Handle backspace at cursor position."""
