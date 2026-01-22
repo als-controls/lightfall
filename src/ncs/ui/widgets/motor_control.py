@@ -425,7 +425,14 @@ class MotorControlWidget(BaseControlWidget):
             if hasattr(self._motor, "stop"):
                 self._motor.stop()
                 logger.info("Stopped motor {}", self._motor_name)
-                self.motion_finished.emit(self._motor_name)
+
+                # Clear any pending move and record a stop action instead
+                action_logger = DeviceActionLogger.get_instance()
+                action_logger._pending_moves.pop(self._motor_name, None)
+                action_logger.record_action(
+                    device_name=self._motor_name,
+                    action_type="stop",
+                )
         except Exception as e:
             self.control_error.emit(f"Stop failed: {e}")
             logger.error("Motor stop failed: {}", e)
@@ -810,8 +817,15 @@ class MultiMotorControlWidget(BaseControlWidget):
                 try:
                     if hasattr(motor, "stop"):
                         motor.stop()
-                        self.motion_finished.emit(name)
                         logger.info("Stopped motor {}", name)
+
+                        # Clear any pending move and record a stop action
+                        action_logger = DeviceActionLogger.get_instance()
+                        action_logger._pending_moves.pop(name, None)
+                        action_logger.record_action(
+                            device_name=name,
+                            action_type="stop",
+                        )
                 except Exception as e:
                     logger.error("Stop failed for {}: {}", name, e)
                 break
@@ -819,11 +833,19 @@ class MultiMotorControlWidget(BaseControlWidget):
     @Slot()
     def _on_stop_all(self) -> None:
         """Stop all motors."""
+        action_logger = DeviceActionLogger.get_instance()
+
         for name, motor, item in self._motors:
             try:
                 if hasattr(motor, "stop"):
                     motor.stop()
-                    self.motion_finished.emit(name)
+
+                    # Clear any pending move and record a stop action
+                    action_logger._pending_moves.pop(name, None)
+                    action_logger.record_action(
+                        device_name=name,
+                        action_type="stop",
+                    )
             except Exception as e:
                 logger.error("Stop failed for {}: {}", name, e)
 
