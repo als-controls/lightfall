@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from ncs.acquire import QRunEngine, get_run_engine
 from ncs.acquire.plans import PlanRegistry, get_registry
+from ncs.devices import DeviceCatalog
 
 
 class BlueskyPanel(BasePanel):
@@ -99,7 +100,7 @@ class BlueskyPanel(BasePanel):
         self._auto_configure()
 
     def _auto_configure(self) -> None:
-        """Auto-configure with RunEngine and PlanRegistry singletons."""
+        """Auto-configure with RunEngine, PlanRegistry, and DeviceCatalog singletons."""
         try:
             re = get_run_engine()
             self.set_run_engine(re)
@@ -111,6 +112,21 @@ class BlueskyPanel(BasePanel):
             self.set_registry(registry)
         except Exception as e:
             logger.debug("Could not auto-configure PlanRegistry: {}", e)
+
+        try:
+            catalog = DeviceCatalog.get_instance()
+            self.set_catalog(catalog)
+        except Exception as e:
+            logger.debug("Could not auto-configure DeviceCatalog: {}", e)
+
+    def set_catalog(self, catalog: DeviceCatalog) -> None:
+        """Set the device catalog for plan parameter device selection.
+
+        Args:
+            catalog: DeviceCatalog with available devices.
+        """
+        self._plan_config.set_catalog(catalog)
+        logger.info("BlueskyPanel connected to DeviceCatalog")
 
     def set_run_engine(self, re: QRunEngine) -> None:
         """Connect to a QRunEngine instance.
