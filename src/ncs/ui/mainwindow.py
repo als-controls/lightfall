@@ -211,21 +211,21 @@ class NCSMainWindow(QMainWindow):
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
+        # Add RunEngine control widget to menubar corner
+        self._re_control = RunEngineControlWidget()
+        menubar.setCornerWidget(self._re_control, Qt.Corner.TopRightCorner)
+
     def _setup_toolbar(self) -> None:
         """Create the main toolbar."""
         self._toolbar = QToolBar("Main Toolbar")
         self._toolbar.setObjectName("MainToolbar")
         self.addToolBar(self._toolbar)
 
-        # Add RunEngine control widget
-        self._re_control = RunEngineControlWidget()
-        self._toolbar.addWidget(self._re_control)
-
         # Set visibility from preferences
         self._toolbar.setVisible(self._prefs_manager.show_toolbar)
 
     def set_run_engine(self, re) -> None:
-        """Connect the RunEngine to the toolbar control widget.
+        """Connect the RunEngine to the menubar control widget.
 
         Args:
             re: The QRunEngine instance.

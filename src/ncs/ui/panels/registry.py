@@ -126,12 +126,14 @@ class PanelRegistry:
         # Import built-in panels
         from ncs.ui.panels.bluesky_panel import BlueskyPanel
         from ncs.ui.panels.device_panel import DevicePanel
+        from ncs.ui.panels.documents_panel import DocumentsPanel
         from ncs.ui.panels.logbook_panel import LogbookPanel
 
         builtin_panels = [
             LogbookPanel,
             DevicePanel,
             BlueskyPanel,
+            DocumentsPanel,
         ]
 
         for panel_class in builtin_panels:
