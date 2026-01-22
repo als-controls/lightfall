@@ -154,14 +154,6 @@ class LogbookPanel(BasePanel):
         self._new_entry_action.triggered.connect(self._on_new_entry)
         toolbar.addAction(self._new_entry_action)
 
-        toolbar.addSeparator()
-
-        # Refresh action
-        refresh_action = QAction("Refresh", self)
-        refresh_action.setToolTip("Refresh logbook content")
-        refresh_action.triggered.connect(self._refresh_content)
-        toolbar.addAction(refresh_action)
-
         layout.addWidget(toolbar)
 
         return header
@@ -403,11 +395,6 @@ class LogbookPanel(BasePanel):
                 "enabled": self._project_service.has_project,
             },
             {
-                "name": "refresh",
-                "description": "Refresh logbook content",
-                "method": "action_refresh",
-            },
-            {
                 "name": "switch_mode",
                 "description": "Switch between visual and markdown mode",
                 "method": "action_switch_mode",
@@ -424,11 +411,6 @@ class LogbookPanel(BasePanel):
         """
         entry = self._project_service.create_note_entry()
         return entry is not None
-
-    def action_refresh(self) -> bool:
-        """Action: Refresh the logbook content."""
-        self._refresh_content()
-        return True
 
     def action_switch_mode(self, mode: str = "wysiwyg") -> bool:
         """Action: Switch editor mode.
