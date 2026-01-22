@@ -1,7 +1,7 @@
 """Dynamic plan configuration widget.
 
 Generates UI from plan function signatures using pyqtgraph's ParameterTree
-for automatic parameter editing.
+for automatic parameter editing, with custom widgets for device selection.
 """
 
 from __future__ import annotations
@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING, Any, Callable, get_args, get_origin
 from loguru import logger
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +35,19 @@ except ImportError:
 
 if TYPE_CHECKING:
     from ncs.acquire.plans import PlanInfo
+    from ncs.devices import DeviceCatalog
+
+
+# Parameter type categories for special handling
+class ParamCategory(str, Enum):
+    """Categories of plan parameters for UI generation."""
+
+    BASIC = "basic"  # int, float, str, bool
+    DEVICE = "device"  # Single device (motor, positioner)
+    DEVICES = "devices"  # Multiple devices (detectors)
+    ENUM = "enum"  # Enumeration type
+    LIST = "list"  # Generic list
+    OTHER = "other"  # Unknown type
 
 
 # Mapping from Python types to pyqtgraph parameter types
@@ -44,6 +59,53 @@ PARAM_TYPE_MAP = {
     "list": "list",
     "tuple": "list",
 }
+
+
+def get_param_category(name: str, annotation: Any) -> ParamCategory:
+    """Determine the category of a parameter based on name and type.
+
+    Args:
+        name: Parameter name.
+        annotation: Type annotation.
+
+    Returns:
+        ParamCategory for the parameter.
+    """
+    name_lower = name.lower()
+
+    # Check by name first (most reliable for bluesky plans)
+    if name_lower == "detectors" or name_lower == "dets":
+        return ParamCategory.DEVICES
+    if name_lower in ("motor", "signal", "positioner", "obj"):
+        return ParamCategory.DEVICE
+
+    # Check by annotation
+    if annotation is None or annotation is inspect.Parameter.empty:
+        return ParamCategory.OTHER
+
+    type_str = str(annotation).lower()
+
+    # Device types
+    if "detector" in type_str or "readable" in type_str:
+        return ParamCategory.DEVICES
+    if "motor" in type_str or "positioner" in type_str or "movable" in type_str:
+        return ParamCategory.DEVICE
+
+    # Enum
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return ParamCategory.ENUM
+
+    # Basic types
+    type_name = getattr(annotation, "__name__", "").lower()
+    if type_name in PARAM_TYPE_MAP:
+        return ParamCategory.BASIC
+
+    # List/tuple
+    origin = get_origin(annotation)
+    if origin in (list, tuple):
+        return ParamCategory.LIST
+
+    return ParamCategory.OTHER
 
 
 def annotation_to_param_type(annotation: Any) -> tuple[str, dict[str, Any]]:
@@ -162,8 +224,9 @@ def signature_to_parameters(
 class PlanConfigWidget(QWidget):
     """Dynamically generated UI for configuring plan parameters.
 
-    Uses pyqtgraph's ParameterTree for automatic UI generation from
-    function signatures. Provides validation and Run button.
+    Uses pyqtgraph's ParameterTree for basic parameters and custom
+    DeviceSelectorWidget for device parameters. Provides validation
+    and Run button.
 
     Signals:
         run_requested(PlanInfo, dict): Emitted when Run is clicked with plan and kwargs.
@@ -190,6 +253,9 @@ class PlanConfigWidget(QWidget):
         super().__init__(parent)
         self._plan: PlanInfo | None = None
         self._root_param: Parameter | None = None
+        self._catalog: DeviceCatalog | None = None
+        # Custom widgets for device parameters (not in parameter tree)
+        self._device_widgets: dict[str, Any] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -206,7 +272,14 @@ class PlanConfigWidget(QWidget):
         self._desc_label.setWordWrap(True)
         layout.addWidget(self._desc_label)
 
-        # Parameter tree
+        # Container for custom device widgets (above parameter tree)
+        self._device_form_widget = QWidget()
+        self._device_form = QFormLayout(self._device_form_widget)
+        self._device_form.setContentsMargins(0, 8, 0, 8)
+        layout.addWidget(self._device_form_widget)
+        self._device_form_widget.hide()  # Hidden until needed
+
+        # Parameter tree for basic parameters
         if HAS_PYQTGRAPH:
             self._param_tree = ParameterTree(showHeader=False)
             layout.addWidget(self._param_tree, 1)
@@ -236,6 +309,17 @@ class PlanConfigWidget(QWidget):
 
         layout.addLayout(button_layout)
 
+    def set_catalog(self, catalog: DeviceCatalog) -> None:
+        """Set the device catalog for device selection.
+
+        Args:
+            catalog: DeviceCatalog instance.
+        """
+        self._catalog = catalog
+        # Update any existing device widgets
+        for widget in self._device_widgets.values():
+            widget.set_catalog(catalog)
+
     def set_plan(self, plan_info: PlanInfo) -> None:
         """Configure UI for a new plan.
 
@@ -243,8 +327,12 @@ class PlanConfigWidget(QWidget):
             plan_info: Plan to configure.
         """
         self._plan = plan_info
-        self._header_label.setText(plan_info.name)
+        # Use display name for header
+        self._header_label.setText(plan_info.get_display_name())
         self._desc_label.setText(plan_info.description)
+
+        # Clear previous device widgets
+        self._clear_device_widgets()
 
         if not HAS_PYQTGRAPH or self._param_tree is None:
             logger.warning("pyqtgraph not available, cannot configure plan")
@@ -253,14 +341,64 @@ class PlanConfigWidget(QWidget):
         # Build parameter docs from PlanInfo
         param_docs = {p.name: p.description for p in plan_info.parameters}
 
-        # Convert signature to parameter specs
-        param_specs = signature_to_parameters(plan_info.signature, param_docs)
+        # Separate device parameters from basic parameters
+        basic_params = []
+        device_params = []
+
+        for p in plan_info.parameters:
+            category = get_param_category(p.name, p.annotation)
+            if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
+                device_params.append((p, category))
+            else:
+                basic_params.append(p)
+
+        # Create device selector widgets for device parameters
+        self._create_device_widgets(device_params, param_docs)
+
+        # Convert basic parameters to parameter specs for the tree
+        basic_param_specs = []
+        for p in basic_params:
+            # Skip *args and **kwargs
+            if p.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                continue
+
+            param_type, extra_opts = annotation_to_param_type(p.annotation)
+
+            spec = {
+                "name": p.name,
+                "type": param_type,
+            }
+
+            # Add default value
+            if p.default is not inspect.Parameter.empty:
+                spec["value"] = p.default
+            else:
+                # Set sensible defaults for required parameters
+                if param_type == "int":
+                    spec["value"] = 0
+                elif param_type == "float":
+                    spec["value"] = 0.0
+                elif param_type == "bool":
+                    spec["value"] = False
+                elif param_type == "str":
+                    spec["value"] = ""
+
+            # Add tooltip from docstring
+            if p.name in param_docs:
+                spec["tip"] = param_docs[p.name]
+
+            # Merge extra options
+            spec.update(extra_opts)
+            basic_param_specs.append(spec)
 
         # Create root parameter group
         self._root_param = Parameter.create(
             name=plan_info.name,
             type="group",
-            children=param_specs,
+            children=basic_param_specs,
         )
 
         # Connect change signal
@@ -272,7 +410,63 @@ class PlanConfigWidget(QWidget):
         self._reset_btn.setEnabled(True)
         self._run_btn.setEnabled(True)
 
-        logger.debug(f"Configured plan: {plan_info.name} with {len(param_specs)} params")
+        logger.debug(
+            f"Configured plan: {plan_info.name} with "
+            f"{len(basic_param_specs)} basic params, "
+            f"{len(device_params)} device params"
+        )
+
+    def _create_device_widgets(
+        self,
+        device_params: list[tuple[Any, ParamCategory]],
+        param_docs: dict[str, str],
+    ) -> None:
+        """Create custom widgets for device parameters.
+
+        Args:
+            device_params: List of (ParameterInfo, ParamCategory) tuples.
+            param_docs: Parameter documentation strings.
+        """
+        from ncs.ui.widgets.device_selector import DeviceSelectorWidget
+
+        if not device_params:
+            self._device_form_widget.hide()
+            return
+
+        for param_info, category in device_params:
+            # Create device selector widget
+            multi_select = category == ParamCategory.DEVICES
+            widget = DeviceSelectorWidget(
+                catalog=self._catalog,
+                multi_select=multi_select,
+                parent=self,
+            )
+            widget.selection_changed.connect(self._on_device_selection_changed)
+
+            # Create label with tooltip
+            label = QLabel(f"{param_info.name}:")
+            if param_info.name in param_docs:
+                label.setToolTip(param_docs[param_info.name])
+            if param_info.required:
+                label.setText(f"{param_info.name}*:")
+
+            self._device_form.addRow(label, widget)
+            self._device_widgets[param_info.name] = widget
+
+        self._device_form_widget.show()
+
+    def _clear_device_widgets(self) -> None:
+        """Clear all device selector widgets."""
+        # Remove all rows from form
+        while self._device_form.rowCount() > 0:
+            self._device_form.removeRow(0)
+        self._device_widgets.clear()
+        self._device_form_widget.hide()
+
+    @Slot(list)
+    def _on_device_selection_changed(self, devices: list[str]) -> None:
+        """Handle device selection changes."""
+        self.values_changed.emit(self.get_kwargs())
 
     def clear(self) -> None:
         """Clear the current plan configuration."""
@@ -280,6 +474,9 @@ class PlanConfigWidget(QWidget):
         self._root_param = None
         self._header_label.setText("No plan selected")
         self._desc_label.setText("")
+
+        # Clear device widgets
+        self._clear_device_widgets()
 
         if self._param_tree is not None:
             self._param_tree.clear()
@@ -293,15 +490,21 @@ class PlanConfigWidget(QWidget):
         Returns:
             Dictionary of parameter name to value.
         """
-        if self._root_param is None:
-            return {}
-
         kwargs = {}
-        for child in self._root_param.children():
-            value = child.value()
-            # Skip empty string values for optional params
-            if value != "" or child.opts.get("required", True):
-                kwargs[child.name()] = value
+
+        # Get device parameter values
+        for name, widget in self._device_widgets.items():
+            names = widget.get_selected_names()
+            if names:
+                kwargs[name] = names
+
+        # Get basic parameter values from parameter tree
+        if self._root_param is not None:
+            for child in self._root_param.children():
+                value = child.value()
+                # Skip empty string values for optional params
+                if value != "" or child.opts.get("required", True):
+                    kwargs[child.name()] = value
 
         return kwargs
 
@@ -311,16 +514,24 @@ class PlanConfigWidget(QWidget):
         Args:
             values: Dictionary of parameter name to value.
         """
-        if self._root_param is None:
-            return
-
         for name, value in values.items():
-            child = self._root_param.child(name)
-            if child is not None:
-                try:
-                    child.setValue(value)
-                except Exception as e:
-                    logger.warning(f"Failed to set {name}={value}: {e}")
+            # Check device widgets first
+            if name in self._device_widgets:
+                widget = self._device_widgets[name]
+                if isinstance(value, list):
+                    widget.set_selected_names(value)
+                elif isinstance(value, str):
+                    widget.set_selected_names([value] if value else [])
+                continue
+
+            # Then check parameter tree
+            if self._root_param is not None:
+                child = self._root_param.child(name)
+                if child is not None:
+                    try:
+                        child.setValue(value)
+                    except Exception as e:
+                        logger.warning(f"Failed to set {name}={value}: {e}")
 
     def validate(self) -> tuple[bool, list[str]]:
         """Validate current parameter values.
@@ -334,20 +545,25 @@ class PlanConfigWidget(QWidget):
             errors.append("No plan selected")
             return False, errors
 
-        if self._root_param is None:
-            errors.append("Parameters not configured")
-            return False, errors
-
         # Check required parameters
         for param_info in self._plan.parameters:
             if param_info.required:
-                child = self._root_param.child(param_info.name)
-                if child is None:
-                    errors.append(f"Missing parameter: {param_info.name}")
+                # Check device widgets
+                if param_info.name in self._device_widgets:
+                    widget = self._device_widgets[param_info.name]
+                    if not widget.get_selected_names():
+                        errors.append(f"Required parameter '{param_info.name}' is empty")
                     continue
-                value = child.value()
-                if value is None or (isinstance(value, str) and value == ""):
-                    errors.append(f"Required parameter '{param_info.name}' is empty")
+
+                # Check parameter tree
+                if self._root_param is not None:
+                    child = self._root_param.child(param_info.name)
+                    if child is None:
+                        # Parameter might be handled elsewhere (e.g., device widget)
+                        continue
+                    value = child.value()
+                    if value is None or (isinstance(value, str) and value == ""):
+                        errors.append(f"Required parameter '{param_info.name}' is empty")
 
         return len(errors) == 0, errors
 

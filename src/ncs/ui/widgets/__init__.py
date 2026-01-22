@@ -24,6 +24,10 @@ from ncs.ui.widgets.device_control import (
     ControlWidgetFactory,
     DeviceControlWidget,
 )
+from ncs.ui.widgets.device_selector import (
+    DeviceSelectorDialog,
+    DeviceSelectorWidget,
+)
 from ncs.ui.widgets.document_stream import (
     DocumentStreamModel,
     DocumentStreamWidget,
@@ -55,6 +59,9 @@ __all__ = [
     # Container
     "DeviceControlWidget",
     "ControlWidgetFactory",
+    # Device selector
+    "DeviceSelectorWidget",
+    "DeviceSelectorDialog",
     # Motor widgets
     "MotorControlWidget",
     "MultiMotorControlWidget",

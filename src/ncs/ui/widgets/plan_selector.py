@@ -1,7 +1,7 @@
 """Plan selector widget for browsing and selecting Bluesky plans.
 
 Provides a UI for browsing registered plans with category filtering
-and search functionality.
+and search functionality, showing display names and category icons.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 from PySide6.QtCore import QModelIndex, QSortFilterProxyModel, Qt, Signal, Slot
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -27,10 +27,46 @@ if TYPE_CHECKING:
     from ncs.acquire.plans import PlanInfo, PlanRegistry
 
 
+def create_plan_icon(color: str, letter: str, size: int = 16) -> QIcon:
+    """Create a simple colored icon with a letter for plan categories.
+
+    Args:
+        color: Hex color string for the background.
+        letter: Single letter to display.
+        size: Icon size in pixels.
+
+    Returns:
+        QIcon with colored circle and letter.
+    """
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Draw colored circle
+    painter.setBrush(QColor(color))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawEllipse(1, 1, size - 2, size - 2)
+
+    # Draw letter
+    painter.setPen(QColor("white"))
+    font = painter.font()
+    font.setBold(True)
+    font.setPixelSize(10)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, letter)
+
+    painter.end()
+
+    return QIcon(pixmap)
+
+
 class PlanListModel(QStandardItemModel):
     """Qt model for displaying plans from a registry.
 
     Each item stores a reference to its PlanInfo in UserRole.
+    Uses display names and category icons for better user experience.
     """
 
     PLAN_INFO_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -44,6 +80,7 @@ class PlanListModel(QStandardItemModel):
         """
         super().__init__(parent)
         self._registry = registry
+        self._icon_cache: dict[str, QIcon] = {}
         if registry:
             self._load_plans()
 
@@ -56,6 +93,23 @@ class PlanListModel(QStandardItemModel):
         self._registry = registry
         self._load_plans()
 
+    def _get_icon(self, plan_info: PlanInfo) -> QIcon:
+        """Get or create icon for a plan.
+
+        Args:
+            plan_info: Plan to get icon for.
+
+        Returns:
+            QIcon for the plan's category.
+        """
+        color, letter = plan_info.get_icon()
+        cache_key = f"{color}:{letter}"
+
+        if cache_key not in self._icon_cache:
+            self._icon_cache[cache_key] = create_plan_icon(color, letter)
+
+        return self._icon_cache[cache_key]
+
     def _load_plans(self) -> None:
         """Load plans from the registry into the model."""
         self.clear()
@@ -63,10 +117,14 @@ class PlanListModel(QStandardItemModel):
             return
 
         for plan_info in self._registry.list_plans():
-            item = QStandardItem(plan_info.name)
+            # Use display name instead of internal name
+            display_name = plan_info.get_display_name()
+            item = QStandardItem(display_name)
             item.setData(plan_info, self.PLAN_INFO_ROLE)
-            item.setToolTip(plan_info.description or plan_info.name)
+            item.setToolTip(f"{plan_info.name}\n{plan_info.description or ''}")
             item.setEditable(False)
+            # Set category icon
+            item.setIcon(self._get_icon(plan_info))
             self.appendRow(item)
 
         logger.debug(f"Loaded {self.rowCount()} plans into model")
@@ -137,11 +195,12 @@ class PlanFilterProxyModel(QSortFilterProxyModel):
         if self._category_filter and plan_info.category != self._category_filter:
             return False
 
-        # Search filter
+        # Search filter - also search in display name
         if self._search_text:
             name_match = self._search_text in plan_info.name.lower()
+            display_match = self._search_text in plan_info.get_display_name().lower()
             desc_match = self._search_text in plan_info.description.lower()
-            if not (name_match or desc_match):
+            if not (name_match or display_match or desc_match):
                 return False
 
         return True
@@ -265,8 +324,10 @@ class PlanSelectorWidget(QWidget):
         Returns:
             HTML string.
         """
+        display_name = plan_info.get_display_name()
         lines = [
-            f"<h3>{plan_info.name}</h3>",
+            f"<h3>{display_name}</h3>",
+            f"<p><b>Name:</b> {plan_info.name}</p>",
             f"<p><b>Category:</b> {plan_info.category}</p>",
         ]
 

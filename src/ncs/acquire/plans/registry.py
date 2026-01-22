@@ -8,10 +8,51 @@ signatures and docstrings.
 from __future__ import annotations
 
 import inspect
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, ClassVar, Generator
 
 from loguru import logger
+
+
+def name_to_display_name(name: str) -> str:
+    """Convert a plan name to a human-readable display name.
+
+    Converts snake_case or camelCase to Title Case with spaces.
+
+    Args:
+        name: The plan name (e.g., "rel_scan", "grid_scan", "adaptiveScan").
+
+    Returns:
+        Human-readable display name (e.g., "Rel Scan", "Grid Scan", "Adaptive Scan").
+
+    Examples:
+        >>> name_to_display_name("scan")
+        'Scan'
+        >>> name_to_display_name("rel_scan")
+        'Rel Scan'
+        >>> name_to_display_name("grid_scan")
+        'Grid Scan'
+        >>> name_to_display_name("tune_centroid")
+        'Tune Centroid'
+    """
+    # Handle camelCase by inserting spaces before capitals
+    name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
+    # Replace underscores with spaces
+    name = name.replace("_", " ")
+    # Title case each word
+    return name.title()
+
+
+# Default icons for plan categories (color, letter)
+PLAN_CATEGORY_ICONS: dict[str, tuple[str, str]] = {
+    "scan": ("#4CAF50", "S"),  # Green - scanning
+    "count": ("#2196F3", "C"),  # Blue - counting
+    "alignment": ("#FF9800", "A"),  # Orange - alignment
+    "fly": ("#9C27B0", "F"),  # Purple - fly scans
+    "calibration": ("#E91E63", "K"),  # Pink - calibration
+    "general": ("#607D8B", "G"),  # Gray - general
+}
 
 
 @dataclass
@@ -60,6 +101,10 @@ class PlanInfo:
         category: Plan category (e.g., "scan", "count", "alignment").
         parameters: List of parameter info.
         examples: Example usage strings.
+        display_name: Human-readable name for UI display.
+            If None, generated from name using name_to_display_name().
+        icon: Icon specification as (color, letter) tuple.
+            If None, uses category default from PLAN_CATEGORY_ICONS.
     """
 
     name: str
@@ -69,6 +114,28 @@ class PlanInfo:
     category: str = "general"
     parameters: list[ParameterInfo] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
+    display_name: str | None = None
+    icon: tuple[str, str] | None = None
+
+    def get_display_name(self) -> str:
+        """Get the display name for UI.
+
+        Returns:
+            The display_name if set, otherwise converts name to display format.
+        """
+        if self.display_name:
+            return self.display_name
+        return name_to_display_name(self.name)
+
+    def get_icon(self) -> tuple[str, str]:
+        """Get the icon specification (color, letter).
+
+        Returns:
+            Tuple of (color hex string, letter) for the icon.
+        """
+        if self.icon:
+            return self.icon
+        return PLAN_CATEGORY_ICONS.get(self.category, PLAN_CATEGORY_ICONS["general"])
 
     @classmethod
     def from_function(
@@ -472,6 +539,15 @@ def create_default_registry() -> PlanRegistry:
 
     except ImportError:
         logger.warning("bluesky not available, no standard plans registered")
+
+    # Register custom NCS plans
+    try:
+        from ncs.acquire.plans.ncs_plans import register_ncs_plans
+
+        register_ncs_plans(registry)
+        logger.info("Registered custom NCS plans")
+    except ImportError as e:
+        logger.debug(f"Could not register NCS plans: {e}")
 
     return registry
 
