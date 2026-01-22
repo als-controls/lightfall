@@ -1,8 +1,8 @@
 """
 Markdown to HTML converter for the logbook widget.
 
-Provides bidirectional conversion between markdown and Qt-compatible HTML,
-while preserving protected region markers.
+Provides one-way conversion from markdown to Qt-compatible HTML.
+Since markdown is the source of truth, HTML→MD conversion is not needed.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import html
 import re
 from typing import Any
 
-import markdownify
 import mistune
 from loguru import logger
 
@@ -130,10 +129,11 @@ class QtHtmlRenderer(mistune.HTMLRenderer):
 
 class MarkdownConverter:
     """
-    Bidirectional markdown to HTML converter for Qt widgets.
+    Markdown to HTML converter for Qt widgets.
 
-    This class provides conversion between markdown and Qt-compatible HTML,
-    preserving protected region markers through round-trips.
+    This class provides one-way conversion from markdown to Qt-compatible HTML.
+    Since markdown is the source of truth for the logbook editor, HTML→MD
+    conversion is not needed.
 
     Example:
         >>> converter = MarkdownConverter()
@@ -191,160 +191,3 @@ class MarkdownConverter:
             logger.error(f"Error converting markdown to HTML: {e}")
             # Return escaped plain text as fallback
             return f"<pre>{html.escape(markdown)}</pre>"
-
-    def html_to_markdown(self, html_content: str) -> str:
-        """
-        Convert Qt HTML back to markdown.
-
-        This is inherently lossy but preserves the basic structure.
-        Protected regions are restored with their markers.
-
-        Args:
-            html_content: The HTML content from QTextEdit.
-
-        Returns:
-            Markdown string.
-        """
-        try:
-            return self._convert_html_to_markdown(html_content)
-        except Exception as e:
-            logger.error(f"Error converting HTML to markdown: {e}")
-            # Strip all HTML tags as fallback
-            return re.sub(r"<[^>]+>", "", html_content)
-
-    def _convert_html_to_markdown(self, html_content: str) -> str:
-        """
-        Internal HTML to markdown conversion.
-
-        Pre-processes Qt's inline styles to semantic tags, then uses
-        markdownify library for conversion.
-        """
-        text = html_content
-
-        # Extract body content if wrapped in full document
-        body_match = re.search(
-            r"<body[^>]*>(.*?)</body>", text, re.DOTALL | re.IGNORECASE
-        )
-        if body_match:
-            text = body_match.group(1)
-
-        # Extract protected regions before conversion and replace with placeholders
-        protected_regions: dict[str, tuple[str, str]] = {}
-        placeholder_counter = 0
-
-        def extract_protected(match: re.Match) -> str:
-            nonlocal placeholder_counter
-            region_id = match.group(1)
-            content = match.group(2)
-            placeholder = f"__PROTECTED_{placeholder_counter}__"
-            placeholder_counter += 1
-            # Store both the region_id and the content to convert
-            protected_regions[placeholder] = (region_id, content)
-            return placeholder
-
-        # Match protected spans - handle both data-region orders
-        text = re.sub(
-            r'<span[^>]*class="protected"[^>]*data-region="([^"]+)"[^>]*>(.*?)</span>',
-            extract_protected,
-            text,
-            flags=re.DOTALL,
-        )
-        text = re.sub(
-            r'<span[^>]*data-region="([^"]+)"[^>]*class="protected"[^>]*>(.*?)</span>',
-            extract_protected,
-            text,
-            flags=re.DOTALL,
-        )
-
-        # Pre-process Qt's inline styles to semantic HTML tags
-        text = self._convert_qt_styles_to_semantic(text)
-
-        # Use markdownify to convert HTML to markdown
-        markdown = markdownify.markdownify(
-            text,
-            heading_style="ATX",  # Use # style headings
-            bullets="-",  # Use - for unordered lists
-            strip=["script"],  # Strip script tags
-        )
-
-        # Restore protected regions with their markers
-        for placeholder, (region_id, content) in protected_regions.items():
-            # Convert the protected content too
-            processed_content = self._convert_qt_styles_to_semantic(content)
-            protected_md = markdownify.markdownify(
-                processed_content,
-                heading_style="ATX",
-                bullets="-",
-                strip=["script"],
-            ).strip()
-            restored = (
-                f"<!-- PROTECTED:{region_id} -->\n"
-                f"{protected_md}\n"
-                f"<!-- /PROTECTED:{region_id} -->"
-            )
-            markdown = markdown.replace(placeholder, restored)
-
-        # Clean up whitespace
-        markdown = re.sub(r"\n{3,}", "\n\n", markdown)
-        markdown = markdown.strip()
-
-        return markdown
-
-    def _convert_qt_styles_to_semantic(self, html_content: str) -> str:
-        """
-        Convert Qt's inline style spans to semantic HTML tags.
-
-        Qt's QTextEdit outputs formatting as inline styles like:
-        - font-weight:600 or font-weight:bold -> <strong>
-        - font-style:italic -> <em>
-        - text-decoration:line-through -> <del>
-
-        Handles combined styles by nesting semantic tags.
-
-        Args:
-            html_content: HTML with Qt inline styles.
-
-        Returns:
-            HTML with semantic tags.
-        """
-        text = html_content
-
-        def convert_span_styles(match: re.Match) -> str:
-            """Convert a single span with potentially multiple styles."""
-            style = match.group(1)
-            content = match.group(2)
-
-            # Check for each style type
-            is_bold = bool(
-                re.search(r"font-weight\s*:\s*(bold|[6-9]\d{2})", style, re.IGNORECASE)
-            )
-            is_italic = bool(
-                re.search(r"font-style\s*:\s*italic", style, re.IGNORECASE)
-            )
-            is_strike = bool(
-                re.search(r"text-decoration\s*:[^;]*line-through", style, re.IGNORECASE)
-            )
-
-            # If no recognized styles, return original
-            if not (is_bold or is_italic or is_strike):
-                return match.group(0)
-
-            # Nest semantic tags (order: strong > em > del)
-            result = content
-            if is_strike:
-                result = f"<del>{result}</del>"
-            if is_italic:
-                result = f"<em>{result}</em>"
-            if is_bold:
-                result = f"<strong>{result}</strong>"
-
-            return result
-
-        text = re.sub(
-            r'<span[^>]*style="([^"]*)"[^>]*>(.*?)</span>',
-            convert_span_styles,
-            text,
-            flags=re.DOTALL,
-        )
-
-        return text

@@ -3,7 +3,7 @@ Main logbook widget with dual markdown/WYSIWYG editing.
 
 Provides a complete experiment logbook widget with:
 - Raw markdown editing with syntax highlighting
-- WYSIWYG rich text editing
+- WYSIWYG rich text editing (markdown is source of truth)
 - Protected content regions
 - Mode switching with content synchronization
 """
@@ -44,8 +44,9 @@ class LogbookWidget(QWidget):
     - Theme-aware styling
     - Introspection API for Claude MCP tools
 
-    The widget stores content as markdown internally and converts to/from
-    HTML for the WYSIWYG view. Content is synchronized when switching modes.
+    **Markdown is the single source of truth.** In WYSIWYG mode, all edits
+    are intercepted and translated to markdown operations. No HTML→MD
+    conversion is needed.
 
     Attributes:
         widget_type: Type identifier for introspection.
@@ -233,9 +234,12 @@ class LogbookWidget(QWidget):
         # Mode switching
         self._mode_group.idClicked.connect(self._on_mode_button_clicked)
 
-        # Content changes
-        self._rich_editor.content_changed.connect(self._on_rich_content_changed)
+        # Content changes - markdown editor notifies directly
         self._markdown_editor.content_changed.connect(self._on_markdown_content_changed)
+
+        # Rich editor edits go through markdown_edit_requested
+        self._rich_editor.markdown_edit_requested.connect(self._on_markdown_edit_requested)
+        self._rich_editor.content_changed.connect(self._on_rich_content_changed)
 
         # Protection violations - forward to our signal
         self._rich_editor.protection_violated.connect(self.protection_violated)
@@ -278,13 +282,17 @@ class LogbookWidget(QWidget):
         """
         Get the current content as markdown.
 
-        Returns the markdown representation of the current content,
-        converting from HTML if in WYSIWYG mode.
+        Returns the markdown source of truth. In WYSIWYG mode, the markdown
+        is kept synchronized by the editor's edit interception mechanism.
 
         Returns:
             The markdown content.
         """
-        self._sync_from_current_mode()
+        # In markdown mode, sync from the editor
+        if self._current_mode == "raw":
+            self._markdown_content = self._markdown_editor.get_content()
+        # In WYSIWYG mode, _markdown_content is already up to date
+        # (updated via markdown_edit_requested signal)
         return self._markdown_content
 
     def set_mode(self, mode: str) -> None:
@@ -307,13 +315,16 @@ class LogbookWidget(QWidget):
             return
 
         # Sync content before switching
-        self._sync_from_current_mode()
+        # In raw mode, get content from markdown editor
+        if self._current_mode == "raw":
+            self._markdown_content = self._markdown_editor.get_content()
+        # In WYSIWYG mode, _markdown_content is already up to date
 
         self._current_mode = mode
 
         if mode == "wysiwyg":
             self._stack.setCurrentIndex(0)
-            self._rich_editor.set_markdown(self._markdown_content)
+            self._rich_editor.render_markdown(self._markdown_content)
             self._wysiwyg_btn.setChecked(True)
             self._set_formatting_enabled(True)
         else:
@@ -443,25 +454,23 @@ class LogbookWidget(QWidget):
 
     # === Internal Methods ===
 
-    def _sync_from_current_mode(self) -> None:
-        """Sync markdown content from the current editor."""
-        if self._syncing:
-            return
-
-        self._syncing = True
-        try:
-            if self._current_mode == "wysiwyg":
-                self._markdown_content = self._rich_editor.get_markdown()
-            else:
-                self._markdown_content = self._markdown_editor.get_content()
-        finally:
-            self._syncing = False
-
     @Slot(int)
     def _on_mode_button_clicked(self, button_id: int) -> None:
         """Handle mode toggle button clicks."""
         mode = "wysiwyg" if button_id == 0 else "raw"
         self.set_mode(mode)
+
+    @Slot(str)
+    def _on_markdown_edit_requested(self, new_markdown: str) -> None:
+        """Handle markdown edit from WYSIWYG editor.
+
+        This is called when the rich editor intercepts an edit and
+        translates it to a markdown operation.
+        """
+        if self._syncing:
+            return
+        self._markdown_content = new_markdown
+        # Note: content_changed is emitted by _on_rich_content_changed
 
     @Slot()
     def _on_rich_content_changed(self) -> None:
@@ -476,8 +485,9 @@ class LogbookWidget(QWidget):
             return
         self._syncing = True
         try:
-            # Re-parse protection regions (this triggers rehighlight via signal)
+            # Update markdown content and re-parse protection regions
             content = self._markdown_editor.get_content()
+            self._markdown_content = content
             self._protection_manager.parse_regions(content)
             self.content_changed.emit()
         finally:

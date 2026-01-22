@@ -1,16 +1,17 @@
 """
-WYSIWYG rich text editor with protection enforcement.
+WYSIWYG rich text editor with markdown as source of truth.
 
-Provides a QTextEdit-based editor with markdown backing and
-protection for designated content regions.
+Provides a QTextEdit-based editor that displays rendered markdown
+and intercepts all edits, translating them to markdown operations.
+The markdown content is the single source of truth.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import (
     QFont,
     QKeyEvent,
@@ -20,6 +21,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
 
+from ncs.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
 from ncs.logbook.style import LogbookStyles
 
 if TYPE_CHECKING:
@@ -54,18 +56,16 @@ class ProtectedBlockData(QTextBlockUserData):
 
 class RichTextEditor(QTextEdit):
     """
-    WYSIWYG rich text editor with markdown backing.
+    WYSIWYG rich text editor with markdown as source of truth.
 
     This editor provides:
-    - Rich text editing with formatting
-    - Markdown conversion on load/save
+    - Rich text display rendered from markdown
+    - Edit interception that translates to markdown operations
     - Visual highlighting of protected regions
-    - Edit interception for protected content
     - Signal emission when protection is violated
 
-    The editor stores content internally as HTML but converts to/from
-    markdown for external use. Protected regions are tracked using
-    QTextBlock userData.
+    The editor does NOT store content internally. All content is managed
+    externally via markdown, and the editor re-renders after each edit.
 
     Attributes:
         widget_type: Type identifier for introspection.
@@ -75,19 +75,23 @@ class RichTextEditor(QTextEdit):
         content_changed: Emitted when the content is modified.
         protection_violated(str, int): Emitted when an edit is attempted
             in a protected region. Args are (region_id, cursor_position).
+        markdown_edit_requested(str): Emitted with the new markdown content
+            when an edit operation completes. The parent widget should
+            update its markdown and call render_markdown().
 
     Example:
         >>> editor = RichTextEditor(protection_manager, converter)
-        >>> editor.set_markdown("# Hello\\n\\nWorld")
-        >>> editor.protection_violated.connect(lambda r, p: print(f"Blocked: {r}"))
+        >>> editor.markdown_edit_requested.connect(widget.on_markdown_edit)
+        >>> editor.render_markdown("# Hello\\n\\nWorld")
     """
 
     widget_type: ClassVar[str] = "RichTextEditor"
-    widget_description: ClassVar[str] = "WYSIWYG rich text editor with markdown support"
+    widget_description: ClassVar[str] = "WYSIWYG rich text editor with markdown source of truth"
 
     # Signals
     content_changed = Signal()
     protection_violated = Signal(str, int)  # (region_id, cursor_position)
+    markdown_edit_requested = Signal(str)  # new markdown content
 
     def __init__(
         self,
@@ -106,11 +110,19 @@ class RichTextEditor(QTextEdit):
         super().__init__(parent)
         self._protection_manager = protection_manager
         self._converter = converter
+        self._position_mapper = MarkdownPositionMapper()
+
+        # Current state
+        self._markdown: str = ""
+        self._mapping: PositionMapping | None = None
         self._protected_blocks: dict[int, str] = {}  # block_number -> region_id
         self._updating_content = False
 
+        # Debounce timer for re-rendering
+        self._render_timer: QTimer | None = None
+        self._pending_markdown: str | None = None
+
         self._setup_ui()
-        self._connect_signals()
 
     def _setup_ui(self) -> None:
         """Configure the editor UI."""
@@ -118,57 +130,73 @@ class RichTextEditor(QTextEdit):
         self.setAcceptRichText(True)
         self.setPlaceholderText("Enter content...")
 
-    def _connect_signals(self) -> None:
-        """Connect internal signals."""
-        self.textChanged.connect(self._on_text_changed)
-
-    @Slot()
-    def _on_text_changed(self) -> None:
-        """Handle text changes."""
-        if not self._updating_content:
-            self.content_changed.emit()
-
-    def set_markdown(self, markdown: str) -> None:
+    def render_markdown(self, markdown: str) -> None:
         """
-        Load markdown content into the editor.
+        Render markdown content into the editor.
 
-        Converts the markdown to HTML and loads it into the editor,
-        then marks protected blocks.
+        This replaces the current display with the rendered markdown.
+        Call this whenever the markdown source changes.
 
         Args:
-            markdown: The markdown content to display.
+            markdown: The markdown content to render.
         """
         self._updating_content = True
         try:
+            # Store markdown and build position mapping
+            self._markdown = markdown
+            self._mapping = self._position_mapper.build_map(markdown)
+
             # Parse protected regions
             self._protection_manager.parse_regions(markdown)
 
             # Convert to HTML
             html = self._converter.markdown_to_html(markdown)
 
-            # Clear document before loading new content to ensure clean state
-            self.clear()
+            # Store cursor position before update (as visual position)
+            old_cursor = self.textCursor()
+            old_visual_pos = old_cursor.position()
 
-            # Load into editor
+            # Clear and reload
+            self.clear()
             self.setHtml(html)
 
             # Mark protected blocks
             self._mark_protected_blocks()
 
+            # Restore cursor position
+            self._restore_cursor_position(old_visual_pos)
+
         finally:
             self._updating_content = False
 
+    def _restore_cursor_position(self, visual_pos: int) -> None:
+        """Restore cursor to approximate visual position after re-render."""
+        cursor = self.textCursor()
+        doc_length = len(self.toPlainText())
+        new_pos = min(visual_pos, doc_length)
+        cursor.setPosition(new_pos)
+        self.setTextCursor(cursor)
+
     def get_markdown(self) -> str:
         """
-        Extract markdown from the current content.
-
-        Converts the HTML content back to markdown.
+        Get the current markdown content.
 
         Returns:
-            The markdown content.
+            The markdown content (source of truth).
         """
-        html = self.toHtml()
-        return self._converter.html_to_markdown(html)
+        return self._markdown
+
+    # Legacy compatibility method
+    def set_markdown(self, markdown: str) -> None:
+        """
+        Set markdown content (legacy compatibility).
+
+        This is an alias for render_markdown().
+
+        Args:
+            markdown: The markdown content to display.
+        """
+        self.render_markdown(markdown)
 
     def _mark_protected_blocks(self) -> None:
         """
@@ -179,9 +207,6 @@ class RichTextEditor(QTextEdit):
         """
         self._protected_blocks.clear()
         document = self.document()
-
-        # Get document text to map positions
-        full_text = document.toPlainText()
 
         regions = self._protection_manager.get_regions()
         if not regions:
@@ -198,10 +223,7 @@ class RichTextEditor(QTextEdit):
 
             # Check if this block overlaps any protected region
             for region in regions:
-                # Map region positions from markdown to document positions
-                # This is approximate - we check if block overlaps
                 if current_pos < region.end_offset and block_end > region.start_offset:
-                    # Block overlaps with protected region
                     data = ProtectedBlockData(region.region_id)
                     block.setUserData(data)
                     self._protected_blocks[block_num] = region.region_id
@@ -227,7 +249,6 @@ class RichTextEditor(QTextEdit):
         user_data = block.userData()
 
         if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-            # Check if region is unlocked
             region = self._protection_manager.get_region(user_data.region_id)
             if region and not region.unlocked:
                 return True, user_data.region_id
@@ -266,18 +287,162 @@ class RichTextEditor(QTextEdit):
 
         return False, None
 
+    def _visual_to_md_pos(self, visual_pos: int) -> int:
+        """Convert visual position to markdown position."""
+        if self._mapping is None:
+            return visual_pos
+        return self._position_mapper.visual_to_markdown(self._mapping, visual_pos)
+
+    def _apply_edit_and_rerender(self, new_markdown: str, new_visual_pos: int) -> None:
+        """Apply markdown edit and re-render."""
+        self._markdown = new_markdown
+        self.markdown_edit_requested.emit(new_markdown)
+        self.render_markdown(new_markdown)
+
+        # Restore cursor to new position
+        cursor = self.textCursor()
+        doc_length = len(self.toPlainText())
+        cursor.setPosition(min(new_visual_pos, doc_length))
+        self.setTextCursor(cursor)
+
+        self.content_changed.emit()
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """
-        Handle key press events, intercepting edits to protected content.
+        Handle key press events, intercepting edits and translating to markdown.
 
         Args:
             event: The key event.
         """
-        if self._is_editing_key(event):
-            if self._would_modify_protected(event):
+        # Non-editing keys pass through
+        if not self._is_editing_key(event):
+            super().keyPressEvent(event)
+            return
+
+        # Check for protection
+        cursor = self.textCursor()
+        key = event.key()
+
+        # Check selection protection
+        if cursor.hasSelection():
+            is_protected, region_id = self._is_selection_protected(cursor)
+            if is_protected and region_id:
+                logger.debug(f"Selection overlaps protected: {region_id}")
+                self.protection_violated.emit(region_id, cursor.selectionStart())
                 return
 
+        # Check cursor position protection
+        is_protected, region_id = self._is_cursor_in_protected(cursor)
+
+        # Handle backspace
+        if key == Qt.Key.Key_Backspace:
+            if cursor.hasSelection():
+                self._handle_delete_selection(cursor)
+            elif cursor.position() > 0:
+                # Check if deleting into protected region
+                if cursor.atBlockStart():
+                    prev_block = cursor.block().previous()
+                    if prev_block.isValid():
+                        user_data = prev_block.userData()
+                        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
+                            region = self._protection_manager.get_region(user_data.region_id)
+                            if region and not region.unlocked:
+                                self.protection_violated.emit(
+                                    user_data.region_id, cursor.position() - 1
+                                )
+                                return
+                elif is_protected and region_id:
+                    self.protection_violated.emit(region_id, cursor.position())
+                    return
+
+                self._handle_backspace(cursor)
+            return
+
+        # Handle delete
+        if key == Qt.Key.Key_Delete:
+            if cursor.hasSelection():
+                self._handle_delete_selection(cursor)
+            else:
+                if is_protected and region_id:
+                    self.protection_violated.emit(region_id, cursor.position())
+                    return
+                # Check if deleting into protected region
+                if cursor.atBlockEnd():
+                    next_block = cursor.block().next()
+                    if next_block.isValid():
+                        user_data = next_block.userData()
+                        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
+                            region = self._protection_manager.get_region(user_data.region_id)
+                            if region and not region.unlocked:
+                                self.protection_violated.emit(
+                                    user_data.region_id, cursor.position()
+                                )
+                                return
+
+                self._handle_delete(cursor)
+            return
+
+        # Handle enter
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if is_protected and region_id:
+                self.protection_violated.emit(region_id, cursor.position())
+                return
+            if cursor.hasSelection():
+                self._handle_delete_selection(cursor)
+                cursor = self.textCursor()
+            self._handle_insert(cursor, "\n")
+            return
+
+        # Handle regular text input
+        text = event.text()
+        if text and text.isprintable():
+            if is_protected and region_id:
+                self.protection_violated.emit(region_id, cursor.position())
+                return
+            if cursor.hasSelection():
+                self._handle_delete_selection(cursor)
+                cursor = self.textCursor()
+            self._handle_insert(cursor, text)
+            return
+
+        # Pass through unhandled events
         super().keyPressEvent(event)
+
+    def _handle_insert(self, cursor: QTextCursor, text: str) -> None:
+        """Handle text insertion at cursor position."""
+        visual_pos = cursor.position()
+        new_markdown, new_visual_pos = self._position_mapper.apply_insert(
+            self._markdown, visual_pos, text, self._mapping
+        )
+        self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+
+    def _handle_backspace(self, cursor: QTextCursor) -> None:
+        """Handle backspace at cursor position."""
+        visual_pos = cursor.position()
+        if visual_pos > 0:
+            new_markdown, new_visual_pos = self._position_mapper.apply_delete(
+                self._markdown, visual_pos - 1, visual_pos, self._mapping
+            )
+            self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+
+    def _handle_delete(self, cursor: QTextCursor) -> None:
+        """Handle delete at cursor position."""
+        visual_pos = cursor.position()
+        plain_len = len(self._mapping.plain_text) if self._mapping else len(self._markdown)
+        if visual_pos < plain_len:
+            new_markdown, new_visual_pos = self._position_mapper.apply_delete(
+                self._markdown, visual_pos, visual_pos + 1, self._mapping
+            )
+            self._apply_edit_and_rerender(new_markdown, new_visual_pos)
+
+    def _handle_delete_selection(self, cursor: QTextCursor) -> None:
+        """Handle deletion of selected text."""
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        new_markdown, new_visual_pos = self._position_mapper.apply_delete(
+            self._markdown, start, end, self._mapping
+        )
+        self._apply_edit_and_rerender(new_markdown, new_visual_pos)
 
     def _is_editing_key(self, event: QKeyEvent) -> bool:
         """
@@ -320,71 +485,6 @@ class RichTextEditor(QTextEdit):
 
         return True
 
-    def _would_modify_protected(self, event: QKeyEvent) -> bool:
-        """
-        Check if a key event would modify protected content.
-
-        Args:
-            event: The key event.
-
-        Returns:
-            True if the event would modify protected content.
-        """
-        cursor = self.textCursor()
-        key = event.key()
-
-        # Check selection
-        if cursor.hasSelection():
-            is_protected, region_id = self._is_selection_protected(cursor)
-            if is_protected and region_id:
-                logger.debug(f"Selection overlaps protected: {region_id}")
-                self.protection_violated.emit(region_id, cursor.selectionStart())
-                return True
-
-        # Check cursor position for editing keys
-        is_protected, region_id = self._is_cursor_in_protected(cursor)
-
-        if key == Qt.Key.Key_Backspace:
-            # Also check previous block if at start of block
-            if cursor.atBlockStart():
-                prev_block = cursor.block().previous()
-                if prev_block.isValid():
-                    user_data = prev_block.userData()
-                    if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-                        region = self._protection_manager.get_region(user_data.region_id)
-                        if region and not region.unlocked:
-                            self.protection_violated.emit(
-                                user_data.region_id, cursor.position() - 1
-                            )
-                            return True
-            elif is_protected and region_id:
-                self.protection_violated.emit(region_id, cursor.position())
-                return True
-
-        elif key == Qt.Key.Key_Delete:
-            if is_protected and region_id:
-                self.protection_violated.emit(region_id, cursor.position())
-                return True
-            # Check next block if at end of block
-            if cursor.atBlockEnd():
-                next_block = cursor.block().next()
-                if next_block.isValid():
-                    user_data = next_block.userData()
-                    if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-                        region = self._protection_manager.get_region(user_data.region_id)
-                        if region and not region.unlocked:
-                            self.protection_violated.emit(
-                                user_data.region_id, cursor.position()
-                            )
-                            return True
-
-        elif event.text():
-            if is_protected and region_id:
-                self.protection_violated.emit(region_id, cursor.position())
-                return True
-
-        return False
-
     def insertFromMimeData(self, source) -> None:
         """
         Handle paste operations, checking for protection.
@@ -404,7 +504,13 @@ class RichTextEditor(QTextEdit):
             self.protection_violated.emit(region_id, cursor.position())
             return
 
-        super().insertFromMimeData(source)
+        # Get plain text from clipboard
+        text = source.text() if source.hasText() else ""
+        if text:
+            if cursor.hasSelection():
+                self._handle_delete_selection(cursor)
+                cursor = self.textCursor()
+            self._handle_insert(cursor, text)
 
     def canInsertFromMimeData(self, source) -> bool:
         """
@@ -426,12 +532,12 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return False
 
-        return super().canInsertFromMimeData(source)
+        return source.hasText()
 
-    # Formatting methods
+    # Formatting methods - these now operate on markdown
 
     def set_bold(self, bold: bool) -> None:
-        """Set bold formatting on the selection.
+        """Apply or remove bold formatting to the selection.
 
         Args:
             bold: Whether text should be bold.
@@ -441,12 +547,13 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return
 
-        fmt = QTextCharFormat()
-        fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
-        cursor.mergeCharFormat(fmt)
+        if not cursor.hasSelection():
+            return
+
+        self._apply_formatting(cursor, "**", "**", bold)
 
     def set_italic(self, italic: bool) -> None:
-        """Set italic formatting on the selection.
+        """Apply or remove italic formatting to the selection.
 
         Args:
             italic: Whether text should be italic.
@@ -456,12 +563,13 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return
 
-        fmt = QTextCharFormat()
-        fmt.setFontItalic(italic)
-        cursor.mergeCharFormat(fmt)
+        if not cursor.hasSelection():
+            return
+
+        self._apply_formatting(cursor, "*", "*", italic)
 
     def set_strikethrough(self, strikethrough: bool) -> None:
-        """Set strikethrough formatting on the selection.
+        """Apply or remove strikethrough formatting to the selection.
 
         Args:
             strikethrough: Whether text should have strikethrough.
@@ -471,13 +579,85 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return
 
-        fmt = QTextCharFormat()
-        fmt.setFontStrikeOut(strikethrough)
-        cursor.mergeCharFormat(fmt)
+        if not cursor.hasSelection():
+            return
+
+        self._apply_formatting(cursor, "~~", "~~", strikethrough)
+
+    def _apply_formatting(
+        self, cursor: QTextCursor, prefix: str, suffix: str, apply: bool
+    ) -> None:
+        """
+        Apply or remove formatting to the selection.
+
+        Args:
+            cursor: Text cursor with selection.
+            prefix: Markdown prefix (e.g., "**").
+            suffix: Markdown suffix (e.g., "**").
+            apply: True to apply formatting, False to remove.
+        """
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+
+        if apply:
+            # Apply formatting by wrapping with prefix/suffix
+            new_markdown = self._position_mapper.apply_formatting(
+                self._markdown, start, end, prefix, suffix, self._mapping
+            )
+        else:
+            # Remove formatting - need to find and remove the markers
+            new_markdown = self._remove_formatting(start, end, prefix, suffix)
+            if new_markdown is None:
+                return
+
+        self._apply_edit_and_rerender(new_markdown, end + len(prefix))
+
+        # Restore selection (approximately)
+        cursor = self.textCursor()
+        cursor.setPosition(start)
+        cursor.setPosition(end + len(prefix) if apply else end - len(prefix), QTextCursor.MoveMode.KeepAnchor)
+        self.setTextCursor(cursor)
+
+    def _remove_formatting(
+        self, visual_start: int, visual_end: int, prefix: str, suffix: str
+    ) -> str | None:
+        """
+        Remove formatting markers around a selection.
+
+        Args:
+            visual_start: Start of selection in visual view.
+            visual_end: End of selection in visual view.
+            prefix: Markdown prefix to remove.
+            suffix: Markdown suffix to remove.
+
+        Returns:
+            New markdown with formatting removed, or None if not found.
+        """
+        if self._mapping is None:
+            return None
+
+        md_start = self._position_mapper.visual_to_markdown(self._mapping, visual_start)
+        md_end = self._position_mapper.visual_to_markdown(self._mapping, visual_end)
+
+        # Look for prefix before md_start and suffix after md_end
+        prefix_pos = self._markdown.rfind(prefix, 0, md_start + 1)
+        suffix_pos = self._markdown.find(suffix, md_end - 1)
+
+        if prefix_pos == -1 or suffix_pos == -1:
+            return None
+
+        # Remove the markers
+        new_md = (
+            self._markdown[:prefix_pos]
+            + self._markdown[prefix_pos + len(prefix) : suffix_pos]
+            + self._markdown[suffix_pos + len(suffix) :]
+        )
+        return new_md
 
     def toggle_bold(self) -> None:
         """Toggle bold formatting on the selection."""
         cursor = self.textCursor()
+        # Check if currently bold by looking at char format
         is_bold = cursor.charFormat().fontWeight() == QFont.Weight.Bold
         self.set_bold(not is_bold)
 
@@ -493,7 +673,7 @@ class RichTextEditor(QTextEdit):
 
     def set_heading(self, level: int) -> None:
         """
-        Set the current block as a heading.
+        Set the current line as a heading.
 
         Args:
             level: The heading level (1-6), or 0 for normal text.
@@ -503,22 +683,48 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return
 
-        block_fmt = cursor.blockFormat()
-        char_fmt = cursor.charFormat()
+        # Get line start position in visual view
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        line_start = cursor.position()
 
-        if level == 0:
-            block_fmt.setHeadingLevel(0)
-            char_fmt.setFontWeight(QFont.Weight.Normal)
-            char_fmt.setFontPointSize(10)
+        # Convert to markdown position
+        if self._mapping is None:
+            return
+
+        md_line_start = self._position_mapper.visual_to_markdown(self._mapping, line_start)
+
+        # Find start of line in markdown
+        line_begin = self._markdown.rfind("\n", 0, md_line_start)
+        if line_begin == -1:
+            line_begin = 0
         else:
-            block_fmt.setHeadingLevel(level)
-            char_fmt.setFontWeight(QFont.Weight.Bold)
-            # Scale font size based on heading level
-            sizes = {1: 24, 2: 20, 3: 16, 4: 14, 5: 12, 6: 10}
-            char_fmt.setFontPointSize(sizes.get(level, 10))
+            line_begin += 1  # Skip the newline
 
-        cursor.setBlockFormat(block_fmt)
-        cursor.mergeCharFormat(char_fmt)
+        # Check if line already has a heading
+        line_content = self._markdown[line_begin:]
+        line_end = line_content.find("\n")
+        if line_end == -1:
+            line_end = len(line_content)
+        line_content = line_content[:line_end]
+
+        # Remove existing heading markers
+        import re
+        stripped_line = re.sub(r"^#{1,6}\s*", "", line_content)
+
+        # Build new line
+        if level == 0:
+            new_line = stripped_line
+        else:
+            new_line = "#" * level + " " + stripped_line
+
+        # Replace the line in markdown
+        new_markdown = (
+            self._markdown[:line_begin]
+            + new_line
+            + self._markdown[line_begin + len(line_content) :]
+        )
+
+        self._apply_edit_and_rerender(new_markdown, line_start)
 
     def insert_link(self, url: str, text: str | None = None) -> None:
         """
@@ -536,7 +742,13 @@ class RichTextEditor(QTextEdit):
         if text is None:
             text = url
 
-        cursor.insertHtml(f'<a href="{url}">{text}</a>')
+        link_md = f"[{text}]({url})"
+
+        if cursor.hasSelection():
+            self._handle_delete_selection(cursor)
+            cursor = self.textCursor()
+
+        self._handle_insert(cursor, link_md)
 
     def insert_code_block(self) -> None:
         """Insert a code block at the current cursor position."""
@@ -545,7 +757,13 @@ class RichTextEditor(QTextEdit):
         if is_protected:
             return
 
-        cursor.insertHtml("<pre><code></code></pre>")
+        code_md = "\n```\n\n```\n"
+
+        if cursor.hasSelection():
+            self._handle_delete_selection(cursor)
+            cursor = self.textCursor()
+
+        self._handle_insert(cursor, code_md)
 
     def get_introspection_data(self) -> dict[str, Any]:
         """
@@ -559,7 +777,7 @@ class RichTextEditor(QTextEdit):
             "widget_description": self.widget_description,
             "object_name": self.objectName(),
             "class_name": self.__class__.__name__,
-            "content_length": len(self.toPlainText()),
+            "content_length": len(self._markdown),
             "line_count": self.document().blockCount(),
             "cursor_position": self.textCursor().position(),
             "has_selection": self.textCursor().hasSelection(),
