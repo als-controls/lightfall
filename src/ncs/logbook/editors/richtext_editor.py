@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import (
     QFont,
     QKeyEvent,
+    QMouseEvent,
     QTextBlockUserData,
     QTextCharFormat,
     QTextCursor,
@@ -123,6 +124,7 @@ class RichTextEditor(QTextEdit):
     content_changed = Signal()
     protection_violated = Signal(str, int)  # (region_id, cursor_position)
     markdown_edit_requested = Signal(str)  # new markdown content
+    action_group_clicked = Signal(str)  # region_id
 
     # Undo stack settings
     MAX_UNDO_STATES: ClassVar[int] = 100
@@ -524,6 +526,34 @@ class RichTextEditor(QTextEdit):
 
         # Pass through unhandled events
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """
+        Handle mouse press events to detect clicks on action group summaries.
+
+        Args:
+            event: The mouse event.
+        """
+        # Get the cursor position at the click
+        cursor = self.cursorForPosition(event.pos())
+        block = cursor.block()
+
+        # Check if this block is in a protected action group region
+        user_data = block.userData()
+        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
+            region_id = user_data.region_id
+            # Check if it's an action group (starts with "action-")
+            if region_id and region_id.startswith("action-"):
+                # Check if the block text contains the expand icon
+                block_text = block.text()
+                if "[+]" in block_text or "Device Actions" in block_text:
+                    logger.debug(f"Action group clicked: {region_id}")
+                    self.action_group_clicked.emit(region_id)
+                    # Don't pass through - we handled the click
+                    return
+
+        # Normal click handling
+        super().mousePressEvent(event)
 
     def _handle_insert(self, cursor: QTextCursor, text: str) -> None:
         """Handle text insertion at cursor position."""

@@ -251,6 +251,9 @@ class LogbookWidget(QWidget):
         self._rich_editor.protection_violated.connect(self.protection_violated)
         self._markdown_editor.protection_violated.connect(self.protection_violated)
 
+        # Action group clicks - show details dialog
+        self._rich_editor.action_group_clicked.connect(self.show_action_group_details)
+
         # Track cursor position to update formatting button states
         self._rich_editor.cursorPositionChanged.connect(self._update_formatting_button_states)
         self._rich_editor.selectionChanged.connect(self._update_formatting_button_states)

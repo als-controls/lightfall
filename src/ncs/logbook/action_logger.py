@@ -427,6 +427,7 @@ class DeviceActionLogger(QObject):
             lines.append("</details>")
 
         lines.append(f"<!-- /PROTECTED:{region_id} -->")
+        lines.append("")  # Add blank line after so user can type below
 
         return "\n".join(lines)
 
