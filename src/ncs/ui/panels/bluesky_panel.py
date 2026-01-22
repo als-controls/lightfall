@@ -244,9 +244,10 @@ class BlueskyPanel(BasePanel):
             return
 
         try:
-            # TODO: Resolve device names to actual devices from catalog
-            # For now, just pass kwargs directly
-            plan = plan_info.func(**kwargs)
+            # Resolve device names to actual ophyd devices
+            resolved_kwargs = self._resolve_device_kwargs(plan_info, kwargs)
+
+            plan = plan_info.func(**resolved_kwargs)
 
             # Submit to RunEngine
             self._re(plan)
@@ -255,6 +256,74 @@ class BlueskyPanel(BasePanel):
             logger.info(f"Submitted plan: {plan_info.name}")
         except Exception as e:
             logger.error(f"Failed to run plan {plan_info.name}: {e}")
+
+    def _resolve_device_kwargs(
+        self, plan_info: PlanInfo, kwargs: dict
+    ) -> dict:
+        """Resolve device names to actual ophyd device objects.
+
+        Args:
+            plan_info: Plan info with parameter metadata.
+            kwargs: Parameter values (device names as strings/lists).
+
+        Returns:
+            kwargs with device names replaced by ophyd device objects.
+        """
+        from ncs.ui.widgets.plan_config import ParamCategory, get_param_category
+
+        catalog = DeviceCatalog.get_instance()
+        resolved = {}
+
+        for key, value in kwargs.items():
+            # Find the parameter info to determine if it's a device param
+            param_info = next(
+                (p for p in plan_info.parameters if p.name == key), None
+            )
+
+            if param_info is None:
+                resolved[key] = value
+                continue
+
+            category = get_param_category(param_info.name, param_info.annotation)
+
+            if category == ParamCategory.DEVICES:
+                # Multi-device parameter (e.g., detectors) - resolve list of names
+                if isinstance(value, list):
+                    devices = []
+                    for name in value:
+                        device = catalog.get_ophyd_device(name)
+                        if device is not None:
+                            devices.append(device)
+                        else:
+                            logger.warning(f"Device not found: {name}")
+                    resolved[key] = devices
+                else:
+                    resolved[key] = value
+
+            elif category == ParamCategory.DEVICE:
+                # Single device parameter (e.g., motor) - resolve single name
+                if isinstance(value, list) and len(value) == 1:
+                    # Single-select returns list with one item
+                    device = catalog.get_ophyd_device(value[0])
+                    if device is not None:
+                        resolved[key] = device
+                    else:
+                        logger.warning(f"Device not found: {value[0]}")
+                        resolved[key] = value[0]
+                elif isinstance(value, str):
+                    device = catalog.get_ophyd_device(value)
+                    if device is not None:
+                        resolved[key] = device
+                    else:
+                        logger.warning(f"Device not found: {value}")
+                        resolved[key] = value
+                else:
+                    resolved[key] = value
+            else:
+                # Not a device parameter, pass through
+                resolved[key] = value
+
+        return resolved
 
     @Slot()
     def _on_run_start(self) -> None:
