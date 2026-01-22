@@ -30,11 +30,6 @@ ACTION_GROUP_METADATA_PATTERN = re.compile(
     r"collapsed=(true|false)\s*-->"
 )
 
-# Pattern to match details/summary (for action groups)
-DETAILS_PATTERN = re.compile(
-    r"<details[^>]*>\s*<summary>(.+?)</summary>(.*?)</details>",
-    re.DOTALL,
-)
 
 
 class QtHtmlRenderer(mistune.HTMLRenderer):
@@ -96,34 +91,12 @@ class QtHtmlRenderer(mistune.HTMLRenderer):
         return "".join(result_parts)
 
     def html_block(self, text: str) -> str:
-        """Render raw HTML block, handling details/summary for action groups."""
-        # Check for details/summary pattern (action groups)
-        details_match = DETAILS_PATTERN.search(text)
-        if details_match:
-            summary_content = details_match.group(1)
-            details_content = details_match.group(2)
-
-            # Render as a clickable summary with expand indicator
-            # The full content is in a data attribute for the dialog
-            region_id = self._protected_id or ""
-            return (
-                f'<div class="action-group-summary" data-region="{region_id}" '
-                f'data-collapsed="true">'
-                f'<span class="expand-icon">[+]</span> {summary_content}'
-                f'</div>\n'
-            )
-
-        # For other HTML blocks, pass through (but escape for safety in Qt)
+        """Render raw HTML block."""
+        # For HTML blocks, pass through (but escape for safety in Qt)
         return f"<p>{html.escape(text)}</p>\n"
 
     def raw_html(self, text: str) -> str:
         """Handle inline raw HTML."""
-        # Check for details/summary
-        if "<details" in text or "</details>" in text:
-            # Will be handled by html_block
-            return ""
-        if "<summary" in text or "</summary>" in text:
-            return ""
         return html.escape(text)
 
     def paragraph(self, text: str) -> str:
@@ -221,36 +194,6 @@ class MarkdownConverter:
             plugins=["strikethrough", "table"],
         )
 
-    def _preprocess_details(self, markdown: str) -> str:
-        """
-        Convert <details>/<summary> blocks to Qt-compatible HTML.
-
-        Qt's QTextEdit doesn't support the <details> element, so we convert
-        it to a styled div with a [+] indicator that can be clicked to show
-        a dialog with the full content.
-
-        Args:
-            markdown: The markdown content.
-
-        Returns:
-            Markdown with <details> replaced by styled divs.
-        """
-        # Find the protected region ID for the current action group
-        region_match = PROTECTED_START_PATTERN.search(markdown)
-        region_id = region_match.group(1) if region_match else ""
-
-        def replace_details(match: re.Match) -> str:
-            summary = match.group(1)
-            # Clean up the summary - remove markdown bold markers for display
-            clean_summary = summary.replace("**", "")
-            return (
-                f'<div class="action-group-summary" data-region="{region_id}">'
-                f'<span class="expand-icon">[+]</span> <b>{clean_summary}</b>'
-                f'</div>'
-            )
-
-        return DETAILS_PATTERN.sub(replace_details, markdown)
-
     def markdown_to_html(self, markdown: str) -> str:
         """
         Convert markdown to Qt-compatible HTML.
@@ -271,10 +214,6 @@ class MarkdownConverter:
             self._renderer._in_action_group = False
             self._renderer._action_group_collapsed = True
             self._renderer._action_group_count = 0
-
-            # Preprocess: Convert <details>/<summary> to Qt-compatible HTML
-            # Qt doesn't support <details>, so we convert to a clickable summary div
-            markdown = self._preprocess_details(markdown)
 
             # Parse markdown to HTML
             body = self._parser(markdown)

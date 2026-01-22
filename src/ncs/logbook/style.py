@@ -373,4 +373,20 @@ def get_qt_html_stylesheet() -> str:
             font-weight: bold;
             margin-right: 8px;
         }}
+
+        /* Action group links - style clickable action summaries */
+        a[href^="ncs://action/"] {{
+            color: {action_icon};
+            background-color: {action_bg};
+            padding: 4px 8px;
+            border-radius: 4px;
+            border-left: 3px solid {action_border};
+            text-decoration: none;
+            display: inline-block;
+            margin: 4px 0;
+        }}
+
+        a[href^="ncs://action/"]:hover {{
+            text-decoration: underline;
+        }}
     """

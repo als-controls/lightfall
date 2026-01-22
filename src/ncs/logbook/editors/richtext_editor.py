@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import (
     QFont,
     QKeyEvent,
@@ -245,6 +246,8 @@ class RichTextEditor(QTextEdit):
 
         This method walks through the document and attaches
         ProtectedBlockData to blocks that fall within protected regions.
+        Whitespace-only blocks are never marked as protected to allow
+        users to type after protected content.
         """
         self._protected_blocks.clear()
         document = self.document()
@@ -261,6 +264,14 @@ class RichTextEditor(QTextEdit):
             block_num = block.blockNumber()
             block_length = block.length()
             block_end = current_pos + block_length
+            block_text = block.text()
+
+            # Never mark whitespace-only blocks as protected
+            # This ensures users can always type after protected regions
+            if block_text.strip() in ("", "\u00a0"):
+                current_pos = block_end
+                block = block.next()
+                continue
 
             # Check if this block overlaps any protected region
             for region in regions:
@@ -527,33 +538,46 @@ class RichTextEditor(QTextEdit):
         # Pass through unhandled events
         super().keyPressEvent(event)
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """
-        Handle mouse press events to detect clicks on action group summaries.
+        Handle mouse release events to detect clicks on links.
+
+        Uses QTextEdit.anchorAt() to check if the click was on a link,
+        which is more reliable than tracking block user data.
 
         Args:
             event: The mouse event.
         """
-        # Get the cursor position at the click
-        cursor = self.cursorForPosition(event.pos())
-        block = cursor.block()
-
-        # Check if this block is in a protected action group region
-        user_data = block.userData()
-        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-            region_id = user_data.region_id
-            # Check if it's an action group (starts with "action-")
-            if region_id and region_id.startswith("action-"):
-                # Check if the block text contains the expand icon
-                block_text = block.text()
-                if "[+]" in block_text or "Device Actions" in block_text:
-                    logger.debug(f"Action group clicked: {region_id}")
-                    self.action_group_clicked.emit(region_id)
-                    # Don't pass through - we handled the click
-                    return
+        # Check if we clicked on an anchor (link)
+        anchor = self.anchorAt(event.pos())
+        if anchor:
+            url = QUrl(anchor)
+            self._on_anchor_clicked(url)
+            # Don't pass through for action links - we handled it
+            if url.scheme() == "ncs":
+                return
 
         # Normal click handling
-        super().mousePressEvent(event)
+        super().mouseReleaseEvent(event)
+
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        """
+        Handle anchor (link) clicks, detecting action group links.
+
+        The action group links use a custom URL scheme: ncs://action/{group_id}
+
+        Args:
+            url: The clicked URL.
+        """
+        if url.scheme() == "ncs" and url.host() == "action":
+            # Extract the group ID from the path
+            group_id = url.path().lstrip("/")
+            region_id = f"action-{group_id}"
+            logger.debug(f"Action group link clicked: {region_id}")
+            self.action_group_clicked.emit(region_id)
+        else:
+            # For other links, could open externally or emit another signal
+            logger.debug(f"Link clicked: {url.toString()}")
 
     def _handle_insert(self, cursor: QTextCursor, text: str) -> None:
         """Handle text insertion at cursor position."""
