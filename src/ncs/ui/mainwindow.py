@@ -33,6 +33,7 @@ from ncs.ui.panels.registry import PanelRegistry
 from ncs.ui.preferences.manager import PreferencesManager
 from ncs.ui.theme import Theme, ThemeManager
 from ncs.utils.logging import logger
+from ncs.ui.widgets.runengine_control import RunEngineControlWidget
 
 if TYPE_CHECKING:
     from ncs.config import ConfigManager
@@ -72,6 +73,7 @@ class NCSMainWindow(QMainWindow):
         self._config_manager: ConfigManager | None = None
         self._panel_docks: dict[str, QDockWidget] = {}
         self._active_panel_id: str | None = None
+        self._default_layout_applied: bool = False
 
         # Get manager instances
         self._session_manager = SessionManager.get_instance()
@@ -215,11 +217,21 @@ class NCSMainWindow(QMainWindow):
         self._toolbar.setObjectName("MainToolbar")
         self.addToolBar(self._toolbar)
 
-        # Example toolbar actions
-        # These would be expanded with actual functionality
+        # Add RunEngine control widget
+        self._re_control = RunEngineControlWidget()
+        self._toolbar.addWidget(self._re_control)
 
         # Set visibility from preferences
         self._toolbar.setVisible(self._prefs_manager.show_toolbar)
+
+    def set_run_engine(self, re) -> None:
+        """Connect the RunEngine to the toolbar control widget.
+
+        Args:
+            re: The QRunEngine instance.
+        """
+        self._re_control.set_run_engine(re)
+        logger.info("Connected RunEngine to toolbar control")
 
     def _setup_statusbar(self) -> None:
         """Create the status bar."""
@@ -249,7 +261,7 @@ class NCSMainWindow(QMainWindow):
         # Use a placeholder central widget
         # Panels will be docked around this
         central = QWidget()
-        central.setMinimumSize(200, 200)
+        central.setMaximumSize(0, 0)  # Zero size so docks fill the window
         self.setCentralWidget(central)
 
     def _connect_signals(self) -> None:
@@ -347,6 +359,59 @@ class NCSMainWindow(QMainWindow):
 
         logger.debug("Added panel to window: {}", panel_id)
         return panel
+
+    def setup_default_layout(self) -> None:
+        """Setup the default panel layout.
+
+        Opens Bluesky+Devices tabbed on left, Logbook+Documents tabbed on right.
+        Also clears saved state and prevents showEvent from restoring.
+        """
+        # Clear any saved state
+        from PySide6.QtCore import QSettings
+        settings = QSettings("ALS", "NCS")
+        settings.remove("mainwindow/geometry")
+        settings.remove("mainwindow/state")
+
+        # Add Bluesky panel on the left
+        self.add_panel(
+            "ncs.panels.bluesky",
+            area=Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+
+        # Add Devices panel on the left
+        self.add_panel(
+            "ncs.panels.devices",
+            area=Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+
+        # Tabify Bluesky and Devices
+        bluesky_dock = self._panel_docks.get("ncs.panels.bluesky")
+        devices_dock = self._panel_docks.get("ncs.panels.devices")
+        if bluesky_dock and devices_dock:
+            self.tabifyDockWidget(bluesky_dock, devices_dock)
+            bluesky_dock.raise_()
+
+        # Add Logbook panel on the right
+        self.add_panel(
+            "ncs.panels.logbook",
+            area=Qt.DockWidgetArea.RightDockWidgetArea,
+        )
+
+        # Add Documents panel on the right
+        self.add_panel(
+            "ncs.panels.documents",
+            area=Qt.DockWidgetArea.RightDockWidgetArea,
+        )
+
+        # Tabify Logbook and Documents
+        logbook_dock = self._panel_docks.get("ncs.panels.logbook")
+        documents_dock = self._panel_docks.get("ncs.panels.documents")
+        if logbook_dock and documents_dock:
+            self.tabifyDockWidget(logbook_dock, documents_dock)
+            logbook_dock.raise_()
+
+        self._default_layout_applied = True
+        logger.info("Applied default panel layout")
 
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the window.
@@ -634,6 +699,11 @@ class NCSMainWindow(QMainWindow):
     def showEvent(self, event) -> None:
         """Handle show event."""
         super().showEvent(event)
+
+        # Skip restoration if we just applied a fresh default layout
+        if self._default_layout_applied:
+            self._default_layout_applied = False
+            return
 
         # Restore window state if preference set
         if self._config_manager and self._config_manager.get("ui.remember_geometry", True):

@@ -4,9 +4,11 @@ This module provides widgets for direct device control:
 - Base classes for creating control widgets
 - Motor control widgets (single and multi-motor)
 - Container widget that selects appropriate controls
+- RunEngine control and plan execution widgets
+- Document stream viewer
 
 Usage:
-    from ncs.ui.widgets import DeviceControlWidget
+    from ncs.ui.widgets import DeviceControlWidget, RunEngineControlWidget
 
     # In a panel
     control = DeviceControlWidget()
@@ -22,9 +24,27 @@ from ncs.ui.widgets.device_control import (
     ControlWidgetFactory,
     DeviceControlWidget,
 )
+from ncs.ui.widgets.document_stream import (
+    DocumentStreamModel,
+    DocumentStreamWidget,
+)
 from ncs.ui.widgets.motor_control import (
     MotorControlWidget,
     MultiMotorControlWidget,
+)
+from ncs.ui.widgets.plan_config import (
+    PlanConfigWidget,
+    PlanExecutionWidget,
+)
+from ncs.ui.widgets.plan_selector import (
+    PlanFilterProxyModel,
+    PlanListModel,
+    PlanSelectorWidget,
+)
+from ncs.ui.widgets.runengine_control import (
+    RunEngineControlWidget,
+    RunEngineStatusBar,
+    StatusIndicator,
 )
 
 __all__ = [
@@ -38,4 +58,17 @@ __all__ = [
     # Motor widgets
     "MotorControlWidget",
     "MultiMotorControlWidget",
+    # RunEngine control
+    "RunEngineControlWidget",
+    "RunEngineStatusBar",
+    "StatusIndicator",
+    # Plan widgets
+    "PlanSelectorWidget",
+    "PlanListModel",
+    "PlanFilterProxyModel",
+    "PlanConfigWidget",
+    "PlanExecutionWidget",
+    # Document stream
+    "DocumentStreamWidget",
+    "DocumentStreamModel",
 ]

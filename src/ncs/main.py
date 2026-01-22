@@ -12,6 +12,8 @@ from ncs.auth.providers import LocalAuthProvider
 from ncs.auth.session import SessionManager
 from ncs.config import ConfigManager
 from ncs.core import NCSApplication
+from ncs.acquire import get_run_engine
+from ncs.acquire.plans import get_registry as get_plan_registry
 from ncs.devices import DeviceCatalog
 from ncs.devices.backends import MockBackend
 from ncs.project import ProjectService, create_welcome_project
@@ -112,6 +114,29 @@ def _setup_devices() -> None:
         logger.error("Failed to connect device catalog")
 
 
+def _setup_bluesky(app: NCSApplication) -> None:
+    """Setup Bluesky RunEngine and plan registry.
+    
+    Initializes the QRunEngine singleton and plan registry
+    for use by the BlueskyPanel.
+    """
+    services = app.services
+    
+    # Get/create RunEngine singleton
+    run_engine = get_run_engine()
+    services.register_instance(type(run_engine), run_engine)
+    
+    # Get/create plan registry with standard bluesky plans
+    plan_registry = get_plan_registry()
+    services.register_instance(type(plan_registry), plan_registry)
+    
+    logger.info(
+        "Bluesky initialized: RunEngine state={}, {} plans available",
+        run_engine.state,
+        len(plan_registry),
+    )
+
+
 def _setup_first_launch(project_service: ProjectService) -> None:
     """Setup the welcome project for first launch.
 
@@ -133,19 +158,48 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     """Setup default panels for the main window.
 
     Opens panels that should be visible by default on startup.
+    Layout: Bluesky and Devices tabbed on left, Logbook on right.
 
     Args:
         window: The main window instance.
     """
-    # Open the logbook panel on the right side
-    panel = window.add_panel(
+    # Clear any saved window state to ensure our layout is applied
+    from PySide6.QtCore import QSettings
+    settings = QSettings("ALS", "NCS")
+    settings.remove("mainwindow/geometry")
+    settings.remove("mainwindow/state")
+
+    # Open Bluesky panel on the left first
+    window.add_panel(
+        "ncs.panels.bluesky",
+        area=Qt.DockWidgetArea.LeftDockWidgetArea,
+    )
+    bluesky_dock = window._panel_docks.get("ncs.panels.bluesky")
+
+    # Open Devices panel - add to left then tabify with Bluesky
+    window.add_panel(
+        "ncs.panels.devices",
+        area=Qt.DockWidgetArea.LeftDockWidgetArea,
+    )
+    devices_dock = window._panel_docks.get("ncs.panels.devices")
+
+    # Tabify Bluesky and Devices (stack as tabs)
+    if bluesky_dock and devices_dock:
+        window.tabifyDockWidget(bluesky_dock, devices_dock)
+        bluesky_dock.raise_()
+
+    # Open Logbook panel on the right
+    window.add_panel(
         "ncs.panels.logbook",
         area=Qt.DockWidgetArea.RightDockWidgetArea,
     )
-    if panel:
-        logger.info("Opened default logbook panel")
-    else:
-        logger.warning("Failed to open default logbook panel")
+    logbook_dock = window._panel_docks.get("ncs.panels.logbook")
+
+    # Use splitDockWidget to ensure left-right layout
+    if bluesky_dock and logbook_dock:
+        window.splitDockWidget(bluesky_dock, logbook_dock, Qt.Orientation.Horizontal)
+
+    logger.info("Opened default panels: Bluesky+Devices (left), Logbook (right)")
 
 
 def main() -> int:
@@ -168,6 +222,9 @@ def main() -> int:
     # Setup device catalog with mock backend
     _setup_devices()
 
+    # Setup Bluesky RunEngine and plans
+    _setup_bluesky(app)
+
     # Setup first launch (welcome project)
     project_service = ProjectService.get_instance()
     _setup_first_launch(project_service)
@@ -177,8 +234,12 @@ def main() -> int:
     window.set_config_manager(config)
     app.set_main_window(window)
 
-    # Setup default panels (logbook)
-    _setup_default_panels(window)
+    # Connect RunEngine to toolbar control
+    run_engine = get_run_engine()
+    window.set_run_engine(run_engine)
+
+    # Setup default panel layout
+    window.setup_default_layout()
 
     # Run the application
     return app.run()
