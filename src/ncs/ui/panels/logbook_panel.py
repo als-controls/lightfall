@@ -31,6 +31,7 @@ from ncs.ui.panels.base import BasePanel, PanelMetadata
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
+    from ncs.acquire import QRunEngine
     from ncs.logbook.action_logger import ActionGroup
 
 
@@ -77,6 +78,9 @@ class LogbookPanel(BasePanel):
         self._current_entry_id: UUID | None = None
         self._sync_timer: QTimer | None = None
         self._action_logger: DeviceActionLogger | None = None
+        self._run_engine: QRunEngine | None = None
+        self._current_run_uid: str | None = None
+        self._current_run_entry_id: UUID | None = None
         super().__init__(parent)
 
         # Connect to project service signals
@@ -84,6 +88,9 @@ class LogbookPanel(BasePanel):
 
         # Connect to device action logger
         self._connect_action_logger()
+
+        # Connect to RunEngine
+        self._connect_run_engine()
 
         # Load initial content
         self._refresh_content()
@@ -496,3 +503,220 @@ class LogbookPanel(BasePanel):
         if self._action_logger:
             self._action_logger.connect_to_control_widget(widget)
             logger.debug(f"Connected control widget {widget.__class__.__name__} to action logger")
+
+    # === RunEngine Integration ===
+
+    def _connect_run_engine(self) -> None:
+        """Connect to the RunEngine for automatic run logging."""
+        try:
+            from ncs.acquire import get_run_engine
+
+            self._run_engine = get_run_engine()
+            self._run_engine.sigDocumentYield.connect(self._on_run_document)
+            self._run_engine.sigFinish.connect(self._on_run_finish)
+            self._run_engine.sigAbort.connect(self._on_run_abort)
+            self._run_engine.sigException.connect(self._on_run_exception)
+            logger.debug("Connected to RunEngine for run logging")
+        except Exception as e:
+            logger.debug("Could not connect to RunEngine: {}", e)
+
+    @Slot(str, dict)
+    def _on_run_document(self, name: str, doc: dict) -> None:
+        """Handle document from RunEngine.
+
+        Creates a logbook entry when a run starts.
+
+        Args:
+            name: Document type (start, descriptor, event, stop).
+            doc: Document data.
+        """
+        if name == "start":
+            self._on_run_start(doc)
+        elif name == "stop":
+            self._on_run_stop(doc)
+
+    def _on_run_start(self, doc: dict) -> None:
+        """Handle run start document - create logbook entry.
+
+        Args:
+            doc: Start document data.
+        """
+        if not self._project_service.has_project:
+            return
+
+        # Extract run information
+        uid = doc.get("uid", "unknown")
+        plan_name = doc.get("plan_name", "unknown")
+        scan_id = doc.get("scan_id", "")
+        time_val = doc.get("time")
+
+        # Format timestamp
+        if time_val:
+            from datetime import datetime
+            ts = datetime.fromtimestamp(time_val)
+            time_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            time_str = "unknown"
+
+        # Build content for the logbook entry
+        content_lines = [
+            f"# Run: {plan_name}",
+            "",
+            f"**UID:** `{uid[:8]}...`",
+            f"**Plan:** {plan_name}",
+        ]
+
+        if scan_id:
+            content_lines.append(f"**Scan ID:** {scan_id}")
+
+        content_lines.append(f"**Started:** {time_str}")
+
+        # Add any motors/detectors info if available
+        motors = doc.get("motors", [])
+        if motors:
+            content_lines.append(f"**Motors:** {', '.join(motors)}")
+
+        detectors = doc.get("detectors", [])
+        if detectors:
+            content_lines.append(f"**Detectors:** {', '.join(detectors)}")
+
+        # Add plan arguments if available
+        plan_args = doc.get("plan_args", {})
+        if plan_args:
+            content_lines.append("")
+            content_lines.append("**Plan Arguments:**")
+            for key, value in plan_args.items():
+                # Truncate long values
+                value_str = str(value)
+                if len(value_str) > 50:
+                    value_str = value_str[:47] + "..."
+                content_lines.append(f"- {key}: {value_str}")
+
+        content_lines.append("")
+        content_lines.append("*Status: Running...*")
+
+        content = "\n".join(content_lines)
+
+        # Create the entry
+        metadata = {
+            "uid": uid,
+            "plan_name": plan_name,
+            "scan_id": scan_id,
+            "start_time": time_val,
+        }
+
+        entry = self._project_service.add_scan_entry(content, metadata)
+        if entry:
+            self._current_run_uid = uid
+            self._current_run_entry_id = entry.id
+            logger.info(f"Created logbook entry for run {uid[:8]}")
+
+    def _on_run_stop(self, doc: dict) -> None:
+        """Handle run stop document - update logbook entry with result.
+
+        Args:
+            doc: Stop document data.
+        """
+        if not self._project_service.has_project:
+            return
+
+        run_uid = doc.get("run_start", "")
+
+        # Only update if this matches our tracked run
+        if run_uid != self._current_run_uid or self._current_run_entry_id is None:
+            return
+
+        # Get the entry and update it
+        logbook = self._project_service.active_logbook
+        if logbook is None:
+            return
+
+        entry = logbook.get_entry(self._current_run_entry_id)
+        if entry is None:
+            return
+
+        # Extract stop information
+        exit_status = doc.get("exit_status", "unknown")
+        reason = doc.get("reason", "")
+        num_events = doc.get("num_events", {})
+        time_val = doc.get("time")
+
+        # Format end timestamp
+        if time_val:
+            from datetime import datetime
+            ts = datetime.fromtimestamp(time_val)
+            time_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            time_str = "unknown"
+
+        # Update status line in content
+        new_content = entry.content.replace(
+            "*Status: Running...*",
+            f"**Completed:** {time_str}"
+        )
+
+        # Add completion info
+        status_emoji = "+" if exit_status == "success" else "x"
+        new_content += f"\n**Exit Status:** {status_emoji} {exit_status}"
+
+        if reason:
+            new_content += f"\n**Reason:** {reason}"
+
+        if num_events:
+            total_events = sum(num_events.values())
+            new_content += f"\n**Events:** {total_events}"
+
+        # Update the entry content (even though protected, we update via model)
+        entry.content = new_content
+        entry.metadata["exit_status"] = exit_status
+        entry.metadata["end_time"] = time_val
+        entry.metadata["num_events"] = num_events
+
+        # Refresh the display
+        self._refresh_content()
+
+        logger.info(f"Updated logbook entry for run {run_uid[:8]} - {exit_status}")
+
+        # Clear tracking
+        self._current_run_uid = None
+        self._current_run_entry_id = None
+
+    @Slot()
+    def _on_run_finish(self) -> None:
+        """Handle run finish signal (successful completion)."""
+        # The actual update is done in _on_run_stop via the stop document
+        pass
+
+    @Slot()
+    def _on_run_abort(self) -> None:
+        """Handle run abort signal."""
+        # Update entry status if we have a tracked run
+        if self._current_run_entry_id and self._project_service.has_project:
+            logbook = self._project_service.active_logbook
+            if logbook:
+                entry = logbook.get_entry(self._current_run_entry_id)
+                if entry and "*Status: Running...*" in entry.content:
+                    entry.content = entry.content.replace(
+                        "*Status: Running...*",
+                        "**Status:** Aborted"
+                    )
+                    self._refresh_content()
+
+    @Slot(Exception)
+    def _on_run_exception(self, ex: Exception) -> None:
+        """Handle run exception signal.
+
+        Args:
+            ex: The exception that occurred.
+        """
+        # Update entry status if we have a tracked run
+        if self._current_run_entry_id and self._project_service.has_project:
+            logbook = self._project_service.active_logbook
+            if logbook:
+                entry = logbook.get_entry(self._current_run_entry_id)
+                if entry and "*Status: Running...*" in entry.content:
+                    entry.content = entry.content.replace(
+                        "*Status: Running...*",
+                        f"**Status:** Error - {type(ex).__name__}: {ex}"
+                    )
+                    self._refresh_content()
