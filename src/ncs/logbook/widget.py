@@ -481,6 +481,9 @@ class LogbookWidget(QWidget):
     @Slot()
     def _on_markdown_content_changed(self) -> None:
         """Handle changes in raw markdown editor."""
+        # Only process when we're actually in raw mode
+        if self._current_mode != "raw":
+            return
         if self._syncing:
             return
         self._syncing = True
