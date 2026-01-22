@@ -18,6 +18,8 @@ from PySide6.QtGui import (
     QTextBlockUserData,
     QTextCharFormat,
     QTextCursor,
+    QUndoStack,
+    QUndoCommand,
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
 
@@ -54,6 +56,34 @@ class ProtectedBlockData(QTextBlockUserData):
         return self.region_id is not None
 
 
+class MarkdownEditCommand(QUndoCommand):
+    """Undo command for markdown edits."""
+
+    def __init__(
+        self,
+        editor: "RichTextEditor",
+        old_markdown: str,
+        new_markdown: str,
+        old_cursor_pos: int,
+        new_cursor_pos: int,
+        description: str = "Edit",
+    ) -> None:
+        super().__init__(description)
+        self._editor = editor
+        self._old_markdown = old_markdown
+        self._new_markdown = new_markdown
+        self._old_cursor_pos = old_cursor_pos
+        self._new_cursor_pos = new_cursor_pos
+
+    def redo(self) -> None:
+        """Apply the edit."""
+        self._editor._apply_markdown_state(self._new_markdown, self._new_cursor_pos)
+
+    def undo(self) -> None:
+        """Revert the edit."""
+        self._editor._apply_markdown_state(self._old_markdown, self._old_cursor_pos)
+
+
 class RichTextEditor(QTextEdit):
     """
     WYSIWYG rich text editor with markdown as source of truth.
@@ -63,6 +93,7 @@ class RichTextEditor(QTextEdit):
     - Edit interception that translates to markdown operations
     - Visual highlighting of protected regions
     - Signal emission when protection is violated
+    - Undo/redo support for markdown edits
 
     The editor does NOT store content internally. All content is managed
     externally via markdown, and the editor re-renders after each edit.
@@ -93,6 +124,9 @@ class RichTextEditor(QTextEdit):
     protection_violated = Signal(str, int)  # (region_id, cursor_position)
     markdown_edit_requested = Signal(str)  # new markdown content
 
+    # Undo stack settings
+    MAX_UNDO_STATES: ClassVar[int] = 100
+
     def __init__(
         self,
         protection_manager: ProtectionManager,
@@ -117,6 +151,11 @@ class RichTextEditor(QTextEdit):
         self._mapping: PositionMapping | None = None
         self._protected_blocks: dict[int, str] = {}  # block_number -> region_id
         self._updating_content = False
+
+        # Undo/redo stack
+        self._undo_stack = QUndoStack(self)
+        self._undo_stack.setUndoLimit(100)
+        self._applying_undo = False  # Flag to prevent nested undo pushes
 
         # Debounce timer for re-rendering
         self._render_timer: QTimer | None = None
@@ -308,19 +347,64 @@ class RichTextEditor(QTextEdit):
 
         return self._position_mapper.visual_to_markdown(self._mapping, adjusted_pos)
 
+    def _apply_markdown_state(self, markdown: str, visual_pos: int) -> None:
+        """
+        Apply a markdown state without pushing to undo stack.
+
+        This is called by undo/redo commands to restore state.
+
+        Args:
+            markdown: The markdown content to set.
+            visual_pos: The cursor position to restore.
+        """
+        self._applying_undo = True
+        try:
+            self._markdown = markdown
+            self.markdown_edit_requested.emit(markdown)
+            self.render_markdown(markdown)
+
+            # Restore cursor
+            cursor = self.textCursor()
+            doc_length = len(self.toPlainText())
+            cursor.setPosition(min(visual_pos, doc_length))
+            self.setTextCursor(cursor)
+
+            self.content_changed.emit()
+        finally:
+            self._applying_undo = False
+
     def _apply_edit_and_rerender(self, new_markdown: str, new_visual_pos: int) -> None:
-        """Apply markdown edit and re-render."""
-        self._markdown = new_markdown
-        self.markdown_edit_requested.emit(new_markdown)
-        self.render_markdown(new_markdown)
+        """Apply markdown edit, push to undo stack, and re-render."""
+        # Skip undo push if we're applying an undo/redo operation
+        if not self._applying_undo:
+            # Get current state for undo
+            old_markdown = self._markdown
+            old_visual_pos = self.textCursor().position()
 
-        # Restore cursor to new position
-        cursor = self.textCursor()
-        doc_length = len(self.toPlainText())
-        cursor.setPosition(min(new_visual_pos, doc_length))
-        self.setTextCursor(cursor)
+            # Create and push undo command
+            command = MarkdownEditCommand(
+                self,
+                old_markdown,
+                new_markdown,
+                old_visual_pos,
+                new_visual_pos,
+                "Edit",
+            )
+            self._undo_stack.push(command)
+            # The command's redo() is called automatically by push()
+        else:
+            # Direct apply without undo (called from undo command)
+            self._markdown = new_markdown
+            self.markdown_edit_requested.emit(new_markdown)
+            self.render_markdown(new_markdown)
 
-        self.content_changed.emit()
+            # Restore cursor to new position
+            cursor = self.textCursor()
+            doc_length = len(self.toPlainText())
+            cursor.setPosition(min(new_visual_pos, doc_length))
+            self.setTextCursor(cursor)
+
+            self.content_changed.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """
@@ -329,6 +413,24 @@ class RichTextEditor(QTextEdit):
         Args:
             event: The key event.
         """
+        key = event.key()
+        modifiers = event.modifiers()
+
+        # Handle undo/redo shortcuts
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            if key == Qt.Key.Key_Z:
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    # Ctrl+Shift+Z = Redo
+                    self._undo_stack.redo()
+                else:
+                    # Ctrl+Z = Undo
+                    self._undo_stack.undo()
+                return
+            elif key == Qt.Key.Key_Y:
+                # Ctrl+Y = Redo
+                self._undo_stack.redo()
+                return
+
         # Non-editing keys pass through
         if not self._is_editing_key(event):
             super().keyPressEvent(event)
@@ -336,7 +438,6 @@ class RichTextEditor(QTextEdit):
 
         # Check for protection
         cursor = self.textCursor()
-        key = event.key()
 
         # Check selection protection
         if cursor.hasSelection():
@@ -890,4 +991,33 @@ class RichTextEditor(QTextEdit):
             "enabled": self.isEnabled(),
             "visible": self.isVisible(),
             "read_only": self.isReadOnly(),
+            "can_undo": self.can_undo(),
+            "can_redo": self.can_redo(),
         }
+
+    # Undo/redo methods
+
+    def undo(self) -> None:
+        """Undo the last edit."""
+        self._undo_stack.undo()
+
+    def redo(self) -> None:
+        """Redo the last undone edit."""
+        self._undo_stack.redo()
+
+    def can_undo(self) -> bool:
+        """Check if undo is available."""
+        return self._undo_stack.canUndo()
+
+    def can_redo(self) -> bool:
+        """Check if redo is available."""
+        return self._undo_stack.canRedo()
+
+    def clear_undo_stack(self) -> None:
+        """Clear the undo/redo history."""
+        self._undo_stack.clear()
+
+    @property
+    def undo_stack(self) -> QUndoStack:
+        """Get the undo stack for external use (e.g., menu actions)."""
+        return self._undo_stack
