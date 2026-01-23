@@ -399,32 +399,28 @@ class DeviceActionLogger(QObject):
         start_ts = group.start_time.isoformat() if group.start_time else ""
         end_ts = group.end_time.isoformat() if group.end_time else ""
 
-        lines = [
-            f"<!-- PROTECTED:{region_id} -->",
-            f"<!-- ACTION_GROUP:count={group.count}:start={start_ts}:end={end_ts}:collapsed={'true' if group.collapsed else 'false'} -->",
-        ]
-
+        # Build content based on action count
         if group.count == 1:
             # Single action - always expanded, simple format
             action = group.actions[0]
             time_str = action.timestamp.strftime("%H:%M:%S")
             action_text = self.format_action_markdown(action)
-            lines.append(f"**[Device Action]** {time_str} - {action_text}")
+            content = f"**[Device Action]** {time_str} - {action_text}"
         else:
             # Multiple actions - clickable link using markdown link syntax
             # The link uses a custom URL scheme that Qt's anchorClicked signal will handle
             time_range = group.time_range_str()
             link_text = f"Device Actions ({group.count} actions, {time_range})"
-            lines.append(f"[{link_text}](ncs://action/{group.id})")
+            content = f"[{link_text}](ncs://action/{group.id})"
 
-        lines.append(f"<!-- /PROTECTED:{region_id} -->")
-        # Double newline + space creates an empty paragraph block in HTML
-        # that the user can click into and type. Plain \n\n doesn't create
-        # an actual <p> element, but \n\n followed by content does.
-        lines.append("")
-        lines.append("\u00a0")  # Non-breaking space to create editable paragraph
-
-        return "\n".join(lines)
+        # Use compact single-line format to avoid paragraph breaks inside the protected region
+        metadata = f"<!-- ACTION_GROUP:count={group.count}:start={start_ts}:end={end_ts}:collapsed={'true' if group.collapsed else 'false'} -->"
+        return (
+            f"<!-- PROTECTED:{region_id} -->"
+            f"{metadata}"
+            f"{content}"
+            f"<!-- /PROTECTED:{region_id} -->"
+        )
 
     @property
     def current_group(self) -> ActionGroup | None:

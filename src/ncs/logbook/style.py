@@ -353,13 +353,15 @@ def get_qt_html_stylesheet() -> str:
             color: {protected_text};
         }}
 
-        .action-group {{
+        .system-entry {{
             background-color: {action_bg};
             border-left: 3px solid {action_border};
-            padding-left: 8px;
+            padding: 4px 8px;
+            margin: 2px 0;
+            display: block;
         }}
 
-        .action-group-summary {{
+        .system-entry-summary {{
             background-color: {action_bg};
             border-left: 3px solid {action_border};
             padding: 8px 12px;

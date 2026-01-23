@@ -660,7 +660,8 @@ class RichTextEditor(QTextEdit):
         # Handle enter - insert paragraph break in markdown
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if is_protected and region_id:
-                self.protection_violated.emit(region_id, cursor.position())
+                # Instead of blocking, create a new paragraph after the protected block
+                self._handle_enter_in_protected(cursor, region_id)
                 return
             if cursor.hasSelection():
                 self._handle_delete_selection(cursor)
@@ -870,6 +871,52 @@ class RichTextEditor(QTextEdit):
 
         # Cursor goes to start of selection
         self._apply_edit_and_rerender_block(new_markdown, start_block, start_offset)
+
+    def _handle_enter_in_protected(self, cursor: QTextCursor, region_id: str) -> None:
+        """Handle Enter key pressed inside a protected block.
+
+        Creates a new paragraph after the protected block and moves cursor there.
+
+        Args:
+            cursor: The text cursor (inside protected block).
+            region_id: The ID of the protected region.
+        """
+        import re
+
+        # Find the protected region's end marker in markdown
+        # Pattern: <!-- /PROTECTED:region_id -->
+        end_pattern = re.compile(
+            rf"<!--\s*/PROTECTED:{re.escape(region_id)}\s*-->"
+        )
+
+        match = end_pattern.search(self._markdown)
+        if not match:
+            logger.warning(f"Could not find end marker for protected region: {region_id}")
+            return
+
+        # Insert new paragraph after the end marker
+        end_pos = match.end()
+
+        # Check if there's already content after the protected block
+        after_content = self._markdown[end_pos:].lstrip("\n")
+
+        if after_content:
+            # There's content after - insert paragraph break before it
+            new_markdown = (
+                self._markdown[:end_pos]
+                + "\n\n"
+                + after_content
+            )
+        else:
+            # Nothing after - add new paragraph with placeholder
+            new_markdown = self._markdown[:end_pos] + "\n\n\u00a0"
+
+        # Find the block number of the protected region
+        # The new paragraph will be the next block after the protected block
+        current_block = cursor.blockNumber()
+
+        # Re-render and move cursor to the new paragraph (block after protected)
+        self._apply_edit_and_rerender_block(new_markdown, current_block + 1, 0)
 
     def _is_editing_key(self, event: QKeyEvent) -> bool:
         """

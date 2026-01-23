@@ -559,21 +559,17 @@ class LogbookPanel(BasePanel):
         self._current_run_uid = uid
         self._current_run_start_doc = doc
 
-        # Build compact 1-line format as protected markdown
-        # Format: <!-- PROTECTED:run-{uid[:8]} -->
-        #         <!-- RUN:uid={uid}:plan={plan}:status=running -->
-        #         **[Run]** {time} - {plan_name} ({uid[:8]}...) *running*
-        #         <!-- /PROTECTED:run-{uid[:8]} -->
+        # Build compact format as protected markdown
         region_id = f"run-{uid[:8]}"
 
-        lines = [
-            f"<!-- PROTECTED:{region_id} -->",
-            f"<!-- RUN:uid={uid}:plan={plan_name}:status=running -->",
-            f"**[Run]** {time_str} - {plan_name} (`{uid[:8]}`) *running...*",
-            f"<!-- /PROTECTED:{region_id} -->",
-        ]
-
-        markdown = "\n".join(lines)
+        # Use single-line format to avoid paragraph breaks inside the protected region
+        content = f"**[Run]** {time_str} - {plan_name} (`{uid[:8]}`) *running...*"
+        markdown = (
+            f"<!-- PROTECTED:{region_id} -->"
+            f"<!-- RUN:uid={uid}:plan={plan_name}:status=running -->"
+            f"{content}"
+            f"<!-- /PROTECTED:{region_id} -->"
+        )
 
         # Append to current entry content via the logbook widget
         self._logbook_widget.append_content(markdown)
@@ -652,14 +648,14 @@ class LogbookPanel(BasePanel):
         if duration_str:
             time_display += f" ({duration_str})"
 
-        lines = [
-            f"<!-- PROTECTED:{region_id} -->",
-            f"<!-- RUN:uid={run_uid}:plan={plan_name}:status={exit_status} -->",
-            f"**[Run]** {time_display} - {plan_name} (`{run_uid[:8]}`) *{status_str}*",
-            f"<!-- /PROTECTED:{region_id} -->",
-        ]
-
-        new_markdown = "\n".join(lines)
+        # Use single-line format to avoid paragraph breaks inside the protected region
+        content = f"**[Run]** {time_display} - {plan_name} (`{run_uid[:8]}`) *{status_str}*"
+        new_markdown = (
+            f"<!-- PROTECTED:{region_id} -->"
+            f"<!-- RUN:uid={run_uid}:plan={plan_name}:status={exit_status} -->"
+            f"{content}"
+            f"<!-- /PROTECTED:{region_id} -->"
+        )
 
         # Find and replace the existing run record
         region = self._logbook_widget._protection_manager.get_region(region_id)

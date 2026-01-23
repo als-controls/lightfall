@@ -22,13 +22,15 @@ from ncs.logbook.visual_protection import PROTECTED_START, PROTECTED_END
 PROTECTED_START_PATTERN = re.compile(r"<!--\s*PROTECTED:(\S+)\s*-->")
 PROTECTED_END_PATTERN = re.compile(r"<!--\s*/PROTECTED:(\S+)\s*-->")
 
-# Pattern to match action group metadata
+# Pattern to match action group metadata (strip the whole comment)
+# Note: timestamps contain colons, so we match until the closing -->
 ACTION_GROUP_METADATA_PATTERN = re.compile(
-    r"<!--\s*ACTION_GROUP:"
-    r"count=(\d+):"
-    r"start=([^:]+):"
-    r"end=([^:]+):"
-    r"collapsed=(true|false)\s*-->"
+    r"<!--\s*ACTION_GROUP:[^>]*-->"
+)
+
+# Pattern to match run metadata
+RUN_METADATA_PATTERN = re.compile(
+    r"<!--\s*RUN:[^>]*-->"
 )
 
 
@@ -240,12 +242,23 @@ class MarkdownConverter:
             region_id = match.group(1)
             content = match.group(2)
 
-            # Strip action group metadata if present
+            # Strip metadata comments if present
             content = ACTION_GROUP_METADATA_PATTERN.sub("", content)
+            content = RUN_METADATA_PATTERN.sub("", content)
 
-            # Determine CSS class
-            is_action = region_id.startswith("action-")
-            css_class = "action-group protected" if is_action else "protected"
+            # Check if content looks like raw markdown (not already HTML)
+            # If it has markdown formatting markers, parse it
+            if "**" in content or "*" in content or "[" in content:
+                # Parse the content as markdown to convert to HTML
+                # Use the same parser instance
+                content_html = self._parser(content.strip())
+                # Remove wrapping <p> tags if present for inline display
+                content_html = re.sub(r"^<p>(.*)</p>\s*$", r"\1", content_html.strip(), flags=re.DOTALL)
+                content = content_html
+
+            # Determine CSS class - system entries (actions, runs) get highlighted styling
+            is_system_entry = region_id.startswith("action-") or region_id.startswith("run-")
+            css_class = "system-entry protected" if is_system_entry else "protected"
 
             # Wrap with span and inject zero-width markers
             return (

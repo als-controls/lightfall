@@ -219,8 +219,10 @@ class BlockMapper:
         for line_idx in range(start_line_idx, len(self._md_lines)):
             md_line = self._md_lines[line_idx]
 
-            # Skip HTML comment lines (protection markers)
-            if md_line.strip().startswith("<!--"):
+            # Skip lines that are purely HTML comments (no actual content)
+            # But don't skip lines that have content alongside comments (compact protected regions)
+            line_without_comments = re.sub(r"<!--.*?-->", "", md_line.strip())
+            if not line_without_comments.strip():
                 continue
 
             # Check if this line matches the visual text
@@ -261,8 +263,11 @@ class BlockMapper:
         # Try various markdown patterns
         stripped = md_line.strip()
 
+        # Strip HTML comments (protection markers)
+        stripped_no_comments = re.sub(r"<!--.*?-->", "", stripped)
+
         # Header: # ## ### etc.
-        header_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        header_match = re.match(r"^(#{1,6})\s+(.*)$", stripped_no_comments)
         if header_match:
             content = header_match.group(2)
             if content.strip() == visual_text:
@@ -270,7 +275,7 @@ class BlockMapper:
                 return (offset, True)
 
         # List item: - * or 1.
-        list_match = re.match(r"^([-*]|\d+\.)\s+(.*)$", stripped)
+        list_match = re.match(r"^([-*]|\d+\.)\s+(.*)$", stripped_no_comments)
         if list_match:
             content = list_match.group(2)
             if content.strip() == visual_text:
@@ -279,7 +284,7 @@ class BlockMapper:
 
         # Bold/italic: **text** *text* etc.
         # Strip formatting markers for comparison
-        plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped)
+        plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped_no_comments)
         plain = re.sub(r"\*([^*]+)\*", r"\1", plain)
         plain = re.sub(r"__([^_]+)__", r"\1", plain)
         plain = re.sub(r"_([^_]+)_", r"\1", plain)
@@ -290,19 +295,19 @@ class BlockMapper:
             offset = len(md_line) - len(md_line.lstrip())
             return (offset, True)
 
-        # Direct match
-        if stripped == visual_text:
+        # Direct match (with comments stripped)
+        if stripped_no_comments.strip() == visual_text:
             offset = len(md_line) - len(md_line.lstrip())
             return (offset, True)
 
         # Partial match (visual text is contained in markdown line)
-        if visual_text in stripped:
+        if visual_text in stripped_no_comments:
             offset = md_line.find(visual_text)
             return (offset, True)
 
         # Table cell match: visual text is a table cell value
         # Table lines look like: | Value1 | Value2 |
-        if stripped.startswith("|") and visual_text in stripped:
+        if stripped_no_comments.startswith("|") and visual_text in stripped_no_comments:
             # Find the cell containing this text
             offset = md_line.find(visual_text)
             return (offset, True)
