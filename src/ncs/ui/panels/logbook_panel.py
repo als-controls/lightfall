@@ -348,6 +348,13 @@ class LogbookPanel(BasePanel):
         if self._current_entry_id is None:
             return
 
+        # Close any active action group since user added manual content
+        # This ensures subsequent device actions create a new group
+        # rather than merging into an old group separated by user content
+        if self._action_logger and self._action_logger.has_active_group:
+            self._action_logger.close_current_group()
+            logger.debug("Closed action group due to user content edit")
+
         # Debounce: Only sync after typing stops
         if self._sync_timer is None:
             self._sync_timer = QTimer(self)
@@ -463,14 +470,53 @@ class LogbookPanel(BasePanel):
         existing_region = self._logbook_widget._protection_manager.get_region(region_id)
 
         if existing_region:
-            # Update existing group
-            self._logbook_widget.update_action_group(region_id, group)
+            # Safety check: Only update if the action group is still the last paragraph
+            # (User edits should have already closed the group via _on_content_changed,
+            # but this catches edge cases)
+            if self._is_region_at_end(region_id):
+                self._logbook_widget.update_action_group(region_id, group)
+            else:
+                # This shouldn't normally happen since we close groups on user edits,
+                # but handle it gracefully by inserting as a new group
+                logger.warning(
+                    f"Action group {region_id} is not at end of content, "
+                    "inserting as new group"
+                )
+                self._logbook_widget.insert_action_group(group)
+                self._scroll_to_bottom()
         else:
             # Insert new group
             self._logbook_widget.insert_action_group(group)
             self._scroll_to_bottom()
 
         logger.debug(f"Action group {group.id} updated with {group.count} actions")
+
+    def _is_region_at_end(self, region_id: str) -> bool:
+        """Check if the given region is at the end of the content (no content after).
+
+        Args:
+            region_id: The region ID to check.
+
+        Returns:
+            True if there's no meaningful content after this region.
+        """
+        content = self._logbook_widget.get_content()
+        if not content:
+            return False
+
+        region = self._logbook_widget._protection_manager.get_region(region_id)
+        if region is None:
+            return False
+
+        # Check if there's any non-whitespace content after this region
+        content_after = content[region.end_offset:].strip()
+
+        # If there's content after (that's not just whitespace or placeholders),
+        # then this region is not at the end
+        if content_after and content_after != "\u00a0":
+            return False
+
+        return True
 
     @Slot(object)
     def _on_action_group_closed(self, group: ActionGroup) -> None:
