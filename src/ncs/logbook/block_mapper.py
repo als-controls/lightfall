@@ -336,7 +336,6 @@ class BlockMapper:
                 if m is not None:
                     # Return end of previous mapped block
                     return m.md_char_end
-            logger.warning(f"Block {block_num} has no mapping")
             return 0
 
         if mapping.is_protected:

@@ -460,7 +460,10 @@ class RichTextEditor(QTextEdit):
             self._applying_undo = False
 
     def _apply_edit_and_rerender(self, new_markdown: str, new_visual_pos: int) -> None:
-        """Apply markdown edit, push to undo stack, and re-render."""
+        """Apply markdown edit, push to undo stack, and re-render.
+
+        DEPRECATED: Use _apply_edit_and_rerender_block for stable cursor positioning.
+        """
         # Skip undo push if we're applying an undo/redo operation
         if not self._applying_undo:
             # Get current state for undo
@@ -491,6 +494,82 @@ class RichTextEditor(QTextEdit):
             self.setTextCursor(cursor)
 
             self.content_changed.emit()
+
+    def _apply_edit_and_rerender_block(
+        self, new_markdown: str, block_num: int, offset_in_block: int
+    ) -> None:
+        """Apply markdown edit and re-render, restoring cursor using block-relative position.
+
+        This method uses block-relative coordinates for cursor restoration, which
+        is more stable across re-renders since block-relative offsets don't change
+        when content in earlier blocks changes.
+
+        Args:
+            new_markdown: The new markdown content.
+            block_num: Target block number for cursor.
+            offset_in_block: Target offset within the block.
+        """
+        # For undo support, we still need visual positions
+        # Calculate approximate visual position for undo command
+        old_markdown = self._markdown
+        old_cursor = self.textCursor()
+        old_visual_pos = old_cursor.position()
+
+        # Skip undo push if we're applying an undo/redo operation
+        if not self._applying_undo:
+            # Estimate new visual position for undo (approximate)
+            # This is used by undo/redo which doesn't need block precision
+            approx_visual_pos = old_visual_pos
+
+            # Create and push undo command
+            command = MarkdownEditCommand(
+                self,
+                old_markdown,
+                new_markdown,
+                old_visual_pos,
+                approx_visual_pos,
+                "Edit",
+            )
+            self._undo_stack.push(command)
+            # Note: The redo() is called by push(), but we override cursor below
+
+        # Apply the change
+        self._markdown = new_markdown
+        self.markdown_edit_requested.emit(new_markdown)
+        self.render_markdown(new_markdown)
+
+        # Restore cursor using block-relative position
+        self._restore_cursor_block(block_num, offset_in_block)
+
+        self.content_changed.emit()
+
+    def _restore_cursor_block(self, block_num: int, offset_in_block: int) -> None:
+        """Restore cursor to a block-relative position.
+
+        Args:
+            block_num: The target block number.
+            offset_in_block: Offset within the block.
+        """
+        doc = self.document()
+        block = doc.findBlockByNumber(block_num)
+
+        if block.isValid():
+            # Calculate absolute position from block start + offset
+            block_start = block.position()
+            block_length = block.length() - 1  # -1 for block separator
+
+            # Clamp offset to block bounds
+            safe_offset = min(offset_in_block, max(0, block_length))
+            new_pos = block_start + safe_offset
+
+            cursor = self.textCursor()
+            cursor.setPosition(new_pos)
+            self.setTextCursor(cursor)
+        else:
+            # Fallback: move to end of document
+            cursor = self.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.setTextCursor(cursor)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """
@@ -648,7 +727,9 @@ class RichTextEditor(QTextEdit):
 
     def _handle_insert(self, cursor: QTextCursor, text: str) -> None:
         """Handle text insertion at cursor position."""
-        visual_pos = cursor.position()
+        # Use block-relative coordinates for stable position tracking
+        block_num = cursor.blockNumber()
+        offset_in_block = cursor.positionInBlock()
 
         # Check if we're in a placeholder paragraph (contains only nbsp)
         # If so, replace the placeholder instead of inserting
@@ -664,13 +745,20 @@ class RichTextEditor(QTextEdit):
                     new_markdown = base + text
                 else:
                     new_markdown = base + "\n\n" + text
-                self._apply_edit_and_rerender(new_markdown, visual_pos + len(text))
+                # Restore cursor using block-relative position
+                self._apply_edit_and_rerender_block(
+                    new_markdown, block_num, offset_in_block + len(text)
+                )
                 return
 
-        # Convert visual position to markdown position (accounting for paragraph breaks)
-        md_pos = self._visual_to_md_pos(visual_pos)
+        # Convert visual position to markdown position using block-relative coords
+        md_pos = self._block_mapper.visual_to_md_pos(block_num, offset_in_block)
         new_markdown = self._markdown[:md_pos] + text + self._markdown[md_pos:]
-        self._apply_edit_and_rerender(new_markdown, visual_pos + len(text))
+
+        # Restore cursor using block-relative position
+        self._apply_edit_and_rerender_block(
+            new_markdown, block_num, offset_in_block + len(text)
+        )
 
     def _handle_paragraph_break(self, cursor: QTextCursor) -> None:
         """Handle Enter key - insert paragraph break in markdown.
@@ -678,11 +766,11 @@ class RichTextEditor(QTextEdit):
         This needs special handling because QTextEdit's visual representation
         of paragraphs doesn't match markdown newlines character-for-character.
         """
-        visual_pos = cursor.position()
-        current_block = cursor.blockNumber()
+        block_num = cursor.blockNumber()
+        offset_in_block = cursor.positionInBlock()
 
-        # Map to markdown position (accounting for paragraph breaks)
-        md_pos = self._visual_to_md_pos(visual_pos)
+        # Map to markdown position using block-relative coords
+        md_pos = self._block_mapper.visual_to_md_pos(block_num, offset_in_block)
 
         # Check if we're at the end (nothing after cursor in markdown)
         at_end = md_pos >= len(self._markdown) or self._markdown[md_pos:].strip() == ""
@@ -696,47 +784,52 @@ class RichTextEditor(QTextEdit):
             # In middle of content - just insert double newline
             new_markdown = self._markdown[:md_pos] + "\n\n" + self._markdown[md_pos:]
 
-        # Update and re-render
-        self._markdown = new_markdown
-        self.markdown_edit_requested.emit(new_markdown)
-        self.render_markdown(new_markdown)
-
-        # Position cursor at start of new paragraph (next block)
-        new_cursor = self.textCursor()
-        new_cursor.movePosition(QTextCursor.MoveOperation.Start)
-        for _ in range(current_block + 1):
-            new_cursor.movePosition(QTextCursor.MoveOperation.NextBlock)
-        self.setTextCursor(new_cursor)
-
-        self.content_changed.emit()
+        # After paragraph break, cursor goes to start of the next block
+        self._apply_edit_and_rerender_block(new_markdown, block_num + 1, 0)
 
     def _handle_backspace(self, cursor: QTextCursor) -> None:
         """Handle backspace at cursor position."""
-        visual_pos = cursor.position()
-        if visual_pos <= 0:
+        block_num = cursor.blockNumber()
+        offset_in_block = cursor.positionInBlock()
+
+        if cursor.position() <= 0:
             return
 
         # Check if we're at start of a block (would delete paragraph break)
-        if cursor.atBlockStart() and cursor.blockNumber() > 0:
+        if cursor.atBlockStart() and block_num > 0:
             # Deleting a paragraph break - need to remove \n\n from markdown
-            md_pos = self._visual_to_md_pos(visual_pos)
+            md_pos = self._block_mapper.visual_to_md_pos(block_num, 0)
             # Find the paragraph break before this position
             # It should be \n\n just before md_pos
             if md_pos >= 2 and self._markdown[md_pos-2:md_pos] == "\n\n":
                 new_markdown = self._markdown[:md_pos-2] + self._markdown[md_pos:]
-                self._apply_edit_and_rerender(new_markdown, visual_pos - 1)
+                # After merging paragraphs, cursor goes to end of previous block
+                # Get the previous block's length from the mapping
+                prev_mapping = self._block_mapper.get_block_mapping(block_num - 1)
+                if prev_mapping:
+                    prev_block_len = len(prev_mapping.visual_text)
+                    self._apply_edit_and_rerender_block(
+                        new_markdown, block_num - 1, prev_block_len
+                    )
+                else:
+                    # Fallback
+                    self._apply_edit_and_rerender_block(new_markdown, block_num - 1, 0)
                 return
 
         # Regular backspace - delete one character
-        md_pos = self._visual_to_md_pos(visual_pos)
+        md_pos = self._block_mapper.visual_to_md_pos(block_num, offset_in_block)
         if md_pos > 0:
             new_markdown = self._markdown[:md_pos-1] + self._markdown[md_pos:]
-            self._apply_edit_and_rerender(new_markdown, visual_pos - 1)
+            # Cursor moves back one position in same block
+            self._apply_edit_and_rerender_block(
+                new_markdown, block_num, max(0, offset_in_block - 1)
+            )
 
     def _handle_delete(self, cursor: QTextCursor) -> None:
         """Handle delete at cursor position."""
-        visual_pos = cursor.position()
-        md_pos = self._visual_to_md_pos(visual_pos)
+        block_num = cursor.blockNumber()
+        offset_in_block = cursor.positionInBlock()
+        md_pos = self._block_mapper.visual_to_md_pos(block_num, offset_in_block)
 
         if md_pos >= len(self._markdown):
             return
@@ -746,30 +839,37 @@ class RichTextEditor(QTextEdit):
             # Deleting forward into paragraph break - remove \n\n
             if self._markdown[md_pos:md_pos+2] == "\n\n":
                 new_markdown = self._markdown[:md_pos] + self._markdown[md_pos+2:]
-                self._apply_edit_and_rerender(new_markdown, visual_pos)
+                # Cursor stays at same position
+                self._apply_edit_and_rerender_block(new_markdown, block_num, offset_in_block)
                 return
 
         # Regular delete - delete one character
         new_markdown = self._markdown[:md_pos] + self._markdown[md_pos+1:]
-        self._apply_edit_and_rerender(new_markdown, visual_pos)
+        # Cursor stays at same position
+        self._apply_edit_and_rerender_block(new_markdown, block_num, offset_in_block)
 
     def _handle_delete_selection(self, cursor: QTextCursor) -> None:
         """Handle deletion of selected text."""
-        # Get visual positions
-        vis_start = cursor.selectionStart()
-        vis_end = cursor.selectionEnd()
+        # Get start position as block-relative
+        start_cursor = QTextCursor(cursor)
+        start_cursor.setPosition(cursor.selectionStart())
+        start_block = start_cursor.blockNumber()
+        start_offset = start_cursor.positionInBlock()
 
-        # Convert to markdown positions
-        # For start, use a cursor at the start position
-        temp_cursor = self.textCursor()
-        temp_cursor.setPosition(vis_start)
-        md_start = self._visual_to_md_pos(vis_start)
+        # Get end position
+        end_cursor = QTextCursor(cursor)
+        end_cursor.setPosition(cursor.selectionEnd())
+        end_block = end_cursor.blockNumber()
+        end_offset = end_cursor.positionInBlock()
 
-        temp_cursor.setPosition(vis_end)
-        md_end = self._visual_to_md_pos(vis_end)
+        # Convert to markdown positions using block-relative coords
+        md_start = self._block_mapper.visual_to_md_pos(start_block, start_offset)
+        md_end = self._block_mapper.visual_to_md_pos(end_block, end_offset)
 
         new_markdown = self._markdown[:md_start] + self._markdown[md_end:]
-        self._apply_edit_and_rerender(new_markdown, vis_start)
+
+        # Cursor goes to start of selection
+        self._apply_edit_and_rerender_block(new_markdown, start_block, start_offset)
 
     def _is_editing_key(self, event: QKeyEvent) -> bool:
         """
