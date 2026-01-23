@@ -39,6 +39,7 @@ GLOBAL_ONLY_PREFS = {
     "recent_files",
     "show_statusbar",
     "show_toolbar",
+    "engine",
 }
 
 
@@ -403,6 +404,16 @@ class PreferencesManager(QObject):
     def show_toolbar(self, value: bool) -> None:
         """Set toolbar visibility preference."""
         self.set("show_toolbar", value)
+
+    @property
+    def engine(self) -> str:
+        """Get the selected engine preference."""
+        return self.get("engine", "bluesky")
+
+    @engine.setter
+    def engine(self, value: str) -> None:
+        """Set the engine preference."""
+        self.set("engine", value)
 
     def get_all_preferences(self) -> dict[str, Any]:
         """Get all preferences as a dictionary.

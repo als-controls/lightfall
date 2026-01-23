@@ -511,7 +511,8 @@ class PluginLoader(QObject):
     def _register_with_type_registry(self, plugin_info: PluginInfo) -> None:
         """Register plugin with type-specific registry.
 
-        For example, PlanPlugins get registered with PlanRegistry.
+        For example, PlanPlugins get registered with PlanRegistry,
+        EnginePlugins get registered with EngineRegistry.
 
         Args:
             plugin_info: The ready plugin.
@@ -543,6 +544,22 @@ class PluginLoader(QObject):
                         )
             except ImportError:
                 logger.debug("PlanRegistry not available, skipping plan registration")
+
+        elif plugin_info.type_name == "engine":
+            try:
+                from ncs.acquire.engine.registry import EngineRegistry
+
+                engine_registry = EngineRegistry.get_instance()
+                engine_plugin = plugin_info.instance
+
+                if hasattr(engine_plugin, "name"):
+                    engine_registry.register(engine_plugin)
+                    logger.debug(
+                        "Registered engine '{}' with EngineRegistry",
+                        engine_plugin.name,
+                    )
+            except ImportError:
+                logger.debug("EngineRegistry not available, skipping engine registration")
 
     def get_plugin_by_name(
         self,

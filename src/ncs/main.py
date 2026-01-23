@@ -149,6 +149,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     """
     from ncs.plugins import PluginLoader, PluginRegistry
     from ncs.plugins.builtin_manifest import builtin_manifest
+    from ncs.plugins.engine_plugin import EnginePlugin
     from ncs.plugins.settings_plugin import SettingsPlugin
 
     services = app.services
@@ -159,6 +160,7 @@ def _setup_plugins(app: NCSApplication) -> None:
 
     # Register plugin types
     loader.register_plugin_type("settings", SettingsPlugin)
+    loader.register_plugin_type("engine", EnginePlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)

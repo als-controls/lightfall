@@ -20,5 +20,16 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         ),
+        # Engine plugins
+        PluginEntry(
+            type_name="engine",
+            name="bluesky",
+            import_path="ncs.acquire.engine.plugins.bluesky_plugin:BlueskyEnginePlugin",
+        ),
+        PluginEntry(
+            type_name="engine",
+            name="mock",
+            import_path="ncs.acquire.engine.plugins.mock_plugin:MockEnginePlugin",
+        ),
     ],
 )

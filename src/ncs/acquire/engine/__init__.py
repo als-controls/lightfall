@@ -60,15 +60,16 @@ __all__ = [
 _engine: BaseEngine | None = None
 
 
-def get_engine(engine_type: str = "bluesky", **kwargs: Any) -> BaseEngine:
+def get_engine(engine_type: str | None = None, **kwargs: Any) -> BaseEngine:
     """Get the global engine instance.
 
-    Creates the instance on first call. Subsequent calls return the same instance.
+    Uses the plugin system and user preferences to determine which
+    engine to create. Creates the instance on first call; subsequent
+    calls return the same instance.
 
     Args:
-        engine_type: Type of engine to create. Options:
-            - "bluesky": BlueskyEngine (default)
-            - "mock": MockEngine
+        engine_type: Override engine type. If None, uses preference or default.
+            Options include: "bluesky", "mock", or any registered engine plugin.
         **kwargs: Arguments passed to engine on first initialization.
 
     Returns:
@@ -78,10 +79,10 @@ def get_engine(engine_type: str = "bluesky", **kwargs: Any) -> BaseEngine:
         ValueError: If engine_type is not recognized.
 
     Example:
-        # Get default Bluesky engine
+        # Get engine based on user preference (or default)
         engine = get_engine()
 
-        # Get mock engine for testing
+        # Get specific engine type
         engine = get_engine("mock")
 
     Note:
@@ -91,14 +92,35 @@ def get_engine(engine_type: str = "bluesky", **kwargs: Any) -> BaseEngine:
     global _engine
 
     if _engine is None:
-        if engine_type == "bluesky":
-            _engine = BlueskyEngine(**kwargs)
-        elif engine_type == "mock":
-            _engine = MockEngine()
-        else:
-            raise ValueError(f"Unknown engine type: {engine_type}")
+        from ncs.acquire.engine.registry import EngineRegistry
 
-        logger.debug(f"Created global {engine_type} engine instance")
+        registry = EngineRegistry.get_instance()
+
+        # Determine engine type
+        if engine_type is None:
+            # Try to get from preferences
+            try:
+                from ncs.ui.preferences import PreferencesManager
+
+                prefs = PreferencesManager.get_instance()
+                engine_type = prefs.get("engine", registry.default_engine)
+            except Exception:
+                engine_type = registry.default_engine
+
+        # Get plugin and create engine
+        plugin = registry.get(engine_type)
+        if plugin is not None:
+            _engine = plugin.create_engine(**kwargs)
+            logger.debug(f"Created global {engine_type} engine via plugin")
+        else:
+            # Fallback to direct instantiation for backward compat
+            if engine_type == "bluesky":
+                _engine = BlueskyEngine(**kwargs)
+            elif engine_type == "mock":
+                _engine = MockEngine()
+            else:
+                raise ValueError(f"Unknown engine type: {engine_type}")
+            logger.debug(f"Created global {engine_type} engine (direct)")
 
     return _engine
 
