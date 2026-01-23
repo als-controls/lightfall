@@ -39,6 +39,9 @@ class BlockMapping:
         visual_text: The actual text content of the visual block.
         md_content_offset: Offset within the markdown line where visible content starts.
                           (e.g., after "# " for headers, after "- " for list items)
+        visual_to_md_offsets: Character-level mapping from visual offset to markdown offset
+                              within the content portion of the line. Accounts for inline
+                              formatting markers like ** and *.
     """
 
     visual_block_num: int
@@ -49,6 +52,7 @@ class BlockMapping:
     region_id: str | None = None
     visual_text: str = ""
     md_content_offset: int = 0  # Offset to skip markdown syntax
+    visual_to_md_offsets: list[int] = field(default_factory=list)  # Visual pos -> MD offset within content
 
 
 class BlockProtectionData(QTextBlockUserData):
@@ -212,6 +216,7 @@ class BlockMapper:
                     region_id=None,
                     visual_text=block_text,
                     md_content_offset=0,
+                    visual_to_md_offsets=[0],
                 )
             return None
 
@@ -227,7 +232,9 @@ class BlockMapper:
 
             # Check if this line matches the visual text
             # Account for markdown syntax being stripped
-            content_offset, matches = self._line_matches_text(md_line, clean_text)
+            content_offset, matches, inline_offsets = self._line_matches_text(
+                md_line, clean_text
+            )
 
             if matches:
                 char_start = self._md_line_offsets[line_idx]
@@ -246,19 +253,24 @@ class BlockMapper:
                     region_id=region_id,
                     visual_text=block_text,
                     md_content_offset=content_offset,
+                    visual_to_md_offsets=inline_offsets,
                 )
 
         # No match found - create a fallback mapping
         logger.warning(f"No markdown match for block {block_num}: {clean_text[:30]}...")
         return None
 
-    def _line_matches_text(self, md_line: str, visual_text: str) -> tuple[int, bool]:
+    def _line_matches_text(
+        self, md_line: str, visual_text: str
+    ) -> tuple[int, bool, list[int]]:
         """
         Check if a markdown line matches visual text after syntax stripping.
 
         Returns:
-            Tuple of (content_offset, matches) where content_offset is the
-            position in md_line where the visible content starts.
+            Tuple of (content_offset, matches, visual_to_md_offsets) where:
+            - content_offset: position in md_line where the visible content starts
+            - matches: whether this line matches the visual text
+            - visual_to_md_offsets: mapping from visual char position to markdown offset
         """
         # Try various markdown patterns
         stripped = md_line.strip()
@@ -272,7 +284,8 @@ class BlockMapper:
             content = header_match.group(2)
             if content.strip() == visual_text:
                 offset = md_line.find(content)
-                return (offset, True)
+                offsets = self._build_inline_offset_map(content, visual_text)
+                return (offset, True, offsets)
 
         # List item: - * or 1.
         list_match = re.match(r"^([-*]|\d+\.)\s+(.*)$", stripped_no_comments)
@@ -280,7 +293,8 @@ class BlockMapper:
             content = list_match.group(2)
             if content.strip() == visual_text:
                 offset = md_line.find(content)
-                return (offset, True)
+                offsets = self._build_inline_offset_map(content, visual_text)
+                return (offset, True, offsets)
 
         # Bold/italic: **text** *text* etc.
         # Strip formatting markers for comparison
@@ -293,36 +307,131 @@ class BlockMapper:
         if plain.strip() == visual_text:
             # Find where content starts (skip leading whitespace)
             offset = len(md_line) - len(md_line.lstrip())
-            return (offset, True)
+            # Build offset map from the content portion (after leading whitespace)
+            content = md_line.lstrip()
+            # Also strip trailing whitespace from content for matching
+            content = re.sub(r"<!--.*?-->", "", content)
+            offsets = self._build_inline_offset_map(content, visual_text)
+            return (offset, True, offsets)
 
         # Direct match (with comments stripped)
         if stripped_no_comments.strip() == visual_text:
             offset = len(md_line) - len(md_line.lstrip())
-            return (offset, True)
+            offsets = self._build_inline_offset_map(stripped_no_comments, visual_text)
+            return (offset, True, offsets)
 
         # Partial match (visual text is contained in markdown line)
         if visual_text in stripped_no_comments:
             offset = md_line.find(visual_text)
-            return (offset, True)
+            # For partial matches, build a simple 1:1 mapping
+            offsets = list(range(len(visual_text) + 1))
+            return (offset, True, offsets)
 
         # Table cell match: visual text is a table cell value
         # Table lines look like: | Value1 | Value2 |
         if stripped_no_comments.startswith("|") and visual_text in stripped_no_comments:
             # Find the cell containing this text
             offset = md_line.find(visual_text)
-            return (offset, True)
+            offsets = list(range(len(visual_text) + 1))
+            return (offset, True, offsets)
 
         # Visual text starts with markdown content (prefix match)
         # Useful for merged lines like "Date: ... Operator: ..."
         if visual_text.startswith(plain.strip()[:20]) and len(plain.strip()) > 10:
             offset = len(md_line) - len(md_line.lstrip())
-            return (offset, True)
+            content = md_line.lstrip()
+            content = re.sub(r"<!--.*?-->", "", content)
+            offsets = self._build_inline_offset_map(content, visual_text)
+            return (offset, True, offsets)
 
-        return (0, False)
+        return (0, False, [])
+
+    def _build_inline_offset_map(
+        self, md_content: str, visual_text: str
+    ) -> list[int]:
+        """
+        Build a character-level mapping from visual positions to markdown offsets.
+
+        This accounts for inline formatting markers like **, *, ~~, etc. that are
+        present in markdown but not in the visual text.
+
+        Args:
+            md_content: The markdown content (after line-level prefix like # or -)
+            visual_text: The visual text (with formatting stripped)
+
+        Returns:
+            List where index is visual position, value is markdown offset within md_content.
+            Length is len(visual_text) + 1 to include end position.
+        """
+        # Clean visual text of zero-width markers for mapping
+        clean_visual = visual_text.replace("\u200b", "").replace("\u200c", "")
+
+        # Build mapping by walking through both strings
+        visual_to_md: list[int] = []
+        md_pos = 0
+
+        # Formatting markers to skip (order matters - ** before *, ~~ before ~)
+        format_markers = ["**", "*", "__", "_", "~~", "`"]
+
+        def skip_markers() -> None:
+            """Skip any formatting markers or comments at current md_pos."""
+            nonlocal md_pos
+            skipped = True
+            while skipped and md_pos < len(md_content):
+                skipped = False
+
+                # Skip HTML comments
+                if md_content[md_pos:].startswith("<!--"):
+                    end = md_content.find("-->", md_pos)
+                    if end != -1:
+                        md_pos = end + 3
+                        skipped = True
+                        continue
+
+                # Check for format markers
+                for marker in format_markers:
+                    if md_content[md_pos:].startswith(marker):
+                        md_pos += len(marker)
+                        skipped = True
+                        break
+
+        # Build mapping for each visual position
+        for v_pos, v_char in enumerate(clean_visual):
+            # Skip any markers before this character
+            skip_markers()
+
+            # Record mapping: visual pos v_pos maps to current md_pos
+            visual_to_md.append(md_pos)
+
+            # Find the matching character in markdown
+            if md_pos < len(md_content):
+                md_char = md_content[md_pos]
+                if md_char == v_char:
+                    md_pos += 1
+                else:
+                    # Mismatch - try to find the character
+                    found = False
+                    for skip in range(1, min(10, len(md_content) - md_pos)):
+                        if md_content[md_pos + skip] == v_char:
+                            md_pos += skip + 1
+                            found = True
+                            break
+                    if not found:
+                        # Give up and advance anyway
+                        md_pos += 1
+
+        # Skip any trailing markers and record end position
+        skip_markers()
+        visual_to_md.append(md_pos)
+
+        return visual_to_md
 
     def visual_to_md_pos(self, block_num: int, offset_in_block: int) -> int:
         """
         Convert a visual (block, offset) position to markdown character position.
+
+        Uses character-level inline offset mapping to account for formatting
+        markers like ** and * that are present in markdown but not in visual.
 
         Args:
             block_num: The visual block number.
@@ -348,8 +457,37 @@ class BlockMapper:
             # Return the start of the protected content
             return mapping.md_char_start + mapping.md_content_offset
 
-        # Calculate position: line start + content offset + offset within visual text
-        md_pos = mapping.md_char_start + mapping.md_content_offset + offset_in_block
+        # Use character-level inline offset mapping if available
+        if mapping.visual_to_md_offsets:
+            # The visual text may have zero-width markers that we need to account for
+            # Strip them to get the clean offset
+            visual_text = mapping.visual_text
+            clean_offset = offset_in_block
+
+            # Count zero-width markers before this position
+            markers_before = 0
+            for i, char in enumerate(visual_text):
+                if i >= offset_in_block:
+                    break
+                if char in ("\u200b", "\u200c"):
+                    markers_before += 1
+
+            # Adjust offset to account for stripped markers
+            clean_offset = offset_in_block - markers_before
+
+            # Look up the inline offset
+            if clean_offset < len(mapping.visual_to_md_offsets):
+                inline_offset = mapping.visual_to_md_offsets[clean_offset]
+            elif mapping.visual_to_md_offsets:
+                # Past end - use last mapped position
+                inline_offset = mapping.visual_to_md_offsets[-1]
+            else:
+                inline_offset = clean_offset
+
+            md_pos = mapping.md_char_start + mapping.md_content_offset + inline_offset
+        else:
+            # Fallback: direct offset (no inline formatting)
+            md_pos = mapping.md_char_start + mapping.md_content_offset + offset_in_block
 
         # Clamp to line bounds
         md_pos = min(md_pos, mapping.md_char_end)
