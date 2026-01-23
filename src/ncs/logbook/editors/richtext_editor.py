@@ -26,7 +26,11 @@ from PySide6.QtWidgets import QTextEdit, QWidget
 
 from ncs.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
 from ncs.logbook.style import LogbookStyles
-from ncs.logbook.visual_protection import VisualProtectionTracker
+from ncs.logbook.visual_protection import (
+    VisualProtectionTracker,
+    PROTECTED_START,
+    PROTECTED_END,
+)
 
 if TYPE_CHECKING:
     from ncs.logbook.converter import MarkdownConverter
@@ -130,6 +134,7 @@ class RichTextEditor(QTextEdit):
         # Current state
         self._markdown: str = ""
         self._mapping: PositionMapping | None = None
+        self._visual_to_md_map: list[int] | None = None  # Visual pos -> Markdown pos
         self._updating_content = False
 
         # Undo/redo stack
@@ -187,6 +192,9 @@ class RichTextEditor(QTextEdit):
                 self._protection_manager.get_regions(),
             )
 
+            # Build accurate visual -> markdown position mapping
+            self._visual_to_md_map = self._build_position_map(markdown, visual_text)
+
             # Restore cursor position
             self._restore_cursor_position(old_visual_pos)
 
@@ -200,6 +208,110 @@ class RichTextEditor(QTextEdit):
         new_pos = min(visual_pos, doc_length)
         cursor.setPosition(new_pos)
         self.setTextCursor(cursor)
+
+    def _build_position_map(self, markdown: str, visual_text: str) -> list[int]:
+        """
+        Build accurate visual_pos -> markdown_pos mapping.
+
+        This builds a mapping by finding anchors (unique strings) in both texts
+        and interpolating positions between anchors.
+
+        The challenge: visual text differs from markdown in many ways:
+        - Markdown syntax (# for headers, ** for bold) is stripped
+        - HTML comments (<!-- PROTECTED:... -->) are stripped
+        - Zero-width markers are added
+        - Paragraph breaks differ (\\n\\n vs \\n)
+
+        Strategy: Find words/tokens that exist in both and use them as anchors.
+
+        Args:
+            markdown: The source markdown text.
+            visual_text: The rendered plain text from QTextEdit (with markers).
+
+        Returns:
+            List where index is visual position, value is markdown position.
+        """
+        import re
+
+        # Strip zero-width markers from visual for matching
+        clean_visual = visual_text.replace(PROTECTED_START, "").replace(PROTECTED_END, "")
+
+        # Find word anchors that appear in both texts
+        # Words are sequences of alphanumeric characters
+        word_pattern = re.compile(r"\b\w+\b")
+
+        visual_words = [(m.group(), m.start(), m.end()) for m in word_pattern.finditer(clean_visual)]
+        md_words = [(m.group(), m.start(), m.end()) for m in word_pattern.finditer(markdown)]
+
+        # Build anchor mapping: visual_start -> markdown_start for matching words
+        anchors: list[tuple[int, int]] = []  # (visual_pos, md_pos)
+        md_word_idx = 0
+
+        for v_word, v_start, v_end in visual_words:
+            # Find this word in markdown (starting from where we left off)
+            while md_word_idx < len(md_words):
+                m_word, m_start, m_end = md_words[md_word_idx]
+                if m_word == v_word:
+                    anchors.append((v_start, m_start))
+                    md_word_idx += 1
+                    break
+                md_word_idx += 1
+
+        # Add start and end anchors
+        anchors.insert(0, (0, 0))
+        anchors.append((len(clean_visual), len(markdown)))
+
+        # Now build full position map by interpolating between anchors
+        clean_to_md: list[int] = []
+        anchor_idx = 0
+
+        for clean_pos in range(len(clean_visual) + 1):
+            # Find surrounding anchors
+            while anchor_idx < len(anchors) - 1 and anchors[anchor_idx + 1][0] <= clean_pos:
+                anchor_idx += 1
+
+            v_anchor, m_anchor = anchors[anchor_idx]
+
+            if anchor_idx + 1 < len(anchors):
+                v_next, m_next = anchors[anchor_idx + 1]
+                # Interpolate
+                v_range = v_next - v_anchor
+                m_range = m_next - m_anchor
+                if v_range > 0:
+                    offset = clean_pos - v_anchor
+                    md_pos = m_anchor + int(offset * m_range / v_range)
+                else:
+                    md_pos = m_anchor
+            else:
+                # Past last anchor
+                md_pos = len(markdown)
+
+            clean_to_md.append(min(md_pos, len(markdown)))
+
+        # Now map from actual visual (with markers) to markdown
+        # by mapping through clean_visual
+        visual_to_md: list[int] = []
+        clean_pos = 0
+
+        for vis_char in visual_text:
+            if vis_char in (PROTECTED_START, PROTECTED_END):
+                # Zero-width marker - map to current clean position's markdown pos
+                if clean_pos < len(clean_to_md):
+                    visual_to_md.append(clean_to_md[clean_pos])
+                else:
+                    visual_to_md.append(len(markdown))
+            else:
+                # Regular character
+                if clean_pos < len(clean_to_md):
+                    visual_to_md.append(clean_to_md[clean_pos])
+                else:
+                    visual_to_md.append(len(markdown))
+                clean_pos += 1
+
+        # Add end mapping
+        visual_to_md.append(len(markdown))
+
+        return visual_to_md
 
     def get_markdown(self) -> str:
         """
@@ -261,23 +373,22 @@ class RichTextEditor(QTextEdit):
     def _visual_to_md_pos(self, visual_pos: int) -> int:
         """Convert visual position to markdown position.
 
-        This accounts for the difference between QTextEdit's visual representation
-        (single newline between paragraphs) and markdown (double newline).
+        Uses the pre-built position map that accounts for:
+        - Zero-width protection markers in visual text
+        - HTML comment markers in markdown
+        - Paragraph break differences (\\n\\n vs \\n)
         """
-        if self._mapping is None:
+        if self._visual_to_md_map is None:
+            # Fallback if map not built yet
             return visual_pos
 
-        # Count how many paragraph breaks (blocks) precede this position
-        # Each paragraph break in markdown is \n\n but renders as single \n in QTextEdit
-        cursor = self.textCursor()
-        cursor.setPosition(visual_pos)
-        block_num = cursor.blockNumber()
+        # Clamp to valid range
+        if visual_pos < 0:
+            return 0
+        if visual_pos >= len(self._visual_to_md_map):
+            return len(self._markdown)
 
-        # Add one character per paragraph break we've passed
-        # (to account for \n\n in markdown vs \n in visual)
-        adjusted_pos = visual_pos + block_num
-
-        return self._position_mapper.visual_to_markdown(self._mapping, adjusted_pos)
+        return self._visual_to_md_map[visual_pos]
 
     def _apply_markdown_state(self, markdown: str, visual_pos: int) -> None:
         """
