@@ -1263,37 +1263,33 @@ class RichTextEditor(QTextEdit):
         Args:
             level: The heading level (1-6), or 0 for normal text.
         """
+        import re
+
         cursor = self.textCursor()
         is_protected, _ = self._is_cursor_in_protected(cursor)
         if is_protected:
             return
 
-        # Get line start position in visual view
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-        line_start = cursor.position()
+        # Get block number for the current line
+        block_num = cursor.blockNumber()
 
-        # Convert to markdown position
-        if self._mapping is None:
+        # Get the block mapping to find the markdown line
+        mapping = self._block_mapper.get_block_mapping(block_num)
+        if mapping is None:
+            logger.warning(f"No block mapping for block {block_num}")
             return
 
-        md_line_start = self._position_mapper.visual_to_markdown(self._mapping, line_start)
+        # Get the markdown line start position
+        line_begin = mapping.md_char_start
 
-        # Find start of line in markdown
-        line_begin = self._markdown.rfind("\n", 0, md_line_start)
-        if line_begin == -1:
-            line_begin = 0
-        else:
-            line_begin += 1  # Skip the newline
+        # Get the line content
+        line_content = self._markdown[line_begin:mapping.md_char_end]
 
-        # Check if line already has a heading
-        line_content = self._markdown[line_begin:]
-        line_end = line_content.find("\n")
-        if line_end == -1:
-            line_end = len(line_content)
-        line_content = line_content[:line_end]
+        # Skip protected regions (device actions, runs)
+        if mapping.is_protected:
+            return
 
         # Remove existing heading markers
-        import re
         stripped_line = re.sub(r"^#{1,6}\s*", "", line_content)
 
         # Build new line
@@ -1306,10 +1302,11 @@ class RichTextEditor(QTextEdit):
         new_markdown = (
             self._markdown[:line_begin]
             + new_line
-            + self._markdown[line_begin + len(line_content) :]
+            + self._markdown[mapping.md_char_end:]
         )
 
-        self._apply_edit_and_rerender(new_markdown, line_start)
+        # Use block-based cursor restoration
+        self._apply_edit_and_rerender_block(new_markdown, block_num, 0)
 
     def insert_link(self, url: str, text: str | None = None) -> None:
         """
