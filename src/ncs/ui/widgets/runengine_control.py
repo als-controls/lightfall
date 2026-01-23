@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from ncs.acquire import QRunEngine
+    from ncs.acquire.engine import Engine
 
 
 class StatusIndicator(QWidget):
@@ -78,10 +78,10 @@ class StatusIndicator(QWidget):
 
 
 class RunEngineControlWidget(QWidget):
-    """Compact widget for RunEngine state management.
+    """Compact widget for engine state management.
 
     Displays the current state and provides control buttons for
-    pausing, resuming, aborting, and stopping the RunEngine.
+    pausing, resuming, aborting, and stopping the engine.
 
     Features:
     - Status indicator (colored dot + text)
@@ -96,10 +96,10 @@ class RunEngineControlWidget(QWidget):
         stop_requested: User clicked stop.
 
     Example:
-        >>> from ncs.acquire import get_run_engine
-        >>> RE = get_run_engine()
+        >>> from ncs.acquire import get_engine
+        >>> engine = get_engine()
         >>> control = RunEngineControlWidget()
-        >>> control.set_run_engine(RE)
+        >>> control.set_engine(engine)
         >>> toolbar.addWidget(control)
     """
 
@@ -115,7 +115,7 @@ class RunEngineControlWidget(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
-        self._re: QRunEngine | None = None
+        self._engine: Engine | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -174,53 +174,63 @@ class RunEngineControlWidget(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
-    def set_run_engine(self, re: QRunEngine) -> None:
-        """Connect to a QRunEngine instance.
+    def set_engine(self, engine: Engine) -> None:
+        """Connect to an Engine instance.
 
         Args:
-            re: The QRunEngine to control.
+            engine: The Engine to control.
         """
-        if self._re is not None:
+        if self._engine is not None:
             self._disconnect_signals()
 
-        self._re = re
+        self._engine = engine
         self._connect_signals()
         self._update_state()
 
+    def set_run_engine(self, re: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine to control.
+        """
+        self.set_engine(re)
+
     def _connect_signals(self) -> None:
-        """Connect to RunEngine signals."""
-        if self._re is None:
+        """Connect to engine signals."""
+        if self._engine is None:
             return
 
-        self._re.sigStateChanged.connect(self._on_state_changed)
-        self._re.sigStart.connect(self._on_run_start)
-        self._re.sigFinish.connect(self._on_run_finish)
-        self._re.sigPause.connect(self._on_pause)
-        self._re.sigResume.connect(self._on_resume)
+        self._engine.sigStateChanged.connect(self._on_state_changed)
+        self._engine.sigStart.connect(self._on_run_start)
+        self._engine.sigFinish.connect(self._on_run_finish)
+        self._engine.sigPause.connect(self._on_pause)
+        self._engine.sigResume.connect(self._on_resume)
 
     def _disconnect_signals(self) -> None:
-        """Disconnect from RunEngine signals."""
-        if self._re is None:
+        """Disconnect from engine signals."""
+        if self._engine is None:
             return
 
         try:
-            self._re.sigStateChanged.disconnect(self._on_state_changed)
-            self._re.sigStart.disconnect(self._on_run_start)
-            self._re.sigFinish.disconnect(self._on_run_finish)
-            self._re.sigPause.disconnect(self._on_pause)
-            self._re.sigResume.disconnect(self._on_resume)
+            self._engine.sigStateChanged.disconnect(self._on_state_changed)
+            self._engine.sigStart.disconnect(self._on_run_start)
+            self._engine.sigFinish.disconnect(self._on_run_finish)
+            self._engine.sigPause.disconnect(self._on_pause)
+            self._engine.sigResume.disconnect(self._on_resume)
         except RuntimeError:
             pass  # Already disconnected
 
     def _update_state(self) -> None:
-        """Update UI to reflect current RunEngine state."""
-        if self._re is None:
+        """Update UI to reflect current engine state."""
+        if self._engine is None:
             self._status_indicator.set_status("idle")
-            self._status_label.setText("No RE")
+            self._status_label.setText("No Engine")
             self._disable_all_buttons()
             return
 
-        state = self._re.state
+        state = self._engine.state_name
         self._status_indicator.set_status(state)
         self._status_label.setText(state.capitalize())
 
@@ -235,7 +245,7 @@ class RunEngineControlWidget(QWidget):
         self._abort_btn.setEnabled(is_running or is_paused)
 
         # Update queue count
-        queue_size = self._re.queue_size
+        queue_size = self._engine.queue_size
         self._queue_label.setText(f"Queue: {queue_size}")
 
     def _disable_all_buttons(self) -> None:
@@ -280,29 +290,29 @@ class RunEngineControlWidget(QWidget):
     @Slot()
     def _on_pause_clicked(self) -> None:
         """Handle pause button click."""
-        if self._re is not None:
-            self._re.pause()
+        if self._engine is not None:
+            self._engine.pause()
         self.pause_requested.emit()
 
     @Slot()
     def _on_resume_clicked(self) -> None:
         """Handle resume button click."""
-        if self._re is not None:
-            self._re.resume()
+        if self._engine is not None:
+            self._engine.resume()
         self.resume_requested.emit()
 
     @Slot()
     def _on_stop_clicked(self) -> None:
         """Handle stop button click."""
-        if self._re is not None:
-            self._re.stop()
+        if self._engine is not None:
+            self._engine.stop()
         self.stop_requested.emit()
 
     @Slot()
     def _on_abort_clicked(self) -> None:
         """Handle abort button click."""
-        if self._re is not None:
-            self._re.abort()
+        if self._engine is not None:
+            self._engine.abort()
         self.abort_requested.emit()
 
 
@@ -320,7 +330,7 @@ class RunEngineStatusBar(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
-        self._re: QRunEngine | None = None
+        self._engine: Engine | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -353,19 +363,29 @@ class RunEngineStatusBar(QWidget):
         layout.addLayout(plan_layout)
         layout.addStretch()
 
-    def set_run_engine(self, re: QRunEngine) -> None:
-        """Connect to a QRunEngine instance.
+    def set_engine(self, engine: Engine) -> None:
+        """Connect to an Engine instance.
 
         Args:
-            re: The QRunEngine to control.
+            engine: The Engine to control.
         """
-        self._re = re
-        self._control.set_run_engine(re)
+        self._engine = engine
+        self._control.set_engine(engine)
 
         # Connect additional signals for plan info
-        re.sigStart.connect(self._on_run_start)
-        re.sigFinish.connect(self._on_run_finish)
-        re.sigDocumentYield.connect(self._on_document)
+        engine.sigStart.connect(self._on_run_start)
+        engine.sigFinish.connect(self._on_run_finish)
+        engine.sigOutput.connect(self._on_document)
+
+    def set_run_engine(self, re: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine to control.
+        """
+        self.set_engine(re)
 
     @Slot()
     def _on_run_start(self) -> None:

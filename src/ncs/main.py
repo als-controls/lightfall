@@ -12,7 +12,7 @@ from ncs.auth.providers import LocalAuthProvider
 from ncs.auth.session import SessionManager
 from ncs.config import ConfigManager
 from ncs.core import NCSApplication
-from ncs.acquire import get_run_engine
+from ncs.acquire import get_engine
 from ncs.acquire.plans import get_registry as get_plan_registry
 from ncs.devices import DeviceCatalog
 from ncs.devices.backends import MockBackend
@@ -115,24 +115,24 @@ def _setup_devices() -> None:
 
 
 def _setup_bluesky(app: NCSApplication) -> None:
-    """Setup Bluesky RunEngine and plan registry.
+    """Setup Bluesky engine and plan registry.
 
-    Initializes the QRunEngine singleton and plan registry
+    Initializes the BlueskyEngine singleton and plan registry
     for use by the BlueskyPanel.
     """
     services = app.services
 
-    # Get/create RunEngine singleton
-    run_engine = get_run_engine()
-    services.register_instance(type(run_engine), run_engine)
+    # Get/create engine singleton
+    engine = get_engine()
+    services.register_instance(type(engine), engine)
 
     # Get/create plan registry with standard bluesky plans
     plan_registry = get_plan_registry()
     services.register_instance(type(plan_registry), plan_registry)
 
     logger.info(
-        "Bluesky initialized: RunEngine state={}, {} plans available",
-        run_engine.state,
+        "Bluesky initialized: engine state={}, {} plans available",
+        engine.state_name,
         len(plan_registry),
     )
 
@@ -286,9 +286,9 @@ def main() -> int:
     window.set_config_manager(config)
     app.set_main_window(window)
 
-    # Connect RunEngine to toolbar control
-    run_engine = get_run_engine()
-    window.set_run_engine(run_engine)
+    # Connect engine to toolbar control
+    engine = get_engine()
+    window.set_engine(engine)
 
     # Setup default panel layout
     window.setup_default_layout()

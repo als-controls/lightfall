@@ -224,14 +224,24 @@ class NCSMainWindow(QMainWindow):
         # Set visibility from preferences
         self._toolbar.setVisible(self._prefs_manager.show_toolbar)
 
-    def set_run_engine(self, re) -> None:
-        """Connect the RunEngine to the menubar control widget.
+    def set_engine(self, engine) -> None:
+        """Connect the Engine to the menubar control widget.
 
         Args:
-            re: The QRunEngine instance.
+            engine: The Engine instance.
         """
-        self._re_control.set_run_engine(re)
-        logger.info("Connected RunEngine to toolbar control")
+        self._re_control.set_engine(engine)
+        logger.info("Connected Engine to toolbar control")
+
+    def set_run_engine(self, re) -> None:
+        """Connect the Engine to the menubar control widget.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine instance.
+        """
+        self.set_engine(re)
 
     def _setup_statusbar(self) -> None:
         """Create the status bar."""

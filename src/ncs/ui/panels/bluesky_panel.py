@@ -22,9 +22,10 @@ from ncs.ui.widgets.plan_config import PlanConfigWidget
 from ncs.ui.widgets.plan_selector import PlanSelectorWidget
 
 if TYPE_CHECKING:
+    from ncs.acquire.engine import Engine
     from ncs.acquire.plans import PlanInfo
 
-from ncs.acquire import QRunEngine, get_run_engine
+from ncs.acquire import get_engine
 from ncs.acquire.plans import PlanRegistry, get_registry
 from ncs.devices import DeviceCatalog
 
@@ -37,7 +38,7 @@ class BlueskyPanel(BasePanel):
     - Plan selector with category filtering and search
     - Plan configuration with dynamic parameter UI
 
-    RunEngine control and document viewing are handled by:
+    Engine control and document viewing are handled by:
     - RunEngineControlWidget in the main toolbar
     - DocumentsPanel as a separate panel
 
@@ -46,10 +47,10 @@ class BlueskyPanel(BasePanel):
         plan_finished(str, str): Emitted when a plan finishes (name, exit_status).
 
     Example:
-        >>> from ncs.acquire import get_run_engine
+        >>> from ncs.acquire import get_engine
         >>> from ncs.acquire.plans import get_registry
         >>> panel = BlueskyPanel()
-        >>> panel.set_run_engine(get_run_engine())
+        >>> panel.set_engine(get_engine())
         >>> panel.set_registry(get_registry())
     """
 
@@ -73,7 +74,7 @@ class BlueskyPanel(BasePanel):
         Args:
             parent: Parent widget.
         """
-        self._re: QRunEngine | None = None
+        self._engine: Engine | None = None
         self._registry: PlanRegistry | None = None
         self._current_plan_name: str = ""
         super().__init__(parent)
@@ -100,12 +101,12 @@ class BlueskyPanel(BasePanel):
         self._auto_configure()
 
     def _auto_configure(self) -> None:
-        """Auto-configure with RunEngine, PlanRegistry, and DeviceCatalog singletons."""
+        """Auto-configure with Engine, PlanRegistry, and DeviceCatalog singletons."""
         try:
-            re = get_run_engine()
-            self.set_run_engine(re)
+            engine = get_engine()
+            self.set_engine(engine)
         except Exception as e:
-            logger.debug("Could not auto-configure RunEngine: {}", e)
+            logger.debug("Could not auto-configure Engine: {}", e)
 
         try:
             registry = get_registry()
@@ -128,20 +129,30 @@ class BlueskyPanel(BasePanel):
         self._plan_config.set_catalog(catalog)
         logger.info("BlueskyPanel connected to DeviceCatalog")
 
-    def set_run_engine(self, re: QRunEngine) -> None:
-        """Connect to a QRunEngine instance.
+    def set_engine(self, engine: Engine) -> None:
+        """Connect to an Engine instance.
 
         Args:
-            re: The QRunEngine to use for plan execution.
+            engine: The Engine to use for plan execution.
         """
-        self._re = re
+        self._engine = engine
 
         # Connect signals for tracking plan execution
-        re.sigStart.connect(self._on_run_start)
-        re.sigFinish.connect(self._on_run_finish)
-        re.sigDocumentYield.connect(self._on_document)
+        engine.sigStart.connect(self._on_run_start)
+        engine.sigFinish.connect(self._on_run_finish)
+        engine.sigOutput.connect(self._on_document)
 
-        logger.info("BlueskyPanel connected to RunEngine")
+        logger.info("BlueskyPanel connected to Engine")
+
+    def set_run_engine(self, re: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine to use for plan execution.
+        """
+        self.set_engine(re)
 
     def set_registry(self, registry: PlanRegistry) -> None:
         """Set the plan registry.
@@ -164,14 +175,14 @@ class BlueskyPanel(BasePanel):
         data = {
             "panel_id": self.panel_metadata.id,
             "panel_name": self.panel_metadata.name,
-            "has_run_engine": self._re is not None,
+            "has_engine": self._engine is not None,
             "has_registry": self._registry is not None,
             "current_plan": self._current_plan_name or None,
         }
 
-        if self._re:
-            data["run_engine_state"] = self._re.state
-            data["queue_size"] = self._re.queue_size
+        if self._engine:
+            data["engine_state"] = self._engine.state_name
+            data["queue_size"] = self._engine.queue_size
 
         if self._registry:
             data["plan_count"] = len(self._registry)
@@ -239,8 +250,8 @@ class BlueskyPanel(BasePanel):
             plan_info: Plan to run.
             kwargs: Parameter values.
         """
-        if self._re is None:
-            logger.error("No RunEngine configured")
+        if self._engine is None:
+            logger.error("No Engine configured")
             return
 
         try:
@@ -249,8 +260,8 @@ class BlueskyPanel(BasePanel):
 
             plan = plan_info.func(**resolved_kwargs)
 
-            # Submit to RunEngine
-            self._re(plan)
+            # Submit to Engine
+            self._engine(plan)
             self._current_plan_name = plan_info.name
 
             logger.info(f"Submitted plan: {plan_info.name}")
@@ -327,19 +338,19 @@ class BlueskyPanel(BasePanel):
 
     @Slot()
     def _on_run_start(self) -> None:
-        """Handle run start from RunEngine."""
+        """Handle run start from Engine."""
         self.plan_started.emit(self._current_plan_name)
 
     @Slot()
     def _on_run_finish(self) -> None:
-        """Handle run finish from RunEngine."""
+        """Handle run finish from Engine."""
         # Get exit status from last stop document if available
         exit_status = "unknown"
         self.plan_finished.emit(self._current_plan_name, exit_status)
 
     @Slot(str, dict)
     def _on_document(self, name: str, doc: dict) -> None:
-        """Handle document from RunEngine.
+        """Handle document from Engine.
 
         Args:
             name: Document type.

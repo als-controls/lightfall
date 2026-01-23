@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from ncs.acquire import QRunEngine
+    from ncs.acquire.engine import Engine
 
 
 class DocumentTreeItem:
@@ -167,7 +167,7 @@ class DocumentStreamModel(QAbstractItemModel):
         self.endResetModel()
 
     def doc_consumer(self, name: str, doc: dict[str, Any]) -> None:
-        """Callback for QRunEngine document stream.
+        """Callback for Engine document stream.
 
         Args:
             name: Document type.
@@ -567,7 +567,7 @@ class CopyButtonDelegate(QWidget):
 
 
 class DocumentStreamWidget(QWidget):
-    """Widget for viewing streaming Bluesky documents.
+    """Widget for viewing streaming documents from an Engine.
 
     Shows documents either grouped by type (tree view) or in sequential order
     (table view). Supports auto-scrolling to latest, copying UIDs via button,
@@ -577,10 +577,10 @@ class DocumentStreamWidget(QWidget):
         document_selected(str, dict): Emitted when a document is selected.
 
     Example:
-        >>> from ncs.acquire import get_run_engine
-        >>> RE = get_run_engine()
+        >>> from ncs.acquire import get_engine
+        >>> engine = get_engine()
         >>> widget = DocumentStreamWidget()
-        >>> widget.set_run_engine(RE)
+        >>> widget.set_engine(engine)
     """
 
     document_selected = Signal(str, dict)  # (doc_type, doc)
@@ -592,7 +592,7 @@ class DocumentStreamWidget(QWidget):
             parent: Optional parent widget.
         """
         super().__init__(parent)
-        self._re: QRunEngine | None = None
+        self._engine: Engine | None = None
         self._auto_scroll = True
         self._view_mode = "tree"  # "tree" or "sequential"
         self._setup_ui()
@@ -722,24 +722,34 @@ class DocumentStreamWidget(QWidget):
                 self._status_label.setText(f"Copied UID: {uid[:8]}...")
                 logger.debug(f"Copied UID to clipboard: {uid}")
 
-    def set_run_engine(self, re: QRunEngine) -> None:
-        """Connect to a QRunEngine instance.
+    def set_engine(self, engine: Engine) -> None:
+        """Connect to an Engine instance.
 
         Args:
-            re: The QRunEngine to monitor.
+            engine: The Engine to monitor.
         """
-        if self._re is not None:
+        if self._engine is not None:
             try:
-                self._re.sigDocumentYield.disconnect(self._on_document)
-                self._re.sigStart.disconnect(self._on_run_start)
-                self._re.sigFinish.disconnect(self._on_run_finish)
+                self._engine.sigOutput.disconnect(self._on_document)
+                self._engine.sigStart.disconnect(self._on_run_start)
+                self._engine.sigFinish.disconnect(self._on_run_finish)
             except RuntimeError:
                 pass
 
-        self._re = re
-        re.sigDocumentYield.connect(self._on_document)
-        re.sigStart.connect(self._on_run_start)
-        re.sigFinish.connect(self._on_run_finish)
+        self._engine = engine
+        engine.sigOutput.connect(self._on_document)
+        engine.sigStart.connect(self._on_run_start)
+        engine.sigFinish.connect(self._on_run_finish)
+
+    def set_run_engine(self, re: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine to monitor.
+        """
+        self.set_engine(re)
 
     def clear(self) -> None:
         """Clear all documents."""
@@ -775,7 +785,7 @@ class DocumentStreamWidget(QWidget):
 
     @Slot(str, dict)
     def _on_document(self, name: str, doc: dict) -> None:
-        """Handle document from RunEngine.
+        """Handle document from Engine.
 
         Args:
             name: Document type.

@@ -1,9 +1,14 @@
 """NCS data acquisition module.
 
-Provides Qt-integrated Bluesky RunEngine for scientific data acquisition.
+Provides Qt-integrated execution engines for scientific data acquisition.
 
 Components:
-- QRunEngine: Qt-wrapped Bluesky RunEngine with signals
+- Engine: Protocol defining the engine interface
+- EngineState: Enumeration of possible engine states
+- BaseEngine: Abstract base class with common implementation
+- BlueskyEngine: Bluesky RunEngine wrapper (also available as QRunEngine)
+- MockEngine: Simple mock engine for testing
+- get_engine: Singleton accessor for the default engine
 - NCSDevice: Generic wrapper adding metadata/policy to ophyd devices
 - SignalConfiguration: UI model for signal selection
 - LiveDataBuffer: Thread-safe document streaming to Qt
@@ -12,7 +17,17 @@ Components:
 
 from ncs.acquire.buffer import LiveDataBuffer, MultiStreamBuffer
 from ncs.acquire.device_wrapper import NCSDevice, wrap_device
-from ncs.acquire.runengine import QRunEngine, get_run_engine
+from ncs.acquire.engine import (
+    BaseEngine,
+    BlueskyEngine,
+    Engine,
+    EngineState,
+    MockEngine,
+    PrioritizedProcedure,
+    get_engine,
+    reset_engine,
+    set_engine,
+)
 from ncs.acquire.signals import (
     SignalConfiguration,
     SignalDefinition,
@@ -20,8 +35,30 @@ from ncs.acquire.signals import (
     SignalPreset,
 )
 
+# Backward compatibility aliases
+QRunEngine = BlueskyEngine
+
+
+def get_run_engine(**kwargs):
+    """Get the global QRunEngine instance.
+
+    Deprecated: Use get_engine() instead.
+    """
+    return get_engine(**kwargs)
+
+
 __all__ = [
-    # RunEngine
+    # Engine abstraction
+    "Engine",
+    "EngineState",
+    "BaseEngine",
+    "BlueskyEngine",
+    "MockEngine",
+    "PrioritizedProcedure",
+    "get_engine",
+    "set_engine",
+    "reset_engine",
+    # Backward compatibility
     "QRunEngine",
     "get_run_engine",
     # Device wrapper
