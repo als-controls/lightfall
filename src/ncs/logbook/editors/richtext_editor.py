@@ -1025,27 +1025,97 @@ class RichTextEditor(QTextEdit):
             suffix: Markdown suffix (e.g., "**").
             apply: True to apply formatting, False to remove.
         """
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
+        # Get block-relative coordinates for start and end of selection
+        start_cursor = QTextCursor(cursor)
+        start_cursor.setPosition(cursor.selectionStart())
+        start_block = start_cursor.blockNumber()
+        start_offset = start_cursor.positionInBlock()
+
+        end_cursor = QTextCursor(cursor)
+        end_cursor.setPosition(cursor.selectionEnd())
+        end_block = end_cursor.blockNumber()
+        end_offset = end_cursor.positionInBlock()
+
+        # Convert to markdown positions using block-relative mapping
+        md_start = self._block_mapper.visual_to_md_pos(start_block, start_offset)
+        md_end = self._block_mapper.visual_to_md_pos(end_block, end_offset)
+
+        logger.debug(
+            f"Formatting: visual blocks ({start_block},{start_offset})-({end_block},{end_offset}) "
+            f"-> md [{md_start}:{md_end}]"
+        )
 
         if apply:
-            # Apply formatting by wrapping with prefix/suffix
-            new_markdown = self._position_mapper.apply_formatting(
-                self._markdown, start, end, prefix, suffix, self._mapping
+            # Apply formatting by wrapping with prefix/suffix in markdown
+            new_markdown = (
+                self._markdown[:md_start]
+                + prefix
+                + self._markdown[md_start:md_end]
+                + suffix
+                + self._markdown[md_end:]
             )
+            # After adding prefix, cursor selection expands
+            new_end_offset = end_offset + len(prefix)
         else:
             # Remove formatting - need to find and remove the markers
-            new_markdown = self._remove_formatting(start, end, prefix, suffix)
+            new_markdown = self._remove_formatting_block(
+                md_start, md_end, prefix, suffix
+            )
             if new_markdown is None:
                 return
+            new_end_offset = end_offset - len(prefix)
 
-        self._apply_edit_and_rerender(new_markdown, end + len(prefix))
+        # Re-render and restore selection using block-relative positions
+        self._markdown = new_markdown
+        self.markdown_edit_requested.emit(new_markdown)
+        self.render_markdown(new_markdown)
 
-        # Restore selection (approximately)
+        # Restore selection
+        self._restore_selection_block(start_block, start_offset, end_block, new_end_offset)
+
+        self.content_changed.emit()
+
+    def _restore_selection_block(
+        self, start_block: int, start_offset: int, end_block: int, end_offset: int
+    ) -> None:
+        """Restore a selection using block-relative coordinates."""
+        doc = self.document()
+
+        # Get start position
+        start_blk = doc.findBlockByNumber(start_block)
+        if not start_blk.isValid():
+            return
+        start_pos = start_blk.position() + min(start_offset, start_blk.length() - 1)
+
+        # Get end position
+        end_blk = doc.findBlockByNumber(end_block)
+        if not end_blk.isValid():
+            end_blk = start_blk
+        end_pos = end_blk.position() + min(end_offset, end_blk.length() - 1)
+
         cursor = self.textCursor()
-        cursor.setPosition(start)
-        cursor.setPosition(end + len(prefix) if apply else end - len(prefix), QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(start_pos)
+        cursor.setPosition(end_pos, QTextCursor.MoveMode.KeepAnchor)
         self.setTextCursor(cursor)
+
+    def _remove_formatting_block(
+        self, md_start: int, md_end: int, prefix: str, suffix: str
+    ) -> str | None:
+        """Remove formatting markers around a markdown selection."""
+        # Look for prefix before md_start and suffix after md_end
+        prefix_pos = self._markdown.rfind(prefix, 0, md_start + len(prefix))
+        suffix_pos = self._markdown.find(suffix, md_end - len(suffix))
+
+        if prefix_pos == -1 or suffix_pos == -1:
+            return None
+
+        # Remove the markers
+        new_md = (
+            self._markdown[:prefix_pos]
+            + self._markdown[prefix_pos + len(prefix) : suffix_pos]
+            + self._markdown[suffix_pos + len(suffix) :]
+        )
+        return new_md
 
     def _remove_formatting(
         self, visual_start: int, visual_end: int, prefix: str, suffix: str
