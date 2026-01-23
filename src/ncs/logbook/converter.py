@@ -194,6 +194,10 @@ class MarkdownConverter:
 
             # Wrap in a complete HTML document with stylesheet
             stylesheet = get_qt_html_stylesheet()
+            # Normalize whitespace: remove newlines between tags to avoid extra spaces
+            # in rendered text. Qt interprets whitespace between block elements as spaces.
+            body = body.strip()
+            body = re.sub(r">\s+<", "><", body)
             html_doc = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -201,9 +205,7 @@ class MarkdownConverter:
 {stylesheet}
 </style>
 </head>
-<body>
-{body}
-</body>
+<body>{body}</body>
 </html>"""
             return html_doc
 
