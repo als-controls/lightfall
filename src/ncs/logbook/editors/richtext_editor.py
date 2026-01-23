@@ -17,7 +17,6 @@ from PySide6.QtGui import (
     QFont,
     QKeyEvent,
     QMouseEvent,
-    QTextBlockUserData,
     QTextCharFormat,
     QTextCursor,
     QUndoStack,
@@ -27,35 +26,11 @@ from PySide6.QtWidgets import QTextEdit, QWidget
 
 from ncs.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
 from ncs.logbook.style import LogbookStyles
+from ncs.logbook.visual_protection import VisualProtectionTracker
 
 if TYPE_CHECKING:
     from ncs.logbook.converter import MarkdownConverter
     from ncs.logbook.protection import ProtectionManager
-
-
-class ProtectedBlockData(QTextBlockUserData):
-    """
-    User data attached to QTextBlocks to track protection status.
-
-    Attributes:
-        is_protected: Whether this block is protected.
-        region_id: The ID of the protected region, if any.
-    """
-
-    def __init__(self, region_id: str | None = None) -> None:
-        """
-        Initialize the block data.
-
-        Args:
-            region_id: The ID of the protected region, or None.
-        """
-        super().__init__()
-        self.region_id = region_id
-
-    @property
-    def is_protected(self) -> bool:
-        """Whether this block is protected."""
-        return self.region_id is not None
 
 
 class MarkdownEditCommand(QUndoCommand):
@@ -149,10 +124,12 @@ class RichTextEditor(QTextEdit):
         self._converter = converter
         self._position_mapper = MarkdownPositionMapper()
 
+        # Visual protection tracker using zero-width markers
+        self._visual_tracker = VisualProtectionTracker()
+
         # Current state
         self._markdown: str = ""
         self._mapping: PositionMapping | None = None
-        self._protected_blocks: dict[int, str] = {}  # block_number -> region_id
         self._updating_content = False
 
         # Undo/redo stack
@@ -191,7 +168,7 @@ class RichTextEditor(QTextEdit):
             # Parse protected regions
             self._protection_manager.parse_regions(markdown)
 
-            # Convert to HTML
+            # Convert to HTML (this injects zero-width markers)
             html = self._converter.markdown_to_html(markdown)
 
             # Store cursor position before update (as visual position)
@@ -202,8 +179,13 @@ class RichTextEditor(QTextEdit):
             self.clear()
             self.setHtml(html)
 
-            # Mark protected blocks
-            self._mark_protected_blocks()
+            # Rebuild visual protection tracker from the rendered text
+            # The markers are now part of the visual text
+            visual_text = self.toPlainText()
+            self._visual_tracker.rebuild_from_text(
+                visual_text,
+                self._protection_manager.get_regions(),
+            )
 
             # Restore cursor position
             self._restore_cursor_position(old_visual_pos)
@@ -240,56 +222,11 @@ class RichTextEditor(QTextEdit):
         """
         self.render_markdown(markdown)
 
-    def _mark_protected_blocks(self) -> None:
-        """
-        Mark QTextBlocks that correspond to protected regions.
-
-        This method walks through the document and attaches
-        ProtectedBlockData to blocks that fall within protected regions.
-        Whitespace-only blocks are never marked as protected to allow
-        users to type after protected content.
-        """
-        self._protected_blocks.clear()
-        document = self.document()
-
-        regions = self._protection_manager.get_regions()
-        if not regions:
-            return
-
-        # Walk through blocks
-        block = document.begin()
-        current_pos = 0
-
-        while block.isValid():
-            block_num = block.blockNumber()
-            block_length = block.length()
-            block_end = current_pos + block_length
-            block_text = block.text()
-
-            # Never mark whitespace-only blocks as protected
-            # This ensures users can always type after protected regions
-            if block_text.strip() in ("", "\u00a0"):
-                current_pos = block_end
-                block = block.next()
-                continue
-
-            # Check if this block overlaps any protected region
-            for region in regions:
-                if current_pos < region.end_offset and block_end > region.start_offset:
-                    data = ProtectedBlockData(region.region_id)
-                    block.setUserData(data)
-                    self._protected_blocks[block_num] = region.region_id
-                    logger.debug(
-                        f"Marked block {block_num} as protected: {region.region_id}"
-                    )
-                    break
-
-            current_pos = block_end
-            block = block.next()
-
     def _is_cursor_in_protected(self, cursor: QTextCursor) -> tuple[bool, str | None]:
         """
-        Check if a cursor is within a protected block.
+        Check if a cursor is within a protected region.
+
+        Uses zero-width character markers for precise position tracking.
 
         Args:
             cursor: The text cursor to check.
@@ -297,21 +234,16 @@ class RichTextEditor(QTextEdit):
         Returns:
             Tuple of (is_protected, region_id or None).
         """
-        block = cursor.block()
-        user_data = block.userData()
-
-        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-            region = self._protection_manager.get_region(user_data.region_id)
-            if region and not region.unlocked:
-                return True, user_data.region_id
-
-        return False, None
+        visual_pos = cursor.position()
+        return self._visual_tracker.is_position_protected(visual_pos)
 
     def _is_selection_protected(
         self, cursor: QTextCursor
     ) -> tuple[bool, str | None]:
         """
-        Check if a selection overlaps any protected blocks.
+        Check if a selection overlaps any protected regions.
+
+        Uses zero-width character markers for precise boundary tracking.
 
         Args:
             cursor: The text cursor with selection.
@@ -322,22 +254,9 @@ class RichTextEditor(QTextEdit):
         if not cursor.hasSelection():
             return False, None
 
-        start_block = self.document().findBlock(cursor.selectionStart())
-        end_block = self.document().findBlock(cursor.selectionEnd())
-
-        block = start_block
-        while block.isValid():
-            user_data = block.userData()
-            if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-                region = self._protection_manager.get_region(user_data.region_id)
-                if region and not region.unlocked:
-                    return True, user_data.region_id
-
-            if block == end_block:
-                break
-            block = block.next()
-
-        return False, None
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        return self._visual_tracker.is_range_protected(start, end)
 
     def _visual_to_md_pos(self, visual_pos: int) -> int:
         """Convert visual position to markdown position.
@@ -468,20 +387,12 @@ class RichTextEditor(QTextEdit):
             if cursor.hasSelection():
                 self._handle_delete_selection(cursor)
             elif cursor.position() > 0:
-                # Check if deleting into protected region
-                if cursor.atBlockStart():
-                    prev_block = cursor.block().previous()
-                    if prev_block.isValid():
-                        user_data = prev_block.userData()
-                        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-                            region = self._protection_manager.get_region(user_data.region_id)
-                            if region and not region.unlocked:
-                                self.protection_violated.emit(
-                                    user_data.region_id, cursor.position() - 1
-                                )
-                                return
-                elif is_protected and region_id:
-                    self.protection_violated.emit(region_id, cursor.position())
+                # Check if backspace would delete into protected region
+                # We check the position BEFORE the cursor (what would be deleted)
+                prev_pos = cursor.position() - 1
+                is_prev_protected, prev_region_id = self._visual_tracker.is_position_protected(prev_pos)
+                if is_prev_protected and prev_region_id:
+                    self.protection_violated.emit(prev_region_id, prev_pos)
                     return
 
                 self._handle_backspace(cursor)
@@ -492,21 +403,11 @@ class RichTextEditor(QTextEdit):
             if cursor.hasSelection():
                 self._handle_delete_selection(cursor)
             else:
+                # Check if delete would affect protected region
+                # Delete removes the character AT the cursor position
                 if is_protected and region_id:
                     self.protection_violated.emit(region_id, cursor.position())
                     return
-                # Check if deleting into protected region
-                if cursor.atBlockEnd():
-                    next_block = cursor.block().next()
-                    if next_block.isValid():
-                        user_data = next_block.userData()
-                        if isinstance(user_data, ProtectedBlockData) and user_data.is_protected:
-                            region = self._protection_manager.get_region(user_data.region_id)
-                            if region and not region.unlocked:
-                                self.protection_violated.emit(
-                                    user_data.region_id, cursor.position()
-                                )
-                                return
 
                 self._handle_delete(cursor)
             return
@@ -767,6 +668,8 @@ class RichTextEditor(QTextEdit):
         # Get plain text from clipboard
         text = source.text() if source.hasText() else ""
         if text:
+            # Strip any zero-width protection markers from pasted text
+            text = VisualProtectionTracker.strip_markers(text)
             if cursor.hasSelection():
                 self._handle_delete_selection(cursor)
                 cursor = self.textCursor()
@@ -1041,7 +944,7 @@ class RichTextEditor(QTextEdit):
             "line_count": self.document().blockCount(),
             "cursor_position": self.textCursor().position(),
             "has_selection": self.textCursor().hasSelection(),
-            "protected_blocks": len(self._protected_blocks),
+            "protected_regions": len(self._visual_tracker.get_regions()),
             "enabled": self.isEnabled(),
             "visible": self.isVisible(),
             "read_only": self.isReadOnly(),

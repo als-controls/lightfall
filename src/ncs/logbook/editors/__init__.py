@@ -9,12 +9,11 @@ from ncs.logbook.editors.highlighter import (
     ProtectedMarkdownHighlighter,
 )
 from ncs.logbook.editors.markdown_editor import MarkdownEditor
-from ncs.logbook.editors.richtext_editor import ProtectedBlockData, RichTextEditor
+from ncs.logbook.editors.richtext_editor import RichTextEditor
 
 __all__ = [
     "CodeBlockHighlighter",
     "MarkdownEditor",
-    "ProtectedBlockData",
     "ProtectedMarkdownHighlighter",
     "RichTextEditor",
 ]

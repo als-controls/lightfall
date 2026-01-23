@@ -385,3 +385,18 @@ class ProtectionManager(QObject):
         if match:
             return ActionGroupInfo.from_match(match, region_id)
         return None
+
+    def get_region_content_bounds(self) -> list[tuple[str, int, int]]:
+        """
+        Get content boundaries for all protected regions.
+
+        This is useful for the visual protection tracker to know where
+        to inject boundary markers.
+
+        Returns:
+            List of (region_id, content_start, content_end) tuples.
+        """
+        return [
+            (r.region_id, r.content_start, r.content_end)
+            for r in self._regions
+        ]

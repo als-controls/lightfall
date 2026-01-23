@@ -15,6 +15,7 @@ import mistune
 from loguru import logger
 
 from ncs.logbook.style import get_qt_html_stylesheet
+from ncs.logbook.visual_protection import PROTECTED_START, PROTECTED_END
 
 
 # Pattern to match protected region markers
@@ -49,46 +50,13 @@ class QtHtmlRenderer(mistune.HTMLRenderer):
         self._action_group_count = 0
 
     def text(self, text: str) -> str:
-        """Render plain text, checking for protected and action group markers."""
-        result_parts = []
-        remaining = text
+        """Render plain text.
 
-        # Check for protected start marker
-        start_match = PROTECTED_START_PATTERN.search(remaining)
-        if start_match:
-            self._in_protected = True
-            self._protected_id = start_match.group(1)
-            # Check if this is an action group (starts with "action-")
-            is_action = self._protected_id.startswith("action-")
-            css_class = "action-group protected" if is_action else "protected"
-            # Remove the marker from output but add a span
-            remaining = PROTECTED_START_PATTERN.sub("", remaining)
-            result_parts.append(
-                f'<span class="{css_class}" data-region="{self._protected_id}">'
-            )
-
-        # Check for action group metadata marker
-        action_match = ACTION_GROUP_METADATA_PATTERN.search(remaining)
-        if action_match:
-            self._in_action_group = True
-            self._action_group_count = int(action_match.group(1))
-            self._action_group_collapsed = action_match.group(4) == "true"
-            # Remove the metadata marker (it's just for parsing, not display)
-            remaining = ACTION_GROUP_METADATA_PATTERN.sub("", remaining)
-
-        # Check for protected end marker
-        end_match = PROTECTED_END_PATTERN.search(remaining)
-        if end_match:
-            self._in_protected = False
-            self._in_action_group = False
-            self._protected_id = None
-            remaining = PROTECTED_END_PATTERN.sub("", remaining)
-            result_parts.append(html.escape(remaining))
-            result_parts.append("</span>")
-            return "".join(result_parts)
-
-        result_parts.append(html.escape(remaining))
-        return "".join(result_parts)
+        Note: Protected region markers are handled in post-processing
+        (_inject_protection_markers) since mistune passes HTML comments
+        through directly without calling this method.
+        """
+        return html.escape(text)
 
     def html_block(self, text: str) -> str:
         """Render raw HTML block."""
@@ -198,8 +166,8 @@ class MarkdownConverter:
         """
         Convert markdown to Qt-compatible HTML.
 
-        Protected region markers are preserved as span elements with
-        class="protected" and data-region attributes.
+        Protected region markers are converted to spans with zero-width
+        Unicode markers for precise cursor position tracking.
 
         Args:
             markdown: The markdown content to convert.
@@ -217,6 +185,10 @@ class MarkdownConverter:
 
             # Parse markdown to HTML
             body = self._parser(markdown)
+
+            # Post-process: Convert HTML comment markers to spans with zero-width markers
+            # This handles the case where mistune passes through HTML comments directly
+            body = self._inject_protection_markers(body)
 
             # Wrap in a complete HTML document with stylesheet
             stylesheet = get_qt_html_stylesheet()
@@ -237,3 +209,51 @@ class MarkdownConverter:
             logger.error(f"Error converting markdown to HTML: {e}")
             # Return escaped plain text as fallback
             return f"<pre>{html.escape(markdown)}</pre>"
+
+    def _inject_protection_markers(self, html_body: str) -> str:
+        """
+        Post-process HTML to inject zero-width markers at protected region boundaries.
+
+        Converts HTML comment markers like:
+            <!-- PROTECTED:id -->content<!-- /PROTECTED:id -->
+        To:
+            <span class="protected" data-region="id">\u200Bcontent\u200C</span>
+
+        Args:
+            html_body: The HTML body from mistune parsing.
+
+        Returns:
+            HTML with protection markers converted to spans with zero-width chars.
+        """
+        result = html_body
+
+        # Pattern to match the full protected region including the markers
+        # Handles both inline and block-level markers
+        full_region_pattern = re.compile(
+            r"<!--\s*PROTECTED:(\S+)\s*-->"  # Opening marker
+            r"(.*?)"  # Content (non-greedy)
+            r"<!--\s*/PROTECTED:\1\s*-->",  # Closing marker (backreference)
+            re.DOTALL,
+        )
+
+        def replace_region(match: re.Match) -> str:
+            region_id = match.group(1)
+            content = match.group(2)
+
+            # Strip action group metadata if present
+            content = ACTION_GROUP_METADATA_PATTERN.sub("", content)
+
+            # Determine CSS class
+            is_action = region_id.startswith("action-")
+            css_class = "action-group protected" if is_action else "protected"
+
+            # Wrap with span and inject zero-width markers
+            return (
+                f'<span class="{css_class}" data-region="{region_id}">'
+                f"{PROTECTED_START}{content}{PROTECTED_END}"
+                f"</span>"
+            )
+
+        result = full_region_pattern.sub(replace_region, result)
+
+        return result
