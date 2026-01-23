@@ -1112,13 +1112,52 @@ class RichTextEditor(QTextEdit):
                 return
             new_end_offset = end_offset - len(prefix)
 
-        # Re-render and restore selection using block-relative positions
+        # Push to undo stack and re-render
+        self._apply_formatting_with_undo(
+            new_markdown, start_block, start_offset, end_block, new_end_offset
+        )
+
+    def _apply_formatting_with_undo(
+        self,
+        new_markdown: str,
+        start_block: int,
+        start_offset: int,
+        end_block: int,
+        end_offset: int,
+    ) -> None:
+        """Apply formatting change with undo support and restore selection.
+
+        Args:
+            new_markdown: The new markdown content.
+            start_block: Selection start block number.
+            start_offset: Selection start offset within block.
+            end_block: Selection end block number.
+            end_offset: Selection end offset within block.
+        """
+        # Get current state for undo
+        old_markdown = self._markdown
+        old_cursor = self.textCursor()
+        old_visual_pos = old_cursor.position()
+
+        # Create and push undo command
+        if not self._applying_undo:
+            command = MarkdownEditCommand(
+                self,
+                old_markdown,
+                new_markdown,
+                old_visual_pos,
+                old_visual_pos,  # Approximate - selection restore handles cursor
+                "Format",
+            )
+            self._undo_stack.push(command)
+
+        # Apply the change
         self._markdown = new_markdown
         self.markdown_edit_requested.emit(new_markdown)
         self.render_markdown(new_markdown)
 
-        # Restore selection
-        self._restore_selection_block(start_block, start_offset, end_block, new_end_offset)
+        # Restore selection using block-relative positions
+        self._restore_selection_block(start_block, start_offset, end_block, end_offset)
 
         self.content_changed.emit()
 
