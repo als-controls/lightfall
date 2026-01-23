@@ -24,6 +24,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
 
+from ncs.logbook.block_mapper import BlockMapper, BlockProtectionData
 from ncs.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
 from ncs.logbook.style import LogbookStyles
 from ncs.logbook.visual_protection import (
@@ -128,6 +129,9 @@ class RichTextEditor(QTextEdit):
         self._converter = converter
         self._position_mapper = MarkdownPositionMapper()
 
+        # Block-based mapper for stable position tracking
+        self._block_mapper = BlockMapper()
+
         # Visual protection tracker using zero-width markers
         self._visual_tracker = VisualProtectionTracker()
 
@@ -192,7 +196,21 @@ class RichTextEditor(QTextEdit):
                 self._protection_manager.get_regions(),
             )
 
-            # Build accurate visual -> markdown position mapping
+            # Build block-based mappings for stable position tracking
+            self._block_mapper.build_mappings(markdown, self.document())
+
+            # Attach protection data to each block for O(1) lookup
+            for mapping in self._block_mapper.mappings:
+                block = self.document().findBlockByNumber(mapping.visual_block_num)
+                if block.isValid():
+                    data = BlockProtectionData(
+                        region_id=mapping.region_id,
+                        md_line_num=mapping.md_line_start,
+                        is_protected=mapping.is_protected,
+                    )
+                    block.setUserData(data)
+
+            # Build accurate visual -> markdown position mapping (legacy, for formatting)
             self._visual_to_md_map = self._build_position_map(markdown, visual_text)
 
             # Restore cursor position
@@ -338,7 +356,7 @@ class RichTextEditor(QTextEdit):
         """
         Check if a cursor is within a protected region.
 
-        Uses zero-width character markers for precise position tracking.
+        Uses block-based mapping for stable position tracking.
 
         Args:
             cursor: The text cursor to check.
@@ -346,8 +364,8 @@ class RichTextEditor(QTextEdit):
         Returns:
             Tuple of (is_protected, region_id or None).
         """
-        visual_pos = cursor.position()
-        return self._visual_tracker.is_position_protected(visual_pos)
+        block_num = cursor.blockNumber()
+        return self._block_mapper.is_block_protected(block_num)
 
     def _is_selection_protected(
         self, cursor: QTextCursor
@@ -355,7 +373,7 @@ class RichTextEditor(QTextEdit):
         """
         Check if a selection overlaps any protected regions.
 
-        Uses zero-width character markers for precise boundary tracking.
+        Uses block-based mapping to check all blocks in the selection.
 
         Args:
             cursor: The text cursor with selection.
@@ -366,17 +384,42 @@ class RichTextEditor(QTextEdit):
         if not cursor.hasSelection():
             return False, None
 
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-        return self._visual_tracker.is_range_protected(start, end)
+        # Get start and end blocks of the selection
+        start_cursor = QTextCursor(cursor)
+        start_cursor.setPosition(cursor.selectionStart())
+        end_cursor = QTextCursor(cursor)
+        end_cursor.setPosition(cursor.selectionEnd())
+
+        start_block = start_cursor.blockNumber()
+        end_block = end_cursor.blockNumber()
+
+        # Check all blocks in the selection
+        for block_num in range(start_block, end_block + 1):
+            is_protected, region_id = self._block_mapper.is_block_protected(block_num)
+            if is_protected:
+                return True, region_id
+
+        return False, None
 
     def _visual_to_md_pos(self, visual_pos: int) -> int:
         """Convert visual position to markdown position.
 
-        Uses the pre-built position map that accounts for:
-        - Zero-width protection markers in visual text
-        - HTML comment markers in markdown
-        - Paragraph break differences (\\n\\n vs \\n)
+        Uses block-based mapping for stable position tracking.
+        Falls back to anchor-based mapping if block mapping unavailable.
+        """
+        # Create a cursor at the visual position to get block info
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(min(visual_pos, len(self.toPlainText())))
+
+        block_num = cursor.blockNumber()
+        offset_in_block = cursor.positionInBlock()
+
+        return self._block_mapper.visual_to_md_pos(block_num, offset_in_block)
+
+    def _visual_to_md_pos_legacy(self, visual_pos: int) -> int:
+        """Legacy position conversion using anchor-based mapping.
+
+        Kept for formatting operations that need precise character mapping.
         """
         if self._visual_to_md_map is None:
             # Fallback if map not built yet
@@ -499,11 +542,16 @@ class RichTextEditor(QTextEdit):
                 self._handle_delete_selection(cursor)
             elif cursor.position() > 0:
                 # Check if backspace would delete into protected region
-                # We check the position BEFORE the cursor (what would be deleted)
-                prev_pos = cursor.position() - 1
-                is_prev_protected, prev_region_id = self._visual_tracker.is_position_protected(prev_pos)
-                if is_prev_protected and prev_region_id:
-                    self.protection_violated.emit(prev_region_id, prev_pos)
+                # If we're at the start of a block, backspace affects the previous block
+                if cursor.atBlockStart() and cursor.blockNumber() > 0:
+                    prev_block = cursor.blockNumber() - 1
+                    is_prev_protected, prev_region_id = self._block_mapper.is_block_protected(prev_block)
+                    if is_prev_protected and prev_region_id:
+                        self.protection_violated.emit(prev_region_id, cursor.position() - 1)
+                        return
+                # Also check if current block is protected (deleting within it)
+                elif is_protected and region_id:
+                    self.protection_violated.emit(region_id, cursor.position())
                     return
 
                 self._handle_backspace(cursor)
@@ -519,6 +567,13 @@ class RichTextEditor(QTextEdit):
                 if is_protected and region_id:
                     self.protection_violated.emit(region_id, cursor.position())
                     return
+                # If we're at end of block, delete affects the next block
+                if cursor.atBlockEnd():
+                    next_block = cursor.blockNumber() + 1
+                    is_next_protected, next_region_id = self._block_mapper.is_block_protected(next_block)
+                    if is_next_protected and next_region_id:
+                        self.protection_violated.emit(next_region_id, cursor.position())
+                        return
 
                 self._handle_delete(cursor)
             return
