@@ -87,6 +87,7 @@ from ncs.plugins.errors import (
 from ncs.plugins.info import PluginInfo
 from ncs.plugins.loader import PluginLoader
 from ncs.plugins.manifest import PluginEntry, PluginManifest
+from ncs.plugins.mcp_tool import MCPToolPlugin
 from ncs.plugins.plan_plugin import PlanPlugin
 from ncs.plugins.registry import PluginRegistry
 from ncs.plugins.settings_plugin import SettingsPlugin
@@ -103,6 +104,7 @@ __all__ = [
     # Plugin types
     "PlanPlugin",
     "SettingsPlugin",
+    "MCPToolPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",

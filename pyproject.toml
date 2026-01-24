@@ -44,6 +44,9 @@ acquire = [
     "bluesky>=1.10",
     "ophyd>=1.7",
 ]
+claude = [
+    "pyside-claude",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",

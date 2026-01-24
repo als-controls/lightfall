@@ -147,7 +147,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     Args:
         app: The NCS application instance.
     """
-    from ncs.plugins import PluginLoader, PluginRegistry
+    from ncs.plugins import PluginLoader, PluginRegistry, MCPToolPlugin
     from ncs.plugins.builtin_manifest import builtin_manifest
     from ncs.plugins.engine_plugin import EnginePlugin
     from ncs.plugins.settings_plugin import SettingsPlugin
@@ -161,6 +161,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     # Register plugin types
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
+    loader.register_plugin_type("mcp_tool", MCPToolPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
@@ -209,7 +210,7 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     """Setup default panels for the main window.
 
     Opens panels that should be visible by default on startup.
-    Layout: Bluesky and Devices tabbed on left, Logbook on right.
+    Layout: Claude, Bluesky, and Devices tabbed on left, Logbook on right.
 
     Args:
         window: The main window instance.
@@ -220,7 +221,16 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     settings.remove("mainwindow/geometry")
     settings.remove("mainwindow/state")
 
-    # Open Bluesky panel on the left first
+    # Open Claude panel on the left first (will be a tab)
+    claude_dock = None
+    claude_panel = window.add_panel(
+        "ncs.panels.claude",
+        area=Qt.DockWidgetArea.LeftDockWidgetArea,
+    )
+    if claude_panel:
+        claude_dock = window._panel_docks.get("ncs.panels.claude")
+
+    # Open Bluesky panel on the left
     window.add_panel(
         "ncs.panels.bluesky",
         area=Qt.DockWidgetArea.LeftDockWidgetArea,
@@ -234,9 +244,14 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     )
     devices_dock = window._panel_docks.get("ncs.panels.devices")
 
-    # Tabify Bluesky and Devices (stack as tabs)
+    # Tabify Claude, Bluesky and Devices (stack as tabs)
+    if claude_dock and bluesky_dock:
+        window.tabifyDockWidget(claude_dock, bluesky_dock)
     if bluesky_dock and devices_dock:
         window.tabifyDockWidget(bluesky_dock, devices_dock)
+
+    # Raise Bluesky as the default visible tab
+    if bluesky_dock:
         bluesky_dock.raise_()
 
     # Open Logbook panel on the right
@@ -247,10 +262,14 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     logbook_dock = window._panel_docks.get("ncs.panels.logbook")
 
     # Use splitDockWidget to ensure left-right layout
-    if bluesky_dock and logbook_dock:
-        window.splitDockWidget(bluesky_dock, logbook_dock, Qt.Orientation.Horizontal)
+    first_left_dock = claude_dock or bluesky_dock
+    if first_left_dock and logbook_dock:
+        window.splitDockWidget(first_left_dock, logbook_dock, Qt.Orientation.Horizontal)
 
-    logger.info("Opened default panels: Bluesky+Devices (left), Logbook (right)")
+    panels_opened = ["Bluesky", "Devices", "Logbook"]
+    if claude_dock:
+        panels_opened.insert(0, "Claude")
+    logger.info("Opened default panels: {} (left), Logbook (right)", "+".join(panels_opened[:-1]))
 
 
 def main() -> int:

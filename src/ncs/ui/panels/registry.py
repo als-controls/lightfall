@@ -136,6 +136,13 @@ class PanelRegistry:
             DocumentsPanel,
         ]
 
+        # Try to import Claude panel (requires pyside-claude)
+        try:
+            from ncs.ui.panels.claude_panel import ClaudePanel
+            builtin_panels.append(ClaudePanel)
+        except ImportError:
+            logger.debug("Claude panel not available (pyside-claude not installed)")
+
         for panel_class in builtin_panels:
             try:
                 self.register(panel_class, replace=True)

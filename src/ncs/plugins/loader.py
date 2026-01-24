@@ -561,6 +561,21 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("EngineRegistry not available, skipping engine registration")
 
+        elif plugin_info.type_name == "mcp_tool":
+            try:
+                from ncs.ui.panels.claude.tool_registry import MCPToolRegistry
+
+                tool_registry = MCPToolRegistry.get_instance()
+                tool_plugin = plugin_info.instance
+
+                tool_registry.register_plugin(tool_plugin)
+                logger.debug(
+                    "Registered MCP tool plugin '{}' with MCPToolRegistry",
+                    tool_plugin.name,
+                )
+            except ImportError:
+                logger.debug("MCPToolRegistry not available, skipping MCP tool registration")
+
     def get_plugin_by_name(
         self,
         name: str,
