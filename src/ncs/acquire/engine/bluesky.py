@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from bluesky import RunEngine
 from bluesky.utils import DuringTask, RunEngineInterrupted
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QThread, Signal
 
 from ncs.acquire.engine.base import BaseEngine, PrioritizedProcedure
 from ncs.acquire.engine.state import EngineState
@@ -155,8 +155,8 @@ class BlueskyEngine(BaseEngine):
         logger.info("[bluesky] RunEngine initialized and ready")
         self.sigStateChanged.emit("idle")
 
-        # Main processing loop
-        while True:
+        # Main processing loop - check for interruption request to allow clean shutdown
+        while not QThread.currentThread().isInterruptionRequested():
             try:
                 item = self._queue.get(block=True, timeout=0.1)
             except Empty:
@@ -164,6 +164,8 @@ class BlueskyEngine(BaseEngine):
 
             self._execute_plan(item)
             self._queue.task_done()
+
+        logger.info("[bluesky] RunEngine processor shutting down")
 
     def _execute_plan(self, item: PrioritizedProcedure) -> None:
         """Execute a single plan from the queue.

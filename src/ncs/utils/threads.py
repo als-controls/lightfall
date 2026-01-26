@@ -82,13 +82,17 @@ class ThreadManager:
         self._threads: dict[int, weakref.ref[QThreadFuture]] = {}
         self._keys: dict[str, int] = {}  # key -> thread id mapping
         self._registry_lock = threading.Lock()
+        self._shutdown_connected = False
         self._connect_app_shutdown()
 
     def _connect_app_shutdown(self) -> None:
         """Connect to application shutdown signal if app exists."""
+        if self._shutdown_connected:
+            return
         app = QApplication.instance()
         if app:
             app.aboutToQuit.connect(self.shutdown)
+            self._shutdown_connected = True
 
     def register(self, thread: QThreadFuture, key: str | None = None) -> None:
         """Register a thread for tracking.
@@ -98,6 +102,9 @@ class ThreadManager:
             key: Optional unique key for later retrieval. If a thread with
                 this key already exists, the old one is cancelled first.
         """
+        # Ensure shutdown is connected (in case app was created after ThreadManager)
+        self._connect_app_shutdown()
+
         thread_id = id(thread)
 
         with self._registry_lock:
