@@ -40,6 +40,13 @@ GLOBAL_ONLY_PREFS = {
     "show_statusbar",
     "show_toolbar",
     "engine",
+    # Device backend settings
+    "device_backend",
+    "device_mock_include_noisy",
+    "device_bcs_host",
+    "device_bcs_port",
+    "device_bcs_beamline",
+    "device_bcs_timeout_ms",
 }
 
 

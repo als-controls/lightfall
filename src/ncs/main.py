@@ -15,7 +15,7 @@ from ncs.core import NCSApplication
 from ncs.acquire import get_engine
 from ncs.acquire.plans import get_registry as get_plan_registry
 from ncs.devices import DeviceCatalog
-from ncs.devices.backends import MockBackend
+from ncs.devices.backends import BCSBackend, MockBackend
 from ncs.project import ProjectService, create_welcome_project
 from ncs.ui import NCSMainWindow
 from ncs.ui.panels.registry import PanelRegistry
@@ -96,20 +96,42 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
 
 
 def _setup_devices() -> None:
-    """Setup the device catalog with mock backend.
+    """Setup the device catalog based on user preferences.
 
-    Initializes the DeviceCatalog with a MockBackend containing
-    simulated ophyd.sim devices for development and testing.
+    Initializes the DeviceCatalog with the backend configured in
+    preferences (Mock or BCS). Falls back to Mock if not configured.
     """
     catalog = DeviceCatalog.get_instance()
+    prefs = PreferencesManager.get_instance()
 
-    # Use mock backend with simulated devices
-    backend = MockBackend(include_noisy=True)
+    # Get backend configuration from preferences
+    backend_type = prefs.get("device_backend", "mock")
+
+    if backend_type == "bcs":
+        # BCS backend - connect to BCS server via ZMQ
+        host = prefs.get("device_bcs_host", "localhost")
+        port = prefs.get("device_bcs_port", 5577)
+        timeout_ms = prefs.get("device_bcs_timeout_ms", 5000)
+        beamline = prefs.get("device_bcs_beamline") or None
+
+        backend = BCSBackend(
+            host=host,
+            port=port,
+            timeout_ms=timeout_ms,
+            beamline=beamline,
+        )
+        logger.info("Using BCS backend ({}:{})", host, port)
+    else:
+        # Mock backend (default)
+        include_noisy = prefs.get("device_mock_include_noisy", True)
+        backend = MockBackend(include_noisy=include_noisy)
+        logger.info("Using Mock backend (include_noisy={})", include_noisy)
+
     catalog.set_backend(backend)
 
     if catalog.connect():
         device_count = len(catalog.get_all_devices())
-        logger.info("Device catalog initialized with {} simulated devices", device_count)
+        logger.info("Device catalog initialized with {} devices", device_count)
     else:
         logger.error("Failed to connect device catalog")
 

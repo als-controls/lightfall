@@ -20,6 +20,12 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         ),
+        # Device settings
+        PluginEntry(
+            type_name="settings",
+            name="devices",
+            import_path="ncs.ui.preferences.device_settings:DeviceSettingsPlugin",
+        ),
         # Engine plugins
         PluginEntry(
             type_name="engine",
