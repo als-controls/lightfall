@@ -12,16 +12,17 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QSplitter,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -253,18 +254,26 @@ class DevicePanel(BasePanel):
         self._search_input.setClearButtonEnabled(True)
         filter_layout.addWidget(self._search_input, stretch=1)
 
-        # Kind filter checkboxes (hinted and normal shown by default)
-        filter_layout.addWidget(QLabel("Kind:"))
-
-        self._kind_checkboxes: dict[str, QCheckBox] = {}
+        # Kind filter dropdown menu (hinted and normal shown by default)
+        self._kind_actions: dict[str, QAction] = {}
         default_visible = {"hinted", "normal"}
+
+        kind_menu = QMenu(self)
         for kind in ["hinted", "normal", "config", "omitted"]:
-            cb = QCheckBox(kind.title())
-            cb.setChecked(kind in default_visible)
-            cb.setToolTip(f"Show {kind} signals/devices")
-            cb.stateChanged.connect(self._on_kind_filter_changed)
-            self._kind_checkboxes[kind] = cb
-            filter_layout.addWidget(cb)
+            action = QAction(kind.title(), self)
+            action.setCheckable(True)
+            action.setChecked(kind in default_visible)
+            action.setData(kind)
+            action.triggered.connect(self._on_kind_filter_changed)
+            self._kind_actions[kind] = action
+            kind_menu.addAction(action)
+
+        self._kind_button = QToolButton()
+        self._kind_button.setText("Kind")
+        self._kind_button.setToolTip("Filter by signal/device kind")
+        self._kind_button.setMenu(kind_menu)
+        self._kind_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        filter_layout.addWidget(self._kind_button)
 
         # Apply default filter
         self._proxy_model.set_visible_kinds(default_visible)
@@ -384,20 +393,20 @@ class DevicePanel(BasePanel):
 
     @Slot()
     def _on_kind_filter_changed(self) -> None:
-        """Handle kind filter checkbox change."""
-        # Collect checked kinds
+        """Handle kind filter menu action change."""
+        # Collect checked kinds from menu actions
         visible_kinds = {
-            kind for kind, cb in self._kind_checkboxes.items() if cb.isChecked()
+            kind for kind, action in self._kind_actions.items() if action.isChecked()
         }
 
         # If all are checked, use None (no filtering)
-        if len(visible_kinds) == len(self._kind_checkboxes):
+        if len(visible_kinds) == len(self._kind_actions):
             self._proxy_model.set_visible_kinds(None)
         else:
             self._proxy_model.set_visible_kinds(visible_kinds)
 
         # Expand tree to show filtered results
-        if visible_kinds and len(visible_kinds) < len(self._kind_checkboxes):
+        if visible_kinds and len(visible_kinds) < len(self._kind_actions):
             self._tree_view.expandAll()
         else:
             self._tree_view.collapseAll()
@@ -567,15 +576,15 @@ class DevicePanel(BasePanel):
         Returns:
             True if filter was applied.
         """
-        valid_kinds = {"hinted", "normal", "config", "omitted"}
-
         if kinds is None:
-            # Show all - check all boxes
-            for cb in self._kind_checkboxes.values():
-                cb.setChecked(True)
+            # Show all - check all actions
+            for action in self._kind_actions.values():
+                action.setChecked(True)
         else:
             # Filter to specified kinds
-            for kind, cb in self._kind_checkboxes.items():
-                cb.setChecked(kind in kinds)
+            for kind, action in self._kind_actions.items():
+                action.setChecked(kind in kinds)
 
+        # Trigger the filter update
+        self._on_kind_filter_changed()
         return True
