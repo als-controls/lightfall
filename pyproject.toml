@@ -75,6 +75,9 @@ Homepage = "https://github.com/als-computing/ncs"
 Documentation = "https://als-computing.github.io/ncs"
 Repository = "https://github.com/als-computing/ncs"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.0.0.dev0"
