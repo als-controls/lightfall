@@ -273,7 +273,11 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
 
 
 def main() -> int:
-    """Run the NCS application."""
+    """Run the NCS application.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
     # Get/create the application singleton
     app = NCSApplication.get_instance()
 
@@ -318,5 +322,14 @@ def main() -> int:
     return app.run()
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Entry point for console scripts.
+
+    This wrapper ensures the process exit code is set correctly
+    when running via installed entry points (e.g., `ncs` command).
+    """
     sys.exit(main())
+
+
+if __name__ == "__main__":
+    cli()

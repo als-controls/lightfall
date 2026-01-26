@@ -62,10 +62,10 @@ docs = [
 ]
 
 [project.scripts]
-ncs = "ncs.main:main"
+ncs = "ncs.main:cli"
 
 [project.gui-scripts]
-ncs-gui = "ncs.main:main"
+ncs-gui = "ncs.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/als-computing/ncs"
