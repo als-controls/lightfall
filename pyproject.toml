@@ -44,6 +44,9 @@ acquire = [
     "bluesky>=1.10",
     "ophyd>=1.7",
 ]
+bcs = [
+    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
+]
 claude = [
     "pyside-claude",
 ]
