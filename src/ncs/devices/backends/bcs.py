@@ -197,12 +197,11 @@ class BCSBackend(DeviceBackend):
 
         client = self._manager.client
 
-        # Use .items() to get proper SearchResult objects
-        for happi_item in client.items():
+        # client.items() returns (name, SearchResult) tuples
+        for item_name, happi_item in client.items():
             try:
                 self._add_device_from_happi(happi_item)
             except Exception as e:
-                item_name = getattr(happi_item, "name", str(happi_item))
                 logger.warning("Failed to load device '{}': {}", item_name, e)
 
         logger.debug("Discovered {} devices from BCS", len(self._devices))
