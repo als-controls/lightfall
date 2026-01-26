@@ -49,6 +49,7 @@ class ConnectionType(str, Enum):
     SERIAL = "serial"  # Serial/RS-232
     TCP = "tcp"  # TCP/IP socket
     USB = "usb"  # USB connection
+    BCS_ZMQ = "bcs_zmq"  # BCS via ZMQ protocol
     OTHER = "other"
 
 
