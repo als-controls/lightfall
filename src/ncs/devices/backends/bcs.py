@@ -197,46 +197,48 @@ class BCSBackend(DeviceBackend):
 
         client = self._manager.client
 
-        for item_name in client:
+        # Use .items() to get proper SearchResult objects
+        for happi_item in client.items():
             try:
-                happi_item = client[item_name]
                 self._add_device_from_happi(happi_item)
             except Exception as e:
+                item_name = getattr(happi_item, "name", str(happi_item))
                 logger.warning("Failed to load device '{}': {}", item_name, e)
 
         logger.debug("Discovered {} devices from BCS", len(self._devices))
 
     def _add_device_from_happi(self, happi_item: Any) -> None:
-        """Create DeviceInfo from a Happi item.
+        """Create DeviceInfo from a Happi SearchResult item.
 
         Args:
-            happi_item: Happi database item containing device metadata.
+            happi_item: Happi SearchResult containing device metadata.
+                SearchResult is a Mapping - access metadata via result['key']
+                or result.metadata.get('key').
         """
+        # SearchResult is a Mapping - use dict-style access for metadata
+        metadata = happi_item.metadata if hasattr(happi_item, "metadata") else {}
+
         # Extract item type and map to category
-        item_type = getattr(happi_item, "itemType", None) or getattr(
-            happi_item, "item_type", "other"
-        )
+        item_type = metadata.get("itemType") or metadata.get("item_type", "other")
         category = BCS_TYPE_MAP.get(str(item_type).lower(), DeviceCategory.OTHER)
 
         # Get device name
-        name = getattr(happi_item, "name", None) or str(happi_item)
-        original_name = getattr(happi_item, "originalName", None) or getattr(
-            happi_item, "original_name", name
+        name = metadata.get("name", str(happi_item))
+        original_name = metadata.get("originalName") or metadata.get(
+            "original_name", name
         )
 
         # Get units if available
-        units = getattr(happi_item, "units", None) or getattr(
-            happi_item, "egu", ""
-        )
+        units = metadata.get("units") or metadata.get("egu", "")
 
         # Determine device class based on type
         device_class_map = {
-            "motor": "bcsophyd.motor.BCSMotor",
-            "ai": "bcsophyd.signal.BCSSignal",
-            "detector": "bcsophyd.detector.BCSAreaDetector",
+            "motor": "bcsophyd.zmq.bcs_motor.BCSMotor",
+            "ai": "bcsophyd.zmq.bcs_signal.BCSSignal",
+            "detector": "bcsophyd.zmq.bcs_area_detector.BCSAreaDetector",
         }
         device_class = device_class_map.get(
-            str(item_type).lower(), "bcsophyd.device.BCSDevice"
+            str(item_type).lower(), "bcsophyd.zmq.bcs_device.BCSDevice"
         )
 
         # Create DeviceInfo
