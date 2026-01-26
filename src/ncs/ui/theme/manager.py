@@ -27,7 +27,9 @@ class Theme(Enum):
     """Available theme modes."""
 
     LIGHT = "light"
-    DARK = "dark"
+    DARK = "dark"  # Alias for default dark theme (Slate)
+    SLATE = "slate"  # Neutral gray dark theme
+    DARKBLUE = "darkblue"  # Blue-gray dark theme
     SYSTEM = "system"  # Follow system preference
 
 
@@ -90,7 +92,22 @@ LIGHT_COLORS = ThemeColors(
     disconnected="#ffcccc",
 )
 
-DARK_COLORS = ThemeColors(
+SLATE_COLORS = ThemeColors(
+    primary="#3b82f6",
+    secondary="#8b5cf6",
+    success="#22c55e",
+    warning="#f59e0b",
+    error="#ef4444",
+    info="#06b6d4",
+    background="#1e1e1e",
+    surface="#2d2d2d",
+    text="#d4d4d4",
+    text_secondary="#808080",
+    border="#3e3e3e",
+    disconnected="#5c2020",
+)
+
+DARKBLUE_COLORS = ThemeColors(
     primary="#3b82f6",
     secondary="#8b5cf6",
     success="#22c55e",
@@ -199,7 +216,7 @@ class ThemeManager(QObject):
     @property
     def is_dark(self) -> bool:
         """Whether the effective theme is dark."""
-        return self._effective_theme == Theme.DARK
+        return self._effective_theme in (Theme.DARK, Theme.SLATE, Theme.DARKBLUE)
 
     @property
     def colors(self) -> ThemeColors:
@@ -234,11 +251,15 @@ class ThemeManager(QObject):
         else:
             self._effective_theme = self._theme
 
-        # Update colors
-        if self._effective_theme == Theme.DARK:
-            self._colors = ThemeColors(**vars(DARK_COLORS))
-        else:
-            self._colors = ThemeColors(**vars(LIGHT_COLORS))
+        # Update colors based on theme
+        theme_colors = {
+            Theme.LIGHT: LIGHT_COLORS,
+            Theme.DARK: SLATE_COLORS,  # DARK aliases to Slate
+            Theme.SLATE: SLATE_COLORS,
+            Theme.DARKBLUE: DARKBLUE_COLORS,
+        }
+        base_colors = theme_colors.get(self._effective_theme, LIGHT_COLORS)
+        self._colors = ThemeColors(**vars(base_colors))
 
         # Apply beamline customizations
         if self._beamline_theme:
@@ -297,7 +318,7 @@ class ThemeManager(QObject):
             return
 
         # Set application style
-        if self._effective_theme == Theme.DARK:
+        if self.is_dark:
             self._apply_dark_palette(app)
         else:
             self._apply_light_palette(app)
