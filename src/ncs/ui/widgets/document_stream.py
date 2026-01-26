@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+import qtawesome as qta
 from loguru import logger
 from PySide6.QtCore import (
     QAbstractItemModel,
@@ -505,7 +506,8 @@ class DocumentDetailDialog(QDialog):
 
         header_layout.addStretch()
 
-        copy_uid_btn = QPushButton("Copy UID")
+        copy_uid_btn = QPushButton(qta.icon("fa6.copy"), "")
+        copy_uid_btn.setToolTip("Copy UID")
         copy_uid_btn.clicked.connect(self._copy_uid)
         header_layout.addWidget(copy_uid_btn)
 
@@ -529,7 +531,7 @@ class DocumentDetailDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        copy_all_btn = QPushButton("Copy All")
+        copy_all_btn = QPushButton(qta.icon("fa6.copy"), "Copy All")
         copy_all_btn.clicked.connect(self._copy_all)
         button_layout.addWidget(copy_all_btn)
 
@@ -668,7 +670,7 @@ class DocumentStreamWidget(QWidget):
         table_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # UID
         table_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Time
         table_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Copy button
-        self._table_view.setColumnWidth(5, 60)
+        self._table_view.setColumnWidth(5, 40)
 
         # Connect table signals
         self._table_view.clicked.connect(self._on_table_item_clicked)
@@ -701,8 +703,9 @@ class DocumentStreamWidget(QWidget):
         Args:
             row: Row index.
         """
-        copy_btn = QPushButton("Copy")
-        copy_btn.setMaximumWidth(50)
+        copy_btn = QPushButton(qta.icon("fa6.copy"), "")
+        copy_btn.setToolTip("Copy UID")
+        copy_btn.setMaximumWidth(32)
         copy_btn.clicked.connect(lambda checked, r=row: self._copy_uid_for_row(r))
         index = self._sequential_model.index(row, 5)
         self._table_view.setIndexWidget(index, copy_btn)
