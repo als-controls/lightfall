@@ -79,9 +79,9 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     prefs.set_config_manager(config)
     services.register_instance(PreferencesManager, prefs)
 
-    # Panel registry
+    # Panel registry - panels are registered via plugin system (preload plugins)
+    # External entry point panels can still use ncs.panels entry points via discover_plugins()
     registry = PanelRegistry.get_instance()
-    registry.discover_plugins()
     services.register_instance(PanelRegistry, registry)
 
     # Project service
@@ -204,6 +204,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     from ncs.plugins.builtin_manifest import builtin_manifest
     from ncs.plugins.controller_plugin import ControllerPlugin
     from ncs.plugins.engine_plugin import EnginePlugin
+    from ncs.plugins.panel_plugin import PanelPlugin
     from ncs.plugins.settings_plugin import SettingsPlugin
     from ncs.plugins.statusbar_plugin import StatusBarPlugin
 
@@ -219,6 +220,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("mcp_tool", MCPToolPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
+    loader.register_plugin_type("panel", PanelPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)

@@ -602,6 +602,24 @@ class PluginLoader(QObject):
                     "skipping controller registration"
                 )
 
+        elif plugin_info.type_name == "panel":
+            try:
+                from ncs.ui.panels.registry import PanelRegistry
+
+                panel_registry = PanelRegistry.get_instance()
+                panel_plugin = plugin_info.instance
+                panel_class = panel_plugin.get_panel_class()
+
+                panel_registry.register(panel_class, replace=True)
+                logger.debug(
+                    "Registered panel '{}' with PanelRegistry",
+                    panel_class.panel_metadata.id,
+                )
+            except ImportError:
+                logger.debug(
+                    "PanelRegistry not available, skipping panel registration"
+                )
+
     def get_plugin_by_name(
         self,
         name: str,

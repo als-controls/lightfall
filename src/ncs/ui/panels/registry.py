@@ -118,6 +118,12 @@ class PanelRegistry:
     def register_builtin_panels(self) -> int:
         """Register built-in NCS panels.
 
+        .. deprecated::
+            Built-in panels are now registered via the plugin system
+            (PanelPlugin entries in builtin_manifest). This method is
+            retained for backward compatibility but should not be called
+            directly. Use the plugin system instead.
+
         Returns:
             Number of panels registered.
         """
@@ -160,14 +166,15 @@ class PanelRegistry:
     def discover_plugins(self) -> int:
         """Discover and register panel plugins via entry points.
 
+        Note: Built-in panels are now registered via the plugin system
+        (PanelPlugin entries in builtin_manifest). This method only discovers
+        external panels registered via the legacy ncs.panels entry point group.
+
         Returns:
             Number of panels discovered.
         """
         if self._discovered:
             return 0
-
-        # First register built-in panels
-        self.register_builtin_panels()
 
         count = 0
 
@@ -195,6 +202,10 @@ class PanelRegistry:
                 logger.error("Failed to load panel plugin {}: {}", ep.name, e)
 
         self._discovered = True
+
+        if count > 0:
+            logger.info("Discovered {} external panel plugin(s) via entry points", count)
+
         return count
 
     def get(self, panel_id: str) -> type[BasePanel] | None:

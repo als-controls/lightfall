@@ -71,5 +71,36 @@ builtin_manifest = PluginManifest(
             name="tiled_status",
             import_path="ncs.ui.statusbar.plugins.tiled_status:TiledStatusPlugin",
         ),
+        # Panel plugins - preload to register with PanelRegistry before main window
+        PluginEntry(
+            type_name="panel",
+            name="logbook",
+            import_path="ncs.ui.panels.plugins.logbook_plugin:LogbookPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="devices",
+            import_path="ncs.ui.panels.plugins.device_plugin:DevicePanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="bluesky",
+            import_path="ncs.ui.panels.plugins.bluesky_plugin:BlueskyPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="documents",
+            import_path="ncs.ui.panels.plugins.documents_plugin:DocumentsPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="claude",
+            import_path="ncs.ui.panels.plugins.claude_plugin:ClaudePanelPlugin",
+            preload=True,
+        ),
     ],
 )
