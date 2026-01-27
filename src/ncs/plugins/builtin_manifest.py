@@ -38,6 +38,12 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="ncs.ui.preferences.claude_settings:ClaudeSettingsPlugin",
         ),
+        # Plugin management settings
+        PluginEntry(
+            type_name="settings",
+            name="plugins",
+            import_path="ncs.ui.preferences.plugin_settings:PluginSettingsPlugin",
+        ),
         # Engine plugins
         PluginEntry(
             type_name="engine",

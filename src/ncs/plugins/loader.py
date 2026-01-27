@@ -192,12 +192,31 @@ class PluginLoader(QObject):
         """
         self._process_manifest(manifest)
 
+    def _get_disabled_plugin_ids(self) -> set[str]:
+        """Get the set of disabled plugin IDs from preferences.
+
+        Returns:
+            Set of unique_id strings for disabled plugins.
+        """
+        try:
+            from ncs.ui.preferences.manager import PreferencesManager
+
+            prefs = PreferencesManager.get_instance()
+            disabled_list = prefs.get("disabled_plugins", [])
+            if isinstance(disabled_list, list):
+                return set(disabled_list)
+        except Exception as e:
+            logger.debug("Could not load disabled plugins preference: {}", e)
+        return set()
+
     def _process_manifest(self, manifest: PluginManifest) -> None:
         """Process a manifest and queue its plugins.
 
         Args:
             manifest: The manifest to process.
         """
+        disabled_ids = self._get_disabled_plugin_ids()
+
         for entry in manifest.plugins:
             # Check if this type is known
             if entry.type_name not in self._plugin_types:
@@ -220,9 +239,17 @@ class PluginLoader(QObject):
 
             # Try to register (checks for duplicates)
             if self._registry.register(plugin_info):
-                self._load_queue.append(plugin_info)
-                plugin_info.status = PluginStatus.QUEUED_LOAD
-                logger.debug("Queued plugin for loading: {}", plugin_info.unique_id)
+                # Check if this plugin is disabled
+                if plugin_info.unique_id in disabled_ids:
+                    plugin_info.status = PluginStatus.DISABLED
+                    logger.info(
+                        "Plugin '{}' is disabled, not loading",
+                        plugin_info.unique_id,
+                    )
+                else:
+                    self._load_queue.append(plugin_info)
+                    plugin_info.status = PluginStatus.QUEUED_LOAD
+                    logger.debug("Queued plugin for loading: {}", plugin_info.unique_id)
 
     def load_preload_plugins(self) -> tuple[int, int]:
         """Load all plugins marked with preload=True synchronously.

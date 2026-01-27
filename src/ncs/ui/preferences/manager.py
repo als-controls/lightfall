@@ -58,6 +58,8 @@ GLOBAL_ONLY_PREFS = {
     "claude_model",
     "claude_max_turns",
     "claude_permission_mode",
+    # Plugin settings
+    "disabled_plugins",
 }
 
 
