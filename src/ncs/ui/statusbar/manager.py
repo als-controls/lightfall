@@ -76,7 +76,7 @@ class StatusBarManager:
         loaded = 0
 
         # Get all statusbar plugins
-        plugin_infos = registry.list_by_type("statusbar")
+        plugin_infos = registry.get_by_type("statusbar")
 
         # Sort by priority (from metadata)
         sorted_infos = sorted(
