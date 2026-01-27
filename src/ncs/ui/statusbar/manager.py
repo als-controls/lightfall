@@ -61,9 +61,18 @@ class StatusBarManager:
         Returns:
             Number of plugins successfully loaded.
         """
+        from ncs.core import NCSApplication
         from ncs.plugins.registry import PluginRegistry
 
-        registry = PluginRegistry.get_instance()
+        app = NCSApplication.get_instance()
+        services = app.services
+
+        try:
+            registry = services.get(PluginRegistry)
+        except (KeyError, AttributeError):
+            logger.warning("PluginRegistry not available, no status bar plugins loaded")
+            return 0
+
         loaded = 0
 
         # Get all statusbar plugins
