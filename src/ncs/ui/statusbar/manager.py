@@ -13,6 +13,8 @@ from PySide6.QtWidgets import QStatusBar, QWidget
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
+    from ncs.plugins.info import PluginInfo
+    from ncs.plugins.loader import PluginLoader
     from ncs.plugins.statusbar_plugin import StatusBarPlugin
 
 
@@ -21,12 +23,17 @@ class StatusBarManager:
 
     The StatusBarManager handles:
     - Loading plugins from the PluginRegistry
+    - Subscribing to PluginLoader signals for dynamic plugin loading
     - Creating and positioning indicator widgets
     - Connecting/disconnecting signal handlers
     - Cleanup on shutdown
 
     Plugins are positioned by priority (lower = further left) and
     can be added to left, right, or permanent areas of the status bar.
+
+    The manager uses an Observer pattern to receive notifications when
+    statusbar plugins are loaded, allowing plugins to load in the background
+    without requiring preload=True.
 
     Example:
         >>> statusbar = QStatusBar()
@@ -51,22 +58,35 @@ class StatusBarManager:
         self._parent = parent
         self._plugins: dict[str, StatusBarPlugin] = {}
         self._widgets: dict[str, QWidget] = {}
+        self._loader: PluginLoader | None = None
 
     def load_plugins(self) -> int:
-        """Load status bar plugins from the registry.
+        """Load status bar plugins from the registry and subscribe to future loads.
 
-        Discovers all registered statusbar plugins, instantiates them,
-        creates their widgets, and adds them to the status bar.
+        Discovers all registered statusbar plugins that are already loaded,
+        creates their widgets, and adds them to the status bar. Also subscribes
+        to the PluginLoader's plugin_loaded signal to handle plugins that load
+        later in the background.
 
         Returns:
-            Number of plugins successfully loaded.
+            Number of plugins successfully loaded (already-loaded plugins only).
         """
         from ncs.core import NCSApplication
+        from ncs.plugins.loader import PluginLoader
         from ncs.plugins.registry import PluginRegistry
 
         app = NCSApplication.get_instance()
         services = app.services
 
+        # Subscribe to PluginLoader signals for dynamic plugin loading
+        try:
+            self._loader = services.get(PluginLoader)
+            self._loader.plugin_loaded.connect(self._on_plugin_loaded)
+            logger.debug("Subscribed to PluginLoader.plugin_loaded signal")
+        except (KeyError, AttributeError):
+            logger.warning("PluginLoader not available, dynamic loading disabled")
+
+        # Get registry and load any already-loaded statusbar plugins
         try:
             registry = services.get(PluginRegistry)
         except (KeyError, AttributeError):
@@ -92,8 +112,8 @@ class StatusBarManager:
 
         for info in sorted_infos:
             if info.instance is None:
-                logger.warning(
-                    "Statusbar plugin {} not instantiated, skipping",
+                logger.debug(
+                    "Statusbar plugin {} not yet instantiated, will load via observer",
                     info.unique_id,
                 )
                 continue
@@ -102,8 +122,35 @@ class StatusBarManager:
             if self.add_plugin(plugin):
                 loaded += 1
 
-        logger.info("Loaded {} status bar plugins", loaded)
+        logger.info("Loaded {} status bar plugins (more may load dynamically)", loaded)
         return loaded
+
+    def _on_plugin_loaded(self, plugin_info: PluginInfo) -> None:
+        """Handle plugin_loaded signal from PluginLoader.
+
+        Filters for statusbar type plugins and adds them to the status bar.
+
+        Args:
+            plugin_info: Information about the loaded plugin.
+        """
+        if plugin_info.type_name != "statusbar":
+            return
+
+        if plugin_info.instance is None:
+            logger.warning(
+                "Statusbar plugin {} has no instance, skipping",
+                plugin_info.unique_id,
+            )
+            return
+
+        plugin_id = plugin_info.instance.metadata.id
+        if plugin_id in self._plugins:
+            logger.debug("Statusbar plugin {} already added", plugin_id)
+            return
+
+        logger.debug("Adding dynamically loaded statusbar plugin: {}", plugin_id)
+        if self.add_plugin(plugin_info.instance):
+            logger.info("Dynamically loaded status bar plugin: {}", plugin_id)
 
     def add_plugin(self, plugin: StatusBarPlugin) -> bool:
         """Add a plugin to the status bar.
@@ -193,10 +240,21 @@ class StatusBarManager:
             return False
 
     def cleanup(self) -> None:
-        """Clean up all plugins.
+        """Clean up all plugins and disconnect signals.
 
         Should be called when the main window is closing.
         """
+        # Disconnect from PluginLoader signal
+        if self._loader is not None:
+            try:
+                self._loader.plugin_loaded.disconnect(self._on_plugin_loaded)
+                logger.debug("Disconnected from PluginLoader.plugin_loaded signal")
+            except (RuntimeError, TypeError):
+                # Signal already disconnected or object deleted
+                pass
+            self._loader = None
+
+        # Remove all plugins
         for plugin_id in list(self._plugins.keys()):
             self.remove_plugin(plugin_id)
 
