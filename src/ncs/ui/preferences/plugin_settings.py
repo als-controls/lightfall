@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
@@ -204,7 +204,7 @@ class PluginTableModel(QAbstractTableModel):
         return False
 
 
-class PluginSettingsPlugin(SettingsPlugin):
+class PluginSettingsPlugin(QObject, SettingsPlugin):
     """Settings plugin for managing installed plugins.
 
     Allows users to view all discovered plugins and enable/disable them.
@@ -221,6 +221,7 @@ class PluginSettingsPlugin(SettingsPlugin):
 
     def __init__(self) -> None:
         """Initialize the plugin settings plugin."""
+        QObject.__init__(self)
         self._widget: QWidget | None = None
         self._table_view: QTableView | None = None
         self._model: PluginTableModel | None = None
@@ -277,8 +278,9 @@ class PluginSettingsPlugin(SettingsPlugin):
         self._table_view.setModel(self._model)
         self._table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table_view.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        self._table_view.setAlternatingRowColors(True)
+        self._table_view.setAlternatingRowColors(False)  # Disabled for checkbox visibility
         self._table_view.setSortingEnabled(False)  # We sort manually by type/name
+        self._table_view.verticalHeader().setVisible(False)  # Hide row numbers
 
         # Configure column widths
         header = self._table_view.horizontalHeader()
