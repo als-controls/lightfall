@@ -102,5 +102,11 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.panels.plugins.claude_plugin:ClaudePanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="threads",
+            import_path="ncs.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
+            preload=True,
+        ),
     ],
 )
