@@ -584,6 +584,24 @@ class PluginLoader(QObject):
                 plugin_info.name,
             )
 
+        elif plugin_info.type_name == "controller":
+            try:
+                from ncs.ui.widgets.controller_registry import ControllerPluginRegistry
+
+                controller_registry = ControllerPluginRegistry.get_instance()
+                controller_plugin = plugin_info.instance
+
+                controller_registry.register(controller_plugin)
+                logger.debug(
+                    "Registered controller plugin '{}' with ControllerPluginRegistry",
+                    controller_plugin.name,
+                )
+            except ImportError:
+                logger.debug(
+                    "ControllerPluginRegistry not available, "
+                    "skipping controller registration"
+                )
+
     def get_plugin_by_name(
         self,
         name: str,

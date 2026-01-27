@@ -202,6 +202,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     """
     from ncs.plugins import PluginLoader, PluginRegistry, MCPToolPlugin
     from ncs.plugins.builtin_manifest import builtin_manifest
+    from ncs.plugins.controller_plugin import ControllerPlugin
     from ncs.plugins.engine_plugin import EnginePlugin
     from ncs.plugins.settings_plugin import SettingsPlugin
     from ncs.plugins.statusbar_plugin import StatusBarPlugin
@@ -217,6 +218,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("engine", EnginePlugin)
     loader.register_plugin_type("mcp_tool", MCPToolPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
+    loader.register_plugin_type("controller", ControllerPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)

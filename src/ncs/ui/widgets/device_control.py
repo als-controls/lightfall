@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ncs.ui.widgets.base_control import BaseControlWidget, ControlWidgetRegistry
+from ncs.ui.widgets.base_control import BaseControlWidget
+from ncs.ui.widgets.controller_matcher import ControllerMatch, ControllerMatcher
 from ncs.logbook import DeviceActionLogger
 from ncs.utils.logging import logger
 
@@ -81,9 +82,9 @@ class DeviceControlWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._items: list[DeviceTreeItem] = []
-        self._current_widget: BaseControlWidget | None = None
-        self._matching_widgets: list[type[BaseControlWidget]] = []
-        self._widget_instances: dict[str, BaseControlWidget] = {}
+        self._current_widget: QWidget | None = None
+        self._matching_controllers: list[ControllerMatch] = []
+        self._widget_instances: dict[str, QWidget] = {}
 
         self._setup_ui()
 
@@ -132,30 +133,30 @@ class DeviceControlWidget(QWidget):
             self._show_no_selection()
             return
 
-        # Find matching widgets
-        registry = ControlWidgetRegistry.get_instance()
-        self._matching_widgets = registry.get_matching_widgets(items)
+        # Find matching controllers (from both plugin and legacy registries)
+        matcher = ControllerMatcher.get_instance()
+        self._matching_controllers = matcher.get_matching_controllers(items)
 
-        if not self._matching_widgets:
+        if not self._matching_controllers:
             self._show_no_control(items)
             return
 
         # Update selector combo
         self._update_selector()
 
-        # Show the best (highest priority) widget
-        self._activate_widget(self._matching_widgets[0])
+        # Show the best (highest priority) controller
+        self._activate_controller(self._matching_controllers[0])
 
     def _show_no_selection(self) -> None:
         """Show the no-selection placeholder."""
-        self._matching_widgets = []
+        self._matching_controllers = []
         self._current_widget = None
         self._hide_selector()
         self._stack.setCurrentWidget(self._no_selection)
 
     def _show_no_control(self, items: list[DeviceTreeItem]) -> None:
         """Show the no-control message."""
-        self._matching_widgets = []
+        self._matching_controllers = []
         self._current_widget = None
         self._hide_selector()
 
@@ -174,7 +175,7 @@ class DeviceControlWidget(QWidget):
 
     def _update_selector(self) -> None:
         """Update the widget selector combo box."""
-        if len(self._matching_widgets) <= 1:
+        if len(self._matching_controllers) <= 1:
             self._hide_selector()
             return
 
@@ -182,10 +183,10 @@ class DeviceControlWidget(QWidget):
         self._selector_combo.blockSignals(True)
         self._selector_combo.clear()
 
-        for widget_class in self._matching_widgets:
+        for match in self._matching_controllers:
             self._selector_combo.addItem(
-                widget_class.display_name,
-                widget_class,
+                match.display_name,
+                match,
             )
 
         self._selector_combo.blockSignals(False)
@@ -201,49 +202,59 @@ class DeviceControlWidget(QWidget):
         self._selector_label.hide()
         self._selector_combo.hide()
 
-    def _activate_widget(self, widget_class: type[BaseControlWidget]) -> None:
-        """Activate a control widget for the current selection.
+    def _activate_controller(self, match: ControllerMatch) -> None:
+        """Activate a controller for the current selection.
 
         Args:
-            widget_class: The widget class to activate.
+            match: The ControllerMatch to activate.
         """
         # Get or create widget instance
-        class_name = widget_class.__name__
-        if class_name not in self._widget_instances:
-            widget = widget_class(self)
-            widget.control_error.connect(self.control_error)
-            self._widget_instances[class_name] = widget
+        # Use match.name as key to cache widgets
+        cache_key = match.name
+        if cache_key not in self._widget_instances:
+            widget = match.create_widget(self)
+
+            # Connect control_error signal if available
+            if hasattr(widget, "control_error"):
+                widget.control_error.connect(self.control_error)
+
+            self._widget_instances[cache_key] = widget
             self._stack.addWidget(widget)
 
             # Connect to DeviceActionLogger for automatic action recording
-            action_logger = DeviceActionLogger.get_instance()
-            action_logger.connect_to_control_widget(widget)
+            # if the widget is a BaseControlWidget
+            if isinstance(widget, BaseControlWidget):
+                action_logger = DeviceActionLogger.get_instance()
+                action_logger.connect_to_control_widget(widget)
 
-        widget = self._widget_instances[class_name]
+        widget = self._widget_instances[cache_key]
 
-        # Set items and show
-        widget.set_items(self._items)
+        # Set items if the widget supports it
+        if hasattr(widget, "set_items"):
+            widget.set_items(self._items)
+
         self._current_widget = widget
         self._stack.setCurrentWidget(widget)
 
         logger.debug(
-            "Activated control widget: {} for {} item(s)",
-            widget_class.display_name,
+            "Activated controller: {} ({}) for {} item(s)",
+            match.display_name,
+            match.source,
             len(self._items),
         )
-        self.widget_changed.emit(widget_class.display_name)
+        self.widget_changed.emit(match.display_name)
 
     @Slot(int)
     def _on_widget_selected(self, index: int) -> None:
         """Handle widget selection from combo box."""
-        if index < 0 or index >= len(self._matching_widgets):
+        if index < 0 or index >= len(self._matching_controllers):
             return
 
-        widget_class = self._matching_widgets[index]
-        self._activate_widget(widget_class)
+        match = self._matching_controllers[index]
+        self._activate_controller(match)
 
     @property
-    def current_widget(self) -> BaseControlWidget | None:
+    def current_widget(self) -> QWidget | None:
         """Get the currently active control widget."""
         return self._current_widget
 
@@ -252,16 +263,23 @@ class DeviceControlWidget(QWidget):
         """Get the currently controlled items."""
         return self._items
 
+    @property
+    def matching_controllers(self) -> list[ControllerMatch]:
+        """Get the list of matching controllers for the current selection."""
+        return self._matching_controllers
+
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools."""
         data = {
             "item_count": len(self._items),
-            "matching_widget_count": len(self._matching_widgets),
-            "matching_widgets": [w.display_name for w in self._matching_widgets],
+            "matching_controller_count": len(self._matching_controllers),
+            "matching_controllers": [
+                m.get_introspection_data() for m in self._matching_controllers
+            ],
             "current_widget": None,
         }
 
-        if self._current_widget:
+        if self._current_widget and hasattr(self._current_widget, "get_introspection_data"):
             data["current_widget"] = self._current_widget.get_introspection_data()
 
         return data
@@ -281,7 +299,7 @@ class ControlWidgetFactory:
     def create_for_items(
         items: list[DeviceTreeItem],
         parent: QWidget | None = None,
-    ) -> BaseControlWidget | None:
+    ) -> QWidget | None:
         """Create the best control widget for the given items.
 
         Args:
@@ -291,32 +309,37 @@ class ControlWidgetFactory:
         Returns:
             A control widget instance, or None if no widget matches.
         """
-        registry = ControlWidgetRegistry.get_instance()
-        widget_class = registry.get_best_widget(items)
+        matcher = ControllerMatcher.get_instance()
+        best_match = matcher.get_best_controller(items)
 
-        if widget_class is None:
+        if best_match is None:
             return None
 
-        widget = widget_class(parent)
-        widget.set_items(items)
+        widget = best_match.create_widget(parent)
+
+        # Set items if the widget supports it
+        if hasattr(widget, "set_items"):
+            widget.set_items(items)
 
         # Connect to DeviceActionLogger for automatic action recording
-        action_logger = DeviceActionLogger.get_instance()
-        action_logger.connect_to_control_widget(widget)
+        # if the widget is a BaseControlWidget
+        if isinstance(widget, BaseControlWidget):
+            action_logger = DeviceActionLogger.get_instance()
+            action_logger.connect_to_control_widget(widget)
 
         return widget
 
     @staticmethod
-    def get_available_widgets(
+    def get_available_controllers(
         items: list[DeviceTreeItem],
-    ) -> list[type[BaseControlWidget]]:
-        """Get all control widgets that can handle the given items.
+    ) -> list[ControllerMatch]:
+        """Get all controllers that can handle the given items.
 
         Args:
             items: List of DeviceTreeItems.
 
         Returns:
-            List of matching widget classes, sorted by priority.
+            List of ControllerMatch objects, sorted by priority.
         """
-        registry = ControlWidgetRegistry.get_instance()
-        return registry.get_matching_widgets(items)
+        matcher = ControllerMatcher.get_instance()
+        return matcher.get_matching_controllers(items)

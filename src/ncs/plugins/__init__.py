@@ -76,6 +76,7 @@ The plugin system is typically used via the ServiceRegistry::
     loader.start_loading()  # Background loading
 """
 
+from ncs.plugins.controller_plugin import ControllerPlugin
 from ncs.plugins.errors import (
     PluginError,
     PluginInitError,
@@ -102,6 +103,7 @@ __all__ = [
     "PluginRegistry",
     "PluginLoader",
     # Plugin types
+    "ControllerPlugin",
     "PlanPlugin",
     "SettingsPlugin",
     "MCPToolPlugin",
