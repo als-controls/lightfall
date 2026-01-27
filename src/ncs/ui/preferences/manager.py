@@ -47,6 +47,17 @@ GLOBAL_ONLY_PREFS = {
     "device_bcs_port",
     "device_bcs_beamline",
     "device_bcs_timeout_ms",
+    # Tiled settings
+    "tiled_enabled",
+    "tiled_url",
+    "tiled_api_key",
+    # Claude settings
+    "claude_api_key",
+    "claude_endpoint",
+    "claude_custom_url",
+    "claude_model",
+    "claude_max_turns",
+    "claude_permission_mode",
 }
 
 

@@ -26,6 +26,18 @@ builtin_manifest = PluginManifest(
             name="devices",
             import_path="ncs.ui.preferences.device_settings:DeviceSettingsPlugin",
         ),
+        # Tiled settings
+        PluginEntry(
+            type_name="settings",
+            name="tiled",
+            import_path="ncs.ui.preferences.tiled_settings:TiledSettingsPlugin",
+        ),
+        # Claude settings
+        PluginEntry(
+            type_name="settings",
+            name="claude",
+            import_path="ncs.ui.preferences.claude_settings:ClaudeSettingsPlugin",
+        ),
         # Engine plugins
         PluginEntry(
             type_name="engine",

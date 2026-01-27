@@ -74,6 +74,15 @@ class ClaudePanel(BasePanel):
         """Setup the Claude assistant widget with extended tools."""
         from pyside_claude import ClaudeAssistantWidget
 
+        from ncs.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+        # Check if Claude is configured
+        if not ClaudeSettingsProvider.is_configured():
+            raise ValueError(
+                "Claude API key not configured. Set it in Preferences > Claude Assistant "
+                "or via ANTHROPIC_API_KEY environment variable."
+            )
+
         # Get the main window as target
         main_window = self._get_main_window()
         if main_window is None:
@@ -88,6 +97,8 @@ class ClaudePanel(BasePanel):
         # Create the Claude widget with the main window as target and additional tools
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
+            api_key=ClaudeSettingsProvider.get_api_key(),
+            api_url=ClaudeSettingsProvider.get_base_url(),
             additional_tools=all_tools,
             additional_system_prompt=ncs_system_prompt,
             parent=self,
