@@ -576,6 +576,14 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("MCPToolRegistry not available, skipping MCP tool registration")
 
+        elif plugin_info.type_name == "statusbar":
+            # Statusbar plugins don't need type-specific registration here.
+            # They are loaded by StatusBarManager when the main window is created.
+            logger.debug(
+                "Statusbar plugin '{}' registered, will be loaded by StatusBarManager",
+                plugin_info.name,
+            )
+
     def get_plugin_by_name(
         self,
         name: str,

@@ -17,7 +17,6 @@ from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
-    QLabel,
     QMainWindow,
     QMenu,
     QMenuBar,
@@ -31,6 +30,7 @@ from ncs.auth.session import AuthState, SessionManager
 from ncs.ui.panels.base import BasePanel
 from ncs.ui.panels.registry import PanelRegistry
 from ncs.ui.preferences import PreferencesDialog, PreferencesManager
+from ncs.ui.statusbar import StatusBarManager
 from ncs.ui.theme import Theme, ThemeManager
 from ncs.utils.logging import logger
 from ncs.ui.widgets.runengine_control import RunEngineControlWidget
@@ -74,6 +74,7 @@ class NCSMainWindow(QMainWindow):
         self._panel_docks: dict[str, QDockWidget] = {}
         self._active_panel_id: str | None = None
         self._default_layout_applied: bool = False
+        self._statusbar_manager: StatusBarManager | None = None
 
         # Get manager instances
         self._session_manager = SessionManager.get_instance()
@@ -244,24 +245,13 @@ class NCSMainWindow(QMainWindow):
         self.set_engine(re)
 
     def _setup_statusbar(self) -> None:
-        """Create the status bar."""
+        """Create the status bar with plugin-based indicators."""
         statusbar = QStatusBar()
         self.setStatusBar(statusbar)
 
-        # User status label
-        self._user_label = QLabel()
-        self._update_user_status()
-        statusbar.addPermanentWidget(self._user_label)
-
-        # Auth state indicator
-        self._auth_label = QLabel()
-        self._update_auth_status()
-        statusbar.addPermanentWidget(self._auth_label)
-
-        # Connection status
-        self._connection_label = QLabel()
-        self._update_connection_status()
-        statusbar.addPermanentWidget(self._connection_label)
+        # Create and initialize status bar manager
+        self._statusbar_manager = StatusBarManager(statusbar, self)
+        self._statusbar_manager.load_plugins()
 
         # Set visibility from preferences
         statusbar.setVisible(self._prefs_manager.show_statusbar)
@@ -276,10 +266,9 @@ class NCSMainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Connect to manager signals."""
-        # Session signals
+        # Session signals (for panels menu updates)
         self._session_manager.state_changed.connect(self._on_auth_state_changed)
         self._session_manager.user_changed.connect(self._on_user_changed)
-        self._session_manager.offline_mode_changed.connect(self._on_offline_mode_changed)
 
         # Theme signals
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
@@ -539,52 +528,6 @@ class NCSMainWindow(QMainWindow):
         clear_action.triggered.connect(self._prefs_manager.clear_recent_files)
         self._recent_menu.addAction(clear_action)
 
-    # Status bar updates
-
-    def _update_user_status(self) -> None:
-        """Update user display in status bar."""
-        user = self._session_manager.current_user
-        self._user_label.setText(f"User: {user.display_name}")
-
-    def _update_auth_status(self) -> None:
-        """Update auth state in status bar."""
-        state = self._session_manager.state
-
-        state_text = {
-            AuthState.UNAUTHENTICATED: "Not logged in",
-            AuthState.AUTHENTICATING: "Authenticating...",
-            AuthState.AUTHENTICATED: "Authenticated",
-            AuthState.OFFLINE: "Offline Mode",
-            AuthState.ERROR: "Auth Error",
-        }
-
-        self._auth_label.setText(state_text.get(state, "Unknown"))
-
-        # Style based on state
-        if state == AuthState.AUTHENTICATED:
-            self._auth_label.setStyleSheet(
-                f"color: {self._theme_manager.colors.success};"
-            )
-        elif state in (AuthState.OFFLINE, AuthState.ERROR):
-            self._auth_label.setStyleSheet(
-                f"color: {self._theme_manager.colors.warning};"
-            )
-        else:
-            self._auth_label.setStyleSheet("")
-
-    def _update_connection_status(self) -> None:
-        """Update connection status in status bar."""
-        if self._session_manager.is_offline:
-            self._connection_label.setText("Offline")
-            self._connection_label.setStyleSheet(
-                f"color: {self._theme_manager.colors.error};"
-            )
-        else:
-            self._connection_label.setText("Online")
-            self._connection_label.setStyleSheet(
-                f"color: {self._theme_manager.colors.success};"
-            )
-
     # Theme handling
 
     def _apply_theme(self) -> None:
@@ -612,20 +555,12 @@ class NCSMainWindow(QMainWindow):
         self, new_state: AuthState, old_state: AuthState
     ) -> None:
         """Handle auth state change."""
-        self._update_auth_status()
         self._update_panels_menu()  # Permissions may have changed
 
     @Slot(object)
     def _on_user_changed(self, user: Any) -> None:
         """Handle user change."""
-        self._update_user_status()
         self._update_panels_menu()  # Available panels may change
-
-    @Slot(bool)
-    def _on_offline_mode_changed(self, offline: bool) -> None:
-        """Handle offline mode change."""
-        self._update_connection_status()
-        self._update_auth_status()
 
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:
@@ -735,6 +670,10 @@ class NCSMainWindow(QMainWindow):
                 event.ignore()
                 return
 
+        # Cleanup status bar manager
+        if self._statusbar_manager:
+            self._statusbar_manager.cleanup()
+
         event.accept()
         logger.info("Main window closed")
 
@@ -746,7 +685,7 @@ class NCSMainWindow(QMainWindow):
         Returns:
             Dictionary with window state and panel information.
         """
-        return {
+        data = {
             "window_title": self.windowTitle(),
             "geometry": {
                 "x": self.x(),
@@ -777,3 +716,9 @@ class NCSMainWindow(QMainWindow):
             "user": self._session_manager.current_user.username,
             "auth_state": self._session_manager.state.name,
         }
+
+        # Add status bar introspection
+        if self._statusbar_manager:
+            data["statusbar"] = self._statusbar_manager.get_introspection_data()
+
+        return data

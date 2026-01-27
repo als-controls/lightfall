@@ -159,6 +159,37 @@ def _setup_bluesky(app: NCSApplication) -> None:
     )
 
 
+def _setup_tiled(app: NCSApplication) -> None:
+    """Setup Tiled service if configured.
+
+    Initializes the TiledService singleton and connects to the
+    Tiled server if enabled in preferences.
+    """
+    from ncs.services.tiled_service import TiledService
+
+    services = app.services
+    prefs = PreferencesManager.get_instance()
+
+    # Create service singleton
+    service = TiledService.get_instance()
+
+    # Configure from preferences
+    enabled = prefs.get("tiled_enabled", False)
+    url = prefs.get("tiled_url", "")
+    api_key = prefs.get("tiled_api_key") or None
+
+    if enabled and url:
+        service.configure(url=url, api_key=api_key, enabled=True)
+        service.connect()
+        logger.info("Tiled service initialized and connected")
+    else:
+        service.configure(url=url, api_key=api_key, enabled=False)
+        logger.debug("Tiled service initialized (disabled)")
+
+    # Register service
+    services.register(TiledService, TiledService.get_instance)
+
+
 def _setup_plugins(app: NCSApplication) -> None:
     """Setup the plugin system and load preload plugins.
 
@@ -173,6 +204,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     from ncs.plugins.builtin_manifest import builtin_manifest
     from ncs.plugins.engine_plugin import EnginePlugin
     from ncs.plugins.settings_plugin import SettingsPlugin
+    from ncs.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
 
@@ -184,6 +216,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
     loader.register_plugin_type("mcp_tool", MCPToolPlugin)
+    loader.register_plugin_type("statusbar", StatusBarPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
@@ -320,6 +353,9 @@ def main() -> int:
 
     # Setup Bluesky RunEngine and plans
     _setup_bluesky(app)
+
+    # Setup Tiled data catalog service
+    _setup_tiled(app)
 
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)
