@@ -14,6 +14,7 @@ from ncs.ui.models.device_tree import (
     NodeType,
 )
 from ncs.ui.models.thread_model import (
+    ThreadCpuTracker,
     ThreadFilterProxyModel,
     ThreadManagerObserver,
     ThreadRecord,
@@ -28,6 +29,7 @@ __all__ = [
     "DeviceTreeModel",
     "NodeType",
     # Thread models
+    "ThreadCpuTracker",
     "ThreadFilterProxyModel",
     "ThreadManagerObserver",
     "ThreadRecord",

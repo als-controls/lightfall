@@ -94,6 +94,20 @@ class ThreadDetailsWidget(QWidget):
         right_col.addWidget(self._duration_label)
 
         info_grid.addLayout(right_col)
+
+        # Third column for CPU info
+        cpu_col = QVBoxLayout()
+        self._cpu_label = QLabel("-")
+        cpu_col.addWidget(QLabel("CPU:"))
+        cpu_col.addWidget(self._cpu_label)
+
+        self._native_id_label = QLabel("-")
+        cpu_col.addWidget(QLabel("Thread ID:"))
+        cpu_col.addWidget(self._native_id_label)
+
+        cpu_col.addStretch()
+        info_grid.addLayout(cpu_col)
+
         info_layout.addLayout(info_grid)
 
         layout.addWidget(info_group)
@@ -138,6 +152,23 @@ class ThreadDetailsWidget(QWidget):
         self._duration_label.setText(record.format_duration())
         self._args_text.setText(record.args_repr or "-")
 
+        # CPU info
+        self._cpu_label.setText(record.format_cpu())
+        self._native_id_label.setText(str(record.native_thread_id) if record.native_thread_id else "-")
+
+        # CPU color based on usage
+        if record.status == ThreadStatus.RUNNING:
+            if record.cpu_percent > 80:
+                self._cpu_label.setStyleSheet("color: #F44336; font-weight: bold;")
+            elif record.cpu_percent > 50:
+                self._cpu_label.setStyleSheet("color: #FF9800; font-weight: bold;")
+            elif record.cpu_percent > 10:
+                self._cpu_label.setStyleSheet("color: #2196F3;")
+            else:
+                self._cpu_label.setStyleSheet("")
+        else:
+            self._cpu_label.setStyleSheet("")
+
         # Status color
         status_styles = {
             ThreadStatus.RUNNING: "color: #2196F3; font-weight: bold;",
@@ -159,6 +190,7 @@ class ThreadDetailsWidget(QWidget):
         """Refresh the display with current record data."""
         if self._current_record is not None:
             self._duration_label.setText(self._current_record.format_duration())
+            self._cpu_label.setText(self._current_record.format_cpu())
 
     def _clear(self) -> None:
         """Clear all fields."""
@@ -169,6 +201,9 @@ class ThreadDetailsWidget(QWidget):
         self._method_label.setText("-")
         self._started_label.setText("-")
         self._duration_label.setText("-")
+        self._cpu_label.setText("-")
+        self._cpu_label.setStyleSheet("")
+        self._native_id_label.setText("-")
         self._args_text.setText("-")
         self._exception_group.setVisible(False)
 
@@ -267,16 +302,17 @@ class ThreadsPanel(BasePanel):
         self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table_view.setAlternatingRowColors(True)
         self._table_view.setSortingEnabled(True)
-        self._table_view.sortByColumn(3, Qt.SortOrder.DescendingOrder)  # Sort by started, newest first
+        self._table_view.sortByColumn(4, Qt.SortOrder.DescendingOrder)  # Sort by started, newest first
 
-        # Configure header
+        # Configure header (columns: Name, Key, Status, CPU, Started, Duration)
         header = self._table_view.horizontalHeader()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Name
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Key
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Started
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Duration
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # CPU
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Started
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Duration
 
         top_layout.addWidget(self._table_view)
         splitter.addWidget(top_widget)
@@ -438,8 +474,12 @@ class ThreadsPanel(BasePanel):
                 "status": selected.status.value,
                 "method": selected.method_name,
                 "duration": selected.format_duration(),
+                "cpu_percent": selected.cpu_percent if selected.status == ThreadStatus.RUNNING else None,
                 "has_error": selected.exception_msg is not None,
             }
+
+        # Calculate total CPU usage of running threads
+        total_cpu = sum(r.cpu_percent for r in records if r.status == ThreadStatus.RUNNING)
 
         return {
             "total_threads": len(records),
@@ -447,6 +487,7 @@ class ThreadsPanel(BasePanel):
             "completed_count": completed_count,
             "error_count": error_count,
             "cancelled_count": cancelled_count,
+            "total_cpu_percent": total_cpu,
             "search_text": self._search_input.text(),
             "status_filter": self._status_filter.currentText(),
             "auto_refresh": self._auto_refresh_check.isChecked(),
@@ -457,6 +498,7 @@ class ThreadsPanel(BasePanel):
                     "key": r.key,
                     "status": r.status.value,
                     "duration": r.format_duration(),
+                    "cpu_percent": r.cpu_percent if r.status == ThreadStatus.RUNNING else None,
                 }
                 for r in records[:20]  # Limit to first 20
             ],
