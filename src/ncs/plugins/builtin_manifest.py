@@ -108,5 +108,11 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="logging",
+            import_path="ncs.ui.panels.plugins.logging_plugin:LoggingPanelPlugin",
+            preload=True,
+        ),
     ],
 )
