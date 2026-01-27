@@ -49,26 +49,30 @@ builtin_manifest = PluginManifest(
             name="mock",
             import_path="ncs.acquire.engine.plugins.mock_plugin:MockEnginePlugin",
         ),
-        # Status bar plugins
+        # Status bar plugins - preload to ensure they're ready when main window creates
         PluginEntry(
             type_name="statusbar",
             name="user_status",
             import_path="ncs.ui.statusbar.plugins.user_status:UserStatusPlugin",
+            preload=True,
         ),
         PluginEntry(
             type_name="statusbar",
             name="auth_status",
             import_path="ncs.ui.statusbar.plugins.auth_status:AuthStatusPlugin",
+            preload=True,
         ),
         PluginEntry(
             type_name="statusbar",
             name="connection_status",
             import_path="ncs.ui.statusbar.plugins.connection_status:ConnectionStatusPlugin",
+            preload=True,
         ),
         PluginEntry(
             type_name="statusbar",
             name="tiled_status",
             import_path="ncs.ui.statusbar.plugins.tiled_status:TiledStatusPlugin",
+            preload=True,
         ),
     ],
 )
