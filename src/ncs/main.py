@@ -270,8 +270,8 @@ def _setup_first_launch(project_service: ProjectService) -> None:
 def _check_editor_protocol(main_window: NCSMainWindow) -> None:
     """Check if the configured editor's protocol handler is available.
 
-    Shows a warning banner if PyCharm is selected but the pycharm://
-    protocol is not registered.
+    Shows a warning banner if PyCharm is selected but JetBrains Toolbox
+    is not installed (jetbrains:// protocol not registered).
 
     Args:
         main_window: The main window to show the banner in.
@@ -287,22 +287,22 @@ def _check_editor_protocol(main_window: NCSMainWindow) -> None:
     if prefs.get("suppress_pycharm_warning", False):
         return
 
-    # Check if pycharm:// protocol is registered
+    # Check if jetbrains:// protocol is registered
     if is_editor_available(CodeEditor.PYCHARM):
         return
 
     # Show warning banner
-    logger.warning("PyCharm protocol not detected, code links may not work")
+    logger.warning("JetBrains Toolbox not detected, PyCharm code links may not work")
 
     from PySide6.QtCore import QTimer
 
     def show_banner() -> None:
         banner = DismissableWarningBanner(
-            warning_id="pycharm_protocol",
-            title="PyCharm Not Detected",
+            warning_id="jetbrains_toolbox",
+            title="JetBrains Toolbox Required",
             message=(
-                "The pycharm:// protocol is not registered. "
-                "Install PyCharm for code links to work."
+                "Install JetBrains Toolbox for PyCharm code links to work. "
+                "Toolbox registers the jetbrains:// protocol handler."
             ),
             parent=main_window.centralWidget(),
         )

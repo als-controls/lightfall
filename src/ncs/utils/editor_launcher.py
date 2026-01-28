@@ -3,9 +3,10 @@
 Provides functions to open source files at specific line numbers
 using URL protocol handlers for VSCode and PyCharm.
 
-URL Formats (from https://github.com/dandavison/open-in-editor):
+URL Formats:
 - VSCode: vscode://file/{absolute-path}:{line}:{column}
-- PyCharm: pycharm://open?file={absolute-path}&line={line}
+- PyCharm: jetbrains://pycharm/navigate/reference?path={path}&line={line}
+  (requires JetBrains Toolbox to register the jetbrains:// protocol)
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ class CodeEditor(Enum):
 # Protocol names for each editor (used for registry checks)
 EDITOR_PROTOCOLS = {
     CodeEditor.VSCODE: "vscode",
-    CodeEditor.PYCHARM: "pycharm",
+    CodeEditor.PYCHARM: "jetbrains",  # JetBrains Toolbox registers this
 }
 
 
@@ -91,10 +92,11 @@ def build_editor_url(file_path: str, line: int, editor: CodeEditor, column: int 
         return f"vscode://file/{normalized_path}:{line}:{column}"
 
     elif editor == CodeEditor.PYCHARM:
-        # PyCharm format: pycharm://open?file={path}&line={line}
+        # PyCharm format: jetbrains://pycharm/navigate/reference?path={path}&line={line}
+        # Requires JetBrains Toolbox to be installed
         # URL-encode the file path for query parameter
         encoded_path = urllib.parse.quote(normalized_path, safe=":/")
-        return f"pycharm://open?file={encoded_path}&line={line}"
+        return f"jetbrains://pycharm/navigate/reference?path={encoded_path}&line={line}"
 
     else:
         logger.error("Unknown editor: {}", editor)
@@ -106,7 +108,7 @@ def open_in_editor(file_path: str, line: int, editor: CodeEditor, column: int = 
 
     Uses URL protocol handlers to open files:
     - VSCode: vscode://file/{path}:{line}:{column}
-    - PyCharm: pycharm://open?file={path}&line={line}
+    - PyCharm: jetbrains://pycharm/navigate/reference?path={path}&line={line}
 
     Args:
         file_path: Absolute path to the file.

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from ncs.plugins.settings_plugin import SettingsPlugin
 from ncs.ui.preferences.manager import PreferencesManager
-from ncs.utils.editor_launcher import CodeEditor, is_editor_available
+from ncs.utils.editor_launcher import EDITOR_PROTOCOLS, CodeEditor, is_editor_available
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -33,7 +33,8 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
     Allows users to select which external code editor to use when clicking on
     code locations in the logging panel and other code navigation features:
     - VSCode: Uses vscode://file/{path}:{line}:{column} protocol
-    - PyCharm: Uses pycharm://open?file={path}&line={line} protocol
+    - PyCharm: Uses jetbrains://pycharm/navigate/reference?path={path}&line={line}
+      (requires JetBrains Toolbox to register the jetbrains:// protocol)
 
     Note: Both editors must be installed and have their URL protocol handlers
     registered for the "open in editor" functionality to work.
@@ -119,7 +120,7 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
         # Protocol format info
         protocol_info = QLabel(
             "<b>VSCode:</b> <code>vscode://file/{path}:{line}:{column}</code><br>"
-            "<b>PyCharm:</b> <code>pycharm://open?file={path}&amp;line={line}</code>"
+            "<b>PyCharm:</b> <code>jetbrains://pycharm/navigate/reference?path={path}&amp;line={line}</code>"
         )
         protocol_info.setWordWrap(True)
         protocol_info.setTextFormat(protocol_info.textFormat())
@@ -127,7 +128,7 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
 
         # Suppress PyCharm warning checkbox
         self._suppress_pycharm_warning_check = QCheckBox(
-            "Suppress PyCharm protocol warning on startup"
+            "Suppress JetBrains Toolbox warning on startup"
         )
         protocol_layout.addWidget(self._suppress_pycharm_warning_check)
 
@@ -135,8 +136,8 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
         note = QLabel(
             "<i>Note: The editor must be installed and have its URL protocol "
             "handler registered. VSCode registers its protocol automatically. "
-            "PyCharm requires the application to be installed (the pycharm:// "
-            "protocol is registered during installation).</i>"
+            "PyCharm requires JetBrains Toolbox to be installed (Toolbox "
+            "registers the jetbrains:// protocol handler).</i>"
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
@@ -160,14 +161,15 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
 
         editor_str = self._editor_combo.currentData()
         editor = CodeEditor(editor_str) if editor_str else CodeEditor.VSCODE
+        protocol = EDITOR_PROTOCOLS.get(editor, editor.value)
 
         if is_editor_available(editor):
             self._status_label.setText(
-                f'<span style="color: green;">✓ {editor.value}:// protocol is registered</span>'
+                f'<span style="color: green;">✓ {protocol}:// protocol is registered</span>'
             )
         else:
             self._status_label.setText(
-                f'<span style="color: orange;">⚠ {editor.value}:// protocol not found</span>'
+                f'<span style="color: orange;">⚠ {protocol}:// protocol not found</span>'
             )
 
         # Enable/disable suppress checkbox based on editor
