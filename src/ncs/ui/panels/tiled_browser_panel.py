@@ -230,6 +230,7 @@ class TiledBrowserPanel(BasePanel):
     @Slot(object)
     def _on_filters_changed(self, filters: TiledFilters) -> None:
         """Handle filter changes from filter widget."""
+        logger.debug("Filter changed: {}", filters.to_dict())
         self._current_filters = filters
         self._current_page = 0
         self._load_data()
@@ -284,6 +285,7 @@ class TiledBrowserPanel(BasePanel):
 
     def _load_data(self) -> None:
         """Load data from Tiled server with current filters."""
+        logger.debug("_load_data called")
         if not self._tiled_service.is_connected:
             logger.debug("Cannot load data: not connected to Tiled")
             return
@@ -302,15 +304,77 @@ class TiledBrowserPanel(BasePanel):
         self._refresh_btn.setEnabled(False)
         self._status_label.setText("Loading...")
 
-        # Run query in background thread, passing client obtained in main thread
-        self._fetch_records(
-            client,
-            self._current_filters,
-            self._current_page,
-            self.PAGE_SIZE,
-            _callback_slot=self._on_records_loaded,
-            _except_slot=self._on_load_error,
-        )
+        # Try synchronous fetch first to debug crashes
+        try:
+            logger.debug("Starting synchronous fetch")
+            result = self._fetch_records_sync(
+                client,
+                self._current_filters,
+                self._current_page,
+                self.PAGE_SIZE,
+            )
+            logger.debug("Fetch completed, calling callback")
+            self._on_records_loaded(*result)
+        except Exception as e:
+            logger.exception("Error in synchronous fetch: {}", e)
+            self._on_load_error(e)
+
+    def _fetch_records_sync(
+        self,
+        client: Any,
+        filters: TiledFilters,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[TiledRecord], int, list[str]]:
+        """Fetch records synchronously (for debugging).
+
+        Args:
+            client: Tiled client instance.
+            filters: Filter settings to apply.
+            page: Page number (0-indexed).
+            page_size: Number of records per page.
+
+        Returns:
+            Tuple of (records, total_count, plan_names).
+        """
+        logger.debug("_fetch_records_sync: building query")
+        # Build query with filters
+        result = self._build_query(client, filters)
+
+        logger.debug("_fetch_records_sync: getting count")
+        # Get total count before pagination
+        total_count = len(result)
+        logger.debug("_fetch_records_sync: total_count={}", total_count)
+
+        # Collect unique plan names for filter dropdown
+        plan_names: set[str] = set()
+
+        # Apply pagination
+        start = page * page_size
+        end = start + page_size
+
+        records: list[TiledRecord] = []
+
+        logger.debug("_fetch_records_sync: iterating records {}-{}", start, end)
+        # Iterate over results with pagination
+        for i, key in enumerate(result):
+            if i < start:
+                continue
+            if i >= end:
+                break
+
+            try:
+                entry = result[key]
+                record = self._entry_to_record(key, entry)
+                records.append(record)
+                if record.plan_name:
+                    plan_names.add(record.plan_name)
+            except Exception as e:
+                logger.warning("Failed to parse record {}: {}", key, e)
+                continue
+
+        logger.debug("_fetch_records_sync: done, {} records", len(records))
+        return records, total_count, list(plan_names)
 
     @threads.method()
     def _fetch_records(
