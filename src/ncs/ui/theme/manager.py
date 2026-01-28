@@ -593,9 +593,13 @@ QSplitter::handle:vertical {{
 
 /* Tree and list views */
 QTreeView, QListView, QTableView {{
-    background: {c.background};
     border: 1px solid {c.border};
-    alternate-background-color: {c.surface};
+}}
+QTreeView::item, QListView::item, QTableView::item {{
+    background: {c.background};
+}}
+QTreeView::item:alternate, QListView::item:alternate, QTableView::item:alternate {{
+    background: {c.surface};
 }}
 QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
     background: {c.primary};
@@ -609,12 +613,6 @@ QHeaderView::section {{
     border-right: 1px solid {c.border};
     border-bottom: 1px solid {c.border};
     padding: 6px;
-}}
-
-/* Checkboxes - ensure indicator has contrasting background for visibility */
-QCheckBox::indicator, QTableView::indicator, QTreeView::indicator, QListView::indicator {{
-    background: white;
-    border: 1px solid {c.text_secondary};
 }}
 """
 
