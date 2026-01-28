@@ -161,13 +161,17 @@ def _setup_bluesky(app: NCSApplication) -> None:
     )
 
 
-def _setup_tiled(app: NCSApplication) -> None:
+def _setup_tiled(app: NCSApplication, config: ConfigManager) -> None:
     """Setup Tiled service if configured.
 
     Initializes the TiledService singleton and connects to the
     Tiled server if enabled in preferences.
+
+    Args:
+        app: The NCS application instance.
+        config: The configuration manager.
     """
-    from lucid.services.tiled_service import TiledService
+    from lucid.services.tiled_service import TiledAuthMode, TiledService
 
     services = app.services
     prefs = PreferencesManager.get_instance()
@@ -180,12 +184,36 @@ def _setup_tiled(app: NCSApplication) -> None:
     url = prefs.get("tiled_url", "")
     api_key = prefs.get("tiled_api_key") or None
 
-    if enabled and url:
-        service.configure(url=url, api_key=api_key, enabled=True)
-        service.connect_async()  # Non-blocking connection
-        logger.info("Tiled service initialized, connecting in background")
+    # Determine auth mode
+    # If tiled_auth_mode is set in preferences, use that
+    # Otherwise, auto-detect: use KEYCLOAK if auth provider is keycloak
+    auth_mode_pref = prefs.get("tiled_auth_mode", "")
+    if auth_mode_pref:
+        auth_mode = TiledAuthMode(auth_mode_pref)
+    elif config.model.auth.provider.type == "keycloak":
+        # Auto-detect: if using Keycloak auth, use Keycloak for Tiled too
+        auth_mode = TiledAuthMode.KEYCLOAK
+        logger.info("Auto-detected Keycloak auth mode for Tiled")
+    elif api_key:
+        auth_mode = TiledAuthMode.API_KEY
     else:
-        service.configure(url=url, api_key=api_key, enabled=False)
+        auth_mode = TiledAuthMode.NONE
+
+    if enabled and url:
+        service.configure(url=url, api_key=api_key, enabled=True, auth_mode=auth_mode)
+
+        if auth_mode == TiledAuthMode.KEYCLOAK:
+            # For Keycloak, connect to SessionManager and defer connection
+            service.connect_session_manager()
+            logger.info(
+                "Tiled service initialized with Keycloak auth, waiting for user login"
+            )
+        else:
+            # For API key or no auth, connect immediately
+            service.connect_async()
+            logger.info("Tiled service initialized, connecting in background")
+    else:
+        service.configure(url=url, api_key=api_key, enabled=False, auth_mode=auth_mode)
         logger.debug("Tiled service initialized (disabled)")
 
     # Register service
@@ -414,7 +442,7 @@ def main() -> int:
     _setup_bluesky(app)
 
     # Setup Tiled data catalog service
-    _setup_tiled(app)
+    _setup_tiled(app, config)
 
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)

@@ -36,6 +36,8 @@ class KeycloakConfig:
         client_secret: OIDC client secret (optional for public clients).
         redirect_uri: OAuth callback URI.
         scope: OIDC scopes to request.
+        proxy_url: SOCKS proxy URL (e.g., socks5://localhost:1080).
+                   If None, auto-detects for *.lbl.gov URLs.
     """
 
     server_url: str
@@ -44,6 +46,23 @@ class KeycloakConfig:
     client_secret: str | None = None
     redirect_uri: str = "http://localhost:8089/callback"
     scope: str = "openid profile email"
+    proxy_url: str | None = None
+
+    def get_proxy_url(self) -> str | None:
+        """Get the proxy URL, auto-detecting for *.lbl.gov if not specified.
+
+        Returns:
+            The proxy URL to use, or None if no proxy needed.
+        """
+        if self.proxy_url is not None:
+            return self.proxy_url if self.proxy_url else None
+
+        # Auto-detect: use SOCKS proxy for *.lbl.gov URLs
+        parsed = urlparse(self.server_url)
+        if parsed.hostname and parsed.hostname.endswith(".lbl.gov"):
+            return "socks5://localhost:1080"
+
+        return None
 
     @property
     def auth_url(self) -> str:
@@ -190,17 +209,37 @@ class KeycloakAuthProvider(AuthProvider):
         return True
 
     async def _ensure_http(self) -> Any:
-        """Ensure aiohttp client session exists."""
+        """Ensure aiohttp client session exists.
+
+        Creates an aiohttp ClientSession with SOCKS proxy support if configured
+        or auto-detected for *.lbl.gov URLs.
+        """
         if self._http is None:
             try:
                 import aiohttp
-
-                self._http = aiohttp.ClientSession()
             except ImportError:
                 raise ImportError(
                     "aiohttp is required for Keycloak authentication. "
-                    "Install with: pip install aiohttp"
+                    "Install with: pip install lucid[keycloak]"
                 )
+
+            connector = None
+            proxy_url = self._config.get_proxy_url()
+
+            if proxy_url:
+                try:
+                    from aiohttp_socks import ProxyConnector
+
+                    connector = ProxyConnector.from_url(proxy_url)
+                    logger.debug("Using SOCKS proxy: {}", proxy_url)
+                except ImportError:
+                    logger.warning(
+                        "aiohttp-socks not installed, proxy {} will not be used. "
+                        "Install with: pip install lucid[keycloak]",
+                        proxy_url,
+                    )
+
+            self._http = aiohttp.ClientSession(connector=connector)
         return self._http
 
     async def authenticate(

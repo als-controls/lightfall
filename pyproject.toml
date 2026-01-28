@@ -50,6 +50,10 @@ acquire = [
 tiled = [
     "tiled[client]>=0.1.0",
 ]
+keycloak = [
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+]
 bcs = [
     "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
 ]

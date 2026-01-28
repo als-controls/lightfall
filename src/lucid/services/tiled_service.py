@@ -29,6 +29,14 @@ class TiledConnectionState(Enum):
     ERROR = "error"
 
 
+class TiledAuthMode(Enum):
+    """Authentication mode for Tiled connection."""
+
+    NONE = "none"  # No authentication
+    API_KEY = "api_key"  # Use API key
+    KEYCLOAK = "keycloak"  # Use Keycloak tokens from SessionManager
+
+
 @dataclass
 class TiledConfig:
     """Configuration for Tiled connection."""
@@ -36,6 +44,7 @@ class TiledConfig:
     url: str = ""
     api_key: str | None = None
     enabled: bool = False
+    auth_mode: TiledAuthMode = TiledAuthMode.NONE
 
 
 class TiledService(QObject):
@@ -75,6 +84,7 @@ class TiledService(QObject):
         self._subscription_token: int | None = None
         self._error_message: str = ""
         self._connect_thread: QThreadFuture | None = None
+        self._session_connected = False
 
         # Health check timer
         self._health_timer = QTimer(self)
@@ -125,6 +135,7 @@ class TiledService(QObject):
         url: str,
         api_key: str | None = None,
         enabled: bool = True,
+        auth_mode: TiledAuthMode | str = TiledAuthMode.NONE,
     ) -> None:
         """Configure the Tiled connection.
 
@@ -134,13 +145,23 @@ class TiledService(QObject):
             url: Tiled server URL.
             api_key: Optional API key for authentication.
             enabled: Whether Tiled integration is enabled.
+            auth_mode: Authentication mode (NONE, API_KEY, or KEYCLOAK).
         """
         # Disconnect if currently connected
         if self._state in (TiledConnectionState.CONNECTED, TiledConnectionState.CONNECTING):
             self.disconnect()
 
-        self._config = TiledConfig(url=url, api_key=api_key, enabled=enabled)
-        logger.info("Tiled configured: url={}, enabled={}", url, enabled)
+        # Convert string to enum if needed
+        if isinstance(auth_mode, str):
+            auth_mode = TiledAuthMode(auth_mode)
+
+        self._config = TiledConfig(url=url, api_key=api_key, enabled=enabled, auth_mode=auth_mode)
+        logger.info(
+            "Tiled configured: url={}, enabled={}, auth_mode={}",
+            url,
+            enabled,
+            auth_mode.value,
+        )
 
     def connect(self) -> bool:
         """Connect to the Tiled server.
@@ -200,6 +221,9 @@ class TiledService(QObject):
         The connection is established in a background thread to avoid
         blocking the UI. The connection_changed signal is emitted when
         the connection state changes.
+
+        For KEYCLOAK auth mode, connection will only proceed if a user
+        is authenticated.
         """
         if not self._config.enabled:
             logger.debug("Tiled not enabled, skipping connection")
@@ -213,38 +237,60 @@ class TiledService(QObject):
             logger.debug("Connection already in progress")
             return
 
+        # For Keycloak auth, check if user is authenticated
+        if self._config.auth_mode == TiledAuthMode.KEYCLOAK:
+            from lucid.auth.session import AuthState, SessionManager
+
+            session_manager = SessionManager.get_instance()
+            if session_manager.state != AuthState.AUTHENTICATED:
+                logger.debug("Keycloak auth mode: waiting for user authentication")
+                self._set_state(
+                    TiledConnectionState.DISCONNECTED,
+                    "Waiting for authentication",
+                )
+                return
+
         self._set_state(TiledConnectionState.CONNECTING, "Connecting to Tiled server...")
 
         # Capture config for background thread
         url = self._config.url
         api_key = self._config.api_key
+        auth_mode = self._config.auth_mode
 
         # Run connection in background thread
         self._connect_thread = QThreadFuture(
             self._do_connect,
             url,
             api_key,
+            auth_mode,
             callback_slot=self._on_connect_complete,
             except_slot=self._on_connect_error,
             name="tiled_connect",
         )
         self._connect_thread.start()
 
-    def _do_connect(self, url: str, api_key: str | None) -> Any:
+    def _do_connect(self, url: str, api_key: str | None, auth_mode: TiledAuthMode) -> Any:
         """Perform the actual connection (runs in background thread).
 
         Args:
             url: Tiled server URL.
             api_key: Optional API key.
+            auth_mode: Authentication mode.
 
         Returns:
             The Tiled client if successful.
         """
         from tiled.client import from_uri
 
-        kwargs = {}
-        if api_key:
+        kwargs: dict[str, Any] = {}
+
+        if auth_mode == TiledAuthMode.API_KEY and api_key:
             kwargs["api_key"] = api_key
+        elif auth_mode == TiledAuthMode.KEYCLOAK:
+            from lucid.services.tiled_auth import KeycloakTiledAuth
+
+            kwargs["auth"] = KeycloakTiledAuth()
+            logger.debug("Using Keycloak authentication for Tiled")
 
         client = from_uri(url, **kwargs)
 
@@ -420,4 +466,43 @@ class TiledService(QObject):
             "connected": self.is_connected,
             "error": self._error_message,
             "has_writer": self._writer is not None,
+            "auth_mode": self._config.auth_mode.value,
         }
+
+    def connect_session_manager(self) -> None:
+        """Connect to SessionManager signals for Keycloak auth mode.
+
+        When using KEYCLOAK auth mode, this connects to SessionManager
+        signals to automatically connect/disconnect when the user
+        logs in/out.
+        """
+        if self._session_connected:
+            return
+
+        from lucid.auth.session import SessionManager
+
+        session_manager = SessionManager.get_instance()
+        session_manager.state_changed.connect(self._on_auth_state_changed)
+        self._session_connected = True
+        logger.debug("TiledService connected to SessionManager")
+
+    def _on_auth_state_changed(self, new_state: Any, old_state: Any) -> None:
+        """Handle authentication state changes.
+
+        Args:
+            new_state: New AuthState.
+            old_state: Previous AuthState.
+        """
+        from lucid.auth.session import AuthState
+
+        if self._config.auth_mode != TiledAuthMode.KEYCLOAK:
+            return
+
+        if new_state == AuthState.AUTHENTICATED:
+            # User logged in - connect to Tiled
+            logger.info("User authenticated, connecting to Tiled")
+            self.connect_async()
+        elif old_state == AuthState.AUTHENTICATED:
+            # User logged out - disconnect from Tiled
+            logger.info("User logged out, disconnecting from Tiled")
+            self.disconnect()
