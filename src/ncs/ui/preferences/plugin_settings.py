@@ -287,7 +287,7 @@ class PluginSettingsPlugin(SettingsPlugin):
         self._table_view.setModel(self._model)
         self._table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table_view.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        self._table_view.setAlternatingRowColors(False)  # Disabled for checkbox visibility
+        self._table_view.setAlternatingRowColors(True)
         self._table_view.setSortingEnabled(False)  # We sort manually by type/name
         self._table_view.verticalHeader().setVisible(False)  # Hide row numbers
 

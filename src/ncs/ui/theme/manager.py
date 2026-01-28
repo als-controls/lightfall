@@ -317,7 +317,7 @@ class ThemeManager(QObject):
         if app is None:
             return
 
-        # Set application style
+        # Set application palette
         if self.is_dark:
             self._apply_dark_palette(app)
         else:
@@ -609,6 +609,11 @@ QHeaderView::section {{
     border-right: 1px solid {c.border};
     border-bottom: 1px solid {c.border};
     padding: 6px;
+}}
+
+/* Checkboxes - light background so native checkmark is visible in dark theme */
+QCheckBox::indicator, QTableView::indicator, QTreeView::indicator, QListView::indicator {{
+    background-color: #ffffff;
 }}
 """
 
