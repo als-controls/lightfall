@@ -5,6 +5,8 @@ This package provides:
 - DeviceFilterProxyModel: Filter proxy for searching devices
 - ThreadTableModel: Table model for background thread monitoring
 - ThreadFilterProxyModel: Filter proxy for thread filtering
+- TiledRecordModel: Table model for Tiled data browser
+- TiledRecordFilterProxy: Filter proxy for Tiled records
 """
 
 from ncs.ui.models.device_tree import (
@@ -21,6 +23,11 @@ from ncs.ui.models.thread_model import (
     ThreadStatus,
     ThreadTableModel,
 )
+from ncs.ui.models.tiled_model import (
+    TiledRecord,
+    TiledRecordFilterProxy,
+    TiledRecordModel,
+)
 
 __all__ = [
     # Device models
@@ -35,4 +42,8 @@ __all__ = [
     "ThreadRecord",
     "ThreadStatus",
     "ThreadTableModel",
+    # Tiled models
+    "TiledRecord",
+    "TiledRecordFilterProxy",
+    "TiledRecordModel",
 ]

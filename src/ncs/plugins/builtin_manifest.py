@@ -126,5 +126,11 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.panels.plugins.logging_plugin:LoggingPanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="tiled_browser",
+            import_path="ncs.ui.panels.plugins.tiled_browser_plugin:TiledBrowserPanelPlugin",
+            preload=True,
+        ),
     ],
 )

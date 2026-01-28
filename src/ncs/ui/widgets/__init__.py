@@ -59,6 +59,8 @@ from ncs.ui.widgets.runengine_control import (
     RunEngineStatusBar,
     StatusIndicator,
 )
+from ncs.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
+from ncs.ui.widgets.tiled_status import TiledStatusWidget
 
 __all__ = [
     # Base classes
@@ -88,4 +90,9 @@ __all__ = [
     # Document stream
     "DocumentStreamWidget",
     "DocumentStreamModel",
+    # Tiled filter
+    "TiledFilterWidget",
+    "TiledFilters",
+    # Tiled status
+    "TiledStatusWidget",
 ]
