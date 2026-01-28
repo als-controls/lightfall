@@ -203,8 +203,9 @@ class PluginTableModel(QAbstractTableModel):
                 # Don't allow disabling protected plugins
                 if plugin.unique_id in self.PROTECTED_PLUGINS:
                     return False
-                # Qt may pass int or enum, so compare as int
-                is_checked = int(value) == int(Qt.CheckState.Checked)
+                # Qt may pass int or enum, handle both
+                check_value = value.value if hasattr(value, 'value') else value
+                is_checked = check_value == Qt.CheckState.Checked.value
                 if is_checked:
                     # Enable: remove from disabled set
                     self._disabled_ids.discard(plugin.unique_id)
