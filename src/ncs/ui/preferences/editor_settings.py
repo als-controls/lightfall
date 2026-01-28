@@ -120,7 +120,7 @@ class ExternalToolsSettingsPlugin(SettingsPlugin):
         # Protocol format info
         protocol_info = QLabel(
             "<b>VSCode:</b> <code>vscode://file/{path}:{line}:{column}</code><br>"
-            "<b>PyCharm:</b> <code>jetbrains://pycharm/navigate/reference?path={path}&amp;line={line}</code>"
+            "<b>PyCharm:</b> <code>jetbrains://pycharm/navigate/reference?project={project}&amp;path={path}:{line}:{column}</code>"
         )
         protocol_info.setWordWrap(True)
         protocol_info.setTextFormat(protocol_info.textFormat())
