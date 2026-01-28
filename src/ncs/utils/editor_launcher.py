@@ -32,14 +32,10 @@ EDITOR_PROTOCOLS = {
     CodeEditor.PYCHARM: "jetbrains",  # JetBrains Toolbox registers this
 }
 
-# Markers that indicate a project root directory
-PROJECT_MARKERS = [
-    ".idea",  # PyCharm/JetBrains project
-    ".git",  # Git repository
-    "pyproject.toml",  # Python project
-    "setup.py",  # Python project
-    ".vscode",  # VSCode project
-]
+# Markers that indicate a project root directory (in priority order)
+# .idea is checked first as it's the definitive PyCharm project marker
+PROJECT_MARKERS_PYCHARM = [".idea"]
+PROJECT_MARKERS_OTHER = [".git", "pyproject.toml", "setup.py", ".vscode"]
 
 
 def is_protocol_registered(protocol: str) -> bool:
@@ -82,7 +78,7 @@ def is_editor_available(editor: CodeEditor) -> bool:
     return is_protocol_registered(protocol)
 
 
-def find_project_root(file_path: str) -> Path | None:
+def find_project_root(file_path: str, markers: list[str] | None = None) -> Path | None:
     """Find the project root directory for a given file.
 
     Walks up the directory tree looking for project markers like
@@ -90,23 +86,48 @@ def find_project_root(file_path: str) -> Path | None:
 
     Args:
         file_path: Absolute path to a file.
+        markers: List of marker files/dirs to look for. If None, uses default markers.
 
     Returns:
         Path to the project root, or None if not found.
     """
+    if markers is None:
+        markers = PROJECT_MARKERS_PYCHARM + PROJECT_MARKERS_OTHER
+
     path = Path(file_path).resolve()
 
     # Start from the file's parent directory
     current = path.parent if path.is_file() else path
 
     while current != current.parent:  # Stop at filesystem root
-        for marker in PROJECT_MARKERS:
+        for marker in markers:
             if (current / marker).exists():
                 logger.debug("Found project root at {} (marker: {})", current, marker)
                 return current
         current = current.parent
 
     return None
+
+
+def find_pycharm_project_root(file_path: str) -> Path | None:
+    """Find the PyCharm project root for a given file.
+
+    First looks for .idea directory (definitive PyCharm marker),
+    then falls back to other markers.
+
+    Args:
+        file_path: Absolute path to a file.
+
+    Returns:
+        Path to the PyCharm project root, or None if not found.
+    """
+    # First, look specifically for .idea (PyCharm's project marker)
+    idea_root = find_project_root(file_path, PROJECT_MARKERS_PYCHARM)
+    if idea_root is not None:
+        return idea_root
+
+    # Fall back to other markers
+    return find_project_root(file_path, PROJECT_MARKERS_OTHER)
 
 
 def get_project_name(file_path: str) -> str:
@@ -163,9 +184,9 @@ def build_editor_url(
     elif editor == CodeEditor.PYCHARM:
         # PyCharm format: jetbrains://pycharm/navigate/reference?project={project}&path={relative_path}:{line}:{column}
         # Requires JetBrains Toolbox to be installed
-        # Path must be relative to the project root
+        # Path must be relative to the PyCharm project root (.idea directory)
 
-        project_root = find_project_root(file_path)
+        project_root = find_pycharm_project_root(file_path)
         if project_root is not None:
             project_name = project if project else project_root.name
             # Make path relative to project root
@@ -181,11 +202,12 @@ def build_editor_url(
             project_name = project if project else get_project_name(file_path)
             relative_path_str = normalized_path
 
-        # URL-encode the project name and path
+        # URL-encode the project name and path (encode slashes too, like PyCharm does)
         encoded_project = urllib.parse.quote(project_name, safe="")
-        encoded_path = urllib.parse.quote(f"{relative_path_str}:{line}:{column}", safe=":/")
+        # PyCharm URL-encodes the path including slashes (%2F)
+        encoded_path = urllib.parse.quote(relative_path_str, safe="")
 
-        return f"jetbrains://pycharm/navigate/reference?project={encoded_project}&path={encoded_path}"
+        return f"jetbrains://pycharm/navigate/reference?project={encoded_project}&path={encoded_path}:{line}:{column}"
 
     else:
         logger.error("Unknown editor: {}", editor)
