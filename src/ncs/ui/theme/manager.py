@@ -611,9 +611,10 @@ QHeaderView::section {{
     padding: 6px;
 }}
 
-/* Checkboxes - light background so native checkmark is visible in dark theme */
+/* Checkboxes - ensure indicator has contrasting background for visibility */
 QCheckBox::indicator, QTableView::indicator, QTreeView::indicator, QListView::indicator {{
-    background-color: #ffffff;
+    background: white;
+    border: 1px solid {c.text_secondary};
 }}
 """
 
