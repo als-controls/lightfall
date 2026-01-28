@@ -202,14 +202,14 @@ class NCSApplication(QObject):
 
         # Configure logging first
         configure_logging(level=log_level, log_file=log_file)
-        logger.info("Initializing NCS application")
+        logger.info("Initializing LUCID application")
 
         # Create Qt application
         self._qt_app = QApplication.instance()  # type: ignore[assignment]
         if self._qt_app is None:
             self._qt_app = QApplication(self._argv)
 
-        self._qt_app.setApplicationName("NCS")
+        self._qt_app.setApplicationName("LUCID")
         self._qt_app.setOrganizationName("ALS")
         self._qt_app.setOrganizationDomain("lbl.gov")
 
@@ -217,7 +217,7 @@ class NCSApplication(QObject):
         self._register_core_services(config_paths)
 
         self._set_state(ApplicationState.READY)
-        logger.info("NCS application initialized")
+        logger.info("LUCID application initialized")
 
     def _register_core_services(
         self, config_paths: list[Path | str] | None = None
@@ -275,13 +275,13 @@ class NCSApplication(QObject):
             return
 
         self._set_state(ApplicationState.SHUTTING_DOWN)
-        logger.info("Shutting down NCS application")
+        logger.info("Shutting down LUCID application")
 
         # Clear services
         self._services.clear()
 
         self._set_state(ApplicationState.TERMINATED)
-        logger.info("NCS application terminated")
+        logger.info("LUCID application terminated")
 
     def quit(self, exit_code: int = 0) -> None:
         """

@@ -1,4 +1,4 @@
-"""Theme manager for NCS application theming.
+"""Theme manager for LUCID application theming.
 
 Provides application-wide theme control with support for:
 - Light, dark, and system-following modes

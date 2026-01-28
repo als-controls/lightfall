@@ -1,4 +1,4 @@
-"""Core infrastructure for the NCS application."""
+"""Core infrastructure for the LUCID application."""
 
 from lucid.core.application import (
     ApplicationState,

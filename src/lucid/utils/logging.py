@@ -1,4 +1,4 @@
-"""Logging abstraction module for NCS.
+"""Logging abstraction module for LUCID.
 
 Provides centralized logging configuration and timing utilities built on loguru.
 """
@@ -37,7 +37,7 @@ _configured = False
 
 
 def _default_format(record: Record) -> str:
-    """Default log format for NCS."""
+    """Default log format for LUCID."""
     level_colors = {
         "TRACE": "dim",
         "DEBUG": "cyan",
@@ -66,7 +66,7 @@ def configure_logging(
     colorize: bool = True,
     format_string: str | None = None,
 ) -> None:
-    """Configure logging for the NCS application.
+    """Configure logging for the LUCID application.
 
     This should be called once at application startup. Subsequent calls
     will reconfigure logging.

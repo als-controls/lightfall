@@ -200,7 +200,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     any UI is shown.
 
     Args:
-        app: The NCS application instance.
+        app: The LUCID application instance.
     """
     from lucid.plugins import PluginLoader, PluginRegistry, MCPToolPlugin
     from lucid.plugins.builtin_manifest import builtin_manifest
@@ -387,7 +387,7 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
 
 
 def main() -> int:
-    """Run the NCS application.
+    """Run the LUCID application.
 
     Returns:
         Exit code (0 for success, non-zero for errors).

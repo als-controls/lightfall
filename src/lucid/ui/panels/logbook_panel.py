@@ -1,4 +1,4 @@
-"""Logbook panel for the NCS application.
+"""Logbook panel for the LUCID application.
 
 Provides a panel wrapping the LogbookWidget that displays the active
 project's logbook and allows users to add notes.

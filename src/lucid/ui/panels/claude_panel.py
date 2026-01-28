@@ -1,7 +1,7 @@
-"""Claude Assistant Panel for NCS.
+"""Claude Assistant Panel for LUCID.
 
 Provides an embedded Claude AI assistant with MCP tools for
-interacting with the NCS application.
+interacting with the LUCID application.
 """
 
 from __future__ import annotations
