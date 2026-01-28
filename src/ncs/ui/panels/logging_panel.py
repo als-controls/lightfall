@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMenu,
     QPushButton,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
@@ -96,7 +97,7 @@ class LocationDelegate(QStyledItemDelegate):
         painter.save()
 
         # Draw selection background if selected
-        if option.state & option.State_Selected:
+        if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
             painter.setPen(option.palette.highlightedText().color())
         else:
