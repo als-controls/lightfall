@@ -1,4 +1,4 @@
-"""NCS - New Control System for the ALS facility."""
+"""LUCID - Lightsource Unified Control Interface Dashboard for the ALS facility."""
 
 try:
     from ncs._version import __version__

@@ -1,17 +1,45 @@
-# NCS - New Control System
+# LUCID
 
-A modern, unified control system for the ALS (Advanced Light Source) facility.
+**Lightsource Unified Control Interface Dashboard**
+
+A modern, unified control system for synchrotron lightsource facilities that provides facility-wide consistency with beamline-specific customization.
 
 ## Overview
 
-NCS provides a Qt-based application for scientific data acquisition and hardware controls,
-featuring:
+LUCID is designed for the Advanced Light Source (ALS) facility, providing:
 
-- Facility-wide consistency with beamline-specific customization
-- API-first, modular architecture enabling extensibility
-- LLM/AI integration for user assistance and automation
-- FAIR-compliant data management
-- Secure remote operations
+- **Unified Interface**: Consistent look-and-feel across beamlines with skinnable themes
+- **API-First Architecture**: Modular, extensible design enabling automation and integration
+- **LLM/AI Integration**: Claude-powered chatbot for natural language control and assistance
+- **FAIR-Compliant Data Management**: Integration with Tiled for data cataloging and access
+- **Secure Remote Operations**: Full remote operation capability with fine-grained access control
+
+## Features
+
+### User Interface
+- Progressive disclosure: user panels with expert panels behind authorization
+- Scripting panel with Jupyter-lab style interface
+- LLM panel for controlling panels via natural language
+- GUI Builder for drag-and-drop interface creation
+- Persistent user preferences saved across sessions
+
+### Device Management
+- Centralized device catalog with lifecycle tracking
+- Real-time monitoring via EPICS Channel Access
+- Version-controlled device configurations
+- Rich high-level controls integrated into workflows
+
+### Data Acquisition
+- Bluesky-based acquisition engine
+- Flexible signal/stream selection with real-time visualization
+- Interactive, pausable, restartable acquisition
+- Automatic data persistence to Tiled catalog
+
+### Data Browser
+- Browse and search data stored in Tiled server
+- Filter by date range, plan type, exit status
+- Pagination for large datasets
+- Click/double-click signals for integration with analysis tools
 
 ## Installation
 
@@ -35,8 +63,39 @@ pip install -e ".[dev]"
 ### Running the Application
 
 ```bash
-ncs
+lucid
 ```
+
+## Configuration
+
+LUCID uses a layered configuration system:
+
+1. **System defaults** - Built-in defaults
+2. **Site configuration** - Facility-wide settings
+3. **User preferences** - Personal customizations
+
+Configuration files are stored in:
+- Windows: `%APPDATA%\lucid\`
+- Linux/Mac: `~/.config/lucid/`
+
+## Architecture
+
+LUCID is built on:
+
+- **PySide6** - Qt for Python GUI framework
+- **Bluesky** - Data acquisition framework
+- **Ophyd** - Device abstraction layer
+- **Tiled** - Data catalog and access
+- **EPICS** - Control system communication
+
+### Plugin System
+
+LUCID supports plugins for:
+- **Panels** - Custom UI panels
+- **Settings** - Preference pages
+- **Status Bar** - Status indicators
+- **Engines** - Acquisition backends
+- **Plans** - Scan procedures
 
 ## Development
 
@@ -56,6 +115,31 @@ ruff check src tests
 mypy src
 ```
 
+## Project Structure
+
+```
+ncs/
+├── src/ncs/
+│   ├── acquire/      # Data acquisition engine
+│   ├── auth/         # Authentication & authorization
+│   ├── config/       # Configuration management
+│   ├── core/         # Core application classes
+│   ├── devices/      # Device catalog & backends
+│   ├── plugins/      # Plugin system
+│   ├── services/     # Application services (Tiled, etc.)
+│   ├── ui/           # User interface
+│   │   ├── panels/   # Panel implementations
+│   │   ├── widgets/  # Reusable widgets
+│   │   ├── preferences/  # Settings UI
+│   │   └── theme/    # Theming system
+│   └── utils/        # Utilities
+└── tests/            # Test suite
+```
+
 ## License
 
 BSD-3-Clause
+
+## Acknowledgments
+
+LUCID is developed by the Advanced Light Source Controls Team at Lawrence Berkeley National Laboratory.

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ncs"
 dynamic = ["version"]
-description = "New Control System - A modern control system for the ALS facility"
+description = "LUCID - Lightsource Unified Control Interface Dashboard"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.11"
@@ -71,9 +71,11 @@ docs = [
 
 [project.scripts]
 ncs = "ncs.main:cli"
+lucid = "ncs.main:cli"
 
 [project.gui-scripts]
 ncs-gui = "ncs.main:cli"
+lucid-gui = "ncs.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/als-computing/ncs"

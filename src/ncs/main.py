@@ -1,4 +1,4 @@
-"""Main entry point for the NCS application."""
+"""Main entry point for the LUCID application."""
 
 from __future__ import annotations
 

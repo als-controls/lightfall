@@ -1,4 +1,4 @@
-"""Main window for the NCS application.
+"""Main window for the LUCID application.
 
 Provides the primary application window with:
 - Dock-based panel system
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 class NCSMainWindow(QMainWindow):
     """
-    Main application window for NCS.
+    Main application window for LUCID.
 
     NCSMainWindow provides:
     - Menu bar with standard and custom menus
@@ -99,7 +99,7 @@ class NCSMainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         """Configure window properties."""
-        self.setWindowTitle("NCS - New Control System")
+        self.setWindowTitle("LUCID - Lightsource Unified Control Interface Dashboard")
         self.setMinimumSize(1024, 768)
 
         # Enable dock nesting and tabbing
