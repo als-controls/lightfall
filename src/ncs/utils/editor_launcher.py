@@ -161,14 +161,29 @@ def build_editor_url(
         return f"vscode://file/{normalized_path}:{line}:{column}"
 
     elif editor == CodeEditor.PYCHARM:
-        # PyCharm format: jetbrains://pycharm/navigate/reference?project={project}&path={path}:{line}:{column}
+        # PyCharm format: jetbrains://pycharm/navigate/reference?project={project}&path={relative_path}:{line}:{column}
         # Requires JetBrains Toolbox to be installed
-        if project is None:
-            project = get_project_name(file_path)
+        # Path must be relative to the project root
+
+        project_root = find_project_root(file_path)
+        if project_root is not None:
+            project_name = project if project else project_root.name
+            # Make path relative to project root
+            try:
+                relative_path = Path(file_path).resolve().relative_to(project_root)
+                # Use forward slashes for URL
+                relative_path_str = str(relative_path).replace("\\", "/")
+            except ValueError:
+                # File is not under project root, use absolute path as fallback
+                relative_path_str = normalized_path
+        else:
+            # No project root found, use absolute path and derive project name
+            project_name = project if project else get_project_name(file_path)
+            relative_path_str = normalized_path
 
         # URL-encode the project name and path
-        encoded_project = urllib.parse.quote(project, safe="")
-        encoded_path = urllib.parse.quote(f"{normalized_path}:{line}:{column}", safe=":/")
+        encoded_project = urllib.parse.quote(project_name, safe="")
+        encoded_path = urllib.parse.quote(f"{relative_path_str}:{line}:{column}", safe=":/")
 
         return f"jetbrains://pycharm/navigate/reference?project={encoded_project}&path={encoded_path}"
 
