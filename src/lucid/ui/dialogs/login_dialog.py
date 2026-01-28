@@ -105,6 +105,8 @@ class LoginDialog(QDialog):
         Args:
             message: Custom message to display.
         """
+        from PySide6.QtWidgets import QFormLayout, QLineEdit
+
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -136,8 +138,41 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(8)
 
+        # Check provider type to determine UI mode
+        provider = self._session_manager._provider
+        self._use_browser_auth = provider and provider.supports_browser_auth
+        self._use_password_auth = provider and provider.supports_password_auth
+
+        # Username/password fields (for local auth)
+        self._username_edit: QLineEdit | None = None
+        self._password_edit: QLineEdit | None = None
+
+        if self._use_password_auth:
+            form_layout = QFormLayout()
+            form_layout.setSpacing(8)
+
+            self._username_edit = QLineEdit()
+            self._username_edit.setPlaceholderText("Enter username")
+            self._username_edit.setMinimumHeight(32)
+            form_layout.addRow("Username:", self._username_edit)
+
+            self._password_edit = QLineEdit()
+            self._password_edit.setPlaceholderText("Enter password")
+            self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self._password_edit.setMinimumHeight(32)
+            self._password_edit.returnPressed.connect(self._on_login_clicked)
+            form_layout.addRow("Password:", self._password_edit)
+
+            layout.addLayout(form_layout)
+            layout.addSpacing(8)
+
         # Login button
-        self._login_btn = QPushButton("Login with Keycloak")
+        if self._use_browser_auth:
+            login_text = "Login with Keycloak"
+        else:
+            login_text = "Login"
+
+        self._login_btn = QPushButton(login_text)
         self._login_btn.setMinimumHeight(40)
         self._login_btn.setStyleSheet(
             """
@@ -173,11 +208,19 @@ class LoginDialog(QDialog):
         self._progress_bar.setTextVisible(False)
         progress_layout.addWidget(self._progress_bar)
 
-        self._progress_label = QLabel("Waiting for browser login...")
+        progress_text = "Waiting for browser login..." if self._use_browser_auth else "Logging in..."
+        self._progress_label = QLabel(progress_text)
         progress_layout.addWidget(self._progress_label)
 
         self._progress_widget.setVisible(False)
         layout.addWidget(self._progress_widget)
+
+        # Error label (hidden by default)
+        self._error_label = QLabel()
+        self._error_label.setStyleSheet("color: #cc0000; font-size: 12px;")
+        self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._error_label.setVisible(False)
+        layout.addWidget(self._error_label)
 
         # Guest button
         if self._allow_guest:
@@ -194,10 +237,18 @@ class LoginDialog(QDialog):
         )
 
         # Info text
-        info = QLabel(
-            "Guest access provides read-only permissions.\n"
-            "Full access requires authentication."
-        )
+        if self._use_password_auth and not self._use_browser_auth:
+            info_text = (
+                "Development mode: use admin/admin, user/user, etc.\n"
+                "Guest access provides read-only permissions."
+            )
+        else:
+            info_text = (
+                "Guest access provides read-only permissions.\n"
+                "Full access requires authentication."
+            )
+
+        info = QLabel(info_text)
         info.setStyleSheet("color: gray; font-size: 11px;")
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(info)
@@ -209,31 +260,54 @@ class LoginDialog(QDialog):
 
     def _on_login_clicked(self) -> None:
         """Handle login button click."""
+        # Get credentials if using password auth
+        username = None
+        password = None
+
+        if self._use_password_auth and self._username_edit and self._password_edit:
+            username = self._username_edit.text().strip()
+            password = self._password_edit.text()
+
+            if not username or not password:
+                self._show_error("Please enter username and password")
+                return
+
         self._login_btn.setEnabled(False)
         if self._guest_btn:
             self._guest_btn.setEnabled(False)
+        if self._username_edit:
+            self._username_edit.setEnabled(False)
+        if self._password_edit:
+            self._password_edit.setEnabled(False)
         self._progress_widget.setVisible(True)
+        self._error_label.setVisible(False)
 
         self.login_started.emit()
-        logger.info("Starting Keycloak login flow")
+        logger.info("Starting login flow")
 
         # Run async login in a background thread
         self._login_thread = QThreadFuture(
             self._do_login_sync,
+            username,
+            password,
             callback_slot=self._on_login_complete,
             except_slot=self._on_login_error,
-            name="keycloak_login",
+            name="login",
         )
         self._login_thread.start()
 
-    def _do_login_sync(self) -> bool:
+    def _do_login_sync(self, username: str | None, password: str | None) -> bool:
         """Perform the login synchronously (runs in background thread).
+
+        Args:
+            username: Username for password auth.
+            password: Password for password auth.
 
         Returns:
             True if login succeeded.
         """
         # Run the async login in this thread's event loop
-        return asyncio.run(self._session_manager.login())
+        return asyncio.run(self._session_manager.login(username=username, password=password))
 
     def _on_login_complete(self, success: bool) -> None:
         """Handle login completion (called in main thread).
@@ -247,6 +321,8 @@ class LoginDialog(QDialog):
         else:
             # Login failed or was cancelled
             self._reset_ui()
+            if self._use_password_auth:
+                self._show_error("Invalid username or password")
 
     def _on_login_error(self, error: Exception) -> None:
         """Handle login error (called in main thread).
@@ -256,14 +332,29 @@ class LoginDialog(QDialog):
         """
         logger.error("Login failed: {}", error)
         self._reset_ui()
-        self._progress_label.setText("Login failed. Please try again.")
+        self._show_error("Login failed. Please try again.")
 
     def _reset_ui(self) -> None:
         """Reset UI after failed login attempt."""
         self._login_btn.setEnabled(True)
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
+        if self._username_edit:
+            self._username_edit.setEnabled(True)
+        if self._password_edit:
+            self._password_edit.setEnabled(True)
+            self._password_edit.clear()
+            self._password_edit.setFocus()
         self._progress_widget.setVisible(False)
+
+    def _show_error(self, message: str) -> None:
+        """Show an error message in the dialog.
+
+        Args:
+            message: Error message to display.
+        """
+        self._error_label.setText(message)
+        self._error_label.setVisible(True)
 
     def _on_guest_clicked(self) -> None:
         """Handle guest button click."""
