@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
@@ -215,27 +215,25 @@ class PluginTableModel(QAbstractTableModel):
         return False
 
 
-class PluginSettingsPlugin(QObject, SettingsPlugin):
+class PluginSettingsPlugin(SettingsPlugin):
     """Settings plugin for managing installed plugins.
 
     Allows users to view all discovered plugins and enable/disable them.
     Disabled plugins are persisted in preferences and will not be loaded
     on the next application start.
 
-    Signals:
-        plugin_disabled: Emitted when a plugin is disabled (unique_id).
-            Observers can connect to this signal to perform live unloading.
+    Note:
+        Newly disabled plugins are logged. Live unloading requires
+        application restart since Qt Signal cannot be used with ABC-based
+        plugin types.
     """
-
-    # Signal emitted when a plugin is disabled
-    plugin_disabled = Signal(str)
 
     def __init__(self) -> None:
         """Initialize the plugin settings plugin."""
-        QObject.__init__(self)
         self._widget: QWidget | None = None
         self._table_view: QTableView | None = None
         self._model: PluginTableModel | None = None
+        self._newly_disabled: set[str] = set()
 
     @property
     def name(self) -> str:
@@ -348,14 +346,14 @@ class PluginSettingsPlugin(QObject, SettingsPlugin):
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
 
-        Saves the disabled plugin list and emits plugin_disabled signal
-        for any newly disabled plugins.
+        Saves the disabled plugin list. Newly disabled plugins are logged
+        and will not be loaded on next application restart.
         """
         if not self._model:
             return
 
         # Get newly disabled plugins before saving
-        newly_disabled = self._model.get_newly_disabled()
+        self._newly_disabled = self._model.get_newly_disabled()
 
         # Get current disabled IDs
         disabled_ids = self._model.get_disabled_ids()
@@ -367,13 +365,20 @@ class PluginSettingsPlugin(QObject, SettingsPlugin):
         logger.debug(
             "Saved plugin settings: {} disabled, {} newly disabled",
             len(disabled_ids),
-            len(newly_disabled),
+            len(self._newly_disabled),
         )
 
-        # Emit signal for each newly disabled plugin
-        for unique_id in newly_disabled:
-            logger.info("Plugin disabled: {}", unique_id)
-            self.plugin_disabled.emit(unique_id)
+        # Log newly disabled plugins
+        for unique_id in self._newly_disabled:
+            logger.info("Plugin disabled (restart required): {}", unique_id)
+
+    def get_newly_disabled(self) -> set[str]:
+        """Get plugins that were newly disabled in the last save.
+
+        Returns:
+            Set of unique_ids that were newly disabled.
+        """
+        return self._newly_disabled
 
     def validate(self) -> list[str]:
         """Validate current widget values.
