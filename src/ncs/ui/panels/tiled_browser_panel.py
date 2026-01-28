@@ -239,8 +239,8 @@ class TiledBrowserPanel(BasePanel):
     def _on_refresh_clicked(self) -> None:
         """Handle refresh button click."""
         if self._tiled_service.state == TiledConnectionState.ERROR:
-            # Try to reconnect
-            self._tiled_service.connect()
+            # Try to reconnect asynchronously
+            self._tiled_service.connect_async()
         else:
             self._load_data()
 

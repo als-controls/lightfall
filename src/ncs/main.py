@@ -182,8 +182,8 @@ def _setup_tiled(app: NCSApplication) -> None:
 
     if enabled and url:
         service.configure(url=url, api_key=api_key, enabled=True)
-        service.connect()
-        logger.info("Tiled service initialized and connected")
+        service.connect_async()  # Non-blocking connection
+        logger.info("Tiled service initialized, connecting in background")
     else:
         service.configure(url=url, api_key=api_key, enabled=False)
         logger.debug("Tiled service initialized (disabled)")
