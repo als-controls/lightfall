@@ -7,12 +7,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from queue import Empty, PriorityQueue
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from PySide6.QtCore import QObject, Signal
 
 from ncs.acquire.engine.state import EngineState
 from ncs.utils.logging import logger
+
+if TYPE_CHECKING:
+    from ncs.ui.toast import ToastManager
 
 
 @dataclass(order=True)
@@ -69,11 +72,15 @@ class BaseEngine(QObject):
     sigReady = Signal()
     sigStateChanged = Signal(str)
 
-    def __init__(self, name: str = "engine", **kwargs: Any) -> None:
+    def __init__(
+        self, name: str = "engine", *, toast_notifications: bool = True, **kwargs: Any
+    ) -> None:
         """Initialize the base engine.
 
         Args:
             name: Human-readable engine identifier.
+            toast_notifications: Whether to show toast notifications on run
+                completion, abort, and errors. Defaults to True.
             **kwargs: Additional arguments (passed to QObject).
         """
         super().__init__()
@@ -82,11 +89,18 @@ class BaseEngine(QObject):
         self._queue: PriorityQueue[PrioritizedProcedure] = PriorityQueue()
         self._subscribers: dict[int, Callable[[str, dict], Any]] = {}
         self._next_token = 0
+        self._toast_notifications = toast_notifications
+        self._toast_manager: ToastManager | None = None
 
         # Connect state signals for ready check
         self.sigFinish.connect(self._check_if_ready)
         self.sigAbort.connect(self._check_if_ready)
         self.sigException.connect(self._check_if_ready)
+
+        # Connect toast notification handlers
+        self.sigFinish.connect(self._on_finish_toast)
+        self.sigAbort.connect(self._on_abort_toast)
+        self.sigException.connect(self._on_exception_toast)
 
     # === Properties ===
 
@@ -114,6 +128,24 @@ class BaseEngine(QObject):
     def queue_size(self) -> int:
         """Number of procedures waiting in the queue."""
         return self._queue.qsize()
+
+    @property
+    def toast_notifications(self) -> bool:
+        """Whether toast notifications are enabled for run events."""
+        return self._toast_notifications
+
+    @toast_notifications.setter
+    def toast_notifications(self, value: bool) -> None:
+        """Enable or disable toast notifications."""
+        self._toast_notifications = value
+
+    def _get_toast_manager(self) -> ToastManager:
+        """Get the ToastManager instance (lazy initialization)."""
+        if self._toast_manager is None:
+            from ncs.ui.toast import ToastManager
+
+            self._toast_manager = ToastManager.get_instance()
+        return self._toast_manager
 
     # === Queue Operations ===
 
@@ -218,6 +250,43 @@ class BaseEngine(QObject):
         """Check if queue is empty and emit sigReady if so."""
         if self._state == EngineState.IDLE and self._queue.empty():
             self.sigReady.emit()
+
+    # === Toast Notification Handlers ===
+
+    def _on_finish_toast(self) -> None:
+        """Show toast notification when a run finishes successfully."""
+        if not self._toast_notifications:
+            return
+        try:
+            toast = self._get_toast_manager()
+            toast.success("Run Complete", f"{self._name}: Run finished successfully")
+        except Exception as ex:
+            logger.warning(f"[{self._name}] Failed to show finish toast: {ex}")
+
+    def _on_abort_toast(self) -> None:
+        """Show toast notification when a run is aborted."""
+        if not self._toast_notifications:
+            return
+        try:
+            toast = self._get_toast_manager()
+            toast.warning("Run Aborted", f"{self._name}: Run was aborted")
+        except Exception as ex:
+            logger.warning(f"[{self._name}] Failed to show abort toast: {ex}")
+
+    def _on_exception_toast(self, exception: Exception) -> None:
+        """Show toast notification when a run encounters an error.
+
+        Args:
+            exception: The exception that occurred.
+        """
+        if not self._toast_notifications:
+            return
+        try:
+            toast = self._get_toast_manager()
+            error_msg = str(exception) if str(exception) else type(exception).__name__
+            toast.error("Run Failed", f"{self._name}: {error_msg}")
+        except Exception as ex:
+            logger.warning(f"[{self._name}] Failed to show exception toast: {ex}")
 
     # === Methods to Override ===
 

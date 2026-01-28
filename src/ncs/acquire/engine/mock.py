@@ -40,9 +40,14 @@ class MockEngine(BaseEngine):
         assert outputs[1][0] == "stop"
     """
 
-    def __init__(self) -> None:
-        """Initialize the mock engine."""
-        super().__init__(name="mock")
+    def __init__(self, *, toast_notifications: bool = True) -> None:
+        """Initialize the mock engine.
+
+        Args:
+            toast_notifications: Whether to show toast notifications on run
+                completion, abort, and errors. Defaults to True.
+        """
+        super().__init__(name="mock", toast_notifications=toast_notifications)
         self._paused = False
         self._current_uid: str | None = None
 

@@ -65,13 +65,15 @@ class BlueskyEngine(BaseEngine):
     # Backward compatibility alias
     sigDocumentYield = Signal(str, dict)
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, toast_notifications: bool = True, **kwargs: Any) -> None:
         """Initialize the BlueskyEngine.
 
         Args:
+            toast_notifications: Whether to show toast notifications on run
+                completion, abort, and errors. Defaults to True.
             **kwargs: Additional arguments passed to Bluesky's RunEngine.
         """
-        super().__init__(name="bluesky")
+        super().__init__(name="bluesky", toast_notifications=toast_notifications)
 
         self._RE: RunEngine | None = None
         self._re_kwargs = kwargs

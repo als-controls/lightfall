@@ -4,6 +4,7 @@ Tests the Engine protocol, BaseEngine, BlueskyEngine, and MockEngine.
 """
 
 import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -266,3 +267,100 @@ class TestBackwardCompatibility:
             assert engine is not None
         finally:
             reset_engine()
+
+
+class TestToastNotifications:
+    """Tests for toast notifications in engines."""
+
+    def test_toast_notifications_enabled_by_default(self, qapp) -> None:
+        """Test that toast notifications are enabled by default."""
+        engine = MockEngine()
+        assert engine.toast_notifications is True
+
+    def test_toast_notifications_can_be_disabled(self, qapp) -> None:
+        """Test that toast notifications can be disabled at init."""
+        engine = MockEngine(toast_notifications=False)
+        assert engine.toast_notifications is False
+
+    def test_toast_notifications_property_setter(self, qapp) -> None:
+        """Test that toast_notifications property can be set."""
+        engine = MockEngine()
+        assert engine.toast_notifications is True
+
+        engine.toast_notifications = False
+        assert engine.toast_notifications is False
+
+        engine.toast_notifications = True
+        assert engine.toast_notifications is True
+
+    @patch("ncs.ui.toast.ToastManager")
+    def test_finish_shows_success_toast(self, mock_toast_class, qapp) -> None:
+        """Test that finishing a run shows a success toast."""
+        mock_toast = MagicMock()
+        mock_toast_class.get_instance.return_value = mock_toast
+
+        engine = MockEngine()
+        engine.submit("test_procedure")
+
+        mock_toast.success.assert_called_once()
+        args = mock_toast.success.call_args
+        assert "Complete" in args[0][0]
+        assert "mock" in args[0][1]
+
+    @patch("ncs.ui.toast.ToastManager")
+    def test_abort_shows_warning_toast(self, mock_toast_class, qapp) -> None:
+        """Test that aborting a run shows a warning toast."""
+        mock_toast = MagicMock()
+        mock_toast_class.get_instance.return_value = mock_toast
+
+        engine = MockEngine()
+        # Need to be in RUNNING state to abort
+        engine._set_state(EngineState.RUNNING)
+        engine.abort("test reason")
+
+        mock_toast.warning.assert_called_once()
+        args = mock_toast.warning.call_args
+        assert "Abort" in args[0][0]
+        assert "mock" in args[0][1]
+
+    @patch("ncs.ui.toast.ToastManager")
+    def test_exception_shows_error_toast(self, mock_toast_class, qapp) -> None:
+        """Test that an exception shows an error toast."""
+        mock_toast = MagicMock()
+        mock_toast_class.get_instance.return_value = mock_toast
+
+        engine = MockEngine()
+        test_exception = ValueError("Test error message")
+        engine.sigException.emit(test_exception)
+
+        mock_toast.error.assert_called_once()
+        args = mock_toast.error.call_args
+        assert "Failed" in args[0][0]
+        assert "Test error message" in args[0][1]
+
+    @patch("ncs.ui.toast.ToastManager")
+    def test_disabled_notifications_no_toast(self, mock_toast_class, qapp) -> None:
+        """Test that disabled notifications don't show toasts."""
+        mock_toast = MagicMock()
+        mock_toast_class.get_instance.return_value = mock_toast
+
+        engine = MockEngine(toast_notifications=False)
+        engine.submit("test_procedure")
+
+        mock_toast.success.assert_not_called()
+        mock_toast.warning.assert_not_called()
+        mock_toast.error.assert_not_called()
+
+    @patch("ncs.ui.toast.ToastManager")
+    def test_toast_manager_lazy_initialization(self, mock_toast_class, qapp) -> None:
+        """Test that ToastManager is lazily initialized."""
+        engine = MockEngine(toast_notifications=False)
+
+        # ToastManager should not be fetched when disabled
+        mock_toast_class.get_instance.assert_not_called()
+
+        engine.toast_notifications = True
+        engine.sigFinish.emit()
+
+        # Now it should be fetched
+        mock_toast_class.get_instance.assert_called_once()
