@@ -484,11 +484,15 @@ class TiledBrowserPanel(BasePanel):
     @Slot(object)
     def _on_records_loaded(
         self,
-        result: tuple[list[TiledRecord], int, list[str]],
+        records: list[TiledRecord],
+        total_count: int,
+        plan_names: list[str],
     ) -> None:
-        """Handle records loaded from background thread."""
-        records, total_count, plan_names = result
+        """Handle records loaded from background thread.
 
+        Note: @threads.method() unpacks tuple return values, so this
+        receives 3 separate arguments instead of a single tuple.
+        """
         self._loading = False
         self._total_records = total_count
         self._model.set_records(records)
