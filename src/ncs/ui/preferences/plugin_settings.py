@@ -48,6 +48,9 @@ class PluginTableModel(QAbstractTableModel):
 
     COLUMNS = ["Enabled", "Type", "Name", "Status", "Manifest"]
 
+    # Plugins that cannot be disabled (would lock user out)
+    PROTECTED_PLUGINS = {"settings:plugins"}
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the plugin table model."""
         super().__init__(parent)
@@ -174,7 +177,12 @@ class PluginTableModel(QAbstractTableModel):
         flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
         if index.column() == 0:  # Enabled column is checkable
-            flags |= Qt.ItemFlag.ItemIsUserCheckable
+            # Don't allow unchecking protected plugins
+            row = index.row()
+            if 0 <= row < len(self._plugins):
+                plugin = self._plugins[row]
+                if plugin.unique_id not in self.PROTECTED_PLUGINS:
+                    flags |= Qt.ItemFlag.ItemIsUserCheckable
 
         return flags
 
@@ -192,6 +200,9 @@ class PluginTableModel(QAbstractTableModel):
             row = index.row()
             if 0 <= row < len(self._plugins):
                 plugin = self._plugins[row]
+                # Don't allow disabling protected plugins
+                if plugin.unique_id in self.PROTECTED_PLUGINS:
+                    return False
                 if value == Qt.CheckState.Checked:
                     # Enable: remove from disabled set
                     self._disabled_ids.discard(plugin.unique_id)

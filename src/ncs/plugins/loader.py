@@ -239,8 +239,11 @@ class PluginLoader(QObject):
 
             # Try to register (checks for duplicates)
             if self._registry.register(plugin_info):
-                # Check if this plugin is disabled
-                if plugin_info.unique_id in disabled_ids:
+                # Check if this plugin is disabled (but never disable settings:plugins)
+                if (
+                    plugin_info.unique_id in disabled_ids
+                    and plugin_info.unique_id != "settings:plugins"
+                ):
                     plugin_info.status = PluginStatus.DISABLED
                     logger.info(
                         "Plugin '{}' is disabled, not loading",
