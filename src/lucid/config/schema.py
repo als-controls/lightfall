@@ -27,12 +27,14 @@ class AuthProviderConfig(BaseModel):
     """Authentication provider configuration."""
 
     type: Literal["local", "keycloak"] = Field(
-        default="local", description="Auth provider type"
+        default="keycloak", description="Auth provider type"
     )
     # Keycloak-specific settings
-    server_url: str = Field(default="", description="Keycloak server URL")
-    realm: str = Field(default="", description="Keycloak realm")
-    client_id: str = Field(default="ncs", description="OIDC client ID")
+    server_url: str = Field(
+        default="https://bcgkyclk.als.lbl.gov", description="Keycloak server URL"
+    )
+    realm: str = Field(default="ncs", description="Keycloak realm")
+    client_id: str = Field(default="LUCID", description="OIDC client ID")
     client_secret: str = Field(default="", description="OIDC client secret (optional)")
     redirect_uri: str = Field(
         default="http://localhost:8089/callback",
