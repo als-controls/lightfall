@@ -35,18 +35,17 @@ class PluginTableModel(QAbstractTableModel):
     """Table model for displaying plugins.
 
     Columns:
-        0: Enabled (checkbox)
+        0: Name (with checkbox for enabled/disabled)
         1: Type
-        2: Name
-        3: Status
-        4: Manifest
+        2: Status
+        3: Manifest
 
     The model allows toggling plugins enabled/disabled via the checkbox
-    in column 0. The disabled state is tracked separately from the
+    in the Name column. The disabled state is tracked separately from the
     plugin's actual status.
     """
 
-    COLUMNS = ["Enabled", "Type", "Name", "Status", "Manifest"]
+    COLUMNS = ["Name", "Type", "Status", "Manifest"]
 
     # Plugins that cannot be disabled (would lock user out)
     PROTECTED_PLUGINS = {"settings:plugins"}
@@ -143,28 +142,27 @@ class PluginTableModel(QAbstractTableModel):
 
         plugin = self._plugins[row]
 
-        if col == 0:  # Enabled column (checkbox)
+        if col == 0:  # Name column (with checkbox)
             if role == Qt.ItemDataRole.CheckStateRole:
                 is_disabled = plugin.unique_id in self._disabled_ids
                 return Qt.CheckState.Unchecked if is_disabled else Qt.CheckState.Checked
-            return None
+            elif role == Qt.ItemDataRole.DisplayRole:
+                return plugin.name
 
-        if role == Qt.ItemDataRole.DisplayRole:
+        elif role == Qt.ItemDataRole.DisplayRole:
             if col == 1:  # Type
                 return plugin.type_name
-            elif col == 2:  # Name
-                return plugin.name
-            elif col == 3:  # Status
+            elif col == 2:  # Status
                 return plugin.status.name
-            elif col == 4:  # Manifest
+            elif col == 3:  # Manifest
                 return plugin.manifest_name or ""
 
         if role == Qt.ItemDataRole.ToolTipRole:
-            if col == 3:  # Status tooltip
+            if col == 2:  # Status tooltip
                 if plugin.error:
                     return f"Error: {plugin.error}"
                 return plugin.status.name
-            elif col == 4:  # Manifest tooltip
+            elif col == 3:  # Manifest tooltip
                 return plugin.import_path
 
         return None
@@ -297,12 +295,10 @@ class PluginSettingsPlugin(SettingsPlugin):
         # Configure column widths
         header = self._table_view.horizontalHeader()
         if header:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Enabled
-            header.resizeSection(0, 60)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Name
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Name
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Status
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Manifest
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Manifest
 
         layout.addWidget(self._table_view, stretch=1)
 
