@@ -204,6 +204,27 @@ class NCSMainWindow(QMainWindow):
         prefs_action.triggered.connect(self._on_preferences)
         tools_menu.addAction(prefs_action)
 
+        # User menu
+        user_menu = menubar.addMenu("&User")
+
+        # Login action
+        self._login_action = QAction("&Login...", self)
+        self._login_action.triggered.connect(self._on_login)
+        user_menu.addAction(self._login_action)
+
+        # Logout action
+        self._logout_action = QAction("Log&out", self)
+        self._logout_action.triggered.connect(self._on_logout)
+        self._logout_action.setEnabled(False)  # Disabled until logged in
+        user_menu.addAction(self._logout_action)
+
+        user_menu.addSeparator()
+
+        # User info (disabled, just shows current user)
+        self._user_info_action = QAction("Guest", self)
+        self._user_info_action.setEnabled(False)
+        user_menu.addAction(self._user_info_action)
+
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
@@ -561,6 +582,7 @@ class NCSMainWindow(QMainWindow):
     def _on_user_changed(self, user: Any) -> None:
         """Handle user change."""
         self._update_panels_menu()  # Available panels may change
+        self._update_user_menu(user)
 
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:
@@ -614,6 +636,39 @@ class NCSMainWindow(QMainWindow):
             "A modern control system for the ALS facility.\n\n"
             "Version: Development",
         )
+
+    def _on_login(self) -> None:
+        """Show login dialog."""
+        import asyncio
+
+        from lucid.ui.dialogs import LoginDialog
+
+        dialog = LoginDialog(self)
+        dialog.exec()
+
+    def _on_logout(self) -> None:
+        """Logout current user."""
+        import asyncio
+
+        asyncio.ensure_future(self._session_manager.logout())
+
+    def _update_user_menu(self, user: Any) -> None:
+        """Update user menu state based on current user.
+
+        Args:
+            user: The current User object.
+        """
+        from lucid.auth.session import ANONYMOUS_USER
+
+        is_authenticated = user.username != ANONYMOUS_USER.username
+
+        self._login_action.setEnabled(not is_authenticated)
+        self._logout_action.setEnabled(is_authenticated)
+
+        if is_authenticated:
+            self._user_info_action.setText(f"Logged in as: {user.display_name}")
+        else:
+            self._user_info_action.setText("Guest")
 
     def _toggle_toolbar(self, checked: bool) -> None:
         """Toggle toolbar visibility."""

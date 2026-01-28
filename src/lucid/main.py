@@ -295,6 +295,73 @@ def _setup_first_launch(project_service: ProjectService) -> None:
         project_service.open_project(welcome)
 
 
+def _show_startup_login(window: NCSMainWindow, config: ConfigManager) -> None:
+    """Show login dialog on application startup if using Keycloak auth.
+
+    Args:
+        window: The main window instance.
+        config: The configuration manager.
+    """
+    from lucid.ui.dialogs import LoginDialog
+    from lucid.ui.dialogs.login_dialog import LoginResult
+
+    auth_type = config.model.auth.provider.type
+
+    # Only show login dialog for Keycloak auth
+    if auth_type != "keycloak":
+        logger.debug("Skipping startup login (not using Keycloak)")
+        return
+
+    dialog = LoginDialog(
+        parent=window,
+        title="Welcome to LUCID",
+        allow_guest=True,
+        show_on_expiry=False,
+    )
+
+    result = dialog.exec()
+    login_result = dialog.login_result
+
+    if login_result == LoginResult.AUTHENTICATED:
+        logger.info("User authenticated at startup")
+    elif login_result == LoginResult.GUEST:
+        logger.info("User chose guest mode at startup")
+    else:
+        logger.info("User cancelled login dialog")
+
+
+def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
+    """Setup handler to show login dialog when session expires.
+
+    Args:
+        window: The main window instance.
+    """
+    from lucid.ui.dialogs import LoginDialog
+
+    session_manager = SessionManager.get_instance()
+
+    def on_session_expired() -> None:
+        """Show login dialog when session expires."""
+        dialog = LoginDialog(
+            parent=window,
+            title="Session Expired",
+            allow_guest=True,
+            show_on_expiry=True,
+        )
+        dialog.exec()
+
+    # Connect to state changed to detect session expiry
+    def on_state_changed(new_state, old_state) -> None:
+        from lucid.auth.session import AuthState
+
+        if old_state == AuthState.AUTHENTICATED and new_state == AuthState.UNAUTHENTICATED:
+            # Session expired or was invalidated
+            logger.info("Session ended, showing login dialog")
+            on_session_expired()
+
+    session_manager.state_changed.connect(on_state_changed)
+
+
 def _check_editor_protocol(main_window: NCSMainWindow) -> None:
     """Check if the configured editor's protocol handler is available.
 
@@ -465,6 +532,12 @@ def main() -> int:
 
     # Check editor protocol handler (shows warning if PyCharm selected but Toolbox missing)
     _check_editor_protocol(window)
+
+    # Setup session expiry handler
+    _setup_session_expiry_handler(window)
+
+    # Show login dialog on startup (for Keycloak auth)
+    _show_startup_login(window, config)
 
     # Run the application
     return app.run()
