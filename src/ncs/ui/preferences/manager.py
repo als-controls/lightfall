@@ -60,9 +60,9 @@ GLOBAL_ONLY_PREFS = {
     "claude_permission_mode",
     # Plugin settings
     "disabled_plugins",
-    # Editor settings (for code navigation)
+    # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
-    "suppress_jetbrains_warning",  # bool - permanently dismiss startup warning
+    "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning
 }
 
 

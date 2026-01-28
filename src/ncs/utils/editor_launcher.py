@@ -2,11 +2,16 @@
 
 Provides functions to open source files at specific line numbers
 using URL protocol handlers for VSCode and PyCharm.
+
+URL Formats (from https://github.com/dandavison/open-in-editor):
+- VSCode: vscode://file/{absolute-path}:{line}:{column}
+- PyCharm: pycharm://open?file={absolute-path}&line={line}
 """
 
 from __future__ import annotations
 
 import os
+import urllib.parse
 from enum import Enum
 
 from ncs.utils.logging import logger
@@ -19,11 +24,18 @@ class CodeEditor(Enum):
     PYCHARM = "pycharm"
 
 
+# Protocol names for each editor (used for registry checks)
+EDITOR_PROTOCOLS = {
+    CodeEditor.VSCODE: "vscode",
+    CodeEditor.PYCHARM: "pycharm",
+}
+
+
 def is_protocol_registered(protocol: str) -> bool:
     """Check if a URL protocol is registered in Windows registry.
 
     Args:
-        protocol: The protocol name (e.g., "vscode", "jetbrains").
+        protocol: The protocol name (e.g., "vscode", "pycharm").
 
     Returns:
         True if the protocol is registered, False otherwise.
@@ -44,31 +56,70 @@ def is_protocol_registered(protocol: str) -> bool:
         return False
 
 
-def open_in_editor(file_path: str, line: int, editor: CodeEditor) -> bool:
-    """Open a file at a specific line in the configured code editor.
+def is_editor_available(editor: CodeEditor) -> bool:
+    """Check if the given editor's protocol handler is available.
 
-    Uses URL protocol handlers to open files:
-    - VSCode: vscode://file/{path}:{line}:1
-    - PyCharm: jetbrains://pycharm/navigate/reference?path={path}&line={line}
+    Args:
+        editor: The code editor to check.
+
+    Returns:
+        True if the editor's protocol is registered, False otherwise.
+    """
+    protocol = EDITOR_PROTOCOLS.get(editor)
+    if protocol is None:
+        return False
+    return is_protocol_registered(protocol)
+
+
+def build_editor_url(file_path: str, line: int, editor: CodeEditor, column: int = 1) -> str | None:
+    """Build the URL to open a file at a specific location in an editor.
 
     Args:
         file_path: Absolute path to the file.
         line: Line number to navigate to (1-indexed).
         editor: The code editor to use.
+        column: Column number (1-indexed, default 1).
+
+    Returns:
+        The URL string, or None if the editor is not supported.
+    """
+    # Normalize path separators for URLs (use forward slashes)
+    normalized_path = file_path.replace("\\", "/")
+
+    if editor == CodeEditor.VSCODE:
+        # VSCode format: vscode://file/{path}:{line}:{column}
+        return f"vscode://file/{normalized_path}:{line}:{column}"
+
+    elif editor == CodeEditor.PYCHARM:
+        # PyCharm format: pycharm://open?file={path}&line={line}
+        # URL-encode the file path for query parameter
+        encoded_path = urllib.parse.quote(normalized_path, safe=":/")
+        return f"pycharm://open?file={encoded_path}&line={line}"
+
+    else:
+        logger.error("Unknown editor: {}", editor)
+        return None
+
+
+def open_in_editor(file_path: str, line: int, editor: CodeEditor, column: int = 1) -> bool:
+    """Open a file at a specific line in the configured code editor.
+
+    Uses URL protocol handlers to open files:
+    - VSCode: vscode://file/{path}:{line}:{column}
+    - PyCharm: pycharm://open?file={path}&line={line}
+
+    Args:
+        file_path: Absolute path to the file.
+        line: Line number to navigate to (1-indexed).
+        editor: The code editor to use.
+        column: Column number (1-indexed, default 1).
 
     Returns:
         True if the open command was issued successfully, False on error.
     """
     try:
-        # Normalize path separators for URLs
-        normalized_path = file_path.replace("\\", "/")
-
-        if editor == CodeEditor.VSCODE:
-            url = f"vscode://file/{normalized_path}:{line}:1"
-        elif editor == CodeEditor.PYCHARM:
-            url = f"jetbrains://pycharm/navigate/reference?path={normalized_path}&line={line}"
-        else:
-            logger.error("Unknown editor: {}", editor)
+        url = build_editor_url(file_path, line, editor, column)
+        if url is None:
             return False
 
         logger.debug("Opening in {}: {}", editor.value, url)

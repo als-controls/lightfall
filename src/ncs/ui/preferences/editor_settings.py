@@ -1,8 +1,8 @@
-"""Editor settings plugin for code navigation preferences.
+"""External tools settings plugin for code navigation preferences.
 
-This module contains the EditorSettingsPlugin that allows users to
-configure which code editor to use for "click to open" functionality
-in the logging panel.
+This module contains the ExternalToolsSettingsPlugin that allows users to
+configure which external code editor to use for "click to open" functionality
+in the logging panel and other code navigation features.
 """
 
 from __future__ import annotations
@@ -21,39 +21,40 @@ from PySide6.QtWidgets import (
 
 from ncs.plugins.settings_plugin import SettingsPlugin
 from ncs.ui.preferences.manager import PreferencesManager
-from ncs.utils.editor_launcher import CodeEditor
+from ncs.utils.editor_launcher import CodeEditor, is_editor_available
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
 
-class EditorSettingsPlugin(SettingsPlugin):
-    """Settings plugin for code editor configuration.
+class ExternalToolsSettingsPlugin(SettingsPlugin):
+    """Settings plugin for external tools configuration.
 
-    Allows users to select which code editor to use when clicking on
-    code locations in the logging panel:
-    - VSCode: Uses vscode:// protocol
-    - PyCharm: Uses jetbrains:// protocol (requires JetBrains Toolbox)
+    Allows users to select which external code editor to use when clicking on
+    code locations in the logging panel and other code navigation features:
+    - VSCode: Uses vscode://file/{path}:{line}:{column} protocol
+    - PyCharm: Uses pycharm://open?file={path}&line={line} protocol
 
-    Note: PyCharm support requires JetBrains Toolbox to be installed
-    for the jetbrains:// URL protocol handler to work.
+    Note: Both editors must be installed and have their URL protocol handlers
+    registered for the "open in editor" functionality to work.
     """
 
     def __init__(self) -> None:
-        """Initialize the editor settings plugin."""
+        """Initialize the external tools settings plugin."""
         self._widget: QWidget | None = None
         self._editor_combo: QComboBox | None = None
-        self._suppress_warning_check: QCheckBox | None = None
+        self._suppress_pycharm_warning_check: QCheckBox | None = None
+        self._status_label: QLabel | None = None
 
     @property
     def name(self) -> str:
         """Return unique identifier for this settings plugin."""
-        return "editor"
+        return "external_tools"
 
     @property
     def display_name(self) -> str:
         """Return human-readable name for preferences sidebar."""
-        return "Editor"
+        return "External Tools"
 
     @property
     def icon(self) -> QIcon | None:
@@ -77,7 +78,7 @@ class EditorSettingsPlugin(SettingsPlugin):
             parent: Parent widget (the dialog).
 
         Returns:
-            A QWidget containing the editor settings controls.
+            A QWidget containing the external tools settings controls.
         """
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)
@@ -94,6 +95,11 @@ class EditorSettingsPlugin(SettingsPlugin):
         self._editor_combo.currentIndexChanged.connect(self._on_editor_changed)
         editor_layout.addRow("Preferred editor:", self._editor_combo)
 
+        # Status label showing if protocol is available
+        self._status_label = QLabel()
+        self._status_label.setWordWrap(True)
+        editor_layout.addRow("Status:", self._status_label)
+
         # Description
         desc = QLabel(
             "Select which editor to open when double-clicking on code "
@@ -106,44 +112,68 @@ class EditorSettingsPlugin(SettingsPlugin):
 
         layout.addWidget(editor_group)
 
-        # PyCharm options group
-        pycharm_group = QGroupBox("PyCharm Options")
-        pycharm_layout = QVBoxLayout(pycharm_group)
+        # URL Protocol Info group
+        protocol_group = QGroupBox("URL Protocols")
+        protocol_layout = QVBoxLayout(protocol_group)
 
-        self._suppress_warning_check = QCheckBox(
-            "Suppress JetBrains Toolbox warning on startup"
+        # Protocol format info
+        protocol_info = QLabel(
+            "<b>VSCode:</b> <code>vscode://file/{path}:{line}:{column}</code><br>"
+            "<b>PyCharm:</b> <code>pycharm://open?file={path}&amp;line={line}</code>"
         )
-        pycharm_layout.addWidget(self._suppress_warning_check)
+        protocol_info.setWordWrap(True)
+        protocol_info.setTextFormat(protocol_info.textFormat())
+        protocol_layout.addWidget(protocol_info)
 
-        # PyCharm requirements note
+        # Suppress PyCharm warning checkbox
+        self._suppress_pycharm_warning_check = QCheckBox(
+            "Suppress PyCharm protocol warning on startup"
+        )
+        protocol_layout.addWidget(self._suppress_pycharm_warning_check)
+
+        # Requirements note
         note = QLabel(
-            "<i>Note: PyCharm integration requires JetBrains Toolbox to be "
-            "installed. Toolbox registers the jetbrains:// URL protocol "
-            "that allows opening files directly in PyCharm.</i>"
+            "<i>Note: The editor must be installed and have its URL protocol "
+            "handler registered. VSCode registers its protocol automatically. "
+            "PyCharm requires the application to be installed (the pycharm:// "
+            "protocol is registered during installation).</i>"
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
-        pycharm_layout.addWidget(note)
+        protocol_layout.addWidget(note)
 
-        layout.addWidget(pycharm_group)
+        layout.addWidget(protocol_group)
         layout.addStretch()
 
         self._widget = widget
-        self._update_pycharm_options_visibility()
+        self._update_status()
         return widget
 
     def _on_editor_changed(self, index: int) -> None:
         """Handle editor selection change."""
-        self._update_pycharm_options_visibility()
+        self._update_status()
 
-    def _update_pycharm_options_visibility(self) -> None:
-        """Show/hide PyCharm-specific options based on selection."""
-        if self._editor_combo is None:
+    def _update_status(self) -> None:
+        """Update the status label based on selected editor."""
+        if self._editor_combo is None or self._status_label is None:
             return
 
-        is_pycharm = self._editor_combo.currentData() == CodeEditor.PYCHARM.value
-        if self._suppress_warning_check is not None:
-            self._suppress_warning_check.setEnabled(is_pycharm)
+        editor_str = self._editor_combo.currentData()
+        editor = CodeEditor(editor_str) if editor_str else CodeEditor.VSCODE
+
+        if is_editor_available(editor):
+            self._status_label.setText(
+                f'<span style="color: green;">✓ {editor.value}:// protocol is registered</span>'
+            )
+        else:
+            self._status_label.setText(
+                f'<span style="color: orange;">⚠ {editor.value}:// protocol not found</span>'
+            )
+
+        # Enable/disable suppress checkbox based on editor
+        if self._suppress_pycharm_warning_check:
+            is_pycharm = editor == CodeEditor.PYCHARM
+            self._suppress_pycharm_warning_check.setEnabled(is_pycharm)
 
     def load_settings(self) -> None:
         """Load current settings into the widget.
@@ -162,11 +192,11 @@ class EditorSettingsPlugin(SettingsPlugin):
             self._editor_combo.setCurrentIndex(index)
 
         # Load suppress warning setting
-        if self._suppress_warning_check:
-            suppress = prefs.get("suppress_jetbrains_warning", False)
-            self._suppress_warning_check.setChecked(suppress)
+        if self._suppress_pycharm_warning_check:
+            suppress = prefs.get("suppress_pycharm_warning", False)
+            self._suppress_pycharm_warning_check.setChecked(suppress)
 
-        self._update_pycharm_options_visibility()
+        self._update_status()
 
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
@@ -182,8 +212,8 @@ class EditorSettingsPlugin(SettingsPlugin):
         prefs.set("code_editor", self._editor_combo.currentData())
 
         # Save suppress warning setting
-        if self._suppress_warning_check:
-            prefs.set("suppress_jetbrains_warning", self._suppress_warning_check.isChecked())
+        if self._suppress_pycharm_warning_check:
+            prefs.set("suppress_pycharm_warning", self._suppress_pycharm_warning_check.isChecked())
 
     def validate(self) -> list[str]:
         """Validate current widget values.

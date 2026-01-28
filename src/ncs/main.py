@@ -22,7 +22,7 @@ from ncs.ui.panels.registry import PanelRegistry
 from ncs.ui.preferences import PreferencesManager
 from ncs.ui.theme import ThemeManager
 from ncs.ui.widgets.warning_banner import DismissableWarningBanner
-from ncs.utils.editor_launcher import CodeEditor, is_protocol_registered
+from ncs.utils.editor_launcher import CodeEditor, is_editor_available
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -270,8 +270,8 @@ def _setup_first_launch(project_service: ProjectService) -> None:
 def _check_editor_protocol(main_window: NCSMainWindow) -> None:
     """Check if the configured editor's protocol handler is available.
 
-    Shows a warning banner if PyCharm is selected but JetBrains Toolbox
-    is not installed (jetbrains:// protocol not registered).
+    Shows a warning banner if PyCharm is selected but the pycharm://
+    protocol is not registered.
 
     Args:
         main_window: The main window to show the banner in.
@@ -284,30 +284,30 @@ def _check_editor_protocol(main_window: NCSMainWindow) -> None:
         return
 
     # Check if user has suppressed the warning
-    if prefs.get("suppress_jetbrains_warning", False):
+    if prefs.get("suppress_pycharm_warning", False):
         return
 
-    # Check if jetbrains:// protocol is registered
-    if is_protocol_registered("jetbrains"):
+    # Check if pycharm:// protocol is registered
+    if is_editor_available(CodeEditor.PYCHARM):
         return
 
     # Show warning banner
-    logger.warning("JetBrains Toolbox not detected, PyCharm code links may not work")
+    logger.warning("PyCharm protocol not detected, code links may not work")
 
     from PySide6.QtCore import QTimer
 
     def show_banner() -> None:
         banner = DismissableWarningBanner(
-            warning_id="jetbrains_toolbox",
-            title="JetBrains Toolbox Required",
+            warning_id="pycharm_protocol",
+            title="PyCharm Not Detected",
             message=(
-                "Install JetBrains Toolbox for PyCharm code links to work. "
-                "Toolbox registers the jetbrains:// protocol handler."
+                "The pycharm:// protocol is not registered. "
+                "Install PyCharm for code links to work."
             ),
             parent=main_window.centralWidget(),
         )
         banner.permanently_dismissed.connect(
-            lambda wid: prefs.set("suppress_jetbrains_warning", True)
+            lambda wid: prefs.set("suppress_pycharm_warning", True)
         )
 
         # Position at top of central widget
