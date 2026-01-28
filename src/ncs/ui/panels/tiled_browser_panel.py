@@ -292,12 +292,19 @@ class TiledBrowserPanel(BasePanel):
             logger.debug("Load already in progress, skipping")
             return
 
+        # Get client reference in main thread (TiledService is a QObject)
+        client = self._tiled_service._client
+        if client is None:
+            logger.debug("Cannot load data: no Tiled client")
+            return
+
         self._loading = True
         self._refresh_btn.setEnabled(False)
         self._status_label.setText("Loading...")
 
-        # Run query in background thread
+        # Run query in background thread, passing client obtained in main thread
         self._fetch_records(
+            client,
             self._current_filters,
             self._current_page,
             self.PAGE_SIZE,
@@ -308,6 +315,7 @@ class TiledBrowserPanel(BasePanel):
     @threads.method()
     def _fetch_records(
         self,
+        client: Any,
         filters: TiledFilters,
         page: int,
         page_size: int,
@@ -315,6 +323,7 @@ class TiledBrowserPanel(BasePanel):
         """Fetch records from Tiled server (runs in background thread).
 
         Args:
+            client: Tiled client instance (obtained in main thread).
             filters: Filter settings to apply.
             page: Page number (0-indexed).
             page_size: Number of records per page.
@@ -322,9 +331,6 @@ class TiledBrowserPanel(BasePanel):
         Returns:
             Tuple of (records, total_count, plan_names).
         """
-        client = self._tiled_service._client
-        if client is None:
-            return [], 0, []
 
         # Build query with filters
         result = self._build_query(client, filters)
