@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from enum import Enum, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from lucid.auth.session import AuthState, SessionManager
 from lucid.utils.logging import logger
+from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass
@@ -80,6 +81,7 @@ class LoginDialog(QDialog):
         self._show_on_expiry = show_on_expiry
         self._login_result = LoginResult.CANCELLED
         self._session_manager = SessionManager.get_instance()
+        self._login_thread: QThreadFuture | None = None
 
         self.setWindowTitle(title)
         self.setModal(True)
@@ -215,22 +217,46 @@ class LoginDialog(QDialog):
         self.login_started.emit()
         logger.info("Starting Keycloak login flow")
 
-        # Run async login in the event loop
-        asyncio.ensure_future(self._do_login())
+        # Run async login in a background thread
+        self._login_thread = QThreadFuture(
+            self._do_login_sync,
+            callback_slot=self._on_login_complete,
+            except_slot=self._on_login_error,
+            name="keycloak_login",
+        )
+        self._login_thread.start()
 
-    async def _do_login(self) -> None:
-        """Perform the async login."""
-        try:
-            success = await self._session_manager.login()
-            if success:
-                self._login_result = LoginResult.AUTHENTICATED
-                self.accept()
-            else:
-                # Login failed or was cancelled
-                self._reset_ui()
-        except Exception as e:
-            logger.error("Login failed: {}", e)
+    def _do_login_sync(self) -> bool:
+        """Perform the login synchronously (runs in background thread).
+
+        Returns:
+            True if login succeeded.
+        """
+        # Run the async login in this thread's event loop
+        return asyncio.run(self._session_manager.login())
+
+    def _on_login_complete(self, success: bool) -> None:
+        """Handle login completion (called in main thread).
+
+        Args:
+            success: Whether login succeeded.
+        """
+        if success:
+            self._login_result = LoginResult.AUTHENTICATED
+            self.accept()
+        else:
+            # Login failed or was cancelled
             self._reset_ui()
+
+    def _on_login_error(self, error: Exception) -> None:
+        """Handle login error (called in main thread).
+
+        Args:
+            error: The exception that occurred.
+        """
+        logger.error("Login failed: {}", error)
+        self._reset_ui()
+        self._progress_label.setText("Login failed. Please try again.")
 
     def _reset_ui(self) -> None:
         """Reset UI after failed login attempt."""

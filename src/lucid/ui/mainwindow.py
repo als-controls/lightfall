@@ -639,8 +639,6 @@ class NCSMainWindow(QMainWindow):
 
     def _on_login(self) -> None:
         """Show login dialog."""
-        import asyncio
-
         from lucid.ui.dialogs import LoginDialog
 
         dialog = LoginDialog(self)
@@ -648,9 +646,14 @@ class NCSMainWindow(QMainWindow):
 
     def _on_logout(self) -> None:
         """Logout current user."""
+        from lucid.utils.threads import QThreadFuture
         import asyncio
 
-        asyncio.ensure_future(self._session_manager.logout())
+        def do_logout() -> None:
+            asyncio.run(self._session_manager.logout())
+
+        thread = QThreadFuture(do_logout, name="logout")
+        thread.start()
 
     def _update_user_menu(self, user: Any) -> None:
         """Update user menu state based on current user.
