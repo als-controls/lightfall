@@ -1,0 +1,365 @@
+"""Bluesky panel for plan selection and execution.
+
+Provides an interface for:
+- Browsing and selecting Bluesky plans
+- Configuring plan parameters
+- Executing plans on the RunEngine
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from loguru import logger
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtWidgets import (
+    QSplitter,
+    QWidget,
+)
+
+from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.widgets.plan_config import PlanConfigWidget
+from lucid.ui.widgets.plan_selector import PlanSelectorWidget
+
+if TYPE_CHECKING:
+    from lucid.acquire.engine import Engine
+    from lucid.acquire.plans import PlanInfo
+
+from lucid.acquire import get_engine
+from lucid.acquire.plans import PlanRegistry, get_registry
+from lucid.devices import DeviceCatalog
+
+
+class BlueskyPanel(BasePanel):
+    """Panel for Bluesky plan selection and execution.
+
+    The BlueskyPanel provides an interface for selecting and running Bluesky scans:
+
+    - Plan selector with category filtering and search
+    - Plan configuration with dynamic parameter UI
+
+    Engine control and document viewing are handled by:
+    - RunEngineControlWidget in the main toolbar
+    - DocumentsPanel as a separate panel
+
+    Signals:
+        plan_started(str): Emitted when a plan starts (plan name).
+        plan_finished(str, str): Emitted when a plan finishes (name, exit_status).
+
+    Example:
+        >>> from lucid.acquire import get_engine
+        >>> from lucid.acquire.plans import get_registry
+        >>> panel = BlueskyPanel()
+        >>> panel.set_engine(get_engine())
+        >>> panel.set_registry(get_registry())
+    """
+
+    panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
+        id="lucid.panels.bluesky",
+        name="Bluesky",
+        description="Select and execute Bluesky plans",
+        icon="play",
+        category="Acquisition",
+        singleton=True,
+        closable=True,
+        keywords=["scan", "plan", "bluesky", "runengine", "acquisition"],
+    )
+
+    plan_started = Signal(str)  # plan name
+    plan_finished = Signal(str, str)  # plan name, exit_status
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the Bluesky panel.
+
+        Args:
+            parent: Parent widget.
+        """
+        self._engine: Engine | None = None
+        self._registry: PlanRegistry | None = None
+        self._current_plan_name: str = ""
+        super().__init__(parent)
+
+    def _setup_ui(self) -> None:
+        """Set up the panel UI."""
+        # Plan selector at top
+        self._plan_selector = PlanSelectorWidget()
+        self._plan_selector.plan_selected.connect(self._on_plan_selected)
+
+        # Plan configuration below
+        self._plan_config = PlanConfigWidget()
+        self._plan_config.run_requested.connect(self._on_run_requested)
+
+        # Vertical splitter for selector and config
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self._plan_selector)
+        splitter.addWidget(self._plan_config)
+        splitter.setSizes([300, 200])
+
+        self._layout.addWidget(splitter)
+
+        # Auto-configure with RunEngine and PlanRegistry singletons
+        self._auto_configure()
+
+    def _auto_configure(self) -> None:
+        """Auto-configure with Engine, PlanRegistry, and DeviceCatalog singletons."""
+        try:
+            engine = get_engine()
+            self.set_engine(engine)
+        except Exception as e:
+            logger.debug("Could not auto-configure Engine: {}", e)
+
+        try:
+            registry = get_registry()
+            self.set_registry(registry)
+        except Exception as e:
+            logger.debug("Could not auto-configure PlanRegistry: {}", e)
+
+        try:
+            catalog = DeviceCatalog.get_instance()
+            self.set_catalog(catalog)
+        except Exception as e:
+            logger.debug("Could not auto-configure DeviceCatalog: {}", e)
+
+    def set_catalog(self, catalog: DeviceCatalog) -> None:
+        """Set the device catalog for plan parameter device selection.
+
+        Args:
+            catalog: DeviceCatalog with available devices.
+        """
+        self._plan_config.set_catalog(catalog)
+        logger.info("BlueskyPanel connected to DeviceCatalog")
+
+    def set_engine(self, engine: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Args:
+            engine: The Engine to use for plan execution.
+        """
+        self._engine = engine
+
+        # Connect signals for tracking plan execution
+        engine.sigStart.connect(self._on_run_start)
+        engine.sigFinish.connect(self._on_run_finish)
+        engine.sigOutput.connect(self._on_document)
+
+        logger.info("BlueskyPanel connected to Engine")
+
+    def set_run_engine(self, re: Engine) -> None:
+        """Connect to an Engine instance.
+
+        Deprecated: Use set_engine() instead.
+
+        Args:
+            re: The Engine to use for plan execution.
+        """
+        self.set_engine(re)
+
+    def set_registry(self, registry: PlanRegistry) -> None:
+        """Set the plan registry.
+
+        Args:
+            registry: PlanRegistry with available plans.
+        """
+        self._registry = registry
+        self._plan_selector.set_registry(registry)
+        logger.info(f"BlueskyPanel loaded {len(registry)} plans")
+
+    # === Introspection API for MCP tools ===
+
+    def get_introspection_data(self) -> dict[str, Any]:
+        """Get introspection data for Claude MCP tools.
+
+        Returns:
+            Dictionary with panel state and capabilities.
+        """
+        data = {
+            "panel_id": self.panel_metadata.id,
+            "panel_name": self.panel_metadata.name,
+            "has_engine": self._engine is not None,
+            "has_registry": self._registry is not None,
+            "current_plan": self._current_plan_name or None,
+        }
+
+        if self._engine:
+            data["engine_state"] = self._engine.state_name
+            data["queue_size"] = self._engine.queue_size
+
+        if self._registry:
+            data["plan_count"] = len(self._registry)
+            data["plan_categories"] = self._registry.get_categories()
+            data["plan_names"] = self._registry.plan_names
+
+        return data
+
+    def get_available_actions(self) -> list[dict[str, str]]:
+        """Get list of actions that can be performed on this panel.
+
+        Returns:
+            List of action descriptions for MCP tools.
+        """
+        return [
+            {
+                "action": "select_plan",
+                "description": "Select a plan by name",
+                "params": "plan_name: str",
+            },
+            {
+                "action": "run_plan",
+                "description": "Run the currently configured plan",
+                "params": "None",
+            },
+        ]
+
+    def select_plan(self, plan_name: str) -> bool:
+        """Select a plan by name (for MCP tools).
+
+        Args:
+            plan_name: Name of the plan to select.
+
+        Returns:
+            True if plan was found and selected.
+        """
+        if self._registry is None:
+            return False
+
+        plan_info = self._registry.get_plan(plan_name)
+        if plan_info:
+            self._plan_config.set_plan(plan_info)
+            self._current_plan_name = plan_name
+            return True
+        return False
+
+    # === Slots ===
+
+    @Slot(object)
+    def _on_plan_selected(self, plan_info: PlanInfo) -> None:
+        """Handle plan selection from selector.
+
+        Args:
+            plan_info: Selected plan.
+        """
+        self._plan_config.set_plan(plan_info)
+        self._current_plan_name = plan_info.name
+        logger.debug(f"Plan selected: {plan_info.name}")
+
+    @Slot(object, dict)
+    def _on_run_requested(self, plan_info: PlanInfo, kwargs: dict) -> None:
+        """Handle run request from config widget.
+
+        Args:
+            plan_info: Plan to run.
+            kwargs: Parameter values.
+        """
+        if self._engine is None:
+            logger.error("No Engine configured")
+            return
+
+        try:
+            # Resolve device names to actual ophyd devices
+            resolved_kwargs = self._resolve_device_kwargs(plan_info, kwargs)
+
+            plan = plan_info.func(**resolved_kwargs)
+
+            # Submit to Engine
+            self._engine(plan)
+            self._current_plan_name = plan_info.name
+
+            logger.info(f"Submitted plan: {plan_info.name}")
+        except Exception as e:
+            logger.error(f"Failed to run plan {plan_info.name}: {e}")
+
+    def _resolve_device_kwargs(
+        self, plan_info: PlanInfo, kwargs: dict
+    ) -> dict:
+        """Resolve device names to actual ophyd device objects.
+
+        Args:
+            plan_info: Plan info with parameter metadata.
+            kwargs: Parameter values (device names as strings/lists).
+
+        Returns:
+            kwargs with device names replaced by ophyd device objects.
+        """
+        from lucid.ui.widgets.plan_config import ParamCategory, get_param_category
+
+        catalog = DeviceCatalog.get_instance()
+        resolved = {}
+
+        for key, value in kwargs.items():
+            # Find the parameter info to determine if it's a device param
+            param_info = next(
+                (p for p in plan_info.parameters if p.name == key), None
+            )
+
+            if param_info is None:
+                resolved[key] = value
+                continue
+
+            category = get_param_category(param_info.name, param_info.annotation)
+
+            if category == ParamCategory.DEVICES:
+                # Multi-device parameter (e.g., detectors) - resolve list of names
+                if isinstance(value, list):
+                    devices = []
+                    for name in value:
+                        device = catalog.get_ophyd_device(name)
+                        if device is not None:
+                            devices.append(device)
+                        else:
+                            logger.warning(f"Device not found: {name}")
+                    resolved[key] = devices
+                else:
+                    resolved[key] = value
+
+            elif category == ParamCategory.DEVICE:
+                # Single device parameter (e.g., motor) - resolve single name
+                if isinstance(value, list) and len(value) == 1:
+                    # Single-select returns list with one item
+                    device = catalog.get_ophyd_device(value[0])
+                    if device is not None:
+                        resolved[key] = device
+                    else:
+                        logger.warning(f"Device not found: {value[0]}")
+                        resolved[key] = value[0]
+                elif isinstance(value, str):
+                    device = catalog.get_ophyd_device(value)
+                    if device is not None:
+                        resolved[key] = device
+                    else:
+                        logger.warning(f"Device not found: {value}")
+                        resolved[key] = value
+                else:
+                    resolved[key] = value
+            else:
+                # Not a device parameter, pass through
+                resolved[key] = value
+
+        return resolved
+
+    @Slot()
+    def _on_run_start(self) -> None:
+        """Handle run start from Engine."""
+        self.plan_started.emit(self._current_plan_name)
+
+    @Slot()
+    def _on_run_finish(self) -> None:
+        """Handle run finish from Engine."""
+        # Get exit status from last stop document if available
+        exit_status = "unknown"
+        self.plan_finished.emit(self._current_plan_name, exit_status)
+
+    @Slot(str, dict)
+    def _on_document(self, name: str, doc: dict) -> None:
+        """Handle document from Engine.
+
+        Args:
+            name: Document type.
+            doc: Document data.
+        """
+        if name == "start":
+            plan_name = doc.get("plan_name", "")
+            if plan_name:
+                self._current_plan_name = plan_name
+        elif name == "stop":
+            exit_status = doc.get("exit_status", "unknown")
+            self.plan_finished.emit(self._current_plan_name, exit_status)
