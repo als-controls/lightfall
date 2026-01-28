@@ -1,6 +1,7 @@
 """Logging panel for viewing application logs.
 
-Provides a real-time log viewer with level filtering capabilities.
+Provides a real-time log viewer with level filtering capabilities
+and clickable code locations for opening files in the configured editor.
 """
 
 from __future__ import annotations
@@ -12,18 +13,24 @@ from typing import Any, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal, Slot
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QHeaderView,
+    QMenu,
     QPushButton,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
 from ncs.ui.panels.base import BasePanel, PanelMetadata
+from ncs.ui.preferences.manager import PreferencesManager
+from ncs.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
+from ncs.utils.module_resolver import resolve_module_path
 
 
 @dataclass
@@ -61,11 +68,62 @@ LEVEL_COLORS = {
     "CRITICAL": QColor(180, 0, 0),  # Dark red
 }
 
+# Link color for Location column
+LINK_COLOR = QColor(30, 100, 200)  # Blue link color
+LINK_COLOR_DARK = QColor(100, 150, 255)  # Blue link color for dark themes
+
+
+class LocationDelegate(QStyledItemDelegate):
+    """Custom delegate for the Location column to style it as a clickable link."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+
+    def paint(
+        self,
+        painter: Any,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """Paint the cell with link styling."""
+        # Get the text
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if text is None:
+            super().paint(painter, option, index)
+            return
+
+        # Setup painter
+        painter.save()
+
+        # Draw selection background if selected
+        if option.state & option.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+            painter.setPen(option.palette.highlightedText().color())
+        else:
+            # Use link color for unselected items
+            painter.setPen(LINK_COLOR)
+
+        # Set underlined font
+        font = QFont(option.font)
+        font.setUnderline(True)
+        painter.setFont(font)
+
+        # Draw text
+        text_rect = option.rect.adjusted(4, 0, -4, 0)
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            text,
+        )
+
+        painter.restore()
+
 
 class LogTableModel(QAbstractTableModel):
     """Table model for log records with level filtering."""
 
     COLUMNS = ["Time", "Level", "Location", "Message"]
+    LOCATION_COLUMN = 2  # Index of the Location column
     MAX_RECORDS = 10000  # Limit memory usage
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -103,9 +161,15 @@ class LogTableModel(QAbstractTableModel):
         elif role == Qt.ItemDataRole.ForegroundRole:
             if col == 1:  # Color the level column
                 return QBrush(LEVEL_COLORS.get(record.level, QColor(200, 200, 200)))
+            # Location column link color is handled by LocationDelegate
         elif role == Qt.ItemDataRole.ToolTipRole:
-            if col == 3:  # Full message in tooltip
+            if col == 2:  # Location tooltip
+                return "Double-click to open in editor, right-click for options"
+            elif col == 3:  # Full message in tooltip
                 return record.message
+        elif role == Qt.ItemDataRole.UserRole:
+            # Return the full LogRecord for custom processing
+            return record
 
         return None
 
@@ -152,12 +216,26 @@ class LogTableModel(QAbstractTableModel):
         """Return filtered record count."""
         return len(self._filtered_records)
 
+    def get_record(self, row: int) -> LogRecord | None:
+        """Get the log record at the given row.
+
+        Args:
+            row: Row index in the filtered records.
+
+        Returns:
+            LogRecord or None if row is out of bounds.
+        """
+        if 0 <= row < len(self._filtered_records):
+            return self._filtered_records[row]
+        return None
+
 
 class LoggingPanel(BasePanel):
     """Panel for viewing application logs.
 
     Displays log messages in real-time with level filtering.
     Uses loguru's sink mechanism to capture log records.
+    Double-click on Location column to open the file in your configured editor.
 
     Example:
         >>> panel = LoggingPanel()
@@ -225,6 +303,21 @@ class LoggingPanel(BasePanel):
         self._table.setAlternatingRowColors(True)
         self._table.verticalHeader().setVisible(False)
 
+        # Set custom delegate for Location column to show as clickable link
+        self._location_delegate = LocationDelegate(self._table)
+        self._table.setItemDelegateForColumn(LogTableModel.LOCATION_COLUMN, self._location_delegate)
+
+        # Enable mouse tracking to show pointer cursor over Location column
+        self._table.setMouseTracking(True)
+        self._table.viewport().installEventFilter(self)
+
+        # Connect double-click to open in editor
+        self._table.doubleClicked.connect(self._on_double_click)
+
+        # Enable context menu
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
+
         # Column sizing
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Time
@@ -241,6 +334,20 @@ class LoggingPanel(BasePanel):
 
         # Install log handler
         self._install_handler()
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:
+        """Handle mouse events to change cursor over Location column."""
+        from PySide6.QtCore import QEvent
+
+        if obj == self._table.viewport() and event.type() == QEvent.Type.MouseMove:
+            pos = event.position().toPoint()
+            index = self._table.indexAt(pos)
+            if index.isValid() and index.column() == LogTableModel.LOCATION_COLUMN:
+                self._table.viewport().setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            else:
+                self._table.viewport().setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
+        return super().eventFilter(obj, event)
 
     def _install_handler(self) -> None:
         """Install loguru sink to capture log records."""
@@ -297,6 +404,110 @@ class LoggingPanel(BasePanel):
         """Clear all log records."""
         self._model.clear()
         logger.debug("Log panel cleared")
+
+    @Slot(QModelIndex)
+    def _on_double_click(self, index: QModelIndex) -> None:
+        """Handle double-click on table cells.
+
+        Opens the file in the configured editor when Location column is double-clicked.
+        """
+        if index.column() != LogTableModel.LOCATION_COLUMN:
+            return
+
+        record = self._model.get_record(index.row())
+        if record is None:
+            return
+
+        self._open_in_editor(record)
+
+    def _on_context_menu(self, pos: Any) -> None:
+        """Show context menu with editor options."""
+        index = self._table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        # Only show context menu for Location column
+        if index.column() != LogTableModel.LOCATION_COLUMN:
+            return
+
+        record = self._model.get_record(index.row())
+        if record is None:
+            return
+
+        menu = QMenu(self._table)
+
+        # Add "Open in VSCode" action
+        vscode_action = QAction("Open in VSCode", menu)
+        vscode_action.triggered.connect(lambda: self._open_in_editor(record, CodeEditor.VSCODE))
+        menu.addAction(vscode_action)
+
+        # Add "Open in PyCharm" action
+        pycharm_action = QAction("Open in PyCharm", menu)
+        pycharm_action.triggered.connect(lambda: self._open_in_editor(record, CodeEditor.PYCHARM))
+        menu.addAction(pycharm_action)
+
+        menu.addSeparator()
+
+        # Add "Copy Location" action
+        copy_action = QAction("Copy Location", menu)
+        copy_action.triggered.connect(lambda: self._copy_location(record))
+        menu.addAction(copy_action)
+
+        # Show menu at cursor position
+        menu.exec_(self._table.viewport().mapToGlobal(pos))
+
+    def _open_in_editor(self, record: LogRecord, editor: CodeEditor | None = None) -> None:
+        """Open the source file at the log record's line in the editor.
+
+        Args:
+            record: The log record containing module, function, and line info.
+            editor: The editor to use, or None to use the configured default.
+        """
+        # Resolve module to file path
+        file_path = resolve_module_path(record.module)
+        if file_path is None:
+            logger.warning("Could not resolve module path for: {}", record.module)
+            from ncs.ui.toast import ToastManager
+
+            ToastManager.get_instance().warning(
+                "Cannot open location",
+                f"Could not resolve module: {record.module}",
+            )
+            return
+
+        # Get editor preference if not specified
+        if editor is None:
+            prefs = PreferencesManager.get_instance()
+            editor_str = prefs.get("code_editor", CodeEditor.VSCODE.value)
+            editor = get_editor_from_string(editor_str)
+            if editor is None:
+                editor = CodeEditor.VSCODE
+
+        # Open in editor
+        success = open_in_editor(file_path, record.line, editor)
+        if success:
+            logger.debug("Opened {}:{} in {}", file_path, record.line, editor.value)
+        else:
+            from ncs.ui.toast import ToastManager
+
+            ToastManager.get_instance().error(
+                "Failed to open editor",
+                f"Could not open {editor.value}",
+            )
+
+    def _copy_location(self, record: LogRecord) -> None:
+        """Copy the location string to the clipboard.
+
+        Args:
+            record: The log record.
+        """
+        from PySide6.QtWidgets import QApplication
+
+        location = f"{record.module}:{record.function}:{record.line}"
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(location)
+            logger.debug("Copied location to clipboard: {}", location)
 
     def _on_closing(self) -> None:
         """Clean up when panel closes."""

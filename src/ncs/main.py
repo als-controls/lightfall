@@ -21,6 +21,8 @@ from ncs.ui import NCSMainWindow
 from ncs.ui.panels.registry import PanelRegistry
 from ncs.ui.preferences import PreferencesManager
 from ncs.ui.theme import ThemeManager
+from ncs.ui.widgets.warning_banner import DismissableWarningBanner
+from ncs.utils.editor_launcher import CodeEditor, is_protocol_registered
 from ncs.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -265,6 +267,59 @@ def _setup_first_launch(project_service: ProjectService) -> None:
         project_service.open_project(welcome)
 
 
+def _check_editor_protocol(main_window: NCSMainWindow) -> None:
+    """Check if the configured editor's protocol handler is available.
+
+    Shows a warning banner if PyCharm is selected but JetBrains Toolbox
+    is not installed (jetbrains:// protocol not registered).
+
+    Args:
+        main_window: The main window to show the banner in.
+    """
+    prefs = PreferencesManager.get_instance()
+
+    # Only check for PyCharm
+    editor = prefs.get("code_editor", CodeEditor.VSCODE.value)
+    if editor != CodeEditor.PYCHARM.value:
+        return
+
+    # Check if user has suppressed the warning
+    if prefs.get("suppress_jetbrains_warning", False):
+        return
+
+    # Check if jetbrains:// protocol is registered
+    if is_protocol_registered("jetbrains"):
+        return
+
+    # Show warning banner
+    logger.warning("JetBrains Toolbox not detected, PyCharm code links may not work")
+
+    from PySide6.QtCore import QTimer
+
+    def show_banner() -> None:
+        banner = DismissableWarningBanner(
+            warning_id="jetbrains_toolbox",
+            title="JetBrains Toolbox Required",
+            message=(
+                "Install JetBrains Toolbox for PyCharm code links to work. "
+                "Toolbox registers the jetbrains:// protocol handler."
+            ),
+            parent=main_window.centralWidget(),
+        )
+        banner.permanently_dismissed.connect(
+            lambda wid: prefs.set("suppress_jetbrains_warning", True)
+        )
+
+        # Position at top of central widget
+        banner.setFixedWidth(main_window.centralWidget().width() - 20)
+        banner.move(10, 10)
+        banner.show()
+        banner.raise_()
+
+    # Delay slightly to ensure window is fully shown
+    QTimer.singleShot(500, show_banner)
+
+
 def _setup_default_panels(window: NCSMainWindow) -> None:
     """Setup default panels for the main window.
 
@@ -379,6 +434,9 @@ def main() -> int:
 
     # Setup default panel layout
     window.setup_default_layout()
+
+    # Check editor protocol handler (shows warning if PyCharm selected but Toolbox missing)
+    _check_editor_protocol(window)
 
     # Run the application
     return app.run()

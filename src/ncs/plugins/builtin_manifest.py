@@ -20,6 +20,12 @@ builtin_manifest = PluginManifest(
             import_path="ncs.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         ),
+        # Editor settings (for code navigation)
+        PluginEntry(
+            type_name="settings",
+            name="editor",
+            import_path="ncs.ui.preferences.editor_settings:EditorSettingsPlugin",
+        ),
         # Device settings
         PluginEntry(
             type_name="settings",
