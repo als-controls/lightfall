@@ -164,6 +164,11 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="skill",
+            name="plan_design",
+            import_path="lucid.plugins.skills.plan_design:PlanDesignSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
             name="scan_planning",
             import_path="lucid.plugins.skills.scan_planning:ScanPlanningSkill",
         ),
