@@ -578,6 +578,12 @@ class NCSMainWindow(QMainWindow):
         """Handle auth state change."""
         self._update_panels_menu()  # Permissions may have changed
 
+        # Raise the window when login completes (user returns from browser)
+        if new_state == AuthState.AUTHENTICATED:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
     @Slot(object)
     def _on_user_changed(self, user: Any) -> None:
         """Handle user change."""
