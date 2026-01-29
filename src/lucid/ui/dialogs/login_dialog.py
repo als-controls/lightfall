@@ -454,7 +454,7 @@ class LoginDialog(QDialog):
             self.accept()
         else:
             self._reset_ui()
-            if self._stack.currentIndex() == 1:  # Local page
+            if self._local_form.isVisible():  # Local page
                 self._show_error("Invalid username or password")
             else:
                 self._show_error("Login failed or was cancelled")
