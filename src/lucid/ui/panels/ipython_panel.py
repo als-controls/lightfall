@@ -415,23 +415,46 @@ class IPythonPanel(BasePanel):
             logger.debug("IPython console cleared")
 
     def _on_reset_kernel(self) -> None:
-        """Reset the IPython kernel."""
+        """Reset the IPython kernel by fully recreating it.
+
+        In-process kernels don't support restart_kernel() properly,
+        so we shut down and recreate the kernel from scratch.
+        """
         if not self._qtconsole_available:
             return
 
+        from qtconsole.inprocess import QtInProcessKernelManager
+
+        # Stop existing client channels
         if self._kernel_client:
-            self._kernel_client.stop_channels()
+            try:
+                self._kernel_client.stop_channels()
+            except Exception as e:
+                logger.warning("Error stopping kernel client: {}", e)
 
+        # Shutdown existing kernel
         if self._kernel_manager:
-            self._kernel_manager.restart_kernel()
+            try:
+                self._kernel_manager.shutdown_kernel()
+            except Exception as e:
+                logger.warning("Error shutting down kernel: {}", e)
 
-            # Re-setup namespace after restart
-            kernel = self._kernel_manager.kernel
-            self._setup_initial_namespace(kernel)
+        # Create fresh kernel manager and start kernel
+        self._kernel_manager = QtInProcessKernelManager()
+        self._kernel_manager.start_kernel()
 
-            # Reconnect client
-            if self._kernel_client:
-                self._kernel_client.start_channels()
+        # Setup namespace on fresh kernel
+        kernel = self._kernel_manager.kernel
+        self._setup_initial_namespace(kernel)
+
+        # Create fresh client and start channels
+        self._kernel_client = self._kernel_manager.client()
+        self._kernel_client.start_channels()
+
+        # Reconnect the Jupyter widget to the new kernel
+        if self._jupyter_widget:
+            self._jupyter_widget.kernel_manager = self._kernel_manager
+            self._jupyter_widget.kernel_client = self._kernel_client
 
         # Reset widget counter
         self._widget_counter = 0
