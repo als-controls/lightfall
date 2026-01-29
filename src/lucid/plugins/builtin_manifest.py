@@ -32,6 +32,12 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.theme.builtin:DarkBlueThemePlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="theme",
+            name="islands",
+            import_path="lucid.ui.theme.builtin:IslandsThemePlugin",
+            preload=True,
+        ),
         # Appearance settings - preload to apply theme before window
         PluginEntry(
             type_name="settings",
