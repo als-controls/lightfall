@@ -306,22 +306,14 @@ def _setup_first_launch(project_service: ProjectService) -> None:
         project_service.open_project(welcome)
 
 
-def _show_startup_login(window: NCSMainWindow, config: ConfigManager) -> None:
-    """Show login dialog on application startup if using Keycloak auth.
+def _show_startup_login(window: NCSMainWindow) -> None:
+    """Show login dialog on application startup.
 
     Args:
         window: The main window instance.
-        config: The configuration manager.
     """
     from lucid.ui.dialogs import LoginDialog
     from lucid.ui.dialogs.login_dialog import LoginResult
-
-    auth_type = config.model.auth.provider.type
-
-    # Only show login dialog for Keycloak auth
-    if auth_type != "keycloak":
-        logger.debug("Skipping startup login (not using Keycloak)")
-        return
 
     dialog = LoginDialog(
         parent=window,
@@ -330,7 +322,7 @@ def _show_startup_login(window: NCSMainWindow, config: ConfigManager) -> None:
         show_on_expiry=False,
     )
 
-    result = dialog.exec()
+    dialog.exec()
     login_result = dialog.login_result
 
     if login_result == LoginResult.AUTHENTICATED:
@@ -547,8 +539,8 @@ def main() -> int:
     # Setup session expiry handler
     _setup_session_expiry_handler(window)
 
-    # Show login dialog on startup (for Keycloak auth)
-    _show_startup_login(window, config)
+    # Show login dialog on startup
+    _show_startup_login(window)
 
     # Run the application
     return app.run()
