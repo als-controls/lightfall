@@ -16,11 +16,17 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import urllib.parse
 from enum import Enum
 from pathlib import Path
 
 from lucid.utils.logging import logger
+
+# Platform detection
+IS_WINDOWS = sys.platform == "win32"
+IS_LINUX = sys.platform.startswith("linux")
+IS_MACOS = sys.platform == "darwin"
 
 
 class CodeEditor(Enum):
@@ -159,17 +165,8 @@ def get_project_name(file_path: str) -> str:
     return "unknown"
 
 
-def find_pycharm_executable() -> Path | None:
-    """Find the PyCharm executable on Windows.
-
-    Searches in order:
-    1. JetBrains Toolbox 2.0+ locations (LOCALAPPDATA/Programs)
-    2. Standalone installs in Program Files
-    3. PATH environment variable
-
-    Returns:
-        Path to the PyCharm executable, or None if not found.
-    """
+def _find_pycharm_windows() -> Path | None:
+    """Find PyCharm executable on Windows."""
     # Check Toolbox 2.0+ locations first
     localappdata = os.environ.get("LOCALAPPDATA", "")
     if localappdata:
@@ -192,8 +189,114 @@ def find_pycharm_executable() -> Path | None:
                         logger.debug("Found PyCharm at standalone location: {}", exe)
                         return exe
 
-    # Check PATH
-    for name in ["pycharm64", "pycharm"]:
+    return None
+
+
+def _find_pycharm_linux() -> Path | None:
+    """Find PyCharm executable on Linux."""
+    home = Path.home()
+
+    # Check JetBrains Toolbox locations
+    toolbox_apps = home / ".local" / "share" / "JetBrains" / "Toolbox" / "apps"
+    if toolbox_apps.exists():
+        # Look for pycharm-professional or pycharm-community
+        for edition in ["pycharm-professional", "pycharm-community"]:
+            edition_dir = toolbox_apps / edition
+            if edition_dir.exists():
+                # Find the channel directory (usually 'ch-0' or similar)
+                for channel_dir in edition_dir.iterdir():
+                    if channel_dir.is_dir():
+                        # Find version directories and sort to get newest
+                        version_dirs = sorted(
+                            [d for d in channel_dir.iterdir() if d.is_dir()],
+                            reverse=True,
+                        )
+                        for version_dir in version_dirs:
+                            exe = version_dir / "bin" / "pycharm.sh"
+                            if exe.exists():
+                                logger.debug("Found PyCharm at Toolbox location: {}", exe)
+                                return exe
+
+    # Check snap installations
+    for snap_name in ["pycharm-professional", "pycharm-community"]:
+        exe = Path("/snap") / snap_name / "current" / "bin" / "pycharm.sh"
+        if exe.exists():
+            logger.debug("Found PyCharm at snap location: {}", exe)
+            return exe
+
+    # Check common standalone installation paths
+    standalone_paths = [
+        Path("/opt/pycharm/bin/pycharm.sh"),
+        Path("/opt/pycharm-professional/bin/pycharm.sh"),
+        Path("/opt/pycharm-community/bin/pycharm.sh"),
+        home / "pycharm" / "bin" / "pycharm.sh",
+        home / ".local" / "pycharm" / "bin" / "pycharm.sh",
+    ]
+    for exe in standalone_paths:
+        if exe.exists():
+            logger.debug("Found PyCharm at standalone location: {}", exe)
+            return exe
+
+    # Check /opt for versioned JetBrains installs
+    opt_jetbrains = Path("/opt")
+    if opt_jetbrains.exists():
+        pycharm_dirs = sorted(opt_jetbrains.glob("pycharm-*"), reverse=True)
+        for pycharm_dir in pycharm_dirs:
+            exe = pycharm_dir / "bin" / "pycharm.sh"
+            if exe.exists():
+                logger.debug("Found PyCharm at /opt location: {}", exe)
+                return exe
+
+    return None
+
+
+def _find_pycharm_macos() -> Path | None:
+    """Find PyCharm executable on macOS."""
+    # Check Applications folder
+    for app_name in ["PyCharm.app", "PyCharm CE.app", "PyCharm Professional.app", "PyCharm Community.app"]:
+        exe = Path("/Applications") / app_name / "Contents" / "MacOS" / "pycharm"
+        if exe.exists():
+            logger.debug("Found PyCharm at Applications location: {}", exe)
+            return exe
+
+    # Check user Applications folder
+    home = Path.home()
+    for app_name in ["PyCharm.app", "PyCharm CE.app"]:
+        exe = home / "Applications" / app_name / "Contents" / "MacOS" / "pycharm"
+        if exe.exists():
+            logger.debug("Found PyCharm at user Applications location: {}", exe)
+            return exe
+
+    return None
+
+
+def find_pycharm_executable() -> Path | None:
+    """Find the PyCharm executable.
+
+    Searches platform-specific locations in order:
+    - Windows: Toolbox, Program Files, PATH
+    - Linux: Toolbox, snap, /opt, ~/pycharm, PATH
+    - macOS: /Applications, ~/Applications, PATH
+
+    Returns:
+        Path to the PyCharm executable, or None if not found.
+    """
+    # Platform-specific search
+    if IS_WINDOWS:
+        exe = _find_pycharm_windows()
+    elif IS_LINUX:
+        exe = _find_pycharm_linux()
+    elif IS_MACOS:
+        exe = _find_pycharm_macos()
+    else:
+        exe = None
+
+    if exe is not None:
+        return exe
+
+    # Check PATH as fallback (works on all platforms)
+    path_names = ["pycharm64", "pycharm"] if IS_WINDOWS else ["pycharm.sh", "pycharm"]
+    for name in path_names:
         exe = shutil.which(name)
         if exe:
             logger.debug("Found PyCharm in PATH: {}", exe)
@@ -240,7 +343,7 @@ def open_via_cli(file_path: str, line: int, editor: CodeEditor, column: int = 1)
         if exe is None:
             return False
 
-        # PyCharm CLI: pycharm64.exe --line <line> [--column <col>] <file>
+        # PyCharm CLI: pycharm[64].exe/pycharm.sh --line <line> [--column <col>] <file>
         args = [str(exe), "--line", str(line)]
         if column > 1:
             args.extend(["--column", str(column)])
@@ -260,13 +363,24 @@ def open_via_cli(file_path: str, line: int, editor: CodeEditor, column: int = 1)
 
     try:
         logger.debug("Opening via CLI: {}", " ".join(args))
-        # Use DETACHED_PROCESS to not block and not create a console window
-        subprocess.Popen(
-            args,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+
+        # Platform-specific subprocess options for detached process
+        if IS_WINDOWS:
+            # Windows: use creation flags to detach and hide console
+            subprocess.Popen(
+                args,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Unix (Linux/macOS): use start_new_session to detach
+            subprocess.Popen(
+                args,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         return True
     except Exception as e:
         logger.error("Failed to open via CLI: {}", e)
@@ -373,6 +487,48 @@ def open_via_pycharm_http(file_path: str, line: int, column: int = 1) -> bool:
         return False
 
 
+def open_url(url: str) -> bool:
+    """Open a URL using the system's default handler.
+
+    Cross-platform replacement for os.startfile() that works on
+    Windows, Linux, and macOS.
+
+    Args:
+        url: The URL to open (can be a file://, http://, or custom protocol URL).
+
+    Returns:
+        True if the URL was opened successfully, False on error.
+    """
+    try:
+        if IS_WINDOWS:
+            os.startfile(url)
+        elif IS_MACOS:
+            subprocess.Popen(
+                ["open", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Linux: try xdg-open first, then common alternatives
+            for opener in ["xdg-open", "gio", "gnome-open", "kde-open"]:
+                exe = shutil.which(opener)
+                if exe:
+                    args = [exe, "open", url] if opener == "gio" else [exe, url]
+                    subprocess.Popen(
+                        args,
+                        start_new_session=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    return True
+            logger.error("No URL opener found (tried xdg-open, gio, gnome-open, kde-open)")
+            return False
+        return True
+    except Exception as e:
+        logger.error("Failed to open URL {}: {}", url, e)
+        return False
+
+
 def open_in_editor(
     file_path: str,
     line: int,
@@ -411,18 +567,16 @@ def open_in_editor(
         logger.debug("HTTP API failed, falling back to jetbrains:// URL")
 
     # Last resort: URL protocol
-    try:
-        url = build_editor_url(file_path, line, editor, column, project)
-        if url is None:
-            return False
+    url = build_editor_url(file_path, line, editor, column, project)
+    if url is None:
+        return False
 
-        logger.debug("Opening via URL protocol in {}: {}", editor.value, url)
-        os.startfile(url)
+    logger.debug("Opening via URL protocol in {}: {}", editor.value, url)
+    if open_url(url):
         return True
 
-    except Exception as e:
-        logger.error("Failed to open {} in {}: {}", file_path, editor.value, e)
-        return False
+    logger.error("Failed to open {} in {}", file_path, editor.value)
+    return False
 
 
 def get_editor_from_string(editor_str: str) -> CodeEditor | None:
