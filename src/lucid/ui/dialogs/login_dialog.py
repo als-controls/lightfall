@@ -111,7 +111,7 @@ class LoginDialog(QDialog):
             message: Custom message to display.
         """
         layout = QVBoxLayout(self)
-        layout.setSpacing(16)
+        layout.setSpacing(12)
         layout.setContentsMargins(24, 24, 24, 24)
 
         # Title/header
@@ -188,17 +188,33 @@ class LoginDialog(QDialog):
         else:
             self._guest_btn = None
 
-        # Spacer
-        layout.addItem(
-            QSpacerItem(20, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        # Link to switch to local login (in main layout, below guest button)
+        self._local_link = QPushButton("Use local account instead")
+        self._local_link.setFlat(True)
+        self._local_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._local_link.setStyleSheet(
+            """
+            QPushButton {
+                color: #0066cc;
+                text-decoration: underline;
+                border: none;
+                background: transparent;
+                font-size: 11px;
+                padding: 4px;
+            }
+            QPushButton:hover {
+                color: #004488;
+            }
+            """
         )
+        self._local_link.clicked.connect(self._show_local_page)
+        layout.addWidget(self._local_link, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Info text
         self._info_label = QLabel(
-            "Guest access provides read-only permissions.\n"
-            "Full access requires authentication."
+            "Guest access provides read-only permissions."
         )
-        self._info_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._info_label.setStyleSheet("color: gray; font-size: 10px;")
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._info_label)
 
@@ -207,7 +223,7 @@ class LoginDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
 
         # Keycloak login button
         self._keycloak_btn = QPushButton("Login with Keycloak")
@@ -235,27 +251,6 @@ class LoginDialog(QDialog):
         )
         self._keycloak_btn.clicked.connect(self._on_keycloak_login)
         layout.addWidget(self._keycloak_btn)
-
-        # Link to switch to local login
-        self._local_link = QPushButton("Use local account instead")
-        self._local_link.setFlat(True)
-        self._local_link.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._local_link.setStyleSheet(
-            """
-            QPushButton {
-                color: #0066cc;
-                text-decoration: underline;
-                border: none;
-                background: transparent;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                color: #004488;
-            }
-            """
-        )
-        self._local_link.clicked.connect(self._show_local_page)
-        layout.addWidget(self._local_link, alignment=Qt.AlignmentFlag.AlignCenter)
 
         return page
 
@@ -343,11 +338,13 @@ class LoginDialog(QDialog):
     def _show_keycloak_page(self) -> None:
         """Switch to Keycloak login page."""
         self._stack.setCurrentIndex(0)
+        self._local_link.setVisible(True)
         self._error_label.setVisible(False)
 
     def _show_local_page(self) -> None:
         """Switch to local login page."""
         self._stack.setCurrentIndex(1)
+        self._local_link.setVisible(False)
         self._error_label.setVisible(False)
         self._username_edit.setFocus()
 
@@ -359,7 +356,7 @@ class LoginDialog(QDialog):
     def _on_keycloak_login(self) -> None:
         """Handle Keycloak login button click."""
         self._keycloak_btn.setEnabled(False)
-        self._local_link.setEnabled(False)
+        self._local_link.setVisible(False)
         if self._guest_btn:
             self._guest_btn.setEnabled(False)
         self._progress_label.setText("Waiting for browser login...")
@@ -494,7 +491,6 @@ class LoginDialog(QDialog):
         """Reset UI after failed login attempt."""
         # Keycloak page
         self._keycloak_btn.setEnabled(True)
-        self._local_link.setEnabled(True)
 
         # Local page
         self._local_login_btn.setEnabled(True)
@@ -506,6 +502,7 @@ class LoginDialog(QDialog):
         # Common
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
+        self._local_link.setVisible(self._stack.currentIndex() == 0)
         self._progress_widget.setVisible(False)
 
         # Focus appropriate field
