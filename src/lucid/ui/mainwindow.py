@@ -229,7 +229,7 @@ class NCSMainWindow(QMainWindow):
         help_menu = menubar.addMenu("&Help")
 
         # About action
-        about_action = QAction("&About NCS", self)
+        about_action = QAction("&About LUCID", self)
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
@@ -631,8 +631,8 @@ class NCSMainWindow(QMainWindow):
 
         QMessageBox.about(
             self,
-            "About NCS",
-            "NCS - New Control System\n\n"
+            "About LUCID",
+            "LUCID - LBNL Unified Control Interface for Data acquisition\n\n"
             "A modern control system for the ALS facility.\n\n"
             "Version: Development",
         )
