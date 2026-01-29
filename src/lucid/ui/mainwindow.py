@@ -649,10 +649,10 @@ class NCSMainWindow(QMainWindow):
         now = datetime.now(timezone.utc)
         remaining = (expires_at - now).total_seconds()
 
-        if remaining < 3600:
-            minutes = int(remaining // 60)
+        if remaining < 3600:  # Less than 1 hour
+            minutes = max(1, round(remaining / 60))
             return f"in {minutes} minute{'s' if minutes != 1 else ''}"
-        hours = int(remaining // 3600)
+        hours = round(remaining / 3600)
         return f"in {hours} hour{'s' if hours != 1 else ''}"
 
     @Slot(Theme)
