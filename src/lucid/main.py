@@ -165,10 +165,19 @@ def _setup_bluesky(app: NCSApplication) -> None:
     plan_registry = get_plan_registry()
     services.register_instance(type(plan_registry), plan_registry)
 
+    # Load user-defined plans from ~/lucid/plans/
+    from lucid.acquire.plans import UserPlanService
+
+    user_plan_service = UserPlanService.get_instance()
+    results = user_plan_service.load_all_plans()
+    user_plan_count = sum(1 for _, r in results if not isinstance(r, Exception))
+    services.register_instance(UserPlanService, user_plan_service)
+
     logger.info(
-        "Bluesky initialized: engine state={}, {} plans available",
+        "Bluesky initialized: engine state={}, {} plans available ({} user plans)",
         engine.state_name,
         len(plan_registry),
+        user_plan_count,
     )
 
 

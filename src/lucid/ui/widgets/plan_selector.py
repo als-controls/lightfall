@@ -303,6 +303,21 @@ class PlanSelectorWidget(QWidget):
         self._update_categories()
         logger.debug(f"Set registry with {len(registry)} plans")
 
+        # Connect to user plan service for live updates
+        try:
+            from lucid.acquire.plans import UserPlanService
+
+            service = UserPlanService.get_instance()
+            service.plans_refreshed.connect(self._reload_plans)
+        except Exception:
+            pass
+
+    def _reload_plans(self) -> None:
+        """Reload plans from registry (called when user plans change)."""
+        if self._registry is not None:
+            self._source_model.set_registry(self._registry)
+            self._update_categories()
+
     def _update_categories(self) -> None:
         """Update the category dropdown from the registry."""
         self._category_combo.blockSignals(True)

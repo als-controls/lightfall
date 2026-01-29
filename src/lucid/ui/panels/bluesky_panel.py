@@ -12,8 +12,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QDialog,
     QSplitter,
+    QToolBar,
     QWidget,
 )
 
@@ -81,6 +84,12 @@ class BlueskyPanel(BasePanel):
 
     def _setup_ui(self) -> None:
         """Set up the panel UI."""
+        # Toolbar for plan actions
+        self._toolbar = QToolBar()
+        self._toolbar.setMovable(False)
+        self._setup_toolbar()
+        self._layout.addWidget(self._toolbar)
+
         # Plan selector at top
         self._plan_selector = PlanSelectorWidget()
         self._plan_selector.plan_selected.connect(self._on_plan_selected)
@@ -99,6 +108,92 @@ class BlueskyPanel(BasePanel):
 
         # Auto-configure with RunEngine and PlanRegistry singletons
         self._auto_configure()
+
+    def _setup_toolbar(self) -> None:
+        """Set up the toolbar with plan actions."""
+        # Create New Plan
+        self._create_plan_action = QAction("New Plan", self)
+        self._create_plan_action.setToolTip("Create a new user plan (opens in editor)")
+        self._create_plan_action.triggered.connect(self._on_create_plan)
+        self._toolbar.addAction(self._create_plan_action)
+
+        # Refresh Plans
+        self._refresh_action = QAction("Refresh", self)
+        self._refresh_action.setToolTip("Reload user plans from disk")
+        self._refresh_action.triggered.connect(self._on_refresh_plans)
+        self._toolbar.addAction(self._refresh_action)
+
+        # Open Folder
+        self._open_folder_action = QAction("Open Folder", self)
+        self._open_folder_action.setToolTip("Open user plans folder in file explorer")
+        self._open_folder_action.triggered.connect(self._on_open_plans_folder)
+        self._toolbar.addAction(self._open_folder_action)
+
+    @Slot()
+    def _on_create_plan(self) -> None:
+        """Handle Create Plan action."""
+        from lucid.ui.dialogs import CreatePlanDialog
+        from lucid.ui.toast import ToastManager
+
+        dialog = CreatePlanDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = dialog.get_plan_name()
+            desc = dialog.get_description()
+
+            try:
+                from lucid.acquire.plans import UserPlanService
+
+                service = UserPlanService.get_instance()
+                file_path = service.create_new_plan(name, desc)
+
+                # Open in external editor
+                from lucid.ui.preferences.manager import PreferencesManager
+                from lucid.utils.editor_launcher import (
+                    CodeEditor,
+                    get_editor_from_string,
+                    open_in_editor,
+                )
+
+                prefs = PreferencesManager.get_instance()
+                editor_str = prefs.get("code_editor", CodeEditor.VSCODE.value)
+                editor = get_editor_from_string(editor_str)
+                if editor:
+                    open_in_editor(str(file_path), line=1, editor=editor)
+
+                ToastManager.get_instance().success(
+                    "Plan Created", f"Created {name}.py"
+                )
+            except ValueError as e:
+                ToastManager.get_instance().error("Creation Failed", str(e))
+            except Exception as e:
+                logger.error("Failed to create plan: {}", e)
+                ToastManager.get_instance().error("Creation Failed", str(e))
+
+    @Slot()
+    def _on_refresh_plans(self) -> None:
+        """Handle Refresh Plans action."""
+        from lucid.ui.toast import ToastManager
+
+        try:
+            from lucid.acquire.plans import UserPlanService
+
+            service = UserPlanService.get_instance()
+            service.refresh_plans()
+            ToastManager.get_instance().info("Plans Refreshed", "User plans reloaded")
+        except Exception as e:
+            logger.error("Failed to refresh plans: {}", e)
+            ToastManager.get_instance().error("Refresh Failed", str(e))
+
+    @Slot()
+    def _on_open_plans_folder(self) -> None:
+        """Handle Open Folder action."""
+        try:
+            from lucid.acquire.plans import UserPlanService
+
+            service = UserPlanService.get_instance()
+            service.open_plans_folder()
+        except Exception as e:
+            logger.error("Failed to open plans folder: {}", e)
 
     def _auto_configure(self) -> None:
         """Auto-configure with Engine, PlanRegistry, and DeviceCatalog singletons."""

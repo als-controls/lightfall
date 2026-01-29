@@ -52,6 +52,7 @@ PLAN_CATEGORY_ICONS: dict[str, tuple[str, str]] = {
     "fly": ("#9C27B0", "F"),  # Purple - fly scans
     "calibration": ("#E91E63", "K"),  # Pink - calibration
     "general": ("#607D8B", "G"),  # Gray - general
+    "user": ("#00BCD4", "U"),  # Cyan - user plans
 }
 
 
@@ -423,6 +424,26 @@ class PlanRegistry:
             logger.debug(f"Unregistered plan: {name}")
             return True
         return False
+
+    def register_or_replace(
+        self,
+        name: str,
+        func: Callable[..., Generator[Any, Any, Any]],
+        category: str = "general",
+    ) -> PlanInfo:
+        """Register or replace a plan (for hot-reload of user plans).
+
+        Args:
+            name: Plan name.
+            func: The plan generator function.
+            category: Plan category for grouping.
+
+        Returns:
+            The created PlanInfo.
+        """
+        if name in self._plans:
+            self.unregister(name)
+        return self.register(name, func, category)
 
     def get_plan(self, name: str) -> PlanInfo | None:
         """Get a plan by name.

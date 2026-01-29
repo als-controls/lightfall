@@ -6,6 +6,7 @@ This module provides:
 - Default plan registration for standard bluesky.plans
 - Utilities for plan display names and icons
 - Custom NCS plans (scan_1d, rel_scan_1d)
+- UserPlanService: Service for user-defined plans
 """
 
 from lucid.acquire.plans.ncs_plans import rel_scan_1d, scan_1d
@@ -18,6 +19,7 @@ from lucid.acquire.plans.registry import (
     get_registry,
     name_to_display_name,
 )
+from lucid.acquire.plans.user_plans import UserPlanService
 
 __all__ = [
     # Registry
@@ -31,4 +33,6 @@ __all__ = [
     # NCS plans
     "scan_1d",
     "rel_scan_1d",
+    # User plans
+    "UserPlanService",
 ]
