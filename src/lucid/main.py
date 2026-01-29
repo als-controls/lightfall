@@ -30,11 +30,22 @@ if TYPE_CHECKING:
 
 
 def _setup_auth(config: ConfigManager) -> None:
-    """Setup authentication provider based on configuration."""
+    """Setup authentication provider based on configuration.
+
+    Set environment variable NCS_AUTH=local to force local auth for development.
+    """
+    import os
+
     session_manager = SessionManager.get_instance()
 
     auth_config = config.model.auth
     provider_type = auth_config.provider.type
+
+    # Allow environment variable override for development
+    env_auth = os.environ.get("NCS_AUTH", "").lower()
+    if env_auth == "local":
+        provider_type = "local"
+        logger.info("Using local auth (NCS_AUTH=local)")
 
     if provider_type == "keycloak" and auth_config.provider.server_url:
         # Use Keycloak if configured

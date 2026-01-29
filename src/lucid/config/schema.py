@@ -24,10 +24,14 @@ class LoggingConfig(BaseModel):
 
 
 class AuthProviderConfig(BaseModel):
-    """Authentication provider configuration."""
+    """Authentication provider configuration.
+
+    Set type="keycloak" when Keycloak server is ready.
+    For development, use type="local" (default).
+    """
 
     type: Literal["local", "keycloak"] = Field(
-        default="keycloak", description="Auth provider type"
+        default="local", description="Auth provider type: local or keycloak"
     )
     # Keycloak-specific settings
     server_url: str = Field(
