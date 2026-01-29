@@ -138,5 +138,11 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.panels.plugins.tiled_browser_plugin:TiledBrowserPanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="ipython",
+            import_path="lucid.ui.panels.plugins.ipython_plugin:IPythonPanelPlugin",
+            preload=True,
+        ),
     ],
 )

@@ -60,6 +60,10 @@ bcs = [
 claude = [
     "pyside-claude",
 ]
+ipython = [
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
