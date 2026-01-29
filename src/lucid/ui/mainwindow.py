@@ -594,11 +594,23 @@ class NCSMainWindow(QMainWindow):
         Args:
             user: The logged-in User object.
         """
+        from datetime import datetime, timezone
+
         from lucid.ui.toast import ToastManager
 
         # Check if user has expiry info
         if not hasattr(user, "expires_at") or user.expires_at is None:
             return
+
+        # Calculate remaining time
+        now = datetime.now(timezone.utc)
+        remaining_seconds = (user.expires_at - now).total_seconds()
+        logger.debug(
+            "Session info: expires_at={}, now={}, remaining={}s",
+            user.expires_at,
+            now,
+            remaining_seconds,
+        )
 
         # Format expiry time
         expires_text = self._format_expiry(user.expires_at)

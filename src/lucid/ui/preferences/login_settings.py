@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from loguru import logger
+
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager
 
@@ -50,6 +52,7 @@ class LoginSettingsProvider:
         """
         prefs = PreferencesManager.get_instance()
         seconds = prefs.get("session_duration", DEFAULT_SESSION_DURATION)
+        logger.debug("Session duration preference: {} seconds", seconds)
         return timedelta(seconds=seconds)
 
 
