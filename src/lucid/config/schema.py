@@ -41,7 +41,7 @@ class AuthProviderConfig(BaseModel):
     client_id: str = Field(default="LUCID", description="OIDC client ID")
     client_secret: str = Field(default="", description="OIDC client secret (optional)")
     redirect_uri: str = Field(
-        default="http://127.0.0.1:8089/callback",
+        default="http://localhost:8089/callback",
         description="OAuth callback URI",
     )
 

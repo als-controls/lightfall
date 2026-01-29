@@ -281,10 +281,9 @@ class KeycloakAuthProvider(AuthProvider):
 
         # Start callback server
         parsed_redirect = urlparse(self._config.redirect_uri)
-        host = parsed_redirect.hostname or "127.0.0.1"
         port = parsed_redirect.port or 8089
 
-        server = HTTPServer((host, port), _OAuthCallbackHandler)
+        server = HTTPServer(("localhost", port), _OAuthCallbackHandler)
         server.timeout = self._callback_timeout
 
         def run_server() -> None:
