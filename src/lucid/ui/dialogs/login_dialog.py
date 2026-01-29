@@ -357,9 +357,12 @@ class LoginDialog(QDialog):
 
     def _do_keycloak_login(self) -> bool:
         """Perform Keycloak login (runs in background thread)."""
+        from datetime import datetime, timezone
+
         from lucid.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
         from lucid.config import ConfigManager
         from lucid.core import NCSApplication
+        from lucid.ui.preferences.login_settings import LoginSettingsProvider
 
         # Get Keycloak config
         app = NCSApplication.get_instance()
@@ -381,6 +384,10 @@ class LoginDialog(QDialog):
         session = asyncio.run(provider.authenticate())
 
         if session:
+            # Apply app session duration (starts now, not when token was issued)
+            duration = LoginSettingsProvider.get_session_duration()
+            session.user.expires_at = datetime.now(timezone.utc) + duration
+
             # Set session in SessionManager
             self._session_manager._session = session
             self._session_manager._set_state(AuthState.AUTHENTICATED)
@@ -424,6 +431,8 @@ class LoginDialog(QDialog):
 
     def _do_local_login(self, username: str, password: str) -> bool:
         """Perform local login (runs in background thread)."""
+        from datetime import datetime, timezone
+
         from lucid.auth.providers.local import LocalAuthProvider
         from lucid.ui.preferences.login_settings import LoginSettingsProvider
 
@@ -435,6 +444,9 @@ class LoginDialog(QDialog):
         session = asyncio.run(provider.authenticate(username=username, password=password))
 
         if session:
+            # Apply app session duration (ensure it starts now)
+            session.user.expires_at = datetime.now(timezone.utc) + duration
+
             # Set session in SessionManager
             self._session_manager._session = session
             self._session_manager._set_state(AuthState.AUTHENTICATED)
