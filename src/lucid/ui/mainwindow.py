@@ -584,6 +584,74 @@ class NCSMainWindow(QMainWindow):
         self._update_panels_menu()  # Available panels may change
         self._update_user_menu(user)
 
+        # Show login toast if user logged in (not anonymous)
+        if hasattr(user, "username") and user.username != "anonymous":
+            self._show_login_notification(user)
+
+    def _show_login_notification(self, user: Any) -> None:
+        """Show toast with session expiry info.
+
+        Args:
+            user: The logged-in User object.
+        """
+        from datetime import datetime, timezone
+
+        from lucid.ui.widgets.action_toast import ActionToast
+
+        # Check if user has expiry info
+        if not hasattr(user, "expires_at") or user.expires_at is None:
+            return
+
+        # Format expiry time
+        expires_text = self._format_expiry(user.expires_at)
+        duration_text = self._format_time_remaining(user.expires_at)
+
+        toast = ActionToast(
+            title="Logged In",
+            text=f"Session expires at {expires_text} ({duration_text})",
+            action_text="Session Settings",
+            parent=self,
+        )
+        toast.action_clicked.connect(self._open_login_settings)
+        toast.show()
+
+    def _format_expiry(self, expires_at: Any) -> str:
+        """Format expiry time for display.
+
+        Args:
+            expires_at: Expiry datetime.
+
+        Returns:
+            Formatted time string like "3:00 PM".
+        """
+        local_time = expires_at.astimezone()
+        return local_time.strftime("%I:%M %p").lstrip("0")
+
+    def _format_time_remaining(self, expires_at: Any) -> str:
+        """Format time remaining until expiry.
+
+        Args:
+            expires_at: Expiry datetime.
+
+        Returns:
+            Formatted string like "in 2 hours".
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        remaining = (expires_at - now).total_seconds()
+
+        if remaining < 3600:
+            minutes = int(remaining // 60)
+            return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+        hours = int(remaining // 3600)
+        return f"in {hours} hour{'s' if hours != 1 else ''}"
+
+    def _open_login_settings(self) -> None:
+        """Open preferences to login settings page."""
+        dialog = PreferencesDialog(self, initial_page="login")
+        dialog.exec()
+
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:
         """Handle theme change."""

@@ -40,6 +40,8 @@ GLOBAL_ONLY_PREFS = {
     "show_statusbar",
     "show_toolbar",
     "engine",
+    # Login & Session settings
+    "session_duration",
     # Device backend settings
     "device_backend",
     "device_mock_include_noisy",

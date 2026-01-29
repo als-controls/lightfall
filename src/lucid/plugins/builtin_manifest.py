@@ -20,6 +20,12 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         ),
+        # Login & Session settings
+        PluginEntry(
+            type_name="settings",
+            name="login",
+            import_path="lucid.ui.preferences.login_settings:LoginSettingsPlugin",
+        ),
         # External tools settings (for code navigation)
         PluginEntry(
             type_name="settings",

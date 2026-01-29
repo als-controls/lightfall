@@ -6,6 +6,7 @@ This module provides widgets for direct device control:
 - Container widget that selects appropriate controls
 - RunEngine control and plan execution widgets
 - Document stream viewer
+- Action toast notifications
 
 Usage:
     from lucid.ui.widgets import DeviceControlWidget, RunEngineControlWidget
@@ -15,6 +16,7 @@ Usage:
     control.set_items(selected_tree_items)
 """
 
+from lucid.ui.widgets.action_toast import ActionToast
 from lucid.ui.widgets.base_control import (
     BaseControlWidget,
     ControlWidgetRegistry,
@@ -63,6 +65,8 @@ from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
 from lucid.ui.widgets.tiled_status import TiledStatusWidget
 
 __all__ = [
+    # Action toast
+    "ActionToast",
     # Base classes
     "BaseControlWidget",
     "ControlWidgetRegistry",

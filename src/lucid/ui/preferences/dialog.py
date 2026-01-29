@@ -44,18 +44,26 @@ class PreferencesDialog(QDialog):
     - Revert on cancel via revert_preview()
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, initial_page: str | None = None
+    ) -> None:
         """Initialize the preferences dialog.
 
         Args:
             parent: Parent widget.
+            initial_page: Optional plugin name to navigate to initially.
         """
         super().__init__(parent)
         self._plugins: dict[str, SettingsPlugin] = {}
         self._plugin_widgets: dict[str, QWidget] = {}
+        self._initial_page = initial_page
 
         self._setup_ui()
         self._load_plugins()
+
+        # Navigate to initial page if specified
+        if initial_page:
+            self.select_page(initial_page)
 
     def _setup_ui(self) -> None:
         """Setup the dialog UI with sidebar navigation."""
@@ -154,6 +162,21 @@ class PreferencesDialog(QDialog):
             row: The selected row index.
         """
         self._stack.setCurrentIndex(row)
+
+    def select_page(self, plugin_name: str) -> bool:
+        """Select a settings page by plugin name.
+
+        Args:
+            plugin_name: The name of the plugin to navigate to.
+
+        Returns:
+            True if the page was found and selected.
+        """
+        for i, name in enumerate(self._plugins.keys()):
+            if name == plugin_name:
+                self._sidebar.setCurrentRow(i)
+                return True
+        return False
 
     def _apply(self) -> bool:
         """Apply settings without closing.

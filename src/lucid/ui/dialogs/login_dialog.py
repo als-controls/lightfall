@@ -425,8 +425,10 @@ class LoginDialog(QDialog):
     def _do_local_login(self, username: str, password: str) -> bool:
         """Perform local login (runs in background thread)."""
         from lucid.auth.providers.local import LocalAuthProvider
+        from lucid.ui.preferences.login_settings import LoginSettingsProvider
 
-        provider = LocalAuthProvider(session_duration=timedelta(hours=8))
+        duration = LoginSettingsProvider.get_session_duration()
+        provider = LocalAuthProvider(session_duration=duration)
         self._current_provider = provider
 
         # Run async authenticate
