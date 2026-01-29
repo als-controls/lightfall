@@ -1,17 +1,21 @@
 """Editor launcher utility for opening files in code editors.
 
 Provides functions to open source files at specific line numbers
-using URL protocol handlers for VSCode and PyCharm.
+using direct CLI invocation (preferred), HTTP API, or URL protocol handlers.
 
-URL Formats:
-- VSCode: vscode://file/{absolute-path}:{line}:{column}
-- PyCharm: jetbrains://pycharm/navigate/reference?project={project}&path={path}:{line}:{column}
-  (requires JetBrains Toolbox to register the jetbrains:// protocol)
+Opening Methods (in priority order):
+1. CLI: Direct executable invocation (most reliable, doesn't need project context)
+   - PyCharm: pycharm64.exe --line <line> [--column <col>] <file>
+   - VSCode: code -g <file>:<line>:<column>
+2. HTTP API: PyCharm's built-in REST API on localhost:63342
+3. URL Protocol: vscode:// or jetbrains:// URL schemes (requires registration)
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import urllib.parse
 from enum import Enum
 from pathlib import Path
@@ -155,6 +159,120 @@ def get_project_name(file_path: str) -> str:
     return "unknown"
 
 
+def find_pycharm_executable() -> Path | None:
+    """Find the PyCharm executable on Windows.
+
+    Searches in order:
+    1. JetBrains Toolbox 2.0+ locations (LOCALAPPDATA/Programs)
+    2. Standalone installs in Program Files
+    3. PATH environment variable
+
+    Returns:
+        Path to the PyCharm executable, or None if not found.
+    """
+    # Check Toolbox 2.0+ locations first
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    if localappdata:
+        for edition in ["PyCharm Professional", "PyCharm Community"]:
+            exe = Path(localappdata) / "Programs" / edition / "bin" / "pycharm64.exe"
+            if exe.exists():
+                logger.debug("Found PyCharm at Toolbox location: {}", exe)
+                return exe
+
+    # Check Program Files for standalone installs
+    for prog_dir in [os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", "")]:
+        if prog_dir:
+            jetbrains_dir = Path(prog_dir) / "JetBrains"
+            if jetbrains_dir.exists():
+                # Sort to get newest version first (PyCharm 2024.1 > PyCharm 2023.3)
+                pycharm_dirs = sorted(jetbrains_dir.glob("PyCharm*"), reverse=True)
+                for pycharm_dir in pycharm_dirs:
+                    exe = pycharm_dir / "bin" / "pycharm64.exe"
+                    if exe.exists():
+                        logger.debug("Found PyCharm at standalone location: {}", exe)
+                        return exe
+
+    # Check PATH
+    for name in ["pycharm64", "pycharm"]:
+        exe = shutil.which(name)
+        if exe:
+            logger.debug("Found PyCharm in PATH: {}", exe)
+            return Path(exe)
+
+    logger.debug("PyCharm executable not found")
+    return None
+
+
+def find_vscode_executable() -> Path | None:
+    """Find the VSCode executable.
+
+    Checks the PATH for the 'code' command.
+
+    Returns:
+        Path to the VSCode executable, or None if not found.
+    """
+    exe = shutil.which("code")
+    if exe:
+        logger.debug("Found VSCode in PATH: {}", exe)
+        return Path(exe)
+
+    logger.debug("VSCode executable not found")
+    return None
+
+
+def open_via_cli(file_path: str, line: int, editor: CodeEditor, column: int = 1) -> bool:
+    """Open a file using direct CLI invocation.
+
+    This is the most reliable method as it doesn't require project context
+    or URL protocol registration.
+
+    Args:
+        file_path: Absolute path to the file.
+        line: Line number to navigate to (1-indexed).
+        editor: The code editor to use.
+        column: Column number (1-indexed, default 1).
+
+    Returns:
+        True if the editor was launched successfully, False otherwise.
+    """
+    if editor == CodeEditor.PYCHARM:
+        exe = find_pycharm_executable()
+        if exe is None:
+            return False
+
+        # PyCharm CLI: pycharm64.exe --line <line> [--column <col>] <file>
+        args = [str(exe), "--line", str(line)]
+        if column > 1:
+            args.extend(["--column", str(column)])
+        args.append(file_path)
+
+    elif editor == CodeEditor.VSCODE:
+        exe = find_vscode_executable()
+        if exe is None:
+            return False
+
+        # VSCode CLI: code -g <file>:<line>:<column>
+        args = [str(exe), "-g", f"{file_path}:{line}:{column}"]
+
+    else:
+        logger.error("CLI launch not supported for editor: {}", editor)
+        return False
+
+    try:
+        logger.debug("Opening via CLI: {}", " ".join(args))
+        # Use DETACHED_PROCESS to not block and not create a console window
+        subprocess.Popen(
+            args,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception as e:
+        logger.error("Failed to open via CLI: {}", e)
+        return False
+
+
 def build_editor_url(
     file_path: str,
     line: int,
@@ -265,12 +383,10 @@ def open_in_editor(
 ) -> bool:
     """Open a file at a specific line in the configured code editor.
 
-    Uses URL protocol handlers to open files:
-    - VSCode: vscode://file/{path}:{line}:{column}
-    - PyCharm: jetbrains://pycharm/navigate/reference?project={project}&path={path}:{line}:{column}
-
-    For PyCharm, if the jetbrains:// URL doesn't work, falls back to using
-    PyCharm's built-in HTTP REST API on localhost:63342.
+    Tries multiple methods in order of reliability:
+    1. CLI: Direct executable invocation (most reliable, doesn't need project context)
+    2. HTTP API: PyCharm's built-in REST API on localhost:63342
+    3. URL Protocol: vscode:// or jetbrains:// URL schemes
 
     Args:
         file_path: Absolute path to the file.
@@ -278,23 +394,29 @@ def open_in_editor(
         editor: The code editor to use.
         column: Column number (1-indexed, default 1).
         project: Project name for PyCharm (auto-detected if None).
-        use_http_fallback: For PyCharm, try HTTP API first (more reliable).
+        use_http_fallback: For PyCharm, try HTTP API as second fallback.
 
     Returns:
         True if the open command was issued successfully, False on error.
     """
-    # For PyCharm, try the HTTP API first as it's more reliable
+    # Try CLI first (most reliable, doesn't need project context)
+    if open_via_cli(file_path, line, editor, column):
+        return True
+    logger.debug("CLI launch failed, trying fallback methods")
+
+    # Fall back to HTTP API for PyCharm
     if editor == CodeEditor.PYCHARM and use_http_fallback:
         if open_via_pycharm_http(file_path, line, column):
             return True
         logger.debug("HTTP API failed, falling back to jetbrains:// URL")
 
+    # Last resort: URL protocol
     try:
         url = build_editor_url(file_path, line, editor, column, project)
         if url is None:
             return False
 
-        logger.debug("Opening in {}: {}", editor.value, url)
+        logger.debug("Opening via URL protocol in {}: {}", editor.value, url)
         os.startfile(url)
         return True
 
