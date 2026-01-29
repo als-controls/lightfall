@@ -40,29 +40,25 @@ dependencies = [
     "pyqt-toast-notification>=1.0",
     "pyqtgraph>=0.13",
     "qtawesome>=1.3",
+    # acquire
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    # tiled
+    "tiled[client]>=0.1.0",
+    # keycloak
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+    # ipython
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
 ]
 
 [project.optional-dependencies]
-acquire = [
-    "bluesky>=1.10",
-    "ophyd>=1.7",
-]
-tiled = [
-    "tiled[client]>=0.1.0",
-]
-keycloak = [
-    "aiohttp>=3.8",
-    "aiohttp-socks>=0.8",
-]
 bcs = [
     "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
 ]
 claude = [
     "pyside-claude",
-]
-ipython = [
-    "qtconsole>=5.5",
-    "ipykernel>=6.0",
 ]
 dev = [
     "pytest>=8.0",
