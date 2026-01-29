@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Callable, get_args, get_origin
 
 from loguru import logger
 from PySide6.QtCore import Signal, Slot
@@ -115,6 +115,24 @@ def _ensure_device_parameter_registered():
 
 
 _ensure_device_parameter_registered()
+
+
+def extract_annotated_metadata(annotation: Any) -> tuple[Any, list[Any]]:
+    """Extract base type and metadata from Annotated type hints.
+
+    Args:
+        annotation: A type annotation, possibly Annotated[T, meta1, meta2, ...].
+
+    Returns:
+        Tuple of (base_type, [metadata_items]).
+        If not an Annotated type, returns (annotation, []).
+    """
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        if args:
+            return args[0], list(args[1:])
+    return annotation, []
 
 
 def annotation_to_param_type(annotation: Any) -> tuple[str, dict[str, Any]]:
@@ -318,8 +336,114 @@ class PlanConfigWidget(QWidget):
         """
         self._catalog = catalog
 
+    def _build_param_spec(
+        self,
+        name: str,
+        annotation: Any,
+        default: Any,
+        doc: str | None,
+    ) -> dict[str, Any]:
+        """Build a parameter spec from annotation with metadata.
+
+        Extracts annotation metadata (Unit, Decimals, Range, DeviceFilter, etc.)
+        and applies them to the parameter specification.
+
+        Args:
+            name: Parameter name.
+            annotation: Type annotation (possibly Annotated[...]).
+            default: Default value from function signature.
+            doc: Documentation string for tooltip.
+
+        Returns:
+            Parameter specification dict for pyqtgraph Parameter.create().
+        """
+        from lucid.ui.annotations import (
+            Decimals,
+            Default,
+            DeviceDefault,
+            DeviceFilter,
+            DeviceFilterAny,
+            Range,
+            Unit,
+        )
+
+        # Extract base type and metadata from Annotated[T, meta1, meta2, ...]
+        base_type, metadata = extract_annotated_metadata(annotation)
+
+        # Determine parameter category and type using the base type
+        category = get_param_category(name, base_type)
+
+        # Start building the spec
+        spec: dict[str, Any] = {"name": name}
+
+        if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
+            # Use custom DeviceParameter type
+            spec["type"] = "device"
+            spec["value"] = []
+            spec["catalog"] = self._catalog
+            spec["multi_select"] = category == ParamCategory.DEVICES
+
+            # Process metadata for device parameters
+            for meta in metadata:
+                if isinstance(meta, (DeviceFilter, DeviceFilterAny)):
+                    spec["device_filter"] = meta
+                elif isinstance(meta, DeviceDefault):
+                    spec["device_default"] = meta
+        else:
+            # Use standard parameter type
+            param_type, extra_opts = annotation_to_param_type(base_type)
+            spec["type"] = param_type
+            spec.update(extra_opts)
+
+            # Add default value from signature
+            if default is not inspect.Parameter.empty:
+                spec["value"] = default
+            else:
+                # Set sensible defaults for required parameters
+                if param_type == "int":
+                    spec["value"] = 0
+                elif param_type == "float":
+                    spec["value"] = 0.0
+                elif param_type == "bool":
+                    spec["value"] = False
+                elif param_type == "str":
+                    spec["value"] = ""
+
+            # Process metadata for numeric/other parameters
+            for meta in metadata:
+                if isinstance(meta, Unit):
+                    spec["suffix"] = meta.suffix
+                elif isinstance(meta, Decimals):
+                    spec["decimals"] = meta.places
+                elif isinstance(meta, Range):
+                    limits = []
+                    if meta.min is not None or meta.max is not None:
+                        # pyqtgraph expects (min, max) tuple
+                        limits = [meta.min, meta.max]
+                        # Replace None with appropriate defaults
+                        if limits[0] is None:
+                            limits[0] = float("-inf") if param_type == "float" else -(2**31)
+                        if limits[1] is None:
+                            limits[1] = float("inf") if param_type == "float" else 2**31 - 1
+                        spec["limits"] = tuple(limits)
+                elif isinstance(meta, Default):
+                    spec["value"] = meta.value
+
+        # Add tooltip from docstring
+        if doc:
+            spec["tip"] = doc
+
+        return spec
+
     def set_plan(self, plan_info: PlanInfo) -> None:
         """Configure UI for a new plan.
+
+        Supports Annotated type hints with metadata for:
+        - Unit: Display suffix (e.g., "eV", "s", "mm")
+        - Decimals: Float precision (number of decimal places)
+        - Range: Min/max limits for numeric inputs
+        - DeviceFilter/DeviceFilterAny: Device selection filtering
+        - DeviceDefault: Pre-selected devices
 
         Args:
             plan_info: Plan to configure.
@@ -346,47 +470,12 @@ class PlanConfigWidget(QWidget):
             ):
                 continue
 
-            # Determine parameter category and type
-            category = get_param_category(p.name, p.annotation)
-
-            if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
-                # Use custom DeviceParameter type
-                spec = {
-                    "name": p.name,
-                    "type": "device",
-                    "value": [],
-                    "catalog": self._catalog,
-                    "multi_select": category == ParamCategory.DEVICES,
-                }
-            else:
-                # Use standard parameter type
-                param_type, extra_opts = annotation_to_param_type(p.annotation)
-                spec = {
-                    "name": p.name,
-                    "type": param_type,
-                }
-
-                # Add default value
-                if p.default is not inspect.Parameter.empty:
-                    spec["value"] = p.default
-                else:
-                    # Set sensible defaults for required parameters
-                    if param_type == "int":
-                        spec["value"] = 0
-                    elif param_type == "float":
-                        spec["value"] = 0.0
-                    elif param_type == "bool":
-                        spec["value"] = False
-                    elif param_type == "str":
-                        spec["value"] = ""
-
-                # Merge extra options
-                spec.update(extra_opts)
-
-            # Add tooltip from docstring
-            if p.name in param_docs:
-                spec["tip"] = param_docs[p.name]
-
+            spec = self._build_param_spec(
+                name=p.name,
+                annotation=p.annotation,
+                default=p.default,
+                doc=param_docs.get(p.name),
+            )
             param_specs.append(spec)
 
         # Create root parameter group

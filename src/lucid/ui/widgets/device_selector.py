@@ -8,10 +8,18 @@ Usage:
     In parameter specs, use type='device':
         {'name': 'detectors', 'type': 'device', 'multi_select': True, 'catalog': catalog}
         {'name': 'motor', 'type': 'device', 'multi_select': False, 'catalog': catalog}
+
+    With device filters:
+        {'name': 'motor', 'type': 'device', 'device_filter': DeviceFilter(category='motor')}
+        {'name': 'axis', 'type': 'device', 'device_filter': DeviceFilterAny(
+            DeviceFilter(category='motor'),
+            DeviceFilter(category='positioner'),
+        )}
 """
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -46,6 +54,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from lucid.devices import DeviceCatalog, DeviceInfo
+    from lucid.ui.annotations import DeviceDefault, DeviceFilter, DeviceFilterAny
 
 
 # Device category icons (color, letter) - matches device_tree.py
@@ -100,11 +109,15 @@ class DeviceSelectorDialog(QDialog):
     """Dialog for selecting devices from the catalog.
 
     Provides a searchable list of devices with multi-selection support.
+    Supports filtering by category, device class, group, source, and name patterns.
 
     Args:
         catalog: DeviceCatalog to select from.
         multi_select: Allow multiple device selection.
-        category_filter: Filter devices by category (e.g., "detector", "motor").
+        category_filter: Simple filter by category (e.g., "detector", "motor").
+            For advanced filtering, use device_filter instead.
+        device_filter: DeviceFilter or DeviceFilterAny for advanced filtering.
+        device_default: DeviceDefault for pre-selecting devices.
         parent: Parent widget.
     """
 
@@ -113,17 +126,22 @@ class DeviceSelectorDialog(QDialog):
         catalog: DeviceCatalog,
         multi_select: bool = True,
         category_filter: str | None = None,
+        device_filter: DeviceFilter | DeviceFilterAny | None = None,
+        device_default: DeviceDefault | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._catalog = catalog
         self._multi_select = multi_select
         self._category_filter = category_filter
+        self._device_filter = device_filter
+        self._device_default = device_default
         self._selected_names: list[str] = []
         self._icons: dict[str, QIcon] = {}
 
         self._setup_ui()
         self._populate_devices()
+        self._apply_defaults()
 
     def _setup_ui(self) -> None:
         """Set up the dialog UI."""
@@ -176,6 +194,92 @@ class DeviceSelectorDialog(QDialog):
             self._icons[category] = create_device_icon(color, letter)
         return self._icons[category]
 
+    def _matches_single_filter(self, device: DeviceInfo, flt: DeviceFilter) -> bool:
+        """Check if a device matches a single DeviceFilter.
+
+        All specified criteria must match (AND logic within a filter).
+
+        Args:
+            device: Device to check.
+            flt: Filter criteria.
+
+        Returns:
+            True if device matches all specified criteria.
+        """
+        # Check device_class
+        if flt.device_class is not None:
+            if device.device_class != flt.device_class:
+                # Also try matching just the class name without module path
+                class_name = device.device_class.rsplit(".", 1)[-1] if device.device_class else ""
+                if class_name != flt.device_class:
+                    return False
+
+        # Check category
+        if flt.category is not None:
+            if device.category.value != flt.category:
+                return False
+
+        # Check group (look in tags)
+        if flt.group is not None:
+            # Check if group is in tags or matches a tag pattern
+            group_found = flt.group in device.tags
+            if not group_found:
+                # Also check if group is a substring of any tag
+                group_found = any(flt.group.lower() in tag.lower() for tag in device.tags)
+            if not group_found:
+                return False
+
+        # Check source (connection type)
+        if flt.source is not None:
+            if device.connection_type.value != flt.source:
+                return False
+
+        # Check name pattern (regex)
+        if flt.name_pattern is not None:
+            try:
+                if not re.match(flt.name_pattern, device.name, re.IGNORECASE):
+                    return False
+            except re.error:
+                logger.warning(f"Invalid regex pattern: {flt.name_pattern}")
+                return False
+
+        return True
+
+    def _matches_filter(self, device: DeviceInfo) -> bool:
+        """Check if a device matches the configured filter(s).
+
+        Uses OR logic for DeviceFilterAny (device matches if it matches
+        ANY of the contained filters).
+
+        Args:
+            device: Device to check.
+
+        Returns:
+            True if device matches the filter criteria.
+        """
+        # Import here to avoid circular imports
+        from lucid.ui.annotations import DeviceFilter, DeviceFilterAny
+
+        # If no filter configured, accept all devices
+        if self._device_filter is None:
+            return True
+
+        # Handle DeviceFilterAny (OR logic)
+        if isinstance(self._device_filter, DeviceFilterAny):
+            # Device must match at least one of the filters
+            if not self._device_filter.filters:
+                return True
+            return any(
+                self._matches_single_filter(device, flt)
+                for flt in self._device_filter.filters
+            )
+
+        # Handle single DeviceFilter
+        if isinstance(self._device_filter, DeviceFilter):
+            return self._matches_single_filter(device, self._device_filter)
+
+        return True
+
     def _populate_devices(self) -> None:
         """Populate the device list from the catalog."""
         self._device_list.clear()
@@ -183,18 +287,51 @@ class DeviceSelectorDialog(QDialog):
         devices = self._catalog.get_all_devices()
 
         for device in sorted(devices, key=lambda d: d.name):
-            # Apply category filter if set
+            # Apply legacy category filter if set (for backwards compatibility)
             if self._category_filter:
                 if device.category.value != self._category_filter:
+                    continue
+
+            # Apply new DeviceFilter/DeviceFilterAny if set
+            if self._device_filter is not None:
+                if not self._matches_filter(device):
                     continue
 
             item = QListWidgetItem(device.name)
             item.setData(Qt.ItemDataRole.UserRole, device)
             item.setToolTip(f"{device.description or device.name}\n"
                            f"Category: {device.category.value}\n"
+                           f"Class: {device.device_class}\n"
                            f"Prefix: {device.prefix}")
             item.setIcon(self._get_icon(device.category.value))
             self._device_list.addItem(item)
+
+    def _apply_defaults(self) -> None:
+        """Apply default device selections from DeviceDefault annotation."""
+        if self._device_default is None:
+            return
+
+        names_to_select: set[str] = set()
+
+        # Add explicit names
+        if self._device_default.names:
+            names_to_select.update(self._device_default.names)
+
+        # Match pattern against all devices
+        if self._device_default.pattern:
+            try:
+                pattern = re.compile(self._device_default.pattern, re.IGNORECASE)
+                for i in range(self._device_list.count()):
+                    item = self._device_list.item(i)
+                    device: DeviceInfo = item.data(Qt.ItemDataRole.UserRole)
+                    if pattern.match(device.name):
+                        names_to_select.add(device.name)
+            except re.error:
+                logger.warning(f"Invalid default pattern: {self._device_default.pattern}")
+
+        # Select matching items
+        if names_to_select:
+            self.set_selected_names(list(names_to_select))
 
     @Slot(str)
     def _on_search_changed(self, text: str) -> None:
@@ -342,15 +479,19 @@ if HAS_PYQTGRAPH:
 
             multi_select = opts.get("multi_select", True)
             category_filter = opts.get("category_filter")
+            device_filter = opts.get("device_filter")
+            device_default = opts.get("device_default")
 
             dialog = DeviceSelectorDialog(
                 catalog=catalog,
                 multi_select=multi_select,
                 category_filter=category_filter,
+                device_filter=device_filter,
+                device_default=device_default,
                 parent=None,
             )
 
-            # Pre-select current values
+            # Pre-select current values (overrides device_default if set)
             current = self.param.value() if self.param.hasValue() else []
             if current:
                 dialog.set_selected_names(current)
