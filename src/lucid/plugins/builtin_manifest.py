@@ -13,6 +13,25 @@ builtin_manifest = PluginManifest(
     version="1.0.0",
     description="Built-in NCS plugins",
     plugins=[
+        # Theme plugins - preload before appearance settings
+        PluginEntry(
+            type_name="theme",
+            name="light",
+            import_path="lucid.ui.theme.builtin:LightThemePlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="theme",
+            name="slate",
+            import_path="lucid.ui.theme.builtin:SlateThemePlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="theme",
+            name="darkblue",
+            import_path="lucid.ui.theme.builtin:DarkBlueThemePlugin",
+            preload=True,
+        ),
         # Appearance settings - preload to apply theme before window
         PluginEntry(
             type_name="settings",

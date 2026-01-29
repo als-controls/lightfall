@@ -665,6 +665,21 @@ class PluginLoader(QObject):
                     "PanelRegistry not available, skipping panel registration"
                 )
 
+        elif plugin_info.type_name == "theme":
+            try:
+                from lucid.ui.theme.registry import ThemeRegistry
+
+                theme_registry = ThemeRegistry.get_instance()
+                theme_plugin = plugin_info.instance
+
+                theme_registry.register(theme_plugin)
+                logger.debug(
+                    "Registered theme '{}' with ThemeRegistry",
+                    theme_plugin.name,
+                )
+            except ImportError:
+                logger.debug("ThemeRegistry not available, skipping theme registration")
+
     def get_plugin_by_name(
         self,
         name: str,

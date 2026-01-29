@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager
-from lucid.ui.theme import Theme, ThemeManager
+from lucid.ui.theme import ThemeManager
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -30,7 +30,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
     """Built-in settings for theme and font appearance.
 
     This plugin provides controls for:
-    - Theme selection (Light/Dark/System)
+    - Theme selection (dynamically populated from ThemeRegistry)
     - Font size adjustment
 
     As a preload plugin (preload=True), it applies the saved theme
@@ -77,12 +77,8 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         """
         prefs = PreferencesManager.get_instance()
         theme_value = prefs.theme
-        try:
-            theme = Theme(theme_value)
-            ThemeManager.get_instance().set_theme(theme)
-        except ValueError:
-            # Invalid theme value, use default
-            pass
+        # Use set_theme_by_name for string-based themes
+        ThemeManager.get_instance().set_theme_by_name(theme_value)
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the settings widget.
@@ -101,11 +97,9 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         appearance_group = QGroupBox("Appearance")
         appearance_layout = QFormLayout(appearance_group)
 
-        # Theme selector
+        # Theme selector - populated dynamically from ThemeManager
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem("Light", Theme.LIGHT.value)
-        self._theme_combo.addItem("Dark", Theme.DARK.value)
-        self._theme_combo.addItem("System", Theme.SYSTEM.value)
+        self._populate_theme_combo()
         self._theme_combo.currentIndexChanged.connect(self.apply_preview)
         appearance_layout.addRow("Theme:", self._theme_combo)
 
@@ -124,6 +118,20 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._widget = widget
         return widget
 
+    def _populate_theme_combo(self) -> None:
+        """Populate the theme combo box with available themes."""
+        if not self._theme_combo:
+            return
+
+        self._theme_combo.clear()
+        theme_mgr = ThemeManager.get_instance()
+
+        for theme_info in theme_mgr.get_available_themes():
+            self._theme_combo.addItem(
+                theme_info["display_name"],
+                theme_info["name"],
+            )
+
     def load_settings(self) -> None:
         """Load current settings into the widget.
 
@@ -135,10 +143,15 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
         self._original_theme = prefs.theme
 
-        # Set theme combo
+        # Set theme combo by name
         index = self._theme_combo.findData(prefs.theme)
         if index >= 0:
             self._theme_combo.setCurrentIndex(index)
+        else:
+            # Theme not found, default to system
+            index = self._theme_combo.findData("system")
+            if index >= 0:
+                self._theme_combo.setCurrentIndex(index)
 
         # Set font size
         self._font_spin.setValue(prefs.font_size)
@@ -172,21 +185,13 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         if not self._theme_combo:
             return
 
-        theme_value = self._theme_combo.currentData()
-        if theme_value:
-            try:
-                theme = Theme(theme_value)
-                ThemeManager.get_instance().set_theme(theme)
-            except ValueError:
-                pass
+        theme_name = self._theme_combo.currentData()
+        if theme_name:
+            ThemeManager.get_instance().set_theme_by_name(theme_name)
 
     def revert_preview(self) -> None:
         """Revert to the original theme if user cancels.
 
         Restores the theme that was active when the dialog opened.
         """
-        try:
-            theme = Theme(self._original_theme)
-            ThemeManager.get_instance().set_theme(theme)
-        except ValueError:
-            pass
+        ThemeManager.get_instance().set_theme_by_name(self._original_theme)

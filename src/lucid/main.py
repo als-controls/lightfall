@@ -265,7 +265,10 @@ def _setup_plugins(app: NCSApplication) -> None:
     registry = PluginRegistry()
     loader = PluginLoader(registry)
 
-    # Register plugin types
+    # Register plugin types (theme must be first to load before appearance settings)
+    from lucid.plugins.theme_plugin import ThemePlugin
+
+    loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
     loader.register_plugin_type("mcp_tool", MCPToolPlugin)

@@ -2,6 +2,7 @@
 
 Provides application-wide theme control with support for:
 - Light, dark, and system-following modes
+- Plugin-based theme definitions
 - Beamline-specific color accents
 - Theme-aware color utilities
 """
@@ -20,11 +21,15 @@ from PySide6.QtWidgets import QApplication, QStyleFactory
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    pass
+    from lucid.plugins.theme_plugin import ThemeDefinition, ThemePlugin
 
 
 class Theme(Enum):
-    """Available theme modes."""
+    """Available theme modes.
+
+    Note: This enum is kept for backward compatibility. New code should
+    use string-based theme names with ThemeManager.set_theme_by_name().
+    """
 
     LIGHT = "light"
     DARK = "dark"  # Alias for default dark theme (Slate)
@@ -75,8 +80,34 @@ class ThemeColors:
         if not self.disconnected:
             self.disconnected = self.error
 
+    @classmethod
+    def from_definition(cls, definition: ThemeDefinition) -> ThemeColors:
+        """Create ThemeColors from a ThemeDefinition.
 
-# Pre-defined theme color schemes
+        Args:
+            definition: ThemeDefinition from a theme plugin.
+
+        Returns:
+            ThemeColors instance with the same values.
+        """
+        return cls(
+            primary=definition.primary,
+            secondary=definition.secondary,
+            success=definition.success,
+            warning=definition.warning,
+            error=definition.error,
+            info=definition.info,
+            background=definition.background,
+            surface=definition.surface,
+            text=definition.text,
+            text_secondary=definition.text_secondary,
+            border=definition.border,
+            connected=definition.connected,
+            disconnected=definition.disconnected,
+        )
+
+
+# Pre-defined theme color schemes (fallback during early init)
 LIGHT_COLORS = ThemeColors(
     primary="#2563eb",
     secondary="#7c3aed",
@@ -122,6 +153,14 @@ DARKBLUE_COLORS = ThemeColors(
     disconnected="#5c2020",
 )
 
+# Fallback color schemes for early init (before plugins load)
+_FALLBACK_COLORS: dict[str, ThemeColors] = {
+    "light": LIGHT_COLORS,
+    "dark": SLATE_COLORS,
+    "slate": SLATE_COLORS,
+    "darkblue": DARKBLUE_COLORS,
+}
+
 
 @dataclass
 class BeamlineTheme:
@@ -152,23 +191,26 @@ class ThemeManager(QObject):
 
     ThemeManager provides:
     - Theme mode switching (light/dark/system)
+    - Plugin-based theme definitions via ThemeRegistry
     - System theme detection and following
     - Beamline-specific customization
     - Theme-aware color utilities
     - Stylesheet generation
 
     Signals:
-        theme_changed: Emitted when theme mode changes.
+        theme_changed: Emitted when theme mode changes (passes theme name as str).
         colors_changed: Emitted when colors are updated.
 
     Example:
         >>> manager = ThemeManager.get_instance()
-        >>> manager.set_theme(Theme.DARK)
+        >>> manager.set_theme_by_name("slate")
         >>> manager.colors.background
-        '#1f2937'
+        '#1e1e1e'
+        >>> manager.get_available_themes()
+        [{'name': 'light', 'display_name': 'Light', 'is_dark': False}, ...]
     """
 
-    theme_changed = Signal(Theme)
+    theme_changed = Signal(str)  # Now emits theme name as string
     colors_changed = Signal()
 
     _instance: ThemeManager | None = None
@@ -177,8 +219,14 @@ class ThemeManager(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         """Initialize the theme manager."""
         super().__init__(parent)
-        self._theme = Theme.SYSTEM
-        self._effective_theme = Theme.LIGHT
+        # Theme name: "system" or a registered theme name
+        self._theme_name: str = "system"
+        # The effective (resolved) theme name (never "system")
+        self._effective_theme_name: str = "light"
+        # Current theme plugin (may be None during early init)
+        self._current_theme_plugin: ThemePlugin | None = None
+        # CSS overrides from current theme
+        self._css_overrides: str = ""
         self._colors = LIGHT_COLORS
         self._beamline_theme: BeamlineTheme | None = None
         self._custom_stylesheets: dict[str, str] = {}
@@ -205,18 +253,53 @@ class ThemeManager(QObject):
 
     @property
     def theme(self) -> Theme:
-        """Current theme mode setting."""
-        return self._theme
+        """Current theme mode setting (for backward compatibility).
+
+        Deprecated: Use theme_name instead.
+        """
+        try:
+            return Theme(self._theme_name)
+        except ValueError:
+            # Custom theme name not in enum
+            if self.is_dark:
+                return Theme.DARK
+            return Theme.LIGHT
+
+    @property
+    def theme_name(self) -> str:
+        """Current theme name setting.
+
+        Returns "system" if following system preference, otherwise the
+        theme plugin name (e.g., "light", "slate", "darkblue").
+        """
+        return self._theme_name
 
     @property
     def effective_theme(self) -> Theme:
-        """Actual theme being used (resolves SYSTEM to LIGHT/DARK)."""
-        return self._effective_theme
+        """Actual theme being used (for backward compatibility).
+
+        Deprecated: Use effective_theme_name instead.
+        """
+        try:
+            return Theme(self._effective_theme_name)
+        except ValueError:
+            # Custom theme name not in enum
+            if self.is_dark:
+                return Theme.DARK
+            return Theme.LIGHT
+
+    @property
+    def effective_theme_name(self) -> str:
+        """Actual theme name being used (resolves "system" to actual theme)."""
+        return self._effective_theme_name
 
     @property
     def is_dark(self) -> bool:
         """Whether the effective theme is dark."""
-        return self._effective_theme in (Theme.DARK, Theme.SLATE, Theme.DARKBLUE)
+        if self._current_theme_plugin:
+            return self._current_theme_plugin.is_dark
+        # Fallback for known themes
+        return self._effective_theme_name in ("dark", "slate", "darkblue")
 
     @property
     def colors(self) -> ThemeColors:
@@ -229,37 +312,105 @@ class ThemeManager(QObject):
         return self._beamline_theme
 
     def set_theme(self, theme: Theme) -> None:
-        """Set the theme mode.
+        """Set the theme mode (for backward compatibility).
 
         Args:
             theme: The theme mode to use.
+
+        Note: Prefer set_theme_by_name() for new code.
         """
-        if theme == self._theme:
+        # Map "dark" to "slate" for backward compatibility
+        theme_name = theme.value
+        if theme_name == "dark":
+            theme_name = "slate"
+        self.set_theme_by_name(theme_name)
+
+    def set_theme_by_name(self, theme_name: str) -> None:
+        """Set the theme by name.
+
+        Args:
+            theme_name: Theme name ("system" or a registered theme name).
+                        "dark" is mapped to "slate" for backward compatibility.
+        """
+        # Map "dark" to "slate" for backward compatibility
+        if theme_name == "dark":
+            theme_name = "slate"
+
+        if theme_name == self._theme_name:
             return
 
-        old_theme = self._theme
-        self._theme = theme
+        old_name = self._theme_name
+        self._theme_name = theme_name
         self._update_effective_theme()
 
-        logger.info("Theme changed: {} -> {}", old_theme.value, theme.value)
-        self.theme_changed.emit(theme)
+        logger.info("Theme changed: {} -> {}", old_name, theme_name)
+        self.theme_changed.emit(theme_name)
+
+    def get_available_themes(self) -> list[dict[str, Any]]:
+        """Get all available themes for UI display.
+
+        Returns:
+            List of theme info dicts with 'name', 'display_name', 'is_dark'.
+            Includes a "System" option first.
+        """
+        themes = [
+            {
+                "name": "system",
+                "display_name": "System",
+                "is_dark": None,  # Follows system
+            }
+        ]
+
+        # Get themes from registry
+        try:
+            from lucid.ui.theme.registry import ThemeRegistry
+
+            registry = ThemeRegistry.get_instance()
+            for plugin in registry.get_all():
+                themes.append({
+                    "name": plugin.name,
+                    "display_name": plugin.display_name,
+                    "is_dark": plugin.is_dark,
+                })
+        except ImportError:
+            # Registry not available, use fallback
+            logger.debug("ThemeRegistry not available, using fallback themes")
+            themes.extend([
+                {"name": "light", "display_name": "Light", "is_dark": False},
+                {"name": "slate", "display_name": "Slate (Dark)", "is_dark": True},
+                {"name": "darkblue", "display_name": "Dark Blue", "is_dark": True},
+            ])
+
+        return themes
 
     def _update_effective_theme(self) -> None:
         """Update the effective theme based on current settings."""
-        if self._theme == Theme.SYSTEM:
-            self._effective_theme = self._detect_system_theme()
+        if self._theme_name == "system":
+            self._effective_theme_name = self._get_system_theme_name()
         else:
-            self._effective_theme = self._theme
+            self._effective_theme_name = self._theme_name
 
-        # Update colors based on theme
-        theme_colors = {
-            Theme.LIGHT: LIGHT_COLORS,
-            Theme.DARK: SLATE_COLORS,  # DARK aliases to Slate
-            Theme.SLATE: SLATE_COLORS,
-            Theme.DARKBLUE: DARKBLUE_COLORS,
-        }
-        base_colors = theme_colors.get(self._effective_theme, LIGHT_COLORS)
-        self._colors = ThemeColors(**vars(base_colors))
+        # Try to get theme from registry
+        self._current_theme_plugin = None
+        self._css_overrides = ""
+
+        try:
+            from lucid.ui.theme.registry import ThemeRegistry
+
+            registry = ThemeRegistry.get_instance()
+            plugin = registry.get(self._effective_theme_name)
+
+            if plugin:
+                self._current_theme_plugin = plugin
+                definition = plugin.get_theme_definition()
+                self._colors = ThemeColors.from_definition(definition)
+                self._css_overrides = definition.css_overrides
+            else:
+                # Theme not in registry, use fallback
+                self._use_fallback_colors()
+        except ImportError:
+            # Registry not available, use fallback
+            self._use_fallback_colors()
 
         # Apply beamline customizations
         if self._beamline_theme:
@@ -267,11 +418,38 @@ class ThemeManager(QObject):
 
         self.colors_changed.emit()
 
-    def _detect_system_theme(self) -> Theme:
+    def _use_fallback_colors(self) -> None:
+        """Use fallback colors when registry is not available."""
+        fallback = _FALLBACK_COLORS.get(self._effective_theme_name)
+        if fallback:
+            self._colors = ThemeColors(**vars(fallback))
+        else:
+            # Unknown theme, default to light
+            self._colors = ThemeColors(**vars(LIGHT_COLORS))
+
+    def _get_system_theme_name(self) -> str:
+        """Get theme name based on system preference."""
+        is_dark = self._detect_system_is_dark()
+
+        # Try to get appropriate theme from registry
+        try:
+            from lucid.ui.theme.registry import ThemeRegistry
+
+            registry = ThemeRegistry.get_instance()
+            plugin = registry.get_theme_for_system(is_dark)
+            if plugin:
+                return plugin.name
+        except ImportError:
+            pass
+
+        # Fallback
+        return "slate" if is_dark else "light"
+
+    def _detect_system_is_dark(self) -> bool:
         """Detect if the system is using dark mode."""
         app = QApplication.instance()
         if app is None:
-            return Theme.LIGHT
+            return False
 
         palette = app.palette()
         window_color = palette.color(QPalette.ColorRole.Window)
@@ -283,7 +461,11 @@ class ThemeManager(QObject):
             + 0.114 * window_color.blueF()
         )
 
-        return Theme.DARK if luminance < 0.5 else Theme.LIGHT
+        return luminance < 0.5
+
+    def _detect_system_theme(self) -> Theme:
+        """Detect if the system is using dark mode (for backward compatibility)."""
+        return Theme.DARK if self._detect_system_is_dark() else Theme.LIGHT
 
     def set_beamline_theme(self, theme: BeamlineTheme | None) -> None:
         """Set beamline-specific theme customizations.
@@ -327,7 +509,7 @@ class ThemeManager(QObject):
         stylesheet = self.generate_stylesheet()
         app.setStyleSheet(stylesheet)
 
-        logger.debug("Applied {} theme to application", self._effective_theme.value)
+        logger.debug("Applied {} theme to application", self._effective_theme_name)
 
     def _apply_dark_palette(self, app: QApplication) -> None:
         """Apply a dark color palette to the application."""
@@ -398,7 +580,7 @@ class ThemeManager(QObject):
             CSS stylesheet string.
         """
         c = self._colors
-        return f"""
+        base_stylesheet = f"""
 /* NCS Global Theme Stylesheet */
 
 /* Scrollbars */
@@ -615,6 +797,11 @@ QHeaderView::section {{
     padding: 6px;
 }}
 """
+        # Append theme-specific CSS overrides
+        if self._css_overrides:
+            base_stylesheet += f"\n/* Theme-specific overrides */\n{self._css_overrides}"
+
+        return base_stylesheet
 
     @staticmethod
     def _adjust_color(color: str, amount: int) -> str:
