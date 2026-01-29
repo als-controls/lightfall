@@ -20,9 +20,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
-    QSpacerItem,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -141,20 +138,37 @@ class LoginDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # Stacked widget for switching between Keycloak and Local views
-        self._stack = QStackedWidget()
-        layout.addWidget(self._stack)
+        # Keycloak login button
+        self._keycloak_btn = QPushButton("Login with Keycloak")
+        self._keycloak_btn.setMinimumHeight(44)
+        self._keycloak_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #0066cc;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0055aa;
+            }
+            QPushButton:pressed {
+                background-color: #004488;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+            """
+        )
+        self._keycloak_btn.clicked.connect(self._on_keycloak_login)
+        layout.addWidget(self._keycloak_btn)
 
-        # Page 0: Keycloak login
-        self._keycloak_page = self._create_keycloak_page()
-        self._stack.addWidget(self._keycloak_page)
-
-        # Page 1: Local login
-        self._local_page = self._create_local_page()
-        self._stack.addWidget(self._local_page)
-
-        # Start with Keycloak page
-        self._stack.setCurrentIndex(0)
+        # Local login form (hidden by default)
+        self._local_form = self._create_local_form()
+        self._local_form.setVisible(False)
+        layout.addWidget(self._local_form)
 
         # Progress indicator (hidden by default)
         self._progress_widget = QWidget()
@@ -218,48 +232,12 @@ class LoginDialog(QDialog):
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._info_label)
 
-    def _create_keycloak_page(self) -> QWidget:
-        """Create the Keycloak login page."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
+    def _create_local_form(self) -> QWidget:
+        """Create the local login form with username/password fields."""
+        form = QWidget()
+        layout = QVBoxLayout(form)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-
-        # Keycloak login button
-        self._keycloak_btn = QPushButton("Login with Keycloak")
-        self._keycloak_btn.setMinimumHeight(44)
-        self._keycloak_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #0066cc;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #0055aa;
-            }
-            QPushButton:pressed {
-                background-color: #004488;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-            """
-        )
-        self._keycloak_btn.clicked.connect(self._on_keycloak_login)
-        layout.addWidget(self._keycloak_btn)
-
-        return page
-
-    def _create_local_page(self) -> QWidget:
-        """Create the local login page with username/password fields."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
 
         # Username/password form
         form_layout = QFormLayout()
@@ -317,7 +295,7 @@ class LoginDialog(QDialog):
                 text-decoration: underline;
                 border: none;
                 background: transparent;
-                font-size: 12px;
+                font-size: 11px;
             }
             QPushButton:hover {
                 color: #004488;
@@ -333,17 +311,19 @@ class LoginDialog(QDialog):
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
-        return page
+        return form
 
     def _show_keycloak_page(self) -> None:
-        """Switch to Keycloak login page."""
-        self._stack.setCurrentIndex(0)
+        """Switch to Keycloak login view."""
+        self._keycloak_btn.setVisible(True)
+        self._local_form.setVisible(False)
         self._local_link.setVisible(True)
         self._error_label.setVisible(False)
 
     def _show_local_page(self) -> None:
-        """Switch to local login page."""
-        self._stack.setCurrentIndex(1)
+        """Switch to local login view."""
+        self._keycloak_btn.setVisible(False)
+        self._local_form.setVisible(True)
         self._local_link.setVisible(False)
         self._error_label.setVisible(False)
         self._username_edit.setFocus()
@@ -489,10 +469,10 @@ class LoginDialog(QDialog):
 
     def _reset_ui(self) -> None:
         """Reset UI after failed login attempt."""
-        # Keycloak page
+        # Keycloak
         self._keycloak_btn.setEnabled(True)
 
-        # Local page
+        # Local form
         self._local_login_btn.setEnabled(True)
         self._username_edit.setEnabled(True)
         self._password_edit.setEnabled(True)
@@ -502,11 +482,11 @@ class LoginDialog(QDialog):
         # Common
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
-        self._local_link.setVisible(self._stack.currentIndex() == 0)
+        self._local_link.setVisible(self._keycloak_btn.isVisible())
         self._progress_widget.setVisible(False)
 
         # Focus appropriate field
-        if self._stack.currentIndex() == 1:
+        if self._local_form.isVisible():
             self._password_edit.setFocus()
 
     def _show_error(self, message: str) -> None:
