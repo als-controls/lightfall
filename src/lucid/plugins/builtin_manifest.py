@@ -50,6 +50,12 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="lucid.ui.preferences.claude_settings:ClaudeSettingsPlugin",
         ),
+        # Claude skills settings
+        PluginEntry(
+            type_name="settings",
+            name="skills",
+            import_path="lucid.ui.preferences.skill_settings:SkillSettingsPlugin",
+        ),
         # Plugin management settings
         PluginEntry(
             type_name="settings",
@@ -149,6 +155,17 @@ builtin_manifest = PluginManifest(
             type_name="mcp_tool",
             name="device_tools",
             import_path="lucid.ui.panels.claude.device_tools:DeviceToolPlugin",
+        ),
+        # Skill plugins
+        PluginEntry(
+            type_name="skill",
+            name="alignment",
+            import_path="lucid.plugins.skills.alignment:BeamlineAlignmentSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
+            name="scan_planning",
+            import_path="lucid.plugins.skills.scan_planning:ScanPlanningSkill",
         ),
     ],
 )

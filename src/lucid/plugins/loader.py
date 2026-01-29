@@ -632,6 +632,21 @@ class PluginLoader(QObject):
                     "skipping controller registration"
                 )
 
+        elif plugin_info.type_name == "skill":
+            try:
+                from lucid.ui.panels.claude.skill_registry import SkillRegistry
+
+                skill_registry = SkillRegistry.get_instance()
+                skill_plugin = plugin_info.instance
+
+                skill_registry.register_plugin(skill_plugin)
+                logger.debug(
+                    "Registered skill plugin '{}' with SkillRegistry",
+                    skill_plugin.name,
+                )
+            except ImportError:
+                logger.debug("SkillRegistry not available, skipping skill registration")
+
         elif plugin_info.type_name == "panel":
             try:
                 from lucid.ui.panels.registry import PanelRegistry

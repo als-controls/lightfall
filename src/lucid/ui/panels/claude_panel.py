@@ -143,6 +143,16 @@ class ClaudePanel(BasePanel):
         except Exception as e:
             logger.warning("Failed to get plugin tools: {}", e)
 
+        # 3. Add tools from enabled skill plugins
+        try:
+            from lucid.ui.panels.claude.skill_registry import SkillRegistry
+            skill_registry = SkillRegistry.get_instance()
+            skill_tools = skill_registry.get_aggregated_tools()
+            all_tools.extend(skill_tools)
+            logger.debug("Added {} skill tools", len(skill_tools))
+        except Exception as e:
+            logger.warning("Failed to get skill tools: {}", e)
+
         return all_tools
 
     def _build_ncs_system_prompt(self) -> str:
@@ -151,7 +161,8 @@ class ClaudePanel(BasePanel):
         Returns:
             System prompt text to append.
         """
-        return """
+        # Start with core NCS system prompt
+        base_prompt = """
 You are also integrated with NCS (New Control System), a scientific data acquisition application.
 
 Additional capabilities in NCS:
@@ -169,6 +180,22 @@ When helping with NCS:
 5. The Device panel shows available hardware devices
 6. The Logbook panel records experiment notes and actions
 """
+
+        # Append skill prompts from enabled skills
+        try:
+            from lucid.ui.panels.claude.skill_registry import SkillRegistry
+            skill_registry = SkillRegistry.get_instance()
+            skill_prompts = skill_registry.get_aggregated_system_prompt()
+            if skill_prompts:
+                base_prompt += "\n\n# Enabled Skills\n\n" + skill_prompts
+                logger.debug(
+                    "Added {} chars of skill prompts to system prompt",
+                    len(skill_prompts)
+                )
+        except Exception as e:
+            logger.warning("Failed to get skill prompts: {}", e)
+
+        return base_prompt
 
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available.

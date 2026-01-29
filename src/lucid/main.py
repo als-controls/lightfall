@@ -256,6 +256,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     from lucid.plugins.engine_plugin import EnginePlugin
     from lucid.plugins.panel_plugin import PanelPlugin
     from lucid.plugins.settings_plugin import SettingsPlugin
+    from lucid.plugins.skill_plugin import SkillPlugin
     from lucid.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
@@ -271,6 +272,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
     loader.register_plugin_type("panel", PanelPlugin)
+    loader.register_plugin_type("skill", SkillPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)

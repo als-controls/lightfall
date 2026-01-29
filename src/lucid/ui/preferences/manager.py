@@ -62,6 +62,8 @@ GLOBAL_ONLY_PREFS = {
     "claude_permission_mode",
     # Plugin settings
     "disabled_plugins",
+    # Skill settings
+    "enabled_skills",
     # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
     "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning
