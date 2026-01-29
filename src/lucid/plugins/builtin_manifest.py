@@ -144,5 +144,11 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.panels.plugins.ipython_plugin:IPythonPanelPlugin",
             preload=True,
         ),
+        # MCP Tool plugins
+        PluginEntry(
+            type_name="mcp_tool",
+            name="device_tools",
+            import_path="lucid.ui.panels.claude.device_tools:DeviceToolPlugin",
+        ),
     ],
 )
