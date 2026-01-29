@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Callable, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Callable, get_args, get_origin, get_type_hints
 
 from loguru import logger
 from PySide6.QtCore import Signal, Slot
@@ -117,22 +117,92 @@ def _ensure_device_parameter_registered():
 _ensure_device_parameter_registered()
 
 
-def extract_annotated_metadata(annotation: Any) -> tuple[Any, list[Any]]:
+def resolve_string_annotation(annotation: Any, func: Callable | None = None) -> Any:
+    """Resolve a string annotation to its actual type.
+
+    When using `from __future__ import annotations`, annotations are stored
+    as strings. This function evaluates them to get the actual type objects.
+
+    Args:
+        annotation: The annotation (possibly a string).
+        func: The function the annotation belongs to (for namespace resolution).
+
+    Returns:
+        The resolved annotation type.
+    """
+    if not isinstance(annotation, str):
+        return annotation
+
+    # Build namespace for eval
+    namespace: dict[str, Any] = {}
+
+    # Add typing module contents
+    import typing
+    namespace.update(vars(typing))
+
+    # Add common types
+    namespace["Any"] = Any
+    namespace["Annotated"] = Annotated
+
+    # Add annotation classes
+    try:
+        from lucid.ui.annotations import (
+            Decimals,
+            Default,
+            DeviceDefault,
+            DeviceFilter,
+            DeviceFilterAny,
+            Range,
+            Unit,
+        )
+        namespace.update({
+            "Unit": Unit,
+            "Decimals": Decimals,
+            "Range": Range,
+            "Default": Default,
+            "DeviceFilter": DeviceFilter,
+            "DeviceFilterAny": DeviceFilterAny,
+            "DeviceDefault": DeviceDefault,
+        })
+    except ImportError:
+        pass
+
+    # Add function's module namespace if available
+    if func is not None:
+        module = inspect.getmodule(func)
+        if module is not None:
+            namespace.update(vars(module))
+
+    try:
+        return eval(annotation, namespace)
+    except Exception as e:
+        logger.debug(f"Failed to resolve annotation '{annotation}': {e}")
+        return annotation
+
+
+def extract_annotated_metadata(annotation: Any, func: Callable | None = None) -> tuple[Any, list[Any]]:
     """Extract base type and metadata from Annotated type hints.
+
+    Handles both actual type objects and string annotations (from
+    `from __future__ import annotations`).
 
     Args:
         annotation: A type annotation, possibly Annotated[T, meta1, meta2, ...].
+        func: Optional function for resolving string annotations.
 
     Returns:
         Tuple of (base_type, [metadata_items]).
         If not an Annotated type, returns (annotation, []).
     """
-    origin = get_origin(annotation)
+    # Resolve string annotation if needed
+    resolved = resolve_string_annotation(annotation, func)
+
+    origin = get_origin(resolved)
     if origin is Annotated:
-        args = get_args(annotation)
+        args = get_args(resolved)
         if args:
             return args[0], list(args[1:])
-    return annotation, []
+    return resolved, []
 
 
 def annotation_to_param_type(annotation: Any) -> tuple[str, dict[str, Any]]:
@@ -342,6 +412,7 @@ class PlanConfigWidget(QWidget):
         annotation: Any,
         default: Any,
         doc: str | None,
+        func: Callable | None = None,
     ) -> dict[str, Any]:
         """Build a parameter spec from annotation with metadata.
 
@@ -353,6 +424,7 @@ class PlanConfigWidget(QWidget):
             annotation: Type annotation (possibly Annotated[...]).
             default: Default value from function signature.
             doc: Documentation string for tooltip.
+            func: The plan function (for resolving string annotations).
 
         Returns:
             Parameter specification dict for pyqtgraph Parameter.create().
@@ -368,7 +440,7 @@ class PlanConfigWidget(QWidget):
         )
 
         # Extract base type and metadata from Annotated[T, meta1, meta2, ...]
-        base_type, metadata = extract_annotated_metadata(annotation)
+        base_type, metadata = extract_annotated_metadata(annotation, func)
 
         # Determine parameter category and type using the base type
         category = get_param_category(name, base_type)
@@ -475,6 +547,7 @@ class PlanConfigWidget(QWidget):
                 annotation=p.annotation,
                 default=p.default,
                 doc=param_docs.get(p.name),
+                func=plan_info.func,
             )
             param_specs.append(spec)
 
