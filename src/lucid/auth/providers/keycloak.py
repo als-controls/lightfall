@@ -293,7 +293,7 @@ class KeycloakAuthProvider(AuthProvider):
         server_thread.start()
 
         # Open browser
-        logger.info("Opening browser for authentication...")
+        logger.info("Opening browser for authentication: {}", auth_url)
         webbrowser.open(auth_url)
 
         # Wait for callback
