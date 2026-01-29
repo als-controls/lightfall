@@ -37,7 +37,7 @@ class AuthProviderConfig(BaseModel):
     server_url: str = Field(
         default="https://bcgkyclk.als.lbl.gov", description="Keycloak server URL"
     )
-    realm: str = Field(default="ncs", description="Keycloak realm")
+    realm: str = Field(default="alsncs", description="Keycloak realm")
     client_id: str = Field(default="LUCID", description="OIDC client ID")
     client_secret: str = Field(default="", description="OIDC client secret (optional)")
     redirect_uri: str = Field(
