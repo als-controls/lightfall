@@ -1,24 +1,28 @@
 """Login dialog for LUCID authentication.
 
 Provides a modal dialog for users to authenticate via Keycloak
-or continue as a guest.
+or a local development account.
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -28,7 +32,7 @@ from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    pass
+    from lucid.auth.providers.base import AuthProvider
 
 
 class LoginResult(Enum):
@@ -43,7 +47,7 @@ class LoginDialog(QDialog):
     """Modal dialog for user authentication.
 
     Presents options to login via Keycloak (opens browser) or
-    continue as a guest with limited permissions.
+    use a local development account.
 
     Signals:
         login_started: Emitted when login process begins.
@@ -82,6 +86,7 @@ class LoginDialog(QDialog):
         self._login_result = LoginResult.CANCELLED
         self._session_manager = SessionManager.get_instance()
         self._login_thread: QThreadFuture | None = None
+        self._current_provider: AuthProvider | None = None
 
         self.setWindowTitle(title)
         self.setModal(True)
@@ -105,8 +110,6 @@ class LoginDialog(QDialog):
         Args:
             message: Custom message to display.
         """
-        from PySide6.QtWidgets import QFormLayout, QLineEdit
-
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -131,72 +134,27 @@ class LoginDialog(QDialog):
         layout.addWidget(header)
 
         # Message
-        message_label = QLabel(message or default_message)
-        message_label.setWordWrap(True)
-        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(message_label)
+        self._message_label = QLabel(message or default_message)
+        self._message_label.setWordWrap(True)
+        self._message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._message_label)
 
         layout.addSpacing(8)
 
-        # Check provider type to determine UI mode
-        provider = self._session_manager._provider
-        self._use_browser_auth = provider and provider.supports_browser_auth
-        self._use_password_auth = provider and provider.supports_password_auth
+        # Stacked widget for switching between Keycloak and Local views
+        self._stack = QStackedWidget()
+        layout.addWidget(self._stack)
 
-        # Username/password fields (for local auth)
-        self._username_edit: QLineEdit | None = None
-        self._password_edit: QLineEdit | None = None
+        # Page 0: Keycloak login
+        self._keycloak_page = self._create_keycloak_page()
+        self._stack.addWidget(self._keycloak_page)
 
-        if self._use_password_auth:
-            form_layout = QFormLayout()
-            form_layout.setSpacing(8)
+        # Page 1: Local login
+        self._local_page = self._create_local_page()
+        self._stack.addWidget(self._local_page)
 
-            self._username_edit = QLineEdit()
-            self._username_edit.setPlaceholderText("Enter username")
-            self._username_edit.setMinimumHeight(32)
-            form_layout.addRow("Username:", self._username_edit)
-
-            self._password_edit = QLineEdit()
-            self._password_edit.setPlaceholderText("Enter password")
-            self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            self._password_edit.setMinimumHeight(32)
-            self._password_edit.returnPressed.connect(self._on_login_clicked)
-            form_layout.addRow("Password:", self._password_edit)
-
-            layout.addLayout(form_layout)
-            layout.addSpacing(8)
-
-        # Login button
-        if self._use_browser_auth:
-            login_text = "Login with Keycloak"
-        else:
-            login_text = "Login"
-
-        self._login_btn = QPushButton(login_text)
-        self._login_btn.setMinimumHeight(40)
-        self._login_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #0066cc;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #0055aa;
-            }
-            QPushButton:pressed {
-                background-color: #004488;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-            """
-        )
-        self._login_btn.clicked.connect(self._on_login_clicked)
-        layout.addWidget(self._login_btn)
+        # Start with Keycloak page
+        self._stack.setCurrentIndex(0)
 
         # Progress indicator (hidden by default)
         self._progress_widget = QWidget()
@@ -208,8 +166,7 @@ class LoginDialog(QDialog):
         self._progress_bar.setTextVisible(False)
         progress_layout.addWidget(self._progress_bar)
 
-        progress_text = "Waiting for browser login..." if self._use_browser_auth else "Logging in..."
-        self._progress_label = QLabel(progress_text)
+        self._progress_label = QLabel("Logging in...")
         progress_layout.addWidget(self._progress_label)
 
         self._progress_widget.setVisible(False)
@@ -237,77 +194,275 @@ class LoginDialog(QDialog):
         )
 
         # Info text
-        if self._use_password_auth and not self._use_browser_auth:
-            info_text = (
-                "Development mode: use admin/admin, user/user, etc.\n"
-                "Guest access provides read-only permissions."
-            )
-        else:
-            info_text = (
-                "Guest access provides read-only permissions.\n"
-                "Full access requires authentication."
-            )
+        self._info_label = QLabel(
+            "Guest access provides read-only permissions.\n"
+            "Full access requires authentication."
+        )
+        self._info_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._info_label)
 
-        info = QLabel(info_text)
-        info.setStyleSheet("color: gray; font-size: 11px;")
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(info)
+    def _create_keycloak_page(self) -> QWidget:
+        """Create the Keycloak login page."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        # Keycloak login button
+        self._keycloak_btn = QPushButton("Login with Keycloak")
+        self._keycloak_btn.setMinimumHeight(44)
+        self._keycloak_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #0066cc;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0055aa;
+            }
+            QPushButton:pressed {
+                background-color: #004488;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+            """
+        )
+        self._keycloak_btn.clicked.connect(self._on_keycloak_login)
+        layout.addWidget(self._keycloak_btn)
+
+        # Link to switch to local login
+        self._local_link = QPushButton("Use local account instead")
+        self._local_link.setFlat(True)
+        self._local_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._local_link.setStyleSheet(
+            """
+            QPushButton {
+                color: #0066cc;
+                text-decoration: underline;
+                border: none;
+                background: transparent;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                color: #004488;
+            }
+            """
+        )
+        self._local_link.clicked.connect(self._show_local_page)
+        layout.addWidget(self._local_link, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        return page
+
+    def _create_local_page(self) -> QWidget:
+        """Create the local login page with username/password fields."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        # Username/password form
+        form_layout = QFormLayout()
+        form_layout.setSpacing(8)
+
+        self._username_edit = QLineEdit()
+        self._username_edit.setPlaceholderText("Enter username")
+        self._username_edit.setMinimumHeight(32)
+        form_layout.addRow("Username:", self._username_edit)
+
+        self._password_edit = QLineEdit()
+        self._password_edit.setPlaceholderText("Enter password")
+        self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password_edit.setMinimumHeight(32)
+        self._password_edit.returnPressed.connect(self._on_local_login)
+        form_layout.addRow("Password:", self._password_edit)
+
+        layout.addLayout(form_layout)
+
+        # Local login button
+        self._local_login_btn = QPushButton("Login")
+        self._local_login_btn.setMinimumHeight(40)
+        self._local_login_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #0066cc;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0055aa;
+            }
+            QPushButton:pressed {
+                background-color: #004488;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+            """
+        )
+        self._local_login_btn.clicked.connect(self._on_local_login)
+        layout.addWidget(self._local_login_btn)
+
+        # Link to go back to Keycloak
+        self._keycloak_link = QPushButton("Back to Keycloak login")
+        self._keycloak_link.setFlat(True)
+        self._keycloak_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._keycloak_link.setStyleSheet(
+            """
+            QPushButton {
+                color: #0066cc;
+                text-decoration: underline;
+                border: none;
+                background: transparent;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                color: #004488;
+            }
+            """
+        )
+        self._keycloak_link.clicked.connect(self._show_keycloak_page)
+        layout.addWidget(self._keycloak_link, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Dev hint
+        hint = QLabel("Dev accounts: admin/admin, user/user, operator/operator")
+        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint)
+
+        return page
+
+    def _show_keycloak_page(self) -> None:
+        """Switch to Keycloak login page."""
+        self._stack.setCurrentIndex(0)
+        self._error_label.setVisible(False)
+
+    def _show_local_page(self) -> None:
+        """Switch to local login page."""
+        self._stack.setCurrentIndex(1)
+        self._error_label.setVisible(False)
+        self._username_edit.setFocus()
 
     @property
     def login_result(self) -> LoginResult:
         """Get the login result after dialog closes."""
         return self._login_result
 
-    def _on_login_clicked(self) -> None:
-        """Handle login button click."""
-        # Get credentials if using password auth
-        username = None
-        password = None
-
-        if self._use_password_auth and self._username_edit and self._password_edit:
-            username = self._username_edit.text().strip()
-            password = self._password_edit.text()
-
-            if not username or not password:
-                self._show_error("Please enter username and password")
-                return
-
-        self._login_btn.setEnabled(False)
+    def _on_keycloak_login(self) -> None:
+        """Handle Keycloak login button click."""
+        self._keycloak_btn.setEnabled(False)
+        self._local_link.setEnabled(False)
         if self._guest_btn:
             self._guest_btn.setEnabled(False)
-        if self._username_edit:
-            self._username_edit.setEnabled(False)
-        if self._password_edit:
-            self._password_edit.setEnabled(False)
+        self._progress_label.setText("Waiting for browser login...")
         self._progress_widget.setVisible(True)
         self._error_label.setVisible(False)
 
         self.login_started.emit()
-        logger.info("Starting login flow")
+        logger.info("Starting Keycloak login flow")
 
-        # Run async login in a background thread
+        # Run Keycloak login in background thread
         self._login_thread = QThreadFuture(
-            self._do_login_sync,
+            self._do_keycloak_login,
+            callback_slot=self._on_login_complete,
+            except_slot=self._on_login_error,
+            name="keycloak_login",
+        )
+        self._login_thread.start()
+
+    def _do_keycloak_login(self) -> bool:
+        """Perform Keycloak login (runs in background thread)."""
+        from lucid.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
+        from lucid.config import ConfigManager
+        from lucid.core import NCSApplication
+
+        # Get Keycloak config
+        app = NCSApplication.get_instance()
+        config: ConfigManager = app.services.get(ConfigManager)
+        auth_config = config.model.auth.provider
+
+        kc_config = KeycloakConfig(
+            server_url=auth_config.server_url,
+            realm=auth_config.realm,
+            client_id=auth_config.client_id,
+            client_secret=auth_config.client_secret or None,
+            redirect_uri=auth_config.redirect_uri,
+        )
+
+        provider = KeycloakAuthProvider(kc_config)
+        self._current_provider = provider
+
+        # Run async authenticate
+        session = asyncio.run(provider.authenticate())
+
+        if session:
+            # Set session in SessionManager
+            self._session_manager._session = session
+            self._session_manager._set_state(AuthState.AUTHENTICATED)
+            self._session_manager.user_changed.emit(session.user)
+            return True
+
+        return False
+
+    def _on_local_login(self) -> None:
+        """Handle local login button click."""
+        username = self._username_edit.text().strip()
+        password = self._password_edit.text()
+
+        if not username or not password:
+            self._show_error("Please enter username and password")
+            return
+
+        self._local_login_btn.setEnabled(False)
+        self._username_edit.setEnabled(False)
+        self._password_edit.setEnabled(False)
+        self._keycloak_link.setEnabled(False)
+        if self._guest_btn:
+            self._guest_btn.setEnabled(False)
+        self._progress_label.setText("Logging in...")
+        self._progress_widget.setVisible(True)
+        self._error_label.setVisible(False)
+
+        self.login_started.emit()
+        logger.info("Starting local login flow")
+
+        # Run local login in background thread
+        self._login_thread = QThreadFuture(
+            self._do_local_login,
             username,
             password,
             callback_slot=self._on_login_complete,
             except_slot=self._on_login_error,
-            name="login",
+            name="local_login",
         )
         self._login_thread.start()
 
-    def _do_login_sync(self, username: str | None, password: str | None) -> bool:
-        """Perform the login synchronously (runs in background thread).
+    def _do_local_login(self, username: str, password: str) -> bool:
+        """Perform local login (runs in background thread)."""
+        from lucid.auth.providers.local import LocalAuthProvider
 
-        Args:
-            username: Username for password auth.
-            password: Password for password auth.
+        provider = LocalAuthProvider(session_duration=timedelta(hours=8))
+        self._current_provider = provider
 
-        Returns:
-            True if login succeeded.
-        """
-        # Run the async login in this thread's event loop
-        return asyncio.run(self._session_manager.login(username=username, password=password))
+        # Run async authenticate
+        session = asyncio.run(provider.authenticate(username=username, password=password))
+
+        if session:
+            # Set session in SessionManager
+            self._session_manager._session = session
+            self._session_manager._set_state(AuthState.AUTHENTICATED)
+            self._session_manager.user_changed.emit(session.user)
+            return True
+
+        return False
 
     def _on_login_complete(self, success: bool) -> None:
         """Handle login completion (called in main thread).
@@ -319,10 +474,11 @@ class LoginDialog(QDialog):
             self._login_result = LoginResult.AUTHENTICATED
             self.accept()
         else:
-            # Login failed or was cancelled
             self._reset_ui()
-            if self._use_password_auth:
+            if self._stack.currentIndex() == 1:  # Local page
                 self._show_error("Invalid username or password")
+            else:
+                self._show_error("Login failed or was cancelled")
 
     def _on_login_error(self, error: Exception) -> None:
         """Handle login error (called in main thread).
@@ -332,20 +488,29 @@ class LoginDialog(QDialog):
         """
         logger.error("Login failed: {}", error)
         self._reset_ui()
-        self._show_error("Login failed. Please try again.")
+        self._show_error(f"Login failed: {error}")
 
     def _reset_ui(self) -> None:
         """Reset UI after failed login attempt."""
-        self._login_btn.setEnabled(True)
+        # Keycloak page
+        self._keycloak_btn.setEnabled(True)
+        self._local_link.setEnabled(True)
+
+        # Local page
+        self._local_login_btn.setEnabled(True)
+        self._username_edit.setEnabled(True)
+        self._password_edit.setEnabled(True)
+        self._password_edit.clear()
+        self._keycloak_link.setEnabled(True)
+
+        # Common
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
-        if self._username_edit:
-            self._username_edit.setEnabled(True)
-        if self._password_edit:
-            self._password_edit.setEnabled(True)
-            self._password_edit.clear()
-            self._password_edit.setFocus()
         self._progress_widget.setVisible(False)
+
+        # Focus appropriate field
+        if self._stack.currentIndex() == 1:
+            self._password_edit.setFocus()
 
     def _show_error(self, message: str) -> None:
         """Show an error message in the dialog.
@@ -376,7 +541,7 @@ class LoginDialog(QDialog):
             self.accept()
         elif new_state == AuthState.ERROR:
             self._reset_ui()
-            self._progress_label.setText("Login failed. Please try again.")
+            self._show_error("Login failed. Please try again.")
 
     def closeEvent(self, event) -> None:
         """Handle dialog close."""
