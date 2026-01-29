@@ -594,9 +594,7 @@ class NCSMainWindow(QMainWindow):
         Args:
             user: The logged-in User object.
         """
-        from datetime import datetime, timezone
-
-        from lucid.ui.widgets.action_toast import ActionToast
+        from lucid.ui.toast import ToastManager
 
         # Check if user has expiry info
         if not hasattr(user, "expires_at") or user.expires_at is None:
@@ -606,14 +604,12 @@ class NCSMainWindow(QMainWindow):
         expires_text = self._format_expiry(user.expires_at)
         duration_text = self._format_time_remaining(user.expires_at)
 
-        toast = ActionToast(
-            title="Logged In",
-            text=f"Session expires at {expires_text} ({duration_text})",
-            action_text="Session Settings",
-            parent=self,
+        toast_manager = ToastManager.get_instance()
+        toast_manager.info(
+            "Logged In",
+            f"Session expires at {expires_text} ({duration_text})",
+            duration=8000,
         )
-        toast.action_clicked.connect(self._open_login_settings)
-        toast.show()
 
     def _format_expiry(self, expires_at: Any) -> str:
         """Format expiry time for display.
@@ -646,11 +642,6 @@ class NCSMainWindow(QMainWindow):
             return f"in {minutes} minute{'s' if minutes != 1 else ''}"
         hours = int(remaining // 3600)
         return f"in {hours} hour{'s' if hours != 1 else ''}"
-
-    def _open_login_settings(self) -> None:
-        """Open preferences to login settings page."""
-        dialog = PreferencesDialog(self, initial_page="login")
-        dialog.exec()
 
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:
