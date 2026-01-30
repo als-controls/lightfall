@@ -1,0 +1,84 @@
+# GitLab CI/CD Pipeline for LUCID
+#
+# This pipeline builds documentation and runs tests.
+# Documentation is deployed to GitLab Pages on the default branch.
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PYTHON_VERSION: "3.11"
+
+# Cache pip downloads between jobs
+cache:
+  paths:
+    - .cache/pip/
+
+# ------------------------------------------------------------------------------
+# Test Stage
+# ------------------------------------------------------------------------------
+
+lint:
+  stage: test
+  image: python:${PYTHON_VERSION}
+  script:
+    - pip install ruff
+    - ruff check src/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:
+  stage: test
+  image: python:${PYTHON_VERSION}
+  before_script:
+    - apt-get update && apt-get install -y libxkbcommon0 libxcb-cursor0 libegl1 libgl1
+    - pip install -e ".[dev]"
+  script:
+    - pytest tests/ -v --tb=short
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  allow_failure: true  # Remove once tests are stable
+
+# ------------------------------------------------------------------------------
+# Build Stage
+# ------------------------------------------------------------------------------
+
+build-docs:
+  stage: build
+  image: python:${PYTHON_VERSION}
+  before_script:
+    - pip install -e ".[docs]"
+  script:
+    - sphinx-build -b html docs docs/_build -W --keep-going
+  artifacts:
+    paths:
+      - docs/_build/
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ------------------------------------------------------------------------------
+# Deploy Stage
+# ------------------------------------------------------------------------------
+
+pages:
+  stage: deploy
+  image: python:${PYTHON_VERSION}
+  before_script:
+    - pip install -e ".[docs]"
+  script:
+    - sphinx-build -b html docs public -W --keep-going
+  artifacts:
+    paths:
+      - public/
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment:
+    name: documentation
+    url: $CI_PAGES_URL
