@@ -81,6 +81,15 @@ class MCPToolRegistry:
         Args:
             plugin: The MCPToolPlugin instance to register.
         """
+        # Check for duplicate registration by plugin name
+        existing_names = {p.name for p in self._tool_plugins}
+        if plugin.name in existing_names:
+            logger.warning(
+                "MCP tool plugin '{}' already registered, skipping duplicate",
+                plugin.name,
+            )
+            return
+
         self._tool_plugins.append(plugin)
         logger.debug("Registered MCP tool plugin: {}", plugin.name)
 

@@ -179,7 +179,12 @@ builtin_manifest = PluginManifest(
         PluginEntry(
             type_name="mcp_tool",
             name="device_tools",
-            import_path="lucid.ui.panels.claude.device_tools:DeviceToolPlugin",
+            import_path="lucid.plugins.tools.device_tools:DeviceToolPlugin",
+        ),
+        PluginEntry(
+            type_name="mcp_tool",
+            name="plan_tools",
+            import_path="lucid.plugins.tools.plan_tools:PlanToolPlugin",
         ),
         # Skill plugins
         PluginEntry(

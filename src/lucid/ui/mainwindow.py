@@ -10,12 +10,14 @@ Provides the primary application window with:
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QMainWindow,
     QStatusBar,
@@ -568,6 +570,42 @@ class NCSMainWindow(QMainWindow):
 
     # Signal handlers
 
+    def _force_window_to_front(self) -> None:
+        """Force the window to the foreground, even on Windows.
+
+        On Windows, apps cannot normally steal focus from another application
+        (like a browser after OAuth flow). This method uses multiple techniques
+        to reliably bring the window to the front:
+        1. Ensure window is not minimized
+        2. Temporarily use WindowStaysOnTopHint to force visibility
+        3. Remove the hint after a brief delay so window behaves normally
+        4. Call all standard activation methods
+        """
+        # Ensure not minimized and visible
+        self.showNormal()
+
+        # On Windows, temporarily set stay-on-top to force visibility
+        if sys.platform == "win32":
+            # Get current flags and add stay-on-top
+            flags = self.windowFlags()
+            self.setWindowFlags(flags | Qt.WindowStaysOnTopHint)
+            self.show()  # Required after setWindowFlags
+
+            # Remove the hint after a short delay
+            def remove_stay_on_top() -> None:
+                self.setWindowFlags(flags)
+                self.show()  # Required after setWindowFlags
+                self.activateWindow()
+
+            QTimer.singleShot(100, remove_stay_on_top)
+        else:
+            self.show()
+
+        # Standard activation
+        self.raise_()
+        self.activateWindow()
+        QApplication.setActiveWindow(self)
+
     @Slot(AuthState, AuthState)
     def _on_auth_state_changed(
         self, new_state: AuthState, old_state: AuthState
@@ -577,9 +615,7 @@ class NCSMainWindow(QMainWindow):
 
         # Raise the window when login completes (user returns from browser)
         if new_state == AuthState.AUTHENTICATED:
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            self._force_window_to_front()
 
     @Slot(object)
     def _on_user_changed(self, user: Any) -> None:

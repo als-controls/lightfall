@@ -6,10 +6,13 @@ configure the Claude AI assistant integration.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -28,6 +31,26 @@ from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
+
+
+def check_oauth_status() -> tuple[bool, str]:
+    """Check if Claude Code CLI has OAuth credentials.
+
+    Returns:
+        A tuple of (is_authenticated, status_message).
+    """
+    credentials_path = Path.home() / ".claude" / ".credentials.json"
+    if not credentials_path.exists():
+        return False, "Not logged in"
+
+    try:
+        with open(credentials_path) as f:
+            creds = json.load(f)
+        if "claudeAiOauth" in creds:
+            return True, "Logged in via OAuth (subscription)"
+        return False, "No OAuth credentials"
+    except (json.JSONDecodeError, IOError):
+        return False, "Could not read credentials"
 
 
 # Preset API endpoints
@@ -124,13 +147,63 @@ class ClaudeSettingsProvider:
         return prefs.get("claude_permission_mode", "default")
 
     @staticmethod
-    def is_configured() -> bool:
-        """Check if Claude is configured with an API key.
+    def is_oauth_authenticated() -> bool:
+        """Check if Claude Code CLI has OAuth authentication.
 
         Returns:
-            True if an API key is available.
+            True if OAuth credentials are available.
         """
-        return ClaudeSettingsProvider.get_api_key() is not None
+        authenticated, _ = check_oauth_status()
+        return authenticated
+
+    @staticmethod
+    def get_auth_status() -> tuple[bool, str]:
+        """Get detailed authentication status.
+
+        Returns:
+            Tuple of (is_authenticated, status_message).
+        """
+        # Check API key first
+        api_key = ClaudeSettingsProvider.get_api_key()
+        if api_key:
+            return True, "Using API key"
+
+        # Check OAuth
+        return check_oauth_status()
+
+    @staticmethod
+    def is_configured() -> bool:
+        """Check if Claude is configured with authentication.
+
+        Returns:
+            True if API key or OAuth credentials are available.
+        """
+        api_key = ClaudeSettingsProvider.get_api_key()
+        if api_key:
+            return True
+        # Fall back to OAuth check
+        return ClaudeSettingsProvider.is_oauth_authenticated()
+
+    @staticmethod
+    def is_using_proxy() -> bool:
+        """Check if a proxy endpoint is configured.
+
+        Returns:
+            True if using cborg or custom endpoint (not direct Anthropic API).
+        """
+        prefs = PreferencesManager.get_instance()
+        endpoint = prefs.get("claude_endpoint", "anthropic")
+        return endpoint != "anthropic"
+
+    @staticmethod
+    def get_disable_betas() -> bool:
+        """Check if beta headers should be disabled.
+
+        Returns:
+            True if beta headers should be disabled (for proxy compatibility).
+        """
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("claude_disable_betas", False)
 
 
 class ClaudeSettingsPlugin(SettingsPlugin):
@@ -138,7 +211,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
     Allows users to configure:
     - API endpoint (Anthropic, LBNL cborg, or custom)
-    - API key for authentication
+    - API key for authentication (or use OAuth via `claude login`)
     - Model selection
     - Max conversation turns
     - Permission mode for tool execution
@@ -152,7 +225,10 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._endpoint_combo: QComboBox | None = None
         self._custom_url_edit: QLineEdit | None = None
         self._api_key_edit: QLineEdit | None = None
-        self._env_var_label: QLabel | None = None
+        self._auth_status_label: QLabel | None = None
+        self._oauth_status_label: QLabel | None = None
+        self._oauth_login_button: QPushButton | None = None
+        self._disable_betas_checkbox: QCheckBox | None = None
         self._test_button: QPushButton | None = None
         self._status_label: QLabel | None = None
         # Model Configuration
@@ -215,7 +291,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         self._widget = widget
         self._update_custom_url_state()
-        self._update_env_var_status()
+        self._update_betas_recommendation()
+        self._update_oauth_status()
+        self._update_auth_status()
         return widget
 
     def _create_api_group(self) -> QGroupBox:
@@ -239,17 +317,42 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._custom_url_edit.setPlaceholderText("https://your-api-server.com")
         layout.addRow("Custom URL:", self._custom_url_edit)
 
-        # API Key field
+        # Disable betas checkbox (for proxy compatibility)
+        self._disable_betas_checkbox = QCheckBox("Disable beta features (for proxy compatibility)")
+        self._disable_betas_checkbox.setToolTip(
+            "Disable beta headers that may not be supported by proxy servers.\n"
+            "Enable this if you see errors about unsupported beta headers."
+        )
+        layout.addRow("", self._disable_betas_checkbox)
+
+        # Authentication section header
+        auth_header = QLabel("<b>Authentication</b>")
+        layout.addRow(auth_header)
+
+        # OAuth status section
+        oauth_layout = QHBoxLayout()
+        self._oauth_status_label = QLabel()
+        oauth_layout.addWidget(self._oauth_status_label)
+
+        self._oauth_login_button = QPushButton("Login with Browser")
+        self._oauth_login_button.setToolTip("Run 'claude login' to authenticate with your Claude subscription")
+        self._oauth_login_button.clicked.connect(self._on_oauth_login)
+        oauth_layout.addWidget(self._oauth_login_button)
+        oauth_layout.addStretch()
+
+        layout.addRow("OAuth Status:", oauth_layout)
+
+        # API Key field (alternative to OAuth)
         self._api_key_edit = QLineEdit()
-        self._api_key_edit.setPlaceholderText("sk-ant-...")
+        self._api_key_edit.setPlaceholderText("sk-ant-... (optional if using OAuth)")
         self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key_edit.textChanged.connect(self._update_env_var_status)
+        self._api_key_edit.textChanged.connect(self._update_auth_status)
         layout.addRow("API Key:", self._api_key_edit)
 
-        # Environment variable status label
-        self._env_var_label = QLabel()
-        self._env_var_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addRow("", self._env_var_label)
+        # Authentication status label
+        self._auth_status_label = QLabel()
+        self._auth_status_label.setStyleSheet("font-style: italic;")
+        layout.addRow("", self._auth_status_label)
 
         # Test connection button and status
         test_layout = QHBoxLayout()
@@ -318,11 +421,22 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         desc.setStyleSheet("color: gray;")
         layout.addRow(desc)
 
+        # Proxy compatibility warning
+        proxy_note = QLabel(
+            "<b>Note:</b> Some proxy servers (LBNL cborg, custom) may not support all "
+            "Claude Code CLI features. If you see errors about unsupported beta headers, "
+            "try using the direct Anthropic API endpoint instead."
+        )
+        proxy_note.setWordWrap(True)
+        proxy_note.setStyleSheet("color: #666; font-size: 9pt;")
+        layout.addRow(proxy_note)
+
         return group
 
     def _on_endpoint_changed(self, index: int) -> None:
         """Handle endpoint selection change."""
         self._update_custom_url_state()
+        self._update_betas_recommendation()
 
     def _update_custom_url_state(self) -> None:
         """Update custom URL field enabled state based on endpoint selection."""
@@ -333,24 +447,98 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             if not is_custom:
                 self._custom_url_edit.clear()
 
-    def _update_env_var_status(self) -> None:
-        """Update the environment variable status label."""
-        if not self._env_var_label or not self._api_key_edit:
+    def _update_betas_recommendation(self) -> None:
+        """Update betas checkbox recommendation based on endpoint."""
+        if not self._endpoint_combo or not self._disable_betas_checkbox:
+            return
+
+        endpoint_key = self._endpoint_combo.currentData()
+        is_proxy = endpoint_key != "anthropic"
+
+        if is_proxy:
+            self._disable_betas_checkbox.setToolTip(
+                "RECOMMENDED for proxy endpoints.\n"
+                "Disable beta headers that may not be supported by proxy servers.\n"
+                "Enable this if you see errors about unsupported beta headers."
+            )
+        else:
+            self._disable_betas_checkbox.setToolTip(
+                "Disable beta features. Usually not needed for direct Anthropic API."
+            )
+
+    def _on_oauth_login(self) -> None:
+        """Handle OAuth login button click."""
+        import subprocess
+        import sys
+
+        if self._oauth_status_label:
+            self._oauth_status_label.setText("Opening browser...")
+            self._oauth_status_label.setStyleSheet("color: gray; font-style: italic;")
+
+        from PySide6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
+
+        try:
+            # Run claude login
+            if sys.platform == "win32":
+                subprocess.Popen(["claude", "login"], shell=True)
+            else:
+                subprocess.Popen(["claude", "login"])
+
+            if self._oauth_status_label:
+                self._oauth_status_label.setText("Browser opened - complete login there")
+                self._oauth_status_label.setStyleSheet("color: #0066cc; font-style: italic;")
+        except FileNotFoundError:
+            if self._oauth_status_label:
+                self._oauth_status_label.setText("Claude CLI not found. Install with: npm i -g @anthropic-ai/claude-code")
+                self._oauth_status_label.setStyleSheet("color: red; font-style: italic;")
+        except Exception as e:
+            logger.error("OAuth login error: {}", e)
+            if self._oauth_status_label:
+                self._oauth_status_label.setText(f"Error: {e}")
+                self._oauth_status_label.setStyleSheet("color: red; font-style: italic;")
+
+    def _update_oauth_status(self) -> None:
+        """Update the OAuth status display."""
+        if not self._oauth_status_label:
+            return
+
+        authenticated, message = check_oauth_status()
+        if authenticated:
+            self._oauth_status_label.setText(message)
+            self._oauth_status_label.setStyleSheet("color: green; font-style: italic;")
+        else:
+            self._oauth_status_label.setText(message)
+            self._oauth_status_label.setStyleSheet("color: gray; font-style: italic;")
+
+    def _update_auth_status(self) -> None:
+        """Update the authentication status label."""
+        if not self._auth_status_label or not self._api_key_edit:
             return
 
         key_text = self._api_key_edit.text().strip()
         if key_text:
-            self._env_var_label.setText("")
+            self._auth_status_label.setText("Using API key from settings")
+            self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
         else:
             # Check for environment variables
             env_key = os.getenv("ANTHROPIC_API_KEY")
             env_token = os.getenv("ANTHROPIC_AUTH_TOKEN")
             if env_key:
-                self._env_var_label.setText("Using env var ANTHROPIC_API_KEY")
+                self._auth_status_label.setText("Using env var ANTHROPIC_API_KEY")
+                self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
             elif env_token:
-                self._env_var_label.setText("Using env var ANTHROPIC_AUTH_TOKEN")
+                self._auth_status_label.setText("Using env var ANTHROPIC_AUTH_TOKEN")
+                self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
             else:
-                self._env_var_label.setText("No API key configured")
+                # Check OAuth
+                authenticated, _ = check_oauth_status()
+                if authenticated:
+                    self._auth_status_label.setText("Using OAuth (no API key needed)")
+                    self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
+                else:
+                    self._auth_status_label.setText("No authentication configured")
+                    self._auth_status_label.setStyleSheet("color: orange; font-style: italic;")
 
     def _on_test_connection(self) -> None:
         """Handle test connection button click."""
@@ -467,6 +655,10 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if self._custom_url_edit:
             self._custom_url_edit.setText(prefs.get("claude_custom_url", ""))
 
+        # Load disable betas setting
+        if self._disable_betas_checkbox:
+            self._disable_betas_checkbox.setChecked(prefs.get("claude_disable_betas", False))
+
         # Load API key
         if self._api_key_edit:
             self._api_key_edit.setText(prefs.get("claude_api_key", ""))
@@ -496,7 +688,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             self._status_label.setText("")
 
         self._update_custom_url_state()
-        self._update_env_var_status()
+        self._update_betas_recommendation()
+        self._update_oauth_status()
+        self._update_auth_status()
 
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
@@ -513,6 +707,10 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         # Save custom URL
         if self._custom_url_edit:
             prefs.set("claude_custom_url", self._custom_url_edit.text().strip())
+
+        # Save disable betas setting
+        if self._disable_betas_checkbox:
+            prefs.set("claude_disable_betas", self._disable_betas_checkbox.isChecked())
 
         # Save API key
         if self._api_key_edit:

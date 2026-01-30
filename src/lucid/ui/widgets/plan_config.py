@@ -295,7 +295,11 @@ def signature_to_parameters(
 
         # Add default value
         if param.default is not inspect.Parameter.empty:
-            spec["value"] = param.default
+            # Convert list/tuple to string for text parameters
+            if param_type == "text" and isinstance(param.default, (list, tuple)):
+                spec["value"] = ", ".join(str(v) for v in param.default)
+            else:
+                spec["value"] = param.default
         else:
             # Set sensible defaults for required parameters
             if param_type == "int":
@@ -304,7 +308,7 @@ def signature_to_parameters(
                 spec["value"] = 0.0
             elif param_type == "bool":
                 spec["value"] = False
-            elif param_type == "str":
+            elif param_type in ("str", "text"):
                 spec["value"] = ""
 
         # Add tooltip from docstring
@@ -446,6 +450,20 @@ class PlanConfigWidget(QWidget):
         # Determine parameter category and type using the base type
         category = get_param_category(name, base_type)
 
+        # Check if metadata contains DeviceFilter - this overrides category detection
+        # This handles cases like `Annotated[Any, DeviceFilter(...)]` where the base
+        # type doesn't indicate it's a device but the annotation metadata does
+        has_device_filter = any(
+            isinstance(meta, (DeviceFilter, DeviceFilterAny)) for meta in metadata
+        )
+        if has_device_filter and category not in (ParamCategory.DEVICE, ParamCategory.DEVICES):
+            # Determine single vs multi-select based on whether base type is a list
+            origin = get_origin(base_type)
+            if origin in (list, tuple):
+                category = ParamCategory.DEVICES
+            else:
+                category = ParamCategory.DEVICE
+
         # Start building the spec
         spec: dict[str, Any] = {"name": name}
 
@@ -462,6 +480,9 @@ class PlanConfigWidget(QWidget):
                     spec["device_filter"] = meta
                 elif isinstance(meta, DeviceDefault):
                     spec["device_default"] = meta
+                    # Initialize value from DeviceDefault names for initial display
+                    if meta.names:
+                        spec["value"] = list(meta.names)
         else:
             # Use standard parameter type
             param_type, extra_opts = annotation_to_param_type(base_type)
@@ -470,7 +491,12 @@ class PlanConfigWidget(QWidget):
 
             # Add default value from signature
             if default is not inspect.Parameter.empty:
-                spec["value"] = default
+                # Convert list/tuple to string for text parameters
+                if param_type == "text" and isinstance(default, (list, tuple)):
+                    # Format as comma-separated values for user editing
+                    spec["value"] = ", ".join(str(v) for v in default)
+                else:
+                    spec["value"] = default
             else:
                 # Set sensible defaults for required parameters
                 if param_type == "int":
@@ -479,7 +505,7 @@ class PlanConfigWidget(QWidget):
                     spec["value"] = 0.0
                 elif param_type == "bool":
                     spec["value"] = False
-                elif param_type == "str":
+                elif param_type in ("str", "text"):
                     spec["value"] = ""
 
             # Process metadata for numeric/other parameters
@@ -500,7 +526,11 @@ class PlanConfigWidget(QWidget):
                             limits[1] = float("inf") if param_type == "float" else 2**31 - 1
                         spec["limits"] = tuple(limits)
                 elif isinstance(meta, Default):
-                    spec["value"] = meta.value
+                    # Convert list/tuple to string for text parameters
+                    if param_type == "text" and isinstance(meta.value, (list, tuple)):
+                        spec["value"] = ", ".join(str(v) for v in meta.value)
+                    else:
+                        spec["value"] = meta.value
 
         # Add tooltip from docstring
         if doc:

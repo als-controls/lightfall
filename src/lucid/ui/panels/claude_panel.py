@@ -78,9 +78,14 @@ class ClaudePanel(BasePanel):
 
         # Check if Claude is configured
         if not ClaudeSettingsProvider.is_configured():
+            is_oauth, oauth_msg = ClaudeSettingsProvider.get_auth_status()
             raise ValueError(
-                "Claude API key not configured. Set it in Preferences > Claude Assistant "
-                "or via ANTHROPIC_API_KEY environment variable."
+                f"Claude authentication not configured.\n\n"
+                f"OAuth Status: {oauth_msg}\n\n"
+                "Options:\n"
+                "1. Run 'claude login' in terminal for OAuth (subscription)\n"
+                "2. Set API key in Preferences > Claude Assistant\n"
+                "3. Set ANTHROPIC_API_KEY environment variable"
             )
 
         # Get the main window as target
@@ -119,17 +124,46 @@ class ClaudePanel(BasePanel):
             main_window: The main window reference.
 
         Returns:
-            List of tool functions.
+            List of tool functions (deduplicated by name).
         """
         all_tools = []
+        seen_names: set[str] = set()
+
+        def add_tools(tools: list, source: str) -> int:
+            """Add tools, skipping duplicates by name."""
+            added = 0
+            for tool_func in tools:
+                # Get tool name
+                if hasattr(tool_func, 'name'):
+                    tool_name = tool_func.name
+                elif hasattr(tool_func, '__name__'):
+                    tool_name = tool_func.__name__
+                else:
+                    # Can't determine name, add anyway
+                    all_tools.append(tool_func)
+                    added += 1
+                    continue
+
+                if tool_name in seen_names:
+                    logger.warning(
+                        "Skipping duplicate tool '{}' from {}",
+                        tool_name,
+                        source,
+                    )
+                    continue
+
+                seen_names.add(tool_name)
+                all_tools.append(tool_func)
+                added += 1
+            return added
 
         # 1. Add NCS core tools
         try:
-            from lucid.ui.panels.claude.ncs_tools import NCSCoreToolPlugin
+            from lucid.plugins.tools.ncs_tools import NCSCoreToolPlugin
             ncs_core = NCSCoreToolPlugin(main_window)
             core_tools = ncs_core.create_tools()
-            all_tools.extend(core_tools)
-            logger.debug("Added {} NCS core tools", len(core_tools))
+            added = add_tools(core_tools, "NCS core")
+            logger.debug("Added {} NCS core tools", added)
         except Exception as e:
             logger.warning("Failed to create NCS core tools: {}", e)
 
@@ -138,8 +172,8 @@ class ClaudePanel(BasePanel):
             from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
             registry = MCPToolRegistry.get_instance()
             plugin_tools = registry.get_all_tools()
-            all_tools.extend(plugin_tools)
-            logger.debug("Added {} plugin tools", len(plugin_tools))
+            added = add_tools(plugin_tools, "MCP plugins")
+            logger.debug("Added {} plugin tools", added)
         except Exception as e:
             logger.warning("Failed to get plugin tools: {}", e)
 
@@ -148,11 +182,12 @@ class ClaudePanel(BasePanel):
             from lucid.ui.panels.claude.skill_registry import SkillRegistry
             skill_registry = SkillRegistry.get_instance()
             skill_tools = skill_registry.get_aggregated_tools()
-            all_tools.extend(skill_tools)
-            logger.debug("Added {} skill tools", len(skill_tools))
+            added = add_tools(skill_tools, "skills")
+            logger.debug("Added {} skill tools", added)
         except Exception as e:
             logger.warning("Failed to get skill tools: {}", e)
 
+        logger.info("Collected {} unique MCP tools total", len(all_tools))
         return all_tools
 
     def _build_ncs_system_prompt(self) -> str:
