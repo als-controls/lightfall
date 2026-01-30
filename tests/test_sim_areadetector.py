@@ -276,3 +276,56 @@ class TestSimDetectorROI:
 
         assert roi_data is not None
         assert roi_data.shape == (100, 100)
+
+
+class TestMockBackendIntegration:
+    """Tests for SimDetector integration with MockBackend."""
+
+    def test_sim_det_in_mock_backend(self) -> None:
+        """MockBackend should include sim_det device."""
+        from lucid.devices.backends.mock import MockBackend
+        from lucid.devices.model import DeviceCategory
+
+        backend = MockBackend()
+        backend.connect()
+
+        devices = backend.list_devices(category=DeviceCategory.CAMERA)
+        names = [d.name for d in devices]
+        assert "sim_det" in names
+
+    def test_sim_det_ophyd_device_accessible(self) -> None:
+        """sim_det ophyd device should be accessible from backend."""
+        from lucid.devices.backends.mock import MockBackend
+
+        backend = MockBackend()
+        backend.connect()
+
+        ophyd_dev = backend.get_ophyd_device("sim_det")
+        assert ophyd_dev is not None
+        assert isinstance(ophyd_dev, SimDetector)
+
+    def test_sim_det_motor_responsive_with_backend_motors(self) -> None:
+        """sim_det should respond to sample_x/sample_y motors from backend."""
+        from lucid.devices.backends.mock import MockBackend
+
+        backend = MockBackend()
+        backend.connect()
+
+        sim_det = backend.get_ophyd_device("sim_det")
+        sample_x = backend.get_ophyd_device("sample_x")
+        sample_y = backend.get_ophyd_device("sample_y")
+
+        # Set motor mode and acquire
+        sim_det.cam.pattern_mode.set("motor")
+        sim_det.cam.acquire_time.set(0.001)
+
+        sample_x.set(0).wait()
+        sample_y.set(0).wait()
+        sim_det.trigger().wait(timeout=5)
+        center = sim_det.image.array_data.get().copy()
+
+        sample_x.set(50).wait()
+        sim_det.trigger().wait(timeout=5)
+        moved = sim_det.image.array_data.get()
+
+        assert not np.array_equal(center, moved)

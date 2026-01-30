@@ -299,6 +299,38 @@ class MockBackend(DeviceBackend):
         # Create additional custom motors for a more complete simulation
         self._create_additional_motors()
 
+        # === Area Detector ===
+        try:
+            from lucid.devices.sim.areadetector import SimDetector
+
+            sim_det = SimDetector(
+                name="sim_det",
+                motors={
+                    "x": self._ophyd_devices.get("sample_x"),
+                    "y": self._ophyd_devices.get("sample_y"),
+                },
+            )
+            sim_det_info = DeviceInfo(
+                name="sim_det",
+                description="Simulated area detector for testing",
+                category=DeviceCategory.CAMERA,
+                device_class="lucid.devices.sim.areadetector.SimDetector",
+                connection_type=ConnectionType.SIMULATED,
+                prefix="sim_det",
+                location="Detector Arm",
+                tags=["detector", "camera", "area", "simulated"],
+                metadata={
+                    "size_x": 256,
+                    "size_y": 256,
+                    "data_type": "uint8",
+                },
+            )
+            sim_det_info._ophyd_device = sim_det
+            self._add_device_internal(sim_det_info)
+            self._ophyd_devices["sim_det"] = sim_det
+        except ImportError:
+            logger.warning("SimDetector not available")
+
         logger.debug("Created {} simulated devices", len(self._devices))
 
     def _create_additional_motors(self) -> None:
