@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 
+from lucid.acquire import get_engine
+from lucid.acquire.plans import get_registry as get_plan_registry
 from lucid.auth.providers import LocalAuthProvider
 from lucid.auth.session import SessionManager
 from lucid.config import ConfigManager
 from lucid.core import NCSApplication
-from lucid.acquire import get_engine
-from lucid.acquire.plans import get_registry as get_plan_registry
 from lucid.devices import DeviceCatalog
 from lucid.devices.backends import BCSBackend, MockBackend
 from lucid.project import ProjectService, create_welcome_project
@@ -250,7 +250,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     Args:
         app: The LUCID application instance.
     """
-    from lucid.plugins import PluginLoader, PluginRegistry, MCPToolPlugin
+    from lucid.plugins import MCPToolPlugin, PluginLoader, PluginRegistry
     from lucid.plugins.builtin_manifest import builtin_manifest
     from lucid.plugins.controller_plugin import ControllerPlugin
     from lucid.plugins.engine_plugin import EnginePlugin
@@ -329,13 +329,19 @@ def _show_startup_login(window: NCSMainWindow) -> None:
     from lucid.ui.dialogs import LoginDialog
     from lucid.ui.dialogs.login_dialog import LoginResult
 
+    # Use parent=None since main window isn't shown yet.
+    # On Windows, modal dialogs with hidden parents may not appear properly.
     dialog = LoginDialog(
-        parent=window,
+        parent=None,
         title="Welcome to LUCID",
         allow_guest=True,
         show_on_expiry=False,
     )
 
+    # Ensure dialog is visible and activated on Windows
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
     dialog.exec()
     login_result = dialog.login_result
 
