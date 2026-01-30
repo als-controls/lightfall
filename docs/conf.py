@@ -20,6 +20,7 @@ extensions = [
     "sphinx.ext.autodoc",  # API documentation from docstrings
     "sphinx.ext.viewcode",  # Add links to source code
     "sphinx.ext.intersphinx",  # Link to other projects' documentation
+    "sphinx_immaterial",  # Material theme extensions
 ]
 
 templates_path = ["_templates"]
@@ -40,14 +41,54 @@ source_suffix = {
 }
 
 # -- Options for HTML output -------------------------------------------------
-html_theme = "sphinx_rtd_theme"
+html_theme = "sphinx_immaterial"
 html_static_path = ["_static"]
+html_title = "LUCID Documentation"
 
-# Theme options
+# Theme options for sphinx-immaterial
 html_theme_options = {
-    "navigation_depth": 4,
-    "collapse_navigation": False,
-    "sticky_navigation": True,
+    "icon": {
+        "repo": "fontawesome/brands/github",
+    },
+    "site_url": "https://als-computing.github.io/lucid/",
+    "repo_url": "https://github.com/als-computing/lucid",
+    "repo_name": "lucid",
+    "edit_uri": "blob/main/docs",
+    "globaltoc_collapse": True,
+    "features": [
+        "navigation.expand",
+        "navigation.sections",
+        "navigation.top",
+        "search.highlight",
+        "search.share",
+        "toc.follow",
+        "toc.sticky",
+        "content.tabs.link",
+        "announce.dismiss",
+    ],
+    "palette": [
+        {
+            "media": "(prefers-color-scheme: light)",
+            "scheme": "default",
+            "primary": "blue",
+            "accent": "light-blue",
+            "toggle": {
+                "icon": "material/brightness-7",
+                "name": "Switch to dark mode",
+            },
+        },
+        {
+            "media": "(prefers-color-scheme: dark)",
+            "scheme": "slate",
+            "primary": "blue",
+            "accent": "light-blue",
+            "toggle": {
+                "icon": "material/brightness-4",
+                "name": "Switch to light mode",
+            },
+        },
+    ],
+    "toc_title_is_page_title": True,
 }
 
 # -- Intersphinx configuration -----------------------------------------------
