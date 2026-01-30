@@ -2,39 +2,51 @@
 
 LUCID (Lightsource Unified Control Interface Dashboard) is a modern control system for scientific data acquisition and hardware controls at the ALS (Advanced Light Source) facility.
 
-## Getting Started
+## User Guide
 
-- [Plugin System Overview](plugins/index.md) - Extend LUCID with custom functionality
-- [Plugin Quickstart](plugins/quickstart.md) - Create your first plugin in 5 minutes
+Learn how to use LUCID for your experiments and data acquisition.
 
-## Developer Guides
+- [Getting Started](user/getting-started.md) - Overview and first steps
+- [Logging In](user/login.md) - Authentication and access
+- [Running Plans](user/running-plans.md) - Execute data acquisition plans
+- [Using Panels](user/panels.md) - Work with the main application panels
+- [Claude Assistant](user/claude-assistant.md) - AI-powered help and control
+- [Preferences](user/preferences.md) - Customize your experience
 
 ```{toctree}
 :maxdepth: 2
-:caption: Contents
+:caption: User Guide
+:hidden:
+
+user/getting-started
+user/login
+user/running-plans
+user/panels
+user/claude-assistant
+user/preferences
+```
+
+## Developer Guide
+
+Extend LUCID with custom functionality through the plugin system.
+
+- [Plugin System Overview](plugins/index.md) - Architecture and concepts
+- [Plugin Quickstart](plugins/quickstart.md) - Create your first plugin
+- [Creating Plugins](plugins/creating-plugins.md) - Step-by-step guide
+- [Plugin Types](plugins/plugin-types/index.md) - All 9 plugin types
+
+```{toctree}
+:maxdepth: 2
+:caption: Developer Guide
+:hidden:
 
 plugins/index
 ```
 
 ## Key Features
 
-- **Modular Plugin Architecture**: Extend functionality through 9 plugin types
-- **Qt-based UI**: Modern PySide6 interface with theming support
-- **Bluesky Integration**: Native support for Bluesky data acquisition plans
+- **Modern Qt Interface**: PySide6-based UI with theming and dockable panels
+- **Bluesky Integration**: Native support for data acquisition plans
 - **LLM Integration**: Claude assistant with MCP tools for natural language control
-
-## Plugin Types at a Glance
-
-| Plugin Type | Purpose |
-|-------------|---------|
-| `settings` | Add preferences pages to the Settings dialog |
-| `panel` | Add new panels to the main application |
-| `plan` | Register Bluesky plans for data acquisition |
-| `engine` | Provide execution backends |
-| `theme` | Define application color themes |
-| `statusbar` | Add status indicators to the status bar |
-| `controller` | Provide device-specific control widgets |
-| `mcp_tool` | Add tools for the Claude assistant |
-| `skill` | Add domain expertise to the Claude assistant |
-
-See the [Plugin System Overview](plugins/index.md) for details on each type.
+- **Role-Based Access**: Fine-grained permissions with Keycloak authentication
+- **Extensible Architecture**: Plugin system for custom functionality
