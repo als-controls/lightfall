@@ -329,3 +329,79 @@ class TestMockBackendIntegration:
         moved = sim_det.image.array_data.get()
 
         assert not np.array_equal(center, moved)
+
+
+class TestBlueskyIntegration:
+    """Tests for SimDetector with Bluesky plans."""
+
+    @pytest.fixture
+    def sim_det(self):
+        """Create a SimDetector for testing."""
+        det = SimDetector(name="sim_det")
+        det.cam.acquire_time.set(0.001)  # Fast acquisitions
+        return det
+
+    def test_count_plan(self, sim_det) -> None:
+        """SimDetector should work with bp.count."""
+        pytest.importorskip("bluesky")
+        from bluesky import RunEngine
+        from bluesky.plans import count
+
+        RE = RunEngine({})
+        docs = []
+
+        def collector(name, doc):
+            docs.append((name, doc))
+
+        RE.subscribe(collector)
+        RE(count([sim_det], num=3))
+
+        # Should have start, descriptor, 3 events, stop
+        names = [d[0] for d in docs]
+        assert names.count("event") == 3
+        assert "start" in names
+        assert "stop" in names
+
+    def test_scan_with_motor(self, sim_det) -> None:
+        """SimDetector should work with bp.scan."""
+        pytest.importorskip("bluesky")
+        from bluesky import RunEngine
+        from bluesky.plans import scan
+        from ophyd.sim import SynAxis
+
+        motor = SynAxis(name="motor")
+        RE = RunEngine({})
+        docs = []
+
+        def collector(name, doc):
+            docs.append((name, doc))
+
+        RE.subscribe(collector)
+        RE(scan([sim_det], motor, 0, 10, 5))
+
+        # Should have 5 events
+        names = [d[0] for d in docs]
+        assert names.count("event") == 5
+
+    def test_event_contains_image_data(self, sim_det) -> None:
+        """Events should contain image data in embedded mode."""
+        pytest.importorskip("bluesky")
+        from bluesky import RunEngine
+        from bluesky.plans import count
+
+        RE = RunEngine({})
+        events = []
+
+        def collector(name, doc):
+            if name == "event":
+                events.append(doc)
+
+        RE.subscribe(collector)
+        RE(count([sim_det], num=1))
+
+        assert len(events) == 1
+        data = events[0]["data"]
+        assert "sim_det_image" in data
+        image = data["sim_det_image"]
+        assert isinstance(image, np.ndarray)
+        assert image.shape == (256, 256)
