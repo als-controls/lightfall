@@ -43,6 +43,20 @@ Extend LUCID with custom functionality through the plugin system.
 plugins/index
 ```
 
+## API Reference
+
+Auto-generated documentation from source code.
+
+- [Plugin Types](api/plugins.md) - Base classes and infrastructure
+
+```{toctree}
+:maxdepth: 2
+:caption: API Reference
+:hidden:
+
+api/index
+```
+
 ## Key Features
 
 - **Modern Qt Interface**: PySide6-based UI with theming and dockable panels
