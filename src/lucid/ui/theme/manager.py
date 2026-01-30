@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QStyleFactory
+from PySide6.QtWidgets import QApplication
 
 from lucid.utils.logging import logger
 
@@ -815,9 +815,9 @@ QHeaderView::section {{
             Adjusted hex color string.
         """
         qcolor = QColor(color)
-        h, s, l, a = qcolor.getHslF()
-        l = max(0.0, min(1.0, l + amount / 255.0))
-        qcolor.setHslF(h, s, l, a)
+        h, s, lightness, a = qcolor.getHslF()
+        lightness = max(0.0, min(1.0, lightness + amount / 255.0))
+        qcolor.setHslF(h, s, lightness, a)
         return qcolor.name()
 
     # Color utility methods

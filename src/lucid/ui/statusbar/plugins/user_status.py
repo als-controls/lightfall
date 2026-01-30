@@ -11,7 +11,6 @@ from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.auth.session import SessionManager
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     pass

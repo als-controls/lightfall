@@ -396,7 +396,7 @@ class BlockMapper:
                         break
 
         # Build mapping for each visual position
-        for v_pos, v_char in enumerate(clean_visual):
+        for _v_pos, v_char in enumerate(clean_visual):
             # Skip any markers before this character
             skip_markers()
 

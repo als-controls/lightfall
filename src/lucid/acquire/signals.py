@@ -12,10 +12,11 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from PySide6.QtCore import QObject, Signal as QtSignal
+from PySide6.QtCore import QObject
+from PySide6.QtCore import Signal as QtSignal
 
 if TYPE_CHECKING:
-    from ophyd import Device
+    pass
 
 
 class SignalKind(str, Enum):

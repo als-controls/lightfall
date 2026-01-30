@@ -9,8 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QWidget
 
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.widgets.document_stream import DocumentStreamWidget

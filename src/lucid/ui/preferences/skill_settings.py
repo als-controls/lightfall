@@ -108,14 +108,18 @@ class SkillTableModel(QAbstractTableModel):
         """
         return self._enabled_names != self._original_enabled_names
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Return the number of rows."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self._skills)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:
         """Return the number of columns."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self.COLUMNS)

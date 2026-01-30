@@ -462,8 +462,8 @@ def open_via_pycharm_http(file_path: str, line: int, column: int = 1) -> bool:
         True if successful, False on error.
     """
     try:
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         # Normalize path (use forward slashes)
         normalized_path = file_path.replace("\\", "/")

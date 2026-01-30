@@ -12,7 +12,7 @@ import importlib.util
 import sys
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
@@ -170,7 +170,7 @@ class UserPlanService(QObject):
         Returns:
             List of (path, PlanInfo or Exception) tuples.
         """
-        from lucid.acquire.plans.registry import PlanInfo, PlanRegistry
+        from lucid.acquire.plans.registry import PlanRegistry
 
         results: list[tuple[Path, PlanInfo | Exception]] = []
 
@@ -223,7 +223,6 @@ class UserPlanService(QObject):
         Returns:
             PlanInfo on success, Exception on error, None if no plan variable.
         """
-        from lucid.acquire.plans.registry import PlanInfo
 
         plan_name = path.stem
 

@@ -10,8 +10,9 @@ import sys
 import threading
 import time
 import weakref
+from collections.abc import Callable, Generator
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Generator, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThread, QTimer
 from PySide6.QtWidgets import QApplication

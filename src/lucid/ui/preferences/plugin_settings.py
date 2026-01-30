@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.core.services import ServiceRegistry
-from lucid.plugins.errors import PluginStatus
 from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager
@@ -105,14 +104,18 @@ class PluginTableModel(QAbstractTableModel):
         """
         return self._disabled_ids - self._original_disabled_ids
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Return the number of rows."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self._plugins)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:
         """Return the number of columns."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self.COLUMNS)

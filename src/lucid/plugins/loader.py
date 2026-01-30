@@ -10,9 +10,10 @@ from __future__ import annotations
 import importlib
 import time
 from collections import deque
+from collections.abc import Generator
 from datetime import datetime
 from importlib.metadata import entry_points
-from typing import TYPE_CHECKING, Any, Generator, Type
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -23,10 +24,9 @@ from lucid.plugins.errors import (
     PluginLoadError,
     PluginNotFoundError,
     PluginStatus,
-    PluginTypeNotFoundError,
 )
 from lucid.plugins.info import PluginInfo
-from lucid.plugins.manifest import PluginEntry, PluginManifest
+from lucid.plugins.manifest import PluginManifest
 from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.types import PluginType
 from lucid.utils.threads import QThreadFutureIterator, invoke_in_main_thread, is_main_thread
@@ -83,7 +83,7 @@ class PluginLoader(QObject):
         """
         super().__init__(parent)
         self._registry = registry or PluginRegistry()
-        self._plugin_types: dict[str, Type[PluginType]] = {}
+        self._plugin_types: dict[str, type[PluginType]] = {}
 
         # Queues for two-phase loading
         self._load_queue: deque[PluginInfo] = deque()
@@ -114,7 +114,7 @@ class PluginLoader(QObject):
     def register_plugin_type(
         self,
         type_name: str,
-        plugin_type_class: Type[PluginType],
+        plugin_type_class: type[PluginType],
     ) -> None:
         """Register a plugin type.
 
@@ -125,7 +125,7 @@ class PluginLoader(QObject):
         self._plugin_types[type_name] = plugin_type_class
         logger.debug("Registered plugin type: {}", type_name)
 
-    def get_plugin_type(self, type_name: str) -> Type[PluginType] | None:
+    def get_plugin_type(self, type_name: str) -> type[PluginType] | None:
         """Get a registered plugin type class.
 
         Args:

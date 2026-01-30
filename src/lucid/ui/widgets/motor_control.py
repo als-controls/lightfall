@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QTimer, Qt, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -812,7 +812,7 @@ class MultiMotorControlWidget(BaseControlWidget):
     @Slot(str)
     def _on_stop_requested(self, name: str) -> None:
         """Handle stop request from a motor row."""
-        for n, motor, item in self._motors:
+        for n, motor, _item in self._motors:
             if n == name:
                 try:
                     if hasattr(motor, "stop"):
@@ -835,7 +835,7 @@ class MultiMotorControlWidget(BaseControlWidget):
         """Stop all motors."""
         action_logger = DeviceActionLogger.get_instance()
 
-        for name, motor, item in self._motors:
+        for name, motor, _item in self._motors:
             try:
                 if hasattr(motor, "stop"):
                     motor.stop()

@@ -87,7 +87,7 @@ class SkillPlugin(PluginType):
 
     @property
     @abstractmethod
-    def description(self) -> str:
+    def description(self) -> str:  # noqa: F811
         """Human-readable description of what this skill provides.
 
         This is shown in the settings UI to help users understand

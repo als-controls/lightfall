@@ -186,7 +186,7 @@ class PreferencesDialog(QDialog):
         """
         # Validate all plugins
         errors: list[str] = []
-        for name, plugin in self._plugins.items():
+        for _name, plugin in self._plugins.items():
             try:
                 plugin_errors = plugin.validate()
                 if plugin_errors:

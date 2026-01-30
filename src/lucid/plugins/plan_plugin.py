@@ -8,7 +8,8 @@ and executed through the NCS UI.
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
+from collections.abc import Callable, Generator
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from lucid.plugins.types import PluginType
 

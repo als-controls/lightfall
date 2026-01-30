@@ -374,7 +374,6 @@ class DeviceActionLogger(QObject):
         Returns:
             Markdown string for the action.
         """
-        time_str = action.timestamp.strftime("%H:%M:%S")
         change = action.format_change()
         if change:
             return f"**{action.device_name}** {action.action_type}: {change}"

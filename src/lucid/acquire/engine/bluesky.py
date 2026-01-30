@@ -6,7 +6,8 @@ Provides a Qt-integrated wrapper around Bluesky's RunEngine.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from bluesky import RunEngine
 from bluesky.utils import DuringTask, RunEngineInterrupted
@@ -18,7 +19,7 @@ from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from bluesky.utils import Msg
+    pass
 
 __all__ = ["BlueskyEngine"]
 

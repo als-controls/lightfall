@@ -26,7 +26,6 @@ from lucid.devices.model import (
     MaintenanceRecord,
 )
 
-
 # BCS itemType to NCS DeviceCategory mapping
 BCS_TYPE_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
@@ -408,7 +407,7 @@ class BCSBackend(DeviceBackend):
 
     def delete_configuration(self, config_id: UUID) -> bool:
         """Delete a configuration."""
-        for device_id, configs in self._configurations.items():
+        for _device_id, configs in self._configurations.items():
             for i, config in enumerate(configs):
                 if config.id == config_id:
                     del configs[i]
@@ -444,5 +443,5 @@ class BCSBackend(DeviceBackend):
             "host": self._host,
             "port": self._port,
             "beamline": self._beamline,
-            "categories": list(set(d.category.value for d in self._devices.values())),
+            "categories": list({d.category.value for d in self._devices.values()}),
         }

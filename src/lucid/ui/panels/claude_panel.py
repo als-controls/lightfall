@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtWidgets import QVBoxLayout, QLabel
+from PySide6.QtWidgets import QLabel
 
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.utils.logging import logger

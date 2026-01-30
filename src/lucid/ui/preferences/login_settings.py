@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from loguru import logger
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -17,8 +18,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from loguru import logger
 
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager

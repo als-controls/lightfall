@@ -14,7 +14,6 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QApplication,
-    QHBoxLayout,
     QLabel,
     QToolBar,
     QVBoxLayout,
@@ -26,7 +25,7 @@ from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtGui import QKeyEvent
 
 
 class WidgetTargetingFilter(QObject):
@@ -177,8 +176,8 @@ class IPythonPanel(BasePanel):
         """Set up the panel UI."""
         # Check if qtconsole is available
         try:
-            from qtconsole.inprocess import QtInProcessKernelManager
-            from qtconsole.rich_jupyter_widget import RichJupyterWidget
+            from qtconsole.inprocess import QtInProcessKernelManager  # noqa: F401
+            from qtconsole.rich_jupyter_widget import RichJupyterWidget  # noqa: F401
 
             self._qtconsole_available = True
         except ImportError:

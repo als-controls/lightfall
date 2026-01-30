@@ -7,7 +7,7 @@ definitions and optional CSS overrides for styling the application.
 from __future__ import annotations
 
 from abc import abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from lucid.plugins.types import PluginType

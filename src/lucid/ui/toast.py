@@ -11,9 +11,9 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
+from pyqttoast import Toast, ToastPosition, ToastPreset
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
-from pyqttoast import Toast, ToastPosition, ToastPreset
 
 from lucid.ui.theme import Theme, ThemeManager
 from lucid.utils.logging import logger

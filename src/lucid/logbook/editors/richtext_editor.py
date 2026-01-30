@@ -8,19 +8,17 @@ The markdown content is the single source of truth.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QFont,
     QKeyEvent,
     QMouseEvent,
-    QTextCharFormat,
     QTextCursor,
-    QUndoStack,
     QUndoCommand,
+    QUndoStack,
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
 
@@ -28,9 +26,9 @@ from lucid.logbook.block_mapper import BlockMapper, BlockProtectionData
 from lucid.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
 from lucid.logbook.style import LogbookStyles
 from lucid.logbook.visual_protection import (
-    VisualProtectionTracker,
-    PROTECTED_START,
     PROTECTED_END,
+    PROTECTED_START,
+    VisualProtectionTracker,
 )
 
 if TYPE_CHECKING:
@@ -43,7 +41,7 @@ class MarkdownEditCommand(QUndoCommand):
 
     def __init__(
         self,
-        editor: "RichTextEditor",
+        editor: RichTextEditor,
         old_markdown: str,
         new_markdown: str,
         old_cursor_pos: int,
@@ -265,7 +263,7 @@ class RichTextEditor(QTextEdit):
         anchors: list[tuple[int, int]] = []  # (visual_pos, md_pos)
         md_word_idx = 0
 
-        for v_word, v_start, v_end in visual_words:
+        for v_word, v_start, _v_end in visual_words:
             # Find this word in markdown (starting from where we left off)
             while md_word_idx < len(md_words):
                 m_word, m_start, m_end = md_words[md_word_idx]

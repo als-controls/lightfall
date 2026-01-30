@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from lucid.acquire.engine.base import BaseEngine, PrioritizedProcedure
+from lucid.acquire.engine.base import BaseEngine
 from lucid.acquire.engine.state import EngineState
 from lucid.utils.logging import logger
 

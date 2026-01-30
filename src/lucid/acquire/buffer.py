@@ -190,7 +190,6 @@ class LiveDataBuffer(QObject):
         timestamp = doc.get("time", 0.0)
         seq_num = doc.get("seq_num", 0)
         data = doc.get("data", {})
-        filled = doc.get("filled", {})
 
         self._timestamps.append(timestamp)
         self._seq_nums.append(seq_num)

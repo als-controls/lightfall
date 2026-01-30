@@ -20,10 +20,10 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QColor, QFontMetricsF, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -41,8 +41,8 @@ from PySide6.QtWidgets import (
 
 try:
     from pyqtgraph.parametertree import Parameter
-    from pyqtgraph.parametertree.parameterTypes import StrParameterItem, registerParameterType
     from pyqtgraph.parametertree.Parameter import PARAM_TYPES
+    from pyqtgraph.parametertree.parameterTypes import StrParameterItem, registerParameterType
 
     HAS_PYQTGRAPH = True
 except ImportError:

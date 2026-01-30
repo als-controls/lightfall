@@ -10,30 +10,27 @@ Provides the primary application window with:
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
-    QApplication,
     QDockWidget,
     QMainWindow,
-    QMenu,
-    QMenuBar,
     QStatusBar,
     QToolBar,
     QWidget,
 )
 
-from lucid.auth.policy import Permission
 from lucid.auth.session import AuthState, SessionManager
 from lucid.ui.panels.base import BasePanel
 from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.preferences import PreferencesDialog, PreferencesManager
 from lucid.ui.statusbar import StatusBarManager
 from lucid.ui.theme import Theme, ThemeManager
-from lucid.utils.logging import logger
 from lucid.ui.widgets.runengine_control import RunEngineControlWidget
+from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from lucid.config import ConfigManager
@@ -600,7 +597,7 @@ class NCSMainWindow(QMainWindow):
         Args:
             user: The logged-in User object.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from lucid.ui.toast import ToastManager
 
@@ -609,7 +606,7 @@ class NCSMainWindow(QMainWindow):
             return
 
         # Calculate remaining time
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         remaining_seconds = (user.expires_at - now).total_seconds()
         logger.debug(
             "Session info: expires_at={}, now={}, remaining={}s",
@@ -650,9 +647,9 @@ class NCSMainWindow(QMainWindow):
         Returns:
             Formatted string like "in 2 hours".
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         remaining = (expires_at - now).total_seconds()
 
         if remaining < 3600:  # Less than 1 hour
@@ -723,8 +720,9 @@ class NCSMainWindow(QMainWindow):
 
     def _on_logout(self) -> None:
         """Logout current user."""
-        from lucid.utils.threads import QThreadFuture
         import asyncio
+
+        from lucid.utils.threads import QThreadFuture
 
         def do_logout() -> None:
             asyncio.run(self._session_manager.logout())

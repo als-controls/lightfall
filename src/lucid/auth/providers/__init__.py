@@ -15,7 +15,7 @@ __all__ = [
 
 # Keycloak provider available if dependencies are installed
 try:
-    from lucid.auth.providers.keycloak import KeycloakAuthProvider
+    from lucid.auth.providers.keycloak import KeycloakAuthProvider  # noqa: F401
 
     __all__.append("KeycloakAuthProvider")
 except ImportError:

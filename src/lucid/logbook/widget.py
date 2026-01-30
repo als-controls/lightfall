@@ -10,10 +10,11 @@ Provides a complete experiment logbook widget with:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+# Import type hints only to avoid circular imports
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -30,9 +31,6 @@ from lucid.logbook.editors.markdown_editor import MarkdownEditor
 from lucid.logbook.editors.richtext_editor import RichTextEditor
 from lucid.logbook.protection import ProtectedRegion, ProtectionManager
 from lucid.logbook.style import LogbookStyles
-
-# Import type hints only to avoid circular imports
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from lucid.logbook.action_logger import ActionGroup

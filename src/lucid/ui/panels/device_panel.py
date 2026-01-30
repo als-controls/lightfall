@@ -28,12 +28,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices import DeviceCatalog, DeviceInfo, DeviceStatus
+from lucid.devices import DeviceCatalog
 from lucid.ui.models.device_tree import (
     DeviceFilterProxyModel,
     DeviceTreeItem,
     DeviceTreeModel,
-    NodeType,
 )
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.widgets import DeviceControlWidget

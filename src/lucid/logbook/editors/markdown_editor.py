@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from lucid.logbook.editors.highlighter import ProtectedMarkdownHighlighter

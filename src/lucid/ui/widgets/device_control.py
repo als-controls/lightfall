@@ -13,15 +13,14 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from lucid.logbook import DeviceActionLogger
 from lucid.ui.widgets.base_control import BaseControlWidget
 from lucid.ui.widgets.controller_matcher import ControllerMatch, ControllerMatcher
-from lucid.logbook import DeviceActionLogger
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:

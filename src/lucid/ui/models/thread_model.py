@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -20,8 +20,8 @@ from PySide6.QtCore import (
     QObject,
     QSortFilterProxyModel,
     Qt,
-    Signal,
     QTimer,
+    Signal,
 )
 from PySide6.QtGui import QColor
 
@@ -518,13 +518,15 @@ class ThreadTableModel(QAbstractTableModel):
 
     # === QAbstractTableModel implementation ===
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Get number of rows."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self._records)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:  # noqa: ARG002
         """Get number of columns."""
         return len(self.COLUMNS)
 

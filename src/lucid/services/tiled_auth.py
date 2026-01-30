@@ -6,7 +6,8 @@ requests using tokens from the SessionManager.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Generator
+from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from lucid.utils.logging import logger
 
@@ -31,8 +32,8 @@ class KeycloakTiledAuth:
         self._last_token_hash: int | None = None
 
     def sync_auth_flow(
-        self, request: "httpx.Request"
-    ) -> Generator["httpx.Request", "httpx.Response", None]:
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
         """Synchronous auth flow for httpx.
 
         Adds Bearer token from SessionManager to the request.
@@ -62,8 +63,8 @@ class KeycloakTiledAuth:
         yield request
 
     async def async_auth_flow(
-        self, request: "httpx.Request"
-    ) -> Generator["httpx.Request", "httpx.Response", None]:
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
         """Async auth flow for httpx.
 
         Adds Bearer token from SessionManager to the request.

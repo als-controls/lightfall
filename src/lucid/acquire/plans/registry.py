@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import inspect
 import re
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Generator
+from typing import Any, ClassVar
 
 from loguru import logger
 

@@ -207,7 +207,7 @@ class DocumentStreamModel(QAbstractItemModel):
     # === QAbstractItemModel implementation ===
 
     def index(
-        self, row: int, column: int, parent: QModelIndex = QModelIndex()
+        self, row: int, column: int, parent: QModelIndex | None = None
     ) -> QModelIndex:
         """Get index for item.
 
@@ -219,6 +219,8 @@ class DocumentStreamModel(QAbstractItemModel):
         Returns:
             Model index.
         """
+        if parent is None:
+            parent = QModelIndex()
         if not self.hasIndex(row, column, parent):
             return QModelIndex()
 
@@ -252,7 +254,7 @@ class DocumentStreamModel(QAbstractItemModel):
 
         return self.createIndex(parent_item.row(), 0, parent_item)
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Get number of rows.
 
         Args:
@@ -261,6 +263,8 @@ class DocumentStreamModel(QAbstractItemModel):
         Returns:
             Row count.
         """
+        if parent is None:
+            parent = QModelIndex()
         if parent.column() > 0:
             return 0
 
@@ -271,7 +275,7 @@ class DocumentStreamModel(QAbstractItemModel):
 
         return parent_item.child_count()
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:  # noqa: ARG002
         """Get number of columns."""
         return 3
 
@@ -383,13 +387,15 @@ class SequentialDocumentModel(QAbstractTableModel):
             return self._documents[row]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Get number of rows."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self._documents)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:  # noqa: ARG002
         """Get number of columns."""
         return len(self.COLUMNS)
 

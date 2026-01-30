@@ -7,8 +7,9 @@ for automatic parameter editing, with custom DeviceParameter for device selectio
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Callable, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from loguru import logger
 from PySide6.QtCore import Signal, Slot

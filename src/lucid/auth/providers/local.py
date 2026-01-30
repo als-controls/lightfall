@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -222,7 +222,7 @@ class LocalAuthProvider(AuthProvider):
         if not roles:
             roles = {Role.GUEST}
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user = User(
             username=username,
             display_name=local_user.display_name,
@@ -263,7 +263,7 @@ class LocalAuthProvider(AuthProvider):
             return None
 
         # Create new session with extended expiry
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         new_token = secrets.token_urlsafe(32)
         new_refresh = secrets.token_urlsafe(32)
 

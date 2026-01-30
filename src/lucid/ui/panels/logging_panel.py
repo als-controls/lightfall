@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -133,12 +132,16 @@ class LogTableModel(QAbstractTableModel):
         self._filtered_records: list[LogRecord] = []
         self._min_level: int = LEVEL_NUMBERS["DEBUG"]
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self._filtered_records)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:
+        if parent is None:
+            parent = QModelIndex()
         if parent.isValid():
             return 0
         return len(self.COLUMNS)

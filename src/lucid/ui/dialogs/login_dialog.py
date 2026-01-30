@@ -7,9 +7,9 @@ or a local development account.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
@@ -357,7 +357,7 @@ class LoginDialog(QDialog):
 
     def _do_keycloak_login(self) -> bool:
         """Perform Keycloak login (runs in background thread)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from lucid.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
         from lucid.config import ConfigManager
@@ -386,7 +386,7 @@ class LoginDialog(QDialog):
         if session:
             # Apply app session duration (starts now, not when token was issued)
             duration = LoginSettingsProvider.get_session_duration()
-            session.user.expires_at = datetime.now(timezone.utc) + duration
+            session.user.expires_at = datetime.now(UTC) + duration
 
             # Set session in SessionManager
             self._session_manager._session = session
@@ -431,7 +431,7 @@ class LoginDialog(QDialog):
 
     def _do_local_login(self, username: str, password: str) -> bool:
         """Perform local login (runs in background thread)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from lucid.auth.providers.local import LocalAuthProvider
         from lucid.ui.preferences.login_settings import LoginSettingsProvider
@@ -445,7 +445,7 @@ class LoginDialog(QDialog):
 
         if session:
             # Apply app session duration (ensure it starts now)
-            session.user.expires_at = datetime.now(timezone.utc) + duration
+            session.user.expires_at = datetime.now(UTC) + duration
 
             # Set session in SessionManager
             self._session_manager._session = session

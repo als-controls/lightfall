@@ -10,8 +10,8 @@ Usage:
 
 from __future__ import annotations
 
-from functools import partial
-from typing import TYPE_CHECKING, Annotated, Any, Generator
+from collections.abc import Generator
+from typing import TYPE_CHECKING, Annotated, Any
 
 import numpy as np
 from bluesky import plan_stubs as bps
@@ -23,8 +23,6 @@ from lucid.ui.annotations import (
     Default,
     DeviceDefault,
     DeviceFilter,
-    DeviceFilterAny,
-    Range,
     Unit,
 )
 
@@ -413,7 +411,7 @@ def fermat_spiral_scan(
         grp = bps._short_uid("set")
 
         sleep_times = [delay_motor1, delay_motor2]
-        for (motor, pos), sleep_time in zip(step.items(), sleep_times):
+        for (motor, pos), sleep_time in zip(step.items(), sleep_times, strict=False):
             if pos == pos_cache[motor]:
                 continue
             yield bsu.Msg("set", motor, pos, group=grp)
@@ -579,7 +577,7 @@ def fermat_spiral_rel_scan(
         grp = bps._short_uid("set")
 
         sleep_times = [delay_motor1, delay_motor2]
-        for (motor, pos), sleep_time in zip(step.items(), sleep_times):
+        for (motor, pos), sleep_time in zip(step.items(), sleep_times, strict=False):
             if pos == pos_cache[motor]:
                 continue
             yield bsu.Msg("set", motor, pos, group=grp)

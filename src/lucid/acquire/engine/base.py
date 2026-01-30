@@ -5,9 +5,10 @@ Provides a base class with common functionality for engines.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from queue import Empty, PriorityQueue
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 

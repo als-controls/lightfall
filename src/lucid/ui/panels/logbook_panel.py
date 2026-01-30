@@ -7,10 +7,9 @@ project's logbook and allows users to add notes.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
-
 from uuid import UUID
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QTimer, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -23,11 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.toast import ToastManager
-
 from lucid.logbook import DeviceActionLogger, LogbookWidget
-from lucid.project import Logbook, LogbookEntry, ProjectService
+from lucid.project import LogbookEntry, ProjectService
 from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -590,7 +588,6 @@ class LogbookPanel(BasePanel):
         # Extract run information
         uid = doc.get("uid", "unknown")
         plan_name = doc.get("plan_name", "unknown")
-        scan_id = doc.get("scan_id", "")
         time_val = doc.get("time")
 
         # Format timestamp
@@ -656,13 +653,6 @@ class LogbookPanel(BasePanel):
             start_str = start_ts.strftime("%H:%M:%S")
         else:
             start_str = ""
-
-        if time_val:
-            from datetime import datetime
-            end_ts = datetime.fromtimestamp(time_val)
-            end_str = end_ts.strftime("%H:%M:%S")
-        else:
-            end_str = ""
 
         # Calculate duration
         if start_time and time_val:

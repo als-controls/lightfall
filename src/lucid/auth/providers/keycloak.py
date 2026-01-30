@@ -6,11 +6,10 @@ supporting browser-based OIDC flows and token refresh.
 
 from __future__ import annotations
 
-import asyncio
 import secrets
 import webbrowser
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 from typing import TYPE_CHECKING, Any
@@ -22,7 +21,7 @@ from lucid.auth.session import Session, User
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    pass
 
 
 @dataclass
@@ -217,11 +216,11 @@ class KeycloakAuthProvider(AuthProvider):
         if self._http is None:
             try:
                 import aiohttp
-            except ImportError:
+            except ImportError as err:
                 raise ImportError(
                     "aiohttp is required for Keycloak authentication. "
                     "Install with: pip install lucid[keycloak]"
-                )
+                ) from err
 
             connector = None
             proxy_url = self._config.get_proxy_url()
@@ -386,9 +385,9 @@ class KeycloakAuthProvider(AuthProvider):
         # Calculate expiry
         exp = decoded.get("exp")
         if exp:
-            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+            expires_at = datetime.fromtimestamp(exp, tz=UTC)
         else:
-            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+            expires_at = datetime.now(UTC) + timedelta(hours=1)
 
         user = User(
             username=username,
@@ -397,7 +396,7 @@ class KeycloakAuthProvider(AuthProvider):
             roles=roles,
             groups=set(decoded.get("groups", [])),
             attributes=decoded,
-            authenticated_at=datetime.now(timezone.utc),
+            authenticated_at=datetime.now(UTC),
             expires_at=expires_at,
         )
 

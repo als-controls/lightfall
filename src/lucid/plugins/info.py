@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Type
+from typing import Any
 
 from lucid.plugins.errors import PluginStatus
 
@@ -46,7 +46,7 @@ class PluginInfo:
     type_name: str
     name: str
     import_path: str
-    plugin_class: Type | None = None
+    plugin_class: type | None = None
     instance: Any = None
     status: PluginStatus = field(default=PluginStatus.DISCOVERED)
     manifest_name: str = ""

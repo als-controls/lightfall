@@ -175,9 +175,9 @@ class LayeredConfig:
             layer: The layer to add.
         """
         # Remove existing layer with same name
-        self._layers = [l for l in self._layers if l.name != layer.name]
+        self._layers = [lyr for lyr in self._layers if lyr.name != layer.name]
         self._layers.append(layer)
-        self._layers.sort(key=lambda l: l.priority)
+        self._layers.sort(key=lambda lyr: lyr.priority)
         self._dirty = True
         logger.debug(
             "Added config layer '{}' at priority {}",
@@ -196,7 +196,7 @@ class LayeredConfig:
             True if layer was found and removed.
         """
         original_count = len(self._layers)
-        self._layers = [l for l in self._layers if l.name != name]
+        self._layers = [lyr for lyr in self._layers if lyr.name != name]
         if len(self._layers) < original_count:
             self._dirty = True
             logger.debug("Removed config layer '{}'", name)

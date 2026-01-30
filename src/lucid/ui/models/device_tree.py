@@ -13,14 +13,12 @@ from loguru import logger
 from PySide6.QtCore import (
     QAbstractItemModel,
     QModelIndex,
-    QPersistentModelIndex,
     QSortFilterProxyModel,
     Qt,
 )
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 if TYPE_CHECKING:
-    from uuid import UUID
 
     from lucid.devices import DeviceCatalog, DeviceInfo
 
@@ -381,9 +379,11 @@ class DeviceTreeModel(QAbstractItemModel):
     # === QAbstractItemModel implementation ===
 
     def index(
-        self, row: int, column: int, parent: QModelIndex = QModelIndex()
+        self, row: int, column: int, parent: QModelIndex | None = None
     ) -> QModelIndex:
         """Create index for item at row, column under parent."""
+        if parent is None:
+            parent = QModelIndex()
         if not self.hasIndex(row, column, parent):
             return QModelIndex()
 
@@ -411,8 +411,10 @@ class DeviceTreeModel(QAbstractItemModel):
 
         return self.createIndex(parent_item.row(), 0, parent_item)
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Get number of rows under parent."""
+        if parent is None:
+            parent = QModelIndex()
         if parent.column() > 0:
             return 0
 
@@ -423,7 +425,7 @@ class DeviceTreeModel(QAbstractItemModel):
 
         return parent_item.child_count()
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:  # noqa: ARG002
         """Get number of columns."""
         return len(self.COLUMNS)
 

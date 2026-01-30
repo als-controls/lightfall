@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from lucid.services.tiled_service import TiledConnectionState, TiledService
 from lucid.ui.models.tiled_model import TiledRecord, TiledRecordFilterProxy, TiledRecordModel
 from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.widgets.tiled_filter_widget import TiledFilterWidget, TiledFilters
+from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 

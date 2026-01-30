@@ -237,7 +237,6 @@ class RunEngineControlWidget(QWidget):
         # Update button states
         is_running = state == "running"
         is_paused = state == "paused"
-        is_idle = state == "idle"
 
         self._pause_btn.setEnabled(is_running)
         self._resume_btn.setEnabled(is_paused)

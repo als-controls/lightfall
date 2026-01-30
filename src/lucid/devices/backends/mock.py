@@ -92,9 +92,9 @@ class MockBackend(DeviceBackend):
         """Create the simulated ophyd devices."""
         try:
             from ophyd.sim import (
-                SynAxis,
-                SynGauss,
-                SynSignal,
+                SynAxis,  # noqa: F401
+                SynGauss,  # noqa: F401
+                SynSignal,  # noqa: F401
                 det,
                 det1,
                 det2,
@@ -523,7 +523,7 @@ class MockBackend(DeviceBackend):
 
     def delete_configuration(self, config_id: UUID) -> bool:
         """Delete a configuration."""
-        for device_id, configs in self._configurations.items():
+        for _device_id, configs in self._configurations.items():
             for i, config in enumerate(configs):
                 if config.id == config_id:
                     del configs[i]
@@ -578,6 +578,6 @@ class MockBackend(DeviceBackend):
             "connected": self.is_connected,
             "device_count": len(self._devices),
             "ophyd_device_count": len(self._ophyd_devices),
-            "categories": list(set(d.category.value for d in self._devices.values())),
+            "categories": list({d.category.value for d in self._devices.values()}),
             "include_noisy": self._include_noisy,
         }

@@ -15,8 +15,7 @@ import mistune
 from loguru import logger
 
 from lucid.logbook.style import get_qt_html_stylesheet
-from lucid.logbook.visual_protection import PROTECTED_START, PROTECTED_END
-
+from lucid.logbook.visual_protection import PROTECTED_END, PROTECTED_START
 
 # Pattern to match protected region markers
 PROTECTED_START_PATTERN = re.compile(r"<!--\s*PROTECTED:(\S+)\s*-->")

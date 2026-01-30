@@ -25,7 +25,7 @@ __all__ = [
 
 # Claude panel is optional (requires pyside-claude)
 try:
-    from lucid.ui.panels.plugins.claude_plugin import ClaudePanelPlugin
+    from lucid.ui.panels.plugins.claude_plugin import ClaudePanelPlugin  # noqa: F401
 
     __all__.append("ClaudePanelPlugin")
 except ImportError:

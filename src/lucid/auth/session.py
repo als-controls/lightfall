@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
@@ -68,7 +68,7 @@ class User:
         """Check if the session has expired."""
         if self.expires_at is None:
             return False
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     @property
     def highest_role(self) -> Role:
@@ -117,13 +117,13 @@ class Session:
     user: User
     token: str | None = None
     refresh_token: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def update_activity(self) -> None:
         """Update the last activity timestamp."""
-        self.last_activity = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(UTC)
 
     @property
     def is_valid(self) -> bool:
@@ -341,7 +341,7 @@ class SessionManager(QObject):
         if self._session is None or self._session.user.expires_at is None:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = self._session.user.expires_at
         remaining = (expires_at - now).total_seconds()
 

@@ -8,7 +8,7 @@ preserving full access to the underlying device's functionality.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from ophyd import Device, StatusBase

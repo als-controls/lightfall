@@ -11,7 +11,7 @@ import keyword
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
