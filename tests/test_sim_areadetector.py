@@ -4,6 +4,9 @@ import pytest
 
 pytest.importorskip("ophyd")
 
+import numpy as np
+
+from lucid.devices.sim.areadetector import SimDetector
 from lucid.devices.sim.plugins import (
     SimCam,
     SimImagePlugin,
@@ -89,3 +92,35 @@ class TestSimTransformPlugin:
         assert plugin.rotation.get() == 0
         assert plugin.flip_x.get() == 0
         assert plugin.flip_y.get() == 0
+
+
+class TestSimDetector:
+    """Tests for SimDetector device."""
+
+    def test_detector_has_all_components(self) -> None:
+        """SimDetector should have all plugin components."""
+        det = SimDetector(name="test_det")
+        assert hasattr(det, "cam")
+        assert hasattr(det, "image")
+        assert hasattr(det, "stats")
+        assert hasattr(det, "roi1")
+        assert hasattr(det, "trans1")
+
+    def test_detector_trigger_returns_status(self) -> None:
+        """trigger() should return an ophyd Status."""
+        det = SimDetector(name="test_det")
+        status = det.trigger()
+        assert hasattr(status, "wait")
+        status.wait(timeout=5)
+        assert status.success
+
+    def test_detector_generates_image_on_trigger(self) -> None:
+        """Triggering should populate image.array_data."""
+        det = SimDetector(name="test_det")
+        det.trigger().wait(timeout=5)
+
+        data = det.image.array_data.get()
+        assert data is not None
+        assert isinstance(data, np.ndarray)
+        assert data.shape == (256, 256)
+        assert data.dtype == np.uint8
