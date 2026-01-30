@@ -173,7 +173,11 @@ class SimDetector(Device):
         # Apply gain
         gain = self.cam.gain.get()
         if gain != 1.0:
-            image = np.clip(image * gain, 0, np.iinfo(dtype).max).astype(dtype)
+            if np.issubdtype(dtype, np.integer):
+                max_val = np.iinfo(dtype).max
+            else:
+                max_val = 1.0
+            image = np.clip(image * gain, 0, max_val).astype(dtype)
 
         # Apply binning
         bin_x = self.cam.bin_x.get()
@@ -263,7 +267,8 @@ class SimDetector(Device):
                 "timestamp": timestamp,
             }
         else:
-            filename = self._file_path / f"frame_{self._frame_number:06d}.npy"
+            frame_num = max(0, self._frame_number - 1)
+            filename = self._file_path / f"frame_{frame_num:06d}.npy"
             data[image_key] = {
                 "value": str(filename),
                 "timestamp": timestamp,
