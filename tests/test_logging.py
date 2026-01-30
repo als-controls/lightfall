@@ -2,7 +2,7 @@
 
 import time
 
-from ncs.utils.logging import (
+from lucid.utils.logging import (
     get_cumulative_stats,
     log_time,
     reset_cumulative_stats,

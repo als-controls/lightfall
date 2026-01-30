@@ -12,7 +12,7 @@ pytest.importorskip("bluesky")
 
 from PySide6.QtCore import QCoreApplication
 
-from ncs.acquire.runengine import QRunEngine, get_run_engine
+from lucid.acquire.runengine import QRunEngine, get_run_engine
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ class TestGetRunEngine:
     def test_singleton(self, qapp) -> None:
         """Test that get_run_engine returns a singleton."""
         # Reset the module-level singleton for this test
-        import ncs.acquire.runengine as re_module
+        import lucid.acquire.runengine as re_module
         original = re_module._run_engine
         re_module._run_engine = None
 

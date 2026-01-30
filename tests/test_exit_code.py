@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtCore import QThread
 
-from ncs.utils.threads import QThreadFuture, ThreadManager, get_thread_manager
+from lucid.utils.threads import QThreadFuture, ThreadManager, get_thread_manager
 
 
 class TestThreadShutdown:
@@ -95,7 +95,7 @@ class TestBlueskyEngineShutdown:
         """Test that BlueskyEngine queue processor exits on interruption."""
         pytest.importorskip("bluesky")
 
-        from ncs.acquire.engine.bluesky import BlueskyEngine
+        from lucid.acquire.engine.bluesky import BlueskyEngine
 
         engine = BlueskyEngine()
 
@@ -117,7 +117,7 @@ class TestApplicationExitCode:
 
     def test_ncs_application_quit_uses_zero(self, qapp) -> None:
         """Test that NCSApplication.quit() defaults to exit code 0."""
-        from ncs.core.application import NCSApplication
+        from lucid.core.application import NCSApplication
 
         # Get or create app (don't reset - use existing qapp)
         app = NCSApplication.get_instance()
