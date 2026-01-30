@@ -96,3 +96,6 @@ Thumbs.db
 
 # Project specific
 src/ncs/_version.py
+
+# Git worktrees
+.worktrees/
