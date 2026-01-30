@@ -360,6 +360,7 @@ class TestBlueskyIntegration:
         names = [d[0] for d in docs]
         assert names.count("event") == 3
         assert "start" in names
+        assert "descriptor" in names
         assert "stop" in names
 
     def test_scan_with_motor(self, sim_det) -> None:
