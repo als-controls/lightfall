@@ -116,7 +116,7 @@ class BlueskyEngine(BaseEngine):
         """Return Bluesky state string directly for compatibility."""
         if self._RE is None:
             return "unknown"
-        return self._RE.state
+        return str(self._RE.state)
 
     @property
     def is_idle(self) -> bool:
@@ -161,9 +161,16 @@ class BlueskyEngine(BaseEngine):
         # Main processing loop - check for interruption request to allow clean shutdown
         while not QThread.currentThread().isInterruptionRequested():
             try:
+                # Block on the priority queue with timeout
                 item = self._queue.get(block=True, timeout=0.1)
             except Empty:
                 continue
+
+            # Track this item as current and remove from tracking list
+            if item in self._queue_items:
+                self._queue_items.remove(item)
+            self._current_procedure = item
+            self.sigQueueChanged.emit()
 
             self._execute_plan(item)
             self._queue.task_done()
@@ -187,7 +194,10 @@ class BlueskyEngine(BaseEngine):
 
         self.sigStart.emit()
         self.sigStateChanged.emit("running")
-        logger.debug(f"[bluesky] Starting plan with kwargs={kwargs}")
+        logger.debug(f"[bluesky] Starting plan '{item.name}' with kwargs={kwargs}")
+
+        # RE is guaranteed to exist here - created in _process_queue before this method is called
+        assert self._RE is not None
 
         try:
             self._RE(plan, **kwargs)
@@ -201,6 +211,7 @@ class BlueskyEngine(BaseEngine):
         else:
             self.sigFinish.emit()
         finally:
+            self._clear_current_procedure()
             self.sigStateChanged.emit(self._RE.state if self._RE else "unknown")
 
     # === Control Operations ===

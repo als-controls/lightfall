@@ -5,8 +5,10 @@ Provides a base class with common functionality for engines.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from queue import Empty, PriorityQueue
 from typing import TYPE_CHECKING, Any
 
@@ -27,11 +29,17 @@ class PrioritizedProcedure:
         priority: Queue priority (lower = higher priority).
         procedure: The procedure to execute (type is engine-specific).
         kwargs: Additional keyword arguments for the procedure.
+        id: Unique identifier for this procedure (auto-generated UUID).
+        submitted_at: Timestamp when the procedure was submitted.
+        name: Human-readable name for the procedure (auto-detected or provided).
     """
 
     priority: int
     procedure: Any = field(compare=False)
     kwargs: dict[str, Any] = field(compare=False, default_factory=dict)
+    id: str = field(compare=False, default_factory=lambda: str(uuid.uuid4()))
+    submitted_at: datetime = field(compare=False, default_factory=datetime.now)
+    name: str = field(compare=False, default="")
 
 
 class BaseEngine(QObject):
@@ -72,6 +80,7 @@ class BaseEngine(QObject):
     sigException = Signal(Exception)
     sigReady = Signal()
     sigStateChanged = Signal(str)
+    sigQueueChanged = Signal()  # Emitted when queue items are added/removed/reordered
 
     def __init__(
         self, name: str = "engine", *, toast_notifications: bool = True, **kwargs: Any
@@ -88,6 +97,8 @@ class BaseEngine(QObject):
         self._name = name
         self._state = EngineState.IDLE
         self._queue: PriorityQueue[PrioritizedProcedure] = PriorityQueue()
+        self._queue_items: list[PrioritizedProcedure] = []  # Parallel list for management
+        self._current_procedure: PrioritizedProcedure | None = None  # Currently running
         self._subscribers: dict[int, Callable[[str, dict], Any]] = {}
         self._next_token = 0
         self._toast_notifications = toast_notifications
@@ -150,16 +161,57 @@ class BaseEngine(QObject):
 
     # === Queue Operations ===
 
-    def submit(self, procedure: Any, *, priority: int = 1, **kwargs: Any) -> None:
+    def submit(
+        self,
+        procedure: Any,
+        *,
+        priority: int = 1,
+        name: str = "",
+        **kwargs: Any,
+    ) -> str:
         """Submit a procedure for execution.
 
         Args:
             procedure: The procedure to execute.
             priority: Queue priority (lower = higher priority). Default is 1.
+            name: Human-readable name for the procedure. If not provided,
+                attempts to detect from generator function name.
             **kwargs: Additional procedure parameters.
+
+        Returns:
+            The unique ID of the submitted procedure.
         """
-        self._queue.put(PrioritizedProcedure(priority, procedure, kwargs))
-        logger.debug(f"[{self._name}] Queued procedure with priority {priority}")
+        # Auto-detect name from generator if not provided
+        if not name:
+            name = self._get_procedure_name(procedure)
+
+        item = PrioritizedProcedure(priority, procedure, kwargs, name=name)
+        self._queue.put(item)
+        self._queue_items.append(item)
+        self._queue_items.sort(key=lambda x: x.priority)
+        logger.debug(f"[{self._name}] Queued '{name}' with priority {priority}, id={item.id[:8]}")
+        self.sigQueueChanged.emit()
+        return item.id
+
+    def _get_procedure_name(self, procedure: Any) -> str:
+        """Attempt to get a human-readable name for a procedure.
+
+        Args:
+            procedure: The procedure (generator, callable, etc.)
+
+        Returns:
+            A name string, or "procedure" if unable to determine.
+        """
+        # Check for generator's function name
+        if hasattr(procedure, "gi_code"):
+            return str(procedure.gi_code.co_name)
+        # Check for callable's name
+        if callable(procedure) and hasattr(procedure, "__name__"):
+            return str(procedure.__name__)
+        # Check for functools.partial
+        if hasattr(procedure, "func") and hasattr(procedure.func, "__name__"):
+            return str(procedure.func.__name__)
+        return "procedure"
 
     def __call__(self, *args: Any, **kwargs: Any) -> None:
         """Convenience method for submit().
@@ -186,9 +238,148 @@ class BaseEngine(QObject):
                 count += 1
             except Empty:
                 break
+        self._queue_items.clear()
         if count:
             logger.info(f"[{self._name}] Cleared {count} procedures from queue")
+            self.sigQueueChanged.emit()
         return count
+
+    def get_queue_items(self) -> list[PrioritizedProcedure]:
+        """Get a copy of the current queue items.
+
+        Returns:
+            List of queued procedures sorted by priority.
+        """
+        return list(self._queue_items)
+
+    def get_current_procedure(self) -> PrioritizedProcedure | None:
+        """Get the currently running procedure, if any.
+
+        Returns:
+            The currently executing procedure, or None if idle.
+        """
+        return self._current_procedure
+
+    def get_procedure_by_id(self, procedure_id: str) -> PrioritizedProcedure | None:
+        """Get a queued procedure by its ID.
+
+        Args:
+            procedure_id: The procedure's unique ID.
+
+        Returns:
+            The procedure if found, None otherwise.
+        """
+        for item in self._queue_items:
+            if item.id == procedure_id:
+                return item
+        return None
+
+    def remove_from_queue(self, procedure_id: str) -> bool:
+        """Remove a procedure from the queue by ID.
+
+        Args:
+            procedure_id: The ID of the procedure to remove.
+
+        Returns:
+            True if the procedure was found and removed.
+        """
+        # Find the item in our tracking list
+        item_to_remove = None
+        for item in self._queue_items:
+            if item.id == procedure_id:
+                item_to_remove = item
+                break
+
+        if item_to_remove is None:
+            logger.warning(f"[{self._name}] Procedure {procedure_id[:8]} not found in queue")
+            return False
+
+        # Remove from tracking list
+        self._queue_items.remove(item_to_remove)
+
+        # Rebuild the priority queue without this item
+        self._rebuild_priority_queue()
+
+        logger.info(f"[{self._name}] Removed procedure {procedure_id[:8]} from queue")
+        self.sigQueueChanged.emit()
+        return True
+
+    def update_priority(self, procedure_id: str, new_priority: int) -> bool:
+        """Update the priority of a queued procedure.
+
+        Args:
+            procedure_id: The ID of the procedure to update.
+            new_priority: The new priority value (lower = higher priority).
+
+        Returns:
+            True if the procedure was found and updated.
+        """
+        # Find the item in our tracking list
+        for item in self._queue_items:
+            if item.id == procedure_id:
+                old_priority = item.priority
+                # Create new item with updated priority (dataclass is frozen by order=True)
+                # We need to modify the object directly since we're using it in a list
+                object.__setattr__(item, "priority", new_priority)
+
+                # Re-sort the tracking list
+                self._queue_items.sort(key=lambda x: x.priority)
+
+                # Rebuild the priority queue
+                self._rebuild_priority_queue()
+
+                logger.debug(
+                    f"[{self._name}] Updated priority for {procedure_id[:8]}: "
+                    f"{old_priority} -> {new_priority}"
+                )
+                self.sigQueueChanged.emit()
+                return True
+
+        logger.warning(f"[{self._name}] Procedure {procedure_id[:8]} not found in queue")
+        return False
+
+    def _rebuild_priority_queue(self) -> None:
+        """Rebuild the PriorityQueue from the tracking list.
+
+        Called after removing items or updating priorities.
+        """
+        # Drain the old queue
+        while True:
+            try:
+                self._queue.get_nowait()
+            except Empty:
+                break
+
+        # Re-add all items
+        for item in self._queue_items:
+            self._queue.put(item)
+
+    def _pop_next_procedure(self) -> PrioritizedProcedure | None:
+        """Pop the next procedure from the queue.
+
+        Also removes from tracking list and sets as current.
+        Called by subclasses when starting execution.
+
+        Returns:
+            The next procedure to execute, or None if queue is empty.
+        """
+        try:
+            item = self._queue.get_nowait()
+            # Remove from tracking list
+            if item in self._queue_items:
+                self._queue_items.remove(item)
+            self._current_procedure = item
+            self.sigQueueChanged.emit()
+            return item
+        except Empty:
+            return None
+
+    def _clear_current_procedure(self) -> None:
+        """Clear the current procedure reference.
+
+        Called by subclasses when execution finishes.
+        """
+        self._current_procedure = None
 
     # === Subscription Management ===
 

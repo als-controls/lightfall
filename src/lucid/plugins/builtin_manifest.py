@@ -141,6 +141,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="queue",
+            import_path="lucid.ui.panels.plugins.queue_plugin:QueuePanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
             name="documents",
             import_path="lucid.ui.panels.plugins.documents_plugin:DocumentsPanelPlugin",
             preload=True,
