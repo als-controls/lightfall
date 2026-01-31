@@ -175,6 +175,12 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.panels.plugins.ipython_plugin:IPythonPanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="synoptic",
+            import_path="lucid.ui.panels.plugins.synoptic_plugin:SynopticPanelPlugin",
+            preload=True,
+        ),
         # MCP Tool plugins
         PluginEntry(
             type_name="mcp_tool",

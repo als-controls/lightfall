@@ -73,6 +73,7 @@ class NCSMainWindow(QMainWindow):
         self._panel_docks: dict[str, QDockWidget] = {}
         self._active_panel_id: str | None = None
         self._default_layout_applied: bool = False
+        self._initial_show_done: bool = False
         self._statusbar_manager: StatusBarManager | None = None
 
         # Get manager instances
@@ -428,6 +429,24 @@ class NCSMainWindow(QMainWindow):
         if logbook_dock and documents_dock:
             self.tabifyDockWidget(logbook_dock, documents_dock)
             logbook_dock.raise_()
+
+        # Pre-create Synoptic panel (hidden) to avoid OpenGL flicker on Windows.
+        # OpenGL context creation causes brief window flicker, so we do it here
+        # before the main window is visible to the user.
+        try:
+            synoptic_panel = self.add_panel(
+                "lucid.panels.synoptic",
+                area=Qt.DockWidgetArea.RightDockWidgetArea,
+            )
+            synoptic_dock = self._panel_docks.get("lucid.panels.synoptic")
+            if synoptic_dock and synoptic_panel:
+                # Force the deferred OpenGL initialization now (before window is shown)
+                if hasattr(synoptic_panel, '_complete_initialization') and not synoptic_panel._deferred_init_done:
+                    synoptic_panel._deferred_init_done = True
+                    synoptic_panel._complete_initialization()
+                synoptic_dock.hide()
+        except Exception as e:
+            logger.debug("Could not pre-create Synoptic panel: {}", e)
 
         self._default_layout_applied = True
         logger.info("Applied default panel layout")
@@ -813,6 +832,13 @@ class NCSMainWindow(QMainWindow):
     def showEvent(self, event) -> None:
         """Handle show event."""
         super().showEvent(event)
+
+        # Only restore state on the first show - subsequent shows (e.g., after
+        # being briefly hidden during OpenGL context creation) should not
+        # re-trigger the full state restoration
+        if self._initial_show_done:
+            return
+        self._initial_show_done = True
 
         # Skip restoration if we just applied a fresh default layout
         if self._default_layout_applied:
