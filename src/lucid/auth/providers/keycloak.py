@@ -2,6 +2,10 @@
 
 This provider integrates with Keycloak for production authentication,
 supporting browser-based OIDC flows and token refresh.
+
+The provider supports two browser modes:
+1. Embedded browser (QWebEngineView) - auto-closes after auth, better UX
+2. External browser - fallback when WebEngine not available
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ import webbrowser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Thread
+from threading import Event, Thread
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -21,7 +25,7 @@ from lucid.auth.session import Session, User
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    pass
+    from PySide6.QtWidgets import QWidget
 
 
 @dataclass
@@ -121,30 +125,132 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
         if "error" in params:
             _OAuthCallbackHandler.error = params["error"][0]
-            self._send_response("Authentication failed. You can close this window.")
+            error_desc = params.get("error_description", ["Authentication was denied"])[0]
+            self._send_response(
+                success=False,
+                title="Authentication Failed",
+                message=error_desc,
+            )
         elif "code" in params:
             _OAuthCallbackHandler.callback_result = {
                 "code": params["code"][0],
                 "state": params.get("state", [None])[0],
             }
-            self._send_response("Authentication successful! You can close this window.")
+            self._send_response(
+                success=True,
+                title="Authentication Successful",
+                message="You have been logged in successfully.",
+            )
         else:
-            self._send_response("Invalid callback. You can close this window.")
+            self._send_response(
+                success=False,
+                title="Invalid Callback",
+                message="The authentication response was invalid.",
+            )
 
-    def _send_response(self, message: str) -> None:
-        """Send an HTML response."""
+    def _send_response(self, success: bool, title: str, message: str) -> None:
+        """Send an HTML response with improved styling and auto-close attempt.
+
+        Args:
+            success: Whether authentication succeeded.
+            title: The title to display.
+            message: The message to display.
+        """
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><title>NCS Authentication</title></head>
-        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-            <h2>{message}</h2>
-        </body>
-        </html>
-        """
+
+        # Color scheme based on success/failure
+        if success:
+            icon = "&#10004;"  # Checkmark
+            icon_color = "#22c55e"  # Green
+            border_color = "#22c55e"
+        else:
+            icon = "&#10006;"  # X mark
+            icon_color = "#ef4444"  # Red
+            border_color = "#ef4444"
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>LUCID - {title}</title>
+    <meta charset="utf-8">
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        .card {{
+            background: white;
+            border-radius: 12px;
+            padding: 48px 40px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border-top: 4px solid {border_color};
+        }}
+        .icon {{
+            font-size: 64px;
+            color: {icon_color};
+            margin-bottom: 24px;
+        }}
+        h1 {{
+            color: #1e293b;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }}
+        .message {{
+            color: #64748b;
+            font-size: 16px;
+            line-height: 1.5;
+            margin-bottom: 24px;
+        }}
+        .hint {{
+            color: #94a3b8;
+            font-size: 14px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+        }}
+        .hint.hidden {{
+            display: none;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">{icon}</div>
+        <h1>{title}</h1>
+        <p class="message">{message}</p>
+        <p class="hint" id="close-hint">You can close this tab and return to LUCID.</p>
+    </div>
+    <script>
+        // Try to close the window after a brief delay
+        setTimeout(function() {{
+            try {{
+                window.close();
+            }} catch (e) {{
+                // Ignore - some browsers block this
+            }}
+            // If we're still here after attempting close, show the hint
+            setTimeout(function() {{
+                document.getElementById('close-hint').classList.remove('hidden');
+            }}, 500);
+        }}, 1500);
+    </script>
+</body>
+</html>"""
         self.wfile.write(html.encode())
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -245,6 +351,9 @@ class KeycloakAuthProvider(AuthProvider):
         self,
         username: str | None = None,
         password: str | None = None,
+        *,
+        use_embedded_browser: bool = True,
+        parent_widget: QWidget | None = None,
         **kwargs: Any,
     ) -> Session | None:
         """
@@ -253,9 +362,15 @@ class KeycloakAuthProvider(AuthProvider):
         This opens a browser for the user to authenticate with Keycloak,
         then captures the callback and exchanges the code for tokens.
 
+        By default, tries to use an embedded QWebEngineView browser which
+        can auto-close after authentication. Falls back to external browser
+        if WebEngine is not available.
+
         Args:
             username: Ignored (browser auth).
             password: Ignored (browser auth).
+            use_embedded_browser: Whether to try embedded browser first.
+            parent_widget: Parent widget for the embedded browser dialog.
             **kwargs: Additional parameters.
 
         Returns:
@@ -274,6 +389,124 @@ class KeycloakAuthProvider(AuthProvider):
         }
         auth_url = f"{self._config.auth_url}?{urlencode(params)}"
 
+        # Try embedded browser first if requested and available
+        if use_embedded_browser:
+            result = self._auth_with_embedded_browser(auth_url, state, parent_widget)
+            if result is not None:
+                # result is either a code or False (cancelled/error)
+                if result is False:
+                    return None
+                # Got an auth code, exchange it
+                return await self._exchange_code(result)
+
+        # Fall back to external browser with callback server
+        return await self._auth_with_external_browser(auth_url, state)
+
+    def _auth_with_embedded_browser(
+        self,
+        auth_url: str,
+        state: str,
+        parent_widget: QWidget | None = None,
+    ) -> str | bool | None:
+        """Attempt authentication using embedded QWebEngineView browser.
+
+        Args:
+            auth_url: The OAuth authorization URL.
+            state: The CSRF state token.
+            parent_widget: Parent widget for the dialog.
+
+        Returns:
+            - Authorization code string if successful
+            - False if cancelled or error
+            - None if embedded browser not available (should fall back)
+        """
+        try:
+            from lucid.ui.dialogs.oauth_browser_dialog import OAuthBrowserDialog
+        except ImportError:
+            logger.debug("OAuthBrowserDialog not available, using external browser")
+            return None
+
+        if not OAuthBrowserDialog.is_available():
+            logger.debug("WebEngine not available, using external browser")
+            return None
+
+        # Check if we're in a Qt application context
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            if app is None:
+                logger.debug("No Qt application, using external browser")
+                return None
+        except ImportError:
+            return None
+
+        logger.info("Using embedded browser for authentication")
+
+        # Store result from Qt signals
+        result_holder: dict[str, Any] = {"code": None, "state": None, "error": None}
+        completed = Event()
+
+        def on_code_received(code: str, recv_state: str) -> None:
+            result_holder["code"] = code
+            result_holder["state"] = recv_state
+            completed.set()
+
+        def on_error(error: str) -> None:
+            result_holder["error"] = error
+            completed.set()
+
+        def on_cancelled() -> None:
+            result_holder["error"] = "cancelled"
+            completed.set()
+
+        # Create and show dialog
+        dialog = OAuthBrowserDialog(
+            auth_url=auth_url,
+            callback_url=self._config.redirect_uri,
+            parent=parent_widget,
+            title=f"Login - {self._config.realm}",
+        )
+        dialog.auth_code_received.connect(on_code_received)
+        dialog.auth_error.connect(on_error)
+        dialog.auth_cancelled.connect(on_cancelled)
+
+        # Execute dialog (blocks until closed)
+        dialog.exec()
+
+        # Check result
+        if result_holder["error"]:
+            if result_holder["error"] == "cancelled":
+                logger.info("User cancelled embedded browser login")
+            else:
+                logger.error("Embedded browser auth error: {}", result_holder["error"])
+            return False
+
+        if not result_holder["code"]:
+            logger.error("No authorization code received from embedded browser")
+            return False
+
+        # Verify state
+        if result_holder["state"] != state:
+            logger.error("State mismatch - possible CSRF attack")
+            return False
+
+        return result_holder["code"]
+
+    async def _auth_with_external_browser(
+        self,
+        auth_url: str,
+        state: str,
+    ) -> Session | None:
+        """Authenticate using external browser with callback server.
+
+        Args:
+            auth_url: The OAuth authorization URL.
+            state: The CSRF state token.
+
+        Returns:
+            Session if successful, None otherwise.
+        """
         # Reset callback handler state
         _OAuthCallbackHandler.callback_result = None
         _OAuthCallbackHandler.error = None
@@ -292,7 +525,7 @@ class KeycloakAuthProvider(AuthProvider):
         server_thread.start()
 
         # Open browser
-        logger.info("Opening browser for authentication: {}", auth_url)
+        logger.info("Opening external browser for authentication")
         webbrowser.open(auth_url)
 
         # Wait for callback
