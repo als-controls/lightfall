@@ -55,11 +55,12 @@ class RunningHeaderWidget(QFrame):
         self._start_time: datetime | None = None
         self._current_point: int = 0
         self._total_points: int = 0
-        self._setup_ui()
 
-        # Timer for elapsed time updates
+        # Timer for elapsed time updates (must be created before _setup_ui)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_elapsed)
+
+        self._setup_ui()
 
     def _setup_ui(self) -> None:
         """Set up the widget UI."""

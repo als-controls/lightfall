@@ -132,7 +132,7 @@ class LocalAuthProvider(AuthProvider):
         defaults = [
             ("admin", "admin", "Administrator", [Role.ADMIN]),
             ("developer", "developer", "Developer", [Role.DEVELOPER]),
-            ("scientist", "scientist", "Beamline Scientist", [Role.BEAMLINE_SCIENTIST]),
+            ("staff", "staff", "Staff", [Role.STAFF]),
             ("operator", "operator", "Operator", [Role.OPERATOR]),
             ("user", "user", "Test User", [Role.USER]),
             ("guest", "guest", "Guest User", [Role.GUEST]),

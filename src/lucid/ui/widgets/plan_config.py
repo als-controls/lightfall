@@ -82,11 +82,15 @@ def get_param_category(name: str, annotation: Any) -> ParamCategory:
     if annotation is None or annotation is inspect.Parameter.empty:
         return ParamCategory.OTHER
 
+    # Check if the type is a collection (list, tuple, etc.)
+    origin = get_origin(annotation)
+    is_collection = origin in (list, tuple)
+
     type_str = str(annotation).lower()
 
-    # Device types
+    # Device types - check if it's a collection to determine single vs multi
     if "detector" in type_str or "readable" in type_str:
-        return ParamCategory.DEVICES
+        return ParamCategory.DEVICES if is_collection else ParamCategory.DEVICE
     if "motor" in type_str or "positioner" in type_str or "movable" in type_str:
         return ParamCategory.DEVICE
 

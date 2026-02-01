@@ -78,7 +78,6 @@ class User:
             Role.DEVELOPER,
             Role.ADMIN,
             Role.STAFF,
-            Role.BEAMLINE_SCIENTIST,
             Role.OPERATOR,
             Role.USER,
             Role.GUEST,

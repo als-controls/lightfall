@@ -95,7 +95,7 @@ DEFAULT_ROLE_MAPPING: dict[str, Role] = {
     "ncs-admin": Role.ADMIN,
     "ncs-developer": Role.DEVELOPER,
     "ncs-staff": Role.STAFF,
-    "ncs-scientist": Role.BEAMLINE_SCIENTIST,
+    "ncs-scientist": Role.STAFF,  # Scientist role consolidated into staff
     "ncs-operator": Role.OPERATOR,
     "ncs-user": Role.USER,
     "als-staff": Role.STAFF,

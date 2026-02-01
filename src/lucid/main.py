@@ -24,6 +24,9 @@ from lucid.ui.theme import ThemeManager
 from lucid.ui.widgets.warning_banner import DismissableWarningBanner
 from lucid.utils.editor_launcher import CodeEditor, is_editor_available
 from lucid.utils.logging import logger
+from lucid.utils.sentry import clear_user as sentry_clear_user
+from lucid.utils.sentry import init_sentry
+from lucid.utils.sentry import set_user as sentry_set_user
 
 if TYPE_CHECKING:
     pass
@@ -373,12 +376,22 @@ def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
         )
         dialog.exec()
 
-    # Connect to state changed to detect session expiry
+    # Connect to state changed to detect session expiry and update Sentry context
     def on_state_changed(new_state, old_state) -> None:
         from lucid.auth.session import AuthState
 
-        if old_state == AuthState.AUTHENTICATED and new_state == AuthState.UNAUTHENTICATED:
-            # Session expired or was invalidated
+        if new_state == AuthState.AUTHENTICATED:
+            # User logged in - set Sentry user context
+            user = session_manager.current_user
+            if user:
+                sentry_set_user(
+                    user_id=user.username,
+                    username=user.username,
+                    roles=user.roles,
+                )
+        elif old_state == AuthState.AUTHENTICATED and new_state == AuthState.UNAUTHENTICATED:
+            # Session expired or was invalidated - clear Sentry user context
+            sentry_clear_user()
             logger.info("Session ended, showing login dialog")
             on_session_expired()
 
@@ -515,6 +528,10 @@ def main() -> int:
 
     # Initialize with default settings
     app.initialize(log_level="DEBUG")
+
+    # Initialize Sentry error reporting (after logging is configured)
+    if init_sentry():
+        logger.info("Sentry error reporting initialized")
 
     # Get config manager
     config: ConfigManager = app.services.get(ConfigManager)

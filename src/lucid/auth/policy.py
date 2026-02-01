@@ -86,7 +86,6 @@ class Role(Enum):
     GUEST = "guest"
     USER = "user"
     OPERATOR = "operator"
-    BEAMLINE_SCIENTIST = "beamline_scientist"
     STAFF = "staff"
     ADMIN = "admin"
     DEVELOPER = "developer"
@@ -97,8 +96,7 @@ ROLE_HIERARCHY: dict[Role, list[Role]] = {
     Role.GUEST: [],
     Role.USER: [Role.GUEST],
     Role.OPERATOR: [Role.USER],
-    Role.BEAMLINE_SCIENTIST: [Role.OPERATOR],
-    Role.STAFF: [Role.BEAMLINE_SCIENTIST],
+    Role.STAFF: [Role.OPERATOR],
     Role.ADMIN: [Role.STAFF],
     Role.DEVELOPER: [Role.ADMIN],
 }
@@ -126,14 +124,14 @@ DEFAULT_ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.SCAN_CONFIGURE,
         Permission.PANEL_VIEW_EXPERT,
     },
-    Role.BEAMLINE_SCIENTIST: {
+    Role.STAFF: {
+        # Beamline scientist capabilities
         Permission.DEVICE_CONFIGURE,
         Permission.CONFIG_BEAMLINE,
         Permission.DATA_DELETE,
         Permission.SCRIPT_ADMIN,
         Permission.LOGBOOK_ADMIN,
-    },
-    Role.STAFF: {
+        # Staff capabilities
         Permission.PANEL_VIEW_ADMIN,
         Permission.ADMIN_AUDIT,
     },
