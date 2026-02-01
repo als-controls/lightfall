@@ -95,7 +95,7 @@ dmypy.json
 Thumbs.db
 
 # Project specific
-src/ncs/_version.py
+src/lucid/_version.py
 
 # Git worktrees
 .worktrees/
