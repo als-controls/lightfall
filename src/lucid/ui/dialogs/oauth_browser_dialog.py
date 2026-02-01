@@ -3,10 +3,14 @@
 Provides an embedded browser for OAuth flows that can auto-close
 after authentication completes. Falls back gracefully if WebEngine
 is not installed.
+
+Supports optional SOCKS5 proxy configuration for accessing servers
+behind firewalls.
 """
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
@@ -24,6 +28,9 @@ from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
+
+# Track whether WebEngine has been initialized (proxy must be set before first use)
+_webengine_initialized = False
 
 
 def _is_webengine_available() -> bool:
@@ -72,6 +79,7 @@ class OAuthBrowserDialog(QDialog):
         callback_url: str = "http://localhost:8089/callback",
         parent: QWidget | None = None,
         title: str = "Login with Keycloak",
+        proxy_url: str | None = None,
     ) -> None:
         """Initialize the OAuth browser dialog.
 
@@ -80,19 +88,63 @@ class OAuthBrowserDialog(QDialog):
             callback_url: The callback URL to intercept.
             parent: Parent widget.
             title: Dialog window title.
+            proxy_url: Optional SOCKS5 proxy URL (e.g., "socks5://localhost:1080").
+                       Must be set before the first QWebEngineView is created in
+                       the application. If WebEngine was already initialized without
+                       proxy, this parameter will be ignored with a warning.
         """
         super().__init__(parent)
         self._auth_url = auth_url
         self._callback_url = callback_url
         self._callback_host = urlparse(callback_url).netloc
         self._callback_path = urlparse(callback_url).path
+        self._proxy_url = proxy_url
         self._completed = False
 
         self.setWindowTitle(title)
         self.setMinimumSize(800, 700)
         self.resize(900, 750)
 
+        # Configure proxy before setting up UI (which creates WebEngineView)
+        if proxy_url:
+            self._configure_proxy(proxy_url)
+
         self._setup_ui()
+
+    def _configure_proxy(self, proxy_url: str) -> None:
+        """Configure SOCKS5 proxy for WebEngine via Chromium flags.
+
+        WebEngine uses Chromium's network stack, which reads proxy settings
+        from the QTWEBENGINE_CHROMIUM_FLAGS environment variable. This must
+        be set before the first QWebEngineView is created.
+
+        Args:
+            proxy_url: Proxy URL (e.g., "socks5://localhost:1080").
+        """
+        global _webengine_initialized
+
+        if _webengine_initialized:
+            logger.warning(
+                "WebEngine already initialized - proxy setting may not take effect. "
+                "For proxy support, ensure OAuthBrowserDialog with proxy is created "
+                "before any other WebEngine usage in the application."
+            )
+            return
+
+        # Parse proxy URL to build Chromium flag
+        parsed = urlparse(proxy_url)
+        if parsed.scheme not in ("socks5", "socks4", "http", "https"):
+            logger.warning("Unsupported proxy scheme: {}. Using as-is.", parsed.scheme)
+
+        # Set Chromium flag for proxy
+        # Format: --proxy-server=socks5://host:port
+        existing_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+        proxy_flag = f"--proxy-server={proxy_url}"
+
+        if proxy_flag not in existing_flags:
+            new_flags = f"{existing_flags} {proxy_flag}".strip()
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = new_flags
+            logger.debug("Configured WebEngine proxy: {}", proxy_url)
 
     def _setup_ui(self) -> None:
         """Set up the dialog UI."""
@@ -107,7 +159,11 @@ class OAuthBrowserDialog(QDialog):
 
     def _setup_webengine_ui(self, layout: QVBoxLayout) -> None:
         """Set up UI with embedded QWebEngineView."""
+        global _webengine_initialized
         from PySide6.QtWebEngineWidgets import QWebEngineView
+
+        # Mark as initialized (proxy must be set before this point)
+        _webengine_initialized = True
 
         # Progress bar at top
         self._progress_bar = QProgressBar()

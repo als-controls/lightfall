@@ -474,6 +474,7 @@ class KeycloakAuthProvider(AuthProvider):
                 callback_url=self._config.redirect_uri,
                 parent=parent_widget,
                 title=f"Login - {self._config.realm}",
+                proxy_url=self._config.get_proxy_url(),
             )
             dialog.auth_code_received.connect(on_code_received)
             dialog.auth_error.connect(on_error)
