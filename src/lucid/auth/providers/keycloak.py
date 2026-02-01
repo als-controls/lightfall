@@ -430,13 +430,19 @@ class KeycloakAuthProvider(AuthProvider):
             logger.debug("WebEngine not available, using external browser")
             return None
 
-        # Check if we're in a Qt application context
+        # Check if we're in a Qt application context and on the main thread
         try:
+            from PySide6.QtCore import QThread
             from PySide6.QtWidgets import QApplication
 
             app = QApplication.instance()
             if app is None:
                 logger.debug("No Qt application, using external browser")
+                return None
+
+            # QWebEngineView must be created on the main thread
+            if QThread.currentThread() != app.thread():
+                logger.debug("Not on main thread, using external browser")
                 return None
         except ImportError:
             return None
