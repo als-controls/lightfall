@@ -149,10 +149,8 @@ class OAuthBrowserDialog(QDialog):
         # Warning icon/message
         warning_label = QLabel(
             "Embedded browser not available.\n\n"
-            "The PySide6-WebEngine package is not installed.\n"
-            "Please close this dialog and use the external browser flow,\n"
-            "or install the webengine optional dependency:\n\n"
-            "pip install lucid[webengine]"
+            "QtWebEngine is not available in your PySide6 installation.\n"
+            "Please close this dialog and use the external browser flow."
         )
         warning_label.setStyleSheet("font-size: 14px;")
         warning_label.setWordWrap(True)

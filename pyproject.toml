@@ -61,9 +61,6 @@ bcs = [
 claude = [
     "pyside-claude",
 ]
-webengine = [
-    "PySide6-WebEngine>=6.6",
-]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
