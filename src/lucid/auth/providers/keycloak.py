@@ -410,6 +410,10 @@ class KeycloakAuthProvider(AuthProvider):
     ) -> str | bool | None:
         """Attempt authentication using embedded QWebEngineView browser.
 
+        This method handles both main thread and background thread calls.
+        When called from a background thread, it uses invoke_in_main_thread
+        to show the dialog on the main thread and waits for the result.
+
         Args:
             auth_url: The OAuth authorization URL.
             state: The CSRF state token.
@@ -430,22 +434,19 @@ class KeycloakAuthProvider(AuthProvider):
             logger.debug("WebEngine not available, using external browser")
             return None
 
-        # Check if we're in a Qt application context and on the main thread
+        # Check if we're in a Qt application context
         try:
-            from PySide6.QtCore import QThread
             from PySide6.QtWidgets import QApplication
 
             app = QApplication.instance()
             if app is None:
                 logger.debug("No Qt application, using external browser")
                 return None
-
-            # QWebEngineView must be created on the main thread
-            if QThread.currentThread() != app.thread():
-                logger.debug("Not on main thread, using external browser")
-                return None
         except ImportError:
             return None
+
+        # Import threading utilities
+        from lucid.utils.threads import invoke_in_main_thread, is_main_thread
 
         logger.info("Using embedded browser for authentication")
 
@@ -466,19 +467,29 @@ class KeycloakAuthProvider(AuthProvider):
             result_holder["error"] = "cancelled"
             completed.set()
 
-        # Create and show dialog
-        dialog = OAuthBrowserDialog(
-            auth_url=auth_url,
-            callback_url=self._config.redirect_uri,
-            parent=parent_widget,
-            title=f"Login - {self._config.realm}",
-        )
-        dialog.auth_code_received.connect(on_code_received)
-        dialog.auth_error.connect(on_error)
-        dialog.auth_cancelled.connect(on_cancelled)
+        def show_dialog() -> None:
+            """Create and show the OAuth dialog on the main thread."""
+            dialog = OAuthBrowserDialog(
+                auth_url=auth_url,
+                callback_url=self._config.redirect_uri,
+                parent=parent_widget,
+                title=f"Login - {self._config.realm}",
+            )
+            dialog.auth_code_received.connect(on_code_received)
+            dialog.auth_error.connect(on_error)
+            dialog.auth_cancelled.connect(on_cancelled)
 
-        # Execute dialog (blocks until closed)
-        dialog.exec()
+            # Execute dialog (blocks until closed)
+            dialog.exec()
+
+        if is_main_thread():
+            # Already on main thread, show directly
+            show_dialog()
+        else:
+            # On background thread, invoke on main thread and wait
+            invoke_in_main_thread(show_dialog)
+            # Wait for the dialog to complete (with timeout)
+            completed.wait(timeout=self._callback_timeout)
 
         # Check result
         if result_holder["error"]:
