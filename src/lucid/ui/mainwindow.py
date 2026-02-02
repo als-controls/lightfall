@@ -430,24 +430,6 @@ class NCSMainWindow(QMainWindow):
             self.tabifyDockWidget(logbook_dock, documents_dock)
             logbook_dock.raise_()
 
-        # Pre-create Synoptic panel (hidden) to avoid OpenGL flicker on Windows.
-        # OpenGL context creation causes brief window flicker, so we do it here
-        # before the main window is visible to the user.
-        try:
-            synoptic_panel = self.add_panel(
-                "lucid.panels.synoptic",
-                area=Qt.DockWidgetArea.RightDockWidgetArea,
-            )
-            synoptic_dock = self._panel_docks.get("lucid.panels.synoptic")
-            if synoptic_dock and synoptic_panel:
-                # Force the deferred OpenGL initialization now (before window is shown)
-                if hasattr(synoptic_panel, '_complete_initialization') and not synoptic_panel._deferred_init_done:
-                    synoptic_panel._deferred_init_done = True
-                    synoptic_panel._complete_initialization()
-                synoptic_dock.hide()
-        except Exception as e:
-            logger.debug("Could not pre-create Synoptic panel: {}", e)
-
         self._default_layout_applied = True
         logger.info("Applied default panel layout")
 
@@ -578,14 +560,18 @@ class NCSMainWindow(QMainWindow):
         for theme, action in self._theme_actions.items():
             action.setChecked(theme == current)
 
-    def _set_theme(self, theme: Theme) -> None:
+    def _set_theme(self, theme: Theme, *, save_preference: bool = True) -> None:
         """Set the application theme.
 
         Args:
             theme: Theme to apply.
+            save_preference: If True, persist the theme to preferences.
+                Set to False when called from preference_changed handler
+                to avoid infinite recursion.
         """
         self._theme_manager.set_theme(theme)
-        self._prefs_manager.theme = theme.value
+        if save_preference:
+            self._prefs_manager.theme = theme.value
 
     # Signal handlers
 
@@ -723,7 +709,8 @@ class NCSMainWindow(QMainWindow):
         """Handle preference change."""
         if key == "theme":
             try:
-                self._set_theme(Theme(value))
+                # Don't save preference - it was already saved, that's why we got this signal
+                self._set_theme(Theme(value), save_preference=False)
             except ValueError:
                 pass
 
@@ -833,8 +820,7 @@ class NCSMainWindow(QMainWindow):
         """Handle show event."""
         super().showEvent(event)
 
-        # Only restore state on the first show - subsequent shows (e.g., after
-        # being briefly hidden during OpenGL context creation) should not
+        # Only restore state on the first show - subsequent shows should not
         # re-trigger the full state restoration
         if self._initial_show_done:
             return

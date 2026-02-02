@@ -1,169 +1,53 @@
-"""3D items for synoptic visualization.
+"""2D items for synoptic visualization.
 
-This module provides OpenGL items for rendering devices and
-beam paths in the synoptic view.
+This module provides PyQtGraph graphics items for rendering devices and
+beam paths in the 2D synoptic view.
 """
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-from pyqtgraph.opengl import (
-    GLLinePlotItem,
-    GLMeshItem,
-    MeshData,
-)
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+import pyqtgraph as pg
 
 from lucid.ui.panels.synoptic.models import (
     BeamPathSegment,
     DeviceSynopticData,
     PrimitiveShape,
+    ViewPreset,
 )
 
 if TYPE_CHECKING:
     pass
 
 
-def create_box_mesh(
-    size: tuple[float, float, float] = (1.0, 1.0, 1.0),
-) -> MeshData:
-    """Create a box mesh.
-
-    Args:
-        size: Box dimensions (width, depth, height).
-
-    Returns:
-        MeshData for the box.
-    """
-    w, d, h = size[0] / 2, size[1] / 2, size[2] / 2
-
-    # 8 vertices of the box
-    vertices = np.array([
-        [-w, -d, -h], [w, -d, -h], [w, d, -h], [-w, d, -h],  # Bottom
-        [-w, -d, h], [w, -d, h], [w, d, h], [-w, d, h],  # Top
-    ], dtype=np.float32)
-
-    # 12 triangles (2 per face)
-    faces = np.array([
-        [0, 1, 2], [0, 2, 3],  # Bottom
-        [4, 6, 5], [4, 7, 6],  # Top
-        [0, 4, 5], [0, 5, 1],  # Front
-        [2, 6, 7], [2, 7, 3],  # Back
-        [0, 3, 7], [0, 7, 4],  # Left
-        [1, 5, 6], [1, 6, 2],  # Right
-    ], dtype=np.uint32)
-
-    return MeshData(vertexes=vertices, faces=faces)
 
 
-def create_cylinder_mesh(
-    radius: float = 0.5,
-    height: float = 1.0,
-    segments: int = 16,
-) -> MeshData:
-    """Create a cylinder mesh.
+class Device2DItem(pg.ROI):
+    """2D draggable item representing a device in the synoptic view.
 
-    Args:
-        radius: Cylinder radius.
-        height: Cylinder height.
-        segments: Number of segments around circumference.
+    Extends pg.ROI for built-in drag support. Renders devices as 2D shapes
+    (square, circle, diamond) projected from 3D coordinates.
 
-    Returns:
-        MeshData for the cylinder.
-    """
-    h = height / 2
-    angles = np.linspace(0, 2 * np.pi, segments, endpoint=False)
+    Signals:
+        sigRegionChanged: Emitted when device is dragged (inherited from ROI).
 
-    # Create vertices: bottom ring, top ring, bottom center, top center
-    vertices = []
-    for a in angles:
-        vertices.append([radius * np.cos(a), radius * np.sin(a), -h])
-    for a in angles:
-        vertices.append([radius * np.cos(a), radius * np.sin(a), h])
-    vertices.append([0, 0, -h])  # Bottom center
-    vertices.append([0, 0, h])  # Top center
-
-    vertices = np.array(vertices, dtype=np.float32)
-    n = segments
-    bottom_center = 2 * n
-    top_center = 2 * n + 1
-
-    faces = []
-    for i in range(n):
-        j = (i + 1) % n
-        # Side faces (2 triangles per segment)
-        faces.append([i, j, n + j])
-        faces.append([i, n + j, n + i])
-        # Bottom face
-        faces.append([bottom_center, j, i])
-        # Top face
-        faces.append([top_center, n + i, n + j])
-
-    return MeshData(vertexes=vertices, faces=np.array(faces, dtype=np.uint32))
-
-
-def create_sphere_mesh(
-    radius: float = 0.5,
-    rows: int = 8,
-    cols: int = 16,
-) -> MeshData:
-    """Create a sphere mesh.
-
-    Args:
-        radius: Sphere radius.
-        rows: Number of latitude divisions.
-        cols: Number of longitude divisions.
-
-    Returns:
-        MeshData for the sphere.
-    """
-    vertices = []
-    faces = []
-
-    # Generate vertices
-    for i in range(rows + 1):
-        lat = np.pi * i / rows - np.pi / 2
-        for j in range(cols):
-            lon = 2 * np.pi * j / cols
-            x = radius * np.cos(lat) * np.cos(lon)
-            y = radius * np.cos(lat) * np.sin(lon)
-            z = radius * np.sin(lat)
-            vertices.append([x, y, z])
-
-    vertices = np.array(vertices, dtype=np.float32)
-
-    # Generate faces
-    for i in range(rows):
-        for j in range(cols):
-            p1 = i * cols + j
-            p2 = i * cols + (j + 1) % cols
-            p3 = (i + 1) * cols + (j + 1) % cols
-            p4 = (i + 1) * cols + j
-
-            if i > 0:
-                faces.append([p1, p2, p4])
-            if i < rows - 1:
-                faces.append([p2, p3, p4])
-
-    return MeshData(vertexes=vertices, faces=np.array(faces, dtype=np.uint32))
-
-
-class DeviceItem(GLMeshItem):
-    """3D mesh item representing a device in the synoptic view.
-
-    Renders devices as primitive shapes (box, cylinder, sphere) with
-    selection highlighting and label support.
+    Note: Position is at bottom-left corner (ROI convention), not center.
     """
 
-    HIGHLIGHT_COLOR = (1.0, 0.8, 0.0, 1.0)  # Yellow selection highlight
+    HIGHLIGHT_COLOR = QColor(255, 200, 0)  # Yellow selection highlight
+    HIGHLIGHT_WIDTH = 3.0  # Pen width in pixels (cosmetic)
+    DEFAULT_EDGE_COLOR = QColor(50, 50, 50)
+    DEFAULT_EDGE_WIDTH = 1.0  # Pen width in pixels (cosmetic)
 
     def __init__(
         self,
         device_id: str,
         device_name: str,
         synoptic_data: DeviceSynopticData,
+        view_preset: ViewPreset = ViewPreset.SIDE,
     ) -> None:
         """Initialize a device item.
 
@@ -171,78 +55,194 @@ class DeviceItem(GLMeshItem):
             device_id: Unique device identifier.
             device_name: Device display name.
             synoptic_data: 3D visualization data.
+            view_preset: Current view preset for projection.
         """
+        # Get initial size for ROI
+        self._synoptic_data = synoptic_data
+        self._view_preset = view_preset
+        scale_2d = self._get_projected_scale()
+
+        # ROI position is bottom-left corner, so offset from center
+        pos_2d = self._get_projected_position()
+        roi_pos = [pos_2d[0] - scale_2d[0] / 2, pos_2d[1] - scale_2d[1] / 2]
+
+        super().__init__(
+            pos=roi_pos,
+            size=scale_2d,
+            movable=False,  # Disabled by default, enabled in edit mode
+            resizable=False,
+            rotatable=False,
+            removable=False,
+        )
+
         self._device_id = device_id
         self._device_name = device_name
-        self._synoptic_data = synoptic_data
         self._is_selected = False
         self._original_color = synoptic_data.color
 
-        # Create mesh based on shape
-        mesh = self._create_mesh()
-        color = self._get_face_colors()
+        # Disable default ROI handles/hover behavior
+        self.handleSize = 0
+        self.handlePen = QPen(Qt.PenStyle.NoPen)
 
-        super().__init__(
-            meshdata=mesh,
-            smooth=True,
-            drawFaces=True,
-            drawEdges=True,
-            edgeColor=(0.2, 0.2, 0.2, 1.0),
-        )
-
-        # Set color
-        self.setColor(color)
-
-        # Apply transform
-        self._apply_transform()
-
-    def _create_mesh(self) -> MeshData:
-        """Create mesh data based on shape type.
-
-        Returns:
-            MeshData for the device shape.
-        """
-        shape = self._synoptic_data.primitive_shape
-        scale = self._synoptic_data.scale
-
-        if shape == PrimitiveShape.BOX:
-            return create_box_mesh(scale)
-        elif shape == PrimitiveShape.CYLINDER:
-            return create_cylinder_mesh(
-                radius=min(scale[0], scale[1]) / 2,
-                height=scale[2],
-            )
-        elif shape == PrimitiveShape.SPHERE:
-            return create_sphere_mesh(
-                radius=min(scale) / 2,
-            )
-        else:
-            return create_box_mesh(scale)
-
-    def _get_face_colors(self) -> tuple[float, float, float, float]:
-        """Get current face color based on selection state.
-
-        Returns:
-            RGBA color tuple.
-        """
-        if self._is_selected:
-            return self.HIGHLIGHT_COLOR
-        return self._original_color
-
-    def _apply_transform(self) -> None:
-        """Apply position and rotation transforms."""
-        # Reset transform
-        self.resetTransform()
-
-        # Apply translation
+    def _get_projected_position(self) -> tuple[float, float]:
+        """Get 2D projected center position (internal helper)."""
         pos = self._synoptic_data.position
-        self.translate(pos[0], pos[1], pos[2])
+        return self._project_point(pos)
 
-        # Apply rotation (Euler angles in degrees)
-        rot = self._synoptic_data.rotation
-        self.rotate(rot[0], 1, 0, 0)  # Rx
-        self.rotate(rot[1], 0, 1, 0)  # Ry
-        self.rotate(rot[2], 0, 0, 1)  # Rz
+    def _get_projected_scale(self) -> tuple[float, float]:
+        """Get 2D projected scale (internal helper)."""
+        scale = self._synoptic_data.scale
+        preset = self._view_preset
+
+        if preset == ViewPreset.SIDE:
+            return (scale[0], scale[2])
+        elif preset == ViewPreset.TOP:
+            return (scale[0], scale[1])
+        elif preset == ViewPreset.FRONT:
+            return (scale[1], scale[2])
+        else:
+            return (scale[0], scale[2])
+
+    def _update_geometry(self) -> None:
+        """Update ROI position and size based on synoptic data."""
+        scale_2d = self._get_projected_scale()
+        pos_2d = self._get_projected_position()
+
+        # ROI pos is bottom-left, so offset from center
+        roi_pos = [pos_2d[0] - scale_2d[0] / 2, pos_2d[1] - scale_2d[1] / 2]
+
+        # Block signals during programmatic update
+        self.blockSignals(True)
+        self.setPos(roi_pos)
+        self.setSize(scale_2d)
+        self.blockSignals(False)
+
+    def get_projected_position(self) -> tuple[float, float]:
+        """Get the 2D projected center position.
+
+        Returns:
+            (x, y) center position in 2D view coordinates.
+        """
+        return self._get_projected_position()
+
+    def get_projected_scale(self) -> tuple[float, float]:
+        """Get the 2D projected scale.
+
+        Returns:
+            (width, height) in 2D view coordinates.
+        """
+        return self._get_projected_scale()
+
+    def _project_point(
+        self, point: tuple[float, float, float]
+    ) -> tuple[float, float]:
+        """Project a 3D point to 2D based on view preset.
+
+        Args:
+            point: 3D point (x, y, z).
+
+        Returns:
+            2D projected point (x, y).
+        """
+        preset = self._view_preset
+
+        if preset == ViewPreset.SIDE:
+            return (point[0], point[2])
+        elif preset == ViewPreset.TOP:
+            return (point[0], point[1])
+        elif preset == ViewPreset.FRONT:
+            return (point[1], point[2])
+        else:
+            return (point[0], point[2])
+
+    def _unproject_point(
+        self, point_2d: tuple[float, float], original_3d: tuple[float, float, float]
+    ) -> tuple[float, float, float]:
+        """Unproject a 2D point back to 3D, preserving the hidden axis.
+
+        Args:
+            point_2d: 2D point (x, y) in view coordinates.
+            original_3d: Original 3D position to get hidden axis value.
+
+        Returns:
+            3D point (x, y, z).
+        """
+        preset = self._view_preset
+        x, y, z = original_3d
+
+        if preset == ViewPreset.SIDE:
+            # X-Z plane: 2D x -> 3D x, 2D y -> 3D z
+            return (point_2d[0], y, point_2d[1])
+        elif preset == ViewPreset.TOP:
+            # X-Y plane: 2D x -> 3D x, 2D y -> 3D y
+            return (point_2d[0], point_2d[1], z)
+        elif preset == ViewPreset.FRONT:
+            # Y-Z plane: 2D x -> 3D y, 2D y -> 3D z
+            return (x, point_2d[0], point_2d[1])
+        else:
+            return (point_2d[0], y, point_2d[1])
+
+    def set_view_preset(self, preset: ViewPreset) -> None:
+        """Update the view preset and recalculate projection.
+
+        Args:
+            preset: New view preset.
+        """
+        if self._view_preset != preset:
+            self._view_preset = preset
+            self._update_geometry()
+            self.update()
+
+    def paint(
+        self,
+        painter: QPainter,
+        *args,
+    ) -> None:
+        """Paint the device shape.
+
+        Args:
+            painter: The QPainter to use.
+            *args: Additional arguments (ignored).
+        """
+        # Set up colors
+        r, g, b, a = self._original_color
+        fill_color = QColor.fromRgbF(r, g, b, a)
+
+        if self._is_selected:
+            edge_pen = QPen(self.HIGHLIGHT_COLOR, self.HIGHLIGHT_WIDTH)
+        else:
+            edge_pen = QPen(self.DEFAULT_EDGE_COLOR, self.DEFAULT_EDGE_WIDTH)
+
+        # Use cosmetic pen so line width doesn't scale with zoom
+        edge_pen.setCosmetic(True)
+
+        painter.setPen(edge_pen)
+        painter.setBrush(QBrush(fill_color))
+
+        # Get local bounds (ROI uses state().size for dimensions)
+        state = self.state
+        w, h = state["size"]
+        bounds = QRectF(0, 0, w, h)
+
+        # Normalize shape (handles legacy values)
+        shape = PrimitiveShape.normalize(self._synoptic_data.primitive_shape)
+
+        # Draw shape based on type
+        if shape == PrimitiveShape.CIRCLE:
+            painter.drawEllipse(bounds)
+        elif shape == PrimitiveShape.DIAMOND:
+            cx, cy = w / 2, h / 2
+            hw, hh = w / 2, h / 2
+            diamond = QPolygonF([
+                QPointF(cx, 0),      # Top
+                QPointF(w, cy),      # Right
+                QPointF(cx, h),      # Bottom
+                QPointF(0, cy),      # Left
+            ])
+            painter.drawPolygon(diamond)
+        else:
+            # SQUARE is default
+            painter.drawRect(bounds)
 
     def get_device_id(self) -> str:
         """Get the device ID."""
@@ -253,46 +253,51 @@ class DeviceItem(GLMeshItem):
         return self._device_name
 
     def get_position(self) -> tuple[float, float, float]:
-        """Get the device position."""
+        """Get the 3D device position."""
         return self._synoptic_data.position
 
+    def get_current_position_from_roi(self) -> tuple[float, float, float]:
+        """Get the current 3D position based on ROI state.
+
+        This reflects the actual ROI position, which may differ from
+        synoptic_data during dragging.
+
+        Returns:
+            Current 3D position.
+        """
+        state = self.state
+        roi_pos = state["pos"]
+        size = state["size"]
+
+        # ROI pos is bottom-left, convert to center
+        center_2d = (roi_pos[0] + size[0] / 2, roi_pos[1] + size[1] / 2)
+
+        # Unproject to 3D
+        return self._unproject_point(center_2d, self._synoptic_data.position)
+
     def set_position(self, position: tuple[float, float, float]) -> None:
-        """Set the device position.
+        """Set the 3D device position.
 
         Args:
             position: New position (X, Y, Z).
         """
         self._synoptic_data.position = position
-        self._apply_transform()
-
-    def get_rotation(self) -> tuple[float, float, float]:
-        """Get the device rotation."""
-        return self._synoptic_data.rotation
-
-    def set_rotation(self, rotation: tuple[float, float, float]) -> None:
-        """Set the device rotation.
-
-        Args:
-            rotation: New rotation (Rx, Ry, Rz) in degrees.
-        """
-        self._synoptic_data.rotation = rotation
-        self._apply_transform()
+        self._update_geometry()
+        self.update()
 
     def get_scale(self) -> tuple[float, float, float]:
         """Get the device scale."""
         return self._synoptic_data.scale
 
     def set_scale(self, scale: tuple[float, float, float]) -> None:
-        """Set the device scale (requires mesh rebuild).
+        """Set the device scale.
 
         Args:
             scale: New scale (X, Y, Z).
         """
         self._synoptic_data.scale = scale
-        # Rebuild mesh with new scale
-        mesh = self._create_mesh()
-        self.setMeshData(meshdata=mesh)
-        self._apply_transform()
+        self._update_geometry()
+        self.update()
 
     def get_synoptic_data(self) -> DeviceSynopticData:
         """Get the synoptic data."""
@@ -306,11 +311,9 @@ class DeviceItem(GLMeshItem):
         """
         self._synoptic_data = data
         self._original_color = data.color
-        mesh = self._create_mesh()
-        self.setMeshData(meshdata=mesh)
-        self.setColor(self._get_face_colors())
-        self._apply_transform()
+        self._update_geometry()
         self.setVisible(data.visible)
+        self.update()
 
     def set_selected(self, selected: bool) -> None:
         """Set selection state.
@@ -320,136 +323,173 @@ class DeviceItem(GLMeshItem):
         """
         if self._is_selected != selected:
             self._is_selected = selected
-            self.setColor(self._get_face_colors())
+            self.update()
 
     def is_selected(self) -> bool:
         """Check if device is selected."""
         return self._is_selected
 
-    def intersect_ray(
-        self,
-        ray_origin: np.ndarray,
-        ray_direction: np.ndarray,
-    ) -> float | None:
-        """Test ray intersection with this device's bounding box.
+    def set_movable(self, movable: bool) -> None:
+        """Enable or disable dragging.
 
         Args:
-            ray_origin: Ray origin point.
-            ray_direction: Ray direction vector.
-
-        Returns:
-            Distance to intersection or None if no hit.
+            movable: Whether the device can be dragged.
         """
-        # Use axis-aligned bounding box for intersection test
-        pos = np.array(self._synoptic_data.position)
-        scale = np.array(self._synoptic_data.scale) / 2
+        self.translatable = movable
 
-        # Bounding box min/max
-        bb_min = pos - scale
-        bb_max = pos + scale
-
-        return self._ray_box_intersection(
-            ray_origin, ray_direction, bb_min, bb_max
-        )
-
-    @staticmethod
-    def _ray_box_intersection(
-        ray_origin: np.ndarray,
-        ray_direction: np.ndarray,
-        bb_min: np.ndarray,
-        bb_max: np.ndarray,
-    ) -> float | None:
-        """Ray-AABB intersection test.
+    def contains_point(self, point: QPointF) -> bool:
+        """Check if a point is inside this device's bounds.
 
         Args:
-            ray_origin: Ray origin.
-            ray_direction: Ray direction (should be normalized).
-            bb_min: Bounding box minimum corner.
-            bb_max: Bounding box maximum corner.
+            point: Point to test in data/view coordinates.
 
         Returns:
-            Distance to intersection or None.
+            True if point is inside the device bounds.
         """
-        # Avoid division by zero
-        inv_dir = np.where(
-            np.abs(ray_direction) > 1e-10,
-            1.0 / ray_direction,
-            np.sign(ray_direction) * 1e10,
-        )
-
-        t1 = (bb_min - ray_origin) * inv_dir
-        t2 = (bb_max - ray_origin) * inv_dir
-
-        t_min = np.minimum(t1, t2)
-        t_max = np.maximum(t1, t2)
-
-        t_enter = np.max(t_min)
-        t_exit = np.min(t_max)
-
-        if t_enter > t_exit or t_exit < 0:
-            return None
-
-        return t_enter if t_enter > 0 else t_exit
+        state = self.state
+        roi_pos = state["pos"]
+        size = state["size"]
+        bounds = QRectF(roi_pos[0], roi_pos[1], size[0], size[1])
+        return bounds.contains(point)
 
 
-class BeamPathItem(GLLinePlotItem):
-    """3D line item representing the beam path.
+class BeamPath2DItem(pg.GraphicsObject):
+    """2D graphics item representing the beam path.
 
-    Renders beam path as a series of connected line segments.
+    Renders beam path as a series of connected line segments,
+    projected from 3D to 2D based on the current view preset.
     """
+
+    DEFAULT_COLOR = QColor(255, 0, 0, 128)  # Semi-transparent red
+    DEFAULT_WIDTH = 2.0
 
     def __init__(
         self,
         segments: list[BeamPathSegment] | None = None,
+        view_preset: ViewPreset = ViewPreset.SIDE,
     ) -> None:
         """Initialize beam path item.
 
         Args:
             segments: Initial beam path segments.
+            view_preset: Current view preset for projection.
         """
+        super().__init__()
+
         self._segments: list[BeamPathSegment] = segments or []
+        self._view_preset = view_preset
+        self._bounds: QRectF | None = None
+        self._update_bounds()
 
-        # Build line data
-        pos, color, width = self._build_line_data()
-
-        super().__init__(
-            pos=pos,
-            color=color,
-            width=width,
-            antialias=True,
-            mode="lines",
-        )
-
-    def _build_line_data(
-        self,
-    ) -> tuple[np.ndarray, np.ndarray, float]:
-        """Build line vertex and color arrays from segments.
-
-        Returns:
-            Tuple of (positions, colors, width).
-        """
+    def _update_bounds(self) -> None:
+        """Update the bounding rectangle from all segments."""
         if not self._segments:
-            # Return empty arrays (not None) to avoid paint errors
-            empty_pos = np.zeros((0, 3), dtype=np.float32)
-            empty_color = np.zeros((0, 4), dtype=np.float32)
-            return empty_pos, empty_color, 1.0
+            self._bounds = QRectF(-0.1, -0.1, 0.2, 0.2)
+            return
 
-        positions = []
-        colors = []
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
 
         for seg in self._segments:
-            positions.append(seg.start)
-            positions.append(seg.end)
-            colors.append(seg.color)
-            colors.append(seg.color)
+            start_2d = self._project_point(seg.start)
+            end_2d = self._project_point(seg.end)
 
-        pos_array = np.array(positions, dtype=np.float32)
-        color_array = np.array(colors, dtype=np.float32)
+            min_x = min(min_x, start_2d[0], end_2d[0])
+            max_x = max(max_x, start_2d[0], end_2d[0])
+            min_y = min(min_y, start_2d[1], end_2d[1])
+            max_y = max(max_y, start_2d[1], end_2d[1])
 
-        # Use average width
-        avg_width = sum(s.width for s in self._segments) / len(self._segments)
+        # Add padding for line width
+        padding = self.DEFAULT_WIDTH
+        self._bounds = QRectF(
+            min_x - padding,
+            min_y - padding,
+            max_x - min_x + 2 * padding,
+            max_y - min_y + 2 * padding,
+        )
+        self.prepareGeometryChange()
 
-        return pos_array, color_array, avg_width * 100  # Scale width for visibility
+    def _project_point(
+        self, point: tuple[float, float, float]
+    ) -> tuple[float, float]:
+        """Project a 3D point to 2D based on view preset.
+
+        Args:
+            point: 3D point (x, y, z).
+
+        Returns:
+            2D projected point (x, y).
+        """
+        preset = self._view_preset
+
+        if preset == ViewPreset.SIDE:
+            return (point[0], point[2])
+        elif preset == ViewPreset.TOP:
+            return (point[0], point[1])
+        elif preset == ViewPreset.FRONT:
+            return (point[1], point[2])
+        else:
+            return (point[0], point[2])
+
+    def set_view_preset(self, preset: ViewPreset) -> None:
+        """Update the view preset and recalculate projection.
+
+        Args:
+            preset: New view preset.
+        """
+        if self._view_preset != preset:
+            self._view_preset = preset
+            self._update_bounds()
+            self.update()
+
+    def boundingRect(self) -> QRectF:
+        """Return the bounding rectangle for this item.
+
+        Returns:
+            The bounding rectangle.
+        """
+        if self._bounds is None:
+            return QRectF(-0.1, -0.1, 0.2, 0.2)
+        return self._bounds
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: Any,
+        widget: Any = None,
+    ) -> None:
+        """Paint the beam path segments.
+
+        Args:
+            painter: The QPainter to use.
+            option: Style options.
+            widget: The widget being painted on.
+        """
+        if not self._segments:
+            return
+
+        for seg in self._segments:
+            # Get segment color
+            r, g, b, a = seg.color
+            color = QColor.fromRgbF(r, g, b, a)
+
+            # Use cosmetic pen with reasonable pixel width
+            # seg.width is in meters, scale to reasonable pixel width (2-10 pixels)
+            width = max(2.0, min(10.0, seg.width * 200))
+
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setCosmetic(True)  # Width in pixels, not scene units
+            painter.setPen(pen)
+
+            # Project endpoints
+            start_2d = self._project_point(seg.start)
+            end_2d = self._project_point(seg.end)
+
+            painter.drawLine(
+                QPointF(start_2d[0], start_2d[1]),
+                QPointF(end_2d[0], end_2d[1]),
+            )
 
     def set_segments(self, segments: list[BeamPathSegment]) -> None:
         """Update all beam path segments.
@@ -458,8 +498,8 @@ class BeamPathItem(GLLinePlotItem):
             segments: New segment list.
         """
         self._segments = segments
-        pos, color, width = self._build_line_data()
-        self.setData(pos=pos, color=color, width=width)
+        self._update_bounds()
+        self.update()
 
     def add_segment(self, segment: BeamPathSegment) -> None:
         """Add a beam path segment.
@@ -468,8 +508,8 @@ class BeamPathItem(GLLinePlotItem):
             segment: Segment to add.
         """
         self._segments.append(segment)
-        pos, color, width = self._build_line_data()
-        self.setData(pos=pos, color=color, width=width)
+        self._update_bounds()
+        self.update()
 
     def remove_segment(self, segment_id: str) -> bool:
         """Remove a segment by ID.
@@ -483,18 +523,16 @@ class BeamPathItem(GLLinePlotItem):
         for i, seg in enumerate(self._segments):
             if seg.id == segment_id:
                 del self._segments[i]
-                pos, color, width = self._build_line_data()
-                self.setData(pos=pos, color=color, width=width)
+                self._update_bounds()
+                self.update()
                 return True
         return False
 
     def clear_segments(self) -> None:
         """Remove all segments."""
         self._segments.clear()
-        # Use empty arrays to avoid paint errors
-        empty_pos = np.zeros((0, 3), dtype=np.float32)
-        empty_color = np.zeros((0, 4), dtype=np.float32)
-        self.setData(pos=empty_pos, color=empty_color)
+        self._update_bounds()
+        self.update()
 
     def get_segments(self) -> list[BeamPathSegment]:
         """Get all segments."""
@@ -509,5 +547,11 @@ class BeamPathItem(GLLinePlotItem):
         return {
             "segment_count": len(self._segments),
             "segments": [seg.to_dict() for seg in self._segments],
-            "visible": self.visible(),
+            "visible": self.isVisible(),
+            "view_preset": self._view_preset.value,
         }
+
+
+# Backward-compatible aliases for existing code
+DeviceItem = Device2DItem
+BeamPathItem = BeamPath2DItem

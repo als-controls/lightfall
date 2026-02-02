@@ -2,13 +2,16 @@
 
 Provides read-only temperature display for cameras like Princeton PIMTE
 that have temperature sensors but simpler cooling control.
+
+Uses ophyd's uniform signal interface, working with any device that has
+the appropriate cam signals (temperature, temperature_setpoint).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QTimer, Signal, Slot
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
@@ -23,13 +26,10 @@ from lucid.utils.logging import logger
 class TemperaturePanel(QGroupBox):
     """Temperature display panel for PIMTE-style cameras.
 
-    Provides temperature monitoring and setpoint control for cameras
-    that have simpler temperature management than Andor coolers.
-
-    Standard PVs used:
-    - Temperature_RBV: Sensor temperature (°C)
-    - TemperatureSetPoint: Temperature setpoint (°C)
-    - TemperatureSetPoint_RBV: Actual setpoint readback (°C)
+    Uses ophyd's uniform signal interface for temperature monitoring.
+    Works with any ophyd device that has cam signals for:
+    - temperature: Sensor temperature (C)
+    - temperature_setpoint: Temperature setpoint (C)
 
     Signals:
         setpoint_changed: Emitted when setpoint is changed.
@@ -39,44 +39,40 @@ class TemperaturePanel(QGroupBox):
 
     def __init__(
         self,
-        prefix: str = "",
-        cam_suffix: str = "cam1:",
+        device: Any = None,
         parent: QWidget | None = None,
     ) -> None:
         """Initialize the temperature panel.
 
         Args:
-            prefix: EPICS PV prefix (e.g., "13PIMTE1:").
-            cam_suffix: Camera plugin suffix (default "cam1:").
+            device: Ophyd device with cam temperature signals.
             parent: Parent widget.
         """
         super().__init__("Temperature", parent)
-        self._prefix = prefix
-        self._cam_suffix = cam_suffix
-        self._cam_prefix = f"{prefix}{cam_suffix}" if prefix else ""
+        self._device = device
 
-        # PV state
-        self._pvs: dict[str, Any] = {}
+        # Signal subscriptions: list of (signal, subscription_id) tuples
+        self._subscriptions: list[tuple[Any, int]] = []
+
+        # Cached values from device signals
         self._values: dict[str, Any] = {}
-        self._connected_pvs: set[str] = set()
 
         self._setup_ui()
 
-        if prefix:
-            QTimer.singleShot(0, self._connect_pvs)
+        if device is not None:
+            QTimer.singleShot(0, self._connect_signals)
 
-    def set_prefix(self, prefix: str) -> None:
-        """Set the PV prefix and reconnect.
+    def set_device(self, device: Any) -> None:
+        """Set the ophyd device and reconnect signals.
 
         Args:
-            prefix: EPICS PV prefix.
+            device: Ophyd device with cam temperature signals.
         """
-        if prefix != self._prefix:
-            self._disconnect_pvs()
-            self._prefix = prefix
-            self._cam_prefix = f"{prefix}{self._cam_suffix}" if prefix else ""
-            if prefix:
-                self._connect_pvs()
+        if device != self._device:
+            self._disconnect_signals()
+            self._device = device
+            if device is not None:
+                self._connect_signals()
 
     def _setup_ui(self) -> None:
         """Create the panel UI."""
@@ -87,7 +83,7 @@ class TemperaturePanel(QGroupBox):
 
         # Sensor temperature (read-only)
         layout.addWidget(QLabel("Sensor:"), row, 0)
-        self._sensor_label = QLabel("--- °C")
+        self._sensor_label = QLabel("--- C")
         self._sensor_label.setStyleSheet("font-family: monospace; font-weight: bold;")
         layout.addWidget(self._sensor_label, row, 1)
 
@@ -98,7 +94,7 @@ class TemperaturePanel(QGroupBox):
         self._setpoint_spin = QDoubleSpinBox()
         self._setpoint_spin.setRange(-100.0, 50.0)
         self._setpoint_spin.setDecimals(1)
-        self._setpoint_spin.setSuffix(" °C")
+        self._setpoint_spin.setSuffix(" C")
         self._setpoint_spin.editingFinished.connect(self._on_setpoint_changed)
         layout.addWidget(self._setpoint_spin, row, 1)
 
@@ -106,54 +102,75 @@ class TemperaturePanel(QGroupBox):
 
         # Actual setpoint readback
         layout.addWidget(QLabel("Actual SP:"), row, 0)
-        self._actual_sp_label = QLabel("--- °C")
+        self._actual_sp_label = QLabel("--- C")
         self._actual_sp_label.setStyleSheet("font-family: monospace;")
         layout.addWidget(self._actual_sp_label, row, 1)
 
         # Initial state - disabled
         self._setpoint_spin.setEnabled(False)
 
-    def _connect_pvs(self) -> None:
-        """Connect to temperature PVs."""
-        if not self._cam_prefix:
+    def _connect_signals(self) -> None:
+        """Connect to ophyd device signals.
+
+        Connects to the cam component signals for temperature monitoring.
+        """
+        self._disconnect_signals()
+
+        if self._device is None or not hasattr(self._device, "cam"):
             return
 
-        try:
-            from epics_pyside.ca.pv import PV
+        cam = self._device.cam
 
-            # PVs to connect
-            pv_fields = {
-                "Temperature_RBV": "temperature",
-                "TemperatureSetPoint": "setpoint",
-                "TemperatureSetPoint_RBV": "setpoint_rbv",
-            }
+        # Signal mapping: ophyd attribute -> internal name
+        signal_map = {
+            "temperature": "temperature",
+            "temperature_setpoint": "setpoint",
+        }
 
-            for field, name in pv_fields.items():
-                pv_name = f"{self._cam_prefix}{field}"
-                pv = PV(pv_name, parent=self)
-                pv.value_changed.connect(lambda v, n=name: self._on_pv_value(n, v))
-                pv.connection_changed.connect(lambda c, n=name: self._on_pv_connection(n, c))
-                pv.connect_pv()
-                self._pvs[name] = pv
+        def make_callback(name: str):
+            """Create a callback that updates the specified value name."""
+            def callback(value, **kwargs):
+                self._on_value_changed(name, value)
+            return callback
 
-        except ImportError:
-            logger.warning("epics_pyside not available, temperature panel disabled")
+        for attr, name in signal_map.items():
+            if hasattr(cam, attr):
+                signal = getattr(cam, attr)
 
-    def _disconnect_pvs(self) -> None:
-        """Disconnect all PVs."""
-        for pv in self._pvs.values():
+                # Get initial value
+                try:
+                    value = signal.get()
+                    self._values[name] = value
+                except Exception as e:
+                    logger.debug(f"Failed to get initial value for {attr}: {e}")
+
+                # Subscribe for updates
+                try:
+                    sub_id = signal.subscribe(make_callback(name))
+                    self._subscriptions.append((signal, sub_id))
+                except Exception as e:
+                    logger.debug(f"Failed to subscribe to {attr}: {e}")
+
+        # Enable controls if we have temperature signal
+        has_temp = "temperature" in self._values
+        self._setpoint_spin.setEnabled(has_temp)
+
+        # Trigger initial display updates
+        self._update_temperature_display()
+        self._update_setpoint_display()
+
+    def _disconnect_signals(self) -> None:
+        """Disconnect all ophyd signal subscriptions."""
+        for signal, sub_id in self._subscriptions:
             try:
-                pv.disconnect_pv()
-                pv.deleteLater()
+                signal.unsubscribe(sub_id)
             except Exception:
                 pass
-        self._pvs.clear()
-        self._connected_pvs.clear()
+        self._subscriptions.clear()
         self._values.clear()
 
-    @Slot(str, object)
-    def _on_pv_value(self, name: str, value: Any) -> None:
-        """Handle PV value updates."""
+    def _on_value_changed(self, name: str, value: Any) -> None:
+        """Handle ophyd signal value updates."""
         # Extract scalar from array if needed
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
@@ -164,33 +181,21 @@ class TemperaturePanel(QGroupBox):
         # Update UI
         if name == "temperature":
             self._update_temperature_display()
-        elif name == "setpoint_rbv":
+        elif name == "setpoint":
             self._update_setpoint_display()
-
-    @Slot(str, bool)
-    def _on_pv_connection(self, name: str, connected: bool) -> None:
-        """Handle PV connection state changes."""
-        if connected:
-            self._connected_pvs.add(name)
-        else:
-            self._connected_pvs.discard(name)
-
-        # Enable controls if we have temperature readback
-        is_connected = "temperature" in self._connected_pvs
-        self._setpoint_spin.setEnabled(is_connected)
 
     def _update_temperature_display(self) -> None:
         """Update sensor temperature display."""
         value = self._values.get("temperature")
         if value is not None:
-            self._sensor_label.setText(f"{float(value):.1f} °C")
+            self._sensor_label.setText(f"{float(value):.1f} C")
 
     def _update_setpoint_display(self) -> None:
         """Update setpoint displays."""
         # Update actual setpoint label
-        value = self._values.get("setpoint_rbv")
+        value = self._values.get("setpoint")
         if value is not None:
-            self._actual_sp_label.setText(f"{float(value):.1f} °C")
+            self._actual_sp_label.setText(f"{float(value):.1f} C")
 
             # Also update spinbox if not focused
             if not self._setpoint_spin.hasFocus():
@@ -198,12 +203,29 @@ class TemperaturePanel(QGroupBox):
                 self._setpoint_spin.setValue(float(value))
                 self._setpoint_spin.blockSignals(False)
 
+    def _put_value(self, name: str, value: Any) -> None:
+        """Set a value on the ophyd device.
+
+        Args:
+            name: Signal attribute name on the cam component.
+            value: Value to set.
+        """
+        if self._device is None:
+            return
+
+        cam = getattr(self._device, "cam", None)
+        if cam is not None and hasattr(cam, name):
+            signal = getattr(cam, name)
+            try:
+                signal.set(value).wait(timeout=5.0)
+            except Exception as e:
+                logger.warning(f"Failed to set {name}: {e}")
+
     def _on_setpoint_changed(self) -> None:
         """Handle setpoint change."""
         value = self._setpoint_spin.value()
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(value)
-            self.setpoint_changed.emit(value)
+        self._put_value("temperature_setpoint", value)
+        self.setpoint_changed.emit(value)
 
     # === Public API ===
 
@@ -211,21 +233,20 @@ class TemperaturePanel(QGroupBox):
         """Set the temperature setpoint.
 
         Args:
-            temp: Temperature in °C.
+            temp: Temperature in C.
         """
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(temp)
+        self._put_value("temperature_setpoint", temp)
 
     @property
     def temperature(self) -> float | None:
-        """Current sensor temperature in °C."""
+        """Current sensor temperature in C."""
         val = self._values.get("temperature")
         return float(val) if val is not None else None
 
     @property
     def setpoint(self) -> float | None:
-        """Current temperature setpoint in °C."""
-        val = self._values.get("setpoint_rbv")
+        """Current temperature setpoint in C."""
+        val = self._values.get("setpoint")
         return float(val) if val is not None else None
 
     def get_introspection_data(self) -> dict[str, Any]:
@@ -239,7 +260,7 @@ class TemperaturePanel(QGroupBox):
             ],
         }
 
-    def closeEvent(self, event) -> None:
+    def close(self) -> None:
         """Clean up on close."""
-        self._disconnect_pvs()
-        super().closeEvent(event)
+        self._disconnect_signals()
+        super().close()

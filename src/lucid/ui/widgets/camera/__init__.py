@@ -1,23 +1,31 @@
-"""Camera control widgets for EPICS AreaDetector devices.
+"""Camera control widgets for ophyd AreaDetector devices.
 
 Provides specialized control UIs for camera devices with:
-- Live image display via PVImageView
+- Live image display via OphydImageView (PyQtGraph-based)
 - Acquisition controls (exposure, images, modes)
 - Device-specific panels (cooler, temperature)
+- TV mode for continuous streaming
+- Plan-based acquisition with dark frame support
 
-Widgets:
-    CameraControlWidget: Base camera control for any AreaDetector
-    AndorCameraControlWidget: Andor cameras with cooler control
-    PIMTECameraControlWidget: Princeton PIMTE cameras with temperature display
+Widget Hierarchy:
+    CameraControlWidget: Base camera control with direct acquisition
+        PlanBasedCameraControlWidget: Uses Bluesky plans for acquisition
+            AndorCameraControlWidget: Andor cameras with cooler control
+            PIMTECameraControlWidget: Princeton PIMTE with temperature display
+
+Mixins:
+    TVModeMixin: Adds TV mode (continuous streaming) support
 """
 
 from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
+from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 from lucid.ui.widgets.camera.andor import AndorCameraControlWidget
 from lucid.ui.widgets.camera.pimte import PIMTECameraControlWidget
 
 __all__ = [
     "CameraControlWidget",
     "TVModeMixin",
+    "PlanBasedCameraControlWidget",
     "AndorCameraControlWidget",
     "PIMTECameraControlWidget",
 ]

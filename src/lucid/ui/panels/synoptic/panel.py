@@ -1,14 +1,14 @@
-"""Synoptic panel for 3D beamline visualization.
+"""Synoptic panel for 2D beamline visualization.
 
 This module provides SynopticPanel, a BasePanel subclass that displays
-a 3D synoptic view of beamline hardware with interactive editing.
+a 2D synoptic view of beamline hardware with interactive editing.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox,
@@ -25,9 +25,11 @@ from PySide6.QtWidgets import (
 
 from lucid.auth.policy import Permission
 from lucid.devices import DeviceCatalog
+from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
 from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.panels.synoptic.editors import SynopticPropertyEditor, TransformGizmo
-from lucid.ui.panels.synoptic.items import BeamPathItem, DeviceItem
+from lucid.ui.panels.synoptic.items import BeamPath2DItem, Device2DItem
 from lucid.ui.panels.synoptic.models import (
     BeamPathSegment,
     DeviceSynopticData,
@@ -46,12 +48,14 @@ if TYPE_CHECKING:
 
 
 class SynopticPanel(BasePanel):
-    """Panel for 3D synoptic view of beamline hardware.
+    """Panel for 2D synoptic view of beamline hardware.
 
     Features:
-    - 3D visualization of devices as primitives (box, cylinder, sphere)
-    - Orthographic (default) and perspective projection modes
-    - View presets: Side, Top, Front, 3D
+    - 2D visualization of devices as shapes (rectangle, ellipse)
+    - View presets as 2D projections:
+      - Side: X-Z plane (beam direction × height)
+      - Top: X-Y plane (beam direction × lateral)
+      - Front: Y-Z plane (lateral × height)
     - Device selection with property editing (edit mode)
     - Beam path visualization
     - Permission-gated editing (DEVICE_CONFIGURE)
@@ -65,13 +69,13 @@ class SynopticPanel(BasePanel):
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lucid.panels.synoptic",
         name="Synoptic",
-        description="3D visualization of beamline hardware layout",
+        description="2D visualization of beamline hardware layout",
         icon="synoptic",
         category="Core",
         required_permission=None,  # View is open to all authenticated
         singleton=True,
         closable=True,
-        keywords=["3d", "synoptic", "layout", "beamline", "visualization", "hardware"],
+        keywords=["2d", "synoptic", "layout", "beamline", "visualization", "hardware"],
     )
 
     # Signals
@@ -86,8 +90,9 @@ class SynopticPanel(BasePanel):
         self._current_beamline: str | None = None
 
         # Device tracking
-        self._device_items: dict[str, DeviceItem] = {}
+        self._device_items: dict[str, Device2DItem] = {}
         self._device_info_map: dict[str, DeviceInfo] = {}
+        self._selecting_from_event = False  # Prevent recursive event posting
 
         # Persistence
         self._persistence: SynopticPersistence | None = None
@@ -106,26 +111,32 @@ class SynopticPanel(BasePanel):
         self._layout.addWidget(splitter)
 
         # Left side: view container
-        self._view_container = QWidget()
-        self._view_layout = QVBoxLayout(self._view_container)
-        self._view_layout.setContentsMargins(0, 0, 0, 0)
-        self._view_layout.setSpacing(0)
+        view_container = QWidget()
+        view_layout = QVBoxLayout(view_container)
+        view_layout.setContentsMargins(0, 0, 0, 0)
+        view_layout.setSpacing(0)
 
         # Toolbar
         self._toolbar = self._create_toolbar()
-        self._view_layout.addWidget(self._toolbar)
+        view_layout.addWidget(self._toolbar)
 
-        # Placeholder for 3D View - actual view created lazily in showEvent
-        self._view_placeholder = QWidget()
-        self._view_placeholder.setMinimumSize(400, 300)
-        self._view_layout.addWidget(self._view_placeholder, stretch=1)
-        self._view: SynopticView | None = None
+        # 2D View - created directly (no deferred init needed)
+        self._view = SynopticView()
+        self._view.setMinimumSize(400, 300)
+        view_layout.addWidget(self._view, stretch=1)
+
+        # Connect view signals
+        self._view.device_clicked.connect(self._on_device_clicked)
+        self._view.device_double_clicked.connect(self._on_device_double_clicked)
+        self._view.selection_changed.connect(self._on_selection_changed)
+        self._view.view_changed.connect(self._on_view_changed)
+        self._view.device_moved.connect(self._on_device_moved)
 
         # Status bar
         self._status_bar = self._create_status_bar()
-        self._view_layout.addWidget(self._status_bar)
+        view_layout.addWidget(self._status_bar)
 
-        splitter.addWidget(self._view_container)
+        splitter.addWidget(view_container)
 
         # Right side: property panel
         self._property_editor = SynopticPropertyEditor()
@@ -137,16 +148,20 @@ class SynopticPanel(BasePanel):
         # Set initial splitter sizes
         splitter.setSizes([600, 250])
 
-        # Create items but don't add to view yet - defer until after show
+        # Create gizmo and beam path items
         self._gizmo = TransformGizmo()
-        self._beam_path = BeamPathItem()
-        self._deferred_init_done = False
+        self._beam_path = BeamPath2DItem()
 
-        # Initialize persistence (but don't restore view state yet)
-        self._init_persistence_minimal()
+        # Add items to view
+        self._view.addItem(self._gizmo)
+        self._gizmo.hide()
+        self._view.addItem(self._beam_path)
 
-    def _init_persistence_minimal(self) -> None:
-        """Initialize persistence handler without restoring state."""
+        # Initialize persistence and load state
+        self._init_persistence()
+
+    def _init_persistence(self) -> None:
+        """Initialize persistence handler and restore state."""
         try:
             from lucid.ui.preferences.manager import PreferencesManager
 
@@ -157,55 +172,21 @@ class SynopticPanel(BasePanel):
 
         self._persistence = SynopticPersistence(self._current_beamline)
 
-    def showEvent(self, event) -> None:
-        """Handle show event - complete deferred initialization."""
-        super().showEvent(event)
-        if not self._deferred_init_done:
-            self._deferred_init_done = True
-            # Use QTimer to defer initialization until after the show completes
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._complete_initialization)
-
-    def _complete_initialization(self) -> None:
-        """Complete initialization after widget is shown.
-
-        Note: On Windows, OpenGL widget creation causes window flicker.
-        This is mitigated by pre-creating the panel during setup_default_layout()
-        before the main window is visible.
-        """
-        # Create the 3D view
-        self._view = SynopticView(parent=self._view_container)
-
-        # Replace placeholder with view
-        self._view_placeholder.hide()
-        self._view_layout.insertWidget(1, self._view, stretch=1)
-        self._view_placeholder.deleteLater()
-        self._view_placeholder = None
-
-        # Connect signals
-        self._view.device_clicked.connect(self._on_device_clicked)
-        self._view.device_double_clicked.connect(self._on_device_double_clicked)
-        self._view.selection_changed.connect(self._on_selection_changed)
-        self._view.view_changed.connect(self._on_view_changed)
-
-        # Add items to view
-        self._view.addItem(self._gizmo)
-        self._gizmo.hide()
-        self._view.addItem(self._beam_path)
-
-        # Block signals during remaining initialization
+        # Block signals during state restoration
         self._view.blockSignals(True)
         try:
             # Load saved view state
-            if self._persistence:
-                state = self._persistence.load_view_state()
-                if state:
-                    self._view.restore_view_state(state)
+            state = self._persistence.load_view_state()
+            if state:
+                self._view.restore_view_state(state)
+                # Update gizmo and beam path to match preset
+                self._gizmo.set_view_preset(state.view_preset)
+                self._beam_path.set_view_preset(state.view_preset)
 
-                # Load beam path
-                segments = self._persistence.load_beam_path()
-                if segments:
-                    self._beam_path.set_segments(segments)
+            # Load beam path
+            segments = self._persistence.load_beam_path()
+            if segments:
+                self._beam_path.set_segments(segments)
 
             # Load devices
             self._load_devices()
@@ -222,26 +203,16 @@ class SynopticPanel(BasePanel):
         toolbar.setFloatable(False)
         toolbar.setIconSize(toolbar.iconSize() * 0.8)
 
-        # View preset dropdown
+        # View preset dropdown (2D projections only)
         self._view_preset_combo = QComboBox()
-        self._view_preset_combo.addItem("Side", ViewPreset.SIDE)
-        self._view_preset_combo.addItem("Top", ViewPreset.TOP)
-        self._view_preset_combo.addItem("Front", ViewPreset.FRONT)
-        self._view_preset_combo.addItem("3D", ViewPreset.PERSPECTIVE)
+        self._view_preset_combo.addItem("Side (X-Z)", ViewPreset.SIDE)
+        self._view_preset_combo.addItem("Top (X-Y)", ViewPreset.TOP)
+        self._view_preset_combo.addItem("Front (Y-Z)", ViewPreset.FRONT)
         self._view_preset_combo.setCurrentIndex(0)
         self._view_preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         toolbar.addWidget(self._view_preset_combo)
 
         toolbar.addSeparator()
-
-        # Ortho/Perspective toggle
-        self._ortho_action = QAction("Ortho", self)
-        self._ortho_action.setCheckable(True)
-        self._ortho_action.setChecked(True)
-        self._ortho_action.setToolTip("Toggle orthographic/perspective (P)")
-        self._ortho_action.setShortcut(QKeySequence("P"))
-        self._ortho_action.triggered.connect(self._on_ortho_toggled)
-        toolbar.addAction(self._ortho_action)
 
         # Grid toggle
         self._grid_action = QAction("Grid", self)
@@ -310,8 +281,8 @@ class SynopticPanel(BasePanel):
 
         layout.addWidget(QLabel("|"))
 
-        self._camera_label = QLabel("Camera: Side (Orthographic)")
-        layout.addWidget(self._camera_label)
+        self._view_label = QLabel("View: Side (X-Z)")
+        layout.addWidget(self._view_label)
 
         return status
 
@@ -351,6 +322,7 @@ class SynopticPanel(BasePanel):
         self._edit_mode = enabled
         self._edit_action.setChecked(enabled)
         self._property_editor.set_edit_mode(enabled)
+        self._view.set_edit_mode(enabled)  # Enable drag in view
         self._add_device_button.setEnabled(enabled)
         self._add_beam_button.setEnabled(enabled)
 
@@ -378,7 +350,7 @@ class SynopticPanel(BasePanel):
         self._update_device_count()
 
     def _add_device_to_view(self, device_info: DeviceInfo) -> None:
-        """Add a device to the 3D view.
+        """Add a device to the 2D view.
 
         Args:
             device_info: Device to add.
@@ -393,8 +365,13 @@ class SynopticPanel(BasePanel):
         if not self._has_synoptic_config(device_info):
             return
 
-        # Create device item
-        item = DeviceItem(device_id, device_info.name, synoptic_data)
+        # Create device item with current view preset
+        item = Device2DItem(
+            device_id,
+            device_info.name,
+            synoptic_data,
+            view_preset=self._view.get_view_preset(),
+        )
         self._device_items[device_id] = item
         self._device_info_map[device_id] = device_info
         self._view.add_device_item(device_id, item)
@@ -417,16 +394,30 @@ class SynopticPanel(BasePanel):
 
     def _update_toolbar_state(self) -> None:
         """Update toolbar widgets to match view state."""
-        if self._view is None:
-            return
-
-        self._ortho_action.setChecked(self._view.is_orthographic())
         self._grid_action.setChecked(self._view.is_grid_visible())
 
-        # Update camera label
-        preset = self._view._view_preset.value.title()
-        proj = "Orthographic" if self._view.is_orthographic() else "Perspective"
-        self._camera_label.setText(f"Camera: {preset} ({proj})")
+        # Update combo box to match current preset
+        preset = self._view.get_view_preset()
+
+        # Map legacy 3D presets to SIDE
+        if preset in (ViewPreset.ORTHO3D, ViewPreset.PERSPECTIVE):
+            preset = ViewPreset.SIDE
+
+        for i in range(self._view_preset_combo.count()):
+            if self._view_preset_combo.itemData(i) == preset:
+                self._view_preset_combo.blockSignals(True)
+                self._view_preset_combo.setCurrentIndex(i)
+                self._view_preset_combo.blockSignals(False)
+                break
+
+        # Update view label based on preset
+        preset_labels = {
+            ViewPreset.SIDE: "Side (X-Z)",
+            ViewPreset.TOP: "Top (X-Y)",
+            ViewPreset.FRONT: "Front (Y-Z)",
+        }
+        label = preset_labels.get(preset, "Side (X-Z)")
+        self._view_label.setText(f"View: {label}")
 
     def _update_gizmo(self) -> None:
         """Update transform gizmo visibility and position."""
@@ -452,11 +443,10 @@ class SynopticPanel(BasePanel):
         preset = self._view_preset_combo.currentData()
         if preset:
             self._view.apply_view_preset(preset)
-
-    @Slot(bool)
-    def _on_ortho_toggled(self, checked: bool) -> None:
-        """Handle orthographic toggle."""
-        self._view.set_orthographic(checked)
+            # Update gizmo and beam path to use new projection
+            self._gizmo.set_view_preset(preset)
+            self._beam_path.set_view_preset(preset)
+            self._update_toolbar_state()
 
     @Slot(bool)
     def _on_grid_toggled(self, checked: bool) -> None:
@@ -466,8 +456,7 @@ class SynopticPanel(BasePanel):
     @Slot(bool)
     def _on_labels_toggled(self, checked: bool) -> None:
         """Handle labels toggle."""
-        # TODO: Implement label visibility toggle
-        pass
+        self._view.set_labels_visible(checked)
 
     @Slot(bool)
     def _on_edit_toggled(self, checked: bool) -> None:
@@ -547,8 +536,13 @@ class SynopticPanel(BasePanel):
         # Store in device metadata
         device_info.metadata["synoptic"] = synoptic_data.to_dict()
 
-        # Create and add item
-        item = DeviceItem(device_id, device_info.name, synoptic_data)
+        # Create and add item with current view preset
+        item = Device2DItem(
+            device_id,
+            device_info.name,
+            synoptic_data,
+            view_preset=self._view.get_view_preset(),
+        )
         self._device_items[device_id] = item
         self._device_info_map[device_id] = device_info
         self._view.add_device_item(device_id, item)
@@ -585,15 +579,17 @@ class SynopticPanel(BasePanel):
         """Handle device double-click (focus)."""
         self.device_focused.emit(device_id)
 
-        # Post app-wide event
-        try:
-            from lucid.core.services import ServiceRegistry
+        # Post focus event to Device panel
+        device_info = self._device_info_map.get(device_id)
+        device_name = device_info.name if device_info else None
 
-            event_bus = ServiceRegistry.get("event_bus")
-            if event_bus:
-                event_bus.post("DEVICE_FOCUSED", {"device_id": device_id})
-        except Exception as e:
-            logger.debug("Could not post DEVICE_FOCUSED event: {}", e)
+        registry = PanelRegistry.get_instance()
+        device_panel = registry.get_singleton("lucid.panels.devices")
+
+        if device_panel is not None:
+            event = DeviceFocusEvent(device_id, device_name)
+            QCoreApplication.postEvent(device_panel, event)
+            logger.debug("Posted DeviceFocusEvent for device: {}", device_name or device_id)
 
     @Slot(list)
     def _on_selection_changed(self, device_ids: list[str]) -> None:
@@ -612,17 +608,32 @@ class SynopticPanel(BasePanel):
                     item.get_synoptic_data(),
                 )
                 self._update_gizmo()
+                # Post selection event to Device panel (unless this was from an event)
+                if not self._selecting_from_event:
+                    self._post_device_select_event(device_id)
         else:
             # Multi-selection
             self._property_editor.set_device(None, None, None)
             self._gizmo.hide()
 
+    def _post_device_select_event(self, device_id: str) -> None:
+        """Post a device select event to the Device panel.
+
+        Args:
+            device_id: ID of the selected device.
+        """
+        # Find the Device panel and post event to it
+        registry = PanelRegistry.get_instance()
+        device_panel = registry.get_singleton("lucid.panels.devices")
+
+        if device_panel is not None:
+            event = DeviceSelectEvent(device_id)
+            QCoreApplication.postEvent(device_panel, event)
+            logger.debug("Posted DeviceSelectEvent for device: {}", device_id)
+
     @Slot()
     def _on_view_changed(self) -> None:
-        """Handle view camera change."""
-        if self._view is None:
-            return
-
+        """Handle view change."""
         self._update_toolbar_state()
 
         # Save view state (debounced via preference manager)
@@ -641,8 +652,38 @@ class SynopticPanel(BasePanel):
         device_info = self._device_info_map.get(device_id)
 
         if item and device_info:
-            # Update 3D item
+            # Update 2D item
             item.set_synoptic_data(data)
+
+            # Update gizmo position
+            self._update_gizmo()
+
+            # Schedule save
+            self._saver.schedule_save(device_info, data)
+
+    @Slot(str, tuple)
+    def _on_device_moved(self, device_id: str, new_position: tuple) -> None:
+        """Handle device drag movement from view.
+
+        Args:
+            device_id: Device that was moved.
+            new_position: New 3D position (x, y, z).
+        """
+        item = self._device_items.get(device_id)
+        device_info = self._device_info_map.get(device_id)
+
+        if item and device_info:
+            # Get current synoptic data and update position
+            data = item.get_synoptic_data()
+            data.position = new_position
+
+            # Update property editor if this device is selected
+            if device_id in self._view.get_selected_device_ids():
+                self._property_editor.set_device(
+                    device_id,
+                    device_info.name,
+                    data,
+                )
 
             # Update gizmo position
             self._update_gizmo()
@@ -681,17 +722,57 @@ class SynopticPanel(BasePanel):
         self._saver.flush()
 
         # Save final view state
-        if self._persistence and self._view is not None:
+        if self._persistence:
             state = self._view.get_view_state()
             self._persistence.save_view_state(state)
+
+    # === Event Handling ===
+
+    def event(self, event: QEvent) -> bool:
+        """Handle custom events including DeviceFocusEvent.
+
+        Args:
+            event: The event to handle.
+
+        Returns:
+            True if event was handled, False otherwise.
+        """
+        if event.type() == DeviceFocusEvent.EventType:
+            # Handle device focus request from another panel
+            self._handle_device_focus_event(event)
+            return True
+        return super().event(event)
+
+    def _handle_device_focus_event(self, event: DeviceFocusEvent) -> None:
+        """Handle a device focus event by selecting and framing the device.
+
+        Args:
+            event: The device focus event.
+        """
+        device_id = event.device_id
+
+        # Check if device exists in synoptic view
+        if device_id not in self._device_items:
+            logger.debug(
+                "Device {} not in synoptic view, ignoring focus event",
+                event.device_name or device_id,
+            )
+            return
+
+        # Set flag to prevent posting event back to source panel
+        self._selecting_from_event = True
+        try:
+            # Select and frame the device
+            self._view.select_device(device_id)
+            self._view._frame_selected()
+            logger.debug("Focused device in synoptic: {}", event.device_name or device_id)
+        finally:
+            self._selecting_from_event = False
 
     # === Keyboard Shortcuts ===
 
     def keyPressEvent(self, event) -> None:
         """Handle keyboard shortcuts."""
-        if self._view is None:
-            return
-
         key = event.key()
 
         if key == Qt.Key.Key_Delete and self._edit_mode:
@@ -702,9 +783,6 @@ class SynopticPanel(BasePanel):
 
     def _delete_selected_devices(self) -> None:
         """Remove selected devices from synoptic view."""
-        if self._view is None:
-            return
-
         selected = self._view.get_selected_device_ids()
         if not selected:
             return
@@ -730,20 +808,14 @@ class SynopticPanel(BasePanel):
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
         """Get synoptic-specific introspection data."""
-        data = {
+        return {
             "edit_mode": self._edit_mode,
             "device_count": len(self._device_items),
             "beam_path_segments": len(self._beam_path.get_segments()) if self._beam_path else 0,
             "gizmo_visible": self._gizmo.is_visible() if self._gizmo else False,
-            "initialized": self._view is not None,
+            "view": self._view.get_introspection_data(),
+            "selected_devices": self._view.get_selected_device_ids(),
         }
-        if self._view is not None:
-            data["view"] = self._view.get_introspection_data()
-            data["selected_devices"] = self._view.get_selected_device_ids()
-        else:
-            data["view"] = None
-            data["selected_devices"] = []
-        return data
 
     def _get_available_actions(self) -> list[dict[str, Any]]:
         """Get available actions for MCP introspection."""
@@ -751,14 +823,9 @@ class SynopticPanel(BasePanel):
         actions.extend([
             {
                 "name": "set_view_preset",
-                "description": "Set camera view preset",
+                "description": "Set view projection preset",
                 "method": "action_set_view_preset",
-                "parameters": {"preset": "side|top|front|perspective"},
-            },
-            {
-                "name": "toggle_projection",
-                "description": "Toggle orthographic/perspective",
-                "method": "action_toggle_projection",
+                "parameters": {"preset": "side|top|front"},
             },
             {
                 "name": "toggle_edit_mode",
@@ -773,7 +840,7 @@ class SynopticPanel(BasePanel):
             },
             {
                 "name": "focus_device",
-                "description": "Focus camera on a device",
+                "description": "Focus view on a device",
                 "method": "action_focus_device",
                 "parameters": {"device_id": "string"},
             },
@@ -782,21 +849,17 @@ class SynopticPanel(BasePanel):
 
     def action_set_view_preset(self, preset: str) -> bool:
         """Action: Set view preset."""
-        if self._view is None:
-            return False
         try:
             view_preset = ViewPreset(preset.lower())
+            # Map legacy presets to SIDE
+            if view_preset in (ViewPreset.ORTHO3D, ViewPreset.PERSPECTIVE):
+                view_preset = ViewPreset.SIDE
             self._view.apply_view_preset(view_preset)
+            self._gizmo.set_view_preset(view_preset)
+            self._beam_path.set_view_preset(view_preset)
             return True
         except ValueError:
             return False
-
-    def action_toggle_projection(self) -> bool:
-        """Action: Toggle projection mode."""
-        if self._view is None:
-            return False
-        self._view.toggle_projection()
-        return True
 
     def action_toggle_edit_mode(self) -> bool:
         """Action: Toggle edit mode."""
@@ -807,8 +870,6 @@ class SynopticPanel(BasePanel):
 
     def action_select_device(self, device_id: str) -> bool:
         """Action: Select a device."""
-        if self._view is None:
-            return False
         if device_id in self._device_items:
             self._view.select_device(device_id)
             return True
@@ -816,8 +877,6 @@ class SynopticPanel(BasePanel):
 
     def action_focus_device(self, device_id: str) -> bool:
         """Action: Focus on a device."""
-        if self._view is None:
-            return False
         if device_id in self._device_items:
             self._view.select_device(device_id)
             self._view._frame_selected()

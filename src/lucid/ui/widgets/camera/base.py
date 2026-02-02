@@ -1,10 +1,14 @@
-"""Base camera control widget for EPICS AreaDetector devices.
+"""Base camera control widget for ophyd AreaDetector devices.
 
 Provides a camera control UI with:
-- Live image display via PVImageView
-- Consolidated acquisition controls
+- Live image display via OphydImageView (works with any ophyd device)
+- Consolidated acquisition controls using ophyd's uniform signal interface
 - Extension point for device-specific panels
 - TV mode support for continuous streaming
+
+The widget uses ophyd's abstraction layer exclusively, providing a uniform
+interface regardless of whether the device is backed by EPICS or simulated
+signals. This follows the same pattern as MotorControlWidget.
 """
 
 from __future__ import annotations
@@ -58,27 +62,32 @@ DETECTOR_STATES = {
 }
 
 
-def is_camera_or_detector(item: DeviceTreeItem) -> bool:
-    """Check if a DeviceTreeItem represents a camera or detector device.
+def is_area_detector(item: DeviceTreeItem) -> bool:
+    """Check if a DeviceTreeItem represents an area detector (camera) device.
+
+    Area detectors produce 2D array data, unlike point detectors which produce
+    scalar values. This function identifies devices suitable for the camera
+    control widget with live image display.
 
     Args:
         item: The tree item to check.
 
     Returns:
-        True if the item is a camera or detector device.
+        True if the item is an area detector device.
     """
     if item.node_type != NodeType.DEVICE:
         return False
 
-    # Check device category from device_info
+    # Check device category from device_info - only CAMERA, not DETECTOR
     if item.device_info:
-        if item.device_info.category in (DeviceCategory.CAMERA, DeviceCategory.DETECTOR):
+        if item.device_info.category == DeviceCategory.CAMERA:
             return True
 
-    # Check ophyd object class name
+    # Check ophyd object class name for area detector patterns
     if item.ophyd_obj is not None:
         class_name = type(item.ophyd_obj).__name__.lower()
-        if any(kw in class_name for kw in ("camera", "detector", "areadetector", "img")):
+        # Only match area detector patterns, not generic "detector"
+        if any(kw in class_name for kw in ("camera", "areadetector", "simdetector", "img")):
             return True
 
     return False
@@ -187,12 +196,103 @@ class TVModeMixin:
         pass
 
 
+class OphydImageView(QWidget):
+    """PyQtGraph-based image view for ophyd area detector devices.
+
+    Displays image data from ophyd signal's array_data, polling periodically
+    to show live updates. Works with any ophyd device that has an image.array_data
+    signal, whether backed by EPICS or in-memory signals.
+
+    Uses PyQtGraph's ImageView for proper image display with:
+    - Automatic color scaling
+    - Zoom and pan
+    - Histogram/levels control
+    - High performance rendering
+    """
+
+    def __init__(self, ophyd_device: Any, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._device = ophyd_device
+        self._timer: QTimer | None = None
+
+        self._setup_ui()
+        self._start_updates()
+
+    def _setup_ui(self) -> None:
+        """Setup the image display UI."""
+        import pyqtgraph as pg
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._image_view = pg.ImageView()
+        self._image_view.ui.roiBtn.hide()
+        self._image_view.ui.menuBtn.hide()
+        layout.addWidget(self._image_view)
+
+    def _start_updates(self) -> None:
+        """Start periodic image updates."""
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._update_image)
+        self._timer.start(100)  # 10 fps
+
+    def _update_image(self) -> None:
+        """Update the displayed image from ophyd signal."""
+        if self._device is None:
+            return
+
+        try:
+            # Get image data from ophyd device
+            if hasattr(self._device, "image") and hasattr(self._device.image, "array_data"):
+                image_data = self._device.image.array_data.get()
+                if image_data is not None:
+                    self._display_array(image_data)
+            else:
+                logger.debug(
+                    f"Device {self._device.name if hasattr(self._device, 'name') else self._device} "
+                    f"missing image.array_data signal"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to update image: {e}")
+
+    def _display_array(self, array) -> None:
+        """Display a numpy array as an image."""
+        try:
+            import numpy as np
+
+            if array is None or array.size == 0:
+                return
+
+            # Handle arrays with singleton dimensions (e.g., (1, 480, 640))
+            arr = np.squeeze(array)
+
+            # Ensure 2D array after squeezing
+            if arr.ndim != 2:
+                logger.debug(f"Cannot display array with shape {arr.shape}")
+                return
+
+            self._image_view.setImage(arr, autoLevels=True, autoRange=False)
+
+        except Exception as e:
+            logger.debug(f"Failed to display array: {e}")
+
+    def close(self) -> None:
+        """Stop updates and clean up."""
+        if self._timer is not None:
+            self._timer.stop()
+        super().close()
+
+
 @register_control_widget
 class CameraControlWidget(BaseControlWidget, TVModeMixin):
-    """Control widget for EPICS AreaDetector cameras.
+    """Control widget for ophyd AreaDetector cameras.
+
+    Uses ophyd's uniform interface to control area detector devices,
+    regardless of whether they're backed by EPICS or simulated signals.
+    This follows the same pattern as MotorControlWidget.
 
     Provides:
-    - Live image display via PVImageView
+    - Live image display via OphydImageView
     - Acquisition controls (time, count, mode, shutter)
     - State display
     - Extension point for device-specific panels
@@ -219,14 +319,14 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
     acquisition_stopped = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        self._prefix: str = ""
-        self._cam_suffix: str = "cam1:"
-        self._image_suffix: str = "image1:"
+        # Ophyd device reference
+        self._device: Any = None
 
-        # PV connections
-        self._pvs: dict[str, Any] = {}
+        # Signal subscriptions: list of (signal, subscription_id) tuples
+        self._subscriptions: list[tuple[Any, int]] = []
+
+        # Cached values from device signals
         self._values: dict[str, Any] = {}
-        self._connected_pvs: set[str] = set()
         self._was_acquiring: bool = False
 
         # Widgets (initialized in _setup_ui)
@@ -257,9 +357,9 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             if any(c.lower() in device_class.lower() for c in cls.supported_classes):
                 return True
 
-        # Base class: match any CAMERA or DETECTOR category
+        # Base class: match only area detectors (CAMERA category)
         if cls is CameraControlWidget:
-            return is_camera_or_detector(item)
+            return is_area_detector(item)
 
         return False
 
@@ -280,36 +380,26 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         return ""
 
     def set_items(self, items: list[DeviceTreeItem]) -> None:
-        """Set the camera device to control."""
+        """Set the camera device to control.
+
+        Uses the ophyd device directly for all operations, providing a uniform
+        interface regardless of whether the device is backed by EPICS or
+        simulated signals.
+        """
         self._items = items
 
         if items and len(items) == 1:
             item = items[0]
-            self._extract_prefix(item)
-            self._update_image_view_prefix()
-            self._connect_pvs()
+            self._device = item.ophyd_obj
+            self._update_image_view()
+            self._connect_signals()
             self._start_updates()
             self._name_label.setText(item.name)
         else:
-            self._disconnect_pvs()
+            self._device = None
+            self._disconnect_signals()
             self._stop_updates()
             self._clear_display()
-
-    def _extract_prefix(self, item: DeviceTreeItem) -> None:
-        """Extract the EPICS PV prefix from the device."""
-        # Try to get prefix from device_info
-        if item.device_info and item.device_info.prefix:
-            self._prefix = item.device_info.prefix
-            return
-
-        # Try to get prefix from ophyd device
-        if item.ophyd_obj is not None:
-            if hasattr(item.ophyd_obj, "prefix"):
-                self._prefix = item.ophyd_obj.prefix
-                return
-
-        # Fallback to name
-        self._prefix = f"{item.name}:"
 
     def _setup_ui(self) -> None:
         """Setup the camera control UI."""
@@ -428,6 +518,31 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._abort_btn.clicked.connect(self._on_abort_clicked)
         btn_layout.addWidget(self._abort_btn)
 
+        # TV Mode toggle button
+        self._tv_mode_btn = QPushButton("TV MODE")
+        self._tv_mode_btn.setMinimumHeight(36)
+        self._tv_mode_btn.setCheckable(True)
+        self._tv_mode_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                font-size: 11pt;
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #1976D2; }
+            QPushButton:pressed { background-color: #0D47A1; }
+            QPushButton:checked {
+                background-color: #FF9800;
+                border: 2px solid #F57C00;
+            }
+            QPushButton:checked:hover { background-color: #F57C00; }
+            QPushButton:disabled { background-color: #666666; }
+        """)
+        self._tv_mode_btn.clicked.connect(self._on_tv_mode_clicked)
+        btn_layout.addWidget(self._tv_mode_btn)
+
         acq_layout.addLayout(btn_layout, row, 0, 1, 4)
 
         self._layout.addWidget(acq_group)
@@ -456,126 +571,119 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         """
         return []
 
-    def _update_image_view_prefix(self) -> None:
-        """Update or create the image view with current prefix."""
-        if not self._prefix:
-            return
+    def _update_image_view(self) -> None:
+        """Create or update the image view for the current ophyd device.
 
-        try:
-            from epics_pyside.widgets.areadetector import PVImageView
+        Uses OphydImageView which works with any ophyd area detector device
+        that has an image.array_data signal.
+        """
+        # Remove old image view if exists
+        if self._image_view is not None:
+            self._image_view.deleteLater()
+            self._image_view = None
 
-            # Remove old image view if exists
-            if self._image_view is not None:
-                self._image_view.deleteLater()
-
-            # Create new image view
-            self._image_view = PVImageView(
-                prefix=self._prefix,
-                image_suffix=self._image_suffix,
-                max_fps=30.0,
-            )
+        if self._device is not None:
+            self._image_view = OphydImageView(self._device)
             self._image_layout.addWidget(self._image_view)
 
-        except ImportError:
-            logger.warning("epics_pyside not available, image view disabled")
-            # Create placeholder label
-            placeholder = QLabel("Image view requires epics_pyside")
-            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._image_layout.addWidget(placeholder)
+    def _connect_signals(self) -> None:
+        """Subscribe to ophyd device signals.
 
-    def _connect_pvs(self) -> None:
-        """Connect to AreaDetector camera PVs."""
-        if not self._prefix:
+        Connects to the cam component signals for acquisition control.
+        Works uniformly with any ophyd device, whether backed by EPICS
+        or in-memory signals.
+        """
+        self._disconnect_signals()
+
+        if self._device is None or not hasattr(self._device, "cam"):
+            self._status_indicator.set_state("disconnected")
+            self._status_label.setText("No cam component")
             return
 
-        self._disconnect_pvs()
+        cam = self._device.cam
 
-        try:
-            from epics_pyside.ca.pv import PV
+        # Signal mapping: ophyd attribute -> (internal names for value storage)
+        # Some signals populate both setpoint and readback names for simplicity
+        signal_map = {
+            "acquire_time": ("acquire_time", "acquire_time_rbv"),
+            "num_images": ("num_images", "num_images_rbv"),
+            "image_mode": ("image_mode", "image_mode_rbv"),
+            "acquire": ("acquire",),
+            "detector_state": ("detector_state",),
+        }
 
-            cam_prefix = f"{self._prefix}{self._cam_suffix}"
+        def make_callback(names: tuple[str, ...]):
+            """Create a callback that updates the specified value names."""
+            def callback(value, **kwargs):
+                for name in names:
+                    self._on_value_changed(name, value)
+            return callback
 
-            # PVs to connect
-            pv_fields = {
-                "AcquireTime": "acquire_time",
-                "AcquireTime_RBV": "acquire_time_rbv",
-                "NumImages": "num_images",
-                "NumImages_RBV": "num_images_rbv",
-                "ImageMode": "image_mode",
-                "ImageMode_RBV": "image_mode_rbv",
-                "Acquire": "acquire",
-                "DetectorState_RBV": "detector_state",
-                "ShutterMode": "shutter_mode",
-                "ShutterMode_RBV": "shutter_mode_rbv",
-            }
+        for attr, names in signal_map.items():
+            if hasattr(cam, attr):
+                signal = getattr(cam, attr)
 
-            for field, name in pv_fields.items():
-                pv_name = f"{cam_prefix}{field}"
-                pv = PV(pv_name, parent=self)
-                pv.value_changed.connect(lambda v, n=name: self._on_pv_value(n, v))
-                pv.connection_changed.connect(lambda c, n=name: self._on_pv_connection(n, c))
-                pv.connect_pv()
-                self._pvs[name] = pv
+                # Get initial value
+                try:
+                    value = signal.get()
+                    for name in names:
+                        self._values[name] = value
+                except Exception as e:
+                    logger.debug(f"Failed to get initial value for {attr}: {e}")
 
-        except ImportError:
-            logger.warning("epics_pyside not available, PV connections disabled")
+                # Subscribe for updates
+                try:
+                    sub_id = signal.subscribe(make_callback(names))
+                    self._subscriptions.append((signal, sub_id))
+                except Exception as e:
+                    logger.debug(f"Failed to subscribe to {attr}: {e}")
 
-    def _disconnect_pvs(self) -> None:
-        """Disconnect all PVs."""
-        for pv in self._pvs.values():
+        # Mark as connected
+        self._status_indicator.set_state("on")
+        self._status_label.setText("Connected")
+        self._set_controls_enabled(True)
+
+        # Trigger initial display updates
+        self._update_acquire_time_display()
+        self._update_num_images_display()
+        self._update_image_mode_display()
+        self._update_detector_state()
+
+    def _disconnect_signals(self) -> None:
+        """Disconnect all ophyd signal subscriptions."""
+        for signal, sub_id in self._subscriptions:
             try:
-                pv.disconnect_pv()
-                pv.deleteLater()
+                signal.unsubscribe(sub_id)
             except Exception:
                 pass
-        self._pvs.clear()
-        self._connected_pvs.clear()
+        self._subscriptions.clear()
         self._values.clear()
 
-    @Slot(str, object)
-    def _on_pv_value(self, name: str, value: Any) -> None:
-        """Handle PV value updates."""
-        # Extract scalar from array if needed
+    def _on_value_changed(self, name: str, value: Any) -> None:
+        """Handle ophyd signal value updates.
+
+        Args:
+            name: Internal name for the value (e.g., 'acquire_time_rbv')
+            value: New value from the signal
+        """
+        # Extract scalar from array if needed (some signals return arrays)
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
                 value = value[0]
 
         self._values[name] = value
 
-        # Update UI
+        # Update UI based on which value changed
         if name == "acquire_time_rbv":
             self._update_acquire_time_display()
         elif name == "num_images_rbv":
             self._update_num_images_display()
         elif name == "image_mode_rbv":
             self._update_image_mode_display()
-        elif name == "shutter_mode_rbv":
-            self._update_shutter_mode_display()
         elif name == "acquire":
             self._update_acquire_state()
         elif name == "detector_state":
             self._update_detector_state()
-
-    @Slot(str, bool)
-    def _on_pv_connection(self, name: str, connected: bool) -> None:
-        """Handle PV connection state changes."""
-        if connected:
-            self._connected_pvs.add(name)
-        else:
-            self._connected_pvs.discard(name)
-
-        # Consider connected if essential PVs are connected
-        essential = {"acquire", "detector_state"}
-        is_connected = essential.issubset(self._connected_pvs)
-
-        if is_connected:
-            self._status_indicator.set_state("on")
-            self._status_label.setText("Connected")
-        else:
-            self._status_indicator.set_state("disconnected")
-            self._status_label.setText("Disconnected")
-
-        self._set_controls_enabled(is_connected)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable control widgets."""
@@ -585,6 +693,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._shutter_combo.setEnabled(enabled)
         self._acquire_btn.setEnabled(enabled)
         self._abort_btn.setEnabled(enabled)
+        self._tv_mode_btn.setEnabled(enabled)
 
     def _start_updates(self) -> None:
         """Start periodic updates."""
@@ -648,13 +757,17 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
                 self._shutter_combo.blockSignals(False)
 
     def _update_acquire_state(self) -> None:
-        """Update acquire state."""
+        """Update acquire state and sync TV mode button."""
         acquiring = bool(self._values.get("acquire", 0))
 
         if acquiring and not self._was_acquiring:
             self.acquisition_started.emit()
         elif not acquiring and self._was_acquiring:
             self.acquisition_stopped.emit()
+            # If TV mode was active but acquisition stopped externally, update button
+            if self._tv_mode_active and not self._tv_mode_paused:
+                self._tv_mode_active = False
+                self._tv_mode_btn.setChecked(False)
 
         self._was_acquiring = acquiring
 
@@ -679,12 +792,39 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
     # === User Actions ===
 
+    def _put_value(self, name: str, value: Any) -> None:
+        """Set a value on the ophyd device.
+
+        Args:
+            name: Signal attribute name on the cam component (e.g., 'acquire_time', 'acquire')
+            value: Value to set
+        """
+        if self._device is None:
+            logger.warning(f"Cannot set {name}: no device")
+            return
+
+        cam = getattr(self._device, "cam", None)
+        if cam is None:
+            logger.warning(f"Cannot set {name}: device has no 'cam' component")
+            return
+
+        if not hasattr(cam, name):
+            logger.warning(f"Cannot set {name}: cam has no '{name}' signal")
+            return
+
+        signal = getattr(cam, name)
+        try:
+            logger.debug(f"Setting {name} = {value}")
+            signal.set(value).wait(timeout=5.0)
+            logger.debug(f"Set {name} = {value} completed")
+        except Exception as e:
+            logger.warning(f"Failed to set {name}: {e}")
+
     def _on_acquire_time_changed(self) -> None:
         """Handle acquire time entry."""
         try:
             value = float(self._acquire_time_edit.text())
-            if "acquire_time" in self._pvs:
-                self._pvs["acquire_time"].put(value)
+            self._put_value("acquire_time", value)
         except ValueError:
             pass
 
@@ -692,47 +832,62 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         """Handle num images entry."""
         try:
             value = int(self._num_images_edit.text())
-            if "num_images" in self._pvs:
-                self._pvs["num_images"].put(value)
+            self._put_value("num_images", value)
         except ValueError:
             pass
 
     def _on_image_mode_changed(self, index: int) -> None:
         """Handle image mode selection."""
-        if "image_mode" in self._pvs:
-            self._pvs["image_mode"].put(index)
+        self._put_value("image_mode", index)
 
     def _on_shutter_mode_changed(self, index: int) -> None:
         """Handle shutter mode selection."""
-        if "shutter_mode" in self._pvs:
-            self._pvs["shutter_mode"].put(index)
+        self._put_value("shutter_mode", index)
 
     def _on_acquire_clicked(self) -> None:
-        """Start acquisition."""
-        if "acquire" in self._pvs:
-            self._pvs["acquire"].put(1)
+        """Start acquisition.
+
+        Override in subclasses to run Bluesky plans instead of direct acquire.
+        The base implementation does direct acquisition via cam.acquire.
+        """
+        self._do_acquire()
+
+    def _do_acquire(self) -> None:
+        """Perform direct acquisition by setting acquire=1.
+
+        This is the base implementation. Subclasses that need plan-based
+        acquisition should override _on_acquire_clicked() instead.
+        """
+        self._put_value("acquire", 1)
 
     def _on_abort_clicked(self) -> None:
         """Stop acquisition."""
-        if "acquire" in self._pvs:
-            self._pvs["acquire"].put(0)
+        # Stop TV mode if active
+        if self.is_tv_mode_active():
+            self.stop_tv_mode()
+            self._tv_mode_btn.setChecked(False)
+        self._put_value("acquire", 0)
+
+    def _on_tv_mode_clicked(self, checked: bool) -> None:
+        """Handle TV mode toggle button."""
+        if checked:
+            self.start_tv_mode()
+        else:
+            self.stop_tv_mode()
 
     # === TVModeMixin Implementation ===
 
     def _set_image_mode(self, mode: int) -> None:
         """Set image mode for TV mode."""
-        if "image_mode" in self._pvs:
-            self._pvs["image_mode"].put(mode)
+        self._put_value("image_mode", mode)
 
     def _start_acquire(self) -> None:
         """Start acquisition for TV mode."""
-        if "acquire" in self._pvs:
-            self._pvs["acquire"].put(1)
+        self._put_value("acquire", 1)
 
     def _stop_acquire(self) -> None:
         """Stop acquisition for TV mode."""
-        if "acquire" in self._pvs:
-            self._pvs["acquire"].put(0)
+        self._put_value("acquire", 0)
 
     # === Public API ===
 
@@ -746,9 +901,8 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
     @property
     def is_connected(self) -> bool:
-        """Whether essential PVs are connected."""
-        essential = {"acquire", "detector_state"}
-        return essential.issubset(self._connected_pvs)
+        """Whether device is connected and has a cam component."""
+        return self._device is not None and hasattr(self._device, "cam")
 
     @property
     def is_acquiring(self) -> bool:
@@ -767,7 +921,6 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         """Get introspection data for MCP tools."""
         base_data = super().get_introspection_data()
         base_data.update({
-            "prefix": self._prefix,
             "connected": self.is_connected,
             "is_acquiring": self.is_acquiring,
             "detector_state": self.detector_state,
@@ -784,7 +937,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
     def closeEvent(self, event) -> None:
         """Clean up on close."""
         self._stop_updates()
-        self._disconnect_pvs()
+        self._disconnect_signals()
         if self._image_view is not None:
             self._image_view.close()
         super().closeEvent(event)

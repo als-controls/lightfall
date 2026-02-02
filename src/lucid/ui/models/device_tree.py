@@ -376,6 +376,34 @@ class DeviceTreeModel(QAbstractItemModel):
         """Get icon for a device category."""
         return self._icons.get(category, self._icons["other"])
 
+    @property
+    def root_item(self) -> DeviceTreeItem:
+        """Get the root item of the tree."""
+        return self._root
+
+    def index_for_item(self, item: DeviceTreeItem) -> QModelIndex:
+        """Get model index for a tree item.
+
+        Args:
+            item: The tree item to find.
+
+        Returns:
+            QModelIndex for the item, or invalid index if not found.
+        """
+        if item is None or item is self._root:
+            return QModelIndex()
+
+        # Get the item's row within its parent
+        parent_item = item.parent_item
+        if parent_item is None:
+            return QModelIndex()
+
+        row = item.row()
+        if row < 0:
+            return QModelIndex()
+
+        return self.createIndex(row, 0, item)
+
     # === QAbstractItemModel implementation ===
 
     def index(

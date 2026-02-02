@@ -386,8 +386,14 @@ class QThreadFuture(QThread):
                 thread_manager.unregister(self)
 
     def _run(self) -> Generator[Any, None, Any]:
-        """Internal run implementation. Override in subclasses."""
-        yield self._method(*self._args, **self._kwargs)
+        """Internal run implementation. Override in subclasses.
+
+        For regular QThreadFuture, returns the method result via StopIteration
+        so the callback is only invoked once. QThreadFutureIterator overrides
+        this to yield intermediate values.
+        """
+        return self._method(*self._args, **self._kwargs)
+        yield  # Makes this a generator function (never reached)
 
     def _invoke_callback(self, value: Any) -> None:
         """Invoke the callback with the given value."""

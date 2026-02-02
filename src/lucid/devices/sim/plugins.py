@@ -10,6 +10,15 @@ class SimCam(Device):
     """Simulated camera component.
 
     Provides acquisition control and image settings without EPICS.
+
+    Shutter modes (matching EPICS AreaDetector):
+        0 = None (no shutter control)
+        1 = EPICS PV (external shutter via PV)
+        2 = Detector output (detector controls shutter)
+
+    Shutter control:
+        0 = Close
+        1 = Open
     """
 
     # Acquisition control
@@ -18,6 +27,12 @@ class SimCam(Device):
     acquire_period = Component(Signal, value=0.2, kind="config")
     num_images = Component(Signal, value=1, kind="config")
     image_mode = Component(Signal, value=0, kind="config")  # 0=Single, 1=Multiple, 2=Continuous
+
+    # Shutter control
+    shutter_mode = Component(Signal, value=0, kind="config")  # 0=None, 1=EPICS PV, 2=Detector
+    shutter_control = Component(Signal, value=1, kind="config")  # 0=Close, 1=Open
+    shutter_open_delay = Component(Signal, value=0.0, kind="config")
+    shutter_close_delay = Component(Signal, value=0.0, kind="config")
 
     # Image settings
     size_x = Component(Signal, value=256, kind="config")

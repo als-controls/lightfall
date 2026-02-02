@@ -2,16 +2,15 @@
 
 This module provides:
 - SynopticPropertyEditor: Widget for editing device properties
-- TransformGizmo: 3D gizmo for interactive positioning
+- TransformGizmo: 2D gizmo for showing selected device position
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
@@ -24,21 +23,22 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from pyqtgraph.opengl import GLLinePlotItem
+import pyqtgraph as pg
 
 from lucid.ui.panels.synoptic.models import (
     DeviceSynopticData,
     PrimitiveShape,
+    ViewPreset,
 )
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.synoptic.items import DeviceItem
+    from lucid.ui.panels.synoptic.items import Device2DItem
 
 
 class SynopticPropertyEditor(QWidget):
     """Property editor for synoptic device properties.
 
-    Provides spinboxes for position, rotation, scale, and controls
+    Provides spinboxes for position and scale, and controls
     for shape and color. Read-only in view mode.
 
     Signals:
@@ -91,21 +91,6 @@ class SynopticPropertyEditor(QWidget):
 
         layout.addWidget(pos_group)
 
-        # Rotation group
-        rot_group = QGroupBox("Rotation (deg)")
-        rot_layout = QFormLayout(rot_group)
-        rot_layout.setContentsMargins(4, 4, 4, 4)
-
-        self._rot_x = self._create_spinbox(-180.0, 180.0, 1)
-        self._rot_y = self._create_spinbox(-180.0, 180.0, 1)
-        self._rot_z = self._create_spinbox(-180.0, 180.0, 1)
-
-        rot_layout.addRow("Rx:", self._rot_x)
-        rot_layout.addRow("Ry:", self._rot_y)
-        rot_layout.addRow("Rz:", self._rot_z)
-
-        layout.addWidget(rot_group)
-
         # Scale group
         scale_group = QGroupBox("Scale (m)")
         scale_layout = QFormLayout(scale_group)
@@ -128,9 +113,9 @@ class SynopticPropertyEditor(QWidget):
 
         # Shape dropdown
         self._shape_combo = QComboBox()
-        self._shape_combo.addItem("Box", PrimitiveShape.BOX)
-        self._shape_combo.addItem("Cylinder", PrimitiveShape.CYLINDER)
-        self._shape_combo.addItem("Sphere", PrimitiveShape.SPHERE)
+        self._shape_combo.addItem("Square", PrimitiveShape.SQUARE)
+        self._shape_combo.addItem("Circle", PrimitiveShape.CIRCLE)
+        self._shape_combo.addItem("Diamond", PrimitiveShape.DIAMOND)
         self._shape_combo.currentIndexChanged.connect(self._on_shape_changed)
         appear_layout.addRow("Shape:", self._shape_combo)
 
@@ -150,7 +135,6 @@ class SynopticPropertyEditor(QWidget):
         # Connect spinbox signals
         for spinbox in [
             self._pos_x, self._pos_y, self._pos_z,
-            self._rot_x, self._rot_y, self._rot_z,
             self._scale_x, self._scale_y, self._scale_z,
         ]:
             spinbox.valueChanged.connect(self._on_value_changed)
@@ -197,7 +181,6 @@ class SynopticPropertyEditor(QWidget):
         editable = self._edit_mode and self._current_device_id is not None
         widgets = [
             self._pos_x, self._pos_y, self._pos_z,
-            self._rot_x, self._rot_y, self._rot_z,
             self._scale_x, self._scale_y, self._scale_z,
             self._shape_combo, self._color_button,
         ]
@@ -234,7 +217,6 @@ class SynopticPropertyEditor(QWidget):
         self._updating = True
         for spinbox in [
             self._pos_x, self._pos_y, self._pos_z,
-            self._rot_x, self._rot_y, self._rot_z,
             self._scale_x, self._scale_y, self._scale_z,
         ]:
             spinbox.setValue(0.0)
@@ -256,18 +238,14 @@ class SynopticPropertyEditor(QWidget):
         self._pos_y.setValue(data.position[1])
         self._pos_z.setValue(data.position[2])
 
-        # Rotation
-        self._rot_x.setValue(data.rotation[0])
-        self._rot_y.setValue(data.rotation[1])
-        self._rot_z.setValue(data.rotation[2])
-
         # Scale
         self._scale_x.setValue(data.scale[0])
         self._scale_y.setValue(data.scale[1])
         self._scale_z.setValue(data.scale[2])
 
-        # Shape
-        shape_index = self._shape_combo.findData(data.primitive_shape)
+        # Shape - normalize legacy values for display
+        normalized_shape = PrimitiveShape.normalize(data.primitive_shape)
+        shape_index = self._shape_combo.findData(normalized_shape)
         if shape_index >= 0:
             self._shape_combo.setCurrentIndex(shape_index)
 
@@ -301,11 +279,6 @@ class SynopticPropertyEditor(QWidget):
             self._pos_x.value(),
             self._pos_y.value(),
             self._pos_z.value(),
-        )
-        self._current_data.rotation = (
-            self._rot_x.value(),
-            self._rot_y.value(),
-            self._rot_z.value(),
         )
         self._current_data.scale = (
             self._scale_x.value(),
@@ -362,87 +335,119 @@ class SynopticPropertyEditor(QWidget):
             self.data_changed.emit(self._current_device_id, self._current_data)
 
 
-class TransformGizmo(GLLinePlotItem):
-    """3D transform gizmo for interactive device positioning.
+class TransformGizmo(pg.GraphicsObject):
+    """2D transform gizmo for showing selected device position.
 
-    Shows X/Y/Z axis arrows that can be dragged to move devices.
+    Shows a crosshair marker at the selected device location.
     Only visible in edit mode when a device is selected.
 
-    Signals:
-        axis_drag_started: Emitted when axis drag begins (axis: 'x'|'y'|'z').
-        axis_dragged: Emitted during drag (axis, delta_value).
-        axis_drag_ended: Emitted when drag ends.
+    Note: Uses Qt's item coordinate system - boundingRect() is in local coords
+    centered at origin, and setPos() places the item in scene coords.
     """
 
-    AXIS_LENGTH = 0.3
-    AXIS_COLORS = {
-        "x": (1.0, 0.2, 0.2, 1.0),  # Red
-        "y": (0.2, 1.0, 0.2, 1.0),  # Green
-        "z": (0.2, 0.2, 1.0, 1.0),  # Blue
-    }
+    GIZMO_SIZE = 0.15  # Size of the crosshair arms in data units (meters)
+    GIZMO_COLOR = QColor(255, 200, 0)  # Yellow
+    GIZMO_PEN_WIDTH = 2.0  # Pen width in pixels (cosmetic)
+    GIZMO_CENTER_RADIUS = 0.02  # Center dot radius in data units (meters)
 
     def __init__(self) -> None:
         """Initialize the transform gizmo."""
-        # Initialize position before building gizmo data
-        self._position = (0.0, 0.0, 0.0)
+        super().__init__()
+
+        self._position_3d: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._view_preset = ViewPreset.SIDE
         self._visible = False
-
-        # Build axis lines
-        pos, colors = self._build_gizmo_data()
-
-        super().__init__(
-            pos=pos,
-            color=colors,
-            width=3.0,
-            antialias=True,
-            mode="lines",
-        )
 
         self.setVisible(False)
 
-    def _build_gizmo_data(
-        self,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Build gizmo line data.
+    def _project_position(self) -> tuple[float, float]:
+        """Project 3D position to 2D based on view preset.
 
         Returns:
-            Tuple of (positions, colors) arrays.
+            2D position (x, y).
         """
-        length = self.AXIS_LENGTH
-        pos = self._position
+        pos = self._position_3d
+        preset = self._view_preset
 
-        # Each axis is a line from origin to axis direction
-        positions = np.array([
-            # X axis
-            [pos[0], pos[1], pos[2]],
-            [pos[0] + length, pos[1], pos[2]],
-            # Y axis
-            [pos[0], pos[1], pos[2]],
-            [pos[0], pos[1] + length, pos[2]],
-            # Z axis
-            [pos[0], pos[1], pos[2]],
-            [pos[0], pos[1], pos[2] + length],
-        ], dtype=np.float32)
+        if preset == ViewPreset.SIDE:
+            return (pos[0], pos[2])
+        elif preset == ViewPreset.TOP:
+            return (pos[0], pos[1])
+        elif preset == ViewPreset.FRONT:
+            return (pos[1], pos[2])
+        else:
+            return (pos[0], pos[2])
 
-        colors = np.array([
-            self.AXIS_COLORS["x"], self.AXIS_COLORS["x"],
-            self.AXIS_COLORS["y"], self.AXIS_COLORS["y"],
-            self.AXIS_COLORS["z"], self.AXIS_COLORS["z"],
-        ], dtype=np.float32)
+    def boundingRect(self) -> QRectF:
+        """Return the bounding rectangle for this item in local coordinates.
 
-        return positions, colors
+        Returns:
+            The bounding rectangle centered at origin.
+        """
+        # Use GIZMO_SIZE plus small padding for the center dot
+        size = self.GIZMO_SIZE + self.GIZMO_CENTER_RADIUS
+        return QRectF(-size, -size, size * 2, size * 2)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: Any,
+        widget: Any = None,
+    ) -> None:
+        """Paint the gizmo crosshair in local coordinates.
+
+        Args:
+            painter: The QPainter to use.
+            option: Style options.
+            widget: The widget being painted on.
+        """
+        if not self._visible:
+            return
+
+        pen = QPen(self.GIZMO_COLOR, self.GIZMO_PEN_WIDTH)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setCosmetic(True)  # Keep width constant when zooming
+        painter.setPen(pen)
+
+        size = self.GIZMO_SIZE
+
+        # Draw crosshair at origin (local coordinates)
+        # Horizontal line
+        painter.drawLine(QPointF(-size, 0), QPointF(size, 0))
+        # Vertical line
+        painter.drawLine(QPointF(0, -size), QPointF(0, size))
+
+        # Draw small center circle (radius in data units)
+        painter.setBrush(QBrush(self.GIZMO_COLOR))
+        painter.drawEllipse(QPointF(0, 0), self.GIZMO_CENTER_RADIUS, self.GIZMO_CENTER_RADIUS)
+
+    def _update_scene_position(self) -> None:
+        """Update the item's position in the scene."""
+        self.prepareGeometryChange()
+        pos_2d = self._project_position()
+        self.setPos(pos_2d[0], pos_2d[1])
 
     def set_position(self, position: tuple[float, float, float]) -> None:
-        """Set the gizmo position.
+        """Set the gizmo position (3D coordinates).
 
         Args:
             position: New position (X, Y, Z).
         """
-        self._position = position
-        pos, colors = self._build_gizmo_data()
-        self.setData(pos=pos, color=colors)
+        self._position_3d = position
+        self._update_scene_position()
+        self.update()
 
-    def show_at_device(self, device_item: DeviceItem) -> None:
+    def set_view_preset(self, preset: ViewPreset) -> None:
+        """Set the view preset for projection.
+
+        Args:
+            preset: The view preset.
+        """
+        self._view_preset = preset
+        self._update_scene_position()
+        self.update()
+
+    def show_at_device(self, device_item: Device2DItem) -> None:
         """Show gizmo at a device's position.
 
         Args:
@@ -451,6 +456,7 @@ class TransformGizmo(GLLinePlotItem):
         self.set_position(device_item.get_position())
         self.setVisible(True)
         self._visible = True
+        self.update()
 
     def hide(self) -> None:
         """Hide the gizmo."""
@@ -461,95 +467,6 @@ class TransformGizmo(GLLinePlotItem):
         """Check if gizmo is visible."""
         return self._visible
 
-    def get_axis_at_ray(
-        self,
-        ray_origin: np.ndarray,
-        ray_direction: np.ndarray,
-        threshold: float = 0.05,
-    ) -> str | None:
-        """Test which axis a ray is closest to.
-
-        Args:
-            ray_origin: Ray origin.
-            ray_direction: Ray direction.
-            threshold: Maximum distance to consider a hit.
-
-        Returns:
-            Axis name ('x', 'y', 'z') or None if no hit.
-        """
-        pos = np.array(self._position)
-        length = self.AXIS_LENGTH
-
-        # Axis endpoints
-        axes = {
-            "x": (pos, pos + np.array([length, 0, 0])),
-            "y": (pos, pos + np.array([0, length, 0])),
-            "z": (pos, pos + np.array([0, 0, length])),
-        }
-
-        closest_axis = None
-        closest_distance = threshold
-
-        for axis_name, (start, end) in axes.items():
-            distance = self._ray_line_distance(
-                ray_origin, ray_direction, start, end
-            )
-            if distance < closest_distance:
-                closest_distance = distance
-                closest_axis = axis_name
-
-        return closest_axis
-
-    @staticmethod
-    def _ray_line_distance(
-        ray_origin: np.ndarray,
-        ray_direction: np.ndarray,
-        line_start: np.ndarray,
-        line_end: np.ndarray,
-    ) -> float:
-        """Calculate minimum distance between ray and line segment.
-
-        Args:
-            ray_origin: Ray origin.
-            ray_direction: Ray direction.
-            line_start: Line segment start.
-            line_end: Line segment end.
-
-        Returns:
-            Minimum distance.
-        """
-        # Vector from ray origin to line start
-        w0 = ray_origin - line_start
-        # Line direction
-        u = ray_direction
-        v = line_end - line_start
-
-        a = np.dot(u, u)
-        b = np.dot(u, v)
-        c = np.dot(v, v)
-        d = np.dot(u, w0)
-        e = np.dot(v, w0)
-
-        denom = a * c - b * b
-
-        if abs(denom) < 1e-10:
-            # Lines are parallel
-            return np.linalg.norm(w0 - (np.dot(w0, v) / c) * v)
-
-        s = (b * e - c * d) / denom
-        t = (a * e - b * d) / denom
-
-        # Clamp t to [0, 1] for line segment
-        t = max(0.0, min(1.0, t))
-        # s must be positive (forward along ray)
-        s = max(0.0, s)
-
-        # Closest points
-        point_on_ray = ray_origin + s * u
-        point_on_line = line_start + t * v
-
-        return float(np.linalg.norm(point_on_ray - point_on_line))
-
     def get_introspection_data(self) -> dict[str, Any]:
         """Get gizmo data for introspection.
 
@@ -558,5 +475,7 @@ class TransformGizmo(GLLinePlotItem):
         """
         return {
             "visible": self._visible,
-            "position": self._position,
+            "position_3d": self._position_3d,
+            "position_2d": self._project_position(),
+            "view_preset": self._view_preset.value,
         }

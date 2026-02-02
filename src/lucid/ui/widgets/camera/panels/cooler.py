@@ -5,13 +5,16 @@ Provides controls for:
 - Temperature setpoint
 - Actual temperature readback
 - Cooler status display
+
+Uses ophyd's uniform signal interface, working with any device that has
+the appropriate cam signals (andor_cooler, temperature_setpoint, etc.).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QTimer, Signal, Slot
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -71,17 +74,12 @@ class StatusIndicator(QFrame):
 class CoolerPanel(QGroupBox):
     """Cooler control panel for Andor-style cameras.
 
-    Provides controls for:
-    - Cooler on/off toggle
-    - Temperature setpoint
-    - Actual temperature readback
-    - Cooler status display
-
-    Standard Andor PVs used:
-    - AndorCooler: Cooler enable (0=Off, 1=On)
-    - AndorTempSetPoint: Temperature setpoint (°C)
-    - Temperature_RBV: Actual temperature (°C)
-    - TemperatureStatus_RBV: Cooler status
+    Uses ophyd's uniform signal interface to control cooler functionality.
+    Works with any ophyd device that has cam signals for:
+    - andor_cooler: Cooler enable (0=Off, 1=On)
+    - andor_temp_setpoint: Temperature setpoint (C)
+    - temperature: Actual temperature (C)
+    - temperature_status: Cooler status
 
     Signals:
         cooler_state_changed: Emitted when cooler on/off changes.
@@ -93,44 +91,40 @@ class CoolerPanel(QGroupBox):
 
     def __init__(
         self,
-        prefix: str = "",
-        cam_suffix: str = "cam1:",
+        device: Any = None,
         parent: QWidget | None = None,
     ) -> None:
         """Initialize the cooler panel.
 
         Args:
-            prefix: EPICS PV prefix (e.g., "13ANDOR1:").
-            cam_suffix: Camera plugin suffix (default "cam1:").
+            device: Ophyd device with cam cooler signals.
             parent: Parent widget.
         """
         super().__init__("Cooler", parent)
-        self._prefix = prefix
-        self._cam_suffix = cam_suffix
-        self._cam_prefix = f"{prefix}{cam_suffix}" if prefix else ""
+        self._device = device
 
-        # PV state
-        self._pvs: dict[str, Any] = {}
+        # Signal subscriptions: list of (signal, subscription_id) tuples
+        self._subscriptions: list[tuple[Any, int]] = []
+
+        # Cached values from device signals
         self._values: dict[str, Any] = {}
-        self._connected_pvs: set[str] = set()
 
         self._setup_ui()
 
-        if prefix:
-            QTimer.singleShot(0, self._connect_pvs)
+        if device is not None:
+            QTimer.singleShot(0, self._connect_signals)
 
-    def set_prefix(self, prefix: str) -> None:
-        """Set the PV prefix and reconnect.
+    def set_device(self, device: Any) -> None:
+        """Set the ophyd device and reconnect signals.
 
         Args:
-            prefix: EPICS PV prefix.
+            device: Ophyd device with cam cooler signals.
         """
-        if prefix != self._prefix:
-            self._disconnect_pvs()
-            self._prefix = prefix
-            self._cam_prefix = f"{prefix}{self._cam_suffix}" if prefix else ""
-            if prefix:
-                self._connect_pvs()
+        if device != self._device:
+            self._disconnect_signals()
+            self._device = device
+            if device is not None:
+                self._connect_signals()
 
     def _setup_ui(self) -> None:
         """Create the panel UI."""
@@ -153,7 +147,7 @@ class CoolerPanel(QGroupBox):
         self._setpoint_spin = QDoubleSpinBox()
         self._setpoint_spin.setRange(-100.0, 50.0)
         self._setpoint_spin.setDecimals(1)
-        self._setpoint_spin.setSuffix(" °C")
+        self._setpoint_spin.setSuffix(" C")
         self._setpoint_spin.editingFinished.connect(self._on_setpoint_changed)
         layout.addWidget(self._setpoint_spin, row, 1)
 
@@ -161,7 +155,7 @@ class CoolerPanel(QGroupBox):
 
         # Actual temperature
         layout.addWidget(QLabel("Actual:"), row, 0)
-        self._temp_label = QLabel("--- °C")
+        self._temp_label = QLabel("--- C")
         self._temp_label.setStyleSheet("font-family: monospace; font-weight: bold;")
         layout.addWidget(self._temp_label, row, 1)
 
@@ -185,50 +179,72 @@ class CoolerPanel(QGroupBox):
         # Initial state - disabled
         self._set_controls_enabled(False)
 
-    def _connect_pvs(self) -> None:
-        """Connect to Andor cooler PVs."""
-        if not self._cam_prefix:
+    def _connect_signals(self) -> None:
+        """Connect to ophyd device signals.
+
+        Connects to the cam component signals for cooler control.
+        """
+        self._disconnect_signals()
+
+        if self._device is None or not hasattr(self._device, "cam"):
             return
 
-        try:
-            from epics_pyside.ca.pv import PV
+        cam = self._device.cam
 
-            # PVs to connect
-            pv_fields = {
-                "AndorCooler": "cooler",
-                "AndorCooler_RBV": "cooler_rbv",
-                "AndorTempSetPoint": "setpoint",
-                "AndorTempSetPoint_RBV": "setpoint_rbv",
-                "Temperature_RBV": "temperature",
-                "TemperatureStatus_RBV": "temp_status",
-            }
+        # Signal mapping: ophyd attribute -> internal name
+        signal_map = {
+            "andor_cooler": "cooler",
+            "andor_temp_setpoint": "setpoint",
+            "temperature": "temperature",
+            "temperature_status": "temp_status",
+        }
 
-            for field, name in pv_fields.items():
-                pv_name = f"{self._cam_prefix}{field}"
-                pv = PV(pv_name, parent=self)
-                pv.value_changed.connect(lambda v, n=name: self._on_pv_value(n, v))
-                pv.connection_changed.connect(lambda c, n=name: self._on_pv_connection(n, c))
-                pv.connect_pv()
-                self._pvs[name] = pv
+        def make_callback(name: str):
+            """Create a callback that updates the specified value name."""
+            def callback(value, **kwargs):
+                self._on_value_changed(name, value)
+            return callback
 
-        except ImportError:
-            logger.warning("epics_pyside not available, cooler panel disabled")
+        for attr, name in signal_map.items():
+            if hasattr(cam, attr):
+                signal = getattr(cam, attr)
 
-    def _disconnect_pvs(self) -> None:
-        """Disconnect all PVs."""
-        for pv in self._pvs.values():
+                # Get initial value
+                try:
+                    value = signal.get()
+                    self._values[name] = value
+                except Exception as e:
+                    logger.debug(f"Failed to get initial value for {attr}: {e}")
+
+                # Subscribe for updates
+                try:
+                    sub_id = signal.subscribe(make_callback(name))
+                    self._subscriptions.append((signal, sub_id))
+                except Exception as e:
+                    logger.debug(f"Failed to subscribe to {attr}: {e}")
+
+        # Enable controls if we have temperature signal
+        has_temp = "temperature" in self._values
+        self._set_controls_enabled(has_temp)
+
+        # Trigger initial display updates
+        self._update_cooler_display()
+        self._update_setpoint_display()
+        self._update_temperature_display()
+        self._update_status_display()
+
+    def _disconnect_signals(self) -> None:
+        """Disconnect all ophyd signal subscriptions."""
+        for signal, sub_id in self._subscriptions:
             try:
-                pv.disconnect_pv()
-                pv.deleteLater()
+                signal.unsubscribe(sub_id)
             except Exception:
                 pass
-        self._pvs.clear()
-        self._connected_pvs.clear()
+        self._subscriptions.clear()
         self._values.clear()
 
-    @Slot(str, object)
-    def _on_pv_value(self, name: str, value: Any) -> None:
-        """Handle PV value updates."""
+    def _on_value_changed(self, name: str, value: Any) -> None:
+        """Handle ophyd signal value updates."""
         # Extract scalar from array if needed
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
@@ -237,26 +253,14 @@ class CoolerPanel(QGroupBox):
         self._values[name] = value
 
         # Update UI
-        if name == "cooler_rbv":
+        if name == "cooler":
             self._update_cooler_display()
-        elif name == "setpoint_rbv":
+        elif name == "setpoint":
             self._update_setpoint_display()
         elif name == "temperature":
             self._update_temperature_display()
         elif name == "temp_status":
             self._update_status_display()
-
-    @Slot(str, bool)
-    def _on_pv_connection(self, name: str, connected: bool) -> None:
-        """Handle PV connection state changes."""
-        if connected:
-            self._connected_pvs.add(name)
-        else:
-            self._connected_pvs.discard(name)
-
-        # Consider connected if we have temperature readback
-        is_connected = "temperature" in self._connected_pvs
-        self._set_controls_enabled(is_connected)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable controls."""
@@ -265,7 +269,7 @@ class CoolerPanel(QGroupBox):
 
     def _update_cooler_display(self) -> None:
         """Update cooler state display."""
-        value = self._values.get("cooler_rbv")
+        value = self._values.get("cooler")
         if value is not None:
             idx = int(value)
             self._cooler_combo.blockSignals(True)
@@ -275,7 +279,7 @@ class CoolerPanel(QGroupBox):
     def _update_setpoint_display(self) -> None:
         """Update setpoint display."""
         if not self._setpoint_spin.hasFocus():
-            value = self._values.get("setpoint_rbv")
+            value = self._values.get("setpoint")
             if value is not None:
                 self._setpoint_spin.blockSignals(True)
                 self._setpoint_spin.setValue(float(value))
@@ -285,7 +289,7 @@ class CoolerPanel(QGroupBox):
         """Update actual temperature display."""
         value = self._values.get("temperature")
         if value is not None:
-            self._temp_label.setText(f"{float(value):.1f} °C")
+            self._temp_label.setText(f"{float(value):.1f} C")
 
     def _update_status_display(self) -> None:
         """Update cooler status display."""
@@ -305,18 +309,34 @@ class CoolerPanel(QGroupBox):
             else:  # Fault, Over Temp
                 self._status_indicator.set_state("error")
 
+    def _put_value(self, name: str, value: Any) -> None:
+        """Set a value on the ophyd device.
+
+        Args:
+            name: Signal attribute name on the cam component.
+            value: Value to set.
+        """
+        if self._device is None:
+            return
+
+        cam = getattr(self._device, "cam", None)
+        if cam is not None and hasattr(cam, name):
+            signal = getattr(cam, name)
+            try:
+                signal.set(value).wait(timeout=5.0)
+            except Exception as e:
+                logger.warning(f"Failed to set {name}: {e}")
+
     def _on_cooler_state_changed(self, index: int) -> None:
         """Handle cooler state change."""
-        if "cooler" in self._pvs:
-            self._pvs["cooler"].put(index)
-            self.cooler_state_changed.emit(bool(index))
+        self._put_value("andor_cooler", index)
+        self.cooler_state_changed.emit(bool(index))
 
     def _on_setpoint_changed(self) -> None:
         """Handle setpoint change."""
         value = self._setpoint_spin.value()
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(value)
-            self.setpoint_changed.emit(value)
+        self._put_value("andor_temp_setpoint", value)
+        self.setpoint_changed.emit(value)
 
     # === Public API ===
 
@@ -326,34 +346,32 @@ class CoolerPanel(QGroupBox):
         Args:
             on: True to turn on, False to turn off.
         """
-        if "cooler" in self._pvs:
-            self._pvs["cooler"].put(1 if on else 0)
+        self._put_value("andor_cooler", 1 if on else 0)
 
     def set_temperature_setpoint(self, temp: float) -> None:
         """Set the temperature setpoint.
 
         Args:
-            temp: Temperature in °C.
+            temp: Temperature in C.
         """
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(temp)
+        self._put_value("andor_temp_setpoint", temp)
 
     @property
     def temperature(self) -> float | None:
-        """Current actual temperature in °C."""
+        """Current actual temperature in C."""
         val = self._values.get("temperature")
         return float(val) if val is not None else None
 
     @property
     def setpoint(self) -> float | None:
-        """Current temperature setpoint in °C."""
-        val = self._values.get("setpoint_rbv")
+        """Current temperature setpoint in C."""
+        val = self._values.get("setpoint")
         return float(val) if val is not None else None
 
     @property
     def is_cooler_on(self) -> bool:
         """Whether cooler is on."""
-        return bool(self._values.get("cooler_rbv", 0))
+        return bool(self._values.get("cooler", 0))
 
     @property
     def status(self) -> str:
@@ -375,7 +393,7 @@ class CoolerPanel(QGroupBox):
             ],
         }
 
-    def closeEvent(self, event) -> None:
+    def close(self) -> None:
         """Clean up on close."""
-        self._disconnect_pvs()
-        super().closeEvent(event)
+        self._disconnect_signals()
+        super().close()

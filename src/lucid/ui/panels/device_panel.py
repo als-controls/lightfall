@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QCoreApplication, Qt, Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -29,12 +29,14 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.devices import DeviceCatalog
+from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
 from lucid.ui.models.device_tree import (
     DeviceFilterProxyModel,
     DeviceTreeItem,
     DeviceTreeModel,
 )
 from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.widgets import DeviceControlWidget
 from lucid.utils.logging import logger
 
@@ -439,12 +441,38 @@ class DevicePanel(BasePanel):
             # Emit both signals for compatibility
             self.item_selected.emit(selected_items[0])
             self.items_selected.emit(selected_items)
+
+            # Post focus event to Synoptic panel if device has device_info
+            first_item = selected_items[0]
+            if first_item.device_info is not None:
+                self._post_device_focus_event(first_item)
         else:
             self._overview_widget.set_item(None)
             self.items_selected.emit([])
 
         # Update control widget with all selected items
         self._control_widget.set_items(selected_items)
+
+    def _post_device_focus_event(self, item: DeviceTreeItem) -> None:
+        """Post a device focus event to the Synoptic panel.
+
+        Args:
+            item: The selected device tree item.
+        """
+        if item.device_info is None:
+            return
+
+        device_id = str(item.device_info.id)
+        device_name = item.device_info.name
+
+        # Find the Synoptic panel and post event to it
+        registry = PanelRegistry.get_instance()
+        synoptic_panel = registry.get_singleton("lucid.panels.synoptic")
+
+        if synoptic_panel is not None:
+            event = DeviceFocusEvent(device_id, device_name)
+            QCoreApplication.postEvent(synoptic_panel, event)
+            logger.debug("Posted DeviceFocusEvent for device: {}", device_name)
 
     @Slot(str)
     def _on_control_error(self, message: str) -> None:
@@ -455,6 +483,121 @@ class DevicePanel(BasePanel):
     def _on_device_changed(self, _: Any) -> None:
         """Handle device added/removed from catalog."""
         self._refresh()
+
+    # === Event Handling ===
+
+    def event(self, event) -> bool:
+        """Handle custom events including DeviceSelectEvent.
+
+        Args:
+            event: The event to handle.
+
+        Returns:
+            True if event was handled, False otherwise.
+        """
+        if event.type() == DeviceSelectEvent.EventType:
+            self._handle_device_select_event(event)
+            return True
+        if event.type() == DeviceFocusEvent.EventType:
+            self._handle_device_focus_event(event)
+            return True
+        return super().event(event)
+
+    def _handle_device_select_event(self, event: DeviceSelectEvent) -> None:
+        """Handle a device select event from another panel.
+
+        Args:
+            event: The device select event.
+        """
+        device_id = event.device_id
+        self._select_device_by_id(device_id)
+
+    def _handle_device_focus_event(self, event: DeviceFocusEvent) -> None:
+        """Handle a device focus event from another panel.
+
+        Args:
+            event: The device focus event.
+        """
+        device_id = event.device_id
+        self._select_device_by_id(device_id)
+
+    def _select_device_by_id(self, device_id: str) -> None:
+        """Select a device in the tree by its device_id.
+
+        Args:
+            device_id: The device ID to select.
+        """
+        # Find the device in the model by matching device_info.id
+        root_item = self._model.root_item
+        target_item = self._find_device_item(root_item, device_id)
+
+        if target_item is None:
+            logger.debug("Device {} not found in tree", device_id)
+            return
+
+        # Get the source model index for this item
+        source_index = self._model.index_for_item(target_item)
+        if not source_index.isValid():
+            return
+
+        # Map to proxy model index
+        proxy_index = self._proxy_model.mapFromSource(source_index)
+        if not proxy_index.isValid():
+            return
+
+        # Block signals temporarily to prevent recursive events
+        self._tree_view.selectionModel().blockSignals(True)
+        try:
+            # Clear current selection and select the new item
+            self._tree_view.selectionModel().clearSelection()
+            self._tree_view.selectionModel().select(
+                proxy_index,
+                self._tree_view.selectionModel().SelectionFlag.Select
+                | self._tree_view.selectionModel().SelectionFlag.Rows,
+            )
+            # Ensure the item is visible
+            self._tree_view.scrollTo(proxy_index)
+            # Expand parent items
+            self._tree_view.expand(proxy_index.parent())
+        finally:
+            self._tree_view.selectionModel().blockSignals(False)
+
+        # Force immediate visual update of the tree view
+        self._tree_view.viewport().update()
+
+        # Manually update the overview widget
+        self._overview_widget.set_item(target_item)
+        self._control_widget.set_items([target_item])
+
+        logger.debug("Selected device in tree: {}", device_id)
+
+    def _find_device_item(
+        self,
+        item: DeviceTreeItem,
+        device_id: str,
+    ) -> DeviceTreeItem | None:
+        """Recursively find a device item by device_id.
+
+        Args:
+            item: Item to search from.
+            device_id: Device ID to find.
+
+        Returns:
+            The matching DeviceTreeItem or None.
+        """
+        # Check if this item matches
+        if item.device_info is not None and str(item.device_info.id) == device_id:
+            return item
+
+        # Search children
+        for i in range(item.child_count()):
+            child = item.child(i)
+            if child:
+                result = self._find_device_item(child, device_id)
+                if result:
+                    return result
+
+        return None
 
     # === Introspection ===
 

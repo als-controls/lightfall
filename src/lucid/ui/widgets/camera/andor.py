@@ -1,6 +1,8 @@
 """Andor camera control widget.
 
-Extends CameraControlWidget with Andor-specific cooler controls.
+Extends PlanBasedCameraControlWidget with Andor-specific cooler controls.
+Uses ophyd's uniform signal interface for all device communication.
+Supports plan-based acquisition with dark frame collection.
 """
 
 from __future__ import annotations
@@ -9,21 +11,24 @@ from typing import Any, ClassVar
 
 from PySide6.QtWidgets import QGroupBox, QWidget
 
+from lucid.ui.models.device_tree import DeviceTreeItem
 from lucid.ui.widgets.base_control import register_control_widget
-from lucid.ui.widgets.camera.base import CameraControlWidget
+from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 from lucid.ui.widgets.camera.panels.cooler import CoolerPanel
 
 
 @register_control_widget
-class AndorCameraControlWidget(CameraControlWidget):
+class AndorCameraControlWidget(PlanBasedCameraControlWidget):
     """Control widget for Andor cameras with cooler support.
 
-    Extends the base camera control with:
+    Extends the plan-based camera control with:
     - Cooler on/off control
     - Temperature setpoint
     - Temperature readback
     - Cooler status display
+    - Dark frame collection support
 
+    Uses ophyd's uniform signal interface for all device communication.
     Matches devices with "andor" tag or "Andor" in device_class.
     """
 
@@ -40,20 +45,17 @@ class AndorCameraControlWidget(CameraControlWidget):
 
     def _create_device_panels(self) -> list[QGroupBox]:
         """Create the Andor cooler panel."""
-        # Create cooler panel with current prefix
-        self._cooler_panel = CoolerPanel(
-            prefix=self._prefix,
-            cam_suffix=self._cam_suffix,
-        )
+        # Create cooler panel - device will be set when set_items is called
+        self._cooler_panel = CoolerPanel()
         return [self._cooler_panel]
 
-    def _extract_prefix(self, item) -> None:
-        """Extract prefix and update cooler panel."""
-        super()._extract_prefix(item)
+    def set_items(self, items: list[DeviceTreeItem]) -> None:
+        """Set the camera device to control."""
+        super().set_items(items)
 
-        # Update cooler panel prefix if it exists
+        # Update cooler panel with the device
         if self._cooler_panel is not None:
-            self._cooler_panel.set_prefix(self._prefix)
+            self._cooler_panel.set_device(self._device)
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools."""

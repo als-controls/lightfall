@@ -1,9 +1,9 @@
-"""Data models for synoptic 3D visualization.
+"""Data models for synoptic 2D visualization.
 
 This module provides dataclasses for:
-- DeviceSynopticData: 3D position, rotation, scale, and appearance for devices
+- DeviceSynopticData: Position, scale, and appearance for devices
 - BeamPathSegment: Line segments representing the beam path
-- SynopticViewState: Camera and view settings (saved locally)
+- SynopticViewState: View settings (saved locally)
 """
 
 from __future__ import annotations
@@ -14,32 +14,61 @@ from typing import Any
 
 
 class PrimitiveShape(str, Enum):
-    """Available 3D primitive shapes for device representation."""
+    """Available 2D shapes for device representation."""
 
+    SQUARE = "square"
+    CIRCLE = "circle"
+    DIAMOND = "diamond"
+
+    # Legacy values for backward compatibility with saved data
     BOX = "box"
     CYLINDER = "cylinder"
     SPHERE = "sphere"
 
+    @classmethod
+    def normalize(cls, shape: "PrimitiveShape") -> "PrimitiveShape":
+        """Normalize legacy 3D shapes to current 2D shapes.
+
+        Args:
+            shape: Shape to normalize.
+
+        Returns:
+            Normalized 2D shape.
+        """
+        legacy_map = {
+            cls.BOX: cls.SQUARE,
+            cls.CYLINDER: cls.CIRCLE,
+            cls.SPHERE: cls.CIRCLE,
+        }
+        return legacy_map.get(shape, shape)
+
 
 class ViewPreset(str, Enum):
-    """Predefined camera view presets."""
+    """Predefined 2D projection presets.
 
-    SIDE = "side"  # X-Z plane, looking along Y
-    TOP = "top"  # X-Y plane, looking down Z
-    FRONT = "front"  # Y-Z plane, looking along X
-    PERSPECTIVE = "perspective"  # 3D perspective view
+    Each preset defines which plane of the 3D coordinate system
+    is displayed in the 2D view.
+    """
+
+    SIDE = "side"  # X-Z plane (beam direction × height)
+    TOP = "top"  # X-Y plane (beam direction × lateral)
+    FRONT = "front"  # Y-Z plane (lateral × height)
+
+    # Legacy presets for backward compatibility - map to SIDE
+    ORTHO3D = "ortho3d"  # Deprecated: use SIDE
+    PERSPECTIVE = "perspective"  # Deprecated: use SIDE
 
 
 # Default shapes by device category
 DEFAULT_SHAPES: dict[str, PrimitiveShape] = {
-    "motor": PrimitiveShape.CYLINDER,
-    "detector": PrimitiveShape.BOX,
-    "sensor": PrimitiveShape.SPHERE,
-    "positioner": PrimitiveShape.CYLINDER,
-    "camera": PrimitiveShape.BOX,
-    "signal": PrimitiveShape.SPHERE,
-    "controller": PrimitiveShape.BOX,
-    "other": PrimitiveShape.BOX,
+    "motor": PrimitiveShape.CIRCLE,
+    "detector": PrimitiveShape.SQUARE,
+    "sensor": PrimitiveShape.DIAMOND,
+    "positioner": PrimitiveShape.CIRCLE,
+    "camera": PrimitiveShape.SQUARE,
+    "signal": PrimitiveShape.DIAMOND,
+    "controller": PrimitiveShape.SQUARE,
+    "other": PrimitiveShape.SQUARE,
 }
 
 # Default colors by device category (RGBA)
@@ -57,17 +86,15 @@ DEFAULT_COLORS: dict[str, tuple[float, float, float, float]] = {
 
 @dataclass
 class DeviceSynopticData:
-    """3D visualization data for a device.
+    """2D visualization data for a device.
 
     This is stored in DeviceInfo.metadata["synoptic"] to persist
-    device positions and appearance in the 3D synoptic view.
+    device positions and appearance in the synoptic view.
 
     Attributes:
         position: X, Y, Z position in meters (beamline coordinates).
-        rotation: Euler angles in degrees (Rx, Ry, Rz).
         scale: Scale factors for X, Y, Z dimensions.
-        representation_type: Type of 3D representation ("primitive", future: "sprite", "mesh").
-        primitive_shape: Shape for primitive representation.
+        primitive_shape: 2D shape (square, circle, diamond).
         color: RGBA color tuple (0.0-1.0 range).
         label_text: Optional label text (defaults to device name if None).
         label_offset: Position offset for the label relative to device.
@@ -75,10 +102,8 @@ class DeviceSynopticData:
     """
 
     position: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)
     scale: tuple[float, float, float] = (0.1, 0.1, 0.1)
-    representation_type: str = "primitive"
-    primitive_shape: PrimitiveShape = PrimitiveShape.BOX
+    primitive_shape: PrimitiveShape = PrimitiveShape.SQUARE
     color: tuple[float, float, float, float] = (0.5, 0.5, 0.5, 1.0)
     label_text: str | None = None
     label_offset: tuple[float, float, float] = (0.0, 0.15, 0.0)
@@ -92,9 +117,7 @@ class DeviceSynopticData:
         """
         return {
             "position": list(self.position),
-            "rotation": list(self.rotation),
             "scale": list(self.scale),
-            "representation_type": self.representation_type,
             "primitive_shape": self.primitive_shape.value,
             "color": list(self.color),
             "label_text": self.label_text,
@@ -112,12 +135,18 @@ class DeviceSynopticData:
         Returns:
             New DeviceSynopticData instance.
         """
+        # Handle legacy shape values
+        shape_str = data.get("primitive_shape", "square")
+        try:
+            shape = PrimitiveShape(shape_str)
+            shape = PrimitiveShape.normalize(shape)
+        except ValueError:
+            shape = PrimitiveShape.SQUARE
+
         return cls(
             position=tuple(data.get("position", [0.0, 0.0, 0.0])),
-            rotation=tuple(data.get("rotation", [0.0, 0.0, 0.0])),
             scale=tuple(data.get("scale", [0.1, 0.1, 0.1])),
-            representation_type=data.get("representation_type", "primitive"),
-            primitive_shape=PrimitiveShape(data.get("primitive_shape", "box")),
+            primitive_shape=shape,
             color=tuple(data.get("color", [0.5, 0.5, 0.5, 1.0])),
             label_text=data.get("label_text"),
             label_offset=tuple(data.get("label_offset", [0.0, 0.15, 0.0])),
@@ -136,7 +165,7 @@ class DeviceSynopticData:
         """
         category_lower = category.lower()
         return cls(
-            primitive_shape=DEFAULT_SHAPES.get(category_lower, PrimitiveShape.BOX),
+            primitive_shape=DEFAULT_SHAPES.get(category_lower, PrimitiveShape.SQUARE),
             color=DEFAULT_COLORS.get(category_lower, (0.5, 0.5, 0.5, 1.0)),
         )
 
@@ -197,34 +226,24 @@ class BeamPathSegment:
 
 @dataclass
 class SynopticViewState:
-    """Camera and view settings for the synoptic view.
+    """View settings for the 2D synoptic view.
 
     This is saved locally per-user via PreferencesManager,
     keyed by beamline ID.
 
     Attributes:
-        camera_position: Camera position in world coordinates.
-        camera_target: Point the camera is looking at.
-        camera_distance: Distance from camera to target.
-        camera_elevation: Elevation angle in degrees.
-        camera_azimuth: Azimuth angle in degrees.
-        orthographic: Whether to use orthographic projection.
-        fov: Field of view in degrees (for perspective mode).
-        view_preset: Last used view preset.
+        view_preset: Current 2D projection preset (Side/Top/Front).
+        view_center: Center point of the 2D view (x, y).
+        zoom_level: Zoom level (width of visible area).
         hidden_devices: Set of device IDs that are hidden.
         labels_visible: Whether device labels are shown.
         beam_path_visible: Whether beam path is shown.
-        grid_visible: Whether floor grid is shown.
+        grid_visible: Whether grid is shown.
     """
 
-    camera_position: tuple[float, float, float] = (0.0, 5.0, 0.0)
-    camera_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    camera_distance: float = 5.0
-    camera_elevation: float = 0.0
-    camera_azimuth: float = 90.0
-    orthographic: bool = True
-    fov: float = 60.0
     view_preset: ViewPreset = ViewPreset.SIDE
+    view_center: tuple[float, float] = (0.0, 0.0)
+    zoom_level: float = 4.0  # Width of visible area in meters
     hidden_devices: set[str] = field(default_factory=set)
     labels_visible: bool = True
     beam_path_visible: bool = True
@@ -237,14 +256,9 @@ class SynopticViewState:
             Dictionary representation.
         """
         return {
-            "camera_position": list(self.camera_position),
-            "camera_target": list(self.camera_target),
-            "camera_distance": self.camera_distance,
-            "camera_elevation": self.camera_elevation,
-            "camera_azimuth": self.camera_azimuth,
-            "orthographic": self.orthographic,
-            "fov": self.fov,
             "view_preset": self.view_preset.value,
+            "view_center": list(self.view_center),
+            "zoom_level": self.zoom_level,
             "hidden_devices": list(self.hidden_devices),
             "labels_visible": self.labels_visible,
             "beam_path_visible": self.beam_path_visible,
@@ -255,21 +269,46 @@ class SynopticViewState:
     def from_dict(cls, data: dict[str, Any]) -> SynopticViewState:
         """Deserialize from dictionary.
 
+        Handles backward compatibility with old 3D state format.
+
         Args:
             data: Dictionary from storage.
 
         Returns:
             New SynopticViewState instance.
         """
+        # Handle view_preset conversion with fallback for unknown/3D values
+        preset_str = data.get("view_preset", "side")
+        try:
+            view_preset = ViewPreset(preset_str)
+            # Map legacy 3D presets to SIDE
+            if view_preset in (ViewPreset.ORTHO3D, ViewPreset.PERSPECTIVE):
+                view_preset = ViewPreset.SIDE
+        except ValueError:
+            # Unknown preset value, default to SIDE
+            view_preset = ViewPreset.SIDE
+
+        # Handle view_center - may be missing in old format
+        view_center = data.get("view_center")
+        if view_center is None:
+            # Try to derive from old camera_target
+            camera_target = data.get("camera_target", [0.0, 0.0, 0.0])
+            # Use X and Z for side view default
+            view_center = (camera_target[0], camera_target[2])
+        else:
+            view_center = tuple(view_center)
+
+        # Handle zoom_level - may be missing in old format
+        zoom_level = data.get("zoom_level")
+        if zoom_level is None:
+            # Derive from old camera_distance
+            camera_distance = data.get("camera_distance", 5.0)
+            zoom_level = camera_distance * 0.8  # Approximate conversion
+
         return cls(
-            camera_position=tuple(data.get("camera_position", [0.0, 5.0, 0.0])),
-            camera_target=tuple(data.get("camera_target", [0.0, 0.0, 0.0])),
-            camera_distance=data.get("camera_distance", 5.0),
-            camera_elevation=data.get("camera_elevation", 0.0),
-            camera_azimuth=data.get("camera_azimuth", 90.0),
-            orthographic=data.get("orthographic", True),
-            fov=data.get("fov", 60.0),
-            view_preset=ViewPreset(data.get("view_preset", "side")),
+            view_preset=view_preset,
+            view_center=view_center,
+            zoom_level=zoom_level,
             hidden_devices=set(data.get("hidden_devices", [])),
             labels_visible=data.get("labels_visible", True),
             beam_path_visible=data.get("beam_path_visible", True),
@@ -286,30 +325,12 @@ class SynopticViewState:
         Returns:
             New SynopticViewState configured for the preset.
         """
-        presets = {
-            ViewPreset.SIDE: cls(
-                camera_elevation=0.0,
-                camera_azimuth=90.0,
-                orthographic=True,
-                view_preset=ViewPreset.SIDE,
-            ),
-            ViewPreset.TOP: cls(
-                camera_elevation=90.0,
-                camera_azimuth=0.0,
-                orthographic=True,
-                view_preset=ViewPreset.TOP,
-            ),
-            ViewPreset.FRONT: cls(
-                camera_elevation=0.0,
-                camera_azimuth=0.0,
-                orthographic=True,
-                view_preset=ViewPreset.FRONT,
-            ),
-            ViewPreset.PERSPECTIVE: cls(
-                camera_elevation=30.0,
-                camera_azimuth=45.0,
-                orthographic=False,
-                view_preset=ViewPreset.PERSPECTIVE,
-            ),
-        }
-        return presets.get(preset, presets[ViewPreset.SIDE])
+        # Map legacy presets to SIDE
+        if preset in (ViewPreset.ORTHO3D, ViewPreset.PERSPECTIVE):
+            preset = ViewPreset.SIDE
+
+        return cls(
+            view_preset=preset,
+            view_center=(0.0, 0.0),
+            zoom_level=4.0,
+        )

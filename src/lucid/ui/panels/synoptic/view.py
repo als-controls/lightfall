@@ -1,47 +1,55 @@
-"""3D synoptic view widget using PyQtGraph GLViewWidget.
+"""2D synoptic view widget using PyQtGraph GraphicsLayoutWidget.
 
-This module provides SynopticView, a customized 3D view for
-visualizing beamline hardware with orthographic/perspective
-camera control and mouse picking.
+This module provides SynopticView, a 2D view for visualizing beamline
+hardware with orthographic projections and mouse interaction.
 """
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QVector3D
-from PySide6.QtWidgets import QWidget
-from pyqtgraph.opengl import GLGridItem, GLViewWidget
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QVBoxLayout, QWidget
+import pyqtgraph as pg
 
 from lucid.ui.panels.synoptic.models import SynopticViewState, ViewPreset
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.synoptic.items import DeviceItem
+    from lucid.ui.panels.synoptic.items import Device2DItem
 
 
-class SynopticView(GLViewWidget):
-    """3D view widget for beamline synoptic visualization.
+class SynopticView(QWidget):
+    """2D view widget for beamline synoptic visualization.
 
     Features:
-    - Orthographic (default) and perspective projection modes
-    - View presets (Side, Top, Front, 3D)
-    - Mouse picking for device selection
-    - Keyboard shortcuts for camera control
+    - View presets as 2D projections:
+      - Side: X-Z plane (beam direction × height)
+      - Top: X-Y plane (beam direction × lateral)
+      - Front: Y-Z plane (lateral × height)
+    - Mouse controls:
+      - Left click: device selection (Ctrl+click for multi-select)
+      - Left drag (edit mode): move device (via ROI)
+      - Right drag: pan
+      - Wheel: zoom
+    - Keyboard shortcuts: 1-3 for presets, F to frame, G for grid, Esc to deselect
+
+    Device items extend pg.ROI for built-in drag support. When edit mode is
+    enabled, devices become draggable and emit device_moved on drag.
 
     Signals:
         device_clicked: Emitted when a device is clicked (device_id).
         device_double_clicked: Emitted on double-click (device_id).
         selection_changed: Emitted when selection changes (list of device_ids).
-        view_changed: Emitted when camera view changes.
+        device_moved: Emitted when device is dragged (device_id, new_position).
+        view_changed: Emitted when view settings change.
     """
 
     device_clicked = Signal(str)  # device_id
     device_double_clicked = Signal(str)  # device_id
     selection_changed = Signal(list)  # list[str] of device_ids
+    device_moved = Signal(str, tuple)  # device_id, new_position (x, y, z)
     view_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -52,106 +60,94 @@ class SynopticView(GLViewWidget):
         """
         super().__init__(parent)
 
-        # Prevent OpenGL context creation from stealing focus on Windows
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-
         # View state
-        self._orthographic = True
-        self._fov = 60.0
         self._view_preset = ViewPreset.SIDE
-        self._initialized = False
+        self._grid_visible = True
+        self._labels_visible = True
+        self._edit_mode = False
 
         # Device items for picking
-        self._device_items: dict[str, DeviceItem] = {}
+        self._device_items: dict[str, Device2DItem] = {}
         self._selected_device_ids: set[str] = set()
 
-        # Grid
-        self._grid: GLGridItem | None = None
+        # Setup UI
+        self._setup_ui()
 
-        # Set background color (safe to call before show)
-        self.setBackgroundColor(QColor(30, 30, 35))
+    def _setup_ui(self) -> None:
+        """Setup the widget UI."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Enable mouse tracking for hover effects
-        self.setMouseTracking(True)
+        # Create graphics widget with plot
+        self._graphics_widget = pg.GraphicsLayoutWidget()
+        self._graphics_widget.setBackground(QColor(30, 30, 35))
+        layout.addWidget(self._graphics_widget)
 
-    def showEvent(self, event) -> None:
-        """Handle show event - initialize OpenGL items on first show."""
-        super().showEvent(event)
-        if not self._initialized:
-            self._setup_view()
-            self._initialized = True
+        # Create plot item
+        self._plot = self._graphics_widget.addPlot()
+        self._plot.setAspectLocked(True)
+        self._plot.showGrid(x=True, y=True, alpha=0.3)
 
-    def _setup_view(self) -> None:
-        """Configure initial view settings (called on first show)."""
-        # Add grid
-        self._grid = GLGridItem()
-        self._grid.setSize(10, 10, 1)
-        self._grid.setSpacing(0.5, 0.5, 0.5)
-        self._grid.setColor((80, 80, 80, 100))
-        self.addItem(self._grid)
+        # Configure axes labels based on view preset
+        self._update_axis_labels()
 
-        # Set initial camera to side view
-        self.apply_view_preset(ViewPreset.SIDE)
+        # Disable auto-ranging to allow manual zoom
+        self._plot.enableAutoRange(enable=False)
 
-    def apply_view_preset(self, preset: ViewPreset) -> None:
-        """Apply a predefined camera view.
+        # Set initial view range
+        self._plot.setXRange(-2, 2)
+        self._plot.setYRange(-1, 1)
+
+        # Connect mouse events for selection
+        self._plot.scene().sigMouseClicked.connect(self._on_mouse_clicked)
+
+    def _update_axis_labels(self) -> None:
+        """Update axis labels based on current view preset."""
+        if self._view_preset == ViewPreset.SIDE:
+            self._plot.setLabel("bottom", "X (beam direction)", units="m")
+            self._plot.setLabel("left", "Z (height)", units="m")
+        elif self._view_preset == ViewPreset.TOP:
+            self._plot.setLabel("bottom", "X (beam direction)", units="m")
+            self._plot.setLabel("left", "Y (lateral)", units="m")
+        elif self._view_preset == ViewPreset.FRONT:
+            self._plot.setLabel("bottom", "Y (lateral)", units="m")
+            self._plot.setLabel("left", "Z (height)", units="m")
+
+    def apply_view_preset(self, preset: ViewPreset | str) -> None:
+        """Apply a predefined view projection.
 
         Args:
-            preset: The view preset to apply.
+            preset: The view preset to apply (enum or string).
         """
+        # Convert string to enum if needed
+        if isinstance(preset, str):
+            try:
+                preset = ViewPreset(preset)
+            except ValueError:
+                preset = ViewPreset.SIDE
+
+        # Filter out 3D presets - fall back to SIDE
+        if preset not in (ViewPreset.SIDE, ViewPreset.TOP, ViewPreset.FRONT):
+            preset = ViewPreset.SIDE
+
         self._view_preset = preset
+        self._update_axis_labels()
 
-        if preset == ViewPreset.SIDE:
-            # Side view: looking along Y axis at X-Z plane
-            self.setCameraPosition(distance=5.0, elevation=0.0, azimuth=90.0)
-            self._orthographic = True
-        elif preset == ViewPreset.TOP:
-            # Top view: looking down Z axis at X-Y plane
-            self.setCameraPosition(distance=5.0, elevation=90.0, azimuth=0.0)
-            self._orthographic = True
-        elif preset == ViewPreset.FRONT:
-            # Front view: looking along X axis at Y-Z plane
-            self.setCameraPosition(distance=5.0, elevation=0.0, azimuth=0.0)
-            self._orthographic = True
-        elif preset == ViewPreset.PERSPECTIVE:
-            # 3D perspective view
-            self.setCameraPosition(distance=5.0, elevation=30.0, azimuth=45.0)
-            self._orthographic = False
+        # Update all device items with new projection
+        for item in self._device_items.values():
+            item.set_view_preset(preset)
 
-        self._update_projection()
         self.view_changed.emit()
         logger.debug("Applied view preset: {}", preset.value)
 
-    def set_orthographic(self, orthographic: bool) -> None:
-        """Set orthographic or perspective projection mode.
+    def get_view_preset(self) -> ViewPreset:
+        """Get the current view preset.
 
-        Args:
-            orthographic: True for orthographic, False for perspective.
+        Returns:
+            Current view preset.
         """
-        if self._orthographic != orthographic:
-            self._orthographic = orthographic
-            self._update_projection()
-            self.view_changed.emit()
-
-    def is_orthographic(self) -> bool:
-        """Check if view is in orthographic mode."""
-        return self._orthographic
-
-    def toggle_projection(self) -> None:
-        """Toggle between orthographic and perspective projection."""
-        self.set_orthographic(not self._orthographic)
-
-    def _update_projection(self) -> None:
-        """Update the projection matrix based on current mode."""
-        # PyQtGraph's GLViewWidget doesn't have direct ortho support,
-        # so we use a very low FOV to approximate orthographic
-        if self._orthographic:
-            # Use very narrow FOV for pseudo-orthographic
-            self.opts["fov"] = 1.0
-        else:
-            self.opts["fov"] = self._fov
-
-        self.update()
+        return self._view_preset
 
     def set_grid_visible(self, visible: bool) -> None:
         """Set grid visibility.
@@ -159,24 +155,71 @@ class SynopticView(GLViewWidget):
         Args:
             visible: Whether the grid should be visible.
         """
-        if self._grid:
-            self._grid.setVisible(visible)
+        self._grid_visible = visible
+        self._plot.showGrid(x=visible, y=visible, alpha=0.3 if visible else 0)
 
     def is_grid_visible(self) -> bool:
         """Check if grid is visible."""
-        return self._grid.visible() if self._grid else False
+        return self._grid_visible
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Set device labels visibility.
+
+        Args:
+            visible: Whether labels should be visible.
+        """
+        self._labels_visible = visible
+        # TODO: Implement label items
+
+    def is_labels_visible(self) -> bool:
+        """Check if labels are visible."""
+        return self._labels_visible
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        """Enable or disable edit mode.
+
+        In edit mode, devices can be dragged to reposition them.
+
+        Args:
+            enabled: Whether edit mode is enabled.
+        """
+        self._edit_mode = enabled
+        # Enable/disable dragging on all devices
+        for item in self._device_items.values():
+            item.set_movable(enabled)
+
+    def is_edit_mode(self) -> bool:
+        """Check if edit mode is enabled."""
+        return self._edit_mode
 
     # Device management
 
-    def add_device_item(self, device_id: str, item: DeviceItem) -> None:
-        """Register a device item for picking.
+    def add_device_item(self, device_id: str, item: Device2DItem) -> None:
+        """Register a device item.
 
         Args:
             device_id: Unique device identifier.
-            item: The DeviceItem to register.
+            item: The Device2DItem to register.
         """
         self._device_items[device_id] = item
-        self.addItem(item)
+        item.set_view_preset(self._view_preset)
+        item.set_movable(self._edit_mode)
+
+        # Connect to ROI's region changed signal for drag handling
+        item.sigRegionChanged.connect(lambda: self._on_device_dragged(device_id))
+
+        self._plot.addItem(item)
+
+    def _on_device_dragged(self, device_id: str) -> None:
+        """Handle device drag via ROI sigRegionChanged.
+
+        Args:
+            device_id: ID of device that was dragged.
+        """
+        item = self._device_items.get(device_id)
+        if item:
+            new_pos = item.get_current_position_from_roi()
+            self.device_moved.emit(device_id, new_pos)
 
     def remove_device_item(self, device_id: str) -> None:
         """Remove a device item.
@@ -186,19 +229,19 @@ class SynopticView(GLViewWidget):
         """
         item = self._device_items.pop(device_id, None)
         if item:
-            self.removeItem(item)
+            self._plot.removeItem(item)
             if device_id in self._selected_device_ids:
                 self._selected_device_ids.discard(device_id)
                 self.selection_changed.emit(list(self._selected_device_ids))
 
-    def get_device_item(self, device_id: str) -> DeviceItem | None:
+    def get_device_item(self, device_id: str) -> Device2DItem | None:
         """Get a device item by ID.
 
         Args:
             device_id: Device identifier.
 
         Returns:
-            The DeviceItem or None if not found.
+            The Device2DItem or None if not found.
         """
         return self._device_items.get(device_id)
 
@@ -207,6 +250,26 @@ class SynopticView(GLViewWidget):
         for device_id in list(self._device_items.keys()):
             self.remove_device_item(device_id)
         self._selected_device_ids.clear()
+
+    def addItem(self, item: pg.GraphicsObject) -> None:
+        """Add a graphics item to the plot.
+
+        This method provides compatibility with the old GLViewWidget API.
+
+        Args:
+            item: The graphics item to add.
+        """
+        self._plot.addItem(item)
+
+    def removeItem(self, item: pg.GraphicsObject) -> None:
+        """Remove a graphics item from the plot.
+
+        This method provides compatibility with the old GLViewWidget API.
+
+        Args:
+            item: The graphics item to remove.
+        """
+        self._plot.removeItem(item)
 
     # Selection
 
@@ -258,131 +321,59 @@ class SynopticView(GLViewWidget):
         """Get list of selected device IDs."""
         return list(self._selected_device_ids)
 
-    # Mouse picking
+    # Mouse handling
 
-    def _pick_device_at(self, pos: QPoint) -> str | None:
-        """Find device at screen position using ray casting.
+    def _on_mouse_clicked(self, event) -> None:
+        """Handle mouse click for device selection.
 
         Args:
-            pos: Screen position (widget coordinates).
+            event: The mouse click event from pyqtgraph scene.
+        """
+        # Get click position in scene coordinates
+        pos = event.scenePos()
+
+        # Convert to view coordinates
+        view_pos = self._plot.vb.mapSceneToView(pos)
+        point = QPointF(view_pos.x(), view_pos.y())
+
+        # Check for double-click
+        if event.double():
+            device_id = self._pick_device_at(point)
+            if device_id:
+                self.device_double_clicked.emit(device_id)
+            return
+
+        # Single click - handle selection
+        if event.button() == Qt.MouseButton.LeftButton:
+            device_id = self._pick_device_at(point)
+
+            if device_id:
+                # Check for Ctrl modifier for multi-select
+                modifiers = event.modifiers()
+                add_to_selection = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+                self.select_device(device_id, add_to_selection=add_to_selection)
+                self.device_clicked.emit(device_id)
+            else:
+                # Clicked on empty space - clear selection
+                self.clear_selection()
+
+    def _pick_device_at(self, point: QPointF) -> str | None:
+        """Find device at view coordinates.
+
+        Args:
+            point: Point in view coordinates.
 
         Returns:
             Device ID at position or None.
         """
-        # Get ray from camera through screen point
-        ray_origin, ray_direction = self._get_pick_ray(pos)
-
-        # Find closest device intersection
-        closest_device_id = None
-        closest_distance = float("inf")
-
+        # Check all visible devices
         for device_id, item in self._device_items.items():
-            if not item.visible():
+            if not item.isVisible():
                 continue
+            if item.contains_point(point):
+                return device_id
 
-            distance = item.intersect_ray(ray_origin, ray_direction)
-            if distance is not None and distance < closest_distance:
-                closest_distance = distance
-                closest_device_id = device_id
-
-        return closest_device_id
-
-    def _get_pick_ray(
-        self, pos: QPoint
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Get ray from camera through screen point.
-
-        Args:
-            pos: Screen position.
-
-        Returns:
-            Tuple of (ray_origin, ray_direction) as numpy arrays.
-        """
-        # Normalize screen coordinates to [-1, 1]
-        width = self.width()
-        height = self.height()
-        x = (2.0 * pos.x() / width - 1.0)
-        y = -(2.0 * pos.y() / height - 1.0)  # Flip Y
-
-        # Get camera parameters
-        cam_pos = self.cameraPosition()
-        center_raw = self.opts.get("center", QVector3D(0, 0, 0))
-        # Handle both QVector3D and tuple
-        if isinstance(center_raw, QVector3D):
-            center = (center_raw.x(), center_raw.y(), center_raw.z())
-        else:
-            center = center_raw
-        distance = self.opts.get("distance", 5.0)
-        elevation = math.radians(self.opts.get("elevation", 0.0))
-        azimuth = math.radians(self.opts.get("azimuth", 0.0))
-
-        # Calculate camera position in world coordinates
-        cam_x = center[0] + distance * math.cos(elevation) * math.sin(azimuth)
-        cam_y = center[1] + distance * math.cos(elevation) * math.cos(azimuth)
-        cam_z = center[2] + distance * math.sin(elevation)
-        ray_origin = np.array([cam_x, cam_y, cam_z])
-
-        # Calculate view direction
-        view_dir = np.array([
-            center[0] - cam_x,
-            center[1] - cam_y,
-            center[2] - cam_z,
-        ])
-        view_dir = view_dir / np.linalg.norm(view_dir)
-
-        # Calculate right and up vectors
-        world_up = np.array([0.0, 0.0, 1.0])
-        right = np.cross(view_dir, world_up)
-        if np.linalg.norm(right) < 1e-6:
-            # View is straight up/down, use different up
-            world_up = np.array([0.0, 1.0, 0.0])
-            right = np.cross(view_dir, world_up)
-        right = right / np.linalg.norm(right)
-        up = np.cross(right, view_dir)
-        up = up / np.linalg.norm(up)
-
-        # Calculate ray direction
-        if self._orthographic:
-            # For orthographic, ray is parallel to view direction
-            # but origin is offset
-            aspect = width / height
-            ortho_size = distance * 0.035  # Approximate ortho size
-            ray_origin = ray_origin + right * x * ortho_size * aspect + up * y * ortho_size
-            ray_direction = view_dir
-        else:
-            # For perspective, ray goes through screen point
-            fov_rad = math.radians(self._fov)
-            aspect = width / height
-            tan_fov = math.tan(fov_rad / 2)
-            ray_direction = view_dir + right * x * tan_fov * aspect + up * y * tan_fov
-            ray_direction = ray_direction / np.linalg.norm(ray_direction)
-
-        return ray_origin, ray_direction
-
-    # Mouse events
-
-    def mousePressEvent(self, event) -> None:
-        """Handle mouse press for selection."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            device_id = self._pick_device_at(event.pos())
-            if device_id:
-                # Check for multi-select
-                add_to_selection = event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                self.select_device(device_id, add_to_selection=add_to_selection)
-                self.device_clicked.emit(device_id)
-            else:
-                # Click on empty space clears selection
-                self.clear_selection()
-
-        super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event) -> None:
-        """Handle mouse double-click for device focus."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            device_id = self._pick_device_at(event.pos())
-            if device_id:
-                self.device_double_clicked.emit(device_id)
-        super().mouseDoubleClickEvent(event)
+        return None
 
     # Keyboard shortcuts
 
@@ -390,16 +381,12 @@ class SynopticView(GLViewWidget):
         """Handle keyboard shortcuts."""
         key = event.key()
 
-        if key == Qt.Key.Key_P:
-            self.toggle_projection()
-        elif key == Qt.Key.Key_1:
+        if key == Qt.Key.Key_1:
             self.apply_view_preset(ViewPreset.SIDE)
         elif key == Qt.Key.Key_2:
             self.apply_view_preset(ViewPreset.TOP)
         elif key == Qt.Key.Key_3:
             self.apply_view_preset(ViewPreset.FRONT)
-        elif key == Qt.Key.Key_4:
-            self.apply_view_preset(ViewPreset.PERSPECTIVE)
         elif key == Qt.Key.Key_F:
             self._frame_selected()
         elif key == Qt.Key.Key_Escape:
@@ -410,22 +397,30 @@ class SynopticView(GLViewWidget):
             super().keyPressEvent(event)
 
     def _frame_selected(self) -> None:
-        """Frame the selected device in view."""
+        """Frame the selected devices in view."""
         if not self._selected_device_ids:
             return
 
-        # Calculate bounding center of selected devices
-        positions = []
+        # Calculate bounding box of selected devices
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
+
         for device_id in self._selected_device_ids:
             item = self._device_items.get(device_id)
             if item:
-                pos = item.get_position()
-                positions.append(pos)
+                pos = item.get_projected_position()
+                scale = item.get_projected_scale()
 
-        if positions:
-            center = np.mean(positions, axis=0)
-            self.opts["center"] = QVector3D(float(center[0]), float(center[1]), float(center[2]))
-            self.update()
+                min_x = min(min_x, pos[0] - scale[0] / 2)
+                max_x = max(max_x, pos[0] + scale[0] / 2)
+                min_y = min(min_y, pos[1] - scale[1] / 2)
+                max_y = max(max_y, pos[1] + scale[1] / 2)
+
+        if min_x < float("inf"):
+            # Add padding
+            padding = 0.2
+            self._plot.setXRange(min_x - padding, max_x + padding)
+            self._plot.setYRange(min_y - padding, max_y + padding)
             self.view_changed.emit()
 
     # State save/restore
@@ -436,26 +431,23 @@ class SynopticView(GLViewWidget):
         Returns:
             Current view state.
         """
-        cam_pos = self.cameraPosition()
-        center = self.opts.get("center", QVector3D(0, 0, 0))
-        # Handle both QVector3D and tuple for center
-        if isinstance(center, QVector3D):
-            center_tuple = (center.x(), center.y(), center.z())
-        else:
-            center_tuple = tuple(center)
+        # Get current view range
+        view_range = self._plot.viewRange()
+        x_range = view_range[0]
+        y_range = view_range[1]
+
+        # Calculate center and zoom
+        center_x = (x_range[0] + x_range[1]) / 2
+        center_y = (y_range[0] + y_range[1]) / 2
+        zoom = max(x_range[1] - x_range[0], y_range[1] - y_range[0])
 
         return SynopticViewState(
-            camera_position=tuple(cam_pos),
-            camera_target=center_tuple,
-            camera_distance=self.opts.get("distance", 5.0),
-            camera_elevation=self.opts.get("elevation", 0.0),
-            camera_azimuth=self.opts.get("azimuth", 0.0),
-            orthographic=self._orthographic,
-            fov=self._fov,
             view_preset=self._view_preset,
-            labels_visible=True,  # TODO: track labels visibility
+            view_center=(center_x, center_y),
+            zoom_level=zoom,
+            labels_visible=self._labels_visible,
             beam_path_visible=True,  # TODO: track beam path visibility
-            grid_visible=self.is_grid_visible(),
+            grid_visible=self._grid_visible,
         )
 
     def restore_view_state(self, state: SynopticViewState) -> None:
@@ -464,18 +456,34 @@ class SynopticView(GLViewWidget):
         Args:
             state: View state to restore.
         """
-        target = state.camera_target
-        self.opts["center"] = QVector3D(float(target[0]), float(target[1]), float(target[2]))
-        self.setCameraPosition(
-            distance=state.camera_distance,
-            elevation=state.camera_elevation,
-            azimuth=state.camera_azimuth,
-        )
-        self._orthographic = state.orthographic
-        self._fov = state.fov
-        self._view_preset = state.view_preset
+        # Apply preset (filter 3D presets)
+        preset = state.view_preset
+        # Convert string to enum if needed
+        if isinstance(preset, str):
+            try:
+                preset = ViewPreset(preset)
+            except ValueError:
+                preset = ViewPreset.SIDE
+        if preset not in (ViewPreset.SIDE, ViewPreset.TOP, ViewPreset.FRONT):
+            preset = ViewPreset.SIDE
+        self._view_preset = preset
+        self._update_axis_labels()
+
+        # Restore view range from center and zoom
+        if hasattr(state, "view_center") and hasattr(state, "zoom_level"):
+            center = state.view_center
+            zoom = state.zoom_level
+            half_zoom = zoom / 2
+            self._plot.setXRange(center[0] - half_zoom, center[0] + half_zoom)
+            self._plot.setYRange(center[1] - half_zoom, center[1] + half_zoom)
+
+        # Restore visibility settings
+        self._labels_visible = state.labels_visible
         self.set_grid_visible(state.grid_visible)
-        self._update_projection()
+
+        # Update all device items with the preset
+        for item in self._device_items.values():
+            item.set_view_preset(self._view_preset)
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get view data for MCP introspection.
@@ -483,13 +491,14 @@ class SynopticView(GLViewWidget):
         Returns:
             Dictionary with view state and device info.
         """
+        view_range = self._plot.viewRange()
+
         return {
-            "orthographic": self._orthographic,
             "view_preset": self._view_preset.value,
-            "grid_visible": self.is_grid_visible(),
+            "grid_visible": self._grid_visible,
+            "labels_visible": self._labels_visible,
             "device_count": len(self._device_items),
             "selected_devices": list(self._selected_device_ids),
-            "camera_distance": self.opts.get("distance", 5.0),
-            "camera_elevation": self.opts.get("elevation", 0.0),
-            "camera_azimuth": self.opts.get("azimuth", 0.0),
+            "view_range_x": view_range[0],
+            "view_range_y": view_range[1],
         }

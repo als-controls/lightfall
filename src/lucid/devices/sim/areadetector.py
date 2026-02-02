@@ -78,6 +78,8 @@ class SimDetector(Device):
         self._data_mode = data_mode
         self._file_path = Path(file_path)
         self._frame_number = 0
+        self._acquiring = False
+        self._acquire_thread = None
 
         # Initialize generators
         self._generators: dict[str, ImageGenerator] = {
@@ -85,6 +87,92 @@ class SimDetector(Device):
             "animated": AnimatedPatternGenerator(),
             "motor": MotorResponsiveGenerator(motors=self._motors),
         }
+
+        # Subscribe to acquire signal to mimic EPICS AreaDetector behavior
+        self.cam.acquire.subscribe(self._on_acquire_changed)
+
+    def _on_acquire_changed(self, value: int, **kwargs) -> None:
+        """Handle acquire signal changes to mimic EPICS AreaDetector behavior.
+
+        When acquire is set to 1, starts acquisition based on image_mode:
+        - Single (0): Acquire one frame
+        - Multiple (1): Acquire num_images frames
+        - Continuous (2): Acquire continuously until acquire is set to 0
+        """
+        import threading
+
+        if value == 1 and not self._acquiring:
+            self._acquiring = True
+            self.cam.detector_state._readback = 1  # Acquire state
+
+            def acquisition_loop():
+                try:
+                    image_mode = self.cam.image_mode.get()
+                    num_images = self.cam.num_images.get()
+
+                    if image_mode == 0:  # Single
+                        count = 1
+                    elif image_mode == 1:  # Multiple
+                        count = num_images
+                    else:  # Continuous
+                        count = float('inf')
+
+                    acquired = 0
+                    while self._acquiring and acquired < count:
+                        self._acquire_single_frame()
+                        acquired += 1
+
+                        # For Single mode, auto-stop after one frame
+                        if image_mode == 0:
+                            self._acquiring = False
+                            self.cam.acquire._readback = 0
+
+                finally:
+                    self._acquiring = False
+                    self.cam.detector_state._readback = 0  # Idle state
+
+            self._acquire_thread = threading.Thread(target=acquisition_loop, daemon=True)
+            self._acquire_thread.start()
+
+        elif value == 0 and self._acquiring:
+            self._acquiring = False
+            # Thread will exit on next iteration
+
+    def _acquire_single_frame(self) -> None:
+        """Acquire a single frame (called from acquisition loop)."""
+        # Simulate exposure time
+        exposure = self.cam.acquire_time.get()
+        time.sleep(exposure)
+
+        # Generate image based on shutter state
+        shutter_open = self.cam.shutter_control.get() == 1
+        image = self._generate_image(shutter_open=shutter_open)
+
+        # Apply transforms if enabled
+        if self.trans1.enable.get():
+            image = self._apply_transforms(image)
+
+        # Update image plugin
+        self.image.array_data._readback = image
+        self.image.array_size_x._readback = image.shape[1]
+        self.image.array_size_y._readback = image.shape[0]
+        self.image.unique_id._readback = self._frame_number
+
+        # Compute stats if enabled
+        if self.stats.enable.get():
+            self._compute_stats(image)
+
+        # Extract ROI if enabled
+        if self.roi1.enable.get():
+            self._extract_roi(image)
+
+        # Update counters
+        self._frame_number += 1
+        self.cam.array_counter._readback = self._frame_number
+
+        # Handle file output
+        if self._data_mode == "file":
+            self._save_to_file(image)
 
     @property
     def data_mode(self) -> str:
@@ -149,12 +237,25 @@ class SimDetector(Device):
         acquire()
         return status
 
-    def _generate_image(self) -> np.ndarray:
-        """Generate image based on current settings."""
+    def _generate_image(self, shutter_open: bool = True) -> np.ndarray:
+        """Generate image based on current settings.
+
+        Args:
+            shutter_open: If False, generates a dark frame (bias + noise only).
+        """
         width = self.cam.size_x.get()
         height = self.cam.size_y.get()
         dtype_str = self.cam.data_type.get()
         dtype = np.dtype(dtype_str)
+
+        # If shutter is closed, generate dark frame (bias + read noise)
+        if not shutter_open:
+            bias_level = 100  # Typical bias level
+            read_noise = 5    # Read noise sigma
+            dark_image = np.random.normal(bias_level, read_noise, (height, width))
+            dark_image = np.clip(dark_image, 0, np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1.0)
+            return dark_image.astype(dtype)
+
         pattern_mode = self.cam.pattern_mode.get()
         pattern_type = self.cam.pattern_type.get()
 
