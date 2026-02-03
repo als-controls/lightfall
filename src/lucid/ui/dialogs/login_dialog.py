@@ -12,6 +12,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -107,9 +108,38 @@ class LoginDialog(QDialog):
         Args:
             message: Custom message to display.
         """
-        layout = QVBoxLayout(self)
+        # Outer layout with minimal margins for logo
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setSpacing(0)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Logo (full width, minimal margins)
+        try:
+            from lucid.resources import get_logo_pixmap
+
+            logo_pixmap = get_logo_pixmap()  # Load at full resolution
+            if not logo_pixmap.isNull():
+                logo_label = QLabel()
+                logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                logo_label.setPixmap(
+                    logo_pixmap.scaledToWidth(
+                        500,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                outer_layout.addWidget(logo_label)
+                logger.debug("Login dialog logo loaded successfully")
+            else:
+                logger.warning("Login dialog logo pixmap is null")
+        except Exception as e:
+            logger.warning("Failed to load login dialog logo: {}", e)
+
+        # Content area with standard margins
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setSpacing(12)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(24, 12, 24, 24)
+        outer_layout.addWidget(content_widget)
 
         # Title/header
         if self._show_on_expiry:

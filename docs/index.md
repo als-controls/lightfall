@@ -1,5 +1,11 @@
 # LUCID Documentation
 
+```{image} _static/logo.png
+:alt: LUCID Logo
+:width: 200px
+:align: center
+```
+
 LUCID (Lightsource Unified Control Interface Dashboard) is a modern control system for scientific data acquisition and hardware controls at the ALS (Advanced Light Source) facility.
 
 ## User Guide

@@ -1,0 +1,1 @@
+# Image resources for LUCID

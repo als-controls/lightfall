@@ -743,15 +743,9 @@ class NCSMainWindow(QMainWindow):
 
     def _on_about(self) -> None:
         """Show about dialog."""
-        from PySide6.QtWidgets import QMessageBox
+        from lucid.ui.dialogs import show_about_dialog
 
-        QMessageBox.about(
-            self,
-            "About LUCID",
-            "LUCID - LBNL Unified Control Interface for Data acquisition\n\n"
-            "A modern control system for the ALS facility.\n\n"
-            "Version: Development",
-        )
+        show_about_dialog(self)
 
     def _on_login(self) -> None:
         """Show login dialog."""
