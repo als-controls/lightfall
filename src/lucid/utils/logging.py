@@ -88,7 +88,7 @@ def configure_logging(
 
     fmt = format_string if format_string else _default_format
 
-    if console:
+    if console and sys.stderr is not None:
         logger.add(
             sys.stderr,
             level=level,
