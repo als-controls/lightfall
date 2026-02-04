@@ -154,6 +154,7 @@ exclude_lines = [
 [tool.briefcase]
 project_name = "LUCID"
 bundle = "gov.lbl.als"
+version = "0.1.0"
 url = "https://als.lbl.gov"
 license.file = "LICENSE"
 author = "ALS Controls Team"
