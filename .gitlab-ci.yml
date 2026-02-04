@@ -108,8 +108,13 @@ package:macos:
     expire_in: 1 week
 
 package:windows:
-  extends: .package-base
+  stage: package
   tags: [windows]
+  variables:
+    PIP_FIND_LINKS: "$CI_PROJECT_DIR/dist"
+  before_script:
+    - pip install briefcase
+    - powershell -ExecutionPolicy Bypass -File ./scripts/build-wheels.ps1
   script:
     - briefcase create --no-input
     - briefcase build --no-input
@@ -118,6 +123,8 @@ package:windows:
     paths:
       - build/lucid/windows/LUCID-*.msi
     expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
 
 # ------------------------------------------------------------------------------
 # Deploy Stage
