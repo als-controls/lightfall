@@ -10,7 +10,6 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
@@ -83,9 +82,6 @@ class ALSBeamStatusService(QObject):
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll)
 
-        # Proxy URL (auto-detected)
-        self._proxy_url = self._get_proxy_url()
-
         logger.debug("ALSBeamStatusService initialized")
 
     @classmethod
@@ -127,15 +123,17 @@ class ALSBeamStatusService(QObject):
         return self._polling
 
     def _get_proxy_url(self) -> str | None:
-        """Get the proxy URL, auto-detecting for *.lbl.gov if not specified.
+        """Get the proxy URL from centralized proxy settings.
+
+        Delegates to ProxySettingsProvider which respects user settings.
+        Proxy is disabled by default - users must enable it in settings.
 
         Returns:
             The proxy URL to use, or None if no proxy needed.
         """
-        parsed = urlparse(ALS_BEAM_STATUS_URL)
-        if parsed.hostname and parsed.hostname.endswith(".lbl.gov"):
-            return "socks5://localhost:1080"
-        return None
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+
+        return ProxySettingsProvider.should_use_proxy_for_url(ALS_BEAM_STATUS_URL)
 
     def start_polling(self) -> None:
         """Start polling the ALS beam status API."""
@@ -187,13 +185,14 @@ class ALSBeamStatusService(QObject):
         """
         import httpx
 
-        # Build client with optional SOCKS proxy
+        # Build client with optional SOCKS proxy (look up dynamically for settings changes)
+        proxy_url = self._get_proxy_url()
         transport = None
-        if self._proxy_url:
+        if proxy_url:
             try:
                 from httpx_socks import SyncProxyTransport
 
-                transport = SyncProxyTransport.from_url(self._proxy_url)
+                transport = SyncProxyTransport.from_url(proxy_url)
             except ImportError:
                 logger.debug("httpx-socks not available, trying without proxy")
 

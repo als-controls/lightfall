@@ -67,6 +67,12 @@ GLOBAL_ONLY_PREFS = {
     # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
     "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning
+    # Proxy settings
+    "proxy_enabled",  # bool (default: False) - master toggle for proxy
+    "proxy_type",  # str (default: "socks5") - socks5, socks4, or http
+    "proxy_host",  # str (default: "localhost") - proxy server host
+    "proxy_port",  # int (default: 1080) - proxy server port
+    "proxy_auto_detect",  # bool (default: False) - auto-enable for *.lbl.gov URLs
 }
 
 

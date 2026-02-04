@@ -52,7 +52,11 @@ class KeycloakConfig:
     proxy_url: str | None = None
 
     def get_proxy_url(self) -> str | None:
-        """Get the proxy URL, auto-detecting for *.lbl.gov if not specified.
+        """Get the proxy URL from settings or explicit configuration.
+
+        If proxy_url was explicitly set in the constructor, use that.
+        Otherwise, delegate to ProxySettingsProvider which respects
+        user settings (disabled by default).
 
         Returns:
             The proxy URL to use, or None if no proxy needed.
@@ -60,12 +64,10 @@ class KeycloakConfig:
         if self.proxy_url is not None:
             return self.proxy_url if self.proxy_url else None
 
-        # Auto-detect: use SOCKS proxy for *.lbl.gov URLs
-        parsed = urlparse(self.server_url)
-        if parsed.hostname and parsed.hostname.endswith(".lbl.gov"):
-            return "socks5://localhost:1080"
+        # Use centralized proxy settings
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
 
-        return None
+        return ProxySettingsProvider.should_use_proxy_for_url(self.server_url)
 
     @property
     def auth_url(self) -> str:

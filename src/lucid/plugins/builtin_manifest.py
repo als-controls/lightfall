@@ -45,6 +45,13 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         ),
+        # Network proxy settings - preload to configure WebEngine before any QWebEngineView
+        PluginEntry(
+            type_name="settings",
+            name="proxy",
+            import_path="lucid.ui.preferences.proxy_settings:ProxySettingsPlugin",
+            preload=True,
+        ),
         # Login & Session settings
         PluginEntry(
             type_name="settings",
