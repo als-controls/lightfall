@@ -5,10 +5,12 @@ Provides the default status bar indicators:
 - AuthStatusPlugin: Shows authentication state
 - ConnectionStatusPlugin: Shows online/offline status
 - TiledStatusPlugin: Shows Tiled connection state
+- ALSBeamStatusPlugin: Shows ALS synchrotron beam status
 """
 
 from __future__ import annotations
 
+from lucid.ui.statusbar.plugins.als_beam_status import ALSBeamStatusPlugin
 from lucid.ui.statusbar.plugins.auth_status import AuthStatusPlugin
 from lucid.ui.statusbar.plugins.connection_status import ConnectionStatusPlugin
 from lucid.ui.statusbar.plugins.tiled_status import TiledStatusPlugin
@@ -19,4 +21,5 @@ __all__ = [
     "AuthStatusPlugin",
     "ConnectionStatusPlugin",
     "TiledStatusPlugin",
+    "ALSBeamStatusPlugin",
 ]

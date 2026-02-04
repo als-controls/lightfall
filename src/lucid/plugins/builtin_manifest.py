@@ -120,6 +120,11 @@ builtin_manifest = PluginManifest(
             name="tiled_status",
             import_path="lucid.ui.statusbar.plugins.tiled_status:TiledStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="als_beam_status",
+            import_path="lucid.ui.statusbar.plugins.als_beam_status:ALSBeamStatusPlugin",
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
