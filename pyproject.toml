@@ -146,3 +146,80 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
 ]
+
+# =============================================================================
+# Briefcase Configuration (Native App Packaging)
+# =============================================================================
+
+[tool.briefcase]
+project_name = "LUCID"
+bundle = "gov.lbl.als"
+url = "https://als.lbl.gov"
+license.file = "LICENSE"
+author = "ALS Controls Team"
+author_email = "controls@lbl.gov"
+
+[tool.briefcase.app.lucid]
+formal_name = "LUCID"
+description = "Advanced Light Source Control System"
+long_description = """LUCID is a modern, unified control system for scientific
+data acquisition and hardware controls at the Advanced Light Source facility."""
+icon = "resources/lucid"
+sources = ["src/lucid"]
+requires = [
+    # Core UI
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    "pyqt-toast-notification>=1.0",
+
+    # Data/Config
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+
+    # Logging & Monitoring
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "psutil>=5.9",
+
+    # Markdown rendering
+    "mistune>=3.0",
+
+    # Async/HTTP
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+
+    # Data acquisition
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    "tiled[client]>=0.1.0",
+
+    # IPython integration
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+    "ipython>=8.0",
+
+    # Utilities
+    "platformdirs>=4.0",
+    "watchfiles>=0.20",
+    "python-dotenv>=1.0",
+    "typing-extensions>=4.0",
+    "cachetools>=5.0",
+    "cryptography>=41.0",
+    "bidict>=0.23",
+
+    # Sub-projects (from local wheels via --find-links)
+    "epics-pyside",
+    "pyside-claude",
+]
+
+[tool.briefcase.app.lucid.macOS]
+requires = []
+
+[tool.briefcase.app.lucid.windows]
+requires = []
+
+[tool.briefcase.app.lucid.linux]
+requires = []
+system_requires = []
