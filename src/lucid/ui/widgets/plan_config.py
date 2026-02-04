@@ -9,9 +9,12 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from loguru import logger
+
+from lucid.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -399,6 +402,12 @@ class PlanConfigWidget(QWidget):
         self._reset_btn.setEnabled(False)
         button_layout.addWidget(self._reset_btn)
 
+        self._edit_btn = QPushButton("Edit")
+        self._edit_btn.setToolTip("Open plan source file in editor")
+        self._edit_btn.clicked.connect(self._on_edit_clicked)
+        self._edit_btn.setEnabled(False)
+        button_layout.addWidget(self._edit_btn)
+
         self._run_btn = QPushButton("Run")
         self._run_btn.setToolTip("Run the plan with current parameters")
         self._run_btn.clicked.connect(self._on_run_clicked)
@@ -600,6 +609,7 @@ class PlanConfigWidget(QWidget):
         self._param_tree.setParameters(self._root_param, showTop=False)
 
         self._reset_btn.setEnabled(True)
+        self._edit_btn.setEnabled(True)
         self._run_btn.setEnabled(True)
 
         logger.debug(f"Configured plan: {plan_info.name} with {len(param_specs)} params")
@@ -615,6 +625,7 @@ class PlanConfigWidget(QWidget):
             self._param_tree.clear()
 
         self._reset_btn.setEnabled(False)
+        self._edit_btn.setEnabled(False)
         self._run_btn.setEnabled(False)
 
     def get_kwargs(self) -> dict[str, Any]:
@@ -703,6 +714,61 @@ class PlanConfigWidget(QWidget):
         if self._plan is not None:
             # Re-set the plan to reset all values
             self.set_plan(self._plan)
+
+    def _get_plan_file_path(self) -> Path | None:
+        """Get the file path for the current plan.
+
+        For user plans, retrieves from UserPlanService._loaded_plans.
+        For built-in plans, uses inspect.getfile() on the plan function.
+
+        Returns:
+            Path to the plan's source file, or None if not found.
+        """
+        if self._plan is None:
+            return None
+
+        # Try user plans first
+        from lucid.acquire.plans.user_plans import UserPlanService
+
+        service = UserPlanService.get_instance()
+        if self._plan.name in service._loaded_plans:
+            return service._loaded_plans[self._plan.name]
+
+        # Fall back to inspect for built-in plans
+        try:
+            return Path(inspect.getfile(self._plan.func))
+        except (TypeError, OSError):
+            return None
+
+    @Slot()
+    def _on_edit_clicked(self) -> None:
+        """Open the plan's source file in the configured external editor."""
+        from lucid.ui.preferences.manager import PreferencesManager
+        from lucid.ui.toast import ToastManager
+
+        if self._plan is None:
+            return
+
+        # Get file path for the plan
+        file_path = self._get_plan_file_path()
+        if file_path is None:
+            toast = ToastManager.get_instance()
+            toast.error("Cannot Edit", f"Could not locate source file for plan '{self._plan.name}'")
+            return
+
+        # Get configured editor from preferences
+        prefs = PreferencesManager.get_instance()
+        editor_str = prefs.get("code_editor", "vscode")
+        editor = get_editor_from_string(editor_str)
+
+        if editor is None:
+            editor = CodeEditor.VSCODE  # Fallback
+
+        # Open file at line 1
+        success = open_in_editor(str(file_path), 1, editor)
+        if not success:
+            toast = ToastManager.get_instance()
+            toast.error("Editor Error", f"Failed to open '{file_path.name}' in {editor.value}")
 
     @Slot()
     def _on_run_clicked(self) -> None:
