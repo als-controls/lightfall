@@ -9,12 +9,11 @@ from __future__ import annotations
 import sys
 import threading
 import time
-import weakref
 from collections.abc import Callable, Generator
 from functools import wraps
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThread, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 from lucid.utils.logging import logger
@@ -33,6 +32,7 @@ __all__ = [
     "invoke_in_main_thread",
     "invoke_as_event",
     "is_main_thread",
+    "initialize_main_thread_invoker",
 ]
 
 T = TypeVar("T")
@@ -80,7 +80,9 @@ class ThreadManager:
         if self._initialized:
             return
         self._initialized = True
-        self._threads: dict[int, weakref.ref[QThreadFuture]] = {}
+        # Strong references to prevent GC before thread completion.
+        # Threads unregister themselves in finally block when done.
+        self._threads: dict[int, QThreadFuture] = {}
         self._keys: dict[str, int] = {}  # key -> thread id mapping
         self._registry_lock = threading.Lock()
         self._shutdown_connected = False
@@ -98,6 +100,10 @@ class ThreadManager:
     def register(self, thread: QThreadFuture, key: str | None = None) -> None:
         """Register a thread for tracking.
 
+        Holds a strong reference to prevent GC before thread completion.
+        Threads must call unregister() when done (handled automatically
+        in QThreadFuture.run() finally block).
+
         Args:
             thread: The QThreadFuture to track.
             key: Optional unique key for later retrieval. If a thread with
@@ -112,30 +118,17 @@ class ThreadManager:
             # Cancel existing thread with same key
             if key and key in self._keys:
                 old_id = self._keys[key]
-                old_ref = self._threads.get(old_id)
-                if old_ref:
-                    old_thread = old_ref()
-                    if old_thread and old_thread.isRunning():
-                        logger.debug(f"Cancelling existing thread with key '{key}'")
-                        old_thread.cancel()
+                old_thread = self._threads.get(old_id)
+                if old_thread and old_thread.isRunning():
+                    logger.debug(f"Cancelling existing thread with key '{key}'")
+                    old_thread.cancel()
 
-            self._threads[thread_id] = weakref.ref(thread, self._make_cleanup(thread_id))
+            self._threads[thread_id] = thread
             if key:
                 self._keys[key] = thread_id
                 thread._manager_key = key
 
         logger.trace(f"Registered thread {thread_id}" + (f" with key '{key}'" if key else ""))
-
-    def _make_cleanup(self, thread_id: int) -> Callable[[weakref.ref], None]:
-        """Create a weak reference callback to clean up when thread is garbage collected."""
-        def cleanup(ref: weakref.ref) -> None:
-            with self._registry_lock:
-                self._threads.pop(thread_id, None)
-                # Clean up key mapping
-                keys_to_remove = [k for k, v in self._keys.items() if v == thread_id]
-                for k in keys_to_remove:
-                    del self._keys[k]
-        return cleanup
 
     def unregister(self, thread: QThreadFuture) -> None:
         """Unregister a thread from tracking."""
@@ -151,9 +144,8 @@ class ThreadManager:
         """Get all currently active (running) threads."""
         active = []
         with self._registry_lock:
-            for ref in list(self._threads.values()):
-                thread = ref()
-                if thread and thread.isRunning():
+            for thread in list(self._threads.values()):
+                if thread.isRunning():
                     active.append(thread)
         return active
 
@@ -163,10 +155,7 @@ class ThreadManager:
             thread_id = self._keys.get(key)
             if thread_id is None:
                 return None
-            ref = self._threads.get(thread_id)
-            if ref is None:
-                return None
-            return ref()
+            return self._threads.get(thread_id)
 
     def cancel(self, key: str, timeout_ms: int = 5000) -> bool:
         """Cancel a thread by key.
@@ -245,9 +234,14 @@ thread_manager = get_thread_manager()
 class QThreadFuture(QThread):
     """A future-like QThread with automatic registration and improved cancellation.
 
+    Uses Qt signals for cross-thread callback delivery, which is more robust
+    than invoke_in_main_thread() as it doesn't require careful initialization
+    timing of the invoker object.
+
     Signals:
-        sigFinished: Emitted when the thread completes successfully.
-        sigExcept: Emitted with the exception when an error occurs.
+        sigResult: Emitted with the return value when method completes.
+        sigError: Emitted with the exception when an error occurs.
+        sigDone: Emitted when thread finishes successfully (after sigResult).
 
     Example:
         def long_task(x):
@@ -258,6 +252,12 @@ class QThreadFuture(QThread):
         future.start()
         # Later: print receives 10
     """
+
+    # Signals for cross-thread callback delivery
+    # Qt handles thread marshalling automatically when these are emitted
+    sigResult = Signal(object)  # Emitted with return value
+    sigError = Signal(object)   # Emitted with exception
+    sigDone = Signal()          # Emitted when finished successfully
 
     def __init__(
         self,
@@ -311,6 +311,15 @@ class QThreadFuture(QThread):
         self._result: Any = None
         self._manager_key: str | None = None
 
+        # Connect user-provided slots to signals
+        # Qt's signal/slot mechanism handles cross-thread marshalling automatically
+        if callback_slot:
+            self.sigResult.connect(callback_slot)
+        if except_slot:
+            self.sigError.connect(except_slot)
+        if finished_slot:
+            self.sigDone.connect(finished_slot)
+
     @property
     def cancelled(self) -> bool:
         """Whether the thread was cancelled."""
@@ -360,12 +369,12 @@ class QThreadFuture(QThread):
                     value = ex.value
                     self._result = value
                     if self._callback_slot:
-                        self._invoke_callback(value)
+                        self.sigResult.emit(value)
                     break
 
-                # For regular QThreadFuture, invoke callback on each yield
+                # For regular QThreadFuture, emit result on each yield
                 if not isinstance(self, QThreadFutureIterator) and self._callback_slot:
-                    self._invoke_callback(value)
+                    self.sigResult.emit(value)
 
         except Exception as ex:
             self._exception = ex
@@ -377,10 +386,10 @@ class QThreadFuture(QThread):
             )
             logger.exception(ex)
             if self._except_slot:
-                invoke_in_main_thread(self._except_slot, ex)
+                self.sigError.emit(ex)
         else:
             if self._finished_slot:
-                invoke_in_main_thread(self._finished_slot)
+                self.sigDone.emit()
         finally:
             if self._register:
                 thread_manager.unregister(self)
@@ -394,12 +403,6 @@ class QThreadFuture(QThread):
         """
         return self._method(*self._args, **self._kwargs)
         yield  # Makes this a generator function (never reached)
-
-    def _invoke_callback(self, value: Any) -> None:
-        """Invoke the callback with the given value."""
-        if not isinstance(value, tuple):
-            value = (value,)
-        invoke_in_main_thread(self._callback_slot, *value)
 
     def result(self, timeout_ms: int | None = None) -> Any:
         """Wait for and return the result.
@@ -482,7 +485,13 @@ class QThreadFutureIterator(QThreadFuture):
 
     The yield_slot is called for each yielded value, while callback_slot
     is called with the final return value.
+
+    Signals:
+        sigYield: Emitted with each yielded value from the generator.
     """
+
+    # Signal for yielded values (separate from sigResult which is for final value)
+    sigYield = Signal(object)
 
     def __init__(
         self,
@@ -502,6 +511,10 @@ class QThreadFutureIterator(QThreadFuture):
         super().__init__(method, *args, **kwargs)
         self._yield_slot = yield_slot
 
+        # Connect yield_slot to sigYield signal
+        if yield_slot:
+            self.sigYield.connect(yield_slot)
+
     def _run(self) -> Generator[Any, None, Any]:
         """Run the generator, yielding each value."""
         gen = self._method(*self._args, **self._kwargs)
@@ -509,22 +522,58 @@ class QThreadFutureIterator(QThreadFuture):
             if self.isInterruptionRequested():
                 return
             if self._yield_slot:
-                if not isinstance(value, tuple):
-                    value = (value,)
-                invoke_in_main_thread(self._yield_slot, *value)
+                self.sigYield.emit(value)
             yield value
 
 
 # -----------------------------------------------------------------------------
 # Main Thread Invocation
 # -----------------------------------------------------------------------------
+# Lazy-initialized to avoid creating Qt objects before QApplication exists.
+# On Windows, creating QObjects before QApplication can cause crashes.
+_invoke_event_type: QEvent.Type | None = None
+_invoker: "_Invoker | None" = None
+_invoker_lock = threading.Lock()
+
+
+def _get_invoke_event_type() -> QEvent.Type:
+    """Get or create the custom event type (lazy initialization)."""
+    global _invoke_event_type
+    if _invoke_event_type is None:
+        _invoke_event_type = QEvent.Type(QEvent.registerEventType())
+    return _invoke_event_type
+
+
+def _get_invoker() -> "_Invoker":
+    """Get or create the invoker singleton (lazy initialization)."""
+    global _invoker
+    if _invoker is None:
+        with _invoker_lock:
+            if _invoker is None:
+                _invoker = _Invoker()
+    return _invoker
+
+
+def initialize_main_thread_invoker() -> None:
+    """Initialize the invoker on the main thread.
+
+    Call this after QApplication is created but before starting any
+    background threads that use invoke_in_main_thread().
+
+    This is required because the invoker (a QObject) must be created
+    on the main thread for proper event delivery.
+    """
+    if not is_main_thread():
+        raise RuntimeError("initialize_main_thread_invoker must be called from main thread")
+    _get_invoker()
+    _get_invoke_event_type()
+
+
 class _InvokeEvent(QEvent):
     """QEvent that carries a callable for main thread execution."""
 
-    EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
-
     def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
-        super().__init__(_InvokeEvent.EVENT_TYPE)
+        super().__init__(_get_invoke_event_type())
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
@@ -548,9 +597,6 @@ class _Invoker(QObject):
         return super().event(event)
 
 
-_invoker = _Invoker()
-
-
 def invoke_in_main_thread(fn: Callable[..., Any], *args: Any, force_event: bool = False, **kwargs: Any) -> None:
     """Invoke a callable in the main thread.
 
@@ -566,7 +612,7 @@ def invoke_in_main_thread(fn: Callable[..., Any], *args: Any, force_event: bool 
     if not force_event and is_main_thread():
         fn(*args, **kwargs)
     else:
-        QCoreApplication.postEvent(_invoker, _InvokeEvent(fn, *args, **kwargs))
+        QCoreApplication.postEvent(_get_invoker(), _InvokeEvent(fn, *args, **kwargs))
 
 
 def invoke_as_event(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:

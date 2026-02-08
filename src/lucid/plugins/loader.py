@@ -29,7 +29,12 @@ from lucid.plugins.info import PluginInfo
 from lucid.plugins.manifest import PluginManifest
 from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.types import PluginType
-from lucid.utils.threads import QThreadFutureIterator, invoke_in_main_thread, is_main_thread
+from lucid.utils.threads import (
+    QThreadFutureIterator,
+    initialize_main_thread_invoker,
+    invoke_in_main_thread,
+    is_main_thread,
+)
 
 if TYPE_CHECKING:
     pass
@@ -357,6 +362,10 @@ class PluginLoader(QObject):
 
         self.loading_started.emit()
         logger.info("Starting background plugin loading ({} plugins)", len(self._load_queue))
+
+        # Ensure threading invoker is initialized on main thread before
+        # background thread tries to use invoke_in_main_thread.
+        initialize_main_thread_invoker()
 
         # Start background thread
         self._worker = QThreadFutureIterator(

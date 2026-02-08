@@ -14,6 +14,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.utils.logging import logger
+from lucid.utils.threads import QThreadFuture
 
 # API endpoint for ALS beam status
 ALS_BEAM_STATUS_URL = "https://controls.als.lbl.gov/als-beamstatus/curvals"
@@ -45,6 +46,10 @@ class ALSBeamData:
     y_rms: float = 0.0
     comment: str = ""
     timestamp: datetime | None = None
+
+
+# Thread key for preventing duplicate concurrent fetches
+_FETCH_THREAD_KEY = "als_beam_status_fetch"
 
 
 class ALSBeamStatusService(QObject):
@@ -143,9 +148,11 @@ class ALSBeamStatusService(QObject):
         logger.info("Starting ALS beam status polling")
         self._polling = True
 
-        # Do an immediate poll, then start the timer
-        self._poll()
+        # Start the timer and schedule an immediate async poll
+        # Using QTimer.singleShot(0, ...) defers to the next event loop cycle
+        # so startup isn't blocked waiting for network I/O
         self._poll_timer.start(POLL_INTERVAL_MS)
+        QTimer.singleShot(0, self._poll)
 
     def stop_polling(self) -> None:
         """Stop polling the ALS beam status API."""
@@ -157,17 +164,41 @@ class ALSBeamStatusService(QObject):
         self._poll_timer.stop()
 
     def _poll(self) -> None:
-        """Poll the ALS beam status API."""
-        try:
-            data = self._fetch_beam_status()
-            if data is not None:
-                self._data = data
-                self._set_connected(True)
-                self.status_changed.emit(data)
-        except Exception as e:
-            logger.debug("Failed to fetch ALS beam status: {}", e)
-            self._last_error = str(e)
-            self._set_connected(False)
+        """Poll the ALS beam status API asynchronously.
+
+        Launches a QThreadFuture to fetch data without blocking the main
+        Qt event loop. Using a thread key ensures that if a previous fetch
+        is still running, it gets cancelled before starting a new one.
+        """
+        # Keep reference to prevent GC before signals fire
+        self._current_fetch = QThreadFuture(
+            self._fetch_beam_status,
+            callback_slot=self._on_fetch_success,
+            except_slot=self._on_fetch_error,
+            key=_FETCH_THREAD_KEY,
+            name="als_beam_status_fetch",
+        )
+        self._current_fetch.start()
+
+    def _on_fetch_success(self, data: ALSBeamData) -> None:
+        """Handle successful fetch completion.
+
+        Args:
+            data: Fetched beam data.
+        """
+        self._data = data
+        self._set_connected(True)
+        self.status_changed.emit(data)
+
+    def _on_fetch_error(self, error: Exception) -> None:
+        """Handle fetch error.
+
+        Args:
+            error: The exception that occurred during fetch.
+        """
+        logger.debug("Failed to fetch ALS beam status: {}", error)
+        self._last_error = str(error)
+        self._set_connected(False)
 
     def _set_connected(self, connected: bool) -> None:
         """Update connection state and emit signal if changed."""
