@@ -57,6 +57,11 @@ class TiledBrowserPanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["tiled", "data", "browser", "catalog", "runs", "scans"],
+        # Docking preferences - main content area (center, always visible)
+        default_area="center",
+        sidebar_group="top",
+        auto_hide=False,
+        sidebar_order=3,
     )
 
     # Signals

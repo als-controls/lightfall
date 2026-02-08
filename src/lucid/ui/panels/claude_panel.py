@@ -38,6 +38,11 @@ class ClaudePanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["claude", "ai", "assistant", "llm", "chat", "help"],
+        # Docking preferences - bottom sidebar (auto-hide icons on bottom edge)
+        default_area="bottom",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=0,
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:

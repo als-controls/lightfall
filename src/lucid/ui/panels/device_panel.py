@@ -204,12 +204,17 @@ class DevicePanel(BasePanel):
         id="lucid.panels.devices",
         name="Devices",
         description="View and manage control system devices",
-        icon="devices",
+        icon="microchip",
         category="Core",
         required_permission=None,
         singleton=True,
         closable=True,
         keywords=["device", "motor", "detector", "hardware", "equipment", "signal"],
+        # Docking preferences - primary tool in left sidebar
+        default_area="left",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=1,
     )
 
     # Signals
@@ -232,19 +237,10 @@ class DevicePanel(BasePanel):
         self._catalog.device_removed.connect(self._on_device_changed)
 
     def _setup_ui(self) -> None:
-        """Setup the panel UI."""
-        # Main splitter
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._layout.addWidget(splitter)
-
-        # Left side: device tree
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Toolbar
+        """Setup the panel UI with device tree above, control/info tabs below."""
+        # Toolbar at top
         toolbar = self._create_toolbar()
-        left_layout.addWidget(toolbar)
+        self._layout.addWidget(toolbar)
 
         # Search and filter row
         filter_layout = QHBoxLayout()
@@ -279,9 +275,13 @@ class DevicePanel(BasePanel):
         # Apply default filter
         self._proxy_model.set_visible_kinds(default_visible)
 
-        left_layout.addLayout(filter_layout)
+        self._layout.addLayout(filter_layout)
 
-        # Tree view with multi-selection support
+        # Vertical splitter: tree on top, tabs on bottom
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self._layout.addWidget(splitter)
+
+        # Top: Tree view with multi-selection support
         self._tree_view = QTreeView()
         self._tree_view.setModel(self._proxy_model)
         self._tree_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -303,25 +303,24 @@ class DevicePanel(BasePanel):
         # Set reasonable default column widths
         self._tree_view.setColumnWidth(0, 200)
 
-        left_layout.addWidget(self._tree_view)
-        splitter.addWidget(left_widget)
+        splitter.addWidget(self._tree_view)
 
-        # Right side: tabs with details
-        self._right_tabs = QTabWidget()
+        # Bottom: tabs with Control and Info
+        self._detail_tabs = QTabWidget()
 
         # Control tab (dynamic device control UI) - first tab
         self._control_widget = DeviceControlWidget()
         self._control_widget.control_error.connect(self._on_control_error)
-        self._right_tabs.addTab(self._control_widget, "Control")
+        self._detail_tabs.addTab(self._control_widget, "Control")
 
         # Info tab (device details)
         self._overview_widget = DeviceOverviewWidget()
-        self._right_tabs.addTab(self._overview_widget, "Info")
+        self._detail_tabs.addTab(self._overview_widget, "Info")
 
-        splitter.addWidget(self._right_tabs)
+        splitter.addWidget(self._detail_tabs)
 
-        # Set initial splitter sizes
-        splitter.setSizes([350, 350])
+        # Set initial splitter sizes (tree gets more space)
+        splitter.setSizes([250, 150])
 
         # Connect signals after UI is set up
         self._search_input.textChanged.connect(self._on_search_changed)

@@ -41,6 +41,10 @@ class PanelMetadata:
         singleton: Whether only one instance can exist.
         closable: Whether the panel can be closed by the user.
         keywords: Search keywords for finding this panel.
+        default_area: Default dock area ("left", "right", "bottom", "center").
+        sidebar_group: Sidebar group within the area ("top", "bottom").
+        auto_hide: Whether panel starts in auto-hide sidebar mode.
+        sidebar_order: Order within sidebar group (lower = higher).
     """
 
     id: str
@@ -52,6 +56,12 @@ class PanelMetadata:
     singleton: bool = True
     closable: bool = True
     keywords: list[str] = field(default_factory=list)
+
+    # Docking preferences
+    default_area: str = "left"
+    sidebar_group: str = "top"
+    auto_hide: bool = True
+    sidebar_order: int = 0
 
     def matches_search(self, query: str) -> bool:
         """Check if panel matches a search query.

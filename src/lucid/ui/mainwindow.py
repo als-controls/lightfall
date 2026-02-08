@@ -18,7 +18,6 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QDockWidget,
     QMainWindow,
     QStatusBar,
     QToolBar,
@@ -26,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.auth.session import AuthState, SessionManager
+from lucid.ui.docking import DockingManager
 from lucid.ui.panels.base import BasePanel
 from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.preferences import PreferencesDialog, PreferencesManager
@@ -70,8 +70,7 @@ class NCSMainWindow(QMainWindow):
         """
         super().__init__(parent)
         self._config_manager: ConfigManager | None = None
-        self._panel_docks: dict[str, QDockWidget] = {}
-        self._active_panel_id: str | None = None
+        self._docking_manager: DockingManager | None = None
         self._default_layout_applied: bool = False
         self._initial_show_done: bool = False
         self._statusbar_manager: StatusBarManager | None = None
@@ -278,12 +277,13 @@ class NCSMainWindow(QMainWindow):
         statusbar.setVisible(self._prefs_manager.show_statusbar)
 
     def _setup_central_widget(self) -> None:
-        """Setup the central widget area."""
-        # Use a placeholder central widget
-        # Panels will be docked around this
-        central = QWidget()
-        central.setMaximumSize(0, 0)  # Zero size so docks fill the window
-        self.setCentralWidget(central)
+        """Setup the central widget area with advanced docking."""
+        # Initialize the docking manager (replaces QDockWidget system)
+        self._docking_manager = DockingManager(self)
+        self._docking_manager.initialize()
+
+        # Connect docking signals
+        self._docking_manager.panel_focused.connect(self._on_panel_focused)
 
     def _connect_signals(self) -> None:
         """Connect to manager signals."""
@@ -319,23 +319,36 @@ class NCSMainWindow(QMainWindow):
     def add_panel(
         self,
         panel_id: str,
-        area: Qt.DockWidgetArea = Qt.DockWidgetArea.LeftDockWidgetArea,
+        area: str | None = None,
+        *,
+        add_sidebar_button: bool = True,
     ) -> BasePanel | None:
         """Add a panel to the window.
 
+        Panels are routed based on their area:
+        - "left" → Left dock area with sidebar icon (exclusive)
+        - "bottom" → Bottom dock area with sidebar icon (exclusive)
+        - "center" → Center dock area, always visible
+
         Args:
             panel_id: Panel identifier.
-            area: Dock area to add panel to.
+            area: Dock area ("left", "bottom", "center").
+                Defaults to panel's default_area metadata.
+            add_sidebar_button: Whether to add sidebar button immediately.
+                Set False to control sidebar icon order separately.
 
         Returns:
             The panel instance or None if failed.
         """
+        if self._docking_manager is None:
+            logger.error("Docking manager not initialized")
+            return None
+
         # Check if already open
-        if panel_id in self._panel_docks:
-            dock = self._panel_docks[panel_id]
-            dock.show()
-            dock.raise_()
-            return dock.widget()
+        existing = self._docking_manager.get_panel(panel_id)
+        if existing is not None:
+            self._docking_manager.show_panel(panel_id)
+            return existing
 
         # Create panel
         panel = self._panel_registry.create(panel_id)
@@ -350,40 +363,26 @@ class NCSMainWindow(QMainWindow):
             )
             return None
 
-        # Create dock widget
-        dock = QDockWidget(panel.panel_metadata.name, self)
-        dock.setObjectName(f"dock_{panel_id}")
-        dock.setWidget(panel)
-
-        # Configure dock
-        if panel.panel_metadata.closable:
-            dock.setFeatures(
-                QDockWidget.DockWidgetFeature.DockWidgetClosable
-                | QDockWidget.DockWidgetFeature.DockWidgetMovable
-                | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            )
-        else:
-            dock.setFeatures(
-                QDockWidget.DockWidgetFeature.DockWidgetMovable
-                | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            )
-
-        # Connect dock signals
-        dock.visibilityChanged.connect(
-            lambda visible, pid=panel_id: self._on_dock_visibility_changed(pid, visible)
+        # Add via docking manager
+        dock_widget = self._docking_manager.add_panel(
+            panel_id, panel, area=area, add_sidebar_button=add_sidebar_button
         )
 
-        # Add to window
-        self.addDockWidget(area, dock)
-        self._panel_docks[panel_id] = dock
+        if dock_widget is None:
+            logger.warning("Failed to add panel to docking system: {}", panel_id)
+            return None
 
         logger.debug("Added panel to window: {}", panel_id)
         return panel
 
     def setup_default_layout(self) -> None:
-        """Setup the default panel layout.
+        """Setup the default panel layout with icon strip sidebar.
 
-        Opens Bluesky+Devices tabbed on left, Logbook+Documents tabbed on right.
+        Layout:
+        - Sidebar top icons: Bluesky, Devices (dock to left)
+        - Center (always visible): Logbook
+        - Sidebar bottom icons: Claude, Documents, Logging, Synoptic (dock to bottom)
+
         Also clears saved state and prevents showEvent from restoring.
         """
         # Clear any saved state
@@ -392,43 +391,40 @@ class NCSMainWindow(QMainWindow):
         settings.remove("mainwindow/geometry")
         settings.remove("mainwindow/state")
 
-        # Add Bluesky panel on the left
-        self.add_panel(
+        if self._docking_manager:
+            self._docking_manager.clear_state(settings)
+
+        # === Dock Layout Order (determines which area spans full width) ===
+        # 1. Center panel first (establishes main dock area)
+        self.add_panel("lucid.panels.logbook")
+
+        # 2. Bottom panels SECOND (so bottom area spans full width)
+        #    Add to dock WITHOUT sidebar buttons - we'll add buttons later
+        bottom_panels = [
+            "lucid.panels.claude",
+            "lucid.panels.logging",
+            "lucid.panels.synoptic",
+        ]
+        for panel_id in bottom_panels:
+            self.add_panel(panel_id, add_sidebar_button=False)
+
+        # 3. Left panels THIRD (left area is above bottom, not full height)
+        #    Add to dock WITH sidebar buttons (these are the top icons)
+        for panel_id in [
             "lucid.panels.bluesky",
-            area=Qt.DockWidgetArea.LeftDockWidgetArea,
-        )
-
-        # Add Devices panel on the left
-        self.add_panel(
             "lucid.panels.devices",
-            area=Qt.DockWidgetArea.LeftDockWidgetArea,
-        )
-
-        # Tabify Bluesky and Devices
-        bluesky_dock = self._panel_docks.get("lucid.panels.bluesky")
-        devices_dock = self._panel_docks.get("lucid.panels.devices")
-        if bluesky_dock and devices_dock:
-            self.tabifyDockWidget(bluesky_dock, devices_dock)
-            bluesky_dock.raise_()
-
-        # Add Logbook panel on the right
-        self.add_panel(
-            "lucid.panels.logbook",
-            area=Qt.DockWidgetArea.RightDockWidgetArea,
-        )
-
-        # Add Documents panel on the right
-        self.add_panel(
             "lucid.panels.documents",
-            area=Qt.DockWidgetArea.RightDockWidgetArea,
-        )
+        ]:
+            self.add_panel(panel_id)
 
-        # Tabify Logbook and Documents
-        logbook_dock = self._panel_docks.get("lucid.panels.logbook")
-        documents_dock = self._panel_docks.get("lucid.panels.documents")
-        if logbook_dock and documents_dock:
-            self.tabifyDockWidget(logbook_dock, documents_dock)
-            logbook_dock.raise_()
+        # === Sidebar Icon Order ===
+        # Add stretch to separate top and bottom icons
+        if self._docking_manager:
+            self._docking_manager.add_sidebar_stretch()
+
+            # Now add sidebar buttons for bottom panels (bottom icons)
+            for panel_id in bottom_panels:
+                self._docking_manager.add_sidebar_button(panel_id)
 
         self._default_layout_applied = True
         logger.info("Applied default panel layout")
@@ -442,15 +438,10 @@ class NCSMainWindow(QMainWindow):
         Returns:
             True if panel was removed.
         """
-        dock = self._panel_docks.pop(panel_id, None)
-        if dock is None:
+        if self._docking_manager is None:
             return False
 
-        self.removeDockWidget(dock)
-        dock.deleteLater()
-
-        logger.debug("Removed panel from window: {}", panel_id)
-        return True
+        return self._docking_manager.remove_panel(panel_id)
 
     def get_panel(self, panel_id: str) -> BasePanel | None:
         """Get a panel by ID.
@@ -461,10 +452,9 @@ class NCSMainWindow(QMainWindow):
         Returns:
             The panel instance or None.
         """
-        dock = self._panel_docks.get(panel_id)
-        if dock:
-            return dock.widget()
-        return None
+        if self._docking_manager is None:
+            return None
+        return self._docking_manager.get_panel(panel_id)
 
     def list_open_panels(self) -> list[str]:
         """Get list of open panel IDs.
@@ -472,7 +462,9 @@ class NCSMainWindow(QMainWindow):
         Returns:
             List of panel identifiers.
         """
-        return list(self._panel_docks.keys())
+        if self._docking_manager is None:
+            return []
+        return self._docking_manager.list_panels()
 
     def activate_panel(self, panel_id: str) -> bool:
         """Activate (focus) a panel.
@@ -483,25 +475,27 @@ class NCSMainWindow(QMainWindow):
         Returns:
             True if panel was activated.
         """
-        dock = self._panel_docks.get(panel_id)
-        if dock is None:
+        if self._docking_manager is None:
             return False
 
-        dock.show()
-        dock.raise_()
-        dock.widget().activate()
+        return self._docking_manager.show_panel(panel_id)
 
-        if self._active_panel_id != panel_id:
-            # Deactivate previous
-            if self._active_panel_id:
-                prev_dock = self._panel_docks.get(self._active_panel_id)
-                if prev_dock:
-                    prev_dock.widget().deactivate()
+    def toggle_panel(self, panel_id: str) -> bool:
+        """Toggle panel visibility (PyCharm-like behavior).
 
-            self._active_panel_id = panel_id
-            self.panel_activated.emit(panel_id)
+        Click active panel icon → hide it
+        Click inactive panel icon → show and focus it
 
-        return True
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if toggle was successful.
+        """
+        if self._docking_manager is None:
+            return False
+
+        return self._docking_manager.toggle_panel(panel_id)
 
     # Menu updates
 
@@ -714,14 +708,9 @@ class NCSMainWindow(QMainWindow):
             except ValueError:
                 pass
 
-    def _on_dock_visibility_changed(self, panel_id: str, visible: bool) -> None:
-        """Handle dock visibility change."""
-        panel = self.get_panel(panel_id)
-        if panel:
-            if visible:
-                panel.activate()
-            else:
-                panel.deactivate()
+    def _on_panel_focused(self, panel_id: str) -> None:
+        """Handle panel focus change from docking manager."""
+        self.panel_activated.emit(panel_id)
 
     # Action handlers
 
@@ -798,15 +787,43 @@ class NCSMainWindow(QMainWindow):
 
     def _save_window_state(self) -> None:
         """Save window state to preferences."""
-        self._prefs_manager.save_window_state(self)
+        from PySide6.QtCore import QSettings
+
+        settings = QSettings("ALS", "NCS")
+        settings.setValue("mainwindow/geometry", self.saveGeometry())
+
+        # Save docking state
+        if self._docking_manager:
+            self._docking_manager.save_state(settings)
+
         self.statusBar().showMessage("Layout saved", 3000)
 
-    def _restore_window_state(self) -> None:
-        """Restore window state from preferences."""
-        if self._prefs_manager.restore_window_state(self):
+    def _restore_window_state(self) -> bool:
+        """Restore window state from preferences.
+
+        Returns:
+            True if state was restored successfully.
+        """
+        from PySide6.QtCore import QSettings
+
+        settings = QSettings("ALS", "NCS")
+
+        # Restore geometry
+        geometry = settings.value("mainwindow/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+
+        # Restore docking state
+        docking_restored = False
+        if self._docking_manager:
+            docking_restored = self._docking_manager.restore_state(settings)
+
+        if geometry or docking_restored:
             self.statusBar().showMessage("Layout restored", 3000)
+            return True
         else:
             self.statusBar().showMessage("No saved layout found", 3000)
+            return False
 
     # Lifecycle
 
@@ -827,7 +844,7 @@ class NCSMainWindow(QMainWindow):
 
         # Restore window state if preference set
         if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
-            self._prefs_manager.restore_window_state(self)
+            self._restore_window_state()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle close event."""
@@ -835,10 +852,10 @@ class NCSMainWindow(QMainWindow):
 
         # Save window state if preference set
         if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
-            self._prefs_manager.save_window_state(self)
+            self._save_window_state()
 
         # Check if any panel has unsaved work (force=True to ignore closable flag)
-        for panel_id in list(self._panel_docks.keys()):
+        for panel_id in self.list_open_panels():
             panel = self.get_panel(panel_id)
             if panel and not panel.can_close(force=True):
                 # Panel has unsaved work or other reason to prevent shutdown
@@ -871,16 +888,6 @@ class NCSMainWindow(QMainWindow):
             "is_visible": self.isVisible(),
             "is_maximized": self.isMaximized(),
             "is_fullscreen": self.isFullScreen(),
-            "open_panels": [
-                {
-                    "id": panel_id,
-                    "title": dock.windowTitle(),
-                    "visible": dock.isVisible(),
-                    "floating": dock.isFloating(),
-                }
-                for panel_id, dock in self._panel_docks.items()
-            ],
-            "active_panel": self._active_panel_id,
             "available_panels": [
                 meta.id
                 for meta in self._panel_registry.list_available(
@@ -891,6 +898,17 @@ class NCSMainWindow(QMainWindow):
             "user": self._session_manager.current_user.username,
             "auth_state": self._session_manager.state.name,
         }
+
+        # Add docking introspection
+        if self._docking_manager:
+            docking_data = self._docking_manager.get_introspection_data()
+            data["open_panels"] = docking_data.get("panels", [])
+            data["active_panel"] = docking_data.get("active_panel")
+            data["sidebar_groups"] = docking_data.get("sidebar_groups", {})
+        else:
+            data["open_panels"] = []
+            data["active_panel"] = None
+            data["sidebar_groups"] = {}
 
         # Add status bar introspection
         if self._statusbar_manager:

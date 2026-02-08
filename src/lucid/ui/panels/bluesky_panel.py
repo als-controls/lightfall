@@ -66,6 +66,11 @@ class BlueskyPanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["scan", "plan", "bluesky", "runengine", "acquisition"],
+        # Docking preferences - primary tool in left sidebar
+        default_area="left",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=0,
     )
 
     plan_started = Signal(str)  # plan name

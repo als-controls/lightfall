@@ -224,12 +224,17 @@ class ThreadsPanel(BasePanel):
         id="lucid.panels.threads",
         name="Threads",
         description="Monitor and manage background threads",
-        icon="threads",
+        icon="project-diagram",
         category="Developer",
         required_permission=None,
         singleton=True,
         closable=True,
         keywords=["thread", "background", "task", "worker", "async", "concurrent"],
+        # Docking preferences - diagnostic tool in left-bottom sidebar
+        default_area="left",
+        sidebar_group="bottom",
+        auto_hide=True,
+        sidebar_order=1,
     )
 
     # Signals

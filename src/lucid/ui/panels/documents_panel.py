@@ -34,11 +34,16 @@ class DocumentsPanel(BasePanel):
         id="lucid.panels.documents",
         name="Documents",
         description="View Bluesky document streams during acquisition",
-        icon="file-text",
+        icon="stream",
         category="Acquisition",
         singleton=True,
         closable=True,
         keywords=["documents", "bluesky", "stream", "events", "data"],
+        # Docking preferences - left sidebar (top icons)
+        default_area="left",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=2,
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:

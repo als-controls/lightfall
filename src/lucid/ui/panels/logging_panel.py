@@ -251,11 +251,16 @@ class LoggingPanel(BasePanel):
         id="lucid.panels.logging",
         name="Logging",
         description="View application logs with level filtering",
-        icon="file-text",
+        icon="scroll",
         category="System",
         singleton=True,
         closable=True,
         keywords=["logging", "logs", "debug", "trace", "errors", "console"],
+        # Docking preferences - bottom sidebar (auto-hide icons on bottom edge)
+        default_area="bottom",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=2,
     )
 
     # Signal to safely add records from any thread

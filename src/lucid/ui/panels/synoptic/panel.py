@@ -70,12 +70,17 @@ class SynopticPanel(BasePanel):
         id="lucid.panels.synoptic",
         name="Synoptic",
         description="2D visualization of beamline hardware layout",
-        icon="synoptic",
+        icon="layer-group",
         category="Core",
         required_permission=None,  # View is open to all authenticated
         singleton=True,
         closable=True,
         keywords=["2d", "synoptic", "layout", "beamline", "visualization", "hardware"],
+        # Docking preferences - bottom sidebar (auto-hide icons on bottom edge)
+        default_area="bottom",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=3,
     )
 
     # Signals

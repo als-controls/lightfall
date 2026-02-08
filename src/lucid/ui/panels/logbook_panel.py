@@ -54,12 +54,17 @@ class LogbookPanel(BasePanel):
         id="lucid.panels.logbook",
         name="Logbook",
         description="Experiment logbook for recording notes and viewing system events",
-        icon="logbook",
+        icon="book-open",
         category="Core",
         required_permission=None,  # Everyone can view the logbook
         singleton=True,
-        closable=False,  # Always visible
+        closable=False,  # Always visible in center
         keywords=["log", "notes", "experiment", "journal", "record"],
+        # Docking preferences - center area (always visible)
+        default_area="center",
+        sidebar_group="top",
+        auto_hide=False,
+        sidebar_order=0,
     )
 
     # Signals

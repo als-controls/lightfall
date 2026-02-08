@@ -203,11 +203,16 @@ class QueuePanel(BasePanel):
         id="lucid.panels.queue",
         name="Queue",
         description="Manage the RunEngine queue and view execution history",
-        icon="list",
+        icon="clipboard-list",
         category="Acquisition",
         singleton=True,
         closable=True,
         keywords=["queue", "pending", "history", "recent", "runengine", "bluesky"],
+        # Docking preferences - acquisition tool in left sidebar
+        default_area="left",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=2,
     )
 
     plan_queued = Signal(str)  # plan name

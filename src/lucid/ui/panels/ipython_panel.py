@@ -154,6 +154,11 @@ class IPythonPanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["ipython", "console", "python", "scripting", "repl", "terminal"],
+        # Docking preferences - tool panel, bottom area
+        default_area="bottom",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=0,
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
