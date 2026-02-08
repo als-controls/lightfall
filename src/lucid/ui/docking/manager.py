@@ -574,6 +574,12 @@ class DockingManager(QObject):
                         other_widget.toggleView(False)
             widget.toggleView(True)
 
+        # Sync sidebar icon state with actual panel visibility
+        # addDockWidget may show the panel without emitting viewToggled
+        is_visible = not widget.isClosed()
+        if self._icon_sidebar:
+            self._icon_sidebar.set_panel_active(panel_id, is_visible)
+
         logger.info("Moved panel {} from {} to {} via sidebar drag", panel_id, old_area, target_area)
 
     def _on_panel_visibility_changed(self, panel_id: str, visible: bool) -> None:
