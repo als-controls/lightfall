@@ -381,7 +381,7 @@ class NCSMainWindow(QMainWindow):
         Layout:
         - Sidebar top icons: Bluesky, Devices, Documents, Data Browser (dock to left)
         - Center (always visible): Logbook
-        - Sidebar bottom icons: Synoptic, Claude, IPython, Queue, Recording (dock to bottom)
+        - Sidebar bottom icons: Synoptic, Claude, IPython, Queue, Recording, Logging, Threads (dock to bottom)
 
         Also clears saved state and prevents showEvent from restoring.
         """
@@ -406,6 +406,8 @@ class NCSMainWindow(QMainWindow):
             "lucid.panels.ipython",
             "lucid.panels.queue",
             "lucid.dev.panels.record_test",  # Recording (from lucid-dev-plugins)
+            "lucid.panels.logging",
+            "lucid.panels.threads",
         ]
         for panel_id in bottom_panels:
             self.add_panel(panel_id, add_sidebar_button=False)
