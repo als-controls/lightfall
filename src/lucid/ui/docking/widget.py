@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import qtawesome as qta
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -246,7 +246,12 @@ class PanelDockWidget(CDockWidget):
 
     For side panels (left/bottom), wraps the panel in a PanelContainer
     that provides a custom title bar, allowing NoTab to be used.
+
+    Signals:
+        dock_area_changed: Emitted when the widget moves to a different dock area.
     """
+
+    dock_area_changed = Signal()
 
     def __init__(
         self,
@@ -266,6 +271,7 @@ class PanelDockWidget(CDockWidget):
         super().__init__(panel.panel_metadata.name, parent)
         self._panel = panel
         self._container: PanelContainer | None = None
+        self._last_dock_area = None  # Track last known dock area for change detection
 
         # Set object name for state persistence
         self.setObjectName(f"dock_{panel.panel_metadata.id}")
@@ -316,3 +322,22 @@ class PanelDockWidget(CDockWidget):
             self._panel.activate()
         else:
             self._panel.deactivate()
+
+    def event(self, event: QEvent) -> bool:
+        """Handle Qt events, including parent changes for dock area tracking.
+
+        When the widget is dragged between dock areas, its Qt parent changes.
+        We detect this and emit dock_area_changed to update the sidebar.
+        """
+        if event.type() == QEvent.Type.ParentChange:
+            # Use QTimer.singleShot to check after parent is fully set
+            QTimer.singleShot(0, self._check_dock_area_changed)
+        return super().event(event)
+
+    def _check_dock_area_changed(self) -> None:
+        """Check if dock area changed and emit signal if so."""
+        current_area = self.dockAreaWidget()
+        if current_area != self._last_dock_area:
+            self._last_dock_area = current_area
+            if current_area is not None:  # Only emit when docked somewhere
+                self.dock_area_changed.emit()

@@ -29,6 +29,8 @@ from PySide6QtAds import (
     CDockWidget,
     CenterDockWidgetArea,
     LeftDockWidgetArea,
+    RightDockWidgetArea,
+    TopDockWidgetArea,
 )
 
 from lucid.ui.docking.icon_sidebar import IconStripSidebar
@@ -51,6 +53,15 @@ AREA_MAP = {
     "left": LeftDockWidgetArea,
     "bottom": BottomDockWidgetArea,
     "center": CenterDockWidgetArea,
+}
+
+# Reverse map: DockWidgetArea enum to area name
+AREA_NAME_MAP = {
+    LeftDockWidgetArea: "left",
+    RightDockWidgetArea: "left",  # Treat right as left for sidebar purposes
+    BottomDockWidgetArea: "bottom",
+    TopDockWidgetArea: "bottom",  # Treat top as bottom for sidebar purposes
+    CenterDockWidgetArea: "center",
 }
 
 
@@ -95,6 +106,11 @@ class DockingManager(QObject):
         self._central_widget: QWidget | None = None
         self._center_dock_area = None  # Track center area for relative positioning
 
+        # Zone tracking: track CDockAreaWidget objects by zone for reliable area detection
+        self._left_dock_areas: set = set()    # CDockAreaWidget objects in left zone
+        self._bottom_dock_areas: set = set()  # CDockAreaWidget objects in bottom zone
+        self._right_dock_areas: set = set()   # CDockAreaWidget objects in right zone
+
     def initialize(self) -> None:
         """Initialize CDockManager with custom icon strip sidebar.
 
@@ -122,6 +138,7 @@ class DockingManager(QObject):
         # Create icon strip sidebar
         self._icon_sidebar = IconStripSidebar()
         self._icon_sidebar.panel_toggled.connect(self._on_sidebar_panel_toggled)
+        self._icon_sidebar.panel_section_changed.connect(self._on_sidebar_section_changed)
         layout.addWidget(self._icon_sidebar)
 
         # Create dock manager
@@ -230,6 +247,10 @@ class DockingManager(QObject):
                 if title_bar is not None:
                     title_bar.setVisible(False)
 
+            # Register dock area in the appropriate zone for reliable area detection
+            if dock_area_widget is not None:
+                self._register_dock_area(dock_area_widget, area)
+
             # Initially hidden (user clicks sidebar to show)
             widget.toggleView(False)
             # Add button to sidebar (unless deferred for layout ordering)
@@ -257,6 +278,17 @@ class DockingManager(QObject):
         widget.viewToggled.connect(
             lambda visible, pid=panel_id: self._on_panel_visibility_changed(pid, visible)
         )
+
+        # Connect to dock area change signal for sidebar sync when dragging
+        widget.dock_area_changed.connect(
+            lambda pid=panel_id: self._sync_panel_area(pid)
+        )
+
+        # Connect to topLevelChanged to detect when panel is dropped after dragging
+        if area in ("left", "bottom"):
+            widget.topLevelChanged.connect(
+                lambda floating, pid=panel_id: self._on_panel_top_level_changed(pid, floating)
+            )
 
         logger.debug("Added panel {} to area {}", panel_id, area)
         self.panel_added.emit(panel_id)
@@ -465,10 +497,90 @@ class DockingManager(QObject):
         else:
             self.hide_panel(panel_id)
 
+    def _on_sidebar_section_changed(self, panel_id: str, new_section: str) -> None:
+        """Move a panel to a different dock area when its sidebar icon changes section.
+
+        This is the reverse of _sync_panel_area(): when a user drags a sidebar
+        icon from the top section to the bottom (or vice versa), we move the
+        actual panel to the corresponding dock area.
+
+        Args:
+            panel_id: Panel identifier.
+            new_section: Target section ("top" = left dock, "bottom" = bottom dock).
+        """
+        widget = self._panel_widgets.get(panel_id)
+        if widget is None or self._dock_manager is None:
+            return
+
+        # Map section to dock area
+        target_area = "left" if new_section == "top" else "bottom"
+        current_area = self._panel_areas.get(panel_id)
+
+        if current_area == target_area:
+            return  # Already in correct area
+
+        # Move the panel to the new dock area
+        self._move_panel_to_area(panel_id, target_area)
+
+    def _move_panel_to_area(self, panel_id: str, target_area: str) -> None:
+        """Move a panel to a different dock area.
+
+        Args:
+            panel_id: Panel identifier.
+            target_area: Target area ("left" or "bottom").
+        """
+        widget = self._panel_widgets.get(panel_id)
+        if widget is None or self._dock_manager is None:
+            return
+
+        # Remember visibility state
+        was_visible = not widget.isClosed()
+
+        # Get target dock area enum
+        dock_area = AREA_MAP.get(target_area)
+        if dock_area is None:
+            return
+
+        # Re-dock the widget to the new area
+        # For left panels, add relative to center so bottom spans full width
+        if target_area == "left" and self._center_dock_area is not None:
+            dock_area_widget = self._dock_manager.addDockWidget(
+                dock_area, widget, self._center_dock_area
+            )
+        else:
+            dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
+
+        # Register the new dock area in the zone set
+        if dock_area_widget is not None:
+            self._register_dock_area(dock_area_widget, target_area)
+
+        # Update internal tracking
+        old_area = self._panel_areas.get(panel_id)
+        self._panel_areas[panel_id] = target_area
+
+        # Hide the title bar (we use custom title bars for side panels)
+        if dock_area_widget is not None:
+            title_bar = dock_area_widget.titleBar()
+            if title_bar is not None:
+                title_bar.setVisible(False)
+
+        # Restore visibility (or handle exclusive visibility in new area)
+        if was_visible:
+            # Enforce exclusive visibility in the new area
+            for other_id, other_area in self._panel_areas.items():
+                if other_id != panel_id and other_area == target_area:
+                    other_widget = self._panel_widgets.get(other_id)
+                    if other_widget and not other_widget.isClosed():
+                        other_widget.toggleView(False)
+            widget.toggleView(True)
+
+        logger.info("Moved panel {} from {} to {} via sidebar drag", panel_id, old_area, target_area)
+
     def _on_panel_visibility_changed(self, panel_id: str, visible: bool) -> None:
         """Handle panel visibility change (e.g., closed via X button).
 
-        Keeps the sidebar in sync with actual panel state.
+        Keeps the sidebar in sync with actual panel state, and moves
+        sidebar icons if the panel has been dragged to a different area.
 
         Args:
             panel_id: The panel whose visibility changed.
@@ -476,6 +588,185 @@ class DockingManager(QObject):
         """
         if self._icon_sidebar:
             self._icon_sidebar.set_panel_active(panel_id, visible)
+
+        # Check if panel area has changed (e.g., dragged from left to bottom)
+        if visible:
+            self._sync_panel_area(panel_id)
+
+    def _on_panel_top_level_changed(self, panel_id: str, floating: bool) -> None:
+        """Handle panel floating state change.
+
+        When a panel is dropped (floating becomes False), check if it
+        landed in a different dock area and sync the sidebar icon.
+
+        Args:
+            panel_id: Panel identifier.
+            floating: True if panel is now floating, False if docked.
+        """
+        if floating:
+            return  # Only care about when panel is dropped (docked)
+
+        # Panel was just dropped - sync its area
+        self._sync_panel_area(panel_id)
+
+    def _sync_panel_area(self, panel_id: str) -> None:
+        """Sync the sidebar icon position with the panel's current dock area.
+
+        If a panel has been dragged to a different area, move its sidebar
+        icon to the corresponding section:
+        - Left or right dock areas → top section (side panels)
+        - Bottom dock area → bottom section
+
+        Args:
+            panel_id: Panel identifier.
+        """
+        widget = self._panel_widgets.get(panel_id)
+        if widget is None:
+            return
+
+        # Get the current dock area
+        dock_area_widget = widget.dockAreaWidget()
+        if dock_area_widget is None:
+            return
+
+        # Detect the current zone using zone set lookup
+        current_area = self._detect_panel_area(widget)
+        if current_area is None:
+            return
+
+        stored_area = self._panel_areas.get(panel_id)
+        if stored_area == current_area:
+            return  # No change
+
+        # Area has changed - update tracking and register the new dock area
+        old_area = stored_area
+        self._panel_areas[panel_id] = current_area
+        self._register_dock_area(dock_area_widget, current_area)
+        logger.info("Panel {} moved from {} to {}", panel_id, old_area, current_area)
+
+        # Enforce exclusive visibility in the new area
+        # If the moved panel is visible, hide other visible panels in the same area
+        if current_area in ("left", "bottom") and not widget.isClosed():
+            for other_id, other_area in self._panel_areas.items():
+                if other_id != panel_id and other_area == current_area:
+                    other_widget = self._panel_widgets.get(other_id)
+                    if other_widget and not other_widget.isClosed():
+                        other_widget.toggleView(False)
+                        # Sidebar icon will be deactivated via viewToggled signal
+
+        # Move sidebar icon to corresponding section
+        # Left and right areas → top section, bottom area → bottom section
+        if self._icon_sidebar and current_area in ("left", "right", "bottom"):
+            section = "top" if current_area in ("left", "right") else "bottom"
+            self._icon_sidebar.move_panel_to_section(panel_id, section)
+
+    def _detect_panel_area(self, widget: PanelDockWidget) -> str | None:
+        """Detect which dock area a panel is currently in.
+
+        Uses zone set lookup for reliable detection. When a panel is dragged
+        to a new location, its dock area may change. We track known dock areas
+        by zone and fall back to cohabitation detection for new areas.
+
+        Args:
+            widget: The panel dock widget.
+
+        Returns:
+            Area name ("left", "bottom", "right", "center") or None.
+        """
+        dock_area = widget.dockAreaWidget()
+        if dock_area is None:
+            return None
+
+        # Check against known zone sets
+        if dock_area is self._center_dock_area:
+            return "center"
+        if dock_area in self._left_dock_areas:
+            return "left"
+        if dock_area in self._bottom_dock_areas:
+            return "bottom"
+        if dock_area in self._right_dock_areas:
+            return "right"
+
+        # Panel was dragged into an existing area - find which zone
+        # by checking other panels that share the same dock area
+        return self._detect_zone_by_cohabitation(dock_area)
+
+    def _detect_zone_by_cohabitation(self, dock_area) -> str | None:
+        """Find zone by checking what other panels share this dock area.
+
+        When a panel is dragged to share an existing dock area with another
+        panel, we can determine the zone by looking at the other panel's
+        known area assignment.
+
+        Args:
+            dock_area: The CDockAreaWidget to identify.
+
+        Returns:
+            Zone name or None if no cohabitating panel found.
+        """
+        for panel_id, widget in self._panel_widgets.items():
+            if widget.dockAreaWidget() is dock_area:
+                stored_area = self._panel_areas.get(panel_id)
+                if stored_area and stored_area != "center":
+                    # Register this dock area in the appropriate zone
+                    self._register_dock_area(dock_area, stored_area)
+                    return stored_area
+
+        # No cohabitating panel found - fall back to position-based detection
+        # This handles the case where a panel is dragged to create a new dock area
+        return self._detect_zone_by_position(dock_area)
+
+    def _detect_zone_by_position(self, dock_area) -> str | None:
+        """Detect zone using position-based heuristics as a fallback.
+
+        Used when zone sets and cohabitation don't provide an answer,
+        such as when a panel is dragged to create a completely new dock area.
+
+        Args:
+            dock_area: The CDockAreaWidget to identify.
+
+        Returns:
+            Zone name or None.
+        """
+        if self._dock_manager is None:
+            return None
+
+        dock_area_rect = dock_area.geometry()
+        dock_manager_rect = self._dock_manager.geometry()
+
+        area_center_y = dock_area_rect.center().y()
+        area_center_x = dock_area_rect.center().x()
+        manager_height = dock_manager_rect.height()
+        manager_width = dock_manager_rect.width()
+
+        # Bottom zone: in lower portion of dock manager
+        if area_center_y > manager_height * 0.65:
+            return "bottom"
+
+        # Left zone: in left portion
+        if area_center_x < manager_width * 0.35:
+            return "left"
+
+        # Right zone: in right portion
+        if area_center_x > manager_width * 0.65:
+            return "right"
+
+        # Center (we don't typically drag panels to center, but handle it)
+        return "center"
+
+    def _register_dock_area(self, dock_area, zone: str) -> None:
+        """Register a dock area in the appropriate zone set.
+
+        Args:
+            dock_area: The CDockAreaWidget to register.
+            zone: The zone name ("left", "bottom", "right").
+        """
+        if zone == "left":
+            self._left_dock_areas.add(dock_area)
+        elif zone == "bottom":
+            self._bottom_dock_areas.add(dock_area)
+        elif zone == "right":
+            self._right_dock_areas.add(dock_area)
 
     def _on_focus_changed(
         self,

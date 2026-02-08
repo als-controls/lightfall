@@ -52,6 +52,11 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
     background: {colors.border};
 }}
 
+#IconStripDropIndicator {{
+    background: {colors.primary};
+    border-radius: 1px;
+}}
+
 /* --------------------------------------------------------------------------
    Custom Panel Title Bar (for side panels with NoTab)
    -------------------------------------------------------------------------- */
