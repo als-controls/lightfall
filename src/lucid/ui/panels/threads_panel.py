@@ -224,7 +224,7 @@ class ThreadsPanel(BasePanel):
         id="lucid.panels.threads",
         name="Threads",
         description="Monitor and manage background threads",
-        icon="project-diagram",
+        icon="spider-thread",
         category="Developer",
         required_permission=None,
         singleton=True,

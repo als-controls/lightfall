@@ -203,7 +203,7 @@ class QueuePanel(BasePanel):
         id="lucid.panels.queue",
         name="Queue",
         description="Manage the RunEngine queue and view execution history",
-        icon="clipboard-list",
+        icon="human-queue",
         category="Acquisition",
         singleton=True,
         closable=True,

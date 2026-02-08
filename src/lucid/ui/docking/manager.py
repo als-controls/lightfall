@@ -93,6 +93,7 @@ class DockingManager(QObject):
         self._state_manager: DockingState | None = None
         self._active_panel_id: str | None = None
         self._central_widget: QWidget | None = None
+        self._center_dock_area = None  # Track center area for relative positioning
 
     def initialize(self) -> None:
         """Initialize CDockManager with custom icon strip sidebar.
@@ -215,7 +216,13 @@ class DockingManager(QObject):
                 panel.setMinimumHeight(BOTTOM_PANEL_HEIGHT)
 
             # Add to dock manager
-            dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
+            # For left panels, add relative to center so bottom spans full width
+            if area == "left" and self._center_dock_area is not None:
+                dock_area_widget = self._dock_manager.addDockWidget(
+                    dock_area, widget, self._center_dock_area
+                )
+            else:
+                dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
 
             # Hide the QtAds title bar for side panels - we use our custom one
             if dock_area_widget is not None:
@@ -236,6 +243,10 @@ class DockingManager(QObject):
             # Center panel: no title bar needed, always visible
             widget.setFeature(CDockWidget.NoTab, True)
             dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
+            # Store center dock area for relative positioning of left panels
+            # This ensures bottom area spans full width (not just center+bottom column)
+            if self._center_dock_area is None:
+                self._center_dock_area = dock_area_widget
             # Hide the title bar for center panels too
             if dock_area_widget is not None:
                 title_bar = dock_area_widget.titleBar()

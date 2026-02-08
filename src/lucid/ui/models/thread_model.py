@@ -264,8 +264,8 @@ class ThreadManagerObserver(QObject):
         with thread_manager._registry_lock:
             threads_snapshot = dict(thread_manager._threads)
 
-        for thread_id, ref in threads_snapshot.items():
-            thread = ref()
+        for thread_id, thread in threads_snapshot.items():
+            # thread_manager._threads stores QThreadFuture objects directly (strong refs)
             if thread is None:
                 continue
 

@@ -503,21 +503,18 @@ class TiledBrowserPanel(BasePanel):
         )
 
     @Slot(object)
-    def _on_records_loaded(
-        self,
-        records: list[TiledRecord] | None = None,
-        total_count: int = 0,
-        plan_names: list[str] | None = None,
-    ) -> None:
+    def _on_records_loaded(self, result: tuple | None = None) -> None:
         """Handle records loaded from background thread.
 
-        Note: QThreadFuture calls this twice - once with the result when
-        yielded, and once with None when the generator ends. We ignore
-        the None call.
+        Args:
+            result: Tuple of (records, total_count, plan_names) from _do_fetch,
+                    or None if no result.
         """
-        # Ignore the second call with None when generator ends
-        if records is None:
+        if result is None:
             return
+
+        # Unpack the tuple from QThreadFuture
+        records, total_count, plan_names = result
 
         self._loading = False
         self._total_records = total_count
