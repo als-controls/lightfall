@@ -2,7 +2,7 @@
 
 Provides the primary application window with:
 - Dock-based panel system
-- Menu and toolbar
+- Menu bar with RunEngine control
 - Status bar with auth and connection status
 - Theme management
 - Window state persistence
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QStatusBar,
-    QToolBar,
     QWidget,
 )
 
@@ -84,7 +83,6 @@ class NCSMainWindow(QMainWindow):
         # Setup UI
         self._setup_window()
         self._setup_menus()
-        self._setup_toolbar()
         self._setup_statusbar()
         self._setup_central_widget()
 
@@ -180,13 +178,6 @@ class NCSMainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        # Show/hide toolbar
-        self._toolbar_action = QAction("Show Toolbar", self)
-        self._toolbar_action.setCheckable(True)
-        self._toolbar_action.setChecked(self._prefs_manager.show_toolbar)
-        self._toolbar_action.triggered.connect(self._toggle_toolbar)
-        view_menu.addAction(self._toolbar_action)
-
         # Show/hide statusbar
         self._statusbar_action = QAction("Show Status Bar", self)
         self._statusbar_action.setCheckable(True)
@@ -236,15 +227,6 @@ class NCSMainWindow(QMainWindow):
         self._re_control = RunEngineControlWidget()
         menubar.setCornerWidget(self._re_control, Qt.Corner.TopRightCorner)
 
-    def _setup_toolbar(self) -> None:
-        """Create the main toolbar."""
-        self._toolbar = QToolBar("Main Toolbar")
-        self._toolbar.setObjectName("MainToolbar")
-        self.addToolBar(self._toolbar)
-
-        # Set visibility from preferences
-        self._toolbar.setVisible(self._prefs_manager.show_toolbar)
-
     def set_engine(self, engine) -> None:
         """Connect the Engine to the menubar control widget.
 
@@ -252,7 +234,7 @@ class NCSMainWindow(QMainWindow):
             engine: The Engine instance.
         """
         self._re_control.set_engine(engine)
-        logger.info("Connected Engine to toolbar control")
+        logger.info("Connected Engine to menubar control")
 
     def set_run_engine(self, re) -> None:
         """Connect the Engine to the menubar control widget.
@@ -782,11 +764,6 @@ class NCSMainWindow(QMainWindow):
             self._user_info_action.setText(f"Logged in as: {user.display_name}")
         else:
             self._user_info_action.setText("Guest")
-
-    def _toggle_toolbar(self, checked: bool) -> None:
-        """Toggle toolbar visibility."""
-        self._toolbar.setVisible(checked)
-        self._prefs_manager.show_toolbar = checked
 
     def _toggle_statusbar(self, checked: bool) -> None:
         """Toggle statusbar visibility."""

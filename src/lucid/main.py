@@ -563,7 +563,7 @@ def main() -> int:
     window.set_config_manager(config)
     app.set_main_window(window)
 
-    # Connect engine to toolbar control
+    # Connect engine to menubar control
     engine = get_engine()
     window.set_engine(engine)
 
