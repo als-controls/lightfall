@@ -52,6 +52,35 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
     background: {colors.border};
 }}
 
+/* --------------------------------------------------------------------------
+   Custom Panel Title Bar (for side panels with NoTab)
+   -------------------------------------------------------------------------- */
+#PanelTitleBar {{
+    background: {colors.surface};
+    border-bottom: 1px solid {colors.border};
+}}
+
+#PanelTitleLabel {{
+    color: {colors.text};
+    font-weight: 500;
+    font-size: 12px;
+}}
+
+#PanelTitleCloseButton {{
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    padding: 2px;
+}}
+
+#PanelTitleCloseButton:hover {{
+    background: {colors.border};
+}}
+
+#PanelTitleCloseButton:pressed {{
+    background: {colors.text_secondary};
+}}
+
 /* ==========================================================================
    QtAds Advanced Docking Stylesheet
    ========================================================================== */
@@ -95,32 +124,32 @@ ads--CAutoHideSideBar {{
 }}
 
 /* --------------------------------------------------------------------------
-   Dock widget tabs (styled as simple title bars, not tab-like)
+   Dock widget tabs (styled as flat title headers, not clickable tabs)
    -------------------------------------------------------------------------- */
 ads--CDockWidgetTab {{
-    background: {colors.surface};
+    background: transparent;
     border: none;
-    border-bottom: 1px solid {colors.border};
     padding: 4px 8px;
     margin: 0;
 }}
 
 ads--CDockWidgetTab:hover {{
-    background: {colors.surface};
+    background: transparent;
 }}
 
 ads--CDockWidgetTab[activeTab="true"] {{
-    background: {colors.surface};
+    background: transparent;
 }}
 
 ads--CDockWidgetTab[focused="true"] {{
-    background: {colors.surface};
+    background: transparent;
 }}
 
 /* Tab/title label */
 ads--CDockWidgetTab > QLabel {{
     color: {colors.text};
     font-weight: 500;
+    font-size: 12px;
 }}
 
 /* Tab buttons (close, etc.) */
@@ -137,14 +166,15 @@ ads--CDockWidgetTab QToolButton:hover {{
 
 /* --------------------------------------------------------------------------
    Dock area title bar (contains tab bar and buttons)
+   Styled as a minimal header bar
    -------------------------------------------------------------------------- */
 ads--CDockAreaTitleBar {{
     background: {colors.surface};
     border: none;
     border-bottom: 1px solid {colors.border};
     padding: 0;
-    min-height: 28px;
-    max-height: 28px;
+    min-height: 26px;
+    max-height: 26px;
 }}
 
 /* Title bar buttons (close, menu, etc.) */

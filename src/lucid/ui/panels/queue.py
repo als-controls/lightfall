@@ -208,11 +208,11 @@ class QueuePanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["queue", "pending", "history", "recent", "runengine", "bluesky"],
-        # Docking preferences - acquisition tool in left sidebar
-        default_area="left",
-        sidebar_group="top",
+        # Docking preferences - bottom sidebar
+        default_area="bottom",
+        sidebar_group="bottom",
         auto_hide=True,
-        sidebar_order=2,
+        sidebar_order=3,
     )
 
     plan_queued = Signal(str)  # plan name

@@ -230,11 +230,11 @@ class ThreadsPanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["thread", "background", "task", "worker", "async", "concurrent"],
-        # Docking preferences - diagnostic tool in left-bottom sidebar
-        default_area="left",
+        # Docking preferences - bottom sidebar
+        default_area="bottom",
         sidebar_group="bottom",
         auto_hide=True,
-        sidebar_order=1,
+        sidebar_order=4,
     )
 
     # Signals

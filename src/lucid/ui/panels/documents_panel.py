@@ -34,7 +34,7 @@ class DocumentsPanel(BasePanel):
         id="lucid.panels.documents",
         name="Documents",
         description="View Bluesky document streams during acquisition",
-        icon="stream",
+        icon="receipt",
         category="Acquisition",
         singleton=True,
         closable=True,

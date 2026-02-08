@@ -70,7 +70,7 @@ class SynopticPanel(BasePanel):
         id="lucid.panels.synoptic",
         name="Synoptic",
         description="2D visualization of beamline hardware layout",
-        icon="layer-group",
+        icon="mdi.laser-pointer",
         category="Core",
         required_permission=None,  # View is open to all authenticated
         singleton=True,

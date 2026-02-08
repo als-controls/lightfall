@@ -379,9 +379,9 @@ class NCSMainWindow(QMainWindow):
         """Setup the default panel layout with icon strip sidebar.
 
         Layout:
-        - Sidebar top icons: Bluesky, Devices (dock to left)
+        - Sidebar top icons: Bluesky, Devices, Documents, Data Browser (dock to left)
         - Center (always visible): Logbook
-        - Sidebar bottom icons: Claude, Documents, Logging, Synoptic (dock to bottom)
+        - Sidebar bottom icons: Synoptic, Claude, IPython, Queue, Recording (dock to bottom)
 
         Also clears saved state and prevents showEvent from restoring.
         """
@@ -401,28 +401,36 @@ class NCSMainWindow(QMainWindow):
         # 2. Bottom panels SECOND (so bottom area spans full width)
         #    Add to dock WITHOUT sidebar buttons - we'll add buttons later
         bottom_panels = [
-            "lucid.panels.claude",
-            "lucid.panels.logging",
             "lucid.panels.synoptic",
+            "lucid.panels.claude",
+            "lucid.panels.ipython",
+            "lucid.panels.queue",
+            "lucid.dev.panels.record_test",  # Recording (from lucid-dev-plugins)
         ]
         for panel_id in bottom_panels:
             self.add_panel(panel_id, add_sidebar_button=False)
 
         # 3. Left panels THIRD (left area is above bottom, not full height)
-        #    Add to dock WITH sidebar buttons (these are the top icons)
-        for panel_id in [
+        #    Add to dock WITHOUT sidebar buttons - we control icon order below
+        left_panels = [
             "lucid.panels.bluesky",
             "lucid.panels.devices",
             "lucid.panels.documents",
-        ]:
-            self.add_panel(panel_id)
+            "lucid.panels.tiled_browser",  # Data Browser
+        ]
+        for panel_id in left_panels:
+            self.add_panel(panel_id, add_sidebar_button=False)
 
         # === Sidebar Icon Order ===
-        # Add stretch to separate top and bottom icons
         if self._docking_manager:
+            # Top icons (left area panels)
+            for panel_id in left_panels:
+                self._docking_manager.add_sidebar_button(panel_id)
+
+            # Add stretch to separate top and bottom icons
             self._docking_manager.add_sidebar_stretch()
 
-            # Now add sidebar buttons for bottom panels (bottom icons)
+            # Bottom icons (bottom area panels)
             for panel_id in bottom_panels:
                 self._docking_manager.add_sidebar_button(panel_id)
 

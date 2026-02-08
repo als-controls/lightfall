@@ -185,13 +185,14 @@ class DockingManager(QObject):
             self._show_panel_exclusive(panel_id)
             return widget
 
-        # Create dock widget
-        widget = PanelDockWidget(panel)
-        self._panel_widgets[panel_id] = widget
-
         # Determine area from metadata if not specified
         if area is None:
             area = panel.panel_metadata.default_area
+
+        # Create dock widget - side panels use custom title bar
+        use_custom_title = area in ("left", "bottom")
+        widget = PanelDockWidget(panel, use_custom_title_bar=use_custom_title)
+        self._panel_widgets[panel_id] = widget
 
         # Store the area for this panel
         self._panel_areas[panel_id] = area
@@ -201,8 +202,9 @@ class DockingManager(QObject):
 
         # Configure widget based on area
         if area in ("left", "bottom"):
-            # Side panels: show title bar but style it as a simple header (not tab-like)
-            # We keep the tab visible but it will be styled via CSS to look like a title bar
+            # Side panels: use custom title bar, hide QtAds title bar
+            # Set NoTab so there's no tab appearance
+            widget.setFeature(CDockWidget.NoTab, True)
 
             # Set size hints for proper initial sizing
             if area == "left":
@@ -213,7 +215,14 @@ class DockingManager(QObject):
                 panel.setMinimumHeight(BOTTOM_PANEL_HEIGHT)
 
             # Add to dock manager
-            self._dock_manager.addDockWidget(dock_area, widget)
+            dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
+
+            # Hide the QtAds title bar for side panels - we use our custom one
+            if dock_area_widget is not None:
+                title_bar = dock_area_widget.titleBar()
+                if title_bar is not None:
+                    title_bar.setVisible(False)
+
             # Initially hidden (user clicks sidebar to show)
             widget.toggleView(False)
             # Add button to sidebar (unless deferred for layout ordering)
@@ -224,8 +233,14 @@ class DockingManager(QObject):
                     panel.panel_metadata.name,
                 )
         else:
-            # Center panel: keep tab, always visible
-            self._dock_manager.addDockWidget(dock_area, widget)
+            # Center panel: no title bar needed, always visible
+            widget.setFeature(CDockWidget.NoTab, True)
+            dock_area_widget = self._dock_manager.addDockWidget(dock_area, widget)
+            # Hide the title bar for center panels too
+            if dock_area_widget is not None:
+                title_bar = dock_area_widget.titleBar()
+                if title_bar is not None:
+                    title_bar.setVisible(False)
 
         # Connect visibility changes to sync sidebar
         widget.viewToggled.connect(
@@ -404,10 +419,28 @@ class DockingManager(QObject):
         widget.toggleView(True)
         widget.raise_()
 
+        # Ensure all dock area title bars are hidden
+        # (they may have been recreated/shown when panels change)
+        self._hide_all_title_bars()
+
         if self._dock_manager:
             self._dock_manager.setDockWidgetFocused(widget)
 
         return True
+
+    def _hide_all_title_bars(self) -> None:
+        """Hide all dock area title bars.
+
+        Called after panel visibility changes to ensure title bars
+        stay hidden (QtAds may recreate/show them during layout changes).
+        """
+        for widget in self._panel_widgets.values():
+            if not widget.isClosed():
+                dock_area_widget = widget.dockAreaWidget()
+                if dock_area_widget is not None:
+                    title_bar = dock_area_widget.titleBar()
+                    if title_bar is not None:
+                        title_bar.setVisible(False)
 
     def _on_sidebar_panel_toggled(self, panel_id: str, should_show: bool) -> None:
         """Handle sidebar button toggle.

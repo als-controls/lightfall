@@ -204,7 +204,7 @@ class DevicePanel(BasePanel):
         id="lucid.panels.devices",
         name="Devices",
         description="View and manage control system devices",
-        icon="microchip",
+        icon="mdi.microwave",
         category="Core",
         required_permission=None,
         singleton=True,
