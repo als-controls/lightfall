@@ -424,7 +424,7 @@ class ProxySettingsPlugin(SettingsPlugin):
                 self._status_label.setText(f"Connection refused (error {result})")
                 self._status_label.setStyleSheet("color: red;")
 
-        except socket.timeout:
+        except TimeoutError:
             self._status_label.setText("Connection timeout")
             self._status_label.setStyleSheet("color: red;")
         except socket.gaierror as e:

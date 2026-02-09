@@ -52,8 +52,12 @@ class EnginePlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "engine"
-    description: ClassVar[str] = "Execution engine plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this engine plugin."""
+        return "Execution engine plugin"
 
     @property
     @abstractmethod

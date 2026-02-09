@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pyqtgraph as pg
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QVBoxLayout, QWidget
-import pyqtgraph as pg
 
 from lucid.ui.panels.synoptic.models import SynopticViewState, ViewPreset
 from lucid.utils.logging import logger

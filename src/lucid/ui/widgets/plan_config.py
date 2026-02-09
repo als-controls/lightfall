@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from loguru import logger
-
-from lucid.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -23,6 +21,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from lucid.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree

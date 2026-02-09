@@ -85,6 +85,7 @@ from lucid.plugins.errors import (
     PluginStatus,
     PluginTypeNotFoundError,
 )
+from lucid.plugins.heuristic_plugin import HeuristicPlugin
 from lucid.plugins.info import PluginInfo
 from lucid.plugins.loader import PluginLoader
 from lucid.plugins.manifest import PluginEntry, PluginManifest
@@ -95,6 +96,7 @@ from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.plugins.skill_plugin import SkillPlugin
 from lucid.plugins.types import PluginType
+from lucid.plugins.visualization_plugin import VisualizationPlugin
 
 __all__ = [
     # Core classes
@@ -106,11 +108,13 @@ __all__ = [
     "PluginLoader",
     # Plugin types
     "ControllerPlugin",
+    "HeuristicPlugin",
     "PanelPlugin",
     "PlanPlugin",
     "SettingsPlugin",
     "MCPToolPlugin",
     "SkillPlugin",
+    "VisualizationPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",

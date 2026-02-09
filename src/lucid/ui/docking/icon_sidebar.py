@@ -357,19 +357,8 @@ class IconStripSidebar(QFrame):
 
     def update_theme(self) -> None:
         """Update button icons when theme changes."""
-        try:
-            from lucid.ui.theme import ThemeManager
-            theme_mgr = ThemeManager.get_instance()
-            icon_color = theme_mgr.colors.text
-        except Exception:
-            icon_color = "#cccccc"
-
-        for panel_id, button in self._buttons.items():
-            # Re-resolve icon with new color
-            # We'd need to store icon_name to do this properly
-            # For now, just log that theme changed
-            pass
-
+        # TODO: Re-resolve icons with new theme color
+        # We'd need to store icon_name per button to do this properly
         logger.debug("IconStripSidebar theme updated")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -518,7 +507,6 @@ class IconStripSidebar(QFrame):
                 continue
 
             # Get widget geometry
-            widget_y = widget.geometry().top()
             widget_center_y = widget.geometry().center().y()
 
             # If cursor is above the center of this widget, insert before it

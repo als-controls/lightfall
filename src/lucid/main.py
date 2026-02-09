@@ -280,6 +280,13 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("panel", PanelPlugin)
     loader.register_plugin_type("skill", SkillPlugin)
 
+    # Visualization plugin types
+    from lucid.plugins.heuristic_plugin import HeuristicPlugin
+    from lucid.plugins.visualization_plugin import VisualizationPlugin
+
+    loader.register_plugin_type("visualization", VisualizationPlugin)
+    loader.register_plugin_type("heuristic", HeuristicPlugin)
+
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
 

@@ -1,0 +1,615 @@
+Date/Time:       2026-02-04 09:13:03 
+Command line:    C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\briefcase package
+
+OS Release:      Windows 11
+OS Version:      10.0.26200
+Architecture:    AMD64
+Platform:        Windows-11-10.0.26200-SP0
+
+Python exe:      C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\python.exe
+Python version:  3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
+Virtual env:     True
+Conda env:       False
+
+Briefcase:       0.3.26
+Target platform: windows
+Target format:   app
+
+Environment Variables:
+	ACSETUPSVCPORT=23210
+	ACSVCPORT=17532
+	ALLUSERSPROFILE=C:\ProgramData
+	APPDATA=C:\Users\rp\AppData\Roaming
+	CHOCOLATEYINSTALL=C:\ProgramData\chocolatey
+	CHOCOLATEYLASTPATHUPDATE=133783700625796005
+	COMMONPROGRAMFILES=C:\Program Files\Common Files
+	COMMONPROGRAMFILES(X86)=C:\Program Files (x86)\Common Files
+	COMMONPROGRAMW6432=C:\Program Files\Common Files
+	COMPUTERNAME=SHUSSEBORA
+	COMSPEC=C:\WINDOWS\system32\cmd.exe
+	CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	CUDA_PATH_V12_4=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+	CUDA_PATH_V12_6=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	DOKANLIBRARY1=C:\Program Files\Dokan\Dokan Library-1.4.1\
+	DOKANLIBRARY1_LIBRARYPATH_X64=C:\Program Files\Dokan\Dokan Library-1.4.1\lib\
+	DOKANLIBRARY1_LIBRARYPATH_X86=C:\Program Files\Dokan\Dokan Library-1.4.1\x86\lib\
+	DRIVERDATA=C:\Windows\System32\Drivers\DriverData
+	EFC_19576_1262719628=1
+	EFC_19576_1592913036=1
+	EFC_19576_2283032206=1
+	EFC_19576_2775293581=1
+	EFC_19576_3789132940=1
+	FIG_TERM=1
+	FPS_BROWSER_APP_PROFILE_STRING=Internet Explorer
+	FPS_BROWSER_USER_PROFILE_STRING=Default
+	GAMEFIRSTUSERPATH=C:\ProgramData\ASUS\GameFirst
+	GAMETURBO=C:\Program Files (x86)\ASUS\GameFirst\
+	GIT_LFS_PATH=C:\Program Files\Git LFS
+	HOMEDRIVE=C:
+	HOMEPATH=\Users\rp
+	INTELLIJ_TERMINAL_COMMAND_BLOCKS_REWORKED=1
+	JD2_HOME=C:\Users\rp\AppData\Local\JDownloader 2.0
+	LOCALAPPDATA=C:\Users\rp\AppData\Local
+	LOGONSERVER=\\SHUSSEBORA
+	MOZ_PLUGIN_PATH=C:\Program Files (x86)\Foxit Software\Foxit PDF Reader\plugins\
+	NIEXTCCOMPILERSUPP=C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\
+	NUMBER_OF_PROCESSORS=24
+	OCULUSBASE=C:\Program Files\Oculus\
+	ONEDRIVE=C:\Users\rp\OneDrive
+	OPENAI_API_KEY=********************
+	OS=Windows_NT
+	PATH=C:\Users\rp\PycharmProjects\ncs\.venv/Scripts;C:\Program Files\Eclipse Adoptium\jdk-21.0.9.10-hotspot\bin;C:\Program Files\Oculus\Support\oculus-runtime;C:\Program Files\Eclipse Adoptium\jre-8.0.432.6-hotspot\bin;C:\Program Files\Eclipse Adoptium\jdk-17.0.13.11-hotspot\bin;C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\libnvvp;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\libnvvp;C:\Program Files (x86)\Razer Chroma SDK\bin;C:\Program Files\Razer Chroma SDK\bin;C:\Program Files\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Razer\ChromaBroadcast\bin;C:\Program Files\Razer\ChromaBroadcast\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\ProgramData\chocolatey\bin;C:\Windows\system32\config\systemprofile\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Program Files\dotnet\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin\;C:\Program Files\IVI Foundation\VISA\Win64\Bin\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin;C:\Program Files (x86)\Bitvise SSH Client;C:\Program Files\NVIDIA Corporation\Nsight Compute 2024.3.1\;C:\Program Files\CMake\bin;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\Git LFS;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\nodejs\;C:\Program Files\Git\cmd;C:\Program Files\Sunshine;C:\Program Files\Sunshine\tools;C:\Users\rp\.cargo\bin;C:\\Users\\rp\\AppData\\Local\\Goose\\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Users\rp\.dotnet\tools;C:\Users\rp\AppData\Local\Programs\Ollama;C:\Users\rp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\rp\AppData\Roaming\npm;C:\Users\rp\.local\bin;C:\Users\rp\AppData\Local\JetBrains\Toolbox\scripts;
+	PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
+	PIP_FIND_LINKS=C:\Users\rp\PycharmProjects\ncs\ncs\dist
+	PROCESSOR_ARCHITECTURE=AMD64
+	PROCESSOR_IDENTIFIER=Intel64 Family 6 Model 151 Stepping 2, GenuineIntel
+	PROCESSOR_LEVEL=6
+	PROCESSOR_REVISION=9702
+	PROCESS_LAUNCHED_BY_CW=1
+	PROCESS_LAUNCHED_BY_Q=1
+	PROGRAMDATA=C:\ProgramData
+	PROGRAMFILES=C:\Program Files
+	PROGRAMFILES(X86)=C:\Program Files (x86)
+	PROGRAMW6432=C:\Program Files
+	PSEXECUTIONPOLICYPREFERENCE=Bypass
+	PSMODULEPATH=C:\Users\rp\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+	PUBLIC=C:\Users\Public
+	RLSSVCPORT=22112
+	SESSIONNAME=Console
+	SYSTEMDRIVE=C:
+	SYSTEMROOT=C:\WINDOWS
+	TEMP=C:\Users\rp\AppData\Local\Temp
+	TERM=xterm
+	TERMINAL_EMULATOR=JetBrains-JediTerm
+	TERM_SESSION_ID=9cbb7a25-427a-41a4-bfec-6253e2fb5429
+	TMP=C:\Users\rp\AppData\Local\Temp
+	USERDOMAIN=SHUSSEBORA
+	USERDOMAIN_ROAMINGPROFILE=SHUSSEBORA
+	USERNAME=rp
+	USERPROFILE=C:\Users\rp
+	VBOX_MSI_INSTALL_PATH=C:\Program Files\Oracle\VirtualBox\
+	VIRTUAL_ENV=C:\Users\rp\PycharmProjects\ncs\.venv
+	VIRTUAL_ENV_PROMPT=.venv
+	VXIPNPPATH=C:\Program Files (x86)\IVI Foundation\VISA\
+	VXIPNPPATH64=C:\Program Files\IVI Foundation\VISA\
+	WINDIR=C:\WINDOWS
+
+pyproject.toml:
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lucid"
+dynamic = ["version"]
+description = "LUCID - Lightsource Unified Control Interface Dashboard"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.11"
+authors = [
+    { name = "ALS Controls Team" },
+]
+keywords = [
+    "control-system",
+    "data-acquisition",
+    "scientific-instruments",
+    "beamline",
+    "lucid",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "mistune>=3.0",
+    "psutil>=5.9",
+    "pyqt-toast-notification>=1.0",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    # acquire
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    # tiled
+    "tiled[client]>=0.1.0",
+    # keycloak
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+    # ipython
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+]
+
+[project.optional-dependencies]
+bcs = [
+    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
+]
+claude = [
+    "pyside-claude",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-qt>=4.2",
+    "ruff>=0.1",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+docs = [
+    "sphinx>=7.0,<9.0",
+    "myst-parser>=2.0",
+    "sphinx-immaterial>=0.12",
+]
+
+[project.scripts]
+lucid = "lucid.main:cli"
+
+[project.gui-scripts]
+lucid-gui = "lucid.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/als-computing/lucid"
+Documentation = "https://als-computing.github.io/lucid"
+Repository = "https://github.com/als-computing/lucid"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/lucid/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lucid"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lucid"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["src/lucid"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+# =============================================================================
+# Briefcase Configuration (Native App Packaging)
+# =============================================================================
+
+[tool.briefcase]
+project_name = "LUCID"
+bundle = "gov.lbl.als"
+version = "0.1.0"
+url = "https://als.lbl.gov"
+license.file = "LICENSE"
+author = "ALS Controls Team"
+author_email = "controls@lbl.gov"
+
+[tool.briefcase.app.lucid]
+formal_name = "LUCID"
+description = "Advanced Light Source Control System"
+long_description = """LUCID is a modern, unified control system for scientific
+data acquisition and hardware controls at the Advanced Light Source facility."""
+icon = "resources/lucid"
+sources = ["src/lucid"]
+requires = [
+    # Core UI
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    "pyqt-toast-notification>=1.0",
+
+    # Data/Config
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+
+    # Logging & Monitoring
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "psutil>=5.9",
+
+    # Markdown rendering
+    "mistune>=3.0",
+
+    # Async/HTTP
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+
+    # Data acquisition
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    "tiled[client]>=0.1.0",
+
+    # IPython integration
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+    "ipython>=8.0",
+
+    # Utilities
+    "platformdirs>=4.0",
+    "watchfiles>=0.20",
+    "python-dotenv>=1.0",
+    "typing-extensions>=4.0",
+    "cachetools>=5.0",
+    "cryptography>=41.0",
+    "bidict>=0.23",
+
+    # Sub-projects (from local wheels via --find-links)
+    "epics-pyside",
+    "pyside-claude",
+]
+
+[tool.briefcase.app.lucid.macOS]
+requires = []
+
+[tool.briefcase.app.lucid.windows]
+requires = []
+
+[tool.briefcase.app.lucid.linux]
+requires = []
+system_requires = []
+
+Briefcase Log:
+[09:12:49]                                                                                                                                                                 wix.py:75
+           [wix] The WiX toolset was not found; downloading and installing...                                                                                              wix.py:75
+[09:12:50] Downloading wix-cli-x64.msi...                                                                                                                                file.py:227
+           Installing WiX... started                                                                                                                                      wix.py:128
+                                                                                                                                                                   subprocess.py:839
+           >>> Running Command:                                                                                                                                    subprocess.py:839
+           >>>     msiexec /a 'C:\Users\rp\AppData\Local\BeeWare\briefcase\Cache\tools\wix-cli-x64.msi' /qn                                                        subprocess.py:839
+           'TARGETDIR=C:\Users\rp\AppData\Local\BeeWare\briefcase\Cache\tools\wix'                                                                                                  
+           >>> Working Directory:                                                                                                                                  subprocess.py:839
+           >>>     C:\Users\rp\PycharmProjects\ncs\ncs                                                                                                             subprocess.py:839
+[09:12:54] >>> Return code: 0                                                                                                                                      subprocess.py:839
+                                                                                                                                                                   subprocess.py:839
+           Installing WiX... done                                                                                                                                         wix.py:128
+           Using WiX at C:\Users\rp\AppData\Local\BeeWare\briefcase\Cache\tools\wix                                                                                       wix.py:108
+                                                                                                                                                                     __init__.py:539
+           *************************************************************************                                                                                 __init__.py:539
+           ** WARNING: No signing identity provided                               **                                                                                 __init__.py:539
+           *************************************************************************                                                                                 __init__.py:539
+                                                                                                                                                                     __init__.py:539
+               Briefcase will not sign the app. To provide a signing identity,                                                                                       __init__.py:539
+               use the `--identity` option; or, to explicitly disable signing,                                                                                       __init__.py:539
+               use `--adhoc-sign`.                                                                                                                                   __init__.py:539
+                                                                                                                                                                     __init__.py:539
+           *************************************************************************                                                                                 __init__.py:539
+           Building MSI... started                                                                                                                                   __init__.py:581
+                                                                                                                                                                   subprocess.py:839
+           >>> Running Command:                                                                                                                                    subprocess.py:839
+           >>>     'C:\Users\rp\AppData\Local\BeeWare\briefcase\Cache\tools\wix\PFiles64\WiX Toolset v5.0\bin\wix.exe' build -ext                                  subprocess.py:839
+           'C:\Users\rp\AppData\Local\BeeWare\briefcase\Cache\tools\wix\CFiles64\WixToolset\extensions\WixToolset.UI.wixext\5.0.2\wixext5\WixToolset.UI.wixext.dll                  
+           ' -arch x64 lucid.wxs -loc unicode.wxl -pdbtype none -o 'C:\Users\rp\PycharmProjects\ncs\ncs\dist\LUCID-0.1.0.msi'                                                       
+           >>> Working Directory:                                                                                                                                  subprocess.py:839
+           >>>     C:\Users\rp\PycharmProjects\ncs\ncs\build\lucid\windows\app                                                                                     subprocess.py:839
+[09:13:03] D:\a\wix\wix\src\ext\UI\wixlib\LicenseAgreementDlg.wxs(22) : error WIX0103: Cannot find the Control file 'LICENSE.rtf'. The following paths were        subprocess.py:196
+           checked: LICENSE.rtf                                                                                                                                                     
+           >>> Return code: 103                                                                                                                                    subprocess.py:839
+                                                                                                                                                                   subprocess.py:839
+           Building MSI... errored                                                                                                                                   __init__.py:581
+                                                                                                                                                                      __main__.py:42
+           Unable to package app lucid.                                                                                                                               __main__.py:43
+           Saving log... started                                                                                                                                      console.py:443
+
+Main thread traceback:
+╭─────────────────────────────────────────────────────────────────────── Traceback (most recent call last) ────────────────────────────────────────────────────────────────────────╮
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\__init__.py:582 in _package_msi                                                              │
+│                                                                                                                                                                                  │
+│   579 │   │   """Build the msi installer."""                                                                                                                                     │
+│   580 │   │   try:                                                                                                                                                               │
+│   581 │   │   │   with self.console.wait_bar("Building MSI..."):                                                                                                                 │
+│ ❱ 582 │   │   │   │   self.tools.subprocess.run(                                                                                                                                 │
+│   583 │   │   │   │   │   [                                                                                                                                                      │
+│   584 │   │   │   │   │   │   self.tools.wix.wix_exe,                                                                                                                            │
+│   585 │   │   │   │   │   │   "build",                                                                                                                                           │
+│                                                                                                                                                                                  │
+│ ╭──────────────────────────────────────────── locals ────────────────────────────────────────────╮                                                                               │
+│ │  app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                               │
+│ │ self = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550> │                                                                               │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                               │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\integrations\subprocess.py:145 in inner                                                                        │
+│                                                                                                                                                                                  │
+│   142 │   │   │   with sub.tools.console.release_console_control():                                                                                                              │
+│   143 │   │   │   │   return sub_method(sub, args, *wrapped_args, **wrapped_kwargs)                                                                                              │
+│   144 │   │   else:                                                                                                                                                              │
+│ ❱ 145 │   │   │   return sub_method(sub, args, *wrapped_args, **wrapped_kwargs)                                                                                                  │
+│   146 │                                                                                                                                                                          │
+│   147 │   return inner                                                                                                                                                           │
+│   148                                                                                                                                                                            │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────────────────────────────────╮ │
+│ │                    args = [                                                                                                                                                  │ │
+│ │                           │   WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/PFiles64/WiX Toolset v5.0/bin/wix.exe'),                              │ │
+│ │                           │   'build',                                                                                                                                       │ │
+│ │                           │   '-ext',                                                                                                                                        │ │
+│ │                           │                                                                                                                                                  │ │
+│ │                           WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/CFiles64/WixToolset/extensions/WixToolset.UI.wixext/5.0.2/wixext5/WixToo… │ │
+│ │                           │   '-arch',                                                                                                                                       │ │
+│ │                           │   'x64',                                                                                                                                         │ │
+│ │                           │   'lucid.wxs',                                                                                                                                   │ │
+│ │                           │   '-loc',                                                                                                                                        │ │
+│ │                           │   'unicode.wxl',                                                                                                                                 │ │
+│ │                           │   '-pdbtype',                                                                                                                                    │ │
+│ │                           │   ... +3                                                                                                                                         │ │
+│ │                           ]                                                                                                                                                  │ │
+│ │              executable = 'C:\\Users\\rp\\AppData\\Local\\BeeWare\\briefcase\\Cache\\tools\\wix\\PFiles64\\WiX Toolset'+17                                                   │ │
+│ │ remove_dynamic_elements = False                                                                                                                                              │ │
+│ │                     sub = <briefcase.integrations.subprocess.Subprocess object at 0x0000013264411940>                                                                        │ │
+│ │            wrapped_args = ()                                                                                                                                                 │ │
+│ │          wrapped_kwargs = {'check': True, 'cwd': WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app')}                                                 │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\integrations\subprocess.py:539 in run                                                                          │
+│                                                                                                                                                                                  │
+│   536 │   │   # caller sets stream_output=False, then ensure_console_is_safe() will                                                                                              │
+│   537 │   │   # disable any dynamic console elements while the command runs.                                                                                                     │
+│   538 │   │   if stream_output:                                                                                                                                                  │
+│ ❱ 539 │   │   │   return self._run_and_stream_output(args, filter_func=filter_func, **kwargs)                                                                                    │
+│   540 │   │                                                                                                                                                                      │
+│   541 │   │   # Can't filter non-streamed output.                                                                                                                                │
+│   542 │   │   if filter_func:                                                                                                                                                    │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────────────────────────────────╮ │
+│ │          args = [                                                                                                                                                            │ │
+│ │                 │   WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/PFiles64/WiX Toolset v5.0/bin/wix.exe'),                                        │ │
+│ │                 │   'build',                                                                                                                                                 │ │
+│ │                 │   '-ext',                                                                                                                                                  │ │
+│ │                 │                                                                                                                                                            │ │
+│ │                 WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/CFiles64/WixToolset/extensions/WixToolset.UI.wixext/5.0.2/wixext5/WixToolset.UI.wi… │ │
+│ │                 │   '-arch',                                                                                                                                                 │ │
+│ │                 │   'x64',                                                                                                                                                   │ │
+│ │                 │   'lucid.wxs',                                                                                                                                             │ │
+│ │                 │   '-loc',                                                                                                                                                  │ │
+│ │                 │   'unicode.wxl',                                                                                                                                           │ │
+│ │                 │   '-pdbtype',                                                                                                                                              │ │
+│ │                 │   ... +3                                                                                                                                                   │ │
+│ │                 ]                                                                                                                                                            │ │
+│ │   filter_func = None                                                                                                                                                         │ │
+│ │        kwargs = {'check': True, 'cwd': WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app')}                                                           │ │
+│ │          self = <briefcase.integrations.subprocess.Subprocess object at 0x0000013264411940>                                                                                  │ │
+│ │ stream_output = True                                                                                                                                                         │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\integrations\subprocess.py:616 in _run_and_stream_output                                                       │
+│                                                                                                                                                                                  │
+│   613 │   │   self._log_return_code(return_code)                                                                                                                                 │
+│   614 │   │                                                                                                                                                                      │
+│   615 │   │   if check and return_code:                                                                                                                                          │
+│ ❱ 616 │   │   │   raise subprocess.CalledProcessError(return_code, args, stderr=stderr)                                                                                          │
+│   617 │   │                                                                                                                                                                      │
+│   618 │   │   return subprocess.CompletedProcess(args, return_code, stderr=stderr)                                                                                               │
+│   619                                                                                                                                                                            │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────────────────────────────────╮ │
+│ │        args = [                                                                                                                                                              │ │
+│ │               │   WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/PFiles64/WiX Toolset v5.0/bin/wix.exe'),                                          │ │
+│ │               │   'build',                                                                                                                                                   │ │
+│ │               │   '-ext',                                                                                                                                                    │ │
+│ │               │                                                                                                                                                              │ │
+│ │               WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/CFiles64/WixToolset/extensions/WixToolset.UI.wixext/5.0.2/wixext5/WixToolset.UI.wixe… │ │
+│ │               │   '-arch',                                                                                                                                                   │ │
+│ │               │   'x64',                                                                                                                                                     │ │
+│ │               │   'lucid.wxs',                                                                                                                                               │ │
+│ │               │   '-loc',                                                                                                                                                    │ │
+│ │               │   'unicode.wxl',                                                                                                                                             │ │
+│ │               │   '-pdbtype',                                                                                                                                                │ │
+│ │               │   ... +3                                                                                                                                                     │ │
+│ │               ]                                                                                                                                                              │ │
+│ │       check = True                                                                                                                                                           │ │
+│ │ filter_func = None                                                                                                                                                           │ │
+│ │      kwargs = {'cwd': WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app'), 'stdout': -1, 'stderr': -2, 'bufsize': 1}                                  │ │
+│ │     process = <Popen: returncode: 103 args: ['C:\\Users\\rp\\AppData\\Local\\BeeWare\\brie...>                                                                               │ │
+│ │ return_code = 103                                                                                                                                                            │ │
+│ │        self = <briefcase.integrations.subprocess.Subprocess object at 0x0000013264411940>                                                                                    │ │
+│ │      stderr = None                                                                                                                                                           │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+CalledProcessError: Command '[WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/PFiles64/WiX Toolset v5.0/bin/wix.exe'), 'build', '-ext', WindowsPath('C:/Users/rp/AppData/Local/BeeWare/briefcase/Cache/tools/wix/CFiles64/WixToolset/extensions/WixToolset.UI.wixext/5.0.2/wixext5/WixToolset.UI.wixext.dll'), '-arch', 'x64', 'lucid.wxs', '-loc', 'unicode.wxl', '-pdbtype', 'none', '-o', WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/dist/LUCID-0.1.0.msi')]' returned non-zero exit status 103.
+
+The above exception was the direct cause of the following exception:
+
+╭─────────────────────────────────────────────────────────────────────── Traceback (most recent call last) ────────────────────────────────────────────────────────────────────────╮
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\__main__.py:27 in main                                                                                         │
+│                                                                                                                                                                                  │
+│   24 │   │   │   Path.cwd() / "pyproject.toml",                                                                                                                                  │
+│   25 │   │   │   overrides=overrides,                                                                                                                                            │
+│   26 │   │   )                                                                                                                                                                   │
+│ ❱ 27 │   │   command(**options)                                                                                                                                                  │
+│   28 │   except HelpText as e:                                                                                                                                                   │
+│   29 │   │   console.info()                                                                                                                                                      │
+│   30 │   │   console.info(str(e))                                                                                                                                                │
+│                                                                                                                                                                                  │
+│ ╭──────────────────────────────────────────────── locals ─────────────────────────────────────────────────╮                                                                      │
+│ │       command = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550> │                                                                      │
+│ │       console = <briefcase.console.Console object at 0x000001326424FCB0>                                │                                                                      │
+│ │             e = BriefcaseCommandError('Unable to package app lucid.')                                   │                                                                      │
+│ │ extra_cmdline = []                                                                                      │                                                                      │
+│ │       options = {                                                                                       │                                                                      │
+│ │                 │   'update': False,                                                                    │                                                                      │
+│ │                 │   'packaging_format': 'msi',                                                          │                                                                      │
+│ │                 │   'adhoc_sign': False,                                                                │                                                                      │
+│ │                 │   'identity': None,                                                                   │                                                                      │
+│ │                 │   'file_digest': 'sha256',                                                            │                                                                      │
+│ │                 │   'use_local_machine': False,                                                         │                                                                      │
+│ │                 │   'cert_store': 'My',                                                                 │                                                                      │
+│ │                 │   'timestamp_url': 'http://timestamp.digicert.com',                                   │                                                                      │
+│ │                 │   'timestamp_digest': 'sha256'                                                        │                                                                      │
+│ │                 }                                                                                       │                                                                      │
+│ │     overrides = {}                                                                                      │                                                                      │
+│ │        result = 200                                                                                     │                                                                      │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                      │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\package.py:204 in __call__                                                                            │
+│                                                                                                                                                                                  │
+│   201 │   │                                                                                                                                                                      │
+│   202 │   │   state = None                                                                                                                                                       │
+│   203 │   │   for _, app_obj in sorted(apps_to_package.items()):                                                                                                                 │
+│ ❱ 204 │   │   │   state = self._package_app(                                                                                                                                     │
+│   205 │   │   │   │   app_obj,                                                                                                                                                   │
+│   206 │   │   │   │   update=update,                                                                                                                                             │
+│   207 │   │   │   │   **full_options(state, options),                                                                                                                            │
+│                                                                                                                                                                                  │
+│ ╭───────────────────────────────────────────────── locals ──────────────────────────────────────────────────╮                                                                    │
+│ │               _ = 'lucid'                                                                                 │                                                                    │
+│ │             app = None                                                                                    │                                                                    │
+│ │        app_name = None                                                                                    │                                                                    │
+│ │         app_obj = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                    │
+│ │ apps_to_package = {'lucid': <gov.lbl.als.lucid v0.1.0 AppConfig>}                                         │                                                                    │
+│ │         options = {                                                                                       │                                                                    │
+│ │                   │   'packaging_format': 'msi',                                                          │                                                                    │
+│ │                   │   'adhoc_sign': False,                                                                │                                                                    │
+│ │                   │   'identity': None,                                                                   │                                                                    │
+│ │                   │   'file_digest': 'sha256',                                                            │                                                                    │
+│ │                   │   'use_local_machine': False,                                                         │                                                                    │
+│ │                   │   'cert_store': 'My',                                                                 │                                                                    │
+│ │                   │   'timestamp_url': 'http://timestamp.digicert.com',                                   │                                                                    │
+│ │                   │   'timestamp_digest': 'sha256'                                                        │                                                                    │
+│ │                   }                                                                                       │                                                                    │
+│ │            self = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550> │                                                                    │
+│ │           state = None                                                                                    │                                                                    │
+│ │          update = False                                                                                   │                                                                    │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                    │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\package.py:134 in _package_app                                                                        │
+│                                                                                                                                                                                  │
+│   131 │   │   self.clean_dist_folder(app, **options)                                                                                                                             │
+│   132 │   │                                                                                                                                                                      │
+│   133 │   │   # Package the app                                                                                                                                                  │
+│ ❱ 134 │   │   state = self.package_app(app, **full_options(state, options))                                                                                                      │
+│   135 │   │                                                                                                                                                                      │
+│   136 │   │   filename = self.distribution_path(app).relative_to(self.base_path)                                                                                                 │
+│   137 │   │   self.console.info(f"Packaged {filename}", prefix=app.app_name)                                                                                                     │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────── locals ───────────────────────────────────────────────────╮                                                                  │
+│ │              app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                     │                                                                  │
+│ │      binary_file = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app/src/LUCID.exe') │                                                                  │
+│ │          options = {                                                                                        │                                                                  │
+│ │                    │   'adhoc_sign': False,                                                                 │                                                                  │
+│ │                    │   'identity': None,                                                                    │                                                                  │
+│ │                    │   'file_digest': 'sha256',                                                             │                                                                  │
+│ │                    │   'use_local_machine': False,                                                          │                                                                  │
+│ │                    │   'cert_store': 'My',                                                                  │                                                                  │
+│ │                    │   'timestamp_url': 'http://timestamp.digicert.com',                                    │                                                                  │
+│ │                    │   'timestamp_digest': 'sha256'                                                         │                                                                  │
+│ │                    }                                                                                        │                                                                  │
+│ │ packaging_format = 'msi'                                                                                    │                                                                  │
+│ │             self = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550>  │                                                                  │
+│ │            state = None                                                                                     │                                                                  │
+│ │    template_file = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app')               │                                                                  │
+│ │           update = False                                                                                    │                                                                  │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                  │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\__init__.py:568 in package_app                                                               │
+│                                                                                                                                                                                  │
+│   565 │   │   if app.packaging_format == "zip":                                                                                                                                  │
+│   566 │   │   │   self._package_zip(app)                                                                                                                                         │
+│   567 │   │   else:                                                                                                                                                              │
+│ ❱ 568 │   │   │   self._package_msi(app)                                                                                                                                         │
+│   569 │   │   │                                                                                                                                                                  │
+│   570 │   │   │   if sign_app:                                                                                                                                                   │
+│   571 │   │   │   │   self.console.info("Signing MSI...", prefix=app.app_name)                                                                                                   │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────── locals ───────────────────────────────────────────────────╮                                                                  │
+│ │        adhoc_sign = False                                                                                   │                                                                  │
+│ │               app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                  │
+│ │        cert_store = 'My'                                                                                    │                                                                  │
+│ │       file_digest = 'sha256'                                                                                │                                                                  │
+│ │          identity = None                                                                                    │                                                                  │
+│ │            kwargs = {}                                                                                      │                                                                  │
+│ │              self = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550> │                                                                  │
+│ │          sign_app = False                                                                                   │                                                                  │
+│ │  timestamp_digest = 'sha256'                                                                                │                                                                  │
+│ │     timestamp_url = 'http://timestamp.digicert.com'                                                         │                                                                  │
+│ │ use_local_machine = False                                                                                   │                                                                  │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                  │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\__init__.py:602 in _package_msi                                                              │
+│                                                                                                                                                                                  │
+│   599 │   │   │   │   │   cwd=self.bundle_path(app),                                                                                                                             │
+│   600 │   │   │   │   )                                                                                                                                                          │
+│   601 │   │   except subprocess.CalledProcessError as e:                                                                                                                         │
+│ ❱ 602 │   │   │   raise BriefcaseCommandError(f"Unable to package app {app.app_name}.") from e                                                                                   │
+│   603 │                                                                                                                                                                          │
+│   604 │   def _package_zip(self, app):                                                                                                                                           │
+│   605 │   │   """Package the app as simple zip file."""                                                                                                                          │
+│                                                                                                                                                                                  │
+│ ╭──────────────────────────────────────────── locals ────────────────────────────────────────────╮                                                                               │
+│ │  app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                               │
+│ │ self = <briefcase.platforms.windows.app.WindowsAppPackageCommand object at 0x0000013264411550> │                                                                               │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                               │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+BriefcaseCommandError: Unable to package app lucid.

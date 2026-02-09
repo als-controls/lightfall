@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
     QComboBox,
@@ -367,7 +367,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
     def _get_device_tags(cls, item: DeviceTreeItem) -> set[str]:
         """Extract device tags from a tree item."""
         if item.device_info and item.device_info.tags:
-            return set(tag.lower() for tag in item.device_info.tags)
+            return {tag.lower() for tag in item.device_info.tags}
         return set()
 
     @classmethod

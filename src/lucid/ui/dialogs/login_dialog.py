@@ -12,7 +12,6 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,

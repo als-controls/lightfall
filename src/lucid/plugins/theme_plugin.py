@@ -97,8 +97,12 @@ class ThemePlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "theme"
-    description: ClassVar[str] = "Application theme plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this theme plugin."""
+        return "Application theme plugin"
 
     @property
     @abstractmethod

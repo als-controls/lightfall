@@ -94,6 +94,12 @@ builtin_manifest = PluginManifest(
             name="plugins",
             import_path="lucid.ui.preferences.plugin_settings:PluginSettingsPlugin",
         ),
+        # Visualization settings
+        PluginEntry(
+            type_name="settings",
+            name="visualization",
+            import_path="lucid.ui.preferences.visualization_settings:VisualizationSettingsPlugin",
+        ),
         # Engine plugins
         PluginEntry(
             type_name="engine",
@@ -197,6 +203,49 @@ builtin_manifest = PluginManifest(
             type_name="panel",
             name="synoptic",
             import_path="lucid.ui.panels.plugins.synoptic_plugin:SynopticPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="visualization",
+            import_path="lucid.ui.panels.plugins.visualization_plugin:VisualizationPanelPlugin",
+            preload=True,
+        ),
+        # Visualization plugins - preload to register with VisualizationRegistry
+        PluginEntry(
+            type_name="visualization",
+            name="table",
+            import_path="lucid.visualization.widgets.table:TableVisualizationPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="visualization",
+            name="plot_1d",
+            import_path="lucid.visualization.widgets.plot:PlotVisualizationPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="visualization",
+            name="heatmap",
+            import_path="lucid.visualization.widgets.heatmap:HeatmapVisualizationPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="visualization",
+            name="scatter",
+            import_path="lucid.visualization.widgets.scatter:ScatterVisualizationPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="visualization",
+            name="image_stack",
+            import_path="lucid.visualization.widgets.image_sequence:ImageStackVisualizationPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="visualization",
+            name="volume",
+            import_path="lucid.visualization.widgets.volume:VolumeVisualizationPlugin",
             preload=True,
         ),
         # MCP Tool plugins

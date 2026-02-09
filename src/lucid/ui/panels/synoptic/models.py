@@ -26,7 +26,7 @@ class PrimitiveShape(str, Enum):
     SPHERE = "sphere"
 
     @classmethod
-    def normalize(cls, shape: "PrimitiveShape") -> "PrimitiveShape":
+    def normalize(cls, shape: PrimitiveShape) -> PrimitiveShape:
         """Normalize legacy 3D shapes to current 2D shapes.
 
         Args:

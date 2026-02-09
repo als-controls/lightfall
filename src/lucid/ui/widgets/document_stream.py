@@ -7,6 +7,7 @@ by document type with expandable details, or in sequential order.
 from __future__ import annotations
 
 import json
+from collections import deque
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -15,12 +16,15 @@ from loguru import logger
 from PySide6.QtCore import (
     QAbstractItemModel,
     QAbstractTableModel,
+    QEvent,
     QModelIndex,
+    QSize,
     Qt,
+    QTimer,
     Signal,
     Slot,
 )
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -30,6 +34,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QStackedWidget,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableView,
     QTreeView,
     QVBoxLayout,
@@ -347,19 +354,23 @@ class SequentialDocumentModel(QAbstractTableModel):
     """Table model for sequential document display.
 
     Shows all documents in the order they were received, without grouping.
+    Uses a rolling buffer to cap memory usage during long scans.
     """
 
     COLUMNS = ["#", "Type", "Name", "UID", "Time", ""]  # Last column for copy button
+    MAX_DOCUMENTS = 10000  # Rolling buffer limit
 
     def __init__(self, parent=None) -> None:
         """Initialize the model."""
         super().__init__(parent)
-        self._documents: list[tuple[str, dict[str, Any]]] = []
+        self._documents: deque[tuple[str, dict[str, Any]]] = deque(maxlen=self.MAX_DOCUMENTS)
+        self._base_index = 0  # Track dropped docs for row numbering
 
     def clear(self) -> None:
         """Clear all documents."""
         self.beginResetModel()
         self._documents.clear()
+        self._base_index = 0
         self.endResetModel()
 
     def add_document(self, name: str, doc: dict[str, Any]) -> None:
@@ -371,8 +382,25 @@ class SequentialDocumentModel(QAbstractTableModel):
         """
         row = len(self._documents)
         self.beginInsertRows(QModelIndex(), row, row)
+        if len(self._documents) == self.MAX_DOCUMENTS:
+            self._base_index += 1
         self._documents.append((name, doc))
         self.endInsertRows()
+
+    def add_documents_batch(self, documents: list[tuple[str, dict[str, Any]]]) -> None:
+        """Add multiple documents efficiently.
+
+        Args:
+            documents: List of (doc_type, doc) tuples.
+        """
+        if not documents:
+            return
+        self.beginResetModel()
+        for name, doc in documents:
+            if len(self._documents) == self.MAX_DOCUMENTS:
+                self._base_index += 1
+            self._documents.append((name, doc))
+        self.endResetModel()
 
     def get_document(self, row: int) -> tuple[str, dict[str, Any]] | None:
         """Get document at row.
@@ -413,8 +441,8 @@ class SequentialDocumentModel(QAbstractTableModel):
         doc_type, doc = self._documents[row]
 
         if role == Qt.ItemDataRole.DisplayRole:
-            if col == 0:  # Row number
-                return str(row + 1)
+            if col == 0:  # Row number (accounts for dropped docs in rolling buffer)
+                return str(self._base_index + row + 1)
             elif col == 1:  # Type
                 return doc_type.capitalize()
             elif col == 2:  # Name
@@ -564,14 +592,53 @@ class DocumentDetailDialog(QDialog):
         QApplication.clipboard().setText(text)
 
 
-class CopyButtonDelegate(QWidget):
-    """Widget delegate for copy button in table view."""
+class CopyButtonDelegate(QStyledItemDelegate):
+    """Delegate that paints copy icon - much faster than setIndexWidget().
+
+    Instead of creating a QPushButton widget for every row, this delegate
+    paints an icon directly and handles clicks via editorEvent.
+    """
 
     copy_clicked = Signal(int)  # row
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the delegate."""
         super().__init__(parent)
+        self._icon = qta.icon("fa6.copy")
+        self._icon_size = 16
+
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> None:
+        """Paint the copy icon centered in the cell."""
+        painter.save()
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        icon_rect = option.rect.adjusted(
+            (option.rect.width() - self._icon_size) // 2,
+            (option.rect.height() - self._icon_size) // 2,
+            -(option.rect.width() - self._icon_size) // 2,
+            -(option.rect.height() - self._icon_size) // 2,
+        )
+        self._icon.paint(painter, icon_rect)
+        painter.restore()
+
+    def editorEvent(
+        self,
+        event: QEvent,
+        model: QAbstractItemModel,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> bool:
+        """Handle mouse click on the copy icon."""
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            self.copy_clicked.emit(index.row())
+            return True
+        return False
+
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+        """Return size hint for the cell."""
+        return QSize(32, 24)
 
 
 class DocumentStreamWidget(QWidget):
@@ -580,6 +647,11 @@ class DocumentStreamWidget(QWidget):
     Shows documents either grouped by type (tree view) or in sequential order
     (table view). Supports auto-scrolling to latest, copying UIDs via button,
     and viewing document details in a dialog.
+
+    Uses rate-limiting to prevent UI freezes during high-frequency scans:
+    - Documents are batched and processed every 50ms (20 Hz max)
+    - Copy buttons use a delegate (no per-row widget creation)
+    - Documents capped at MAX_DOCUMENTS (rolling buffer)
 
     Signals:
         document_selected(str, dict): Emitted when a document is selected.
@@ -593,6 +665,10 @@ class DocumentStreamWidget(QWidget):
 
     document_selected = Signal(str, dict)  # (doc_type, doc)
 
+    # Rate limiting constants
+    UPDATE_INTERVAL_MS = 50  # 20 Hz max update rate
+    BATCH_SIZE = 100  # Max documents per update cycle
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the widget.
 
@@ -603,6 +679,13 @@ class DocumentStreamWidget(QWidget):
         self._engine: Engine | None = None
         self._auto_scroll = True
         self._view_mode = "tree"  # "tree" or "sequential"
+
+        # Rate limiting: queue documents and process in batches
+        self._pending_updates: list[tuple[str, dict]] = []
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(self.UPDATE_INTERVAL_MS)
+        self._update_timer.timeout.connect(self._process_pending_updates)
+
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -681,6 +764,11 @@ class DocumentStreamWidget(QWidget):
         # Connect table signals
         self._table_view.clicked.connect(self._on_table_item_clicked)
 
+        # Use delegate for copy buttons (faster than setIndexWidget per row)
+        self._copy_delegate = CopyButtonDelegate(self._table_view)
+        self._copy_delegate.copy_clicked.connect(self._copy_uid_for_row)
+        self._table_view.setItemDelegateForColumn(5, self._copy_delegate)
+
         self._stack.addWidget(self._table_view)
 
         layout.addWidget(self._stack)
@@ -688,33 +776,6 @@ class DocumentStreamWidget(QWidget):
         # Status bar
         self._status_label = QLabel("Ready")
         layout.addWidget(self._status_label)
-
-        # Set up copy buttons for existing rows
-        self._setup_copy_buttons()
-
-    def _setup_copy_buttons(self) -> None:
-        """Set up copy buttons for existing rows in the table view."""
-        # Connect model signals to add copy buttons for new rows
-        self._sequential_model.rowsInserted.connect(self._on_rows_inserted)
-
-    @Slot(QModelIndex, int, int)
-    def _on_rows_inserted(self, parent: QModelIndex, first: int, last: int) -> None:
-        """Add copy buttons for newly inserted rows."""
-        for row in range(first, last + 1):
-            self._add_copy_button_to_row(row)
-
-    def _add_copy_button_to_row(self, row: int) -> None:
-        """Add a copy button to a specific row.
-
-        Args:
-            row: Row index.
-        """
-        copy_btn = QPushButton(qta.icon("fa6.copy"), "")
-        copy_btn.setToolTip("Copy UID")
-        copy_btn.setMaximumWidth(32)
-        copy_btn.clicked.connect(lambda checked, r=row: self._copy_uid_for_row(r))
-        index = self._sequential_model.index(row, 5)
-        self._table_view.setIndexWidget(index, copy_btn)
 
     def _copy_uid_for_row(self, row: int) -> None:
         """Copy UID for a specific row to clipboard.
@@ -761,7 +822,9 @@ class DocumentStreamWidget(QWidget):
         self.set_engine(re)
 
     def clear(self) -> None:
-        """Clear all documents."""
+        """Clear all documents and pending updates."""
+        self._pending_updates.clear()
+        self._update_timer.stop()
         self._tree_model.clear()
         self._sequential_model.clear()
         self._status_label.setText("Cleared")
@@ -794,45 +857,98 @@ class DocumentStreamWidget(QWidget):
 
     @Slot(str, dict)
     def _on_document(self, name: str, doc: dict) -> None:
-        """Handle document from Engine.
+        """Queue document for batched processing.
+
+        Instead of updating models immediately (which causes UI freezes
+        during high-frequency scans), documents are queued and processed
+        in batches by the update timer.
 
         Args:
             name: Document type.
             doc: Document data.
         """
-        # Add to both models
-        self._tree_model.doc_consumer(name, doc)
-        self._sequential_model.add_document(name, doc)
+        self._pending_updates.append((name, doc))
+        if not self._update_timer.isActive():
+            self._update_timer.start()
 
-        # Update status
-        if name == "start":
-            plan = doc.get("plan_name", "unknown")
-            self._status_label.setText(f"Running: {plan}")
-        elif name == "event":
-            seq = doc.get("seq_num", 0)
-            self._status_label.setText(f"Event {seq}")
+    def _process_pending_updates(self) -> None:
+        """Process pending documents in batches.
 
-        # Auto-scroll to latest
+        Called by the update timer at UPDATE_INTERVAL_MS intervals.
+        Processes up to BATCH_SIZE documents per call, updates UI
+        elements once per batch (not per document).
+        """
+        if not self._pending_updates:
+            self._update_timer.stop()
+            return
+
+        # Take up to BATCH_SIZE documents from the queue
+        to_process = self._pending_updates[: self.BATCH_SIZE]
+        self._pending_updates = self._pending_updates[self.BATCH_SIZE :]
+
+        # Batch update tree model (still per-doc, but at throttled rate)
+        for name, doc in to_process:
+            self._tree_model.doc_consumer(name, doc)
+
+        # Batch update sequential model
+        self._sequential_model.add_documents_batch(to_process)
+
+        # Update status once per batch (not per document)
+        if to_process:
+            last_name, last_doc = to_process[-1]
+            if last_name == "start":
+                self._status_label.setText(
+                    f"Running: {last_doc.get('plan_name', 'unknown')}"
+                )
+            elif last_name == "event":
+                total = len(self._sequential_model._documents)
+                self._status_label.setText(
+                    f"Event {last_doc.get('seq_num', 0)} ({total} total)"
+                )
+
+        # Auto-scroll once per batch (not per document)
         if self._auto_scroll:
             if self._view_mode == "tree":
-                self._tree_view.expandAll()
+                self._expand_events_group()
             else:
-                # Scroll to last row in table view
                 last_row = self._sequential_model.rowCount() - 1
                 if last_row >= 0:
-                    index = self._sequential_model.index(last_row, 0)
-                    self._table_view.scrollTo(index)
+                    self._table_view.scrollTo(self._sequential_model.index(last_row, 0))
+
+        # Stop timer if queue is empty
+        if not self._pending_updates:
+            self._update_timer.stop()
+
+    def _expand_events_group(self) -> None:
+        """Expand only the Events group and scroll to the last event.
+
+        More efficient than expandAll() which traverses the entire tree.
+        """
+        # Events is index 2 in the group order (start=0, descriptor=1, event=2, stop=3)
+        events_index = self._tree_model.index(2, 0, QModelIndex())
+        if events_index.isValid():
+            self._tree_view.expand(events_index)
+            last_row = self._tree_model.rowCount(events_index) - 1
+            if last_row >= 0:
+                last_event_index = self._tree_model.index(last_row, 0, events_index)
+                self._tree_view.scrollTo(last_event_index)
 
     @Slot()
     def _on_run_start(self) -> None:
         """Handle run start."""
+        self._pending_updates.clear()
+        self._update_timer.stop()
         self._tree_model.clear()
         self._sequential_model.clear()
+        # Expand all groups at start (lightweight when empty)
         self._tree_view.expandAll()
 
     @Slot()
     def _on_run_finish(self) -> None:
         """Handle run finish."""
+        # Process any remaining pending updates immediately
+        while self._pending_updates:
+            self._process_pending_updates()
         self._status_label.setText("Run complete")
 
     @Slot(QModelIndex)

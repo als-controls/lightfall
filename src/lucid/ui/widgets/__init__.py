@@ -37,6 +37,11 @@ try:
 except ImportError:
     DeviceParameter = None  # type: ignore
     DeviceParameterItem = None  # type: ignore
+from lucid.ui.widgets.camera import (
+    AndorCameraControlWidget,
+    CameraControlWidget,
+    PIMTECameraControlWidget,
+)
 from lucid.ui.widgets.document_stream import (
     DocumentStreamModel,
     DocumentStreamWidget,
@@ -44,11 +49,6 @@ from lucid.ui.widgets.document_stream import (
 from lucid.ui.widgets.motor_control import (
     MotorControlWidget,
     MultiMotorControlWidget,
-)
-from lucid.ui.widgets.camera import (
-    CameraControlWidget,
-    AndorCameraControlWidget,
-    PIMTECameraControlWidget,
 )
 from lucid.ui.widgets.plan_config import (
     PlanConfigWidget,

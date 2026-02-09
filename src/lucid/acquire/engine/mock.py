@@ -51,7 +51,14 @@ class MockEngine(BaseEngine):
         self._paused = False
         self._current_uid: str | None = None
 
-    def submit(self, procedure: Any, *, priority: int = 1, **kwargs: Any) -> None:
+    def submit(
+        self,
+        procedure: Any,
+        *,
+        priority: int = 1,
+        name: str = "",
+        **kwargs: Any,
+    ) -> str:
         """Submit a procedure for execution.
 
         The mock engine executes immediately and synchronously.
@@ -59,10 +66,15 @@ class MockEngine(BaseEngine):
         Args:
             procedure: The procedure to execute (ignored in mock).
             priority: Queue priority (ignored in mock).
+            name: Human-readable name for the procedure.
             **kwargs: Additional parameters (included in start document).
+
+        Returns:
+            The unique ID of the submitted procedure.
         """
         # Generate a unique ID for this "run"
         self._current_uid = str(uuid.uuid4())
+        uid = self._current_uid
 
         self._set_state(EngineState.RUNNING)
         self.sigStart.emit()
@@ -94,6 +106,7 @@ class MockEngine(BaseEngine):
         self._current_uid = None
         self._set_state(EngineState.IDLE)
         self.sigFinish.emit()
+        return uid
 
     def pause(self, defer: bool = False) -> None:
         """Pause execution.

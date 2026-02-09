@@ -86,8 +86,12 @@ class StatusBarPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "statusbar"
-    description: ClassVar[str] = "Status bar indicator plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this status bar plugin."""
+        return "Status bar indicator plugin"
 
     # Subclasses must define this
     metadata: ClassVar[StatusBarPluginMetadata]

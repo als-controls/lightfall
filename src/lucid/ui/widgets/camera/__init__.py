@@ -17,10 +17,10 @@ Mixins:
     TVModeMixin: Adds TV mode (continuous streaming) support
 """
 
-from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
-from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 from lucid.ui.widgets.camera.andor import AndorCameraControlWidget
+from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
 from lucid.ui.widgets.camera.pimte import PIMTECameraControlWidget
+from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 
 __all__ = [
     "CameraControlWidget",

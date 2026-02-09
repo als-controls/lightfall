@@ -532,7 +532,7 @@ class QThreadFutureIterator(QThreadFuture):
 # Lazy-initialized to avoid creating Qt objects before QApplication exists.
 # On Windows, creating QObjects before QApplication can cause crashes.
 _invoke_event_type: QEvent.Type | None = None
-_invoker: "_Invoker | None" = None
+_invoker: _Invoker | None = None
 _invoker_lock = threading.Lock()
 
 
@@ -544,7 +544,7 @@ def _get_invoke_event_type() -> QEvent.Type:
     return _invoke_event_type
 
 
-def _get_invoker() -> "_Invoker":
+def _get_invoker() -> _Invoker:
     """Get or create the invoker singleton (lazy initialization)."""
     global _invoker
     if _invoker is None:

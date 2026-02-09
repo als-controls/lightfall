@@ -66,8 +66,12 @@ class PlanPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "plan"
-    description: ClassVar[str] = "Bluesky plan plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this plan plugin."""
+        return "Bluesky plan plugin"
 
     @property
     @abstractmethod

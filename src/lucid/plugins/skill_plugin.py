@@ -72,7 +72,6 @@ class SkillPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "skill"
-    description: ClassVar[str] = "Claude assistant skill plugin"
     is_singleton: ClassVar[bool] = True
 
     @property

@@ -79,8 +79,12 @@ class ControllerPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "controller"
-    description: ClassVar[str] = "Device controller plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this controller plugin."""
+        return "Device controller plugin"
 
     @property
     @abstractmethod

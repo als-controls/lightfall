@@ -57,8 +57,12 @@ class PanelPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "panel"
-    description: ClassVar[str] = "Application panel plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this panel plugin."""
+        return "Application panel plugin"
 
     @property
     @abstractmethod

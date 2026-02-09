@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
-import pyqtgraph as pg
 
 from lucid.ui.panels.synoptic.models import (
     BeamPathSegment,
@@ -232,7 +232,6 @@ class Device2DItem(pg.ROI):
             painter.drawEllipse(bounds)
         elif shape == PrimitiveShape.DIAMOND:
             cx, cy = w / 2, h / 2
-            hw, hh = w / 2, h / 2
             diamond = QPolygonF([
                 QPointF(cx, 0),      # Top
                 QPointF(w, cy),      # Right

@@ -13,8 +13,8 @@ from PySide6.QtWidgets import QGroupBox, QWidget
 
 from lucid.ui.models.device_tree import DeviceTreeItem
 from lucid.ui.widgets.base_control import register_control_widget
-from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 from lucid.ui.widgets.camera.panels.cooler import CoolerPanel
+from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 
 
 @register_control_widget

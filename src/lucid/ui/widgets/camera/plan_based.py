@@ -19,7 +19,7 @@ from lucid.ui.widgets.camera.base import CameraControlWidget
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.models.device_tree import DeviceTreeItem
+    pass
 
 
 class PlanBasedCameraControlWidget(CameraControlWidget):

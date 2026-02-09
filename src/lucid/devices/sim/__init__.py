@@ -22,5 +22,5 @@ try:
 except ImportError as e:
     import warnings
 
-    warnings.warn(f"SimDetector components not available: {e}")
+    warnings.warn(f"SimDetector components not available: {e}", stacklevel=2)
     __all__ = []

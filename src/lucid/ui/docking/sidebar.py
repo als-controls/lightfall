@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6QtAds import CDockManager, SideBarLeft, SideBarRight, SideBarBottom
+from PySide6QtAds import CDockManager, SideBarBottom, SideBarLeft, SideBarRight
 
 from lucid.utils.logging import logger
 
@@ -240,7 +240,7 @@ class SidebarManager:
         Returns:
             Panel ID of the expanded panel, or None if all collapsed.
         """
-        for panel_id, container in self._auto_hide_containers.items():
+        for panel_id, _container in self._auto_hide_containers.items():
             # Check if container is expanded (visible but not collapsed)
             widget = self._panel_widgets.get(panel_id)
             if widget and not widget.isClosed():

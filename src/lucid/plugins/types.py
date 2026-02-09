@@ -19,8 +19,10 @@ class PluginType(ABC):
 
     Class Attributes:
         type_name: Unique identifier for this plugin type (e.g., "plan").
-        description: Human-readable description of this plugin type.
         is_singleton: Whether only one instance should exist per plugin.
+
+    Properties:
+        description: Human-readable description of this plugin type.
 
     Example subclass::
 
@@ -39,8 +41,12 @@ class PluginType(ABC):
     """
 
     type_name: ClassVar[str] = "base"
-    description: ClassVar[str] = "Base plugin type"
     is_singleton: ClassVar[bool] = False
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this plugin type."""
+        return "Base plugin type"
 
     @property
     @abstractmethod

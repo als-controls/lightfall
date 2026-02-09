@@ -1,0 +1,612 @@
+Date/Time:       2026-02-04 10:25:30 
+Command line:    C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\briefcase build
+
+OS Release:      Windows 11
+OS Version:      10.0.26200
+Architecture:    AMD64
+Platform:        Windows-11-10.0.26200-SP0
+
+Python exe:      C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\python.exe
+Python version:  3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
+Virtual env:     True
+Conda env:       False
+
+Briefcase:       0.3.26
+Target platform: windows
+Target format:   app
+
+Environment Variables:
+	ACSETUPSVCPORT=23210
+	ACSVCPORT=17532
+	ALLUSERSPROFILE=C:\ProgramData
+	APPDATA=C:\Users\rp\AppData\Roaming
+	CHOCOLATEYINSTALL=C:\ProgramData\chocolatey
+	CHOCOLATEYLASTPATHUPDATE=133783700625796005
+	COMMONPROGRAMFILES=C:\Program Files\Common Files
+	COMMONPROGRAMFILES(X86)=C:\Program Files (x86)\Common Files
+	COMMONPROGRAMW6432=C:\Program Files\Common Files
+	COMPUTERNAME=SHUSSEBORA
+	COMSPEC=C:\WINDOWS\system32\cmd.exe
+	CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	CUDA_PATH_V12_4=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+	CUDA_PATH_V12_6=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	DOKANLIBRARY1=C:\Program Files\Dokan\Dokan Library-1.4.1\
+	DOKANLIBRARY1_LIBRARYPATH_X64=C:\Program Files\Dokan\Dokan Library-1.4.1\lib\
+	DOKANLIBRARY1_LIBRARYPATH_X86=C:\Program Files\Dokan\Dokan Library-1.4.1\x86\lib\
+	DRIVERDATA=C:\Windows\System32\Drivers\DriverData
+	EFC_19576_1262719628=1
+	EFC_19576_1592913036=1
+	EFC_19576_2283032206=1
+	EFC_19576_2775293581=1
+	EFC_19576_3789132940=1
+	FIG_TERM=1
+	FPS_BROWSER_APP_PROFILE_STRING=Internet Explorer
+	FPS_BROWSER_USER_PROFILE_STRING=Default
+	GAMEFIRSTUSERPATH=C:\ProgramData\ASUS\GameFirst
+	GAMETURBO=C:\Program Files (x86)\ASUS\GameFirst\
+	GIT_LFS_PATH=C:\Program Files\Git LFS
+	HOMEDRIVE=C:
+	HOMEPATH=\Users\rp
+	INTELLIJ_TERMINAL_COMMAND_BLOCKS_REWORKED=1
+	JD2_HOME=C:\Users\rp\AppData\Local\JDownloader 2.0
+	LOCALAPPDATA=C:\Users\rp\AppData\Local
+	LOGONSERVER=\\SHUSSEBORA
+	MOZ_PLUGIN_PATH=C:\Program Files (x86)\Foxit Software\Foxit PDF Reader\plugins\
+	NIEXTCCOMPILERSUPP=C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\
+	NUMBER_OF_PROCESSORS=24
+	OCULUSBASE=C:\Program Files\Oculus\
+	ONEDRIVE=C:\Users\rp\OneDrive
+	OPENAI_API_KEY=********************
+	OS=Windows_NT
+	PATH=C:\Users\rp\PycharmProjects\ncs\.venv/Scripts;C:\Program Files\Eclipse Adoptium\jdk-21.0.9.10-hotspot\bin;C:\Program Files\Oculus\Support\oculus-runtime;C:\Program Files\Eclipse Adoptium\jre-8.0.432.6-hotspot\bin;C:\Program Files\Eclipse Adoptium\jdk-17.0.13.11-hotspot\bin;C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\libnvvp;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\libnvvp;C:\Program Files (x86)\Razer Chroma SDK\bin;C:\Program Files\Razer Chroma SDK\bin;C:\Program Files\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Razer\ChromaBroadcast\bin;C:\Program Files\Razer\ChromaBroadcast\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\ProgramData\chocolatey\bin;C:\Windows\system32\config\systemprofile\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Program Files\dotnet\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin\;C:\Program Files\IVI Foundation\VISA\Win64\Bin\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin;C:\Program Files (x86)\Bitvise SSH Client;C:\Program Files\NVIDIA Corporation\Nsight Compute 2024.3.1\;C:\Program Files\CMake\bin;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\Git LFS;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\nodejs\;C:\Program Files\Git\cmd;C:\Program Files\Sunshine;C:\Program Files\Sunshine\tools;C:\Users\rp\.cargo\bin;C:\\Users\\rp\\AppData\\Local\\Goose\\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Users\rp\.dotnet\tools;C:\Users\rp\AppData\Local\Programs\Ollama;C:\Users\rp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\rp\AppData\Roaming\npm;C:\Users\rp\.local\bin;C:\Users\rp\AppData\Local\JetBrains\Toolbox\scripts;
+	PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
+	PIP_FIND_LINKS=C:\Users\rp\PycharmProjects\ncs\ncs\dist
+	PROCESSOR_ARCHITECTURE=AMD64
+	PROCESSOR_IDENTIFIER=Intel64 Family 6 Model 151 Stepping 2, GenuineIntel
+	PROCESSOR_LEVEL=6
+	PROCESSOR_REVISION=9702
+	PROCESS_LAUNCHED_BY_CW=1
+	PROCESS_LAUNCHED_BY_Q=1
+	PROGRAMDATA=C:\ProgramData
+	PROGRAMFILES=C:\Program Files
+	PROGRAMFILES(X86)=C:\Program Files (x86)
+	PROGRAMW6432=C:\Program Files
+	PSEXECUTIONPOLICYPREFERENCE=Bypass
+	PSMODULEPATH=C:\Users\rp\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+	PUBLIC=C:\Users\Public
+	RLSSVCPORT=22112
+	SESSIONNAME=Console
+	SYSTEMDRIVE=C:
+	SYSTEMROOT=C:\WINDOWS
+	TEMP=C:\Users\rp\AppData\Local\Temp
+	TERM=xterm
+	TERMINAL_EMULATOR=JetBrains-JediTerm
+	TERM_SESSION_ID=9cbb7a25-427a-41a4-bfec-6253e2fb5429
+	TMP=C:\Users\rp\AppData\Local\Temp
+	USERDOMAIN=SHUSSEBORA
+	USERDOMAIN_ROAMINGPROFILE=SHUSSEBORA
+	USERNAME=rp
+	USERPROFILE=C:\Users\rp
+	VBOX_MSI_INSTALL_PATH=C:\Program Files\Oracle\VirtualBox\
+	VIRTUAL_ENV=C:\Users\rp\PycharmProjects\ncs\.venv
+	VIRTUAL_ENV_PROMPT=.venv
+	VXIPNPPATH=C:\Program Files (x86)\IVI Foundation\VISA\
+	VXIPNPPATH64=C:\Program Files\IVI Foundation\VISA\
+	WINDIR=C:\WINDOWS
+
+pyproject.toml:
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lucid"
+dynamic = ["version"]
+description = "LUCID - Lightsource Unified Control Interface Dashboard"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.11"
+authors = [
+    { name = "ALS Controls Team" },
+]
+keywords = [
+    "control-system",
+    "data-acquisition",
+    "scientific-instruments",
+    "beamline",
+    "lucid",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "mistune>=3.0",
+    "psutil>=5.9",
+    "pyqt-toast-notification>=1.0",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    # acquire
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    # tiled
+    "tiled[client]>=0.1.0",
+    # keycloak
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+    # ipython
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+]
+
+[project.optional-dependencies]
+bcs = [
+    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
+]
+claude = [
+    "pyside-claude",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-qt>=4.2",
+    "ruff>=0.1",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+docs = [
+    "sphinx>=7.0,<9.0",
+    "myst-parser>=2.0",
+    "sphinx-immaterial>=0.12",
+]
+
+[project.scripts]
+lucid = "lucid.main:cli"
+
+[project.gui-scripts]
+lucid-gui = "lucid.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/als-computing/lucid"
+Documentation = "https://als-computing.github.io/lucid"
+Repository = "https://github.com/als-computing/lucid"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/lucid/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lucid"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lucid"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["src/lucid"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+# =============================================================================
+# Briefcase Configuration (Native App Packaging)
+# =============================================================================
+
+[tool.briefcase]
+project_name = "LUCID"
+bundle = "gov.lbl.als"
+version = "0.1.0"
+url = "https://als.lbl.gov"
+author = "ALS Controls Team"
+author_email = "controls@lbl.gov"
+
+[tool.briefcase.app.lucid]
+formal_name = "LUCID"
+description = "Advanced Light Source Control System"
+long_description = """LUCID is a modern, unified control system for scientific
+data acquisition and hardware controls at the Advanced Light Source facility."""
+icon = "resources/lucid"
+sources = ["src/lucid"]
+requires = [
+    # Core UI
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    "pyqt-toast-notification>=1.0",
+
+    # Data/Config
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+
+    # Logging & Monitoring
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "psutil>=5.9",
+
+    # Markdown rendering
+    "mistune>=3.0",
+
+    # Async/HTTP
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+
+    # Data acquisition
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    "tiled[client]>=0.1.0",
+
+    # IPython integration
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+    "ipython>=8.0",
+
+    # Utilities
+    "platformdirs>=4.0",
+    "watchfiles>=0.20",
+    "python-dotenv>=1.0",
+    "typing-extensions>=4.0",
+    "cachetools>=5.0",
+    "cryptography>=41.0",
+    "bidict>=0.23",
+
+    # Sub-projects (from local wheels via --find-links)
+    "epics-pyside",
+    "pyside-claude",
+]
+
+[tool.briefcase.app.lucid.macOS]
+requires = []
+
+[tool.briefcase.app.lucid.windows]
+requires = []
+
+[tool.briefcase.app.lucid.linux]
+requires = []
+system_requires = []
+
+Briefcase Log:
+[10:25:30]                                                                                                                                                             config.py:792
+           *************************************************************************                                                                                   config.py:792
+           ** WARNING: License Definition for the Project is Deprecated           **                                                                                   config.py:792
+           *************************************************************************                                                                                   config.py:792
+                                                                                                                                                                       config.py:792
+               Briefcase now uses PEP 621 format for license definitions.                                                                                              config.py:792
+                                                                                                                                                                       config.py:792
+               Previously, the name of the license was assigned to the 'license'                                                                                       config.py:792
+               field in pyproject.toml. For PEP 621, the name of the license is                                                                                        config.py:792
+               assigned to 'license.text' or the name of the file containing the                                                                                       config.py:792
+               license is assigned to 'license.file'.                                                                                                                  config.py:792
+                                                                                                                                                                       config.py:792
+               The current configuration for the Project has a 'license' field                                                                                         config.py:792
+               that is specified as a string:                                                                                                                          config.py:792
+                                                                                                                                                                       config.py:792
+                   license = "BSD-3-Clause"                                                                                                                            config.py:792
+                                                                                                                                                                       config.py:792
+               To use the PEP 621 format (and to remove this warning), specify that                                                                                    config.py:792
+               the LICENSE file contains the license for the Project:                                                                                                  config.py:792
+                                                                                                                                                                       config.py:792
+                   license.file = "LICENSE"                                                                                                                            config.py:792
+                                                                                                                                                                       config.py:792
+           *************************************************************************                                                                                   config.py:792
+                                                                                                                                                                   windows_sdk.py:82
+           [Windows SDK] Finding Suitable Installation...                                                                                                          windows_sdk.py:82
+           Evaluating Registry SDK version '10.0.22000.0' at C:\Program Files (x86)\Windows Kits\10                                                               windows_sdk.py:133
+                                                                                                                                                                   subprocess.py:839
+           >>> Running Command:                                                                                                                                    subprocess.py:839
+           >>>     'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64\signtool.exe' '-?'                                                                 subprocess.py:839
+           >>> Working Directory:                                                                                                                                  subprocess.py:839
+           >>>     C:\Users\rp\PycharmProjects\ncs\ncs                                                                                                             subprocess.py:839
+           >>> Command Output:                                                                                                                                     subprocess.py:839
+           >>>     Usage: signtool <command> [options]                                                                                                             subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>       Valid commands:                                                                                                                               subprocess.py:839
+           >>>         sign       --  Sign files using an embedded signature.                                                                                      subprocess.py:839
+           >>>         timestamp  --  Timestamp previously-signed files.                                                                                           subprocess.py:839
+           >>>         verify     --  Verify embedded or catalog signatures.                                                                                       subprocess.py:839
+           >>>         catdb      --  Modify a catalog database.                                                                                                   subprocess.py:839
+           >>>         remove     --  Remove embedded signature(s) or reduce the size of an                                                                        subprocess.py:839
+           >>>                        embedded signed file.                                                                                                        subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>     For help on a specific command, enter "signtool <command> /?"                                                                                   subprocess.py:839
+           >>> Return code: 0                                                                                                                                      subprocess.py:839
+                                                                                                                                                                   subprocess.py:839
+           Using Windows SDK v10.0.22000.0 at C:\Program Files (x86)\Windows Kits\10                                                                              windows_sdk.py:233
+                                                                                                                                                                           app.py:64
+           [lucid] Building App...                                                                                                                                         app.py:64
+           Removing any digital signatures from stub app... started                                                                                                        app.py:81
+                                                                                                                                                                   subprocess.py:839
+           >>> Running Command:                                                                                                                                    subprocess.py:839
+           >>>     'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64\signtool.exe' remove -s 'src\LUCID.exe'                                            subprocess.py:839
+           >>> Working Directory:                                                                                                                                  subprocess.py:839
+           >>>     C:\Users\rp\PycharmProjects\ncs\ncs\build\lucid\windows\app                                                                                     subprocess.py:839
+           >>> Command Output:                                                                                                                                     subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>     Number of errors: 1                                                                                                                             subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>     SignTool Error: CryptSIPRemoveSignedDataMsg returned error: 0x00000020                                                                          subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>>             The process cannot access the file because it is being used by another process.                                                         subprocess.py:839
+           >>>                                                                                                                                                     subprocess.py:839
+           >>> Return code: 1                                                                                                                                      subprocess.py:839
+                                                                                                                                                                   subprocess.py:839
+           Removing any digital signatures from stub app... errored                                                                                                        app.py:81
+                                                                                                                                                                      __main__.py:42
+           Failed to remove any existing digital signatures from the stub app.                                                                                        __main__.py:43
+                                                                                                                                                                      __main__.py:43
+           Recreating the app layout may also help resolve this issue:                                                                                                __main__.py:43
+                                                                                                                                                                      __main__.py:43
+               $ briefcase create windows app                                                                                                                         __main__.py:43
+                                                                                                                                                                      __main__.py:43
+           Saving log... started                                                                                                                                      console.py:443
+
+Main thread traceback:
+╭─────────────────────────────────────────────────────────────────────── Traceback (most recent call last) ────────────────────────────────────────────────────────────────────────╮
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\app.py:85 in build_app                                                                       │
+│                                                                                                                                                                                  │
+│    82 │   │   │   │   "Removing any digital signatures from stub app..."                                                                                                         │
+│    83 │   │   │   ):                                                                                                                                                             │
+│    84 │   │   │   │   try:                                                                                                                                                       │
+│ ❱  85 │   │   │   │   │   self.tools.subprocess.check_output(                                                                                                                    │
+│    86 │   │   │   │   │   │   [                                                                                                                                                  │
+│    87 │   │   │   │   │   │   │   self.tools.windows_sdk.signtool_exe,                                                                                                           │
+│    88 │   │   │   │   │   │   │   "remove",                                                                                                                                      │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────── locals ────────────────────────────────────────────────────╮                                                                │
+│ │                 app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                │
+│ │              kwargs = {}                                                                                      │                                                                │
+│ │                self = <briefcase.platforms.windows.app.WindowsAppBuildCommand object at 0x0000026D68781550>   │                                                                │
+│ │ unbuilt_binary_path = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app/src/Stub.exe') │                                                                │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\integrations\subprocess.py:145 in inner                                                                        │
+│                                                                                                                                                                                  │
+│   142 │   │   │   with sub.tools.console.release_console_control():                                                                                                              │
+│   143 │   │   │   │   return sub_method(sub, args, *wrapped_args, **wrapped_kwargs)                                                                                              │
+│   144 │   │   else:                                                                                                                                                              │
+│ ❱ 145 │   │   │   return sub_method(sub, args, *wrapped_args, **wrapped_kwargs)                                                                                                  │
+│   146 │                                                                                                                                                                          │
+│   147 │   return inner                                                                                                                                                           │
+│   148                                                                                                                                                                            │
+│                                                                                                                                                                                  │
+│ ╭───────────────────────────────────────────────────────────────────────────── locals ──────────────────────────────────────────────────────────────────────────────╮            │
+│ │                    args = [WindowsPath('C:/Program Files (x86)/Windows Kits/10/bin/10.0.22000.0/x64/signtool.exe'), 'remove', '-s', WindowsPath('src/LUCID.exe')] │            │
+│ │              executable = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22000.0\\x64\\signtool.exe'                                                       │            │
+│ │ remove_dynamic_elements = False                                                                                                                                   │            │
+│ │                     sub = <briefcase.integrations.subprocess.Subprocess object at 0x0000026D68781940>                                                             │            │
+│ │            wrapped_args = ()                                                                                                                                      │            │
+│ │          wrapped_kwargs = {'cwd': WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app'), 'quiet': 1}                                         │            │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯            │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\integrations\subprocess.py:653 in check_output                                                                 │
+│                                                                                                                                                                                  │
+│   650 │   │   │   self._log_environment(kwargs.get("env"))                                                                                                                       │
+│   651 │   │                                                                                                                                                                      │
+│   652 │   │   try:                                                                                                                                                               │
+│ ❱ 653 │   │   │   cmd_output = self._subprocess.check_output(                                                                                                                    │
+│   654 │   │   │   │   [str(arg) for arg in args], **self.final_kwargs(**kwargs)                                                                                                  │
+│   655 │   │   │   )                                                                                                                                                              │
+│   656 │   │   except subprocess.CalledProcessError as e:                                                                                                                         │
+│                                                                                                                                                                                  │
+│ ╭───────────────────────────────────────────────────────────────────── locals ─────────────────────────────────────────────────────────────────────╮                             │
+│ │   args = [WindowsPath('C:/Program Files (x86)/Windows Kits/10/bin/10.0.22000.0/x64/signtool.exe'), 'remove', '-s', WindowsPath('src/LUCID.exe')] │                             │
+│ │ kwargs = {'cwd': WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app'), 'stderr': -2}                                       │                             │
+│ │  quiet = 1                                                                                                                                       │                             │
+│ │   self = <briefcase.integrations.subprocess.Subprocess object at 0x0000026D68781940>                                                             │                             │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                             │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\AppData\Local\Programs\Python\Python314\Lib\subprocess.py:472 in check_output                                                                                        │
+│                                                                                                                                                                                  │
+│    469 │   │   │   empty = b''                                                                                                                                                   │
+│    470 │   │   kwargs['input'] = empty                                                                                                                                           │
+│    471 │                                                                                                                                                                         │
+│ ❱  472 │   return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,                                                                                                      │
+│    473 │   │   │      **kwargs).stdout                                                                                                                                           │
+│    474                                                                                                                                                                           │
+│    475                                                                                                                                                                           │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────────────────────────────────────── locals ──────────────────────────────────────────────────────────────────────────────────╮   │
+│ │        kw = 'check'                                                                                                                                                        │   │
+│ │    kwargs = {'stderr': -2, 'cwd': 'C:\\Users\\rp\\PycharmProjects\\ncs\\ncs\\build\\lucid\\windows\\app', 'text': True, 'encoding': 'cp437', 'errors': 'backslashreplace'} │   │
+│ │ popenargs = (['C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22000.0\\x64\\signtool.exe', 'remove', '-s', 'src\\LUCID.exe'],)                                       │   │
+│ │   timeout = None                                                                                                                                                           │   │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯   │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\AppData\Local\Programs\Python\Python314\Lib\subprocess.py:577 in run                                                                                                 │
+│                                                                                                                                                                                  │
+│    574 │   │   │   raise                                                                                                                                                         │
+│    575 │   │   retcode = process.poll()                                                                                                                                          │
+│    576 │   │   if check and retcode:                                                                                                                                             │
+│ ❱  577 │   │   │   raise CalledProcessError(retcode, process.args,                                                                                                               │
+│    578 │   │   │   │   │   │   │   │   │    output=stdout, stderr=stderr)                                                                                                        │
+│    579 │   return CompletedProcess(process.args, retcode, stdout, stderr)                                                                                                        │
+│    580                                                                                                                                                                           │
+│                                                                                                                                                                                  │
+│ ╭───────────────────────────────────────────────────────────────── locals ──────────────────────────────────────────────────────────────────╮                                    │
+│ │ capture_output = False                                                                                                                    │                                    │
+│ │          check = True                                                                                                                     │                                    │
+│ │          input = None                                                                                                                     │                                    │
+│ │         kwargs = {                                                                                                                        │                                    │
+│ │                  │   'stdout': -1,                                                                                                        │                                    │
+│ │                  │   'stderr': -2,                                                                                                        │                                    │
+│ │                  │   'cwd': 'C:\\Users\\rp\\PycharmProjects\\ncs\\ncs\\build\\lucid\\windows\\app',                                       │                                    │
+│ │                  │   'text': True,                                                                                                        │                                    │
+│ │                  │   'encoding': 'cp437',                                                                                                 │                                    │
+│ │                  │   'errors': 'backslashreplace'                                                                                         │                                    │
+│ │                  }                                                                                                                        │                                    │
+│ │      popenargs = (['C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22000.0\\x64\\signtool.exe', 'remove', '-s', 'src\\LUCID.exe'],) │                                    │
+│ │        process = <Popen: returncode: 1 args: ['C:\\Program Files (x86)\\Windows Kits\\10\\bin...>                                         │                                    │
+│ │        retcode = 1                                                                                                                        │                                    │
+│ │         stderr = None                                                                                                                     │                                    │
+│ │         stdout = '\n\nNumber of errors: 1\n\nSignTool Error: CryptSIPRemoveSignedDataMsg returned erro'+97                                │                                    │
+│ │        timeout = None                                                                                                                     │                                    │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+CalledProcessError: Command '['C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22000.0\\x64\\signtool.exe', 'remove', '-s', 'src\\LUCID.exe']' returned non-zero exit status 1.
+
+The above exception was the direct cause of the following exception:
+
+╭─────────────────────────────────────────────────────────────────────── Traceback (most recent call last) ────────────────────────────────────────────────────────────────────────╮
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\__main__.py:27 in main                                                                                         │
+│                                                                                                                                                                                  │
+│   24 │   │   │   Path.cwd() / "pyproject.toml",                                                                                                                                  │
+│   25 │   │   │   overrides=overrides,                                                                                                                                            │
+│   26 │   │   )                                                                                                                                                                   │
+│ ❱ 27 │   │   command(**options)                                                                                                                                                  │
+│   28 │   except HelpText as e:                                                                                                                                                   │
+│   29 │   │   console.info()                                                                                                                                                      │
+│   30 │   │   console.info(str(e))                                                                                                                                                │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────────────────────────────────╮ │
+│ │       command = <briefcase.platforms.windows.app.WindowsAppBuildCommand object at 0x0000026D68781550>                                                                        │ │
+│ │       console = <briefcase.console.Console object at 0x0000026D684CFCB0>                                                                                                     │ │
+│ │             e = BriefcaseCommandError('Failed to remove any existing digital signatures from the stub app.\n\nRecreating the app layout may also help resolve this           │ │
+│ │                 issue:\n\n    $ briefcase create windows app\n\n')                                                                                                           │ │
+│ │ extra_cmdline = []                                                                                                                                                           │ │
+│ │       options = {                                                                                                                                                            │ │
+│ │                 │   'update': False,                                                                                                                                         │ │
+│ │                 │   'update_requirements': False,                                                                                                                            │ │
+│ │                 │   'update_support': False,                                                                                                                                 │ │
+│ │                 │   'update_stub': False,                                                                                                                                    │ │
+│ │                 │   'update_resources': False,                                                                                                                               │ │
+│ │                 │   'no_update': False,                                                                                                                                      │ │
+│ │                 │   'test_mode': False,                                                                                                                                      │ │
+│ │                 │   'debugger': None                                                                                                                                         │ │
+│ │                 }                                                                                                                                                            │ │
+│ │     overrides = {}                                                                                                                                                           │ │
+│ │        result = 200                                                                                                                                                          │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\build.py:159 in __call__                                                                              │
+│                                                                                                                                                                                  │
+│   156 │   │                                                                                                                                                                      │
+│   157 │   │   state = None                                                                                                                                                       │
+│   158 │   │   for _, app_obj in sorted(apps_to_build.items()):                                                                                                                   │
+│ ❱ 159 │   │   │   state = self._build_app(                                                                                                                                       │
+│   160 │   │   │   │   app_obj,                                                                                                                                                   │
+│   161 │   │   │   │   update=update,                                                                                                                                             │
+│   162 │   │   │   │   update_requirements=update_requirements,                                                                                                                   │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────── locals ───────────────────────────────────────────────────╮                                                                  │
+│ │                   _ = 'lucid'                                                                               │                                                                  │
+│ │                 app = None                                                                                  │                                                                  │
+│ │            app_name = None                                                                                  │                                                                  │
+│ │             app_obj = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                  │                                                                  │
+│ │       apps_to_build = {'lucid': <gov.lbl.als.lucid v0.1.0 AppConfig>}                                       │                                                                  │
+│ │            debugger = None                                                                                  │                                                                  │
+│ │           no_update = False                                                                                 │                                                                  │
+│ │             options = {}                                                                                    │                                                                  │
+│ │                self = <briefcase.platforms.windows.app.WindowsAppBuildCommand object at 0x0000026D68781550> │                                                                  │
+│ │               state = None                                                                                  │                                                                  │
+│ │           test_mode = False                                                                                 │                                                                  │
+│ │              update = False                                                                                 │                                                                  │
+│ │ update_requirements = False                                                                                 │                                                                  │
+│ │    update_resources = False                                                                                 │                                                                  │
+│ │         update_stub = False                                                                                 │                                                                  │
+│ │      update_support = False                                                                                 │                                                                  │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                  │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\build.py:92 in _build_app                                                                             │
+│                                                                                                                                                                                  │
+│    89 │   │                                                                                                                                                                      │
+│    90 │   │   self.verify_app(app)                                                                                                                                               │
+│    91 │   │                                                                                                                                                                      │
+│ ❱  92 │   │   state = self.build_app(app, **full_options(state, options))                                                                                                        │
+│    93 │   │                                                                                                                                                                      │
+│    94 │   │   qualifier = " (test mode)" if app.test_mode else ""                                                                                                                │
+│    95 │   │   qualifier += " (debug mode)" if app.debugger else ""                                                                                                               │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────── locals ───────────────────────────────────────────────────╮                                                                  │
+│ │                 app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                  │                                                                  │
+│ │           no_update = False                                                                                 │                                                                  │
+│ │             options = {}                                                                                    │                                                                  │
+│ │                self = <briefcase.platforms.windows.app.WindowsAppBuildCommand object at 0x0000026D68781550> │                                                                  │
+│ │               state = None                                                                                  │                                                                  │
+│ │              update = False                                                                                 │                                                                  │
+│ │ update_requirements = False                                                                                 │                                                                  │
+│ │    update_resources = False                                                                                 │                                                                  │
+│ │         update_stub = False                                                                                 │                                                                  │
+│ │      update_support = False                                                                                 │                                                                  │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                  │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\app.py:100 in build_app                                                                      │
+│                                                                                                                                                                                  │
+│    97 │   │   │   │   │   # is not currently signed                                                                                                                              │
+│    98 │   │   │   │   │   if "error: 0x00000057" not in e.stdout:                                                                                                                │
+│    99 │   │   │   │   │   │   self.tools.subprocess.output_error(e)                                                                                                              │
+│ ❱ 100 │   │   │   │   │   │   raise BriefcaseCommandError(                                                                                                                       │
+│   101 │   │   │   │   │   │   │   f"""\                                                                                                                                          │
+│   102 Failed to remove any existing digital signatures from the stub app.                                                                                                        │
+│   103                                                                                                                                                                            │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────── locals ────────────────────────────────────────────────────╮                                                                │
+│ │                 app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                    │                                                                │
+│ │              kwargs = {}                                                                                      │                                                                │
+│ │                self = <briefcase.platforms.windows.app.WindowsAppBuildCommand object at 0x0000026D68781550>   │                                                                │
+│ │ unbuilt_binary_path = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app/src/Stub.exe') │                                                                │
+│ ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+BriefcaseCommandError: Failed to remove any existing digital signatures from the stub app.
+
+Recreating the app layout may also help resolve this issue:
+
+    $ briefcase create windows app
+
+

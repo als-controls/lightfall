@@ -8,7 +8,7 @@ This module handles:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from lucid.ui.panels.synoptic.models import (
     BeamPathSegment,

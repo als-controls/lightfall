@@ -49,7 +49,7 @@ def check_oauth_status() -> tuple[bool, str]:
         if "claudeAiOauth" in creds:
             return True, "Logged in via OAuth (subscription)"
         return False, "No OAuth credentials"
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return False, "Could not read credentials"
 
 

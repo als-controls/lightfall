@@ -90,8 +90,12 @@ class MCPToolPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "mcp_tool"
-    description: ClassVar[str] = "MCP tool plugin for Claude assistant"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this MCP tool plugin."""
+        return "MCP tool plugin for Claude assistant"
 
     @property
     @abstractmethod

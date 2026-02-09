@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
 
 from lucid.utils.logging import logger
 
-
 # Andor cooler status values
 COOLER_STATUS = {
     0: "Off",

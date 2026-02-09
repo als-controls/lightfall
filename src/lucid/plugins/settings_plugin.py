@@ -68,8 +68,12 @@ class SettingsPlugin(PluginType):
     """
 
     type_name: ClassVar[str] = "settings"
-    description: ClassVar[str] = "Settings/Preferences plugin"
     is_singleton: ClassVar[bool] = True
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this settings plugin."""
+        return "Settings/Preferences plugin"
 
     @property
     @abstractmethod

@@ -12,6 +12,7 @@ This example shows:
 import sys
 
 from loguru import logger
+from ncs.logbook import LogbookWidget
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -20,8 +21,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from ncs.logbook import LogbookWidget
 
 # Configure logging
 logger.remove()

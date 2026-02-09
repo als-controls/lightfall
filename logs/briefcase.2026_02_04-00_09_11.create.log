@@ -1,0 +1,967 @@
+Date/Time:       2026-02-04 00:09:11 
+Command line:    C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\briefcase create --no-input
+
+OS Release:      Windows 11
+OS Version:      10.0.26200
+Architecture:    AMD64
+Platform:        Windows-11-10.0.26200-SP0
+
+Python exe:      C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\python.exe
+Python version:  3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
+Virtual env:     True
+Conda env:       False
+
+Briefcase:       0.3.26
+Target platform: windows
+Target format:   app
+
+Environment Variables:
+	ACSETUPSVCPORT=23210
+	ACSVCPORT=17532
+	ALLUSERSPROFILE=C:\ProgramData
+	APPDATA=C:\Users\rp\AppData\Roaming
+	CHOCOLATEYINSTALL=C:\ProgramData\chocolatey
+	CHOCOLATEYLASTPATHUPDATE=133783700625796005
+	COMMONPROGRAMFILES=C:\Program Files\Common Files
+	COMMONPROGRAMFILES(X86)=C:\Program Files (x86)\Common Files
+	COMMONPROGRAMW6432=C:\Program Files\Common Files
+	COMPUTERNAME=SHUSSEBORA
+	COMSPEC=C:\WINDOWS\system32\cmd.exe
+	CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	CUDA_PATH_V12_4=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+	CUDA_PATH_V12_6=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+	DOKANLIBRARY1=C:\Program Files\Dokan\Dokan Library-1.4.1\
+	DOKANLIBRARY1_LIBRARYPATH_X64=C:\Program Files\Dokan\Dokan Library-1.4.1\lib\
+	DOKANLIBRARY1_LIBRARYPATH_X86=C:\Program Files\Dokan\Dokan Library-1.4.1\x86\lib\
+	DRIVERDATA=C:\Windows\System32\Drivers\DriverData
+	EFC_19576_1262719628=1
+	EFC_19576_1592913036=1
+	EFC_19576_2283032206=1
+	EFC_19576_2775293581=1
+	EFC_19576_3789132940=1
+	FIG_TERM=1
+	FPS_BROWSER_APP_PROFILE_STRING=Internet Explorer
+	FPS_BROWSER_USER_PROFILE_STRING=Default
+	GAMEFIRSTUSERPATH=C:\ProgramData\ASUS\GameFirst
+	GAMETURBO=C:\Program Files (x86)\ASUS\GameFirst\
+	GIT_LFS_PATH=C:\Program Files\Git LFS
+	HOMEDRIVE=C:
+	HOMEPATH=\Users\rp
+	INTELLIJ_TERMINAL_COMMAND_BLOCKS_REWORKED=1
+	JD2_HOME=C:\Users\rp\AppData\Local\JDownloader 2.0
+	LOCALAPPDATA=C:\Users\rp\AppData\Local
+	LOGONSERVER=\\SHUSSEBORA
+	MOZ_PLUGIN_PATH=C:\Program Files (x86)\Foxit Software\Foxit PDF Reader\plugins\
+	NIEXTCCOMPILERSUPP=C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\
+	NUMBER_OF_PROCESSORS=24
+	OCULUSBASE=C:\Program Files\Oculus\
+	ONEDRIVE=C:\Users\rp\OneDrive
+	OPENAI_API_KEY=********************
+	OS=Windows_NT
+	PATH=C:\Users\rp\PycharmProjects\ncs\.venv/Scripts;C:\Program Files\Eclipse Adoptium\jdk-21.0.9.10-hotspot\bin;C:\Program Files\Oculus\Support\oculus-runtime;C:\Program Files\Eclipse Adoptium\jre-8.0.432.6-hotspot\bin;C:\Program Files\Eclipse Adoptium\jdk-17.0.13.11-hotspot\bin;C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\libnvvp;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\libnvvp;C:\Program Files (x86)\Razer Chroma SDK\bin;C:\Program Files\Razer Chroma SDK\bin;C:\Program Files\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Razer\ChromaBroadcast\bin;C:\Program Files\Razer\ChromaBroadcast\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\NVIDIA Corporation\NVIDIA NvDLISR;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\ProgramData\chocolatey\bin;C:\Windows\system32\config\systemprofile\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Program Files\dotnet\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin\;C:\Program Files\IVI Foundation\VISA\Win64\Bin\;C:\Program Files (x86)\IVI Foundation\VISA\WinNT\Bin;C:\Program Files (x86)\Bitvise SSH Client;C:\Program Files\NVIDIA Corporation\Nsight Compute 2024.3.1\;C:\Program Files\CMake\bin;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files\Git LFS;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\nodejs\;C:\Program Files\Git\cmd;C:\Program Files\Sunshine;C:\Program Files\Sunshine\tools;C:\Users\rp\.cargo\bin;C:\\Users\\rp\\AppData\\Local\\Goose\\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310\Scripts\;C:\Users\rp\AppData\Local\Programs\Python\Python310\;C:\Users\rp\AppData\Local\Microsoft\WindowsApps;C:\Users\rp\AppData\Local\GitHubDesktop\bin;C:\Users\rp\AppData\Local\Programs\Python\Python310;C:\Users\rp\.dotnet\tools;C:\Users\rp\AppData\Local\Programs\Ollama;C:\Users\rp\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\rp\AppData\Roaming\npm;C:\Users\rp\.local\bin;C:\Users\rp\AppData\Local\JetBrains\Toolbox\scripts;
+	PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
+	PIP_FIND_LINKS=C:\Users\rp\PycharmProjects\ncs\ncs\dist
+	PROCESSOR_ARCHITECTURE=AMD64
+	PROCESSOR_IDENTIFIER=Intel64 Family 6 Model 151 Stepping 2, GenuineIntel
+	PROCESSOR_LEVEL=6
+	PROCESSOR_REVISION=9702
+	PROCESS_LAUNCHED_BY_CW=1
+	PROCESS_LAUNCHED_BY_Q=1
+	PROGRAMDATA=C:\ProgramData
+	PROGRAMFILES=C:\Program Files
+	PROGRAMFILES(X86)=C:\Program Files (x86)
+	PROGRAMW6432=C:\Program Files
+	PSEXECUTIONPOLICYPREFERENCE=Bypass
+	PSMODULEPATH=C:\Users\rp\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+	PUBLIC=C:\Users\Public
+	RLSSVCPORT=22112
+	SESSIONNAME=Console
+	SYSTEMDRIVE=C:
+	SYSTEMROOT=C:\WINDOWS
+	TEMP=C:\Users\rp\AppData\Local\Temp
+	TERM=xterm
+	TERMINAL_EMULATOR=JetBrains-JediTerm
+	TERM_SESSION_ID=9cbb7a25-427a-41a4-bfec-6253e2fb5429
+	TMP=C:\Users\rp\AppData\Local\Temp
+	USERDOMAIN=SHUSSEBORA
+	USERDOMAIN_ROAMINGPROFILE=SHUSSEBORA
+	USERNAME=rp
+	USERPROFILE=C:\Users\rp
+	VBOX_MSI_INSTALL_PATH=C:\Program Files\Oracle\VirtualBox\
+	VIRTUAL_ENV=C:\Users\rp\PycharmProjects\ncs\.venv
+	VIRTUAL_ENV_PROMPT=.venv
+	VXIPNPPATH=C:\Program Files (x86)\IVI Foundation\VISA\
+	VXIPNPPATH64=C:\Program Files\IVI Foundation\VISA\
+	WINDIR=C:\WINDOWS
+
+pyproject.toml:
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lucid"
+dynamic = ["version"]
+description = "LUCID - Lightsource Unified Control Interface Dashboard"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.11"
+authors = [
+    { name = "ALS Controls Team" },
+]
+keywords = [
+    "control-system",
+    "data-acquisition",
+    "scientific-instruments",
+    "beamline",
+    "lucid",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "mistune>=3.0",
+    "psutil>=5.9",
+    "pyqt-toast-notification>=1.0",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    # acquire
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    # tiled
+    "tiled[client]>=0.1.0",
+    # keycloak
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+    # ipython
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+]
+
+[project.optional-dependencies]
+bcs = [
+    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
+]
+claude = [
+    "pyside-claude",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-qt>=4.2",
+    "ruff>=0.1",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+]
+docs = [
+    "sphinx>=7.0,<9.0",
+    "myst-parser>=2.0",
+    "sphinx-immaterial>=0.12",
+]
+
+[project.scripts]
+lucid = "lucid.main:cli"
+
+[project.gui-scripts]
+lucid-gui = "lucid.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/als-computing/lucid"
+Documentation = "https://als-computing.github.io/lucid"
+Repository = "https://github.com/als-computing/lucid"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/lucid/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lucid"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lucid"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["src/lucid"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+# =============================================================================
+# Briefcase Configuration (Native App Packaging)
+# =============================================================================
+
+[tool.briefcase]
+project_name = "LUCID"
+bundle = "gov.lbl.als"
+version = "0.1.0"
+url = "https://als.lbl.gov"
+license.file = "LICENSE"
+author = "ALS Controls Team"
+author_email = "controls@lbl.gov"
+
+[tool.briefcase.app.lucid]
+formal_name = "LUCID"
+description = "Advanced Light Source Control System"
+long_description = """LUCID is a modern, unified control system for scientific
+data acquisition and hardware controls at the Advanced Light Source facility."""
+icon = "resources/lucid"
+sources = ["src/lucid"]
+requires = [
+    # Core UI
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "qtawesome>=1.3",
+    "pyqt-toast-notification>=1.0",
+
+    # Data/Config
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+
+    # Logging & Monitoring
+    "loguru>=0.7",
+    "sentry-sdk[loguru]>=2.0",
+    "psutil>=5.9",
+
+    # Markdown rendering
+    "mistune>=3.0",
+
+    # Async/HTTP
+    "aiohttp>=3.8",
+    "aiohttp-socks>=0.8",
+
+    # Data acquisition
+    "bluesky>=1.10",
+    "ophyd>=1.7",
+    "tiled[client]>=0.1.0",
+
+    # IPython integration
+    "qtconsole>=5.5",
+    "ipykernel>=6.0",
+    "ipython>=8.0",
+
+    # Utilities
+    "platformdirs>=4.0",
+    "watchfiles>=0.20",
+    "python-dotenv>=1.0",
+    "typing-extensions>=4.0",
+    "cachetools>=5.0",
+    "cryptography>=41.0",
+    "bidict>=0.23",
+
+    # Sub-projects (from local wheels via --find-links)
+    "epics-pyside",
+    "pyside-claude",
+]
+
+[tool.briefcase.app.lucid.macOS]
+requires = []
+
+[tool.briefcase.app.lucid.windows]
+requires = []
+
+[tool.briefcase.app.lucid.linux]
+requires = []
+system_requires = []
+
+Briefcase Log:
+[00:05:27]                                                                                                                                                             create.py:947
+           [lucid] Generating application template...                                                                                                                  create.py:947
+           Assigning lucid an application GUID of 874b9123-ceb7-5437-a2ef-2b1daac3a5b1                                                                               __init__.py:168
+           Using app template: https://github.com/beeware/briefcase-windows-app-template.git, branch v0.3.26                                                            base.py:1320
+           Cloning template 'https://github.com/beeware/briefcase-windows-app-template.git'...                                                                          base.py:1145
+[00:05:29] Using existing template (sha 963d0d61daf11344b656430d45701eab70407f60, updated Wed Dec  3 06:10:36 2025)                                                     base.py:1221
+[00:05:30]                                                                                                                                                             create.py:969
+           [lucid] Installing support package...                                                                                                                       create.py:969
+           Using support package https://www.python.org/ftp/python/3.14.0/python-3.14.0-embed-amd64.zip                                                                create.py:372
+           Downloading python-3.14.0-embed-amd64.zip...                                                                                                                  file.py:227
+[00:05:31] Unpacking support package... started                                                                                                                        create.py:287
+           Unpacking support package... done                                                                                                                           create.py:287
+                                                                                                                                                                       create.py:980
+           [lucid] Installing stub binary...                                                                                                                           create.py:980
+           Using stub binary https://briefcase-support.s3.amazonaws.com/python/3.14/windows/GUI-Stub-3.14-b10.zip                                                      create.py:483
+           Downloading GUI-Stub-3.14-b10.zip...                                                                                                                          file.py:227
+           Installing stub binary... started                                                                                                                           create.py:428
+           Installing stub binary... done                                                                                                                              create.py:428
+                                                                                                                                                                       create.py:987
+           [lucid] Installing application code...                                                                                                                      create.py:987
+           Installing src/lucid... started                                                                                                                             create.py:743
+[00:05:32] Installing src/lucid... done                                                                                                                                create.py:743
+                                                                                                                                                                       create.py:990
+           [lucid] Installing requirements...                                                                                                                          create.py:990
+           Installing app requirements... started                                                                                                                      create.py:666
+                                                                                                                                                                   subprocess.py:839
+           >>> Running Command:                                                                                                                                    subprocess.py:839
+           >>>     'C:\Users\rp\PycharmProjects\ncs\.venv\Scripts\python.exe' -u -X utf8 -m pip install --disable-pip-version-check --upgrade --no-user            subprocess.py:839
+           '--target=C:\Users\rp\PycharmProjects\ncs\ncs\build\lucid\windows\app\src\app_packages' 'PySide6>=6.6' 'pydantic>=2.0' 'pyyaml>=6.0' 'loguru>=0.7'                       
+           'sentry-sdk[loguru]>=2.0' 'mistune>=3.0' 'psutil>=5.9' 'pyqt-toast-notification>=1.0' 'pyqtgraph>=0.13' 'qtawesome>=1.3' 'bluesky>=1.10' 'ophyd>=1.7'                    
+           'tiled[client]>=0.1.0' 'aiohttp>=3.8' 'aiohttp-socks>=0.8' 'qtconsole>=5.5' 'ipykernel>=6.0' 'PySide6>=6.6' 'pyqtgraph>=0.13' 'qtawesome>=1.3'                           
+           'pyqt-toast-notification>=1.0' 'pydantic>=2.0' 'pydantic-settings>=2.0' 'pyyaml>=6.0' 'loguru>=0.7' 'sentry-sdk[loguru]>=2.0' 'psutil>=5.9'                              
+           'mistune>=3.0' 'aiohttp>=3.8' 'aiohttp-socks>=0.8' 'bluesky>=1.10' 'ophyd>=1.7' 'tiled[client]>=0.1.0' 'qtconsole>=5.5' 'ipykernel>=6.0' 'ipython>=8.0'                  
+           'platformdirs>=4.0' 'watchfiles>=0.20' 'python-dotenv>=1.0' 'typing-extensions>=4.0' 'cachetools>=5.0' 'cryptography>=41.0' 'bidict>=0.23' epics-pyside                  
+           pyside-claude                                                                                                                                                            
+           >>> Working Directory:                                                                                                                                  subprocess.py:839
+           >>>     C:\Users\rp\PycharmProjects\ncs\ncs                                                                                                             subprocess.py:839
+[00:05:33] Looking in links: c:\Users\rp\PycharmProjects\ncs\ncs\dist                                                                                              subprocess.py:196
+           Collecting PySide6>=6.6                                                                                                                                 subprocess.py:196
+[00:05:34]   Downloading pyside6-6.10.2-cp39-abi3-win_amd64.whl.metadata (5.5 kB)                                                                                  subprocess.py:196
+           Collecting pydantic>=2.0                                                                                                                                subprocess.py:196
+             Using cached pydantic-2.12.5-py3-none-any.whl.metadata (90 kB)                                                                                        subprocess.py:196
+           Collecting pyyaml>=6.0                                                                                                                                  subprocess.py:196
+             Using cached pyyaml-6.0.3-cp314-cp314-win_amd64.whl.metadata (2.4 kB)                                                                                 subprocess.py:196
+           Collecting loguru>=0.7                                                                                                                                  subprocess.py:196
+             Using cached loguru-0.7.3-py3-none-any.whl.metadata (22 kB)                                                                                           subprocess.py:196
+           Collecting sentry-sdk>=2.0 (from sentry-sdk[loguru]>=2.0)                                                                                               subprocess.py:196
+             Using cached sentry_sdk-2.51.0-py2.py3-none-any.whl.metadata (10 kB)                                                                                  subprocess.py:196
+           Collecting mistune>=3.0                                                                                                                                 subprocess.py:196
+             Using cached mistune-3.2.0-py3-none-any.whl.metadata (1.9 kB)                                                                                         subprocess.py:196
+           Collecting psutil>=5.9                                                                                                                                  subprocess.py:196
+             Downloading psutil-7.2.2-cp37-abi3-win_amd64.whl.metadata (22 kB)                                                                                     subprocess.py:196
+[00:05:35] Collecting pyqt-toast-notification>=1.0                                                                                                                 subprocess.py:196
+             Using cached pyqt_toast_notification-1.3.3-py3-none-any.whl.metadata (10.0 kB)                                                                        subprocess.py:196
+           Collecting pyqtgraph>=0.13                                                                                                                              subprocess.py:196
+             Using cached pyqtgraph-0.14.0-py3-none-any.whl.metadata (1.5 kB)                                                                                      subprocess.py:196
+           Collecting qtawesome>=1.3                                                                                                                               subprocess.py:196
+             Using cached qtawesome-1.4.1-py3-none-any.whl.metadata (11 kB)                                                                                        subprocess.py:196
+           Collecting bluesky>=1.10                                                                                                                                subprocess.py:196
+             Using cached bluesky-1.14.6-py3-none-any.whl.metadata (8.1 kB)                                                                                        subprocess.py:196
+           Collecting ophyd>=1.7                                                                                                                                   subprocess.py:196
+             Using cached ophyd-1.11.0-py3-none-any.whl.metadata (4.9 kB)                                                                                          subprocess.py:196
+           Collecting tiled>=0.1.0 (from tiled[client]>=0.1.0)                                                                                                     subprocess.py:196
+             Using cached tiled-0.2.3-py3-none-any.whl.metadata (17 kB)                                                                                            subprocess.py:196
+[00:05:36] Collecting aiohttp>=3.8                                                                                                                                 subprocess.py:196
+             Using cached aiohttp-3.13.3-cp314-cp314-win_amd64.whl.metadata (8.4 kB)                                                                               subprocess.py:196
+           Collecting aiohttp-socks>=0.8                                                                                                                           subprocess.py:196
+             Using cached aiohttp_socks-0.11.0-py3-none-any.whl.metadata (3.6 kB)                                                                                  subprocess.py:196
+           Collecting qtconsole>=5.5                                                                                                                               subprocess.py:196
+             Using cached qtconsole-5.7.0-py3-none-any.whl.metadata (5.4 kB)                                                                                       subprocess.py:196
+           Collecting ipykernel>=6.0                                                                                                                               subprocess.py:196
+             Using cached ipykernel-7.1.0-py3-none-any.whl.metadata (4.5 kB)                                                                                       subprocess.py:196
+           Collecting pydantic-settings>=2.0                                                                                                                       subprocess.py:196
+             Using cached pydantic_settings-2.12.0-py3-none-any.whl.metadata (3.4 kB)                                                                              subprocess.py:196
+           Collecting ipython>=8.0                                                                                                                                 subprocess.py:196
+             Downloading ipython-9.10.0-py3-none-any.whl.metadata (4.6 kB)                                                                                         subprocess.py:196
+           Collecting platformdirs>=4.0                                                                                                                            subprocess.py:196
+             Using cached platformdirs-4.5.1-py3-none-any.whl.metadata (12 kB)                                                                                     subprocess.py:196
+           Collecting watchfiles>=0.20                                                                                                                             subprocess.py:196
+             Using cached watchfiles-1.1.1-cp314-cp314-win_amd64.whl.metadata (5.0 kB)                                                                             subprocess.py:196
+[00:05:37] Collecting python-dotenv>=1.0                                                                                                                           subprocess.py:196
+             Using cached python_dotenv-1.2.1-py3-none-any.whl.metadata (25 kB)                                                                                    subprocess.py:196
+           Collecting typing-extensions>=4.0                                                                                                                       subprocess.py:196
+             Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)                                                                              subprocess.py:196
+           Collecting cachetools>=5.0                                                                                                                              subprocess.py:196
+             Downloading cachetools-7.0.0-py3-none-any.whl.metadata (5.6 kB)                                                                                       subprocess.py:196
+           Collecting cryptography>=41.0                                                                                                                           subprocess.py:196
+             Downloading cryptography-46.0.4-cp311-abi3-win_amd64.whl.metadata (5.7 kB)                                                                            subprocess.py:196
+           Collecting bidict>=0.23                                                                                                                                 subprocess.py:196
+             Using cached bidict-0.23.1-py3-none-any.whl.metadata (8.7 kB)                                                                                         subprocess.py:196
+           Processing c:\users\rp\pycharmprojects\ncs\ncs\dist\epics_pyside-0.1.dev8+g2cfe53398-py3-none-any.whl                                                   subprocess.py:196
+           Processing c:\users\rp\pycharmprojects\ncs\ncs\dist\pyside_claude-0.1.dev11+g6068221cd-py3-none-any.whl                                                 subprocess.py:196
+           Collecting shiboken6==6.10.2 (from PySide6>=6.6)                                                                                                        subprocess.py:196
+[00:05:38]   Downloading shiboken6-6.10.2-cp39-abi3-win_amd64.whl.metadata (2.6 kB)                                                                                subprocess.py:196
+           Collecting PySide6_Essentials==6.10.2 (from PySide6>=6.6)                                                                                               subprocess.py:196
+             Downloading pyside6_essentials-6.10.2-cp39-abi3-win_amd64.whl.metadata (3.8 kB)                                                                       subprocess.py:196
+           Collecting PySide6_Addons==6.10.2 (from PySide6>=6.6)                                                                                                   subprocess.py:196
+             Downloading pyside6_addons-6.10.2-cp39-abi3-win_amd64.whl.metadata (4.2 kB)                                                                           subprocess.py:196
+           Collecting annotated-types>=0.6.0 (from pydantic>=2.0)                                                                                                  subprocess.py:196
+             Using cached annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)                                                                                  subprocess.py:196
+           Collecting pydantic-core==2.41.5 (from pydantic>=2.0)                                                                                                   subprocess.py:196
+             Using cached pydantic_core-2.41.5-cp314-cp314-win_amd64.whl.metadata (7.4 kB)                                                                         subprocess.py:196
+           Collecting typing-inspection>=0.4.2 (from pydantic>=2.0)                                                                                                subprocess.py:196
+             Using cached typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)                                                                               subprocess.py:196
+[00:05:39] Collecting colorama>=0.3.4 (from loguru>=0.7)                                                                                                           subprocess.py:196
+             Using cached colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)                                                                                     subprocess.py:196
+           Collecting win32-setctime>=1.0.0 (from loguru>=0.7)                                                                                                     subprocess.py:196
+             Using cached win32_setctime-1.2.0-py3-none-any.whl.metadata (2.4 kB)                                                                                  subprocess.py:196
+           Collecting urllib3>=1.26.11 (from sentry-sdk>=2.0->sentry-sdk[loguru]>=2.0)                                                                             subprocess.py:196
+             Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)                                                                                         subprocess.py:196
+           Collecting certifi (from sentry-sdk>=2.0->sentry-sdk[loguru]>=2.0)                                                                                      subprocess.py:196
+             Using cached certifi-2026.1.4-py3-none-any.whl.metadata (2.5 kB)                                                                                      subprocess.py:196
+           Collecting QtPy>=2.4.1 (from pyqt-toast-notification>=1.0)                                                                                              subprocess.py:196
+             Using cached QtPy-2.4.3-py3-none-any.whl.metadata (12 kB)                                                                                             subprocess.py:196
+           Collecting numpy>=1.25.0 (from pyqtgraph>=0.13)                                                                                                         subprocess.py:196
+             Downloading numpy-2.4.2-cp314-cp314-win_amd64.whl.metadata (6.6 kB)                                                                                   subprocess.py:196
+           Collecting cycler (from bluesky>=1.10)                                                                                                                  subprocess.py:196
+             Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)                                                                                         subprocess.py:196
+           Collecting event-model>=1.23.1 (from bluesky>=1.10)                                                                                                     subprocess.py:196
+             Using cached event_model-1.23.1-py3-none-any.whl.metadata (5.7 kB)                                                                                    subprocess.py:196
+[00:05:40] Collecting historydict (from bluesky>=1.10)                                                                                                             subprocess.py:196
+             Using cached historydict-1.2.6-py3-none-any.whl.metadata (323 bytes)                                                                                  subprocess.py:196
+           Collecting msgpack (from bluesky>=1.10)                                                                                                                 subprocess.py:196
+             Using cached msgpack-1.1.2-cp314-cp314-win_amd64.whl.metadata (8.4 kB)                                                                                subprocess.py:196
+           Collecting msgpack-numpy (from bluesky>=1.10)                                                                                                           subprocess.py:196
+             Using cached msgpack_numpy-0.4.8-py2.py3-none-any.whl.metadata (5.0 kB)                                                                               subprocess.py:196
+           Collecting opentelemetry-api (from bluesky>=1.10)                                                                                                       subprocess.py:196
+             Using cached opentelemetry_api-1.39.1-py3-none-any.whl.metadata (1.5 kB)                                                                              subprocess.py:196
+           Collecting toolz (from bluesky>=1.10)                                                                                                                   subprocess.py:196
+             Using cached toolz-1.1.0-py3-none-any.whl.metadata (5.1 kB)                                                                                           subprocess.py:196
+           Collecting tqdm>=4.44 (from bluesky>=1.10)                                                                                                              subprocess.py:196
+             Downloading tqdm-4.67.3-py3-none-any.whl.metadata (57 kB)                                                                                             subprocess.py:196
+           Collecting networkx>=2.0 (from ophyd>=1.7)                                                                                                              subprocess.py:196
+             Using cached networkx-3.6.1-py3-none-any.whl.metadata (6.8 kB)                                                                                        subprocess.py:196
+           Collecting packaging (from ophyd>=1.7)                                                                                                                  subprocess.py:196
+             Using cached packaging-26.0-py3-none-any.whl.metadata (3.3 kB)                                                                                        subprocess.py:196
+           Collecting pint (from ophyd>=1.7)                                                                                                                       subprocess.py:196
+             Using cached pint-0.25.2-py3-none-any.whl.metadata (10 kB)                                                                                            subprocess.py:196
+           Collecting httpx!=0.23.1,>=0.20.0 (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                             subprocess.py:196
+[00:05:41]   Using cached httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)                                                                                          subprocess.py:196
+           Collecting json-merge-patch (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                                   subprocess.py:196
+             Using cached json_merge_patch-0.3.0-py3-none-any.whl.metadata (460 bytes)                                                                             subprocess.py:196
+           Collecting jsonpatch (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                                          subprocess.py:196
+             Using cached jsonpatch-1.33-py2.py3-none-any.whl.metadata (3.0 kB)                                                                                    subprocess.py:196
+           Collecting jsonschema (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                                         subprocess.py:196
+             Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)                                                                                     subprocess.py:196
+           Collecting orjson (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                                             subprocess.py:196
+             Downloading orjson-3.11.7-cp314-cp314-win_amd64.whl.metadata (43 kB)                                                                                  subprocess.py:196
+           Collecting pydantic-settings>=2.0                                                                                                                       subprocess.py:196
+             Using cached pydantic_settings-2.11.0-py3-none-any.whl.metadata (3.4 kB)                                                                              subprocess.py:196
+           Collecting typer (from tiled>=0.1.0->tiled[client]>=0.1.0)                                                                                              subprocess.py:196
+             Using cached typer-0.21.1-py3-none-any.whl.metadata (16 kB)                                                                                           subprocess.py:196
+           Collecting aiohappyeyeballs>=2.5.0 (from aiohttp>=3.8)                                                                                                  subprocess.py:196
+             Using cached aiohappyeyeballs-2.6.1-py3-none-any.whl.metadata (5.9 kB)                                                                                subprocess.py:196
+           Collecting aiosignal>=1.4.0 (from aiohttp>=3.8)                                                                                                         subprocess.py:196
+             Using cached aiosignal-1.4.0-py3-none-any.whl.metadata (3.7 kB)                                                                                       subprocess.py:196
+[00:05:42] Collecting attrs>=17.3.0 (from aiohttp>=3.8)                                                                                                            subprocess.py:196
+             Using cached attrs-25.4.0-py3-none-any.whl.metadata (10 kB)                                                                                           subprocess.py:196
+           Collecting frozenlist>=1.1.1 (from aiohttp>=3.8)                                                                                                        subprocess.py:196
+             Using cached frozenlist-1.8.0-cp314-cp314-win_amd64.whl.metadata (21 kB)                                                                              subprocess.py:196
+           Collecting multidict<7.0,>=4.5 (from aiohttp>=3.8)                                                                                                      subprocess.py:196
+             Using cached multidict-6.7.1-cp314-cp314-win_amd64.whl.metadata (5.5 kB)                                                                              subprocess.py:196
+           Collecting propcache>=0.2.0 (from aiohttp>=3.8)                                                                                                         subprocess.py:196
+             Using cached propcache-0.4.1-cp314-cp314-win_amd64.whl.metadata (14 kB)                                                                               subprocess.py:196
+           Collecting yarl<2.0,>=1.17.0 (from aiohttp>=3.8)                                                                                                        subprocess.py:196
+             Using cached yarl-1.22.0-cp314-cp314-win_amd64.whl.metadata (77 kB)                                                                                   subprocess.py:196
+           Collecting idna>=2.0 (from yarl<2.0,>=1.17.0->aiohttp>=3.8)                                                                                             subprocess.py:196
+[00:05:43]   Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)                                                                                             subprocess.py:196
+           Collecting python-socks<3.0.0,>=2.4.3 (from python-socks[asyncio]<3.0.0,>=2.4.3->aiohttp-socks>=0.8)                                                    subprocess.py:196
+             Using cached python_socks-2.8.0-py3-none-any.whl.metadata (8.2 kB)                                                                                    subprocess.py:196
+           Collecting traitlets!=5.2.1,!=5.2.2 (from qtconsole>=5.5)                                                                                               subprocess.py:196
+             Using cached traitlets-5.14.3-py3-none-any.whl.metadata (10 kB)                                                                                       subprocess.py:196
+           Collecting jupyter_core (from qtconsole>=5.5)                                                                                                           subprocess.py:196
+             Using cached jupyter_core-5.9.1-py3-none-any.whl.metadata (1.5 kB)                                                                                    subprocess.py:196
+           Collecting jupyter_client>=4.1 (from qtconsole>=5.5)                                                                                                    subprocess.py:196
+             Using cached jupyter_client-8.8.0-py3-none-any.whl.metadata (8.4 kB)                                                                                  subprocess.py:196
+           Collecting pygments (from qtconsole>=5.5)                                                                                                               subprocess.py:196
+             Using cached pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)                                                                                       subprocess.py:196
+           Collecting ipython_pygments_lexers (from qtconsole>=5.5)                                                                                                subprocess.py:196
+             Using cached ipython_pygments_lexers-1.1.1-py3-none-any.whl.metadata (1.1 kB)                                                                         subprocess.py:196
+           Collecting comm>=0.1.1 (from ipykernel>=6.0)                                                                                                            subprocess.py:196
+             Using cached comm-0.2.3-py3-none-any.whl.metadata (3.7 kB)                                                                                            subprocess.py:196
+           Collecting debugpy>=1.6.5 (from ipykernel>=6.0)                                                                                                         subprocess.py:196
+             Downloading debugpy-1.8.20-cp314-cp314-win_amd64.whl.metadata (1.5 kB)                                                                                subprocess.py:196
+[00:05:44] Collecting matplotlib-inline>=0.1 (from ipykernel>=6.0)                                                                                                 subprocess.py:196
+             Using cached matplotlib_inline-0.2.1-py3-none-any.whl.metadata (2.3 kB)                                                                               subprocess.py:196
+           Collecting nest-asyncio>=1.4 (from ipykernel>=6.0)                                                                                                      subprocess.py:196
+             Using cached nest_asyncio-1.6.0-py3-none-any.whl.metadata (2.8 kB)                                                                                    subprocess.py:196
+           Collecting pyzmq>=25 (from ipykernel>=6.0)                                                                                                              subprocess.py:196
+             Using cached pyzmq-27.1.0-cp312-abi3-win_amd64.whl.metadata (6.0 kB)                                                                                  subprocess.py:196
+           Collecting tornado>=6.2 (from ipykernel>=6.0)                                                                                                           subprocess.py:196
+             Using cached tornado-6.5.4-cp39-abi3-win_amd64.whl.metadata (2.9 kB)                                                                                  subprocess.py:196
+           Collecting decorator>=4.3.2 (from ipython>=8.0)                                                                                                         subprocess.py:196
+             Using cached decorator-5.2.1-py3-none-any.whl.metadata (3.9 kB)                                                                                       subprocess.py:196
+           Collecting jedi>=0.18.1 (from ipython>=8.0)                                                                                                             subprocess.py:196
+             Using cached jedi-0.19.2-py2.py3-none-any.whl.metadata (22 kB)                                                                                        subprocess.py:196
+           Collecting prompt_toolkit<3.1.0,>=3.0.41 (from ipython>=8.0)                                                                                            subprocess.py:196
+             Using cached prompt_toolkit-3.0.52-py3-none-any.whl.metadata (6.4 kB)                                                                                 subprocess.py:196
+           Collecting stack_data>=0.6.0 (from ipython>=8.0)                                                                                                        subprocess.py:196
+             Using cached stack_data-0.6.3-py3-none-any.whl.metadata (18 kB)                                                                                       subprocess.py:196
+           Collecting wcwidth (from prompt_toolkit<3.1.0,>=3.0.41->ipython>=8.0)                                                                                   subprocess.py:196
+             Downloading wcwidth-0.5.3-py3-none-any.whl.metadata (30 kB)                                                                                           subprocess.py:196
+[00:05:45] Collecting anyio>=3.0.0 (from watchfiles>=0.20)                                                                                                         subprocess.py:196
+             Using cached anyio-4.12.1-py3-none-any.whl.metadata (4.3 kB)                                                                                          subprocess.py:196
+           Collecting cffi>=2.0.0 (from cryptography>=41.0)                                                                                                        subprocess.py:196
+             Using cached cffi-2.0.0-cp314-cp314-win_amd64.whl.metadata (2.6 kB)                                                                                   subprocess.py:196
+           Collecting caproto>=1.1.0 (from epics-pyside)                                                                                                           subprocess.py:196
+             Using cached caproto-1.3.0-py3-none-any.whl.metadata (2.0 kB)                                                                                         subprocess.py:196
+           Collecting claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git (from pyside-claude)                                         subprocess.py:196
+             Cloning https://github.com/anthropics/claude-agent-sdk-python.git to                                                                                  subprocess.py:196
+           c:\users\rp\appdata\local\temp\pip-install-5l1h57zu\claude-agent-sdk_1ee429e12a6f4fa2a5806303de7f9339                                                                    
+             Running command git clone --filter=blob:none --quiet https://github.com/anthropics/claude-agent-sdk-python.git                                        subprocess.py:196
+           'C:\Users\rp\AppData\Local\Temp\pip-install-5l1h57zu\claude-agent-sdk_1ee429e12a6f4fa2a5806303de7f9339'                                                                  
+[00:05:47]   Resolved https://github.com/anthropics/claude-agent-sdk-python.git to commit 7519c9642ce38eb779d5623153c0e3188a5edf8a                                 subprocess.py:196
+             Installing build dependencies: started                                                                                                                subprocess.py:196
+[00:05:50]   Installing build dependencies: finished with status 'done'                                                                                            subprocess.py:196
+             Getting requirements to build wheel: started                                                                                                          subprocess.py:196
+             Getting requirements to build wheel: finished with status 'done'                                                                                      subprocess.py:196
+             Preparing metadata (pyproject.toml): started                                                                                                          subprocess.py:196
+[00:05:51]   Preparing metadata (pyproject.toml): finished with status 'done'                                                                                      subprocess.py:196
+           Collecting mcp>=0.1.0 (from claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)                             subprocess.py:196
+             Using cached mcp-1.26.0-py3-none-any.whl.metadata (89 kB)                                                                                             subprocess.py:196
+           Collecting pycparser (from cffi>=2.0.0->cryptography>=41.0)                                                                                             subprocess.py:196
+             Using cached pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)                                                                                         subprocess.py:196
+           Collecting importlib-resources (from event-model>=1.23.1->bluesky>=1.10)                                                                                subprocess.py:196
+             Using cached importlib_resources-6.5.2-py3-none-any.whl.metadata (3.9 kB)                                                                             subprocess.py:196
+           Collecting httpcore==1.* (from httpx!=0.23.1,>=0.20.0->tiled>=0.1.0->tiled[client]>=0.1.0)                                                              subprocess.py:196
+             Using cached httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)                                                                                         subprocess.py:196
+           Collecting h11>=0.16 (from httpcore==1.*->httpx!=0.23.1,>=0.20.0->tiled>=0.1.0->tiled[client]>=0.1.0)                                                   subprocess.py:196
+[00:05:52]   Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)                                                                                            subprocess.py:196
+           Collecting parso<0.9.0,>=0.8.4 (from jedi>=0.18.1->ipython>=8.0)                                                                                        subprocess.py:196
+             Using cached parso-0.8.5-py2.py3-none-any.whl.metadata (8.3 kB)                                                                                       subprocess.py:196
+           Collecting jsonschema-specifications>=2023.03.6 (from jsonschema->tiled>=0.1.0->tiled[client]>=0.1.0)                                                   subprocess.py:196
+             Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)                                                                    subprocess.py:196
+           Collecting referencing>=0.28.4 (from jsonschema->tiled>=0.1.0->tiled[client]>=0.1.0)                                                                    subprocess.py:196
+             Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)                                                                                    subprocess.py:196
+           Collecting rpds-py>=0.25.0 (from jsonschema->tiled>=0.1.0->tiled[client]>=0.1.0)                                                                        subprocess.py:196
+             Using cached rpds_py-0.30.0-cp314-cp314-win_amd64.whl.metadata (4.2 kB)                                                                               subprocess.py:196
+           Collecting python-dateutil>=2.8.2 (from jupyter_client>=4.1->qtconsole>=5.5)                                                                            subprocess.py:196
+             Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)                                                                       subprocess.py:196
+           Collecting httpx-sse>=0.4 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)             subprocess.py:196
+             Using cached httpx_sse-0.4.3-py3-none-any.whl.metadata (9.7 kB)                                                                                       subprocess.py:196
+           Collecting pyjwt>=2.10.1 (from pyjwt[crypto]>=2.10.1->mcp>=0.1.0->claude-agent-sdk@                                                                     subprocess.py:196
+           git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)                                                                                            
+             Downloading pyjwt-2.11.0-py3-none-any.whl.metadata (4.0 kB)                                                                                           subprocess.py:196
+           Collecting python-multipart>=0.0.9 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)    subprocess.py:196
+[00:05:53]   Using cached python_multipart-0.0.22-py3-none-any.whl.metadata (1.8 kB)                                                                               subprocess.py:196
+           Collecting pywin32>=310 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)               subprocess.py:196
+             Using cached pywin32-311-cp314-cp314-win_amd64.whl.metadata (10 kB)                                                                                   subprocess.py:196
+           Collecting sse-starlette>=1.6.1 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)       subprocess.py:196
+             Using cached sse_starlette-3.2.0-py3-none-any.whl.metadata (12 kB)                                                                                    subprocess.py:196
+           Collecting starlette>=0.27 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)            subprocess.py:196
+             Using cached starlette-0.52.1-py3-none-any.whl.metadata (6.3 kB)                                                                                      subprocess.py:196
+           Collecting uvicorn>=0.31.1 (from mcp>=0.1.0->claude-agent-sdk@ git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)            subprocess.py:196
+             Using cached uvicorn-0.40.0-py3-none-any.whl.metadata (6.7 kB)                                                                                        subprocess.py:196
+           Collecting six>=1.5 (from python-dateutil>=2.8.2->jupyter_client>=4.1->qtconsole>=5.5)                                                                  subprocess.py:196
+             Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)                                                                                        subprocess.py:196
+           Collecting executing>=1.2.0 (from stack_data>=0.6.0->ipython>=8.0)                                                                                      subprocess.py:196
+             Using cached executing-2.2.1-py2.py3-none-any.whl.metadata (8.9 kB)                                                                                   subprocess.py:196
+           Collecting asttokens>=2.1.0 (from stack_data>=0.6.0->ipython>=8.0)                                                                                      subprocess.py:196
+             Using cached asttokens-3.0.1-py3-none-any.whl.metadata (4.9 kB)                                                                                       subprocess.py:196
+           Collecting pure-eval (from stack_data>=0.6.0->ipython>=8.0)                                                                                             subprocess.py:196
+             Using cached pure_eval-0.2.3-py3-none-any.whl.metadata (6.3 kB)                                                                                       subprocess.py:196
+[00:05:54] Collecting awkward>=2.4.3 (from tiled[client]>=0.1.0)                                                                                                   subprocess.py:196
+             Using cached awkward-2.8.12-py3-none-any.whl.metadata (7.5 kB)                                                                                        subprocess.py:196
+           Collecting blosc2 (from tiled[client]>=0.1.0)                                                                                                           subprocess.py:196
+             Downloading blosc2-4.0.0-cp314-cp314-win_amd64.whl.metadata (7.6 kB)                                                                                  subprocess.py:196
+           Collecting dask[array] (from tiled[client]>=0.1.0)                                                                                                      subprocess.py:196
+             Downloading dask-2026.1.2-py3-none-any.whl.metadata (3.8 kB)                                                                                          subprocess.py:196
+           Collecting entrypoints (from tiled[client]>=0.1.0)                                                                                                      subprocess.py:196
+             Using cached entrypoints-0.4-py3-none-any.whl.metadata (2.6 kB)                                                                                       subprocess.py:196
+           Collecting lz4 (from tiled[client]>=0.1.0)                                                                                                              subprocess.py:196
+             Using cached lz4-4.4.5-cp314-cp314-win_amd64.whl.metadata (3.9 kB)                                                                                    subprocess.py:196
+           Collecting ndindex (from tiled[client]>=0.1.0)                                                                                                          subprocess.py:196
+             Using cached ndindex-1.10.1-cp314-cp314-win_amd64.whl.metadata (3.7 kB)                                                                               subprocess.py:196
+           Collecting numba>=0.59.0 (from tiled[client]>=0.1.0)                                                                                                    subprocess.py:196
+             Using cached numba-0.63.1-cp314-cp314-win_amd64.whl.metadata (3.0 kB)                                                                                 subprocess.py:196
+[00:05:55] Collecting pandas (from tiled[client]>=0.1.0)                                                                                                           subprocess.py:196
+             Using cached pandas-3.0.0-cp314-cp314-win_amd64.whl.metadata (19 kB)                                                                                  subprocess.py:196
+           Collecting pyarrow>=14.0.1 (from tiled[client]>=0.1.0)                                                                                                  subprocess.py:196
+             Using cached pyarrow-23.0.0-cp314-cp314-win_amd64.whl.metadata (3.1 kB)                                                                               subprocess.py:196
+           Collecting rich (from tiled[client]>=0.1.0)                                                                                                             subprocess.py:196
+             Downloading rich-14.3.2-py3-none-any.whl.metadata (18 kB)                                                                                             subprocess.py:196
+           Collecting sparse>=0.15.5 (from tiled[client]>=0.1.0)                                                                                                   subprocess.py:196
+             Using cached sparse-0.17.0-py2.py3-none-any.whl.metadata (5.3 kB)                                                                                     subprocess.py:196
+           Collecting stamina (from tiled[client]>=0.1.0)                                                                                                          subprocess.py:196
+             Using cached stamina-25.2.0-py3-none-any.whl.metadata (5.5 kB)                                                                                        subprocess.py:196
+           Collecting websockets (from tiled[client]>=0.1.0)                                                                                                       subprocess.py:196
+             Using cached websockets-16.0-cp314-cp314-win_amd64.whl.metadata (7.0 kB)                                                                              subprocess.py:196
+           Collecting xarray (from tiled[client]>=0.1.0)                                                                                                           subprocess.py:196
+             Downloading xarray-2026.1.0-py3-none-any.whl.metadata (12 kB)                                                                                         subprocess.py:196
+[00:05:56] Collecting zstandard (from tiled[client]>=0.1.0)                                                                                                        subprocess.py:196
+             Using cached zstandard-0.25.0-cp314-cp314-win_amd64.whl.metadata (3.3 kB)                                                                             subprocess.py:196
+           Collecting awkward-cpp==51 (from awkward>=2.4.3->tiled[client]>=0.1.0)                                                                                  subprocess.py:196
+             Using cached awkward_cpp-51-cp314-cp314-win_amd64.whl.metadata (2.2 kB)                                                                               subprocess.py:196
+           Collecting fsspec>=2022.11.0 (from awkward>=2.4.3->tiled[client]>=0.1.0)                                                                                subprocess.py:196
+             Using cached fsspec-2026.1.0-py3-none-any.whl.metadata (10 kB)                                                                                        subprocess.py:196
+           Collecting llvmlite<0.47,>=0.46.0dev0 (from numba>=0.59.0->tiled[client]>=0.1.0)                                                                        subprocess.py:196
+             Using cached llvmlite-0.46.0-cp314-cp314-win_amd64.whl.metadata (5.1 kB)                                                                              subprocess.py:196
+           Collecting numpy>=1.25.0 (from pyqtgraph>=0.13)                                                                                                         subprocess.py:196
+             Using cached numpy-2.3.5-cp314-cp314-win_amd64.whl.metadata (60 kB)                                                                                   subprocess.py:196
+           Collecting click>=7.0 (from uvicorn>=0.31.1->mcp>=0.1.0->claude-agent-sdk@                                                                              subprocess.py:196
+           git+https://github.com/anthropics/claude-agent-sdk-python.git->pyside-claude)                                                                                            
+             Using cached click-8.3.1-py3-none-any.whl.metadata (2.6 kB)                                                                                           subprocess.py:196
+           Collecting numexpr>=2.14.1 (from blosc2->tiled[client]>=0.1.0)                                                                                          subprocess.py:196
+             Using cached numexpr-2.14.1-cp314-cp314-win_amd64.whl.metadata (9.3 kB)                                                                               subprocess.py:196
+           Collecting requests (from blosc2->tiled[client]>=0.1.0)                                                                                                 subprocess.py:196
+             Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)                                                                                       subprocess.py:196
+           Collecting cloudpickle>=3.0.0 (from dask[array]; extra == "client"->tiled[client]>=0.1.0)                                                               subprocess.py:196
+             Using cached cloudpickle-3.1.2-py3-none-any.whl.metadata (7.1 kB)                                                                                     subprocess.py:196
+[00:05:57] Collecting partd>=1.4.0 (from dask[array]; extra == "client"->tiled[client]>=0.1.0)                                                                     subprocess.py:196
+             Using cached partd-1.4.2-py3-none-any.whl.metadata (4.6 kB)                                                                                           subprocess.py:196
+           Collecting locket (from partd>=1.4.0->dask[array]; extra == "client"->tiled[client]>=0.1.0)                                                             subprocess.py:196
+             Using cached locket-1.0.0-py2.py3-none-any.whl.metadata (2.8 kB)                                                                                      subprocess.py:196
+           Collecting tzdata (from pandas->tiled[client]>=0.1.0)                                                                                                   subprocess.py:196
+             Using cached tzdata-2025.3-py2.py3-none-any.whl.metadata (1.4 kB)                                                                                     subprocess.py:196
+           Collecting jsonpointer>=1.9 (from jsonpatch->tiled>=0.1.0->tiled[client]>=0.1.0)                                                                        subprocess.py:196
+             Using cached jsonpointer-3.0.0-py2.py3-none-any.whl.metadata (2.3 kB)                                                                                 subprocess.py:196
+           Collecting importlib-metadata<8.8.0,>=6.0 (from opentelemetry-api->bluesky>=1.10)                                                                       subprocess.py:196
+             Using cached importlib_metadata-8.7.1-py3-none-any.whl.metadata (4.7 kB)                                                                              subprocess.py:196
+           Collecting zipp>=3.20 (from importlib-metadata<8.8.0,>=6.0->opentelemetry-api->bluesky>=1.10)                                                           subprocess.py:196
+             Using cached zipp-3.23.0-py3-none-any.whl.metadata (3.6 kB)                                                                                           subprocess.py:196
+           Collecting flexcache>=0.3 (from pint->ophyd>=1.7)                                                                                                       subprocess.py:196
+             Using cached flexcache-0.3-py3-none-any.whl.metadata (7.0 kB)                                                                                         subprocess.py:196
+           Collecting flexparser>=0.4 (from pint->ophyd>=1.7)                                                                                                      subprocess.py:196
+             Using cached flexparser-0.4-py3-none-any.whl.metadata (18 kB)                                                                                         subprocess.py:196
+[00:05:58] Collecting charset_normalizer<4,>=2 (from requests->blosc2->tiled[client]>=0.1.0)                                                                       subprocess.py:196
+             Using cached charset_normalizer-3.4.4-cp314-cp314-win_amd64.whl.metadata (38 kB)                                                                      subprocess.py:196
+           Collecting markdown-it-py>=2.2.0 (from rich->tiled[client]>=0.1.0)                                                                                      subprocess.py:196
+             Using cached markdown_it_py-4.0.0-py3-none-any.whl.metadata (7.3 kB)                                                                                  subprocess.py:196
+           Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich->tiled[client]>=0.1.0)                                                                          subprocess.py:196
+             Using cached mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)                                                                                           subprocess.py:196
+           Collecting tenacity (from stamina->tiled[client]>=0.1.0)                                                                                                subprocess.py:196
+             Using cached tenacity-9.1.2-py3-none-any.whl.metadata (1.2 kB)                                                                                        subprocess.py:196
+           Collecting shellingham>=1.3.0 (from typer->tiled>=0.1.0->tiled[client]>=0.1.0)                                                                          subprocess.py:196
+             Using cached shellingham-1.5.4-py2.py3-none-any.whl.metadata (3.5 kB)                                                                                 subprocess.py:196
+           Downloading pyside6-6.10.2-cp39-abi3-win_amd64.whl (569 kB)                                                                                             subprocess.py:196
+              --------------------------------------- 569.6/569.6 kB 12.4 MB/s eta 0:00:00                                                                         subprocess.py:196
+           Downloading pyside6_addons-6.10.2-cp39-abi3-win_amd64.whl (164.7 MB)                                                                                    subprocess.py:196
+[00:06:08]    --------------------------------------- 164.7/164.7 MB 17.0 MB/s eta 0:00:00                                                                         subprocess.py:196
+           Downloading pyside6_essentials-6.10.2-cp39-abi3-win_amd64.whl (74.5 MB)                                                                                 subprocess.py:196
+[00:06:12]    ---------------------------------------- 74.5/74.5 MB 17.0 MB/s eta 0:00:00                                                                          subprocess.py:196
+           Downloading shiboken6-6.10.2-cp39-abi3-win_amd64.whl (1.2 MB)                                                                                           subprocess.py:196
+              ---------------------------------------- 1.2/1.2 MB 15.2 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached pydantic-2.12.5-py3-none-any.whl (463 kB)                                                                                                  subprocess.py:196
+           Using cached pydantic_core-2.41.5-cp314-cp314-win_amd64.whl (2.0 MB)                                                                                    subprocess.py:196
+           Using cached pyyaml-6.0.3-cp314-cp314-win_amd64.whl (156 kB)                                                                                            subprocess.py:196
+           Using cached loguru-0.7.3-py3-none-any.whl (61 kB)                                                                                                      subprocess.py:196
+           Using cached sentry_sdk-2.51.0-py2.py3-none-any.whl (431 kB)                                                                                            subprocess.py:196
+           Using cached mistune-3.2.0-py3-none-any.whl (53 kB)                                                                                                     subprocess.py:196
+           Downloading psutil-7.2.2-cp37-abi3-win_amd64.whl (137 kB)                                                                                               subprocess.py:196
+           Using cached pyqt_toast_notification-1.3.3-py3-none-any.whl (41 kB)                                                                                     subprocess.py:196
+           Using cached pyqtgraph-0.14.0-py3-none-any.whl (1.9 MB)                                                                                                 subprocess.py:196
+           Using cached qtawesome-1.4.1-py3-none-any.whl (2.6 MB)                                                                                                  subprocess.py:196
+           Using cached bluesky-1.14.6-py3-none-any.whl (358 kB)                                                                                                   subprocess.py:196
+           Using cached ophyd-1.11.0-py3-none-any.whl (279 kB)                                                                                                     subprocess.py:196
+[00:06:13] Using cached tiled-0.2.3-py3-none-any.whl (1.8 MB)                                                                                                      subprocess.py:196
+           Using cached pydantic_settings-2.11.0-py3-none-any.whl (48 kB)                                                                                          subprocess.py:196
+           Using cached aiohttp-3.13.3-cp314-cp314-win_amd64.whl (459 kB)                                                                                          subprocess.py:196
+           Using cached multidict-6.7.1-cp314-cp314-win_amd64.whl (45 kB)                                                                                          subprocess.py:196
+           Using cached yarl-1.22.0-cp314-cp314-win_amd64.whl (88 kB)                                                                                              subprocess.py:196
+           Using cached aiohttp_socks-0.11.0-py3-none-any.whl (10 kB)                                                                                              subprocess.py:196
+           Using cached python_socks-2.8.0-py3-none-any.whl (55 kB)                                                                                                subprocess.py:196
+           Using cached qtconsole-5.7.0-py3-none-any.whl (125 kB)                                                                                                  subprocess.py:196
+           Using cached ipykernel-7.1.0-py3-none-any.whl (117 kB)                                                                                                  subprocess.py:196
+           Downloading ipython-9.10.0-py3-none-any.whl (622 kB)                                                                                                    subprocess.py:196
+              --------------------------------------- 622.8/622.8 kB 12.8 MB/s eta 0:00:00                                                                         subprocess.py:196
+           Using cached prompt_toolkit-3.0.52-py3-none-any.whl (391 kB)                                                                                            subprocess.py:196
+           Using cached platformdirs-4.5.1-py3-none-any.whl (18 kB)                                                                                                subprocess.py:196
+           Using cached watchfiles-1.1.1-cp314-cp314-win_amd64.whl (287 kB)                                                                                        subprocess.py:196
+           Using cached python_dotenv-1.2.1-py3-none-any.whl (21 kB)                                                                                               subprocess.py:196
+           Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)                                                                                          subprocess.py:196
+           Downloading cachetools-7.0.0-py3-none-any.whl (13 kB)                                                                                                   subprocess.py:196
+           Downloading cryptography-46.0.4-cp311-abi3-win_amd64.whl (3.5 MB)                                                                                       subprocess.py:196
+              ---------------------------------------- 3.5/3.5 MB 16.1 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached bidict-0.23.1-py3-none-any.whl (32 kB)                                                                                                     subprocess.py:196
+           Using cached aiohappyeyeballs-2.6.1-py3-none-any.whl (15 kB)                                                                                            subprocess.py:196
+           Using cached aiosignal-1.4.0-py3-none-any.whl (7.5 kB)                                                                                                  subprocess.py:196
+           Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)                                                                                             subprocess.py:196
+           Using cached anyio-4.12.1-py3-none-any.whl (113 kB)                                                                                                     subprocess.py:196
+           Using cached attrs-25.4.0-py3-none-any.whl (67 kB)                                                                                                      subprocess.py:196
+           Using cached caproto-1.3.0-py3-none-any.whl (407 kB)                                                                                                    subprocess.py:196
+           Using cached cffi-2.0.0-cp314-cp314-win_amd64.whl (185 kB)                                                                                              subprocess.py:196
+           Using cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)                                                                                                subprocess.py:196
+           Using cached comm-0.2.3-py3-none-any.whl (7.3 kB)                                                                                                       subprocess.py:196
+           Downloading debugpy-1.8.20-cp314-cp314-win_amd64.whl (5.4 MB)                                                                                           subprocess.py:196
+[00:06:14]    ---------------------------------------- 5.4/5.4 MB 16.7 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached decorator-5.2.1-py3-none-any.whl (9.2 kB)                                                                                                  subprocess.py:196
+           Using cached event_model-1.23.1-py3-none-any.whl (77 kB)                                                                                                subprocess.py:196
+           Using cached frozenlist-1.8.0-cp314-cp314-win_amd64.whl (44 kB)                                                                                         subprocess.py:196
+           Using cached httpx-0.28.1-py3-none-any.whl (73 kB)                                                                                                      subprocess.py:196
+           Using cached httpcore-1.0.9-py3-none-any.whl (78 kB)                                                                                                    subprocess.py:196
+           Using cached h11-0.16.0-py3-none-any.whl (37 kB)                                                                                                        subprocess.py:196
+           Using cached idna-3.11-py3-none-any.whl (71 kB)                                                                                                         subprocess.py:196
+           Using cached ipython_pygments_lexers-1.1.1-py3-none-any.whl (8.1 kB)                                                                                    subprocess.py:196
+           Using cached jedi-0.19.2-py2.py3-none-any.whl (1.6 MB)                                                                                                  subprocess.py:196
+           Using cached parso-0.8.5-py2.py3-none-any.whl (106 kB)                                                                                                  subprocess.py:196
+           Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)                                                                                                 subprocess.py:196
+           Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)                                                                                subprocess.py:196
+           Using cached jupyter_client-8.8.0-py3-none-any.whl (107 kB)                                                                                             subprocess.py:196
+           Using cached jupyter_core-5.9.1-py3-none-any.whl (29 kB)                                                                                                subprocess.py:196
+           Using cached matplotlib_inline-0.2.1-py3-none-any.whl (9.5 kB)                                                                                          subprocess.py:196
+           Using cached mcp-1.26.0-py3-none-any.whl (233 kB)                                                                                                       subprocess.py:196
+           Using cached httpx_sse-0.4.3-py3-none-any.whl (9.0 kB)                                                                                                  subprocess.py:196
+           Using cached msgpack-1.1.2-cp314-cp314-win_amd64.whl (73 kB)                                                                                            subprocess.py:196
+           Using cached nest_asyncio-1.6.0-py3-none-any.whl (5.2 kB)                                                                                               subprocess.py:196
+           Using cached networkx-3.6.1-py3-none-any.whl (2.1 MB)                                                                                                   subprocess.py:196
+           Using cached packaging-26.0-py3-none-any.whl (74 kB)                                                                                                    subprocess.py:196
+           Using cached propcache-0.4.1-cp314-cp314-win_amd64.whl (41 kB)                                                                                          subprocess.py:196
+           Using cached pygments-2.19.2-py3-none-any.whl (1.2 MB)                                                                                                  subprocess.py:196
+           Downloading pyjwt-2.11.0-py3-none-any.whl (28 kB)                                                                                                       subprocess.py:196
+           Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)                                                                                  subprocess.py:196
+           Using cached python_multipart-0.0.22-py3-none-any.whl (24 kB)                                                                                           subprocess.py:196
+           Using cached pywin32-311-cp314-cp314-win_amd64.whl (9.7 MB)                                                                                             subprocess.py:196
+           Using cached pyzmq-27.1.0-cp312-abi3-win_amd64.whl (619 kB)                                                                                             subprocess.py:196
+           Using cached QtPy-2.4.3-py3-none-any.whl (95 kB)                                                                                                        subprocess.py:196
+           Using cached referencing-0.37.0-py3-none-any.whl (26 kB)                                                                                                subprocess.py:196
+           Using cached rpds_py-0.30.0-cp314-cp314-win_amd64.whl (228 kB)                                                                                          subprocess.py:196
+           Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)                                                                                                    subprocess.py:196
+[00:06:15] Using cached sse_starlette-3.2.0-py3-none-any.whl (12 kB)                                                                                               subprocess.py:196
+           Using cached stack_data-0.6.3-py3-none-any.whl (24 kB)                                                                                                  subprocess.py:196
+           Using cached asttokens-3.0.1-py3-none-any.whl (27 kB)                                                                                                   subprocess.py:196
+           Using cached executing-2.2.1-py2.py3-none-any.whl (28 kB)                                                                                               subprocess.py:196
+           Using cached starlette-0.52.1-py3-none-any.whl (74 kB)                                                                                                  subprocess.py:196
+           Using cached awkward-2.8.12-py3-none-any.whl (913 kB)                                                                                                   subprocess.py:196
+           Using cached awkward_cpp-51-cp314-cp314-win_amd64.whl (556 kB)                                                                                          subprocess.py:196
+           Using cached fsspec-2026.1.0-py3-none-any.whl (201 kB)                                                                                                  subprocess.py:196
+           Using cached numba-0.63.1-cp314-cp314-win_amd64.whl (2.8 MB)                                                                                            subprocess.py:196
+           Using cached llvmlite-0.46.0-cp314-cp314-win_amd64.whl (39.2 MB)                                                                                        subprocess.py:196
+           Using cached numpy-2.3.5-cp314-cp314-win_amd64.whl (12.9 MB)                                                                                            subprocess.py:196
+           Using cached pyarrow-23.0.0-cp314-cp314-win_amd64.whl (28.3 MB)                                                                                         subprocess.py:196
+           Using cached sparse-0.17.0-py2.py3-none-any.whl (259 kB)                                                                                                subprocess.py:196
+           Using cached tornado-6.5.4-cp39-abi3-win_amd64.whl (446 kB)                                                                                             subprocess.py:196
+           Downloading tqdm-4.67.3-py3-none-any.whl (78 kB)                                                                                                        subprocess.py:196
+           Using cached traitlets-5.14.3-py3-none-any.whl (85 kB)                                                                                                  subprocess.py:196
+           Using cached typing_inspection-0.4.2-py3-none-any.whl (14 kB)                                                                                           subprocess.py:196
+           Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)                                                                                                    subprocess.py:196
+           Using cached uvicorn-0.40.0-py3-none-any.whl (68 kB)                                                                                                    subprocess.py:196
+           Using cached click-8.3.1-py3-none-any.whl (108 kB)                                                                                                      subprocess.py:196
+           Using cached win32_setctime-1.2.0-py3-none-any.whl (4.1 kB)                                                                                             subprocess.py:196
+           Downloading blosc2-4.0.0-cp314-cp314-win_amd64.whl (2.8 MB)                                                                                             subprocess.py:196
+              ---------------------------------------- 2.8/2.8 MB 12.5 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached numexpr-2.14.1-cp314-cp314-win_amd64.whl (162 kB)                                                                                          subprocess.py:196
+           Using cached certifi-2026.1.4-py3-none-any.whl (152 kB)                                                                                                 subprocess.py:196
+           Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)                                                                                                    subprocess.py:196
+           Downloading dask-2026.1.2-py3-none-any.whl (1.5 MB)                                                                                                     subprocess.py:196
+[00:06:16]    ---------------------------------------- 1.5/1.5 MB 15.1 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached cloudpickle-3.1.2-py3-none-any.whl (22 kB)                                                                                                 subprocess.py:196
+           Using cached partd-1.4.2-py3-none-any.whl (18 kB)                                                                                                       subprocess.py:196
+           Using cached toolz-1.1.0-py3-none-any.whl (58 kB)                                                                                                       subprocess.py:196
+           Using cached pandas-3.0.0-cp314-cp314-win_amd64.whl (9.9 MB)                                                                                            subprocess.py:196
+           Using cached entrypoints-0.4-py3-none-any.whl (5.3 kB)                                                                                                  subprocess.py:196
+           Using cached historydict-1.2.6-py3-none-any.whl (4.5 kB)                                                                                                subprocess.py:196
+           Using cached importlib_resources-6.5.2-py3-none-any.whl (37 kB)                                                                                         subprocess.py:196
+           Using cached json_merge_patch-0.3.0-py3-none-any.whl (5.5 kB)                                                                                           subprocess.py:196
+           Using cached jsonpatch-1.33-py2.py3-none-any.whl (12 kB)                                                                                                subprocess.py:196
+           Using cached jsonpointer-3.0.0-py2.py3-none-any.whl (7.6 kB)                                                                                            subprocess.py:196
+           Using cached locket-1.0.0-py2.py3-none-any.whl (4.4 kB)                                                                                                 subprocess.py:196
+           Using cached lz4-4.4.5-cp314-cp314-win_amd64.whl (101 kB)                                                                                               subprocess.py:196
+           Using cached msgpack_numpy-0.4.8-py2.py3-none-any.whl (6.9 kB)                                                                                          subprocess.py:196
+           Using cached ndindex-1.10.1-cp314-cp314-win_amd64.whl (158 kB)                                                                                          subprocess.py:196
+           Using cached opentelemetry_api-1.39.1-py3-none-any.whl (66 kB)                                                                                          subprocess.py:196
+           Using cached importlib_metadata-8.7.1-py3-none-any.whl (27 kB)                                                                                          subprocess.py:196
+           Using cached zipp-3.23.0-py3-none-any.whl (10 kB)                                                                                                       subprocess.py:196
+           Downloading orjson-3.11.7-cp314-cp314-win_amd64.whl (124 kB)                                                                                            subprocess.py:196
+           Using cached pint-0.25.2-py3-none-any.whl (306 kB)                                                                                                      subprocess.py:196
+           Using cached flexcache-0.3-py3-none-any.whl (13 kB)                                                                                                     subprocess.py:196
+           Using cached flexparser-0.4-py3-none-any.whl (27 kB)                                                                                                    subprocess.py:196
+           Using cached pure_eval-0.2.3-py3-none-any.whl (11 kB)                                                                                                   subprocess.py:196
+           Using cached pycparser-3.0-py3-none-any.whl (48 kB)                                                                                                     subprocess.py:196
+           Using cached requests-2.32.5-py3-none-any.whl (64 kB)                                                                                                   subprocess.py:196
+           Using cached charset_normalizer-3.4.4-cp314-cp314-win_amd64.whl (107 kB)                                                                                subprocess.py:196
+           Downloading rich-14.3.2-py3-none-any.whl (309 kB)                                                                                                       subprocess.py:196
+           Using cached markdown_it_py-4.0.0-py3-none-any.whl (87 kB)                                                                                              subprocess.py:196
+           Using cached mdurl-0.1.2-py3-none-any.whl (10.0 kB)                                                                                                     subprocess.py:196
+           Using cached stamina-25.2.0-py3-none-any.whl (18 kB)                                                                                                    subprocess.py:196
+           Using cached tenacity-9.1.2-py3-none-any.whl (28 kB)                                                                                                    subprocess.py:196
+           Using cached typer-0.21.1-py3-none-any.whl (47 kB)                                                                                                      subprocess.py:196
+           Using cached shellingham-1.5.4-py2.py3-none-any.whl (9.8 kB)                                                                                            subprocess.py:196
+           Using cached tzdata-2025.3-py2.py3-none-any.whl (348 kB)                                                                                                subprocess.py:196
+           Downloading wcwidth-0.5.3-py3-none-any.whl (92 kB)                                                                                                      subprocess.py:196
+           Using cached websockets-16.0-cp314-cp314-win_amd64.whl (178 kB)                                                                                         subprocess.py:196
+           Downloading xarray-2026.1.0-py3-none-any.whl (1.4 MB)                                                                                                   subprocess.py:196
+[00:06:17]    ---------------------------------------- 1.4/1.4 MB 15.0 MB/s eta 0:00:00                                                                            subprocess.py:196
+           Using cached zstandard-0.25.0-cp314-cp314-win_amd64.whl (516 kB)                                                                                        subprocess.py:196
+[00:06:19] Building wheels for collected packages: claude-agent-sdk                                                                                                subprocess.py:196
+             Building wheel for claude-agent-sdk (pyproject.toml): started                                                                                         subprocess.py:196
+             Building wheel for claude-agent-sdk (pyproject.toml): finished with status 'done'                                                                     subprocess.py:196
+             Created wheel for claude-agent-sdk: filename=claude_agent_sdk-0.1.29-py3-none-any.whl size=42581                                                      subprocess.py:196
+           sha256=fb685048707d92af4026f199159f7a51ede8f3995b879666dc0db8a8e0f4ae16                                                                                                  
+             Stored in directory: C:\Users\rp\AppData\Local\Temp\pip-ephem-wheel-cache-lcjr8023\wheels\f0\63\f8\ae564eb413b8cc743109851cb2c2a81317eabb31af5880f76e subprocess.py:196
+           Successfully built claude-agent-sdk                                                                                                                     subprocess.py:196
+           Installing collected packages: pywin32, pure-eval, historydict, zstandard, zipp, win32-setctime, websockets, wcwidth, urllib3, tzdata,                  subprocess.py:196
+           typing-extensions, traitlets, tornado, toolz, tenacity, six, shiboken6, shellingham, rpds-py, pyzmq, pyyaml, python-socks, python-multipart,                             
+           python-dotenv, pyjwt, pygments, pycparser, pyarrow, psutil, propcache, platformdirs, parso, packaging, orjson, numpy, networkx, nest-asyncio, ndindex,                   
+           multidict, msgpack, mistune, mdurl, lz4, locket, llvmlite, jsonpointer, json-merge-patch, importlib-resources, idna, httpx-sse, h11, fsspec,                             
+           frozenlist, executing, entrypoints, decorator, debugpy, cycler, comm, colorama, cloudpickle, charset_normalizer, certifi, caproto, cachetools, bidict,                   
+           attrs, asttokens, annotated-types, aiohappyeyeballs, yarl, typing-inspection, tqdm, stamina, stack_data, sentry-sdk, requests, referencing, QtPy,                        
+           python-dateutil, PySide6_Essentials, pyqtgraph, pydantic-core, prompt_toolkit, partd, numexpr, numba, msgpack-numpy, matplotlib-inline, markdown-it-py,                  
+           loguru, jupyter_core, jsonpatch, jedi, ipython_pygments_lexers, importlib-metadata, httpcore, flexparser, flexcache, click, cffi, awkward-cpp, anyio,                    
+           aiosignal, watchfiles, uvicorn, starlette, sparse, rich, qtawesome, PySide6_Addons, pyqt-toast-notification, pydantic, pint, pandas, opentelemetry-api,                  
+           jupyter_client, jsonschema-specifications, ipython, httpx, dask, cryptography, blosc2, awkward, aiohttp, xarray, typer, sse-starlette, PySide6,                          
+           pydantic-settings, ophyd, jsonschema, ipykernel, aiohttp-socks, tiled, qtconsole, mcp, event-model, epics-pyside, claude-agent-sdk, bluesky,                             
+           pyside-claude                                                                                                                                                            
+[00:09:08]                                                                                                                                                         subprocess.py:196
+           ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the          subprocess.py:196
+           following dependency conflicts.                                                                                                                                          
+           fastapi 0.128.0 requires starlette<0.51.0,>=0.40.0, but you have starlette 0.52.1 which is incompatible.                                                subprocess.py:196
+           Successfully installed PySide6-6.10.2 PySide6_Addons-6.10.2 PySide6_Essentials-6.10.2 QtPy-2.4.3 aiohappyeyeballs-2.6.1 aiohttp-3.13.3                  subprocess.py:196
+           aiohttp-socks-0.11.0 aiosignal-1.4.0 annotated-types-0.7.0 anyio-4.12.1 asttokens-3.0.1 attrs-25.4.0 awkward-2.8.12 awkward-cpp-51 bidict-0.23.1                         
+           blosc2-4.0.0 bluesky-1.14.6 cachetools-7.0.0 caproto-1.3.0 certifi-2026.1.4 cffi-2.0.0 charset_normalizer-3.4.4 claude-agent-sdk-0.1.29 click-8.3.1                      
+           cloudpickle-3.1.2 colorama-0.4.6 comm-0.2.3 cryptography-46.0.4 cycler-0.12.1 dask-2026.1.2 debugpy-1.8.20 decorator-5.2.1 entrypoints-0.4                               
+           epics-pyside-0.1.dev8+g2cfe53398 event-model-1.23.1 executing-2.2.1 flexcache-0.3 flexparser-0.4 frozenlist-1.8.0 fsspec-2026.1.0 h11-0.16.0                             
+           historydict-1.2.6 httpcore-1.0.9 httpx-0.28.1 httpx-sse-0.4.3 idna-3.11 importlib-metadata-8.7.1 importlib-resources-6.5.2 ipykernel-7.1.0                               
+           ipython-9.10.0 ipython_pygments_lexers-1.1.1 jedi-0.19.2 json-merge-patch-0.3.0 jsonpatch-1.33 jsonpointer-3.0.0 jsonschema-4.26.0                                       
+           jsonschema-specifications-2025.9.1 jupyter_client-8.8.0 jupyter_core-5.9.1 llvmlite-0.46.0 locket-1.0.0 loguru-0.7.3 lz4-4.4.5 markdown-it-py-4.0.0                      
+           matplotlib-inline-0.2.1 mcp-1.26.0 mdurl-0.1.2 mistune-3.2.0 msgpack-1.1.2 msgpack-numpy-0.4.8 multidict-6.7.1 ndindex-1.10.1 nest-asyncio-1.6.0                         
+           networkx-3.6.1 numba-0.63.1 numexpr-2.14.1 numpy-2.3.5 opentelemetry-api-1.39.1 ophyd-1.11.0 orjson-3.11.7 packaging-26.0 pandas-3.0.0 parso-0.8.5                       
+           partd-1.4.2 pint-0.25.2 platformdirs-4.5.1 prompt_toolkit-3.0.52 propcache-0.4.1 psutil-7.2.2 pure-eval-0.2.3 pyarrow-23.0.0 pycparser-3.0                               
+           pydantic-2.12.5 pydantic-core-2.41.5 pydantic-settings-2.11.0 pygments-2.19.2 pyjwt-2.11.0 pyqt-toast-notification-1.3.3 pyqtgraph-0.14.0                                
+           pyside-claude-0.1.dev11+g6068221cd python-dateutil-2.9.0.post0 python-dotenv-1.2.1 python-multipart-0.0.22 python-socks-2.8.0 pywin32-311 pyyaml-6.0.3                   
+           pyzmq-27.1.0 qtawesome-1.4.1 qtconsole-5.7.0 referencing-0.37.0 requests-2.32.5 rich-14.3.2 rpds-py-0.30.0 sentry-sdk-2.51.0 shellingham-1.5.4                           
+           shiboken6-6.10.2 six-1.17.0 sparse-0.17.0 sse-starlette-3.2.0 stack_data-0.6.3 stamina-25.2.0 starlette-0.52.1 tenacity-9.1.2 tiled-0.2.3 toolz-1.1.0                    
+           tornado-6.5.4 tqdm-4.67.3 traitlets-5.14.3 typer-0.21.1 typing-extensions-4.15.0 typing-inspection-0.4.2 tzdata-2025.3 urllib3-2.6.3 uvicorn-0.40.0                      
+           watchfiles-1.1.1 wcwidth-0.5.3 websockets-16.0 win32-setctime-1.2.0 xarray-2026.1.0 yarl-1.22.0 zipp-3.23.0 zstandard-0.25.0                                             
+[00:09:11] >>> Return code: 0                                                                                                                                      subprocess.py:839
+                                                                                                                                                                   subprocess.py:839
+           Installing app requirements... done                                                                                                                         create.py:666
+                                                                                                                                                                       create.py:993
+           [lucid] Installing application resources...                                                                                                                 create.py:993
+           Installing resources/lucid.ico as application icon... started                                                                                               create.py:825
+           Installing resources/lucid.ico as application icon... done                                                                                                  create.py:825
+           Installing license... started                                                                                                                             __init__.py:326
+           Installing license... errored                                                                                                                             __init__.py:326
+                                                                                                                                                                      __main__.py:42
+           Your `pyproject.toml` specifies a license file of 'LICENSE'.                                                                                               __main__.py:43
+           However, this file does not exist.                                                                                                                         __main__.py:43
+                                                                                                                                                                      __main__.py:43
+           Ensure you have correctly spelled the filename in your `license.file` setting.                                                                             __main__.py:43
+           Saving log... started                                                                                                                                      console.py:443
+
+Main thread traceback:
+╭─────────────────────────────────────────────────────────────────────── Traceback (most recent call last) ────────────────────────────────────────────────────────────────────────╮
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\__main__.py:27 in main                                                                                         │
+│                                                                                                                                                                                  │
+│   24 │   │   │   Path.cwd() / "pyproject.toml",                                                                                                                                  │
+│   25 │   │   │   overrides=overrides,                                                                                                                                            │
+│   26 │   │   )                                                                                                                                                                   │
+│ ❱ 27 │   │   command(**options)                                                                                                                                                  │
+│   28 │   except HelpText as e:                                                                                                                                                   │
+│   29 │   │   console.info()                                                                                                                                                      │
+│   30 │   │   console.info(str(e))                                                                                                                                                │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────────────────────────────────╮ │
+│ │       command = <briefcase.platforms.windows.app.WindowsAppCreateCommand object at 0x0000028878B41550>                                                                       │ │
+│ │       console = <briefcase.console.Console object at 0x000002887897FCB0>                                                                                                     │ │
+│ │             e = BriefcaseCommandError("Your `pyproject.toml` specifies a license file of 'LICENSE'.\nHowever, this file does not exist.\n\nEnsure you have correctly spelled │ │
+│ │                 the filename in your `license.file` setting.")                                                                                                               │ │
+│ │ extra_cmdline = ['--no-input']                                                                                                                                               │ │
+│ │       options = {}                                                                                                                                                           │ │
+│ │     overrides = {}                                                                                                                                                           │ │
+│ │        result = 200                                                                                                                                                          │ │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\create.py:1043 in __call__                                                                            │
+│                                                                                                                                                                                  │
+│   1040 │   │                                                                                                                                                                     │
+│   1041 │   │   state = None                                                                                                                                                      │
+│   1042 │   │   for _, app_obj in sorted(apps_to_create.items()):                                                                                                                 │
+│ ❱ 1043 │   │   │   state = self.create_app(                                                                                                                                      │
+│   1044 │   │   │   │   app_obj,                                                                                                                                                  │
+│   1045 │   │   │   │   **full_options(state, options),                                                                                                                           │
+│   1046 │   │   │   )                                                                                                                                                             │
+│                                                                                                                                                                                  │
+│ ╭──────────────────────────────────────────────── locals ─────────────────────────────────────────────────╮                                                                      │
+│ │              _ = 'lucid'                                                                                │                                                                      │
+│ │            app = None                                                                                   │                                                                      │
+│ │       app_name = None                                                                                   │                                                                      │
+│ │        app_obj = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                   │                                                                      │
+│ │ apps_to_create = {'lucid': <gov.lbl.als.lucid v0.1.0 AppConfig>}                                        │                                                                      │
+│ │        options = {}                                                                                     │                                                                      │
+│ │           self = <briefcase.platforms.windows.app.WindowsAppCreateCommand object at 0x0000028878B41550> │                                                                      │
+│ │          state = None                                                                                   │                                                                      │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                      │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\commands\create.py:996 in create_app                                                                           │
+│                                                                                                                                                                                  │
+│    993 │   │   │   self.console.info(                                                                                                                                            │
+│    994 │   │   │   │   "Installing application resources...", prefix=app.app_name                                                                                                │
+│    995 │   │   │   )                                                                                                                                                             │
+│ ❱  996 │   │   │   self.install_app_resources(app=app)                                                                                                                           │
+│    997 │   │   │                                                                                                                                                                 │
+│    998 │   │   │   self.console.info("Removing unneeded app content...", prefix=app.app_name)                                                                                    │
+│    999 │   │   │   self.cleanup_app_content(app=app)                                                                                                                             │
+│                                                                                                                                                                                  │
+│ ╭─────────────────────────────────────────────── locals ───────────────────────────────────────────────╮                                                                         │
+│ │         app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                   │                                                                         │
+│ │ bundle_path = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app')             │                                                                         │
+│ │     options = {}                                                                                     │                                                                         │
+│ │        self = <briefcase.platforms.windows.app.WindowsAppCreateCommand object at 0x0000028878B41550> │                                                                         │
+│ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                         │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\__init__.py:327 in install_app_resources                                                     │
+│                                                                                                                                                                                  │
+│   324 │   │                                                                                                                                                                      │
+│   325 │   │   # Install the license.                                                                                                                                             │
+│   326 │   │   with self.console.wait_bar("Installing license..."):                                                                                                               │
+│ ❱ 327 │   │   │   self.install_license(app)                                                                                                                                      │
+│   328                                                                                                                                                                            │
+│   329                                                                                                                                                                            │
+│   330 class WindowsRunCommand(RunCommand):                                                                                                                                       │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────────── locals ───────────────────────────────────────────────────────╮                                                          │
+│ │                  app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                         │                                                          │
+│ │ install_scripts_path = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app/extras/_installer') │                                                          │
+│ │       installer_path = '_installer'                                                                                 │                                                          │
+│ │         post_install = None                                                                                         │                                                          │
+│ │        pre_uninstall = None                                                                                         │                                                          │
+│ │                 self = <briefcase.platforms.windows.app.WindowsAppCreateCommand object at 0x0000028878B41550>       │                                                          │
+│ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                          │
+│                                                                                                                                                                                  │
+│ C:\Users\rp\PycharmProjects\ncs\.venv\Lib\site-packages\briefcase\platforms\windows\__init__.py:239 in install_license                                                           │
+│                                                                                                                                                                                  │
+│   236 │   │   │   │   │   │   txt_to_rtf(license_text), encoding="utf-8"                                                                                                         │
+│   237 │   │   │   │   │   )                                                                                                                                                      │
+│   238 │   │   │   else:                                                                                                                                                          │
+│ ❱ 239 │   │   │   │   raise BriefcaseCommandError(                                                                                                                               │
+│   240 │   │   │   │   │   f"Your `pyproject.toml` specifies a license file of "                                                                                                  │
+│   241 │   │   │   │   │   f"{str(license_file.relative_to(self.base_path))!r}.\n"                                                                                                │
+│   242 │   │   │   │   │   f"However, this file does not exist."                                                                                                                  │
+│                                                                                                                                                                                  │
+│ ╭────────────────────────────────────────────────── locals ──────────────────────────────────────────────────╮                                                                   │
+│ │               app = <gov.lbl.als.lucid v0.1.0 AppConfig>                                                   │                                                                   │
+│ │ installed_license = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/build/lucid/windows/app/LICENSE.rtf') │                                                                   │
+│ │      license_file = WindowsPath('C:/Users/rp/PycharmProjects/ncs/ncs/LICENSE')                             │                                                                   │
+│ │              self = <briefcase.platforms.windows.app.WindowsAppCreateCommand object at 0x0000028878B41550> │                                                                   │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯                                                                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+BriefcaseCommandError: Your `pyproject.toml` specifies a license file of 'LICENSE'.
+However, this file does not exist.
+
+Ensure you have correctly spelled the filename in your `license.file` setting.

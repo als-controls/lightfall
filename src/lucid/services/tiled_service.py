@@ -383,7 +383,11 @@ class TiledService(QObject):
             return False, f"Connection failed: {e}"
 
     def _subscribe_writer(self) -> None:
-        """Subscribe TiledWriter to Engine for document streaming."""
+        """Subscribe TiledWriter to Engine for document streaming.
+
+        Uses ThreadedTiledWriter wrapper to prevent blocking the main thread
+        during HTTP calls to the Tiled server.
+        """
         if self._client is None:
             return
 
@@ -391,16 +395,46 @@ class TiledService(QObject):
             from bluesky.callbacks.tiled_writer import TiledWriter
 
             from lucid.acquire import get_engine
+            from lucid.services.threaded_tiled_writer import ThreadedTiledWriter
 
             engine = get_engine()
-            self._writer = TiledWriter(self._client)
+
+            # Create the underlying TiledWriter
+            raw_writer = TiledWriter(self._client)
+
+            # Wrap in ThreadedTiledWriter to prevent blocking
+            self._writer = ThreadedTiledWriter(
+                raw_writer,
+                error_callback=self._on_writer_error,
+            )
             self._subscription_token = engine.subscribe(self._writer)
-            logger.debug("TiledWriter subscribed to Engine")
+            logger.debug("ThreadedTiledWriter subscribed to Engine")
 
         except ImportError as e:
             logger.warning("Could not import TiledWriter: {}", e)
         except Exception as e:
             logger.error("Failed to subscribe TiledWriter: {}", e)
+
+    def _on_writer_error(
+        self, name: str, doc: dict[str, Any], error: Exception
+    ) -> None:
+        """Handle errors from the threaded writer.
+
+        Args:
+            name: Document name that failed.
+            doc: Document that failed.
+            error: The exception that occurred.
+        """
+        # Check if it's a permissions error
+        error_str = str(error)
+        if "401" in error_str or "Not enough permissions" in error_str:
+            # Only log once per session to avoid spam
+            if not hasattr(self, "_permission_error_logged"):
+                self._permission_error_logged = True
+                logger.warning(
+                    "Tiled write permission denied. Data will not be saved to Tiled. "
+                    "Configure an API key with write permissions or disable Tiled."
+                )
 
     def _unsubscribe_writer(self) -> None:
         """Unsubscribe TiledWriter from Engine."""
