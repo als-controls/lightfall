@@ -218,6 +218,13 @@ class NCSMainWindow(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
+        # Report Bug action
+        report_bug_action = QAction("&Report Bug...", self)
+        report_bug_action.triggered.connect(self._on_report_bug)
+        help_menu.addAction(report_bug_action)
+
+        help_menu.addSeparator()
+
         # About action
         about_action = QAction("&About LUCID", self)
         about_action.triggered.connect(self._on_about)
@@ -729,6 +736,12 @@ class NCSMainWindow(QMainWindow):
         from lucid.ui.dialogs import show_about_dialog
 
         show_about_dialog(self)
+
+    def _on_report_bug(self) -> None:
+        """Show bug report dialog."""
+        from lucid.ui.dialogs import report_bug
+
+        report_bug(self)
 
     def _on_login(self) -> None:
         """Show login dialog."""

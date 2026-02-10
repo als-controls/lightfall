@@ -47,9 +47,12 @@ dependencies = [
     "ophyd>=1.7",
     # tiled
     "tiled[client]>=0.1.0",
-    # keycloak
+    # networking / proxy support
+    "httpx>=0.27",
+    "httpx-socks>=0.9",
     "aiohttp>=3.8",
     "aiohttp-socks>=0.8",
+    "PySocks>=1.7",
     # ipython
     "qtconsole>=5.5",
     "ipykernel>=6.0",

@@ -204,10 +204,17 @@ class NCSApplication(QObject):
         configure_logging(level=log_level, log_file=log_file)
         logger.info("Initializing LUCID application")
 
-        # Create Qt application
+        # Create Qt application with Sentry exception capture
         self._qt_app = QApplication.instance()  # type: ignore[assignment]
         if self._qt_app is None:
-            self._qt_app = QApplication(self._argv)
+            from lucid.utils.sentry import create_sentry_application
+
+            self._qt_app = create_sentry_application(self._argv)
+        else:
+            logger.warning(
+                "QApplication already exists ({}), Sentry exception capture disabled",
+                type(self._qt_app).__name__,
+            )
 
         self._qt_app.setApplicationName("LUCID")
         self._qt_app.setOrganizationName("ALS")

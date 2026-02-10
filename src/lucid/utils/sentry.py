@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from sentry_sdk.types import Event, Hint
 
 # Sentry DSN - can be overridden via SENTRY_DSN environment variable
-_DEFAULT_DSN = "https://3b73343435d03a70c396c72544e3b08f@o4510803909083136.ingest.us.sentry.io/4510803913998336"
+_DEFAULT_DSN = "http://00c731abfec94ce68ebf56f2c2485022@bcgglitchtip.dhcp.lbl.gov:8000/1"
 
 _initialized = False
 
@@ -28,6 +28,7 @@ def init_sentry(
     traces_sample_rate: float = 0.0,
     profiles_sample_rate: float = 0.0,
     enable_loguru: bool = True,
+    proxy_url: str | None = None,
 ) -> bool:
     """Initialize Sentry error reporting.
 
@@ -46,6 +47,8 @@ def init_sentry(
         traces_sample_rate: Performance tracing sample rate. Default 0.0 (disabled).
         profiles_sample_rate: Profiling sample rate. Default 0.0 (disabled).
         enable_loguru: Enable loguru integration to capture logged errors.
+        proxy_url: HTTP/SOCKS proxy URL (e.g., "socks5://localhost:1080").
+            If None, auto-detects from ProxySettingsProvider.
 
     Returns:
         True if Sentry was initialized successfully, False otherwise.
@@ -86,23 +89,36 @@ def init_sentry(
         # Capture ERROR and above from loguru as Sentry events
         integrations.append(LoguruIntegration(level="ERROR"))
 
-    # Initialize Sentry
-    sentry_sdk.init(
-        dsn=resolved_dsn,
-        environment=environment,
-        release=release,
-        debug=debug,
-        sample_rate=sample_rate,
-        traces_sample_rate=traces_sample_rate,
-        profiles_sample_rate=profiles_sample_rate,
-        integrations=integrations,
+    # Resolve proxy - check ProxySettingsProvider if not explicitly provided
+    resolved_proxy = proxy_url
+    if resolved_proxy is None:
+        resolved_proxy = _get_proxy_for_sentry(resolved_dsn)
+
+    # Build init kwargs
+    init_kwargs: dict[str, Any] = {
+        "dsn": resolved_dsn,
+        "environment": environment,
+        "release": release,
+        "debug": debug,
+        "sample_rate": sample_rate,
+        "traces_sample_rate": traces_sample_rate,
+        "profiles_sample_rate": profiles_sample_rate,
+        "integrations": integrations,
         # Attach all threads for full context
-        attach_stacktrace=True,
+        "attach_stacktrace": True,
         # Include local variables in stack traces (helpful for debugging)
-        include_local_variables=True,
+        "include_local_variables": True,
         # Filter sensitive data
-        before_send=_before_send,
-    )
+        "before_send": _before_send,
+    }
+
+    # Add proxy if configured (Sentry uses http_proxy for HTTP DSNs)
+    if resolved_proxy:
+        init_kwargs["http_proxy"] = resolved_proxy
+        init_kwargs["https_proxy"] = resolved_proxy
+
+    # Initialize Sentry
+    sentry_sdk.init(**init_kwargs)
 
     # Add default context
     _set_default_context()
@@ -128,6 +144,35 @@ def _get_release_version() -> str | None:
         pass
 
     return None
+
+
+def _get_proxy_for_sentry(dsn: str) -> str | None:
+    """Get proxy URL for Sentry from application settings.
+
+    Checks ProxySettingsProvider to see if a proxy should be used
+    for the Sentry DSN URL.
+
+    Args:
+        dsn: The Sentry DSN URL.
+
+    Returns:
+        Proxy URL if configured, None otherwise.
+    """
+    from lucid.utils.logging import logger
+
+    try:
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(dsn)
+        if proxy_url:
+            logger.info("Sentry will use proxy: {}", proxy_url)
+        return proxy_url
+    except ImportError:
+        # ProxySettingsProvider not available (e.g., during early init)
+        return None
+    except Exception:
+        # Proxy detection failed, proceed without proxy
+        return None
 
 
 def _set_default_context() -> None:
@@ -485,3 +530,191 @@ def set_context(name: str, data: dict[str, Any] | None) -> None:
     import sentry_sdk
 
     sentry_sdk.set_context(name, data)
+
+
+class SentryQApplication:
+    """Mixin or wrapper that adds Sentry exception capture to QApplication.
+
+    Qt's event loop catches exceptions in slots/event handlers at the C++/Python
+    boundary, preventing them from reaching sys.excepthook. By overriding notify(),
+    we can catch these exceptions and report them to Sentry.
+
+    Usage:
+        # Option 1: As a mixin (preferred)
+        class MyApp(SentryQApplication, QApplication):
+            pass
+
+        # Option 2: Use the create_application() helper
+        app = create_sentry_application(sys.argv)
+    """
+
+    def notify(self, receiver: Any, event: Any) -> bool:
+        """Override notify to catch exceptions in event handling.
+
+        Args:
+            receiver: The object receiving the event.
+            event: The event being delivered.
+
+        Returns:
+            True if the event was handled.
+        """
+        try:
+            return super().notify(receiver, event)  # type: ignore[misc]
+        except Exception:
+            # Capture to Sentry, then re-raise so Qt can handle it
+            capture_exception()
+            raise
+
+
+def create_sentry_application(argv: list[str] | None = None) -> Any:
+    """Create a QApplication with Sentry exception capture.
+
+    This dynamically creates a QApplication subclass with the SentryQApplication
+    mixin, ensuring exceptions in Qt event handling are captured.
+
+    Args:
+        argv: Command line arguments. If None, uses sys.argv.
+
+    Returns:
+        A QApplication instance with Sentry integration.
+    """
+    import sys
+
+    from PySide6.QtWidgets import QApplication
+
+    class SentryApp(SentryQApplication, QApplication):
+        """QApplication with Sentry exception capture."""
+
+        pass
+
+    return SentryApp(argv if argv is not None else sys.argv)
+
+
+def sentry_slot(*args, **kwargs):
+    """Decorator that wraps a Qt slot with Sentry exception capture.
+
+    Use this instead of @Slot() to automatically capture exceptions to Sentry.
+    Supports all the same arguments as PySide6's @Slot decorator.
+
+    Example::
+
+        from lucid.utils.sentry import sentry_slot
+
+        class MyWidget(QWidget):
+            @sentry_slot()
+            def on_button_clicked(self):
+                # If this raises, it will be captured by Sentry
+                do_something_risky()
+
+            @sentry_slot(str, int)
+            def on_data_received(self, name: str, value: int):
+                process_data(name, value)
+
+    The decorator:
+    1. Wraps the slot in try/except
+    2. Logs the exception via loguru (so ErrorCollector can capture it)
+    3. Captures any exception to Sentry
+    4. Re-raises the exception (so Qt still logs it to stderr)
+    5. Applies PySide6's @Slot decorator with the same arguments
+    """
+    from functools import wraps
+
+    from PySide6.QtCore import Slot
+
+    from lucid.utils.logging import logger
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*func_args, **func_kwargs):
+            try:
+                return func(*func_args, **func_kwargs)
+            except Exception as e:
+                # Log to loguru so ErrorCollector captures it for bug reporting
+                logger.opt(exception=True).error(
+                    "Exception in slot {}: {}", func.__name__, e
+                )
+                # Sentry will also capture via LoguruIntegration
+                raise
+
+        # Apply PySide6's Slot decorator
+        return Slot(*args, **kwargs)(wrapper)
+
+    return decorator
+
+
+def submit_bug_report(
+    description: str,
+    error_record: Any = None,
+    priority: str = "normal",
+) -> str | None:
+    """Submit a user bug report to Sentry/GlitchTip as a tagged issue.
+
+    Since GlitchTip does not support Sentry's User Feedback API, bug reports
+    are submitted as regular Sentry issues with special tags for filtering:
+    - `bug_report=true` - Identifies user-submitted bug reports
+    - `priority=<level>` - The user-selected priority level
+
+    Filter in GlitchTip dashboard: `bug_report:true`
+
+    Args:
+        description: User-provided description of the bug.
+        error_record: Optional ErrorRecord from ErrorCollector with details
+            about a recent error to include in the report.
+        priority: Priority level for the report. One of:
+            - "low" -> Sentry "info" level
+            - "normal" -> Sentry "warning" level
+            - "high" -> Sentry "error" level
+            - "critical" -> Sentry "fatal" level
+
+    Returns:
+        The Sentry event ID if captured, None otherwise.
+    """
+    if not _initialized:
+        return None
+
+    import sentry_sdk
+
+    # Map priority strings to Sentry levels
+    level_map = {
+        "low": "info",
+        "normal": "warning",
+        "high": "error",
+        "critical": "fatal",
+    }
+    level = level_map.get(priority.lower(), "warning")
+
+    # Submit as a tagged issue using new_scope for isolation
+    with sentry_sdk.new_scope() as scope:
+        # Tags for filtering bug reports in GlitchTip
+        scope.set_tag("bug_report", "true")
+        scope.set_tag("priority", priority)
+
+        # Add error context if an error record was provided
+        if error_record is not None:
+            scope.set_context(
+                "reported_error",
+                {
+                    "timestamp": (
+                        error_record.timestamp.isoformat()
+                        if hasattr(error_record, "timestamp")
+                        else None
+                    ),
+                    "level": getattr(error_record, "level", None),
+                    "module": getattr(error_record, "module", None),
+                    "function": getattr(error_record, "function", None),
+                    "line": getattr(error_record, "line", None),
+                    "message": getattr(error_record, "message", None),
+                    "location": getattr(error_record, "location", None),
+                },
+            )
+
+            # Add traceback as extra data if available
+            exception_info = getattr(error_record, "exception_info", None)
+            if exception_info:
+                scope.set_extra("traceback", exception_info)
+
+        # Capture the bug report as a message with appropriate level
+        return sentry_sdk.capture_message(
+            f"[Bug Report] {description}",
+            level=level,
+        )

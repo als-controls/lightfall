@@ -1,13 +1,16 @@
 """NCS utility modules."""
 
+from lucid.utils.error_collector import ErrorCollector, get_error_collector
 from lucid.utils.logging import configure_logging, log_time
 from lucid.utils.sentry import (
     add_breadcrumb,
     capture_exception,
     capture_message,
     init_sentry,
+    sentry_slot,
     set_context,
     set_tag,
+    submit_bug_report,
 )
 from lucid.utils.threads import (
     QThreadFuture,
@@ -22,6 +25,9 @@ from lucid.utils.threads import (
 )
 
 __all__ = [
+    # Error collector
+    "ErrorCollector",
+    "get_error_collector",
     # Logging
     "configure_logging",
     "log_time",
@@ -32,6 +38,8 @@ __all__ = [
     "add_breadcrumb",
     "set_tag",
     "set_context",
+    "sentry_slot",
+    "submit_bug_report",
     # Threading
     "ThreadManager",
     "get_thread_manager",
