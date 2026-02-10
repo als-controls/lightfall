@@ -543,7 +543,7 @@ def main() -> int:
     _setup_services(app, config)
 
     # Initialize Sentry error reporting (after services so proxy settings are available)
-    if init_sentry(debug=True):
+    if init_sentry():
         logger.info("Sentry error reporting initialized")
     else:
         logger.warning("Sentry initialization failed or disabled")
