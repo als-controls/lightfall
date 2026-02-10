@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 import sys
+
+# Set Windows AppUserModelID BEFORE any Qt imports.
+# This must happen before COM/Qt initialization for the taskbar icon to work.
+# See: https://stackoverflow.com/a/1552105
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("gov.lbl.als.lucid")
+
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -333,14 +341,18 @@ def _setup_first_launch(project_service: ProjectService) -> None:
 def _show_startup_login(window: NCSMainWindow) -> None:
     """Show login dialog on application startup.
 
+    Creates an independent dialog (parent=None) so it gets its own
+    taskbar entry on Windows, rather than being owned by the hidden
+    main window.
+
     Args:
-        window: The main window instance.
+        window: The main window instance (unused, kept for API compatibility).
     """
+    from lucid.resources import get_app_icon
     from lucid.ui.dialogs import LoginDialog
     from lucid.ui.dialogs.login_dialog import LoginResult
 
-    # Use parent=None since main window isn't shown yet.
-    # On Windows, modal dialogs with hidden parents may not appear properly.
+    # Create dialog without parent - gets its own taskbar entry
     dialog = LoginDialog(
         parent=None,
         title="Welcome to LUCID",
@@ -348,10 +360,19 @@ def _show_startup_login(window: NCSMainWindow) -> None:
         show_on_expiry=False,
     )
 
-    # Ensure dialog is visible and activated on Windows
-    dialog.show()
-    dialog.raise_()
-    dialog.activateWindow()
+    # Explicitly set icon for taskbar (required when parent=None)
+    app_icon = get_app_icon()
+    if not app_icon.isNull():
+        dialog.setWindowIcon(app_icon)
+        sizes = app_icon.availableSizes()
+        logger.info("Login dialog icon set ({} sizes: {})", len(sizes), sizes)
+    else:
+        logger.warning("App icon is null for login dialog")
+
+    # Verify icon was set on dialog
+    dialog_icon = dialog.windowIcon()
+    logger.info("Dialog windowIcon isNull: {}", dialog_icon.isNull())
+
     dialog.exec()
     login_result = dialog.login_result
 

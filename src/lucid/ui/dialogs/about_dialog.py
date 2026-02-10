@@ -8,7 +8,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -16,10 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lucid.ui.dialogs.base import LucidDialog
 from lucid.utils.logging import logger
 
 
-class AboutDialog(QDialog):
+class AboutDialog(LucidDialog):
     """About dialog showing LUCID branding and version information.
 
     Displays the logo, application name, description, and version.

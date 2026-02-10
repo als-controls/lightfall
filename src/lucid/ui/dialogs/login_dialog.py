@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -23,6 +22,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from lucid.ui.dialogs.base import LucidDialog
 
 from lucid.auth.session import AuthState, SessionManager
 from lucid.utils.logging import logger
@@ -40,7 +41,7 @@ class LoginResult(Enum):
     CANCELLED = auto()  # User cancelled/closed the dialog
 
 
-class LoginDialog(QDialog):
+class LoginDialog(LucidDialog):
     """Modal dialog for user authentication.
 
     Presents options to login via Keycloak (opens browser) or

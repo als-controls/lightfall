@@ -6,10 +6,11 @@ Use the helper functions to load resources in a platform-independent way.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 
 from lucid.utils.logging import logger
 
@@ -77,4 +78,49 @@ def get_logo_pixmap(size: int | None = None) -> QPixmap:
     return pixmap
 
 
-__all__ = ["get_resource_path", "get_logo_pixmap"]
+# Cache for app icon
+_app_icon: QIcon | None = None
+
+
+def get_app_icon() -> QIcon:
+    """Get the LUCID application icon.
+
+    Uses .ico format on Windows for best taskbar compatibility,
+    .png on other platforms.
+
+    Returns:
+        QIcon for use as window/taskbar icon.
+    """
+    global _app_icon
+
+    if _app_icon is not None:
+        return _app_icon
+
+    # Use .ico on Windows for best taskbar compatibility
+    if sys.platform == "win32":
+        icon_path = get_resource_path("images/icon.ico")
+    else:
+        icon_path = get_resource_path("images/icon.png")
+
+    path_str = str(icon_path)
+    logger.debug("Loading app icon from: {}", path_str)
+
+    if not icon_path.exists():
+        logger.warning("App icon not found: {}", path_str)
+        return QIcon()
+
+    # Use addFile for explicit icon loading with all sizes
+    _app_icon = QIcon()
+    _app_icon.addFile(path_str)
+
+    if _app_icon.isNull():
+        logger.warning("Failed to load app icon from: {}", path_str)
+    else:
+        # Log available sizes for debugging
+        sizes = _app_icon.availableSizes()
+        logger.debug("Loaded app icon with {} sizes: {}", len(sizes), sizes)
+
+    return _app_icon
+
+
+__all__ = ["get_resource_path", "get_logo_pixmap", "get_app_icon"]

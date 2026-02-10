@@ -204,6 +204,9 @@ class NCSApplication(QObject):
         configure_logging(level=log_level, log_file=log_file)
         logger.info("Initializing LUCID application")
 
+        # NOTE: Windows AppUserModelID is set in main.py BEFORE any Qt imports.
+        # It must be called before COM/Qt initialization for taskbar icon to work.
+
         # Create Qt application with Sentry exception capture
         self._qt_app = QApplication.instance()  # type: ignore[assignment]
         if self._qt_app is None:
@@ -219,6 +222,18 @@ class NCSApplication(QObject):
         self._qt_app.setApplicationName("LUCID")
         self._qt_app.setOrganizationName("ALS")
         self._qt_app.setOrganizationDomain("lbl.gov")
+        self._qt_app.setDesktopFileName("gov.lbl.als.lucid")
+
+        # Set application icon
+        from lucid.resources import get_app_icon
+
+        app_icon = get_app_icon()
+        if not app_icon.isNull():
+            self._qt_app.setWindowIcon(app_icon)
+            sizes = app_icon.availableSizes()
+            logger.info("App icon set on QApplication ({} sizes: {})", len(sizes), sizes)
+        else:
+            logger.warning("App icon is null, cannot set on QApplication")
 
         # Register core services
         self._register_core_services(config_paths)
