@@ -85,6 +85,7 @@ class LoginDialog(LucidDialog):
         self._session_manager = SessionManager.get_instance()
         self._login_thread: QThreadFuture | None = None
         self._current_provider: AuthProvider | None = None
+        self._login_cancelled = False  # Track if user manually cancelled
 
         self.setWindowTitle(title)
         self.setModal(True)
@@ -202,16 +203,29 @@ class LoginDialog(LucidDialog):
 
         # Progress indicator (hidden by default)
         self._progress_widget = QWidget()
-        progress_layout = QHBoxLayout(self._progress_widget)
+        progress_layout = QVBoxLayout(self._progress_widget)
         progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
+
+        # Progress bar and label row
+        progress_row = QHBoxLayout()
+        progress_row.setContentsMargins(0, 0, 0, 0)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)  # Indeterminate
         self._progress_bar.setTextVisible(False)
-        progress_layout.addWidget(self._progress_bar)
+        progress_row.addWidget(self._progress_bar)
 
         self._progress_label = QLabel("Logging in...")
-        progress_layout.addWidget(self._progress_label)
+        progress_row.addWidget(self._progress_label)
+
+        progress_layout.addLayout(progress_row)
+
+        # Cancel button for aborting login
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setMinimumHeight(32)
+        self._cancel_btn.clicked.connect(self._on_cancel_login)
+        progress_layout.addWidget(self._cancel_btn)
 
         self._progress_widget.setVisible(False)
         layout.addWidget(self._progress_widget)
@@ -365,6 +379,7 @@ class LoginDialog(LucidDialog):
 
     def _on_keycloak_login(self) -> None:
         """Handle Keycloak login button click."""
+        self._login_cancelled = False  # Reset cancel flag
         self._keycloak_btn.setEnabled(False)
         self._local_link.setVisible(False)
         if self._guest_btn:
@@ -384,6 +399,18 @@ class LoginDialog(LucidDialog):
             name="keycloak_login",
         )
         self._login_thread.start()
+
+    def _on_cancel_login(self) -> None:
+        """Handle cancel button click during login."""
+        logger.info("User cancelled login")
+        self._login_cancelled = True
+
+        # Cancel the background thread if running
+        if self._login_thread and self._login_thread.isRunning():
+            self._login_thread.cancel(timeout_ms=1000)
+
+        # Reset UI immediately
+        self._reset_ui()
 
     def _do_keycloak_login(self) -> bool:
         """Perform Keycloak login (runs in background thread)."""
@@ -435,6 +462,7 @@ class LoginDialog(LucidDialog):
             self._show_error("Please enter username and password")
             return
 
+        self._login_cancelled = False  # Reset cancel flag
         self._local_login_btn.setEnabled(False)
         self._username_edit.setEnabled(False)
         self._password_edit.setEnabled(False)
@@ -491,6 +519,10 @@ class LoginDialog(LucidDialog):
         Args:
             success: Whether login succeeded.
         """
+        # Ignore callback if user already cancelled
+        if self._login_cancelled:
+            return
+
         if success:
             self._login_result = LoginResult.AUTHENTICATED
             self.accept()
@@ -507,6 +539,10 @@ class LoginDialog(LucidDialog):
         Args:
             error: The exception that occurred.
         """
+        # Ignore callback if user already cancelled
+        if self._login_cancelled:
+            return
+
         logger.error("Login failed: {}", error)
         self._reset_ui()
         self._show_error(f"Login failed: {error}")
