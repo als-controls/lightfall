@@ -160,40 +160,75 @@ class ProxySettingsProvider:
         return None
 
     @staticmethod
-    def configure_webengine_proxy() -> None:
-        """Configure WebEngine proxy via environment variable.
+    def _is_remote_display() -> bool:
+        """Detect if running on a remote/virtual display (VNC, X11 forwarding).
+
+        Returns:
+            True if a remote display environment is detected.
+        """
+        # Check for VNC-specific environment variables
+        if os.environ.get("VNCDESKTOP"):
+            return True
+        if os.environ.get("VNC_SESSION"):
+            return True
+
+        # Check DISPLAY - remote X11 or high display numbers suggest VNC
+        display = os.environ.get("DISPLAY", "")
+        if display:
+            # Remote X11: hostname:0
+            if ":" in display and not display.startswith(":"):
+                return True
+            # High display numbers often indicate VNC (e.g., :1, :2, etc.)
+            # :0 is typically the local physical display
+            try:
+                display_num = int(display.split(":")[1].split(".")[0])
+                if display_num > 0:
+                    return True
+            except (IndexError, ValueError):
+                pass
+
+        return False
+
+    @staticmethod
+    def configure_webengine() -> None:
+        """Configure WebEngine for proxy and remote display compatibility.
 
         This MUST be called before any QWebEngineView is created, as
         WebEngine reads QTWEBENGINE_CHROMIUM_FLAGS only once at startup.
 
         Typically called from ProxySettingsPlugin.on_loaded() which runs
         during plugin preload, before the main window is created.
+
+        Configures:
+        - Software rendering for remote displays (VNC, X11 forwarding)
+        - Proxy settings if enabled
         """
+        existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+        flags: list[str] = []
+
+        # Remote display / VNC workarounds (env vars already set at module load)
+        if ProxySettingsProvider._is_remote_display():
+            logger.info(
+                "Remote display detected (DISPLAY={}) - software rendering enabled",
+                os.environ.get("DISPLAY", ""),
+            )
+
+        # Proxy configuration
         proxy_url = ProxySettingsProvider.get_proxy_url()
-
         if proxy_url:
-            # Parse proxy URL to extract components
-            parsed = urlparse(proxy_url)
-            proxy_type = parsed.scheme or "socks5"
-            host = parsed.hostname or DEFAULT_PROXY_HOST
-            port = parsed.port or DEFAULT_PROXY_PORT
+            flags.append(f"--proxy-server={proxy_url}")
+            logger.debug("Configured WebEngine proxy: {}", proxy_url)
 
-            # Build Chromium proxy flag
-            # For SOCKS5: --proxy-server=socks5://host:port
-            # For HTTP: --proxy-server=http://host:port
-            proxy_arg = f"--proxy-server={proxy_type}://{host}:{port}"
+        # Merge with existing flags
+        for flag in flags:
+            if flag not in existing:
+                existing = f"{existing} {flag}".strip()
 
-            # Get existing flags and append
-            existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
-            if proxy_arg not in existing:
-                if existing:
-                    new_flags = f"{existing} {proxy_arg}"
-                else:
-                    new_flags = proxy_arg
-                os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = new_flags
-                logger.debug("Configured WebEngine proxy: {}", proxy_arg)
-        else:
-            logger.debug("WebEngine proxy not configured (proxy disabled)")
+        if existing:
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = existing
+
+    # Keep old name as alias for backwards compatibility
+    configure_webengine_proxy = configure_webengine
 
 
 class ProxySettingsPlugin(SettingsPlugin):
@@ -250,11 +285,11 @@ class ProxySettingsPlugin(SettingsPlugin):
     def on_loaded(self) -> None:
         """Called when plugin is loaded.
 
-        Configure WebEngine proxy early, before any WebEngine views are created.
+        Configure WebEngine early, before any WebEngine views are created.
         This is critical because QTWEBENGINE_CHROMIUM_FLAGS is only read once.
         """
-        ProxySettingsProvider.configure_webengine_proxy()
-        logger.debug("ProxySettingsPlugin loaded, WebEngine proxy configured")
+        ProxySettingsProvider.configure_webengine()
+        logger.debug("ProxySettingsPlugin loaded, WebEngine configured")
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the settings widget.

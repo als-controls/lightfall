@@ -349,6 +349,35 @@ class KeycloakAuthProvider(AuthProvider):
             self._http = aiohttp.ClientSession(connector=connector)
         return self._http
 
+    @staticmethod
+    def _is_remote_display() -> bool:
+        """Detect if running on a remote/virtual display (VNC, X11 forwarding).
+
+        Returns:
+            True if a remote display environment is detected.
+        """
+        import os
+
+        # Check for VNC-specific environment variables
+        if os.environ.get("VNCDESKTOP") or os.environ.get("VNC_SESSION"):
+            return True
+
+        # Check DISPLAY for remote X11 or high display numbers (VNC)
+        display = os.environ.get("DISPLAY", "")
+        if display:
+            # Remote X11: hostname:0
+            if ":" in display and not display.startswith(":"):
+                return True
+            # High display numbers often indicate VNC (:1, :2, etc.)
+            try:
+                display_num = int(display.split(":")[1].split(".")[0])
+                if display_num > 0:
+                    return True
+            except (IndexError, ValueError):
+                pass
+
+        return False
+
     async def authenticate(
         self,
         username: str | None = None,
@@ -366,7 +395,7 @@ class KeycloakAuthProvider(AuthProvider):
 
         By default, tries to use an embedded QWebEngineView browser which
         can auto-close after authentication. Falls back to external browser
-        if WebEngine is not available.
+        if WebEngine is not available or when running over VNC/remote display.
 
         Args:
             username: Ignored (browser auth).
@@ -378,6 +407,12 @@ class KeycloakAuthProvider(AuthProvider):
         Returns:
             Session if authentication succeeds, None otherwise.
         """
+        # Skip embedded browser for remote displays (VNC, X11 forwarding)
+        # WebEngine crashes/freezes over VNC even with software rendering
+        if use_embedded_browser and self._is_remote_display():
+            logger.info("Remote display detected - using external browser for authentication")
+            use_embedded_browser = False
+
         # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
 
