@@ -16,7 +16,6 @@ from urllib.parse import parse_qs, urlparse
 
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtWidgets import (
-    QDialog,
     QLabel,
     QProgressBar,
     QPushButton,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lucid.ui.dialogs.base import LucidDialog
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ def _is_webengine_available() -> bool:
 WEBENGINE_AVAILABLE = _is_webengine_available()
 
 
-class OAuthBrowserDialog(QDialog):
+class OAuthBrowserDialog(LucidDialog):
     """Dialog with embedded browser for OAuth authentication.
 
     This dialog embeds a QWebEngineView to handle OAuth flows within

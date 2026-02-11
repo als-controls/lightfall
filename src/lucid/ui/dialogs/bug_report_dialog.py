@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QDialog,
     QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lucid.ui.dialogs.base import LucidDialog
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
@@ -58,7 +58,7 @@ class BugPriority(Enum):
         return mapping[self]
 
 
-class BugReportDialog(QDialog):
+class BugReportDialog(LucidDialog):
     """Dialog for submitting bug reports to Sentry/GlitchTip.
 
     Features:

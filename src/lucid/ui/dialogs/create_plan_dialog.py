@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
@@ -23,11 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lucid.ui.dialogs.base import LucidDialog
+
 if TYPE_CHECKING:
     pass
 
 
-class CreatePlanDialog(QDialog):
+class CreatePlanDialog(LucidDialog):
     """Dialog for creating a new user plan.
 
     Prompts for:
