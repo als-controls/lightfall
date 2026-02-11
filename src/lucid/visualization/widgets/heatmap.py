@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from lucid.plugins.visualization_plugin import VisualizationPlugin
 from lucid.visualization.base import BaseVisualizationWidget
+from lucid.visualization.motor_mixin import VisualizationMotorMixin
 from lucid.visualization.spec import (
     DataCharacteristics,
     FieldType,
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
     from lucid.acquire.buffer import MultiStreamBuffer
 
 
-class HeatmapVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
+class HeatmapVisualization(
+    VisualizationMotorMixin, ThemedVisualizationMixin, BaseVisualizationWidget
+):
     """Heatmap visualization for 2D grid data.
 
     Displays scalar data on a 2D rectilinear grid as a color map.
@@ -46,6 +49,7 @@ class HeatmapVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
     - Multiple colormap options
     - Crosshair showing position and value
     - Auto or manual color scaling
+    - Right-click context menu for motor movement (Go to X, Y, or X,Y)
     """
 
     def __init__(
@@ -126,6 +130,9 @@ class HeatmapVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
 
         # Connect mouse movement
         self._plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
+
+        # Setup motor movement context menu (from VisualizationMotorMixin)
+        self._setup_motor_context_menu()
 
         main_layout.addWidget(self._plot_widget)
 

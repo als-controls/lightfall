@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from lucid.plugins.visualization_plugin import VisualizationPlugin
 from lucid.visualization.base import BaseVisualizationWidget
 from lucid.visualization.memory import StreamingDecimator
+from lucid.visualization.motor_mixin import VisualizationMotorMixin
 from lucid.visualization.spec import (
     DataCharacteristics,
     FieldType,
@@ -38,7 +39,9 @@ if TYPE_CHECKING:
     from lucid.acquire.buffer import MultiStreamBuffer
 
 
-class PlotVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
+class PlotVisualization(
+    VisualizationMotorMixin, ThemedVisualizationMixin, BaseVisualizationWidget
+):
     """1D Plot visualization widget.
 
     Displays one or more traces on a line plot with:
@@ -46,6 +49,7 @@ class PlotVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
     - Optional curve fitting overlay
     - Configurable axes
     - Theme-aware styling
+    - Right-click context menu for motor movement (Go to X)
 
     Signals:
         fit_requested: Emitted when user requests a fit.
@@ -127,6 +131,9 @@ class PlotVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
         self._decimator = StreamingDecimator(max_display_points=threshold)
 
         main_layout.addWidget(self._plot_widget)
+
+        # Setup motor movement context menu (from VisualizationMotorMixin)
+        self._setup_motor_context_menu()
 
         # Replace the default layout
         # Clear existing layout items
