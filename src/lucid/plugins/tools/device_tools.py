@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from lucid.plugins.mcp_tool import MCPToolPlugin
+from lucid.plugins.tools._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
@@ -130,7 +131,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                     # Provide helpful diagnostics about why catalog isn't connected
                     backend = catalog.backend
                     backend_info = backend.name if backend else "no backend configured"
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "hint": (
@@ -142,7 +143,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                         ),
                         "devices": [],
                         "count": 0,
-                    }
+                    })
 
                 # If query is provided, use search
                 if query:
@@ -154,11 +155,11 @@ class DeviceToolPlugin(MCPToolPlugin):
                         try:
                             category = DeviceCategory(category_str)
                         except ValueError:
-                            return {
+                            return mcp_result({
                                 "success": False,
                                 "error": f"Invalid category: {category_str}",
                                 "devices": [],
-                            }
+                            })
 
                     devices = catalog.list_devices(
                         category=category,
@@ -184,11 +185,11 @@ class DeviceToolPlugin(MCPToolPlugin):
                         }
                     )
 
-                return {
+                return mcp_result({
                     "success": True,
                     "count": len(device_list),
                     "devices": device_list,
-                }
+                })
 
             return run_on_main_thread(_list)
 
@@ -216,19 +217,19 @@ class DeviceToolPlugin(MCPToolPlugin):
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 state = device.state
                 ophyd_dev = device.ophyd_device
@@ -247,7 +248,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                     if hasattr(ophyd_dev, "position"):
                         capabilities.append("position")
 
-                return {
+                return mcp_result({
                     "success": True,
                     "device": {
                         "id": str(device.id),
@@ -272,7 +273,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                         },
                         "metadata": device.metadata,
                     },
-                }
+                })
 
             return run_on_main_thread(_get)
 
@@ -306,27 +307,27 @@ class DeviceToolPlugin(MCPToolPlugin):
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 ophyd_dev = device.ophyd_device
                 if ophyd_dev is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' has no hardware connection",
                         "device": device_name,
-                    }
+                    })
 
                 # Refresh state if requested
                 if refresh:
@@ -381,7 +382,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                     result["status"] = state.status.value
                     result["connected"] = state.connected
 
-                return result
+                return mcp_result(result)
 
             return run_on_main_thread(_read)
 
@@ -415,19 +416,19 @@ class DeviceToolPlugin(MCPToolPlugin):
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 # Refresh state if requested
                 if refresh and device.ophyd_device is not None:
@@ -435,7 +436,7 @@ class DeviceToolPlugin(MCPToolPlugin):
 
                 state = device.state
                 if state is None:
-                    return {
+                    return mcp_result({
                         "success": True,
                         "device": device_name,
                         "state": {
@@ -447,9 +448,9 @@ class DeviceToolPlugin(MCPToolPlugin):
                             "alarm_severity": None,
                             "timestamp": None,
                         },
-                    }
+                    })
 
-                return {
+                return mcp_result({
                     "success": True,
                     "device": device_name,
                     "state": {
@@ -462,7 +463,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                         "timestamp": state.timestamp.isoformat() if state.timestamp else None,
                         "additional": state.additional,
                     },
-                }
+                })
 
             return run_on_main_thread(_get_state)
 
@@ -500,43 +501,43 @@ class DeviceToolPlugin(MCPToolPlugin):
                 # Check permission
                 has_perm, error = self._check_device_control_permission()
                 if not has_perm:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": error,
                         "device": device_name,
-                    }
+                    })
 
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 ophyd_dev = device.ophyd_device
                 if ophyd_dev is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' has no hardware connection",
                         "device": device_name,
-                    }
+                    })
 
                 if not hasattr(ophyd_dev, "set"):
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' does not support set operation",
                         "device": device_name,
-                    }
+                    })
 
                 # Get old value if possible
                 old_value = None
@@ -561,21 +562,21 @@ class DeviceToolPlugin(MCPToolPlugin):
 
                     logger.info("Device {} set to {} (was {})", device_name, value, old_value)
 
-                    return {
+                    return mcp_result({
                         "success": True,
                         "device": device_name,
                         "old_value": old_value,
                         "new_value": new_value,
                         "requested_value": value,
-                    }
+                    })
 
                 except Exception as e:
                     logger.error("Failed to set device {}: {}", device_name, e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Set operation failed: {e}",
                         "device": device_name,
-                    }
+                    })
 
             return run_on_main_thread(_set)
 
@@ -614,36 +615,36 @@ class DeviceToolPlugin(MCPToolPlugin):
                 # Check permission
                 has_perm, error = self._check_device_control_permission()
                 if not has_perm:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": error,
                         "device": device_name,
-                    }
+                    })
 
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 ophyd_dev = device.ophyd_device
                 if ophyd_dev is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' has no hardware connection",
                         "device": device_name,
-                    }
+                    })
 
                 # Check if device supports move
                 if not hasattr(ophyd_dev, "move"):
@@ -684,21 +685,21 @@ class DeviceToolPlugin(MCPToolPlugin):
                                 except Exception:
                                     pass
 
-                            return result
+                            return mcp_result(result)
 
                         except Exception as e:
                             logger.error("Failed to move motor {}: {}", device_name, e)
-                            return {
+                            return mcp_result({
                                 "success": False,
                                 "error": f"Move operation failed: {e}",
                                 "device": device_name,
-                            }
+                            })
                     else:
-                        return {
+                        return mcp_result({
                             "success": False,
                             "error": f"Device '{device_name}' does not support move operation",
                             "device": device_name,
-                        }
+                        })
 
                 # Get old position
                 old_position = None
@@ -743,15 +744,15 @@ class DeviceToolPlugin(MCPToolPlugin):
                         except Exception:
                             pass
 
-                    return result
+                    return mcp_result(result)
 
                 except Exception as e:
                     logger.error("Failed to move motor {}: {}", device_name, e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Move operation failed: {e}",
                         "device": device_name,
-                    }
+                    })
 
             return run_on_main_thread(_move)
 
@@ -779,60 +780,60 @@ class DeviceToolPlugin(MCPToolPlugin):
                 # Check permission
                 has_perm, error = self._check_device_control_permission()
                 if not has_perm:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": error,
                         "device": device_name,
-                    }
+                    })
 
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "Device catalog not connected",
                         "device": device_name,
-                    }
+                    })
 
                 device = catalog.get_device_by_name(device_name)
                 if device is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' not found",
                         "device": device_name,
-                    }
+                    })
 
                 ophyd_dev = device.ophyd_device
                 if ophyd_dev is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' has no hardware connection",
                         "device": device_name,
-                    }
+                    })
 
                 if not hasattr(ophyd_dev, "stop"):
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Device '{device_name}' does not support stop operation",
                         "device": device_name,
-                    }
+                    })
 
                 try:
                     ophyd_dev.stop()
                     logger.info("Device {} stopped", device_name)
-                    return {
+                    return mcp_result({
                         "success": True,
                         "device": device_name,
                         "message": f"Device '{device_name}' stopped",
-                    }
+                    })
 
                 except Exception as e:
                     logger.error("Failed to stop device {}: {}", device_name, e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Stop operation failed: {e}",
                         "device": device_name,
-                    }
+                    })
 
             return run_on_main_thread(_stop)
 
@@ -878,7 +879,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                     info["devices_by_category"] = {}
                     info["total_devices"] = 0
                     info["example_devices"] = []
-                    return info
+                    return mcp_result(info)
 
                 # Get device counts by category
                 devices = catalog.get_all_devices()
@@ -925,7 +926,7 @@ class DeviceToolPlugin(MCPToolPlugin):
                     "available_categories": [cat.value for cat in DeviceCategory],
                 }
 
-                return info
+                return mcp_result(info)
 
             return run_on_main_thread(_get_info)
 

@@ -14,6 +14,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
 from lucid.plugins.mcp_tool import MCPToolPlugin
+from lucid.plugins.tools._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
@@ -142,17 +143,17 @@ class IPythonToolPlugin(MCPToolPlugin):
             def _execute():
                 # Ensure panel is open
                 if not self._ensure_panel_open():
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython console not available. Install with: pip install qtconsole ipykernel",
-                    }
+                    })
 
                 panel = self._get_ipython_panel()
                 if panel is None or panel._kernel_manager is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython kernel not initialized",
-                    }
+                    })
 
                 kernel = panel._kernel_manager.kernel
                 shell = kernel.shell
@@ -194,15 +195,15 @@ class IPythonToolPlugin(MCPToolPlugin):
                         response["error"] = str(result.error_in_exec)
                         response["error_type"] = type(result.error_in_exec).__name__
 
-                    return response
+                    return mcp_result(response)
 
                 except Exception as e:
                     logger.error("Error executing code in IPython: {}", e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": str(e),
                         "error_type": type(e).__name__,
-                    }
+                    })
 
             return run_on_main_thread(_execute)
 
@@ -241,24 +242,24 @@ class IPythonToolPlugin(MCPToolPlugin):
             def _push():
                 # Validate variable name
                 if not name.isidentifier():
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"'{name}' is not a valid Python identifier",
-                    }
+                    })
 
                 # Ensure panel is open
                 if not self._ensure_panel_open():
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython console not available",
-                    }
+                    })
 
                 panel = self._get_ipython_panel()
                 if panel is None or panel._kernel_manager is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython kernel not initialized",
-                    }
+                    })
 
                 kernel = panel._kernel_manager.kernel
                 shell = kernel.shell
@@ -271,18 +272,18 @@ class IPythonToolPlugin(MCPToolPlugin):
                     # Push to namespace
                     shell.push({name: value})
 
-                    return {
+                    return mcp_result({
                         "success": True,
                         "variable": name,
                         "value_repr": repr(value)[:200],  # Truncate long reprs
-                    }
+                    })
                 except Exception as e:
                     logger.error("Error pushing variable to IPython: {}", e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": str(e),
                         "error_type": type(e).__name__,
-                    }
+                    })
 
             return run_on_main_thread(_push)
 
@@ -321,10 +322,10 @@ class IPythonToolPlugin(MCPToolPlugin):
             def _get_ns():
                 panel = self._get_ipython_panel()
                 if panel is None or panel._kernel_manager is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython console not available or not initialized",
-                    }
+                    })
 
                 kernel = panel._kernel_manager.kernel
                 shell = kernel.shell
@@ -357,11 +358,11 @@ class IPythonToolPlugin(MCPToolPlugin):
                         "repr": value_repr,
                     }
 
-                return {
+                return mcp_result({
                     "success": True,
                     "variables": variables,
                     "count": len(variables),
-                }
+                })
 
             return run_on_main_thread(_get_ns)
 
@@ -380,13 +381,13 @@ class IPythonToolPlugin(MCPToolPlugin):
             def _clear():
                 panel = self._get_ipython_panel()
                 if panel is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython console not available",
-                    }
+                    })
 
                 panel.action_clear()
-                return {"success": True}
+                return mcp_result({"success": True})
 
             return run_on_main_thread(_clear)
 
@@ -408,16 +409,16 @@ class IPythonToolPlugin(MCPToolPlugin):
             def _reset():
                 panel = self._get_ipython_panel()
                 if panel is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": "IPython console not available",
-                    }
+                    })
 
                 panel.action_reset_kernel()
-                return {
+                return mcp_result({
                     "success": True,
                     "message": "Kernel reset. Initial namespace restored.",
-                }
+                })
 
             return run_on_main_thread(_reset)
 
