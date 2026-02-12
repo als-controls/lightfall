@@ -1,7 +1,8 @@
 """Image sequence visualization for 2D array data.
 
 Provides a viewer for sequences of images (camera data) with
-navigation and contrast controls.
+pyqtgraph's built-in timeline navigation, ROI selection, and
+1D statistics plotting.
 """
 
 from __future__ import annotations
@@ -10,14 +11,13 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pyqtgraph as pg
 from loguru import logger
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -30,10 +30,9 @@ from lucid.visualization.spec import (
     VisualizationSpec,
 )
 from lucid.visualization.theme import ThemedVisualizationMixin, VisualizationColors
+from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 if TYPE_CHECKING:
-    import pyqtgraph as pg
-
     from lucid.acquire.buffer import MultiStreamBuffer
 
 
@@ -41,11 +40,11 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
     """Image stack visualization for camera/detector data.
 
     Displays a sequence of 2D images with:
-    - Frame navigation slider
-    - Contrast/brightness controls
-    - Region of interest selection
-    - Live histogram
-    - Crosshair with pixel value display
+    - Built-in timeline navigation (pyqtgraph's roiPlot)
+    - Human-readable time axis labels
+    - Optional ROI selection for statistics
+    - 1D plot showing ROI statistics over time
+    - Contrast/brightness controls via histogram
     """
 
     def __init__(
@@ -57,15 +56,22 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         """Initialize the image stack visualization."""
         self._image_view: pg.ImageView | None = None
         self._images: list[np.ndarray] = []
+        self._time_values: list[float] = []
+        self._start_time: float | None = None
         self._current_frame = 0
+
+        # ROI-related state
+        self._roi: pg.RectROI | None = None
+        self._roi_curves: list[pg.PlotDataItem] = []
 
         super().__init__(spec, buffer, parent)
         self._setup_theme()
 
+        # Load any existing data from buffer
+        self._load_historical_data()
+
     def _setup_ui(self) -> None:
         """Setup the image viewer UI."""
-        import pyqtgraph as pg
-
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
@@ -74,20 +80,39 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         toolbar = self._create_toolbar()
         main_layout.addLayout(toolbar)
 
-        # Create image view
+        # Create image view with timeline enabled
         self._image_view = pg.ImageView()
-        self._image_view.ui.roiBtn.hide()  # Hide ROI button
-        self._image_view.ui.menuBtn.hide()  # Hide menu button
+
+        # Show the ROI plot (contains the timeline)
+        self._image_view.ui.roiPlot.show()
+
+        # Ensure the timeline has adequate height (not collapsed)
+        self._image_view.ui.roiPlot.setMinimumHeight(80)
+
+        # Set initial splitter sizes to give timeline ~20% of vertical space
+        # The splitter contains [graphicsView, roiPlot]
+        self._image_view.ui.splitter.setSizes([400, 100])
+
+        # Replace bottom axis with human-readable time axis
+        self._time_axis = HumanReadableTimeAxis(orientation="bottom")
+        self._image_view.ui.roiPlot.setAxisItems({"bottom": self._time_axis})
+
+        # Connect timeline changes
+        self._image_view.sigTimeChanged.connect(self._on_time_changed)
+
+        # Style the timeline bar: 3px normally, 5px on hover
+        timeline = self._image_view.timeLine
+        timeline.setPen(pg.mkPen("y", width=3))
+        timeline.setHoverPen(pg.mkPen("y", width=5))
+
+        # Hide built-in ROI and menu buttons (we have our own ROI control)
+        self._image_view.ui.roiBtn.hide()
+        self._image_view.ui.menuBtn.hide()
+
+        # Apply initial colormap
+        self._apply_colormap(self._spec.colormap)
 
         main_layout.addWidget(self._image_view)
-
-        # Navigation controls
-        nav_layout = self._create_navigation()
-        main_layout.addLayout(nav_layout)
-
-        # Status bar
-        self._status_label = QLabel("Frame: 0 / 0")
-        main_layout.addWidget(self._status_label)
 
         # Add to parent layout
         container = QWidget()
@@ -120,44 +145,27 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
         toolbar.addStretch()
 
+        # ROI toggle button
+        self._roi_btn = QPushButton("ROI")
+        self._roi_btn.setCheckable(True)
+        self._roi_btn.setToolTip("Enable region of interest for statistics")
+        self._roi_btn.toggled.connect(self._on_roi_toggled)
+        toolbar.addWidget(self._roi_btn)
+
+        # ROI statistic selector (only visible when ROI enabled)
+        self._roi_stat_combo = QComboBox()
+        self._roi_stat_combo.addItems(["Mean", "Sum", "Max", "Min", "Std"])
+        self._roi_stat_combo.setToolTip("Statistic to calculate over ROI")
+        self._roi_stat_combo.currentTextChanged.connect(self._on_roi_stat_changed)
+        self._roi_stat_combo.hide()
+        toolbar.addWidget(self._roi_stat_combo)
+
         # Auto-levels button
         auto_btn = QPushButton("Auto Levels")
         auto_btn.clicked.connect(self._on_auto_levels)
         toolbar.addWidget(auto_btn)
 
         return toolbar
-
-    def _create_navigation(self) -> QHBoxLayout:
-        """Create frame navigation controls."""
-        nav_layout = QHBoxLayout()
-        nav_layout.setSpacing(8)
-
-        # Previous button
-        prev_btn = QPushButton("<")
-        prev_btn.setMaximumWidth(40)
-        prev_btn.clicked.connect(self._on_prev_frame)
-        nav_layout.addWidget(prev_btn)
-
-        # Frame slider
-        self._frame_slider = QSlider(Qt.Orientation.Horizontal)
-        self._frame_slider.setMinimum(0)
-        self._frame_slider.setMaximum(0)
-        self._frame_slider.valueChanged.connect(self._on_slider_changed)
-        nav_layout.addWidget(self._frame_slider)
-
-        # Next button
-        next_btn = QPushButton(">")
-        next_btn.setMaximumWidth(40)
-        next_btn.clicked.connect(self._on_next_frame)
-        nav_layout.addWidget(next_btn)
-
-        # Play button
-        self._play_btn = QPushButton("Play")
-        self._play_btn.setCheckable(True)
-        self._play_btn.clicked.connect(self._on_play_toggle)
-        nav_layout.addWidget(self._play_btn)
-
-        return nav_layout
 
     def _on_image_field_changed(self, field: str) -> None:
         """Handle image field change."""
@@ -172,8 +180,6 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
     def _apply_colormap(self, cmap_name: str) -> None:
         """Apply colormap to image view."""
         try:
-            import pyqtgraph as pg
-
             cmap = pg.colormap.get(cmap_name)
             if cmap and self._image_view:
                 self._image_view.setColorMap(cmap)
@@ -185,51 +191,146 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         if self._image_view:
             self._image_view.autoLevels()
 
-    def _on_prev_frame(self) -> None:
-        """Go to previous frame."""
-        if self._current_frame > 0:
-            self._current_frame -= 1
-            self._show_frame(self._current_frame)
-            self._frame_slider.setValue(self._current_frame)
-
-    def _on_next_frame(self) -> None:
-        """Go to next frame."""
-        if self._current_frame < len(self._images) - 1:
-            self._current_frame += 1
-            self._show_frame(self._current_frame)
-            self._frame_slider.setValue(self._current_frame)
-
-    def _on_slider_changed(self, value: int) -> None:
-        """Handle slider movement."""
-        if value != self._current_frame and 0 <= value < len(self._images):
-            self._current_frame = value
-            self._show_frame(value)
-
-    def _on_play_toggle(self, playing: bool) -> None:
-        """Handle play/pause toggle."""
-        if playing:
-            self._play_btn.setText("Pause")
-            # Would start a timer for playback
-        else:
-            self._play_btn.setText("Play")
-            # Would stop playback timer
-
-    def _show_frame(self, index: int) -> None:
-        """Display a specific frame.
+    def _on_time_changed(self, ind: int, time: float) -> None:
+        """Handle timeline position change.
 
         Args:
-            index: Frame index to display.
+            ind: Frame index.
+            time: Time value at the frame.
         """
-        if 0 <= index < len(self._images) and self._image_view:
-            img = self._images[index]
-            self._image_view.setImage(img, autoLevels=False)
-            self._update_status()
+        self._current_frame = ind
+        self._update_status()
+
+    def _on_roi_toggled(self, enabled: bool) -> None:
+        """Toggle ROI visibility and 1D plot.
+
+        Args:
+            enabled: Whether ROI should be shown.
+        """
+        self._roi_stat_combo.setVisible(enabled)
+
+        if enabled:
+            self._create_roi()
+            if self._roi:
+                self._roi.show()
+            self._update_roi_plot()
+        else:
+            if self._roi:
+                self._roi.hide()
+            self._clear_roi_curves()
+
+    def _on_roi_stat_changed(self, stat: str) -> None:
+        """Handle ROI statistic type change.
+
+        Args:
+            stat: Selected statistic name.
+        """
+        if self._roi_btn.isChecked():
+            self._update_roi_plot()
+
+    def _create_roi(self) -> None:
+        """Create ROI if it doesn't exist."""
+        if self._roi is not None or not self._images:
+            return
+
+        # Get image dimensions
+        height, width = self._images[0].shape
+
+        # Create ROI at center of image, 50% size
+        roi_width = width // 2
+        roi_height = height // 2
+        roi_x = width // 4
+        roi_y = height // 4
+
+        self._roi = pg.RectROI(
+            [roi_x, roi_y],
+            [roi_width, roi_height],
+            pen=pg.mkPen("r", width=2),
+        )
+        self._roi.addScaleHandle([1, 1], [0, 0])
+        self._roi.addScaleHandle([0, 0], [1, 1])
+        self._roi.addScaleHandle([1, 0], [0, 1])
+        self._roi.addScaleHandle([0, 1], [1, 0])
+
+        self._image_view.addItem(self._roi)
+        self._roi.sigRegionChanged.connect(self._update_roi_plot)
+
+    def _clear_roi_curves(self) -> None:
+        """Remove ROI statistic curves from the timeline plot."""
+        for curve in self._roi_curves:
+            self._image_view.ui.roiPlot.removeItem(curve)
+        self._roi_curves.clear()
+
+    def _update_roi_plot(self) -> None:
+        """Calculate and plot ROI statistics over all frames.
+
+        Uses efficient numpy slicing instead of per-frame getArrayRegion calls.
+        """
+        if not self._roi or not self._images or not self._image_view:
+            return
+
+        # Get ROI bounds in pixel coordinates (much faster than getArrayRegion per frame)
+        pos = self._roi.pos()
+        size = self._roi.size()
+
+        # Convert to integer pixel indices, clamped to image bounds
+        img_h, img_w = self._images[0].shape
+        x0 = max(0, int(pos.x()))
+        y0 = max(0, int(pos.y()))
+        x1 = min(img_w, int(pos.x() + size.x()))
+        y1 = min(img_h, int(pos.y() + size.y()))
+
+        # Check for valid ROI region
+        if x1 <= x0 or y1 <= y0:
+            self._clear_roi_curves()
+            return
+
+        # Stack all images and extract ROI region in one operation
+        # Shape: (n_frames, height, width) -> (n_frames, roi_h, roi_w)
+        stack = np.array(self._images)
+        roi_data = stack[:, y0:y1, x0:x1]
+
+        # Get selected statistic and compute over spatial axes (1, 2)
+        stat_name = self._roi_stat_combo.currentText()
+        if stat_name == "Mean":
+            roi_values = np.mean(roi_data, axis=(1, 2))
+        elif stat_name == "Sum":
+            roi_values = np.sum(roi_data, axis=(1, 2))
+        elif stat_name == "Max":
+            roi_values = np.max(roi_data, axis=(1, 2))
+        elif stat_name == "Min":
+            roi_values = np.min(roi_data, axis=(1, 2))
+        elif stat_name == "Std":
+            roi_values = np.std(roi_data, axis=(1, 2))
+        else:
+            roi_values = np.mean(roi_data, axis=(1, 2))
+
+        # Clear existing curves and plot new
+        self._clear_roi_curves()
+
+        if len(roi_values) > 0 and self._time_values:
+            n_points = min(len(roi_values), len(self._time_values))
+            curve = self._image_view.ui.roiPlot.plot(
+                x=np.array(self._time_values[:n_points]),
+                y=roi_values[:n_points],
+                pen=pg.mkPen("c", width=2),
+                name=f"ROI {stat_name}",
+            )
+            self._roi_curves.append(curve)
 
     def _update_status(self) -> None:
-        """Update status label."""
+        """Update the time axis label with current frame info."""
         total = len(self._images)
         current = self._current_frame + 1 if total > 0 else 0
-        self._status_label.setText(f"Frame: {current} / {total}")
+
+        # Show frame and time info in the axis label
+        if self._time_values and 0 <= self._current_frame < len(self._time_values):
+            time_val = self._time_values[self._current_frame]
+            label = f"Frame {current}/{total} | Time: {time_val:.3f}s"
+        else:
+            label = f"Frame {current}/{total}"
+
+        self._time_axis.setLabel(label)
 
     def _on_new_point(self, seq_num: int, data: dict[str, Any]) -> None:
         """Handle new data point."""
@@ -260,13 +361,61 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         img = np.array(value, dtype=np.float64)
         self._images.append(img)
 
-        # Update slider range
-        self._frame_slider.setMaximum(len(self._images) - 1)
+        # Get timestamp from buffer
+        timestamp = self._get_event_timestamp()
 
-        # Show latest frame (live mode)
+        # Make time relative to first frame (start at 0)
+        if self._start_time is None:
+            self._start_time = timestamp
+        relative_time = timestamp - self._start_time
+        self._time_values.append(relative_time)
+
+        # Update image stack
+        self._update_image_stack()
+
+    def _get_event_timestamp(self) -> float:
+        """Get the timestamp of the latest event from buffer.
+
+        Returns:
+            Timestamp in seconds, or 0 if not available.
+        """
+        stream_buffer = self.stream_buffer
+        if stream_buffer:
+            timestamps = stream_buffer.get_timestamps()
+            if timestamps:
+                return timestamps[-1]
+        return 0.0
+
+    def _update_image_stack(self) -> None:
+        """Update ImageView with current image stack and time values."""
+        if not self._images or not self._image_view:
+            return
+
+        stack = np.array(self._images)
+
+        # Use time values if we have them
+        if self._time_values:
+            self._image_view.setImage(
+                stack,
+                xvals=np.array(self._time_values),
+                axes={"t": 0, "y": 1, "x": 2},
+                autoLevels=len(self._images) == 1,  # Only auto on first frame
+            )
+        else:
+            self._image_view.setImage(
+                stack,
+                axes={"t": 0, "y": 1, "x": 2},
+                autoLevels=len(self._images) == 1,
+            )
+
+        # Jump to latest frame
+        self._image_view.setCurrentIndex(len(self._images) - 1)
         self._current_frame = len(self._images) - 1
-        self._frame_slider.setValue(self._current_frame)
-        self._show_frame(self._current_frame)
+        self._update_status()
+
+        # Update ROI plot if enabled
+        if self._roi_btn.isChecked():
+            self._update_roi_plot()
 
     def _update_field_selectors(self, data: dict[str, Any]) -> None:
         """Update field combo boxes."""
@@ -283,20 +432,102 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
             self._img_combo.setCurrentText(self._spec.image_field)
         self._img_combo.blockSignals(False)
 
+    def _load_historical_data(self) -> None:
+        """Load any existing data from the buffer.
+
+        This is called on initialization to support switching visualizations
+        after data has already been collected.
+        """
+        stream_buffer = self.stream_buffer
+        if not stream_buffer:
+            return
+
+        image_field = self._spec.image_field
+
+        # Try to find image field if not specified
+        if not image_field:
+            for field_name in stream_buffer.field_names:
+                info = stream_buffer.get_field_info(field_name)
+                shape = info.get("shape", [])
+                if len(shape) == 2:
+                    image_field = field_name
+                    self._spec.image_field = image_field
+                    break
+
+        if not image_field:
+            return
+
+        # Load historical images
+        historical_data = stream_buffer.get_data(image_field)
+        if not historical_data:
+            return
+
+        # Load historical timestamps
+        historical_timestamps = stream_buffer.get_timestamps()
+
+        logger.debug(
+            "Loading {} historical images from buffer field '{}'",
+            len(historical_data),
+            image_field,
+        )
+
+        for i, value in enumerate(historical_data):
+            if hasattr(value, "shape") and len(value.shape) == 2:
+                img = np.array(value, dtype=np.float64)
+                self._images.append(img)
+
+                # Get corresponding timestamp
+                if i < len(historical_timestamps):
+                    ts = historical_timestamps[i]
+                    if self._start_time is None:
+                        self._start_time = ts
+                    self._time_values.append(ts - self._start_time)
+                else:
+                    # Fallback: use index as time
+                    self._time_values.append(float(i))
+
+                # Update field selectors on first image
+                if i == 0:
+                    self._update_field_selectors({image_field: value})
+
+        if self._images:
+            # Update image stack
+            self._update_image_stack()
+
     def _on_clear(self) -> None:
         """Handle clear request."""
         self._images.clear()
+        self._time_values.clear()
+        self._start_time = None
         self._current_frame = 0
-        self._frame_slider.setMaximum(0)
-        self._frame_slider.setValue(0)
+
+        if self._roi:
+            self._roi.hide()
+            self._roi = None
+
+        self._clear_roi_curves()
+
         if self._image_view:
             self._image_view.clear()
+
         self._update_status()
 
     def _apply_viz_colors(self, colors: VisualizationColors) -> None:
         """Apply theme colors."""
         if self._image_view:
-            self._image_view.setBackground(colors.background)
+            # ImageView doesn't have setBackground - use the view's background
+            view = self._image_view.getView()
+            if view:
+                view.setBackgroundColor(colors.background)
+
+            # Also set the histogram widget background
+            hist_widget = self._image_view.getHistogramWidget()
+            if hist_widget:
+                hist_widget.setBackground(colors.background)
+
+            # Set timeline plot background
+            if self._image_view.ui.roiPlot:
+                self._image_view.ui.roiPlot.setBackground(colors.background)
 
     def _export_data(self, format: str) -> bytes:
         """Export image data."""
@@ -308,6 +539,7 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
                 "image_field": self._spec.image_field,
                 "frame_count": len(self._images),
                 "shape": self._images[0].shape if self._images else None,
+                "time_values": self._time_values,
             }
             return json.dumps(data, indent=2).encode("utf-8")
 

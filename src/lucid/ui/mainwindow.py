@@ -286,6 +286,10 @@ class NCSMainWindow(QMainWindow):
         # Preferences signals
         self._prefs_manager.preference_changed.connect(self._on_preference_changed)
 
+        # Panel registry signals (for View > Panels menu updates)
+        self._panel_registry.panel_registered.connect(self._on_panel_registered)
+        self._panel_registry.panel_unregistered.connect(self._on_panel_unregistered)
+
     def set_config_manager(self, config_manager: ConfigManager) -> None:
         """Set the config manager for the window.
 
@@ -319,6 +323,8 @@ class NCSMainWindow(QMainWindow):
         - "bottom" → Bottom dock area with sidebar icon (exclusive)
         - "center" → Center dock area, always visible
 
+        If the panel is registered as deferred, it will be instantiated first.
+
         Args:
             panel_id: Panel identifier.
             area: Dock area ("left", "bottom", "center").
@@ -338,6 +344,13 @@ class NCSMainWindow(QMainWindow):
         if existing is not None:
             self._docking_manager.show_panel(panel_id)
             return existing
+
+        # Check if deferred - instantiate via docking manager
+        if self._docking_manager.is_panel_deferred(panel_id):
+            panel = self._docking_manager._instantiate_deferred_panel(panel_id)
+            if panel is not None:
+                self._docking_manager.show_panel(panel_id)
+            return panel
 
         # Create panel
         panel = self._panel_registry.create(panel_id)
@@ -364,14 +377,65 @@ class NCSMainWindow(QMainWindow):
         logger.debug("Added panel to window: {}", panel_id)
         return panel
 
+    def register_deferred_panel(
+        self,
+        panel_id: str,
+        area: str | None = None,
+        *,
+        add_sidebar_button: bool = True,
+    ) -> bool:
+        """Register a panel for deferred (lazy) instantiation.
+
+        The panel will not be created until the user clicks its sidebar
+        button or explicitly requests it via add_panel(). This improves
+        startup time by avoiding instantiation of hidden panels.
+
+        Args:
+            panel_id: Panel identifier.
+            area: Dock area ("left", "bottom"). Defaults to panel's default_area.
+            add_sidebar_button: Whether to add sidebar button immediately.
+                Set False to control icon order via docking_manager.add_deferred_sidebar_button().
+
+        Returns:
+            True if panel was registered for deferred loading.
+        """
+        if self._docking_manager is None:
+            logger.error("Docking manager not initialized")
+            return False
+
+        # Get metadata without creating the panel
+        metadata = self._panel_registry.get_metadata(panel_id)
+        if metadata is None:
+            logger.warning("Unknown panel type: {}", panel_id)
+            return False
+
+        # Use metadata's default_area if not specified
+        if area is None:
+            area = metadata.default_area
+
+        # Register with docking manager
+        self._docking_manager.register_deferred_panel(
+            panel_id,
+            metadata,
+            area,
+            add_sidebar_button=add_sidebar_button,
+        )
+
+        logger.debug("Registered deferred panel: {}", panel_id)
+        return True
+
     def setup_default_layout(self) -> None:
         """Setup the default panel layout with icon strip sidebar.
 
-        Layout:
-        - Sidebar top icons: Bluesky, Devices, Documents, Data Browser (dock to left)
-        - Center (always visible): Logbook
-        - Sidebar bottom icons: Synoptic, Claude, IPython, Queue, Visualization,
-          Recording, Logging, Threads (dock to bottom)
+        Uses lazy (deferred) loading for side panels to improve startup time.
+        Panels are not instantiated until the user clicks their sidebar icon.
+
+        Layout is now data-driven: panels are included based on their
+        `default_area` metadata field and sorted by `sidebar_order`.
+
+        - Left area panels → Sidebar top section (dock to left)
+        - Center panels → Always visible, eager load
+        - Bottom area panels → Sidebar bottom section (dock to bottom)
 
         Also clears saved state and prevents showEvent from restoring.
         """
@@ -384,51 +448,48 @@ class NCSMainWindow(QMainWindow):
         if self._docking_manager:
             self._docking_manager.clear_state(settings)
 
-        # === Dock Layout Order (determines which area spans full width) ===
-        # 1. Center panel first (establishes main dock area)
-        self.add_panel("lucid.panels.logbook")
+        # Get current user for permission filtering
+        user = self._session_manager.current_user
 
-        # 2. Bottom panels SECOND (so bottom area spans full width)
-        #    Add to dock WITHOUT sidebar buttons - we'll add buttons later
-        bottom_panels = [
-            "lucid.panels.synoptic",
-            "lucid.panels.claude",
-            "lucid.panels.ipython",
-            "lucid.panels.queue",
-            "lucid.panels.visualization",
-            "lucid.dev.panels.record_test",  # Recording (from lucid-dev-plugins)
-            "lucid.panels.logging",
-            "lucid.panels.threads",
-        ]
-        for panel_id in bottom_panels:
-            self.add_panel(panel_id, add_sidebar_button=False)
+        # === Center panels: eager load (always visible) ===
+        center_panels = self._panel_registry.list_by_area("center", user)
+        for panel_id in center_panels:
+            self.add_panel(panel_id)
 
-        # 3. Left panels THIRD (left area is above bottom, not full height)
-        #    Add to dock WITHOUT sidebar buttons - we control icon order below
-        left_panels = [
-            "lucid.panels.bluesky",
-            "lucid.panels.devices",
-            "lucid.panels.documents",
-            "lucid.panels.tiled_browser",  # Data Browser
-        ]
+        # === Data-driven panel lists from registry metadata ===
+        # Panels are filtered by default_area and sorted by sidebar_order
+        left_panels = self._panel_registry.list_by_area("left", user)
+        bottom_panels = self._panel_registry.list_by_area("bottom", user)
+
+        # === Register deferred panels (no instantiation) ===
+        # Register WITHOUT sidebar buttons - we control icon order separately
+        # Track which panels were successfully registered
+        registered_left = []
         for panel_id in left_panels:
-            self.add_panel(panel_id, add_sidebar_button=False)
+            if self.register_deferred_panel(panel_id, area="left", add_sidebar_button=False):
+                registered_left.append(panel_id)
+
+        registered_bottom = []
+        for panel_id in bottom_panels:
+            if self.register_deferred_panel(panel_id, area="bottom", add_sidebar_button=False):
+                registered_bottom.append(panel_id)
 
         # === Sidebar Icon Order ===
         if self._docking_manager:
-            # Top icons (left area panels)
-            for panel_id in left_panels:
-                self._docking_manager.add_sidebar_button(panel_id)
+            # Top icons (left area panels) - only for successfully registered panels
+            for panel_id in registered_left:
+                self._docking_manager.add_deferred_sidebar_button(panel_id)
 
             # Add stretch to separate top and bottom icons
             self._docking_manager.add_sidebar_stretch()
 
-            # Bottom icons (bottom area panels)
-            for panel_id in bottom_panels:
-                self._docking_manager.add_sidebar_button(panel_id)
+            # Bottom icons (bottom area panels) - only for successfully registered panels
+            for panel_id in registered_bottom:
+                self._docking_manager.add_deferred_sidebar_button(panel_id)
 
         self._default_layout_applied = True
-        logger.info("Applied default panel layout")
+        logger.info("Applied default panel layout with {} deferred panels",
+                    len(registered_left) + len(registered_bottom))
 
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the window.
@@ -708,6 +769,29 @@ class NCSMainWindow(QMainWindow):
                 self._set_theme(Theme(value), save_preference=False)
             except ValueError:
                 pass
+
+    @Slot(str, object)
+    def _on_panel_registered(self, panel_id: str, metadata: Any) -> None:
+        """Handle panel registration from registry.
+
+        Updates the View > Panels menu to include the new panel.
+
+        Args:
+            panel_id: The registered panel ID.
+            metadata: Panel metadata.
+        """
+        self._update_panels_menu()
+
+    @Slot(str)
+    def _on_panel_unregistered(self, panel_id: str) -> None:
+        """Handle panel unregistration from registry.
+
+        Updates the View > Panels menu to remove the panel.
+
+        Args:
+            panel_id: The unregistered panel ID.
+        """
+        self._update_panels_menu()
 
     def _on_panel_focused(self, panel_id: str) -> None:
         """Handle panel focus change from docking manager."""

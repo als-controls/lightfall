@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QScrollArea,
     QSplitter,
     QTabWidget,
     QToolBar,
@@ -309,13 +310,25 @@ class DevicePanel(BasePanel):
         self._detail_tabs = QTabWidget()
 
         # Control tab (dynamic device control UI) - first tab
+        # Wrap in scroll area for tall layouts
         self._control_widget = DeviceControlWidget()
         self._control_widget.control_error.connect(self._on_control_error)
-        self._detail_tabs.addTab(self._control_widget, "Control")
+        control_scroll = QScrollArea()
+        control_scroll.setWidget(self._control_widget)
+        control_scroll.setWidgetResizable(True)
+        control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._detail_tabs.addTab(control_scroll, "Control")
 
         # Info tab (device details)
+        # Wrap in scroll area for tall layouts
         self._overview_widget = DeviceOverviewWidget()
-        self._detail_tabs.addTab(self._overview_widget, "Info")
+        info_scroll = QScrollArea()
+        info_scroll.setWidget(self._overview_widget)
+        info_scroll.setWidgetResizable(True)
+        info_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        info_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._detail_tabs.addTab(info_scroll, "Info")
 
         splitter.addWidget(self._detail_tabs)
 

@@ -6,6 +6,7 @@ The registry provides:
 - Panel instantiation with dependency injection
 - Permission filtering based on user roles
 - Introspection API for Claude MCP tools
+- Signals for runtime panel registration/unregistration
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import threading
 from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
+from PySide6.QtCore import QObject, Signal
+
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.utils.logging import logger
 
@@ -21,7 +24,7 @@ if TYPE_CHECKING:
     from lucid.auth.session import User
 
 
-class PanelRegistry:
+class PanelRegistry(QObject):
     """
     Central registry for NCS panels.
 
@@ -47,11 +50,16 @@ class PanelRegistry:
         >>> available = registry.list_available(user)
     """
 
+    # Signals for runtime panel registration
+    panel_registered = Signal(str, object)    # panel_id, PanelMetadata
+    panel_unregistered = Signal(str)          # panel_id
+
     _instance: PanelRegistry | None = None
     _lock = threading.RLock()
 
     def __init__(self) -> None:
         """Initialize the panel registry."""
+        super().__init__()  # QObject init
         self._panel_types: dict[str, type[BasePanel]] = {}
         self._singleton_instances: dict[str, BasePanel] = {}
         self._discovered = False
@@ -87,8 +95,9 @@ class PanelRegistry:
             ValueError: If panel is already registered and replace is False.
         """
         panel_id = panel_class.panel_metadata.id
+        is_new = panel_id not in self._panel_types
 
-        if panel_id in self._panel_types and not replace:
+        if not is_new and not replace:
             raise ValueError(f"Panel '{panel_id}' is already registered")
 
         self._panel_types[panel_id] = panel_class
@@ -97,6 +106,10 @@ class PanelRegistry:
             panel_id,
             panel_class.__name__,
         )
+
+        # Emit signal for new registrations (not replacements)
+        if is_new:
+            self.panel_registered.emit(panel_id, panel_class.panel_metadata)
 
     def unregister(self, panel_id: str) -> bool:
         """Unregister a panel type.
@@ -112,6 +125,7 @@ class PanelRegistry:
             # Also remove any singleton instance
             self._singleton_instances.pop(panel_id, None)
             logger.debug("Unregistered panel: {}", panel_id)
+            self.panel_unregistered.emit(panel_id)
             return True
         return False
 
@@ -357,6 +371,31 @@ class PanelRegistry:
             by_category[meta.category].append(meta)
 
         return by_category
+
+    def list_by_area(
+        self,
+        area: str,
+        user: User | None = None,
+    ) -> list[str]:
+        """List panel IDs for a specific dock area, sorted by sidebar_order.
+
+        Args:
+            area: Dock area to filter by ("left", "bottom", "center").
+            user: Optional user for permission filtering.
+
+        Returns:
+            List of panel IDs sorted by sidebar_order.
+        """
+        if user:
+            panels = self.list_available(user)
+        else:
+            panels = self.list_all()
+
+        # Filter by area and sort by sidebar_order
+        area_panels = [meta for meta in panels if meta.default_area == area]
+        area_panels.sort(key=lambda m: m.sidebar_order)
+
+        return [meta.id for meta in area_panels]
 
     def search(
         self,

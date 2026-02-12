@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 
 # State version for migration handling
-# Bumped to 4 for icon strip sidebar architecture (from auto-hide v3)
-STATE_VERSION = 4
+# Bumped to 5 for lazy panel loading (deferred instantiation)
+STATE_VERSION = 5
 
 
 class DockingState:
