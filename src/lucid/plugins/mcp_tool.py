@@ -76,6 +76,8 @@ class MCPToolPlugin(PluginType):
 
             # Called once on plugin load
             def create_tools(self) -> list:
+                import json
+
                 @tool(
                     name="get_engine_state",
                     description="Get current RunEngine state",
@@ -83,7 +85,10 @@ class MCPToolPlugin(PluginType):
                 )
                 async def get_engine_state(args: dict) -> dict:
                     engine = self._get_engine()
-                    return {"state": engine.state.name}
+                    # MCP protocol requires content wrapper for results
+                    return {
+                        "content": [{"type": "text", "text": json.dumps({"state": engine.state.name})}]
+                    }
 
                 return [get_engine_state]
 
