@@ -182,7 +182,11 @@ ideas before committing to a persistent plugin.
 The plugin will be written to ~/lucid/plugins/ and automatically loaded.
 Supports panel plugins, skill plugins, and MCP tool plugins.
 
-The code must include self-registration. For panels:
+For panel plugins:
+- Create a `BasePanel` subclass with `panel_metadata` attribute
+- Do NOT use `PanelPlugin` (that's only for built-in plugins)
+- Include self-registration at the end:
+
 ```python
 PanelRegistry.get_instance().register(MyPanel, replace=True)
 ```
