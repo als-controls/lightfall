@@ -21,6 +21,72 @@ from lucid.ui.panels.registry import PanelRegistry
 from lucid.utils.logging import logger
 ```
 
+## user-plugin-architecture
+
+LUCID has two distinct ways to create panel plugins. Understanding which to use is critical.
+
+### User Plugins (~/lucid/plugins/)
+
+**This is what YOU should use.** User plugins directly subclass `BasePanel`:
+
+```python
+from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
+
+class MyPanel(BasePanel):
+    panel_metadata = PanelMetadata(id="lucid.panels.user.my_panel", ...)
+    def _setup_ui(self) -> None: ...
+
+# Self-register at module load time
+PanelRegistry.get_instance().register(MyPanel, replace=True)
+```
+
+Key points:
+- Direct `BasePanel` subclass
+- Self-registers with `PanelRegistry.register()`
+- Tracked by `UserPluginService` via `RegistrationTracker`
+- Hot-reload supported
+
+### Built-in Plugins (via manifest)
+
+Built-in plugins use a **two-layer pattern** you should NOT copy:
+
+```python
+# File: lucid/ui/panels/plugins/device_plugin.py
+class DevicePanelPlugin(PanelPlugin):  # <-- Plugin wrapper
+    def get_panel_class(self) -> type[BasePanel]:
+        from lucid.ui.panels.device_panel import DevicePanel
+        return DevicePanel
+
+# File: lucid/ui/panels/device_panel.py
+class DevicePanel(BasePanel):  # <-- Actual panel
+    panel_metadata = PanelMetadata(...)
+```
+
+Why the two layers?
+- **Lazy loading**: `PanelPlugin` is instantiated at startup, but the heavy `BasePanel` import is deferred until `get_panel_class()` is called
+- **Plugin system integration**: `PanelPlugin` goes through `PluginLoader` → `PluginRegistry` → `PanelRegistry`
+- **Qt independence**: The plugin system doesn't depend on Qt
+
+### Do NOT Use PanelPlugin for User Plugins
+
+❌ **Wrong** - Using PanelPlugin for user plugins:
+```python
+class MyPanelPlugin(PanelPlugin):  # DON'T DO THIS
+    def get_panel_class(self):
+        return MyPanel
+```
+
+✅ **Correct** - Direct BasePanel with self-registration:
+```python
+class MyPanel(BasePanel):  # DO THIS
+    panel_metadata = PanelMetadata(...)
+
+PanelRegistry.get_instance().register(MyPanel, replace=True)
+```
+
+`PanelPlugin` is NOT tracked by `UserPluginService` and will NOT work correctly for user plugins.
+
 ## panel-metadata
 
 ```python
@@ -37,8 +103,9 @@ class PanelMetadata:
     keywords: list[str] = field(default_factory=list)  # Search keywords
 
     # Docking preferences
-    default_area: str = "left"           # "left", "right", "bottom", "center"
-    sidebar_group: str = "top"           # "top", "bottom" within area
+    default_area: str = "left"           # "left" or "bottom" (gets sidebar button + title bar)
+                                         # "center" (always visible, no sidebar button)
+    sidebar_group: str = "top"           # "top", "bottom" within sidebar
     auto_hide: bool = True               # Start in auto-hide sidebar
     sidebar_order: int = 0               # Order within group (lower = higher)
 ```
