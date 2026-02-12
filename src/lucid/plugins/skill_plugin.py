@@ -14,7 +14,9 @@ the same settings UI with enable/disable support.
 
 from __future__ import annotations
 
+import re
 from abc import abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from lucid.plugins.mcp_tool import MCPToolPlugin
@@ -134,6 +136,124 @@ class SkillPlugin(MCPToolPlugin):
             List of tool instances, or empty list if no tools.
         """
         return []
+
+    def get_brief_description(self) -> str:
+        """Get a brief (~100-200 char) description for the system prompt.
+
+        This is a short hint that goes in the system prompt, telling Claude
+        what the skill does without the full API documentation. Override
+        this for skills with large documentation files to keep the system
+        prompt small.
+
+        By default, returns the full system prompt for backward compatibility.
+
+        Returns:
+            Brief description text for the system prompt.
+        """
+        return self.get_system_prompt()
+
+    def get_documentation_path(self) -> Path | None:
+        """Get the path to the documentation markdown file for this skill.
+
+        Skills with large API documentation should have a corresponding
+        markdown file in the skills/docs/ directory. The filename should
+        match the skill name (e.g., "plan_design" -> "plan_design.md").
+
+        Returns:
+            Path to the documentation file, or None if no external docs.
+        """
+        docs_dir = Path(__file__).parent / "skills" / "docs"
+        doc_file = docs_dir / f"{self.name}.md"
+        if doc_file.exists():
+            return doc_file
+        return None
+
+    def get_documentation_topics(self) -> list[str]:
+        """Extract topic slugs from H2 headers in the documentation.
+
+        Parses the documentation file and returns slugified versions of
+        all H2 (##) headers. These can be used with get_documentation(topic)
+        to retrieve specific sections.
+
+        Returns:
+            List of topic slugs, or empty list if no documentation.
+        """
+        doc_path = self.get_documentation_path()
+        if doc_path is None:
+            return []
+
+        try:
+            content = doc_path.read_text(encoding="utf-8")
+        except Exception:
+            return []
+
+        # Find all H2 headers (## Header Text)
+        topics = []
+        for match in re.finditer(r"^## (.+)$", content, re.MULTILINE):
+            header = match.group(1).strip()
+            # Slugify: lowercase, replace spaces with hyphens
+            slug = re.sub(r"[^a-z0-9]+", "-", header.lower()).strip("-")
+            if slug:
+                topics.append(slug)
+
+        return topics
+
+    def get_documentation(self, topic: str | None = None) -> str | None:
+        """Get documentation content, optionally for a specific topic.
+
+        Args:
+            topic: Optional topic slug to retrieve a specific section.
+                   If None, returns the full documentation.
+
+        Returns:
+            Documentation text, or None if no documentation available.
+        """
+        doc_path = self.get_documentation_path()
+        if doc_path is None:
+            return None
+
+        try:
+            content = doc_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+        if topic is None:
+            return content
+
+        # Find the section for this topic
+        # Look for ## header that slugifies to the requested topic
+        lines = content.split("\n")
+        section_lines = []
+        in_section = False
+        current_slug = None
+
+        for line in lines:
+            # Check if this is an H2 header
+            h2_match = re.match(r"^## (.+)$", line)
+            if h2_match:
+                header = h2_match.group(1).strip()
+                current_slug = re.sub(r"[^a-z0-9]+", "-", header.lower()).strip("-")
+
+                if in_section:
+                    # We hit the next section, stop
+                    break
+
+                if current_slug == topic:
+                    in_section = True
+                    section_lines.append(line)
+                continue
+
+            # Check for H1 header (## -> end of all H2 sections under it)
+            if re.match(r"^# ", line) and in_section:
+                break
+
+            if in_section:
+                section_lines.append(line)
+
+        if section_lines:
+            return "\n".join(section_lines).strip()
+
+        return None
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools.
