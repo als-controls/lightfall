@@ -82,11 +82,11 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="lucid.ui.preferences.claude_settings:ClaudeSettingsPlugin",
         ),
-        # Claude skills settings
+        # Claude tools settings (includes both tool plugins and skills)
         PluginEntry(
             type_name="settings",
-            name="skills",
-            import_path="lucid.ui.preferences.skill_settings:SkillSettingsPlugin",
+            name="claude_tools",
+            import_path="lucid.ui.preferences.tool_settings:ClaudeToolsSettingsPlugin",
         ),
         # Plugin management settings
         PluginEntry(
@@ -138,6 +138,49 @@ builtin_manifest = PluginManifest(
             name="als_beam_status",
             import_path="lucid.ui.statusbar.plugins.als_beam_status:ALSBeamStatusPlugin",
         ),
+        # MCP Tool plugins - loaded during background loading
+        # Claude panel collects tools when opened (also not preloaded)
+        PluginEntry(
+            type_name="mcp_tool",
+            name="device_tools",
+            import_path="lucid.plugins.tools.device_tools:DeviceToolPlugin",
+        ),
+        PluginEntry(
+            type_name="mcp_tool",
+            name="plan_tools",
+            import_path="lucid.plugins.tools.plan_tools:PlanToolPlugin",
+        ),
+        PluginEntry(
+            type_name="mcp_tool",
+            name="ipython_tools",
+            import_path="lucid.plugins.tools.ipython_tools:IPythonToolPlugin",
+        ),
+        # Skill plugins - loaded during background loading
+        PluginEntry(
+            type_name="skill",
+            name="alignment",
+            import_path="lucid.plugins.skills.alignment:BeamlineAlignmentSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
+            name="plan_design",
+            import_path="lucid.plugins.skills.plan_design:PlanDesignSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
+            name="scan_planning",
+            import_path="lucid.plugins.skills.scan_planning:ScanPlanningSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
+            name="panel_design",
+            import_path="lucid.plugins.skills.panel_design:PanelDesignSkill",
+        ),
+        PluginEntry(
+            type_name="skill",
+            name="panel_builder",
+            import_path="lucid.plugins.skills.panel_builder:PanelBuilderSkill",
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
@@ -173,7 +216,7 @@ builtin_manifest = PluginManifest(
             type_name="panel",
             name="claude",
             import_path="lucid.ui.panels.plugins.claude_plugin:ClaudePanelPlugin",
-            preload=True,
+            preload=True,  # Preload for metadata; panel instantiation is deferred until clicked
         ),
         PluginEntry(
             type_name="panel",
@@ -247,33 +290,6 @@ builtin_manifest = PluginManifest(
             name="volume",
             import_path="lucid.visualization.widgets.volume:VolumeVisualizationPlugin",
             preload=True,
-        ),
-        # MCP Tool plugins
-        PluginEntry(
-            type_name="mcp_tool",
-            name="device_tools",
-            import_path="lucid.plugins.tools.device_tools:DeviceToolPlugin",
-        ),
-        PluginEntry(
-            type_name="mcp_tool",
-            name="plan_tools",
-            import_path="lucid.plugins.tools.plan_tools:PlanToolPlugin",
-        ),
-        # Skill plugins
-        PluginEntry(
-            type_name="skill",
-            name="alignment",
-            import_path="lucid.plugins.skills.alignment:BeamlineAlignmentSkill",
-        ),
-        PluginEntry(
-            type_name="skill",
-            name="plan_design",
-            import_path="lucid.plugins.skills.plan_design:PlanDesignSkill",
-        ),
-        PluginEntry(
-            type_name="skill",
-            name="scan_planning",
-            import_path="lucid.plugins.skills.scan_planning:ScanPlanningSkill",
         ),
     ],
 )

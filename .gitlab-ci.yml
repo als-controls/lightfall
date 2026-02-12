@@ -145,3 +145,22 @@ pages:
   environment:
     name: documentation
     url: $CI_PAGES_URL
+
+# Publish Windows installer to GitLab Releases when a tag is pushed
+release:windows:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: package:windows
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - MSI_FILE=$(ls build/lucid/windows/LUCID-*.msi | head -1)
+    - echo "Found MSI - $MSI_FILE"
+    - |
+      release-cli create \
+        --name "LUCID $CI_COMMIT_TAG" \
+        --tag-name "$CI_COMMIT_TAG" \
+        --description "Release $CI_COMMIT_TAG - Windows installer" \
+        --assets-link "{\"name\":\"Windows Installer (MSI)\",\"url\":\"${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${MSI_FILE}?job=package%3Awindows\",\"link_type\":\"package\"}"

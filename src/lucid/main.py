@@ -321,6 +321,38 @@ def _setup_plugins(app: NCSApplication) -> None:
     logger.debug("Plugin system initialized")
 
 
+def _setup_user_plugins(app: NCSApplication) -> None:
+    """Load user-defined plugins from ~/lucid/plugins/.
+
+    User plugins are Python files that self-register with type-specific
+    registries (PanelRegistry, SkillRegistry, etc.) on execution.
+
+    Args:
+        app: The LUCID application instance.
+    """
+    from lucid.plugins.user_plugins import UserPluginService
+
+    services = app.services
+
+    # Create and initialize the service
+    service = UserPluginService.get_instance()
+
+    # Load all user plugins
+    results = service.load_all_plugins()
+    user_plugin_count = sum(1 for _, err in results if err is None)
+
+    # Enable hot-reload by default
+    service.enable_hot_reload(True)
+
+    # Register service
+    services.register_instance(UserPluginService, service)
+
+    if user_plugin_count > 0:
+        logger.info("Loaded {} user plugin(s) from ~/lucid/plugins/", user_plugin_count)
+    else:
+        logger.debug("No user plugins loaded")
+
+
 def _setup_first_launch(project_service: ProjectService) -> None:
     """Setup the welcome project for first launch.
 
@@ -588,6 +620,9 @@ def main() -> int:
 
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)
+
+    # Load user plugins from ~/lucid/plugins/
+    _setup_user_plugins(app)
 
     # Setup first launch (welcome project)
     project_service = ProjectService.get_instance()

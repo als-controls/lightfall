@@ -128,10 +128,6 @@ class VisualizationPanel(BasePanel):
 
         main_layout.addWidget(splitter)
 
-        # Status bar
-        self._status_label = QLabel("Ready")
-        main_layout.addWidget(self._status_label)
-
         # Set layout
         container = QWidget()
         container.setLayout(main_layout)
@@ -316,9 +312,6 @@ class VisualizationPanel(BasePanel):
     def _on_characteristics_ready(self, characteristics: DataCharacteristics) -> None:
         """Handle characteristics ready from processor."""
         self._characteristics = characteristics
-        self._status_label.setText(
-            f"Data: {characteristics.plan_name}, {characteristics.ndim}D"
-        )
 
         # Select visualization (if Auto mode)
         if self._viz_combo.currentData() is None:
@@ -326,16 +319,13 @@ class VisualizationPanel(BasePanel):
 
     def _on_run_started(self, doc: dict) -> None:
         """Handle run start."""
-        self._status_label.setText("Scan started...")
-
         # Clear current visualization
         if self._current_widget:
             self._current_widget.clear()
 
     def _on_run_stopped(self, doc: dict) -> None:
         """Handle run stop."""
-        status = doc.get("exit_status", "unknown")
-        self._status_label.setText(f"Scan {status}")
+        pass  # Status now shown by visualization widgets themselves
 
     def _select_visualization(self, characteristics: DataCharacteristics) -> None:
         """Select and create visualization for characteristics."""
@@ -345,7 +335,7 @@ class VisualizationPanel(BasePanel):
         results = self._selection_engine.select_visualizations(characteristics, max_results=1)
 
         if not results:
-            self._status_label.setText("No suitable visualization found")
+            logger.warning("No suitable visualization found for data characteristics")
             return
 
         plugin, score = results[0]

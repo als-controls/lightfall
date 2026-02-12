@@ -30,9 +30,14 @@ class DeviceToolPlugin(MCPToolPlugin):
         return "device_tools"
 
     @property
-    def tool_description(self) -> str:
-        """Plugin description."""
+    def description(self) -> str:
+        """Human-readable description of what this plugin provides."""
         return "Tools for interacting with NCS devices"
+
+    @property
+    def category(self) -> str:
+        """Category for grouping in settings UI."""
+        return "devices"
 
     def _get_catalog(self):
         """Get the device catalog instance."""
@@ -122,10 +127,21 @@ class DeviceToolPlugin(MCPToolPlugin):
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
+                    # Provide helpful diagnostics about why catalog isn't connected
+                    backend = catalog.backend
+                    backend_info = backend.name if backend else "no backend configured"
                     return {
                         "success": False,
                         "error": "Device catalog not connected",
+                        "hint": (
+                            "The device catalog is not connected to a backend. "
+                            f"Current backend: {backend_info}. "
+                            "Check that the application initialized correctly and "
+                            "the backend (mock or BCS) has been connected. "
+                            "Use ncs_get_catalog_info for more details."
+                        ),
                         "devices": [],
+                        "count": 0,
                     }
 
                 # If query is provided, use search
@@ -820,6 +836,99 @@ class DeviceToolPlugin(MCPToolPlugin):
 
             return run_on_main_thread(_stop)
 
+        @tool(
+            name="ncs_get_catalog_info",
+            description=(
+                "Get information about the device catalog including connection status, "
+                "backend type, device counts by category, and API usage hints. "
+                "Use this to understand what devices are available and how to access them."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {},
+            },
+        )
+        async def get_catalog_info(args: dict) -> dict[str, Any]:
+            """Get device catalog information and API hints."""
+            from pyside_claude._internal.threading import run_on_main_thread
+
+            from lucid.devices.model import DeviceCategory
+
+            def _get_info():
+                catalog = self._get_catalog()
+                backend = catalog.backend
+
+                # Basic connection info
+                info = {
+                    "success": True,
+                    "connected": catalog.is_connected,
+                    "backend": backend.name if backend else None,
+                    "backend_type": type(backend).__name__ if backend else None,
+                }
+
+                # If not connected, provide diagnostic info
+                if not catalog.is_connected:
+                    info["hint"] = (
+                        "The catalog is not connected. This usually means: "
+                        "1) The backend wasn't configured in preferences, "
+                        "2) The backend failed to connect during startup, or "
+                        "3) The application is still initializing. "
+                        "Check the application logs for more details."
+                    )
+                    info["devices_by_category"] = {}
+                    info["total_devices"] = 0
+                    info["example_devices"] = []
+                    return info
+
+                # Get device counts by category
+                devices = catalog.get_all_devices()
+                by_category: dict[str, list[str]] = {}
+                for device in devices:
+                    cat = device.category.value
+                    if cat not in by_category:
+                        by_category[cat] = []
+                    by_category[cat].append(device.name)
+
+                info["total_devices"] = len(devices)
+                info["devices_by_category"] = {
+                    cat: {"count": len(names), "names": names}
+                    for cat, names in by_category.items()
+                }
+
+                # Provide example devices for common categories
+                example_devices = []
+                for cat in ["motor", "detector", "sensor"]:
+                    if cat in by_category and by_category[cat]:
+                        example_devices.append({
+                            "category": cat,
+                            "example_name": by_category[cat][0],
+                        })
+                info["example_devices"] = example_devices
+
+                # API usage hints for plugin developers
+                info["api_hints"] = {
+                    "description": (
+                        "How to access devices in panel plugins or plans. "
+                        "Use DeviceCategory enum for filtering, and access "
+                        "ophyd_device property for actual device control."
+                    ),
+                    "imports": [
+                        "from lucid.devices import DeviceCatalog",
+                        "from lucid.devices.model import DeviceCategory",
+                    ],
+                    "get_catalog": "catalog = DeviceCatalog.get_instance()",
+                    "list_motors": "motors = catalog.list_devices(category=DeviceCategory.MOTOR)",
+                    "get_by_name": 'device_info = catalog.get_device_by_name("motor")',
+                    "get_ophyd": "ophyd_device = device_info.ophyd_device",
+                    "move_motor": "ophyd_device.set(10).wait()",
+                    "read_position": "position = ophyd_device.position",
+                    "available_categories": [cat.value for cat in DeviceCategory],
+                }
+
+                return info
+
+            return run_on_main_thread(_get_info)
+
         return [
             list_devices,
             get_device,
@@ -828,4 +937,5 @@ class DeviceToolPlugin(MCPToolPlugin):
             set_device,
             move_motor,
             stop_device,
+            get_catalog_info,
         ]
