@@ -327,22 +327,44 @@ class SkillRegistry:
         if not enabled_skills:
             return ""
 
-        # Build skill summary with tools info
+        # Build skill summary with tools and docs info
         skill_entries = []
+        skills_with_docs = []
         for skill in enabled_skills:
             tools = skill.create_tools()
+            has_docs = skill.get_documentation_path() is not None
+
+            if has_docs:
+                skills_with_docs.append(skill.name)
+
+            parts = []
             if tools:
                 tool_names = []
                 for t in tools:
                     name = getattr(t, 'name', None) or getattr(t, '__name__', '?')
                     tool_names.append(name)
-                tools_str = f" (provides tools: {', '.join(tool_names)})"
+                parts.append(f"tools: {', '.join(tool_names)}")
+
+            if has_docs:
+                parts.append("has API docs")
+
+            if parts:
+                suffix = f" ({'; '.join(parts)})"
             else:
-                tools_str = " (guidance only)"
-            entry = f"- **{skill.display_name}**: {skill.description}{tools_str}"
+                suffix = " (guidance only)"
+
+            entry = f"- **{skill.display_name}**: {skill.description}{suffix}"
             skill_entries.append(entry)
 
         skills_list = "\n".join(skill_entries)
+
+        # Add documentation hint if any skills have docs
+        docs_hint = ""
+        if skills_with_docs:
+            docs_hint = f"""
+
+**On-demand documentation:** Skills marked "has API docs" have detailed API references.
+Use `ncs_get_skill_docs` tool with skill name (e.g., skill="{skills_with_docs[0]}") to retrieve full documentation when needed."""
 
         reminder = f"""## Active Skills Summary
 
@@ -350,12 +372,13 @@ The following skills are enabled and their capabilities are available to you:
 
 {skills_list}
 
-Skills marked "(guidance only)" provide domain expertise in the prompts above.
-Skills with "(provides tools: ...)" have registered those tools - use them directly."""
+Skills with "tools:" have registered those tools - use them directly.
+Skills marked "guidance only" provide domain expertise in the prompts above.{docs_hint}"""
 
         logger.debug(
-            "Generated skill summary with {} skills",
+            "Generated skill summary with {} skills ({} with docs)",
             len(enabled_skills),
+            len(skills_with_docs),
         )
 
         return reminder

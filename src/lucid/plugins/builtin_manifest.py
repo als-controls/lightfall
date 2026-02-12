@@ -155,6 +155,11 @@ builtin_manifest = PluginManifest(
             name="ipython_tools",
             import_path="lucid.plugins.tools.ipython_tools:IPythonToolPlugin",
         ),
+        PluginEntry(
+            type_name="mcp_tool",
+            name="skill_docs",
+            import_path="lucid.plugins.tools.skill_docs_tool:SkillDocsToolPlugin",
+        ),
         # Skill plugins - loaded during background loading
         PluginEntry(
             type_name="skill",
