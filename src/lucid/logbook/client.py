@@ -324,6 +324,16 @@ class LogbookClient:
         db.execute(f"UPDATE fragment SET {', '.join(parts)} WHERE id = ?", params)
         db.commit()
 
+    def reorder_fragments(self, entry_id: str, fragment_ids: list[str]) -> None:
+        """Update fragment positions to match the given order."""
+        db = self._ensure_db()
+        for pos, fid in enumerate(fragment_ids):
+            db.execute(
+                "UPDATE fragment SET position = ?, sync_status = 'pending' WHERE id = ? AND entry_id = ?",
+                (pos, fid, entry_id),
+            )
+        db.commit()
+
     def delete_fragment(self, fragment_id: str) -> None:
         db = self._ensure_db()
         db.execute("DELETE FROM fragment WHERE id = ?", (fragment_id,))

@@ -83,6 +83,7 @@ class LogbookPanel(BasePanel):
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
         self._entry_widget.fragment_changed.connect(self._on_fragment_changed)
         self._entry_widget.fragment_deleted.connect(self._on_fragment_deleted)
+        self._entry_widget.fragment_reordered.connect(self._on_fragment_reordered)
         self._entry_widget.claude_requested.connect(self._on_claude_requested)
         self._entry_widget.title_changed.connect(self._on_title_changed)
         self._entry_widget.tags_changed.connect(self._on_tags_changed)
@@ -284,6 +285,15 @@ class LogbookPanel(BasePanel):
                     self._entry_widget.set_entry(EntryData())
         except Exception as e:
             logger.error("Failed to delete entry: {}", e)
+
+    @Slot(str, list)
+    def _on_fragment_reordered(self, entry_id: str, fragment_ids: list[str]) -> None:
+        if not self._client:
+            return
+        try:
+            self._client.reorder_fragments(entry_id, fragment_ids)
+        except Exception as e:
+            logger.error("Failed to reorder fragments: {}", e)
 
     @Slot(str, str)
     def _on_fragment_deleted(self, entry_id: str, fragment_id: str) -> None:

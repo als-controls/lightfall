@@ -16,9 +16,8 @@ from datetime import datetime
 from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QCursor
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QMimeData, Qt, Signal, Slot
+from PySide6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -136,6 +135,7 @@ class EntryWidget(QFrame):
     fragment_added = Signal(str, str)
     fragment_changed = Signal(str, str, str)
     fragment_deleted = Signal(str, str)
+    fragment_reordered = Signal(str, list)  # (entry_id, [fragment_ids])
     title_changed = Signal(str, str)  # (entry_id, new_title)
     tags_changed = Signal(str, list)  # (entry_id, new_tags)
     claude_requested = Signal(str, str)  # (entry_id, fragment_id)
@@ -167,6 +167,10 @@ class EntryWidget(QFrame):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         self._fragment_container = QWidget()
+        self._fragment_container.setAcceptDrops(True)
+        self._fragment_container.dragEnterEvent = self._frag_drag_enter
+        self._fragment_container.dragMoveEvent = self._frag_drag_move
+        self._fragment_container.dropEvent = self._frag_drop
         self._fragment_layout = QVBoxLayout(self._fragment_container)
         self._fragment_layout.setContentsMargins(0, 0, 0, 0)
         self._fragment_layout.setSpacing(4)
@@ -427,6 +431,55 @@ class EntryWidget(QFrame):
         """Forward Claude request to the panel."""
         self.claude_requested.emit(self._entry.id, frag_id)
 
+    # -- drag & drop reorder --
+
+    def _frag_drag_enter(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasFormat("application/x-logbook-fragment-id"):
+            event.acceptProposedAction()
+
+    def _frag_drag_move(self, event: QDragMoveEvent) -> None:
+        if event.mimeData().hasFormat("application/x-logbook-fragment-id"):
+            event.acceptProposedAction()
+
+    def _frag_drop(self, event: QDropEvent) -> None:
+        mime = event.mimeData()
+        if not mime.hasFormat("application/x-logbook-fragment-id"):
+            return
+        dragged_id = bytes(mime.data("application/x-logbook-fragment-id")).decode()
+
+        # Find the drop position by checking which widget we're over
+        drop_y = event.position().y()
+        target_idx = len(self._entry.fragments)  # default: end
+
+        for i, w in enumerate(self._widget_items):
+            widget_y = w.y() + w.height() / 2
+            if drop_y < widget_y:
+                # Map widget back to fragment index
+                frag = getattr(w, '_fragment', None) if not isinstance(w, CollapsibleGroup) else None
+                if frag:
+                    target_idx = next(
+                        (j for j, f in enumerate(self._entry.fragments) if f.id == frag.id),
+                        target_idx,
+                    )
+                else:
+                    target_idx = i
+                break
+
+        # Reorder
+        frags = self._entry.fragments
+        old_idx = next((j for j, f in enumerate(frags) if f.id == dragged_id), None)
+        if old_idx is None:
+            return
+
+        frag = frags.pop(old_idx)
+        if target_idx > old_idx:
+            target_idx -= 1
+        frags.insert(target_idx, frag)
+
+        self._rebuild_fragments()
+        self.fragment_reordered.emit(self._entry.id, [f.id for f in frags])
+        event.acceptProposedAction()
+
     @Slot()
     def _add_text_fragment(self) -> None:
         frag = FragmentData(fragment_type=FragmentType.TEXT, content="")
@@ -465,6 +518,7 @@ class EntryListWidget(QFrame):
         self._entries: list[EntryData] = []
         self._sort_key: str = "created_at"  # or "updated_at"
         self._selected_id: str | None = None
+        self._active_tag_filter: str | None = None
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setMinimumWidth(220)
@@ -485,6 +539,14 @@ class EntryListWidget(QFrame):
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         toolbar.addWidget(self._sort_combo)
         root.addLayout(toolbar)
+
+        # --- tag filter row ---
+        self._tag_filter_container = QWidget()
+        self._tag_filter_layout = QHBoxLayout(self._tag_filter_container)
+        self._tag_filter_layout.setContentsMargins(0, 0, 0, 0)
+        self._tag_filter_layout.setSpacing(3)
+        self._tag_filter_container.setVisible(False)
+        root.addWidget(self._tag_filter_container)
 
         # --- scrollable list ---
         scroll = QScrollArea()
@@ -525,12 +587,19 @@ class EntryListWidget(QFrame):
             w.deleteLater()
         self._row_widgets.clear()
 
+        # Rebuild tag filter bar
+        self._rebuild_tag_filter()
+
         key = self._sort_key
         sorted_entries = sorted(
             self._entries,
             key=lambda e: getattr(e, key),
             reverse=True,
         )
+
+        # Apply tag filter
+        if self._active_tag_filter:
+            sorted_entries = [e for e in sorted_entries if self._active_tag_filter in e.tags]
 
         for idx, entry in enumerate(sorted_entries):
             row = _EntryRow(entry, self)
@@ -540,6 +609,59 @@ class EntryListWidget(QFrame):
             self._row_widgets.append(row)
 
         self._update_selection_highlight()
+
+    def _rebuild_tag_filter(self) -> None:
+        """Rebuild the tag filter chips from all entries."""
+        # Clear
+        while self._tag_filter_layout.count():
+            item = self._tag_filter_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Collect all unique tags
+        all_tags: set[str] = set()
+        for e in self._entries:
+            all_tags.update(e.tags)
+
+        if not all_tags:
+            self._tag_filter_container.setVisible(False)
+            return
+
+        self._tag_filter_container.setVisible(True)
+
+        # "All" button
+        all_btn = QToolButton()
+        all_btn.setText("All")
+        active = self._active_tag_filter is None
+        bg = "#4a4a6c" if active else "transparent"
+        all_btn.setStyleSheet(
+            f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
+            f"padding: 1px 6px; font-size: 8pt; background: {bg}; }} "
+            f"QToolButton:hover {{ background: #4a4a6c; }}"
+        )
+        all_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        all_btn.clicked.connect(lambda: self._on_tag_filter(None))
+        self._tag_filter_layout.addWidget(all_btn)
+
+        for tag in sorted(all_tags):
+            btn = QToolButton()
+            btn.setText(tag)
+            active = self._active_tag_filter == tag
+            bg = "#4a4a6c" if active else "transparent"
+            btn.setStyleSheet(
+                f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
+                f"padding: 1px 6px; font-size: 8pt; background: {bg}; }} "
+                f"QToolButton:hover {{ background: #4a4a6c; }}"
+            )
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.clicked.connect(lambda checked=False, t=tag: self._on_tag_filter(t))
+            self._tag_filter_layout.addWidget(btn)
+
+        self._tag_filter_layout.addStretch()
+
+    def _on_tag_filter(self, tag: str | None) -> None:
+        self._active_tag_filter = tag
+        self._rebuild()
 
     def _update_selection_highlight(self) -> None:
         sel_bg = "#3a3a5c" if is_dark_theme() else "#d0d0f0"
@@ -611,15 +733,18 @@ class _EntryRow(QFrame):
         layout.addLayout(meta_row)
 
         # Delete button (overlay, shown on hover)
+        from PySide6.QtCore import QSize
         self._delete_btn = QToolButton(self)
         try:
             import qtawesome as qta
-            self._delete_btn.setIcon(qta.icon("mdi.delete-outline", color="#f44336"))
-        except ImportError:
+            self._delete_btn.setIcon(qta.icon("mdi.trash-can-outline", color="#f44336"))
+            self._delete_btn.setIconSize(QSize(16, 16))
+        except Exception:
             self._delete_btn.setText("✕")
         self._delete_btn.setToolTip("Delete entry")
+        self._delete_btn.setFixedSize(22, 22)
         self._delete_btn.setStyleSheet(
-            "QToolButton { border: none; border-radius: 3px; padding: 2px; } "
+            "QToolButton { border: none; border-radius: 3px; } "
             "QToolButton:hover { background: rgba(244,67,54,0.2); }"
         )
         self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))

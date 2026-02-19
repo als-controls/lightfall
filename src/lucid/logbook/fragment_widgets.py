@@ -24,7 +24,8 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QCursor, QEnterEvent, QMouseEvent
+from PySide6.QtCore import QMimeData
+from PySide6.QtGui import QCursor, QDrag, QEnterEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -277,6 +278,21 @@ class _HoverMixin:
         if self._overlay and self._overlay.isVisible():
             self._overlay.reposition()
         super().resizeEvent(event)  # type: ignore[misc]
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        """Initiate drag when mouse moves with left button held."""
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            frag = getattr(self, '_fragment', None)
+            if frag is None:
+                super().mouseMoveEvent(event)  # type: ignore[misc]
+                return
+            drag = QDrag(self)  # type: ignore[arg-type]
+            mime = QMimeData()
+            mime.setData("application/x-logbook-fragment-id", frag.id.encode())
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.MoveAction)
+        else:
+            super().mouseMoveEvent(event)  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
