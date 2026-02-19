@@ -78,6 +78,7 @@ class LogbookPanel(BasePanel):
 
         # Signals
         self._entry_list.entry_selected.connect(self._on_entry_selected)
+        self._entry_list.entry_delete_requested.connect(self._on_entry_deleted)
         self._entry_list.new_entry_requested.connect(self._on_new_entry_requested)
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
         self._entry_widget.fragment_changed.connect(self._on_fragment_changed)
@@ -250,6 +251,26 @@ class LogbookPanel(BasePanel):
         except Exception as e:
             logger.error("Failed to update title: {}", e)
         self._entry_list.set_entries(list(self._entries.values()))
+
+    @Slot(str)
+    def _on_entry_deleted(self, entry_id: str) -> None:
+        if not self._client:
+            return
+        try:
+            self._client.delete_entry(entry_id)
+            self._entries.pop(entry_id, None)
+            logger.info("Deleted entry {}", entry_id)
+            # If we deleted the current entry, select another
+            if self._current_entry_id == entry_id:
+                if self._entries:
+                    next_id = next(iter(self._entries))
+                    self._select_entry(next_id)
+                    self._entry_list.select_entry(next_id)
+                else:
+                    self._current_entry_id = None
+                    self._entry_widget.set_entry(EntryData())
+        except Exception as e:
+            logger.error("Failed to delete entry: {}", e)
 
     @Slot(str, str)
     def _on_fragment_deleted(self, entry_id: str, fragment_id: str) -> None:

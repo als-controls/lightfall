@@ -263,6 +263,12 @@ class LogbookClient:
         db.execute(f"UPDATE entry SET {', '.join(parts)} WHERE id = ?", params)
         db.commit()
 
+    def delete_entry(self, entry_id: str) -> None:
+        db = self._ensure_db()
+        db.execute("DELETE FROM fragment WHERE entry_id = ?", (entry_id,))
+        db.execute("DELETE FROM entry WHERE id = ?", (entry_id,))
+        db.commit()
+
     # ── Fragment CRUD ─────────────────────────────────────────────
 
     def add_fragment(

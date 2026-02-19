@@ -369,6 +369,7 @@ class EntryListWidget(QFrame):
     """
 
     entry_selected = Signal(str)
+    entry_delete_requested = Signal(str)  # entry_id
     new_entry_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -446,6 +447,7 @@ class EntryListWidget(QFrame):
         for idx, entry in enumerate(sorted_entries):
             row = _EntryRow(entry, self)
             row.clicked.connect(self._on_row_clicked)
+            row.delete_clicked.connect(self._on_row_delete)
             self._list_layout.insertWidget(idx, row)
             self._row_widgets.append(row)
 
@@ -466,6 +468,17 @@ class EntryListWidget(QFrame):
         self._update_selection_highlight()
         self.entry_selected.emit(entry_id)
 
+    @Slot(str)
+    def _on_row_delete(self, entry_id: str) -> None:
+        self._entries = [e for e in self._entries if e.id != entry_id]
+        if self._selected_id == entry_id:
+            self._selected_id = self._entries[0].id if self._entries else None
+        self._rebuild()
+        self.entry_delete_requested.emit(entry_id)
+        # Auto-select next entry
+        if self._selected_id:
+            self.entry_selected.emit(self._selected_id)
+
     @Slot(int)
     def _on_sort_changed(self, index: int) -> None:
         self._sort_key = "created_at" if index == 0 else "updated_at"
@@ -481,6 +494,7 @@ class _EntryRow(QFrame):
     """Single row in the entry list sidebar."""
 
     clicked = Signal(str)
+    delete_clicked = Signal(str)  # entry_id
 
     def __init__(self, entry: EntryData, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -507,6 +521,36 @@ class _EntryRow(QFrame):
             meta_row.addWidget(_tag_chip(tag))
         meta_row.addStretch()
         layout.addLayout(meta_row)
+
+        # Delete button (overlay, shown on hover)
+        self._delete_btn = QToolButton(self)
+        try:
+            import qtawesome as qta
+            self._delete_btn.setIcon(qta.icon("mdi.delete-outline", color="#f44336"))
+        except ImportError:
+            self._delete_btn.setText("✕")
+        self._delete_btn.setToolTip("Delete entry")
+        self._delete_btn.setStyleSheet(
+            "QToolButton { border: none; border-radius: 3px; padding: 2px; } "
+            "QToolButton:hover { background: rgba(244,67,54,0.2); }"
+        )
+        self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self.entry_id))
+        self._delete_btn.setVisible(False)
+
+    def enterEvent(self, event: Any) -> None:  # noqa: N802
+        self._delete_btn.move(self.width() - self._delete_btn.sizeHint().width() - 4, 4)
+        self._delete_btn.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: Any) -> None:  # noqa: N802
+        self._delete_btn.setVisible(False)
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802
+        if self._delete_btn.isVisible():
+            self._delete_btn.move(self.width() - self._delete_btn.sizeHint().width() - 4, 4)
+        super().resizeEvent(event)
 
     def mousePressEvent(self, event: Any) -> None:  # noqa: N802
         self.clicked.emit(self.entry_id)
