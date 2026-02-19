@@ -121,7 +121,7 @@ class ToastManager(QObject):
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:
         """Handle theme change - no action needed, presets are selected per-toast."""
-        logger.debug("Toast manager notified of theme change: {}", theme.value)
+        logger.debug("Toast manager notified of theme change: {}", theme.value if hasattr(theme, 'value') else theme)
 
     def show(
         self,

@@ -49,8 +49,7 @@ dependencies = [
     # tiled
     "tiled[client]>=0.1.0",
     # networking / proxy support
-    "httpx>=0.27",
-    "httpx-socks>=0.9",
+    "httpx[socks]>=0.27",
     "aiohttp>=3.8",
     "aiohttp-socks>=0.8",
     "PySocks>=1.7",
