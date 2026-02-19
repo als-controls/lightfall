@@ -419,13 +419,6 @@ class CollapsibleGroup(QFrame):
         self._header_label.setStyleSheet("font-size: 9pt; color: #888;")
         header_layout.addWidget(self._header_label, 1)
 
-        self._mode_btn = QPushButton()
-        self._mode_btn.setFlat(True)
-        self._mode_btn.setToolTip("Switch grouping mode")
-        self._mode_btn.setStyleSheet("font-size: 8pt; color: #888; padding: 2px 6px;")
-        self._mode_btn.clicked.connect(self._switch_mode)
-        header_layout.addWidget(self._mode_btn)
-
         outer.addWidget(header)
 
         # --- content container (animated) ---
@@ -485,8 +478,6 @@ class CollapsibleGroup(QFrame):
         subtypes = {f.subtype for f in self._fragments}
         types_str = ", ".join(sorted(subtypes)) if subtypes else "items"
         self._header_label.setText(f"{n} {types_str}")
-        mode_label = "by type" if self._collapse_mode == CollapseMode.SAME_TYPE else "all"
-        self._mode_btn.setText(f"[{mode_label}]")
 
     @Slot()
     def _toggle_collapsed(self) -> None:
@@ -527,12 +518,4 @@ class CollapsibleGroup(QFrame):
         if self._collapsed:
             self._content_widget.setVisible(False)
 
-    @Slot()
-    def _switch_mode(self) -> None:
-        if self._collapse_mode == CollapseMode.ALL_READONLY:
-            self._collapse_mode = CollapseMode.SAME_TYPE
-        else:
-            self._collapse_mode = CollapseMode.ALL_READONLY
-        self._update_header()
-        self.mode_toggled.emit(self._collapse_mode.value)
-        logger.debug(f"CollapsibleGroup mode switched to {self._collapse_mode.value}")
+    pass
