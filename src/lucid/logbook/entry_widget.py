@@ -67,8 +67,44 @@ class EntryData:
 # ---------------------------------------------------------------------------
 
 
+class _TagChip(QFrame):
+    """Small coloured chip with optional remove button."""
+
+    removed = Signal(str)  # tag text
+
+    def __init__(self, tag: str, *, removable: bool = True, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._tag = tag
+        bg = "#3a3a5c" if is_dark_theme() else "#e0e0f0"
+        fg = "#c0c0e0" if is_dark_theme() else "#333366"
+        self.setStyleSheet(
+            f"_TagChip {{ background: {bg}; color: {fg}; border-radius: 6px; "
+            f"padding: 1px 4px; font-size: 8pt; }}"
+        )
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 0, 2, 0)
+        layout.setSpacing(2)
+
+        lbl = QLabel(tag)
+        lbl.setStyleSheet(f"color: {fg}; font-size: 8pt; background: transparent;")
+        layout.addWidget(lbl)
+
+        if removable:
+            close_btn = QToolButton()
+            close_btn.setText("✕")
+            close_btn.setStyleSheet(
+                f"QToolButton {{ border: none; color: {fg}; font-size: 7pt; padding: 0 2px; background: transparent; }} "
+                f"QToolButton:hover {{ color: #f44336; }}"
+            )
+            close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            close_btn.clicked.connect(lambda: self.removed.emit(self._tag))
+            layout.addWidget(close_btn)
+
+
 def _tag_chip(tag: str) -> QLabel:
-    """Create a small coloured chip label for a tag."""
+    """Create a small coloured chip label for a tag (read-only, for sidebar)."""
     lbl = QLabel(tag)
     bg = "#3a3a5c" if is_dark_theme() else "#e0e0f0"
     fg = "#c0c0e0" if is_dark_theme() else "#333366"
@@ -101,6 +137,7 @@ class EntryWidget(QFrame):
     fragment_changed = Signal(str, str, str)
     fragment_deleted = Signal(str, str)
     title_changed = Signal(str, str)  # (entry_id, new_title)
+    tags_changed = Signal(str, list)  # (entry_id, new_tags)
     claude_requested = Signal(str, str)  # (entry_id, fragment_id)
 
     def __init__(
@@ -218,7 +255,21 @@ class EntryWidget(QFrame):
             if item.widget():
                 item.widget().deleteLater()
         for tag in self._entry.tags:
-            self._tags_layout.addWidget(_tag_chip(tag))
+            chip = _TagChip(tag, removable=True)
+            chip.removed.connect(self._on_tag_removed)
+            self._tags_layout.addWidget(chip)
+
+        # Add-tag button
+        add_tag_btn = QToolButton()
+        add_tag_btn.setText("+ tag")
+        add_tag_btn.setStyleSheet(
+            "QToolButton { border: 1px dashed #666; border-radius: 6px; "
+            "padding: 1px 6px; font-size: 8pt; color: #888; } "
+            "QToolButton:hover { border-color: #aaa; color: #aaa; }"
+        )
+        add_tag_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        add_tag_btn.clicked.connect(self._on_add_tag_clicked)
+        self._tags_layout.addWidget(add_tag_btn)
         self._tags_layout.addStretch()
 
     # -- fragment building --
@@ -283,6 +334,43 @@ class EntryWidget(QFrame):
         if new_title != self._entry.title:
             self._entry.title = new_title
             self.title_changed.emit(self._entry.id, new_title)
+
+    def _on_tag_removed(self, tag: str) -> None:
+        if tag in self._entry.tags:
+            self._entry.tags.remove(tag)
+            self._update_header()
+            self.tags_changed.emit(self._entry.id, self._entry.tags)
+
+    def _on_add_tag_clicked(self) -> None:
+        """Replace the '+ tag' button with an inline QLineEdit."""
+        # Find and hide the add button
+        for i in range(self._tags_layout.count()):
+            w = self._tags_layout.itemAt(i).widget()
+            if isinstance(w, QToolButton) and w.text() == "+ tag":
+                w.setVisible(False)
+                break
+
+        tag_input = QLineEdit()
+        tag_input.setPlaceholderText("new tag")
+        tag_input.setFixedWidth(80)
+        tag_input.setStyleSheet(
+            "font-size: 8pt; border: 1px solid #666; border-radius: 6px; "
+            "padding: 1px 6px; background: transparent;"
+        )
+        # Insert before the stretch
+        self._tags_layout.insertWidget(self._tags_layout.count() - 1, tag_input)
+        tag_input.setFocus()
+
+        def commit() -> None:
+            text = tag_input.text().strip()
+            tag_input.deleteLater()
+            if text and text not in self._entry.tags:
+                self._entry.tags.append(text)
+                self.tags_changed.emit(self._entry.id, self._entry.tags)
+            self._update_header()
+
+        tag_input.returnPressed.connect(commit)
+        tag_input.editingFinished.connect(commit)
 
     def _rebuild_fragments(self) -> None:
         """Rebuild all fragment widgets, grouping readonly runs."""

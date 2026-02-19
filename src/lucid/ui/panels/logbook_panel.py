@@ -85,6 +85,7 @@ class LogbookPanel(BasePanel):
         self._entry_widget.fragment_deleted.connect(self._on_fragment_deleted)
         self._entry_widget.claude_requested.connect(self._on_claude_requested)
         self._entry_widget.title_changed.connect(self._on_title_changed)
+        self._entry_widget.tags_changed.connect(self._on_tags_changed)
 
     # ── Init ──────────────────────────────────────────────────────
 
@@ -250,6 +251,18 @@ class LogbookPanel(BasePanel):
             self._client.update_entry(entry_id, title=new_title)
         except Exception as e:
             logger.error("Failed to update title: {}", e)
+        self._entry_list.set_entries(list(self._entries.values()))
+
+    @Slot(str, list)
+    def _on_tags_changed(self, entry_id: str, tags: list[str]) -> None:
+        if not self._client:
+            return
+        if entry_id in self._entries:
+            self._entries[entry_id].tags = tags
+        try:
+            self._client.update_entry(entry_id, tags=tags)
+        except Exception as e:
+            logger.error("Failed to update tags: {}", e)
         self._entry_list.set_entries(list(self._entries.values()))
 
     @Slot(str)
