@@ -149,6 +149,7 @@ class LogbookPanel(BasePanel):
             from lucid.logbook.event_listener import EventListener
             listener = EventListener.get_instance()
             listener.current_entry_id = self._current_entry_id
+            listener.fragment_injected.connect(self._on_fragment_injected)
             listener.start()
         except Exception as e:
             logger.debug("Could not start event listener: {}", e)
@@ -229,6 +230,12 @@ class LogbookPanel(BasePanel):
             self._client.update_fragment(fragment_id, content=content)
         except Exception as e:
             logger.error("Failed to update fragment: {}", e)
+
+    @Slot(str)
+    def _on_fragment_injected(self, entry_id: str) -> None:
+        """Refresh the entry view when the EventListener injects a fragment."""
+        if entry_id == self._current_entry_id:
+            self._select_entry(entry_id)
 
     @Slot(str, str)
     def _on_title_changed(self, entry_id: str, new_title: str) -> None:
