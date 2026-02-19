@@ -271,7 +271,7 @@ class ReadonlyFragmentWidget(QFrame):
         super().__init__(parent)
         self._fragment = fragment
 
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet(_card_stylesheet(fragment.subtype))
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
