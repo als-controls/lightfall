@@ -155,6 +155,8 @@ class IconStripSidebar(QFrame):
         super().__init__(parent)
         self._buttons: dict[str, IconStripButton] = {}
         self._button_sections: dict[str, str] = {}  # panel_id -> "top" or "bottom"
+        self._button_orders: dict[str, int] = {}    # panel_id -> sidebar_order
+        self._button_icons: dict[str, str] = {}     # panel_id -> icon_name (for theme updates)
         self._stretch_index: int = -1  # Index of stretch item in layout
 
         # Drag state
@@ -214,6 +216,7 @@ class IconStripSidebar(QFrame):
         button.drag_finished.connect(self._on_button_drag_finished)
 
         self._buttons[panel_id] = button
+        self._button_icons[panel_id] = icon_name  # Store for theme updates
 
         # Determine which section to add to based on whether stretch exists
         if self._stretch_index >= 0:
@@ -227,6 +230,140 @@ class IconStripSidebar(QFrame):
 
         logger.debug("Added sidebar button for panel: {} (section: {})", panel_id, self._button_sections[panel_id])
         return button
+
+    def insert_panel_button_sorted(
+        self,
+        panel_id: str,
+        icon_name: str,
+        tooltip: str,
+        sidebar_order: int,
+        section: str,
+    ) -> IconStripButton:
+        """Insert a button at the correct sorted position within a section.
+
+        Unlike add_panel_button(), this inserts based on sidebar_order to maintain
+        sorted order within the section. Used when panels are registered at runtime.
+
+        Args:
+            panel_id: Unique panel identifier.
+            icon_name: QtAwesome icon name (e.g., "fa5s.bolt") or path.
+            tooltip: Tooltip text shown on hover.
+            sidebar_order: Order value for sorting (lower = higher position).
+            section: Target section ("top" for left-docking, "bottom" for bottom-docking).
+
+        Returns:
+            The created button.
+        """
+        # Get theme color for icon
+        try:
+            from lucid.ui.theme import ThemeManager
+            theme_mgr = ThemeManager.get_instance()
+            icon_color = theme_mgr.colors.text
+        except Exception:
+            icon_color = "#cccccc"
+
+        # Create icon and button
+        icon = self._resolve_icon(icon_name, icon_color)
+        button = IconStripButton(panel_id, icon, tooltip, self)
+        button.toggled.connect(lambda checked: self._on_button_toggled(panel_id, checked))
+
+        # Connect drag signals
+        button.drag_started.connect(self._on_button_drag_started)
+        button.drag_moved.connect(self._on_button_drag_moved)
+        button.drag_finished.connect(self._on_button_drag_finished)
+
+        # Store tracking info
+        self._buttons[panel_id] = button
+        self._button_icons[panel_id] = icon_name
+        self._button_orders[panel_id] = sidebar_order
+        self._button_sections[panel_id] = section
+
+        # Find the correct insert position within the section
+        insert_index = self._find_sorted_insert_index(sidebar_order, section)
+
+        # Insert at the computed position
+        layout = self.layout()
+        layout.insertWidget(insert_index, button)
+
+        # Adjust stretch index if we inserted before it
+        if self._stretch_index >= 0 and insert_index <= self._stretch_index:
+            self._stretch_index += 1
+
+        logger.debug(
+            "Inserted sidebar button for panel: {} at index {} (section: {}, order: {})",
+            panel_id, insert_index, section, sidebar_order
+        )
+        return button
+
+    def _find_sorted_insert_index(self, sidebar_order: int, section: str) -> int:
+        """Find the correct layout index to insert a button based on order.
+
+        Args:
+            sidebar_order: Order value for the new button.
+            section: Target section ("top" or "bottom").
+
+        Returns:
+            Layout index for insertion.
+        """
+        layout = self.layout()
+
+        # Determine section boundaries
+        if section == "top":
+            start_index = 0
+            end_index = self._stretch_index if self._stretch_index >= 0 else layout.count()
+        else:  # bottom
+            start_index = (self._stretch_index + 1) if self._stretch_index >= 0 else layout.count()
+            end_index = layout.count()
+
+        # Find position within section by comparing sidebar_order
+        for i in range(start_index, end_index):
+            item = layout.itemAt(i)
+            if item is None:
+                continue
+
+            widget = item.widget()
+            if not isinstance(widget, IconStripButton):
+                continue
+
+            existing_order = self._button_orders.get(widget.panel_id, 0)
+            if sidebar_order < existing_order:
+                return i
+
+        # Insert at end of section
+        return end_index
+
+    def remove_panel_button(self, panel_id: str) -> bool:
+        """Remove a panel button from the sidebar.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if the button was removed.
+        """
+        button = self._buttons.pop(panel_id, None)
+        if button is None:
+            return False
+
+        # Get button index before removal
+        layout = self.layout()
+        button_index = layout.indexOf(button)
+
+        # Remove from layout
+        layout.removeWidget(button)
+        button.deleteLater()
+
+        # Clean up tracking dicts
+        self._button_sections.pop(panel_id, None)
+        self._button_orders.pop(panel_id, None)
+        self._button_icons.pop(panel_id, None)
+
+        # Adjust stretch index if button was before it
+        if self._stretch_index >= 0 and button_index < self._stretch_index:
+            self._stretch_index -= 1
+
+        logger.debug("Removed sidebar button for panel: {}", panel_id)
+        return True
 
     def _resolve_icon(self, icon_name: str, color: str) -> QIcon:
         """Resolve an icon name to a QIcon.

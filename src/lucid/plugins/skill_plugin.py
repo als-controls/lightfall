@@ -1,39 +1,64 @@
 """Skill plugin type for Claude assistant capabilities.
 
-SkillPlugin defines contextual expertise packages for the Claude assistant.
+SkillPlugin extends MCPToolPlugin with system prompt capabilities.
 Skills combine system prompt snippets (instructional context) with optional
 MCP tools, allowing modular expertise packages for specific domains
 (e.g., beamline alignment, data analysis, scan planning).
+
+The inheritance hierarchy is:
+    PluginType -> MCPToolPlugin -> SkillPlugin
+
+This allows all tool plugins (mcp_tool and skill) to be managed via
+the same settings UI with enable/disable support.
 """
 
 from __future__ import annotations
 
+import re
 from abc import abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lucid.plugins.mcp_tool import MCPToolPlugin
 
 if TYPE_CHECKING:
     pass
 
 
-class SkillPlugin(PluginType):
+class SkillPlugin(MCPToolPlugin):
     """Abstract base for skill plugins.
 
-    Skill plugins extend the Claude assistant with contextual capabilities.
+    Skill plugins extend MCPToolPlugin with system prompt capabilities.
     Each skill provides:
     - A system prompt snippet that gives Claude domain expertise
     - Optional MCP tools for specialized operations
 
+    Skills differ from regular MCP tool plugins in that:
+    - They provide get_system_prompt() for domain expertise
+    - They are disabled by default (enabled_by_default = False)
+    - They are registered with both MCPToolRegistry and SkillRegistry
+
     Skills are:
     - Discovered via plugin manifests (same as other plugins)
-    - Registered with SkillRegistry on load
+    - Registered with MCPToolRegistry (for tools) and SkillRegistry (for prompts)
     - Enabled/disabled per-user via preferences
     - Aggregated by priority into Claude's context
 
     Class Attributes:
         type_name: "skill" - identifies this as a skill plugin.
         is_singleton: True - skill plugins are singletons.
+
+    Inherited from MCPToolPlugin:
+        name: Unique identifier (abstract)
+        description: Human-readable description (abstract)
+        display_name: Name for settings UI (default: name.title())
+        category: Grouping category (default: "general")
+        enabled_by_default: Whether on by default (overridden to False for skills)
+        priority: Sort order (default: 100)
+        create_tools(): Create MCP tools (default: empty list)
+
+    Skill-specific:
+        get_system_prompt(): System prompt snippet (abstract)
 
     Example implementation::
 
@@ -52,7 +77,7 @@ class SkillPlugin(PluginType):
 
             @property
             def enabled_by_default(self) -> bool:
-                return True
+                return True  # Override default False if desired
 
             @property
             def priority(self) -> int:
@@ -74,25 +99,19 @@ class SkillPlugin(PluginType):
     type_name: ClassVar[str] = "skill"
     is_singleton: ClassVar[bool] = True
 
+    # Override: skills are disabled by default (opt-in)
     @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique identifier for this skill.
+    def enabled_by_default(self) -> bool:
+        """Whether this skill is enabled by default.
 
-        This should be unique within the skill type and is used to
-        identify the skill in the registry and preferences.
+        Skills are disabled by default (opt-in). Override this to True
+        for skills that should be active for new users without explicit
+        configuration.
+
+        Returns:
+            True if enabled by default. Defaults to False for skills.
         """
-        ...
-
-    @property
-    @abstractmethod
-    def description(self) -> str:  # noqa: F811
-        """Human-readable description of what this skill provides.
-
-        This is shown in the settings UI to help users understand
-        what enabling this skill will do.
-        """
-        ...
+        return False
 
     @abstractmethod
     def get_system_prompt(self) -> str:
@@ -106,55 +125,6 @@ class SkillPlugin(PluginType):
         """
         ...
 
-    @property
-    def display_name(self) -> str:
-        """Human-readable name shown in settings UI.
-
-        Override this to provide a custom display name. By default,
-        converts the name to title case.
-
-        Returns:
-            Display name for the settings UI.
-        """
-        return self.name.replace("_", " ").title()
-
-    @property
-    def category(self) -> str:
-        """Category for grouping skills in the settings UI.
-
-        Override this to group related skills together.
-        Common categories: "general", "operations", "analysis", "planning".
-
-        Returns:
-            Category name. Defaults to "general".
-        """
-        return "general"
-
-    @property
-    def enabled_by_default(self) -> bool:
-        """Whether this skill is enabled by default.
-
-        Override this to True for skills that should be active
-        for new users without explicit configuration.
-
-        Returns:
-            True if enabled by default. Defaults to False.
-        """
-        return False
-
-    @property
-    def priority(self) -> int:
-        """Sort order for system prompt aggregation (lower = higher priority).
-
-        Skills with lower priority values have their prompts appear earlier
-        in the aggregated system prompt. Use this to ensure important
-        context appears first.
-
-        Returns:
-            Priority value. Defaults to 100.
-        """
-        return 100
-
     def create_tools(self) -> list[Any]:
         """Create MCP tools provided by this skill.
 
@@ -167,21 +137,133 @@ class SkillPlugin(PluginType):
         """
         return []
 
+    def get_brief_description(self) -> str:
+        """Get a brief (~100-200 char) description for the system prompt.
+
+        This is a short hint that goes in the system prompt, telling Claude
+        what the skill does without the full API documentation. Override
+        this for skills with large documentation files to keep the system
+        prompt small.
+
+        By default, returns the full system prompt for backward compatibility.
+
+        Returns:
+            Brief description text for the system prompt.
+        """
+        return self.get_system_prompt()
+
+    def get_documentation_path(self) -> Path | None:
+        """Get the path to the documentation markdown file for this skill.
+
+        Skills with large API documentation should have a corresponding
+        markdown file in the skills/docs/ directory. The filename should
+        match the skill name (e.g., "plan_design" -> "plan_design.md").
+
+        Returns:
+            Path to the documentation file, or None if no external docs.
+        """
+        docs_dir = Path(__file__).parent / "skills" / "docs"
+        doc_file = docs_dir / f"{self.name}.md"
+        if doc_file.exists():
+            return doc_file
+        return None
+
+    def get_documentation_topics(self) -> list[str]:
+        """Extract topic slugs from H2 headers in the documentation.
+
+        Parses the documentation file and returns slugified versions of
+        all H2 (##) headers. These can be used with get_documentation(topic)
+        to retrieve specific sections.
+
+        Returns:
+            List of topic slugs, or empty list if no documentation.
+        """
+        doc_path = self.get_documentation_path()
+        if doc_path is None:
+            return []
+
+        try:
+            content = doc_path.read_text(encoding="utf-8")
+        except Exception:
+            return []
+
+        # Find all H2 headers (## Header Text)
+        topics = []
+        for match in re.finditer(r"^## (.+)$", content, re.MULTILINE):
+            header = match.group(1).strip()
+            # Slugify: lowercase, replace spaces with hyphens
+            slug = re.sub(r"[^a-z0-9]+", "-", header.lower()).strip("-")
+            if slug:
+                topics.append(slug)
+
+        return topics
+
+    def get_documentation(self, topic: str | None = None) -> str | None:
+        """Get documentation content, optionally for a specific topic.
+
+        Args:
+            topic: Optional topic slug to retrieve a specific section.
+                   If None, returns the full documentation.
+
+        Returns:
+            Documentation text, or None if no documentation available.
+        """
+        doc_path = self.get_documentation_path()
+        if doc_path is None:
+            return None
+
+        try:
+            content = doc_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+        if topic is None:
+            return content
+
+        # Find the section for this topic
+        # Look for ## header that slugifies to the requested topic
+        lines = content.split("\n")
+        section_lines = []
+        in_section = False
+        current_slug = None
+
+        for line in lines:
+            # Check if this is an H2 header
+            h2_match = re.match(r"^## (.+)$", line)
+            if h2_match:
+                header = h2_match.group(1).strip()
+                current_slug = re.sub(r"[^a-z0-9]+", "-", header.lower()).strip("-")
+
+                if in_section:
+                    # We hit the next section, stop
+                    break
+
+                if current_slug == topic:
+                    in_section = True
+                    section_lines.append(line)
+                continue
+
+            # Check for H1 header (## -> end of all H2 sections under it)
+            if re.match(r"^# ", line) and in_section:
+                break
+
+            if in_section:
+                section_lines.append(line)
+
+        if section_lines:
+            return "\n".join(section_lines).strip()
+
+        return None
+
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools.
 
         Returns:
             Dictionary with skill plugin information.
         """
-        return {
-            "type": self.type_name,
-            "name": self.name,
-            "display_name": self.display_name,
-            "description": self.description,
-            "category": self.category,
-            "enabled_by_default": self.enabled_by_default,
-            "priority": self.priority,
-            "has_tools": len(self.create_tools()) > 0,
-            "class": self.__class__.__name__,
-            "module": self.__class__.__module__,
-        }
+        # Get base data from parent
+        data = super().get_introspection_data()
+        # Add skill-specific fields
+        data["has_tools"] = len(self.create_tools()) > 0
+        data["has_prompt"] = bool(self.get_system_prompt().strip())
+        return data

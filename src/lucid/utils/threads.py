@@ -347,11 +347,28 @@ class QThreadFuture(QThread):
 
         if self._register:
             thread_manager.register(self, self._key)
+            # Unregister when the thread finishes. The finished signal is
+            # emitted by QThread's C++ internals AFTER run() returns, so
+            # the thread is in a safe state. This is more reliable than
+            # calling unregister inside run()'s finally block, because:
+            #  1. run() is still on the call stack when finally runs
+            #  2. invoke_in_main_thread uses a Python QEvent subclass whose
+            #     wrapper can be GC'd after postEvent transfers C++ ownership
+            self.finished.connect(self._deferred_unregister)
 
         super().start(self._priority)
 
         if self._timeout > 0:
             QTimer.singleShot(self._timeout, self.cancel)
+
+    def _deferred_unregister(self) -> None:
+        """Unregister from ThreadManager after thread has finished.
+
+        Connected to the finished signal in start(). The finished signal
+        is emitted by QThread's C++ internals after run() has fully
+        returned, so it's safe to drop the ThreadManager reference here.
+        """
+        thread_manager.unregister(self)
 
     @_coverage_resolve_trace
     def run(self) -> None:
@@ -390,9 +407,6 @@ class QThreadFuture(QThread):
         else:
             if self._finished_slot:
                 self.sigDone.emit()
-        finally:
-            if self._register:
-                thread_manager.unregister(self)
 
     def _run(self) -> Generator[Any, None, Any]:
         """Internal run implementation. Override in subclasses.

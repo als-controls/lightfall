@@ -36,6 +36,8 @@ from PySide6QtAds import (
 from lucid.ui.docking.icon_sidebar import IconStripSidebar
 from lucid.ui.docking.state import DockingState
 from lucid.ui.docking.widget import PanelDockWidget
+from lucid.ui.panels.base import PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
 from lucid.utils.logging import logger
 
 # Default sizes for side panels (in pixels)
@@ -111,6 +113,10 @@ class DockingManager(QObject):
         self._bottom_dock_areas: set = set()  # CDockAreaWidget objects in bottom zone
         self._right_dock_areas: set = set()   # CDockAreaWidget objects in right zone
 
+        # Deferred (lazy) panel tracking
+        self._deferred_panels: dict[str, str] = {}  # panel_id -> area
+        self._deferred_metadata: dict[str, PanelMetadata] = {}  # panel_id -> metadata
+
     def initialize(self) -> None:
         """Initialize CDockManager with custom icon strip sidebar.
 
@@ -154,6 +160,11 @@ class DockingManager(QObject):
 
         # Connect focus tracking
         self._dock_manager.focusedDockWidgetChanged.connect(self._on_focus_changed)
+
+        # Connect to panel registry signals for runtime panel registration
+        registry = PanelRegistry.get_instance()
+        registry.panel_registered.connect(self._on_panel_registered)
+        registry.panel_unregistered.connect(self._on_panel_unregistered)
 
         logger.info("DockingManager initialized with icon strip sidebar")
 
@@ -327,6 +338,134 @@ class DockingManager(QObject):
         )
         return True
 
+    # Deferred (lazy) panel methods
+
+    def register_deferred_panel(
+        self,
+        panel_id: str,
+        metadata: PanelMetadata,
+        area: str,
+        *,
+        add_sidebar_button: bool = True,
+    ) -> None:
+        """Register a panel for deferred (lazy) instantiation.
+
+        The panel will not be created until the user clicks its sidebar
+        button or explicitly requests it. This improves startup time by
+        avoiding instantiation of hidden panels.
+
+        Args:
+            panel_id: Panel identifier.
+            metadata: Panel metadata (provides icon, name without instantiation).
+            area: Dock area ("left", "bottom").
+            add_sidebar_button: Whether to add sidebar button immediately.
+                Set False to control icon order via add_deferred_sidebar_button().
+        """
+        if panel_id in self._panel_widgets:
+            logger.warning(
+                "Panel {} already instantiated, skipping deferred registration",
+                panel_id,
+            )
+            return
+
+        if panel_id in self._deferred_panels:
+            logger.debug("Panel {} already registered as deferred", panel_id)
+            return
+
+        self._deferred_panels[panel_id] = area
+        self._deferred_metadata[panel_id] = metadata
+
+        if add_sidebar_button and self._icon_sidebar:
+            self._icon_sidebar.add_panel_button(
+                panel_id,
+                metadata.icon,
+                metadata.name,
+            )
+
+        logger.debug("Registered deferred panel {} for area {}", panel_id, area)
+
+    def add_deferred_sidebar_button(self, panel_id: str) -> bool:
+        """Add a sidebar button for a deferred panel.
+
+        Use this after registering a panel with add_sidebar_button=False
+        to control the order of sidebar icons independently of registration.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if button was added.
+        """
+        if self._icon_sidebar is None:
+            return False
+
+        metadata = self._deferred_metadata.get(panel_id)
+        if metadata is None:
+            # Not a deferred panel - try instantiated panels
+            return self.add_sidebar_button(panel_id)
+
+        self._icon_sidebar.add_panel_button(
+            panel_id,
+            metadata.icon,
+            metadata.name,
+        )
+        return True
+
+    def is_panel_deferred(self, panel_id: str) -> bool:
+        """Check if a panel is registered but not yet instantiated.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if panel is deferred (registered but not instantiated).
+        """
+        return panel_id in self._deferred_panels
+
+    def _instantiate_deferred_panel(self, panel_id: str) -> BasePanel | None:
+        """Instantiate a deferred panel.
+
+        Called when user first clicks a deferred panel's sidebar button.
+        Creates the panel and adds it to the dock system.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            The panel instance or None if instantiation failed.
+        """
+        if panel_id not in self._deferred_panels:
+            return None
+
+        # Pop from deferred tracking
+        area = self._deferred_panels.pop(panel_id)
+        self._deferred_metadata.pop(panel_id, None)
+
+        # Create panel via registry
+        from lucid.ui.panels.registry import PanelRegistry
+
+        registry = PanelRegistry.get_instance()
+        panel = registry.create(panel_id)
+
+        if panel is None:
+            logger.error("Failed to instantiate deferred panel: {}", panel_id)
+            return None
+
+        # Add to dock - button already exists, don't add again
+        dock_widget = self.add_panel(
+            panel_id,
+            panel,
+            area=area,
+            add_sidebar_button=False,
+        )
+
+        if dock_widget is None:
+            logger.error("Failed to add deferred panel to dock: {}", panel_id)
+            return None
+
+        logger.info("Instantiated deferred panel: {}", panel_id)
+        return panel
+
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the docking system.
 
@@ -376,13 +515,20 @@ class DockingManager(QObject):
         """
         return self._panel_widgets.get(panel_id)
 
-    def list_panels(self) -> list[str]:
-        """Get list of all panel IDs.
+    def list_panels(self, *, include_deferred: bool = False) -> list[str]:
+        """Get list of panel IDs.
+
+        Args:
+            include_deferred: If True, include panels that are registered
+                but not yet instantiated.
 
         Returns:
             List of panel identifiers.
         """
-        return list(self._panel_widgets.keys())
+        panels = list(self._panel_widgets.keys())
+        if include_deferred:
+            panels.extend(self._deferred_panels.keys())
+        return panels
 
     def toggle_panel(self, panel_id: str) -> bool:
         """Toggle panel visibility.
@@ -410,6 +556,7 @@ class DockingManager(QObject):
         """Show and focus a panel.
 
         For side panels, hides other panels in the same area first.
+        For deferred panels, instantiates them first.
 
         Args:
             panel_id: Panel identifier.
@@ -417,6 +564,12 @@ class DockingManager(QObject):
         Returns:
             True if successful.
         """
+        # Instantiate deferred panel if needed
+        if panel_id in self._deferred_panels:
+            panel = self._instantiate_deferred_panel(panel_id)
+            if panel is None:
+                return False
+
         return self._show_panel_exclusive(panel_id)
 
     def hide_panel(self, panel_id: str) -> bool:
@@ -493,6 +646,14 @@ class DockingManager(QObject):
             should_show: Whether to show or hide the panel.
         """
         if should_show:
+            # Instantiate deferred panel on first show
+            if panel_id in self._deferred_panels:
+                panel = self._instantiate_deferred_panel(panel_id)
+                if panel is None:
+                    # Failed to instantiate - deactivate button
+                    if self._icon_sidebar:
+                        self._icon_sidebar.set_panel_active(panel_id, False)
+                    return
             self._show_panel_exclusive(panel_id)
         else:
             self.hide_panel(panel_id)
@@ -786,6 +947,72 @@ class DockingManager(QObject):
         elif new_widget is None:
             self._active_panel_id = None
 
+    # Runtime panel registration handlers
+
+    def _on_panel_registered(self, panel_id: str, metadata: PanelMetadata) -> None:
+        """Handle runtime panel registration from PanelRegistry.
+
+        Automatically registers the panel as deferred and adds its sidebar button
+        at the correct sorted position based on metadata.
+
+        Args:
+            panel_id: The registered panel ID.
+            metadata: Panel metadata.
+        """
+        # Skip if already known (instantiated or deferred)
+        if panel_id in self._panel_widgets or panel_id in self._deferred_panels:
+            return
+
+        # Skip non-sidebar panels (center area)
+        if metadata.default_area == "center":
+            return
+
+        # Map default_area to sidebar section
+        # "left" -> "top" section (top of icon strip)
+        # "bottom" -> "bottom" section
+        section = "top" if metadata.default_area == "left" else "bottom"
+
+        # Register as deferred panel (no sidebar button yet)
+        self._deferred_panels[panel_id] = metadata.default_area
+        self._deferred_metadata[panel_id] = metadata
+
+        # Add sidebar button at sorted position
+        if self._icon_sidebar:
+            self._icon_sidebar.insert_panel_button_sorted(
+                panel_id,
+                metadata.icon,
+                metadata.name,
+                metadata.sidebar_order,
+                section,
+            )
+
+        logger.debug(
+            "Auto-registered runtime panel: {} (area={}, section={}, order={})",
+            panel_id, metadata.default_area, section, metadata.sidebar_order
+        )
+
+    def _on_panel_unregistered(self, panel_id: str) -> None:
+        """Handle panel unregistration from PanelRegistry.
+
+        Removes the panel from deferred tracking and sidebar.
+
+        Args:
+            panel_id: The unregistered panel ID.
+        """
+        # Remove from deferred tracking
+        self._deferred_panels.pop(panel_id, None)
+        self._deferred_metadata.pop(panel_id, None)
+
+        # Remove sidebar button
+        if self._icon_sidebar:
+            self._icon_sidebar.remove_panel_button(panel_id)
+
+        # Remove instantiated panel if present
+        if panel_id in self._panel_widgets:
+            self.remove_panel(panel_id)
+
+        logger.debug("Removed unregistered panel from docking: {}", panel_id)
+
     # State persistence
 
     def save_state(self, settings: QSettings | None = None) -> QByteArray:
@@ -842,12 +1069,30 @@ class DockingManager(QObject):
                 "floating": widget.isFloating(),
                 "focused": panel_id == self._active_panel_id,
                 "area": self._panel_areas.get(panel_id, "unknown"),
+                "deferred": False,
             }
             panels_data.append(panel_info)
 
-        # Group panels by area
+        # Add deferred panels
+        for panel_id, area in self._deferred_panels.items():
+            metadata = self._deferred_metadata.get(panel_id)
+            panel_info = {
+                "id": panel_id,
+                "title": metadata.name if metadata else panel_id,
+                "visible": False,
+                "floating": False,
+                "focused": False,
+                "area": area,
+                "deferred": True,
+            }
+            panels_data.append(panel_info)
+
+        # Group panels by area (including deferred)
         areas = {"left": [], "bottom": [], "center": []}
         for panel_id, area in self._panel_areas.items():
+            if area in areas:
+                areas[area].append(panel_id)
+        for panel_id, area in self._deferred_panels.items():
             if area in areas:
                 areas[area].append(panel_id)
 
@@ -856,4 +1101,5 @@ class DockingManager(QObject):
             "active_panel": self._active_panel_id,
             "areas": areas,
             "architecture": "icon_strip_sidebar",
+            "deferred_count": len(self._deferred_panels),
         }

@@ -1,9 +1,10 @@
-"""Plan design skill plugin.
+"""Panel design skill plugin.
 
-Provides Claude with expertise for designing Bluesky plans with
-LUCID UI annotations for procedural UI generation.
+Provides Claude with expertise for designing BasePanel subclasses
+for the LUCID application. This skill teaches the full panel API
+including metadata, lifecycle, state management, and self-registration.
 
-Full API documentation is stored in skills/docs/plan_design.md and
+Full API documentation is stored in skills/docs/panel_design.md and
 loaded on-demand via the ncs_get_skill_docs tool.
 """
 
@@ -14,32 +15,33 @@ from typing import Any
 from lucid.plugins.skill_plugin import SkillPlugin
 
 
-class PlanDesignSkill(SkillPlugin):
-    """Skill for designing Bluesky plans.
+class PanelDesignSkill(SkillPlugin):
+    """Skill for designing LUCID panel plugins.
 
     This skill provides Claude with deep expertise for:
-    - Bluesky plan_stubs (bps) for low-level building blocks
-    - Standard Bluesky plans (bp) for high-level scan patterns
-    - LUCID UI annotations for procedural UI generation
-    - Best practices for plan composition and error handling
+    - BasePanel lifecycle and API
+    - PanelMetadata configuration
+    - State management and introspection
+    - Self-registration pattern for user plugins
+    - Qt/PySide6 component patterns
 
-    Full API documentation is in skills/docs/plan_design.md.
+    Full API documentation is in skills/docs/panel_design.md.
     """
 
     @property
     def name(self) -> str:
         """Return unique identifier for this skill."""
-        return "plan_design"
+        return "panel_design"
 
     @property
     def display_name(self) -> str:
         """Return human-readable display name."""
-        return "Bluesky Plan Design"
+        return "Panel Design"
 
     @property
     def description(self) -> str:
         """Return description of this skill's capabilities."""
-        return "Expertise in designing Bluesky plans with LUCID UI annotations"
+        return "Expertise in designing LUCID panel plugins with self-registration"
 
     @property
     def category(self) -> str:
@@ -54,24 +56,26 @@ class PlanDesignSkill(SkillPlugin):
     @property
     def priority(self) -> int:
         """Return priority (lower = higher in prompt order)."""
-        return 15
+        return 20
 
     def get_brief_description(self) -> str:
         """Return brief hint for system prompt (full docs are on-demand)."""
-        return """## Bluesky Plan Design
+        return """## LUCID Panel Design
 
-Expert at designing Bluesky plans for LUCID with UI annotations.
+Expert at designing Qt panel plugins for LUCID with self-registration.
 
-**Use `ncs_get_skill_docs` tool with skill="plan_design"** to get full API reference for:
-- `bluesky.plan_stubs` (bps.*) - movement, timing, reading stubs
-- `bluesky.plans` (bp.*) - scan, grid_scan, count, etc.
-- `lucid.ui.annotations` - Unit, Range, DeviceFilter, etc.
+**Use `ncs_get_skill_docs` tool with skill="panel_design"** to get full API reference for:
+- `PanelMetadata` - id, name, category, docking preferences
+- `BasePanel` lifecycle - _setup_ui(), signals, state management
+- MCP introspection - _get_specific_introspection_data(), actions
+- Self-registration pattern with `PanelRegistry.get_instance().register()`
+- Qt widgets and layout patterns
 
-Key imports: `from bluesky import plan_stubs as bps, plans as bp`
+Key imports: `from lucid.ui.panels.base import BasePanel, PanelMetadata`
 """
 
     def get_system_prompt(self) -> str:
-        """Return the system prompt snippet for plan design expertise.
+        """Return the system prompt snippet for panel design expertise.
 
         Returns the brief description for the system prompt. Full documentation
         is available via ncs_get_skill_docs tool.

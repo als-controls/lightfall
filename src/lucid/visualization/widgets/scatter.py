@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from lucid.plugins.visualization_plugin import VisualizationPlugin
 from lucid.visualization.base import BaseVisualizationWidget
+from lucid.visualization.motor_mixin import VisualizationMotorMixin
 from lucid.visualization.spec import (
     DataCharacteristics,
     FieldType,
@@ -35,7 +36,9 @@ if TYPE_CHECKING:
     from lucid.acquire.buffer import MultiStreamBuffer
 
 
-class ScatterVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
+class ScatterVisualization(
+    VisualizationMotorMixin, ThemedVisualizationMixin, BaseVisualizationWidget
+):
     """Scatter plot visualization for irregular 2D data.
 
     Displays data points as colored circles at their (x, y) positions
@@ -46,6 +49,7 @@ class ScatterVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
     - Adjustable point size
     - Multiple colormap options
     - Hover tooltips showing values
+    - Right-click context menu for motor movement (Go to X, Y, or X,Y)
     """
 
     def __init__(
@@ -105,6 +109,9 @@ class ScatterVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
             brush=pg.mkBrush(100, 100, 255, 200),
         )
         self._plot_widget.addItem(self._scatter_item)
+
+        # Setup motor movement context menu (from VisualizationMotorMixin)
+        self._setup_motor_context_menu()
 
         main_layout.addWidget(self._plot_widget)
 
@@ -273,21 +280,39 @@ class ScatterVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
 
     def _update_field_selectors(self, data: dict[str, Any]) -> None:
         """Update field combo boxes."""
+        from loguru import logger
+
         scalar_fields = [k for k, v in data.items()
                         if not hasattr(v, "shape") or not v.shape]
 
+        logger.debug(
+            "Scatter _update_field_selectors: scalar_fields={}, "
+            "spec.x_field='{}', spec.y_field='{}', spec.z_field='{}', "
+            "dim_fields={}",
+            scalar_fields,
+            self._spec.x_field,
+            self._spec.y_field,
+            self._spec.z_field,
+            self._spec.characteristics.dim_fields,
+        )
+
+        # Block signals on all combos while updating
         for combo in [self._x_combo, self._y_combo, self._z_combo]:
             combo.blockSignals(True)
             combo.clear()
             combo.addItems(scalar_fields)
-            combo.blockSignals(False)
 
+        # Set current selections while still blocked
         if self._spec.x_field in scalar_fields:
             self._x_combo.setCurrentText(self._spec.x_field)
         if self._spec.y_field in scalar_fields:
             self._y_combo.setCurrentText(self._spec.y_field)
         if self._spec.z_field in scalar_fields:
             self._z_combo.setCurrentText(self._spec.z_field)
+
+        # Now unblock signals
+        for combo in [self._x_combo, self._y_combo, self._z_combo]:
+            combo.blockSignals(False)
 
     def _refresh_from_buffer(self) -> None:
         """Refresh from buffer data."""

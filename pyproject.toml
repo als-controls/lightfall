@@ -42,6 +42,7 @@ dependencies = [
     "pyqt-toast-notification>=1.0",
     "pyqtgraph>=0.13",
     "qtawesome>=1.3",
+    "scipy>=1.11",
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
@@ -204,6 +205,9 @@ requires = [
     "qtconsole>=5.5",
     "ipykernel>=6.0",
     "ipython>=8.0",
+
+    # Scientific computing
+    "scipy>=1.11",
 
     # Utilities
     "platformdirs>=4.0",

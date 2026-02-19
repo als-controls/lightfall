@@ -48,9 +48,6 @@ class SkillRegistry:
     _instance: SkillRegistry | None = None
     _lock = threading.Lock()
 
-    # Preference key for enabled skills list
-    ENABLED_SKILLS_PREF = "enabled_skills"
-
     def __init__(self) -> None:
         """Initialize the registry.
 
@@ -126,14 +123,19 @@ class SkillRegistry:
     def _get_enabled_skill_names(self) -> set[str]:
         """Get the set of enabled skill names from preferences.
 
+        Uses the unified enabled_tool_plugins preference shared with
+        MCPToolRegistry. This ensures skills are enabled/disabled via
+        the same settings UI as regular tool plugins.
+
         Returns:
             Set of skill names that are enabled.
         """
         try:
+            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
             from lucid.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
-            enabled_list = prefs.get(self.ENABLED_SKILLS_PREF)
+            enabled_list = prefs.get(MCPToolRegistry.ENABLED_PLUGINS_PREF)
 
             if enabled_list is None:
                 # No preference set - use default enabled state from plugins
@@ -144,10 +146,11 @@ class SkillRegistry:
                 }
 
             if isinstance(enabled_list, list):
-                return set(enabled_list)
+                # Filter to only skills we know about
+                return set(enabled_list) & set(self._skill_plugins.keys())
 
         except Exception as e:
-            logger.debug("Could not load enabled skills preference: {}", e)
+            logger.debug("Could not load enabled plugins preference: {}", e)
 
         return set()
 
@@ -307,3 +310,75 @@ class SkillRegistry:
                 for plugin in self._skill_plugins.values()
             ],
         }
+
+    def get_skill_reminder(self) -> str:
+        """Generate a summary of enabled skills and their capabilities.
+
+        This creates a plain-text summary that tells Claude what skills
+        are active and what tools they provide. Unlike Claude Code's
+        Skill tool pattern, these skills are pre-loaded - their prompts
+        and tools are already in the context.
+
+        Returns:
+            A formatted summary of enabled skills, or empty string if none.
+        """
+        enabled_skills = self._get_enabled_skills()
+
+        if not enabled_skills:
+            return ""
+
+        # Build skill summary with tools and docs info
+        skill_entries = []
+        skills_with_docs = []
+        for skill in enabled_skills:
+            tools = skill.create_tools()
+            has_docs = skill.get_documentation_path() is not None
+
+            if has_docs:
+                skills_with_docs.append(skill.name)
+
+            parts = []
+            if tools:
+                tool_names = []
+                for t in tools:
+                    name = getattr(t, 'name', None) or getattr(t, '__name__', '?')
+                    tool_names.append(name)
+                parts.append(f"tools: {', '.join(tool_names)}")
+
+            if has_docs:
+                parts.append("has API docs")
+
+            if parts:
+                suffix = f" ({'; '.join(parts)})"
+            else:
+                suffix = " (guidance only)"
+
+            entry = f"- **{skill.display_name}**: {skill.description}{suffix}"
+            skill_entries.append(entry)
+
+        skills_list = "\n".join(skill_entries)
+
+        # Add documentation hint if any skills have docs
+        docs_hint = ""
+        if skills_with_docs:
+            docs_hint = f"""
+
+**On-demand documentation:** Skills marked "has API docs" have detailed API references.
+Use `ncs_get_skill_docs` tool with skill name (e.g., skill="{skills_with_docs[0]}") to retrieve full documentation when needed."""
+
+        reminder = f"""## Active Skills Summary
+
+The following skills are enabled and their capabilities are available to you:
+
+{skills_list}
+
+Skills with "tools:" have registered those tools - use them directly.
+Skills marked "guidance only" provide domain expertise in the prompts above.{docs_hint}"""
+
+        logger.debug(
+            "Generated skill summary with {} skills ({} with docs)",
+            len(enabled_skills),
+            len(skills_with_docs),
+        )
+
+        return reminder

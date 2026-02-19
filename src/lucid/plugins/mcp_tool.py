@@ -3,6 +3,9 @@
 MCPToolPlugin is the plugin type for MCP (Model Context Protocol) tools
 that extend the Claude assistant's capabilities. Plugins implementing this
 interface provide tool functions that the Claude agent can call.
+
+This is also the base class for SkillPlugin, which adds system prompt capabilities.
+All tool plugins (mcp_tool and skill) can be enabled/disabled via the settings UI.
 """
 
 from __future__ import annotations
@@ -24,10 +27,17 @@ class MCPToolPlugin(PluginType):
         type_name: "mcp_tool" - identifies this as an MCP tool plugin.
         is_singleton: True - MCP tool plugins are singletons.
 
+    Properties for Enable/Disable:
+        display_name: Human-readable name for settings UI.
+        description: Description shown in settings UI (abstract).
+        category: Grouping for settings UI (default: "general").
+        enabled_by_default: Whether plugin is on by default (default: True).
+        priority: Sort order (lower = higher priority, default: 100).
+
     Lifecycle:
         1. Plugin is instantiated on load
         2. create_tools() is called to get the tool functions
-        3. Tools are registered with the Claude agent
+        3. Tools are registered with the Claude agent (if enabled)
         4. Tools can be called by Claude during conversations
 
     Tool Creation Pattern:
@@ -49,6 +59,10 @@ class MCPToolPlugin(PluginType):
             def description(self) -> str:
                 return "Tools for running Bluesky scans"
 
+            @property
+            def category(self) -> str:
+                return "acquisition"
+
             def __init__(self):
                 super().__init__()
                 self._engine = None
@@ -62,6 +76,8 @@ class MCPToolPlugin(PluginType):
 
             # Called once on plugin load
             def create_tools(self) -> list:
+                import json
+
                 @tool(
                     name="get_engine_state",
                     description="Get current RunEngine state",
@@ -69,7 +85,10 @@ class MCPToolPlugin(PluginType):
                 )
                 async def get_engine_state(args: dict) -> dict:
                     engine = self._get_engine()
-                    return {"state": engine.state.name}
+                    # MCP protocol requires content wrapper for results
+                    return {
+                        "content": [{"type": "text", "text": json.dumps({"state": engine.state.name})}]
+                    }
 
                 return [get_engine_state]
 
@@ -93,11 +112,6 @@ class MCPToolPlugin(PluginType):
     is_singleton: ClassVar[bool] = True
 
     @property
-    def description(self) -> str:
-        """Human-readable description of this MCP tool plugin."""
-        return "MCP tool plugin for Claude assistant"
-
-    @property
     @abstractmethod
     def name(self) -> str:
         """Unique identifier for this MCP tool plugin.
@@ -111,16 +125,78 @@ class MCPToolPlugin(PluginType):
         ...
 
     @property
-    def tool_description(self) -> str:
-        """Human-readable description of the tools provided.
+    @abstractmethod
+    def description(self) -> str:
+        """Human-readable description of what this plugin provides.
 
-        Override this to provide a custom description. By default,
-        converts the name to a readable format.
+        This is shown in the settings UI to help users understand
+        what enabling this plugin will do.
 
         Returns:
             Description string.
         """
-        return f"Tools from {self.name}"
+        ...
+
+    @property
+    def display_name(self) -> str:
+        """Human-readable name shown in settings UI.
+
+        Override this to provide a custom display name. By default,
+        converts the name to title case.
+
+        Returns:
+            Display name for the settings UI.
+        """
+        return self.name.replace("_", " ").title()
+
+    @property
+    def category(self) -> str:
+        """Category for grouping plugins in the settings UI.
+
+        Override this to group related plugins together.
+        Common categories: "general", "devices", "acquisition", "analysis".
+
+        Returns:
+            Category name. Defaults to "general".
+        """
+        return "general"
+
+    @property
+    def enabled_by_default(self) -> bool:
+        """Whether this plugin is enabled by default.
+
+        MCP tool plugins are enabled by default (True). Override this
+        to False for plugins that should be opt-in.
+
+        Returns:
+            True if enabled by default. Defaults to True.
+        """
+        return True
+
+    @property
+    def priority(self) -> int:
+        """Sort order for display and prompt aggregation (lower = higher priority).
+
+        Plugins with lower priority values appear first in the settings UI
+        and (for skills) have their prompts appear earlier in the aggregated
+        system prompt.
+
+        Returns:
+            Priority value. Defaults to 100.
+        """
+        return 100
+
+    @property
+    def tool_description(self) -> str:
+        """Human-readable description of the tools provided.
+
+        DEPRECATED: Use 'description' property instead.
+        Kept for backward compatibility.
+
+        Returns:
+            Description string.
+        """
+        return self.description
 
     @abstractmethod
     def create_tools(self) -> list[Any]:
@@ -146,7 +222,11 @@ class MCPToolPlugin(PluginType):
         return {
             "type": self.type_name,
             "name": self.name,
-            "description": self.tool_description,
+            "display_name": self.display_name,
+            "description": self.description,
+            "category": self.category,
+            "enabled_by_default": self.enabled_by_default,
+            "priority": self.priority,
             "class": self.__class__.__name__,
             "module": self.__class__.__module__,
         }

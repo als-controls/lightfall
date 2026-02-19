@@ -642,6 +642,25 @@ class PluginLoader(QObject):
                 )
 
         elif plugin_info.type_name == "skill":
+            # Skills inherit from MCPToolPlugin and are registered with both registries:
+            # - MCPToolRegistry: for unified enable/disable and tool collection
+            # - SkillRegistry: for system prompt aggregation
+            try:
+                from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
+
+                tool_registry = MCPToolRegistry.get_instance()
+                skill_plugin = plugin_info.instance
+
+                tool_registry.register_plugin(skill_plugin)
+                logger.debug(
+                    "Registered skill plugin '{}' with MCPToolRegistry",
+                    skill_plugin.name,
+                )
+            except ImportError:
+                logger.debug(
+                    "MCPToolRegistry not available, skipping skill tool registration"
+                )
+
             try:
                 from lucid.ui.panels.claude.skill_registry import SkillRegistry
 

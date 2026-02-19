@@ -28,9 +28,14 @@ class PlanToolPlugin(MCPToolPlugin):
         return "plan_tools"
 
     @property
-    def tool_description(self) -> str:
-        """Plugin description."""
+    def description(self) -> str:
+        """Human-readable description of what this plugin provides."""
         return "Tools for creating and managing user plans"
+
+    @property
+    def category(self) -> str:
+        """Category for grouping in settings UI."""
+        return "acquisition"
 
     def _validate_plan_code(self, code: str, name: str) -> tuple[bool, str | None]:
         """Validate plan code without writing to disk.
