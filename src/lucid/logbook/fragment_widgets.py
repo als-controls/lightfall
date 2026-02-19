@@ -118,6 +118,7 @@ class TextFragmentWidget(QFrame):
     """
 
     content_changed = Signal(str, str)  # (fragment_id, new_content)
+    editing_started = Signal(object)  # self (the widget)
 
     def __init__(
         self,
@@ -187,6 +188,7 @@ class TextFragmentWidget(QFrame):
         self._preview.setVisible(False)
         self._editor.setVisible(True)
         self._editor.setFocus()
+        self.editing_started.emit(self)
 
     def focusOutEvent(self, event: Any) -> None:  # noqa: N802
         # QFrame doesn't normally get focus, but guard anyway
