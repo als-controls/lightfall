@@ -134,6 +134,10 @@ def _render_markdown(text: str) -> str:
     ).replace(
         '<input class="task-list-item-checkbox" type="checkbox" disabled/>', "☐"
     )
+    # Remove bullet from task-list items (class="task-list-item")
+    html = html.replace(
+        '<ul class="task-list">', '<ul style="list-style-type: none; padding-left: 0;">'
+    )
     return html
 
 
