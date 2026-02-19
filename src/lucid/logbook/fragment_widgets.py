@@ -63,7 +63,7 @@ class FragmentData:
     Will be replaced by real model import once models.py lands.
     """
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     fragment_type: FragmentType = FragmentType.TEXT
     content: str = ""
     subtype: str = ""  # bluesky_plan, device_change, claude_response, ...
