@@ -85,7 +85,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(self._enabled_check)
 
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("http://localhost:8000")
+        self._url_edit.setPlaceholderText("http://bcglucidlogbook.dhcp.lbl.gov")
         connection_layout.addRow("Server URL:", self._url_edit)
 
         # Test connection
@@ -163,7 +163,17 @@ class LogbookSettingsPlugin(SettingsPlugin):
         try:
             import httpx
 
-            with httpx.Client(timeout=5.0) as client:
+            # Use proxy settings if configured
+            client_kwargs: dict = {"timeout": 5.0}
+            try:
+                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                proxy_url = ProxySettingsProvider.should_use_proxy_for_url(url)
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
+            except Exception:
+                pass
+
+            with httpx.Client(**client_kwargs) as client:
                 resp = client.get(f"{url.rstrip('/')}/health")
                 if resp.status_code == 200:
                     # 401/403 means server is up but needs auth — still a success
@@ -183,7 +193,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         if self._enabled_check:
             self._enabled_check.setChecked(prefs.get("logbook_enabled", False))
         if self._url_edit:
-            self._url_edit.setText(prefs.get("logbook_url", ""))
+            self._url_edit.setText(prefs.get("logbook_url", "http://bcglucidlogbook.dhcp.lbl.gov"))
         if self._offline_check:
             self._offline_check.setChecked(prefs.get("logbook_offline_only", False))
         if self._status_label:

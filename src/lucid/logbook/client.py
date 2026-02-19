@@ -90,7 +90,19 @@ class _SyncWorker(QThread):
         try:
             db = sqlite3.connect(self._db_path)
             db.row_factory = sqlite3.Row
-            with httpx.Client(base_url=self._server_url, timeout=10) as client:
+
+            # Use proxy settings if configured
+            client_kwargs: dict[str, Any] = {"base_url": self._server_url, "timeout": 10}
+            try:
+                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                proxy_url = ProxySettingsProvider.should_use_proxy_for_url(self._server_url)
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
+                    logger.debug("Logbook sync using proxy: {}", proxy_url)
+            except Exception:
+                pass
+
+            with httpx.Client(**client_kwargs) as client:
                 # Push pending entries
                 for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
                     r = dict(row)
@@ -187,7 +199,7 @@ class LogbookClient:
         try:
             from lucid.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
-            self._server_url = prefs.get("logbook_url", None)
+            self._server_url = prefs.get("logbook_url", None) or "http://bcglucidlogbook.dhcp.lbl.gov"
             self._offline_only = prefs.get("logbook_offline_only", False)
         except Exception:
             logger.debug("Could not load logbook preferences, using defaults")
