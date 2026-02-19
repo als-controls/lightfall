@@ -18,7 +18,7 @@ from typing import Any
 from loguru import logger
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QCursor
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -153,9 +153,6 @@ class EntryWidget(QFrame):
         self._toolbar = self._build_toolbar()
         root.addWidget(self._toolbar)
 
-        # Track which TextFragmentWidget is currently being edited
-        self._active_text_widget: TextFragmentWidget | None = None
-
         # Build fragment widgets
         self._widget_items: list[QWidget] = []
         self._rebuild_fragments()
@@ -228,102 +225,25 @@ class EntryWidget(QFrame):
     # -- toolbar --
 
     def _build_toolbar(self) -> QToolBar:
-        """Build the bottom toolbar with formatting + collapse controls."""
+        """Build the bottom toolbar with collapse controls."""
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
-        toolbar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         toolbar.setStyleSheet(
             "QToolBar { border-top: 1px solid #444; padding: 2px 4px; spacing: 2px; }"
-            "QToolButton { focus-policy: no-focus; }"
         )
 
-        # Formatting buttons
-        def _no_focus_btn(text: str, tooltip: str = "") -> QToolButton:
-            btn = QToolButton()
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setText(text)
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            if tooltip:
-                btn.setToolTip(tooltip)
-            return btn
-
-        bold_btn = _no_focus_btn("B")
-        font = bold_btn.font()
-        font.setBold(True)
-        bold_btn.setFont(font)
-        bold_btn.setToolTip("Bold (**text**)")
-        bold_btn.clicked.connect(lambda: self._insert_markdown_wrap("**"))
-        toolbar.addWidget(bold_btn)
-
-        italic_btn = QToolButton()
-        italic_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        italic_btn.setText("I")
-        font = italic_btn.font()
-        font.setItalic(True)
-        italic_btn.setFont(font)
-        italic_btn.setToolTip("Italic (*text*)")
-        italic_btn.clicked.connect(lambda: self._insert_markdown_wrap("*"))
-        toolbar.addWidget(italic_btn)
-
-        strike_btn = QToolButton()
-        strike_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        strike_btn.setText("S")
-        font = strike_btn.font()
-        font.setStrikeOut(True)
-        strike_btn.setFont(font)
-        strike_btn.setToolTip("Strikethrough (~~text~~)")
-        strike_btn.clicked.connect(lambda: self._insert_markdown_wrap("~~"))
-        toolbar.addWidget(strike_btn)
-
-        code_btn = QToolButton()
-        code_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        code_btn.setText("</>")
-        code_btn.setToolTip("Inline code (`code`)")
-        code_btn.clicked.connect(lambda: self._insert_markdown_wrap("`"))
-        toolbar.addWidget(code_btn)
-
-        toolbar.addSeparator()
-
-        # Heading buttons
-        for level in (1, 2, 3):
-            btn = QToolButton()
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setText(f"H{level}")
-            btn.setToolTip(f"Heading {level}")
-            btn.clicked.connect(lambda checked=False, lv=level: self._insert_heading(lv))
-            toolbar.addWidget(btn)
-
-        normal_btn = QToolButton()
-        normal_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        normal_btn.setText("¶")
-        normal_btn.setToolTip("Normal text (remove heading)")
-        normal_btn.clicked.connect(lambda: self._insert_heading(0))
-        toolbar.addWidget(normal_btn)
-
-        toolbar.addSeparator()
-
-        # List buttons
-        ul_btn = QToolButton()
-        ul_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        ul_btn.setText("• List")
-        ul_btn.setToolTip("Bullet list")
-        ul_btn.clicked.connect(lambda: self._insert_line_prefix("- "))
-        toolbar.addWidget(ul_btn)
-
-        ol_btn = QToolButton()
-        ol_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        ol_btn.setText("1. List")
-        ol_btn.setToolTip("Numbered list")
-        ol_btn.clicked.connect(lambda: self._insert_line_prefix("1. "))
-        toolbar.addWidget(ol_btn)
-
-        # Spacer
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
         # Collapse mode buttons
+        self._expand_all_btn = QToolButton()
+        self._expand_all_btn.setText("Expand All")
+        self._expand_all_btn.setToolTip("Expand all collapsed groups")
+        self._expand_all_btn.clicked.connect(self._expand_all_groups)
+        toolbar.addWidget(self._expand_all_btn)
+
         self._collapse_all_btn = QToolButton()
         self._collapse_all_btn.setText("Collapse All")
         self._collapse_all_btn.setToolTip("Group all consecutive readonly fragments")
@@ -333,12 +253,6 @@ class EntryWidget(QFrame):
             lambda: self._set_collapse_mode(CollapseMode.ALL_READONLY)
         )
         toolbar.addWidget(self._collapse_all_btn)
-
-        self._expand_all_btn = QToolButton()
-        self._expand_all_btn.setText("Expand All")
-        self._expand_all_btn.setToolTip("Expand all collapsed groups")
-        self._expand_all_btn.clicked.connect(self._expand_all_groups)
-        toolbar.addWidget(self._expand_all_btn)
 
         self._collapse_type_btn = QToolButton()
         self._collapse_type_btn.setText("By Type")
@@ -363,58 +277,6 @@ class EntryWidget(QFrame):
         self._collapse_type_btn.setChecked(mode == CollapseMode.SAME_TYPE)
         self._rebuild_fragments()
 
-    def _get_active_editor(self):
-        """Get the QTextEdit of the currently active TextFragmentWidget, if any."""
-        if self._active_text_widget and self._active_text_widget._editor.isVisible():
-            return self._active_text_widget._editor
-        # Fallback: find any visible editor
-        for w in self._widget_items:
-            if isinstance(w, TextFragmentWidget) and w._editor.isVisible():
-                self._active_text_widget = w
-                return w._editor
-        return None
-
-    def _insert_markdown_wrap(self, marker: str) -> None:
-        """Wrap selected text (or insert at cursor) with a markdown marker."""
-        editor = self._get_active_editor()
-        if not editor:
-            return
-        cursor = editor.textCursor()
-        if cursor.hasSelection():
-            selected = cursor.selectedText()
-            cursor.insertText(f"{marker}{selected}{marker}")
-        else:
-            pos = cursor.position()
-            cursor.insertText(f"{marker}{marker}")
-            cursor.setPosition(pos + len(marker))
-            editor.setTextCursor(cursor)
-
-    def _insert_heading(self, level: int) -> None:
-        """Set or remove heading prefix on the current line."""
-        editor = self._get_active_editor()
-        if not editor:
-            return
-        cursor = editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
-        line = cursor.selectedText()
-        # Strip existing heading
-        stripped = line.lstrip("#").lstrip()
-        if level > 0:
-            new_line = "#" * level + " " + stripped
-        else:
-            new_line = stripped
-        cursor.insertText(new_line)
-
-    def _insert_line_prefix(self, prefix: str) -> None:
-        """Add a prefix to the current line."""
-        editor = self._get_active_editor()
-        if not editor:
-            return
-        cursor = editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
-        cursor.insertText(prefix)
-
     def _on_title_edited(self) -> None:
         new_title = self._title_edit.text().strip()
         if new_title != self._entry.title:
@@ -438,7 +300,6 @@ class EntryWidget(QFrame):
             if len(group) == 1 and group[0].fragment_type == FragmentType.TEXT:
                 widget = TextFragmentWidget(group[0])
                 widget.content_changed.connect(self._on_fragment_changed)
-                widget.editing_started.connect(self._on_text_widget_focused)
             elif all(f.fragment_type == FragmentType.READONLY for f in group) and len(group) > 1:
                 widget = CollapsibleGroup(group)
                 widget.collapse_mode = self._collapse_mode
@@ -453,10 +314,6 @@ class EntryWidget(QFrame):
             insert_idx += 1
 
     # -- slots --
-
-    @Slot(object)
-    def _on_text_widget_focused(self, widget: Any) -> None:
-        self._active_text_widget = widget
 
     @Slot(str, str)
     def _on_fragment_changed(self, frag_id: str, content: str) -> None:
