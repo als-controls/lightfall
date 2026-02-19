@@ -81,6 +81,8 @@ class LogbookPanel(BasePanel):
         self._entry_list.new_entry_requested.connect(self._on_new_entry_requested)
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
         self._entry_widget.fragment_changed.connect(self._on_fragment_changed)
+        self._entry_widget.fragment_deleted.connect(self._on_fragment_deleted)
+        self._entry_widget.claude_requested.connect(self._on_claude_requested)
         self._entry_widget.title_changed.connect(self._on_title_changed)
 
     # ── Init ──────────────────────────────────────────────────────
@@ -248,6 +250,105 @@ class LogbookPanel(BasePanel):
         except Exception as e:
             logger.error("Failed to update title: {}", e)
         self._entry_list.set_entries(list(self._entries.values()))
+
+    @Slot(str, str)
+    def _on_fragment_deleted(self, entry_id: str, fragment_id: str) -> None:
+        if not self._client:
+            return
+        try:
+            self._client.delete_fragment(fragment_id)
+            logger.info("Deleted fragment {} from entry {}", fragment_id, entry_id)
+        except Exception as e:
+            logger.error("Failed to delete fragment: {}", e)
+
+    @Slot(str, str)
+    def _on_claude_requested(self, entry_id: str, fragment_id: str) -> None:
+        """Send a fragment's content to Claude and append the response."""
+        # Find the fragment content
+        entry = self._entries.get(entry_id)
+        if not entry:
+            return
+        frag = next((f for f in entry.fragments if f.id == fragment_id), None)
+        if not frag:
+            return
+
+        # Build the prompt from fragment content
+        content = frag.content or json.dumps(frag.metadata, indent=2, default=str)
+        prompt = (
+            f"The user is asking about this logbook fragment:\n\n{content}\n\n"
+            "Please provide a helpful, concise response."
+        )
+
+        # Try to send to the Claude panel
+        try:
+            from lucid.core.services import ServiceRegistry
+
+            services = ServiceRegistry.get_instance()
+            # Find the Claude panel via panel manager
+            from lucid.ui.panels.manager import PanelManager
+            pm = services.get(PanelManager)
+            claude_panel = pm.get_panel("lucid.panels.claude")
+
+            if claude_panel is None:
+                # Open the Claude panel first
+                claude_panel = pm.open_panel("lucid.panels.claude")
+
+            if claude_panel and hasattr(claude_panel, "action_send_message"):
+                claude_panel.action_send_message(prompt)
+                logger.info("Sent fragment {} to Claude", fragment_id)
+
+                # Listen for response via the Claude widget's agent
+                self._pending_claude_entry = entry_id
+                self._pending_claude_frag = fragment_id
+                self._attach_claude_response_listener(claude_panel)
+            else:
+                logger.warning("Claude panel not available")
+        except Exception as e:
+            logger.error("Failed to send to Claude: {}", e)
+
+    def _attach_claude_response_listener(self, claude_panel: Any) -> None:
+        """Attach a one-shot listener for the Claude response."""
+        try:
+            widget = claude_panel._claude_widget
+            if widget and hasattr(widget, "response_finished"):
+                widget.response_finished.connect(
+                    self._on_claude_response, Qt.ConnectionType.SingleShotConnection
+                )
+            elif widget and hasattr(widget, "agent"):
+                # Poll for completion as fallback
+                agent = widget.agent
+                if hasattr(agent, "response_ready"):
+                    agent.response_ready.connect(
+                        self._on_claude_response, Qt.ConnectionType.SingleShotConnection
+                    )
+        except Exception as e:
+            logger.debug("Could not attach Claude response listener: {}", e)
+
+    def _on_claude_response(self, response_text: str = "") -> None:
+        """Handle Claude's response and inject it as a fragment."""
+        entry_id = getattr(self, "_pending_claude_entry", None)
+        if not entry_id or not self._client:
+            return
+
+        if not response_text:
+            return
+
+        try:
+            frag_id = self._client.add_fragment(
+                entry_id,
+                kind="readonly",
+                subtype="claude_response",
+                content=response_text,
+            )
+            logger.info("Injected Claude response fragment {} into entry {}", frag_id, entry_id)
+            # Refresh the view
+            if entry_id == self._current_entry_id:
+                self._select_entry(entry_id)
+        except Exception as e:
+            logger.error("Failed to inject Claude response: {}", e)
+        finally:
+            self._pending_claude_entry = None
+            self._pending_claude_frag = None
 
     def _try_sync(self) -> None:
         if self._client:

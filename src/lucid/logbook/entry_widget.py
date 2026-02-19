@@ -101,6 +101,7 @@ class EntryWidget(QFrame):
     fragment_changed = Signal(str, str, str)
     fragment_deleted = Signal(str, str)
     title_changed = Signal(str, str)  # (entry_id, new_title)
+    claude_requested = Signal(str, str)  # (entry_id, fragment_id)
 
     def __init__(
         self,
@@ -300,11 +301,15 @@ class EntryWidget(QFrame):
             if len(group) == 1 and group[0].fragment_type == FragmentType.TEXT:
                 widget = TextFragmentWidget(group[0])
                 widget.content_changed.connect(self._on_fragment_changed)
+                widget.delete_requested.connect(self._on_fragment_delete)
+                widget.claude_requested.connect(self._on_fragment_claude)
             elif all(f.fragment_type == FragmentType.READONLY for f in group) and len(group) > 1:
                 widget = CollapsibleGroup(group)
                 widget.collapse_mode = self._collapse_mode
             elif len(group) == 1 and group[0].fragment_type == FragmentType.READONLY:
                 widget = ReadonlyFragmentWidget(group[0])
+                widget.delete_requested.connect(self._on_fragment_delete)
+                widget.claude_requested.connect(self._on_fragment_claude)
             else:
                 # Mixed single item fallback
                 widget = ReadonlyFragmentWidget(group[0]) if group else QWidget()
@@ -319,6 +324,20 @@ class EntryWidget(QFrame):
     def _on_fragment_changed(self, frag_id: str, content: str) -> None:
         self._entry.updated_at = datetime.now()
         self.fragment_changed.emit(self._entry.id, frag_id, content)
+
+    @Slot(str)
+    def _on_fragment_delete(self, frag_id: str) -> None:
+        """Remove a fragment from the entry."""
+        self._entry.fragments = [f for f in self._entry.fragments if f.id != frag_id]
+        self._entry.updated_at = datetime.now()
+        self._rebuild_fragments()
+        self.fragment_deleted.emit(self._entry.id, frag_id)
+        logger.debug("Deleted fragment {} from entry {}", frag_id, self._entry.id)
+
+    @Slot(str)
+    def _on_fragment_claude(self, frag_id: str) -> None:
+        """Forward Claude request to the panel."""
+        self.claude_requested.emit(self._entry.id, frag_id)
 
     @Slot()
     def _add_text_fragment(self) -> None:

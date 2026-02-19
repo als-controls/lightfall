@@ -24,7 +24,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QCursor, QMouseEvent
+from PySide6.QtGui import QCursor, QEnterEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -164,11 +164,113 @@ def _card_stylesheet(subtype: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# FragmentOverlay — hover buttons for delete / Claude
+# ---------------------------------------------------------------------------
+
+
+class FragmentOverlay(QWidget):
+    """Floating button bar shown on hover over a fragment widget.
+
+    Positions itself in the top-right corner of its parent fragment.
+
+    Signals:
+        delete_clicked(fragment_id): Delete button pressed.
+        claude_clicked(fragment_id): Claude button pressed.
+    """
+
+    delete_clicked = Signal(str)
+    claude_clicked = Signal(str)
+
+    def __init__(self, fragment_id: str, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._fragment_id = fragment_id
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setVisible(False)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+
+        btn_style = (
+            "QToolButton { "
+            "  border: none; border-radius: 3px; padding: 2px 4px; "
+            "  font-size: 11px; "
+            "} "
+            "QToolButton:hover { background: rgba(255,255,255,0.15); }"
+        )
+
+        self._claude_btn = QToolButton()
+        self._claude_btn.setText("🤖")
+        self._claude_btn.setToolTip("Ask Claude about this")
+        self._claude_btn.setStyleSheet(btn_style)
+        self._claude_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._claude_btn.clicked.connect(lambda: self.claude_clicked.emit(self._fragment_id))
+        layout.addWidget(self._claude_btn)
+
+        self._delete_btn = QToolButton()
+        self._delete_btn.setText("🗑")
+        self._delete_btn.setToolTip("Delete fragment")
+        self._delete_btn.setStyleSheet(btn_style)
+        self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self._fragment_id))
+        layout.addWidget(self._delete_btn)
+
+        self.adjustSize()
+
+    def reposition(self) -> None:
+        """Move to top-right of parent."""
+        p = self.parentWidget()
+        if p:
+            x = p.width() - self.sizeHint().width() - 4
+            self.move(x, 4)
+
+
+class _HoverMixin:
+    """Mixin that shows/hides a FragmentOverlay on enter/leave.
+
+    Subclass must call ``_init_overlay(fragment_id)`` after layout setup.
+    """
+
+    _overlay: FragmentOverlay | None
+
+    def _init_overlay(self, fragment_id: str) -> None:
+        self._overlay = FragmentOverlay(fragment_id, self)  # type: ignore[arg-type]
+        self._overlay.delete_clicked.connect(self._on_overlay_delete)
+        self._overlay.claude_clicked.connect(self._on_overlay_claude)
+
+    # Signals that subclasses should declare
+    delete_requested: Signal  # (fragment_id)
+    claude_requested: Signal  # (fragment_id)
+
+    def _on_overlay_delete(self, fid: str) -> None:
+        self.delete_requested.emit(fid)  # type: ignore[attr-defined]
+
+    def _on_overlay_claude(self, fid: str) -> None:
+        self.claude_requested.emit(fid)  # type: ignore[attr-defined]
+
+    def enterEvent(self, event: QEnterEvent) -> None:  # noqa: N802
+        if self._overlay and not getattr(self, '_editor_visible', False):
+            self._overlay.reposition()
+            self._overlay.setVisible(True)
+        super().enterEvent(event)  # type: ignore[misc]
+
+    def leaveEvent(self, event: Any) -> None:  # noqa: N802
+        if self._overlay:
+            self._overlay.setVisible(False)
+        super().leaveEvent(event)  # type: ignore[misc]
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802
+        if self._overlay and self._overlay.isVisible():
+            self._overlay.reposition()
+        super().resizeEvent(event)  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
 # TextFragmentWidget
 # ---------------------------------------------------------------------------
 
 
-class TextFragmentWidget(QFrame):
+class TextFragmentWidget(_HoverMixin, QFrame):
     """Editable user text fragment.
 
     Shows rendered markdown preview when not focused.  Switches to an
@@ -176,10 +278,14 @@ class TextFragmentWidget(QFrame):
 
     Signals:
         content_changed(fragment_id, new_content): Emitted on every edit.
+        delete_requested(fragment_id): Delete button on overlay.
+        claude_requested(fragment_id): Claude button on overlay.
     """
 
     content_changed = Signal(str, str)  # (fragment_id, new_content)
     editing_started = Signal(object)  # self (the widget)
+    delete_requested = Signal(str)
+    claude_requested = Signal(str)
 
     def __init__(
         self,
@@ -217,10 +323,14 @@ class TextFragmentWidget(QFrame):
             "}"
         )
         self._editor.setVisible(False)
+        self._editor_visible = False
         layout.addWidget(self._editor)
 
         self._render_preview()
         self._editor.textChanged.connect(self._on_text_changed)
+
+        # Hover overlay (must be after layout setup)
+        self._init_overlay(fragment.id)
 
     # -- public API --
 
@@ -245,6 +355,9 @@ class TextFragmentWidget(QFrame):
     def _enter_edit_mode(self) -> None:
         if self._editor.isVisible():
             return
+        self._editor_visible = True
+        if self._overlay:
+            self._overlay.setVisible(False)
         self._editor.setPlainText(self._fragment.content)
         self._preview.setVisible(False)
         self._editor.setVisible(True)
@@ -259,6 +372,7 @@ class TextFragmentWidget(QFrame):
     def _exit_edit_mode(self) -> None:
         if not self._editor.isVisible():
             return
+        self._editor_visible = False
         self._fragment.content = self._editor.toPlainText()
         self._render_preview()
         self._editor.setVisible(False)
@@ -302,7 +416,7 @@ class TextFragmentWidget(QFrame):
 # ---------------------------------------------------------------------------
 
 
-class ReadonlyFragmentWidget(QFrame):
+class ReadonlyFragmentWidget(_HoverMixin, QFrame):
     """Non-editable system fragment displayed as a styled card.
 
     Renders differently depending on ``subtype``:
@@ -313,9 +427,13 @@ class ReadonlyFragmentWidget(QFrame):
 
     Signals:
         clicked(fragment_id): Emitted on click for expand / details.
+        delete_requested(fragment_id): Delete button on overlay.
+        claude_requested(fragment_id): Claude button on overlay.
     """
 
     clicked = Signal(str)  # fragment_id
+    delete_requested = Signal(str)
+    claude_requested = Signal(str)
 
     def __init__(
         self,
@@ -340,6 +458,9 @@ class ReadonlyFragmentWidget(QFrame):
         layout.addWidget(self._label)
 
         self._render()
+
+        # Hover overlay
+        self._init_overlay(fragment.id)
 
     @property
     def fragment(self) -> FragmentData:
