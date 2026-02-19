@@ -317,6 +317,12 @@ class EntryWidget(QFrame):
         )
         toolbar.addWidget(self._collapse_all_btn)
 
+        self._expand_all_btn = QToolButton()
+        self._expand_all_btn.setText("Expand All")
+        self._expand_all_btn.setToolTip("Expand all collapsed groups")
+        self._expand_all_btn.clicked.connect(self._expand_all_groups)
+        toolbar.addWidget(self._expand_all_btn)
+
         self._collapse_type_btn = QToolButton()
         self._collapse_type_btn.setText("By Type")
         self._collapse_type_btn.setToolTip("Group consecutive readonly fragments by subtype")
@@ -328,6 +334,11 @@ class EntryWidget(QFrame):
         toolbar.addWidget(self._collapse_type_btn)
 
         return toolbar
+
+    def _expand_all_groups(self) -> None:
+        for w in self._widget_items:
+            if isinstance(w, CollapsibleGroup) and w.is_collapsed:
+                w._toggle_collapsed()
 
     def _set_collapse_mode(self, mode: CollapseMode) -> None:
         self._collapse_mode = mode
