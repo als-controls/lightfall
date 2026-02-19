@@ -209,9 +209,7 @@ class TextFragmentWidget(QFrame):
     # -- internal --
 
     def _render_preview(self) -> None:
-        """Very lightweight markdown→HTML (bold, italic, code)."""
-        import re
-
+        """Render markdown content as HTML preview using mistune."""
         text = self._fragment.content
         if not text:
             self._preview.setStyleSheet("padding: 6px 8px; color: #888; font-style: italic;")
@@ -219,12 +217,8 @@ class TextFragmentWidget(QFrame):
             return
 
         self._preview.setStyleSheet("padding: 6px 8px;")
-        # Minimal rendering: convert **bold**, *italic*, `code`
-        html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html)
-        html = re.sub(r"\*(.+?)\*", r"<i>\1</i>", html)
-        html = re.sub(r"`(.+?)`", r"<code>\1</code>", html)
-        html = html.replace("\n", "<br>")
+        import mistune
+        html = mistune.html(text)
         self._preview.setText(html)
 
     @Slot()
