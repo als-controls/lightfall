@@ -220,6 +220,12 @@ class TextFragmentWidget(QFrame):
         import mistune
         md = mistune.create_markdown(plugins=["task_lists", "table", "strikethrough"])
         html = md(text)
+        # QLabel can't render <input> checkboxes — replace with Unicode
+        html = html.replace(
+            '<input class="task-list-item-checkbox" type="checkbox" disabled checked/>', "☑"
+        ).replace(
+            '<input class="task-list-item-checkbox" type="checkbox" disabled/>', "☐"
+        )
         self._preview.setText(html)
 
     @Slot()
