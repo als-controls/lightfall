@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import QThread, QTimer, Signal, QObject
 
 from lucid.utils.logging import logger
 
@@ -184,6 +184,7 @@ class LogbookClient:
         self._offline_only = False
         self._initialized = False
         self._sync_worker: _SyncWorker | None = None
+        self._sync_timer: QTimer | None = None
 
     @classmethod
     def get_instance(cls) -> LogbookClient:
@@ -394,10 +395,21 @@ class LogbookClient:
     # ── Sync ──────────────────────────────────────────────────────
 
     def schedule_sync(self) -> None:
-        """Start a background sync if configured and not already running."""
+        """Debounce sync — waits 2s after last mutation before starting."""
         if self._offline_only or not self._server_url:
             return
+        if self._sync_timer is None:
+            self._sync_timer = QTimer()
+            self._sync_timer.setSingleShot(True)
+            self._sync_timer.timeout.connect(self._do_sync)
+        # Restart the 2s debounce timer on each call
+        self._sync_timer.start(2000)
+
+    def _do_sync(self) -> None:
+        """Actually start the background sync worker."""
         if self._sync_worker and self._sync_worker.isRunning():
+            # Already running; re-schedule to pick up new changes after it finishes
+            self._sync_timer.start(2000)
             return
         # Get auth token and user ID from session manager if available
         auth_token: str | None = None

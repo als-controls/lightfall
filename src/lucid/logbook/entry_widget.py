@@ -591,9 +591,17 @@ class EntryListWidget(QFrame):
         self._rebuild_tag_filter()
 
         key = self._sort_key
+
+        def _sort_val(e):
+            v = getattr(e, key)
+            # Normalize to offset-naive for comparison
+            if hasattr(v, 'tzinfo') and v.tzinfo is not None:
+                v = v.replace(tzinfo=None)
+            return v
+
         sorted_entries = sorted(
             self._entries,
-            key=lambda e: getattr(e, key),
+            key=_sort_val,
             reverse=True,
         )
 

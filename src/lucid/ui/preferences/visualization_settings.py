@@ -5,6 +5,11 @@ Provides user preferences for visualization behavior.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QIcon
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,8 +36,8 @@ class VisualizationSettingsPlugin(SettingsPlugin):
         return "Visualization"
 
     @property
-    def icon(self) -> str:
-        return "chart-line"
+    def icon(self) -> QIcon | None:
+        return None
 
     @property
     def category(self) -> str:

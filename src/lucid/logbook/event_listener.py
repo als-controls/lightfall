@@ -80,8 +80,10 @@ class EventListener(QObject):
             return
         # Only log the latest action (previous ones were already logged)
         action = actions[-1]
+        import uuid as _uuid_mod
         group_id = getattr(group, "id", "")
-        frag_id = f"action-{group_id}-{len(actions) - 1}"
+        # Deterministic UUID from action identity (for dedup + server compat)
+        frag_id = str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_DNS, f"action-{group_id}-{len(actions) - 1}"))
 
         # Check if we already logged this one
         from lucid.logbook.client import LogbookClient
