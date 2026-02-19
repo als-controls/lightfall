@@ -78,10 +78,11 @@ class _SyncWorker(QThread):
 
     finished = Signal(int, int)  # (pushed, pulled)
 
-    def __init__(self, db_path: str, server_url: str, parent: QObject | None = None) -> None:
+    def __init__(self, db_path: str, server_url: str, auth_token: str | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._db_path = db_path
         self._server_url = server_url
+        self._auth_token = auth_token
 
     def run(self) -> None:
         if httpx is None:
@@ -93,6 +94,11 @@ class _SyncWorker(QThread):
 
             # Use proxy settings if configured
             client_kwargs: dict[str, Any] = {"base_url": self._server_url, "timeout": 10}
+            headers: dict[str, str] = {}
+            if self._auth_token:
+                headers["Authorization"] = f"Bearer {self._auth_token}"
+            if headers:
+                client_kwargs["headers"] = headers
             try:
                 from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
                 proxy_url = ProxySettingsProvider.should_use_proxy_for_url(self._server_url)
@@ -388,7 +394,16 @@ class LogbookClient:
             return
         if self._sync_worker and self._sync_worker.isRunning():
             return
-        self._sync_worker = _SyncWorker(str(self._db_path), self._server_url)
+        # Get auth token from session manager if available
+        auth_token: str | None = None
+        try:
+            from lucid.auth.session import SessionManager
+            session = SessionManager.get_instance().session
+            if session and session.token:
+                auth_token = session.token
+        except Exception:
+            pass
+        self._sync_worker = _SyncWorker(str(self._db_path), self._server_url, auth_token=auth_token)
         self._sync_worker.finished.connect(self._on_sync_done)
         self._sync_worker.start()
 
