@@ -266,24 +266,13 @@ class ReadonlyFragmentWidget(QFrame):
     def __init__(
         self,
         fragment: FragmentData,
-        compact: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._fragment = fragment
 
-        if compact:
-            # Inside a CollapsibleGroup — no frame, minimal chrome
-            self.setFrameShape(QFrame.Shape.NoFrame)
-            accent = _accent_for(fragment.subtype)
-            self.setStyleSheet(
-                f"padding: 2px 8px 2px 12px; "
-                f"border-left: 3px solid {accent}; "
-            )
-        else:
-            self.setFrameShape(QFrame.Shape.StyledPanel)
-            self.setStyleSheet(_card_stylesheet(fragment.subtype))
-
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet(_card_stylesheet(fragment.subtype))
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
@@ -413,8 +402,8 @@ class CollapsibleGroup(QFrame):
         # --- header row ---
         header = QWidget()
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(4, 2, 4, 2)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(0, 2, 0, 2)
+        header_layout.setSpacing(4)
 
         self._toggle_btn = QToolButton()
         self._toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
@@ -484,7 +473,7 @@ class CollapsibleGroup(QFrame):
         self._fragment_widgets.clear()
 
         for frag in self._fragments:
-            w = ReadonlyFragmentWidget(frag, compact=True)
+            w = ReadonlyFragmentWidget(frag)
             self._content_layout.addWidget(w)
             self._fragment_widgets.append(w)
 
