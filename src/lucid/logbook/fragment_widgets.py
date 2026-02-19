@@ -207,7 +207,13 @@ class TextFragmentWidget(QFrame):
         """Very lightweight markdown→HTML (bold, italic, code)."""
         import re
 
-        text = self._fragment.content or "<i>Click to add a note…</i>"
+        text = self._fragment.content
+        if not text:
+            self._preview.setStyleSheet("padding: 6px 8px; color: #888; font-style: italic;")
+            self._preview.setText("Click to add a note\u2026")
+            return
+
+        self._preview.setStyleSheet("padding: 6px 8px;")
         # Minimal rendering: convert **bold**, *italic*, `code`
         html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html)

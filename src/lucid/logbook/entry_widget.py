@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -96,6 +97,7 @@ class EntryWidget(QFrame):
     fragment_added = Signal(str, str)
     fragment_changed = Signal(str, str, str)
     fragment_deleted = Signal(str, str)
+    title_changed = Signal(str, str)  # (entry_id, new_title)
 
     def __init__(
         self,
@@ -127,20 +129,22 @@ class EntryWidget(QFrame):
         self._fragment_layout = QVBoxLayout(self._fragment_container)
         self._fragment_layout.setContentsMargins(0, 0, 0, 0)
         self._fragment_layout.setSpacing(4)
+
+        # --- add-note button (inside fragment list, acts like a ghost fragment) ---
+        self._add_btn = QPushButton("＋ Add note")
+        self._add_btn.setFlat(True)
+        self._add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._add_btn.setStyleSheet(
+            "color: #888; font-size: 9pt; padding: 8px 8px; text-align: left; "
+            "border: 1px dashed #555; border-radius: 4px;"
+        )
+        self._add_btn.clicked.connect(self._add_text_fragment)
+        self._fragment_layout.addWidget(self._add_btn)
+
         self._fragment_layout.addStretch()
 
         scroll.setWidget(self._fragment_container)
         root.addWidget(scroll, 1)
-
-        # --- add-note button ---
-        add_btn = QPushButton("＋ Add note")
-        add_btn.setFlat(True)
-        add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        add_btn.setStyleSheet(
-            "color: #888; font-size: 9pt; padding: 4px 0; text-align: left;"
-        )
-        add_btn.clicked.connect(self._add_text_fragment)
-        root.addWidget(add_btn)
 
         # Build fragment widgets
         self._widget_items: list[QWidget] = []
@@ -173,9 +177,14 @@ class EntryWidget(QFrame):
 
         # Title / date row
         top = QHBoxLayout()
-        self._title_label = QLabel()
-        self._title_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-        top.addWidget(self._title_label, 1)
+        self._title_edit = QLineEdit()
+        self._title_edit.setPlaceholderText("Untitled entry")
+        self._title_edit.setStyleSheet(
+            "font-size: 12pt; font-weight: bold; border: none; "
+            "background: transparent; padding: 2px 0;"
+        )
+        self._title_edit.editingFinished.connect(self._on_title_edited)
+        top.addWidget(self._title_edit, 1)
 
         self._date_label = QLabel()
         self._date_label.setStyleSheet("font-size: 8pt; color: #888;")
@@ -192,8 +201,7 @@ class EntryWidget(QFrame):
         return header
 
     def _update_header(self) -> None:
-        title = self._entry.title or _first_line(self._entry)
-        self._title_label.setText(title)
+        self._title_edit.setText(self._entry.title or "")
         self._date_label.setText(self._entry.created_at.strftime("%Y-%m-%d %H:%M"))
 
         # Clear old tag chips
@@ -207,15 +215,23 @@ class EntryWidget(QFrame):
 
     # -- fragment building --
 
+    def _on_title_edited(self) -> None:
+        new_title = self._title_edit.text().strip()
+        if new_title != self._entry.title:
+            self._entry.title = new_title
+            self.title_changed.emit(self._entry.id, new_title)
+
     def _rebuild_fragments(self) -> None:
         """Rebuild all fragment widgets, grouping readonly runs."""
-        # Remove old widgets (but keep the trailing stretch)
+        # Remove old widgets (keep add button and trailing stretch)
         for w in self._widget_items:
             self._fragment_layout.removeWidget(w)
             w.deleteLater()
         self._widget_items.clear()
 
         groups = _group_fragments(self._entry.fragments, self._collapse_mode)
+        # Find the index of the add button so we insert before it
+        add_btn_idx = self._fragment_layout.indexOf(self._add_btn)
         insert_idx = 0
         for group in groups:
             widget: QWidget
@@ -250,6 +266,12 @@ class EntryWidget(QFrame):
         self._rebuild_fragments()
         self.fragment_added.emit(self._entry.id, frag.id)
         logger.debug(f"Added text fragment {frag.id} to entry {self._entry.id}")
+
+        # Focus the newly created fragment's editor
+        for w in self._widget_items:
+            if isinstance(w, TextFragmentWidget) and w.fragment.id == frag.id:
+                w._enter_edit_mode()
+                break
 
 
 # ---------------------------------------------------------------------------

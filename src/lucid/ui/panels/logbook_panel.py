@@ -1,26 +1,24 @@
 """Fragment-based logbook panel for LUCID.
 
-Replaces the old single-document LogbookWidget with a split-pane layout:
-entry list (sidebar) + EntryWidget (fragment view), backed by the
-offline-first ``LogbookClient``.
+Split-pane layout: entry list (sidebar) + EntryWidget (fragment view),
+backed by the offline-first ``LogbookClient`` (synchronous SQLite).
 """
 
 from __future__ import annotations
 
-import asyncio
+import getpass
 import json
-from typing import TYPE_CHECKING, Any, ClassVar
+from datetime import datetime
+from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QSplitter, QWidget
 
+from lucid.logbook.client import LogbookClient
 from lucid.logbook.entry_widget import EntryData, EntryListWidget, EntryWidget
 from lucid.logbook.fragment_widgets import FragmentData, FragmentType
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.utils.logging import logger
-
-if TYPE_CHECKING:
-    from lucid.logbook.client import LogbookClient
 
 
 class LogbookPanel(BasePanel):
@@ -34,9 +32,6 @@ class LogbookPanel(BasePanel):
         │ (sidebar)│   (fragment view)    │
         │          │                      │
         └──────────┴──────────────────────┘
-
-    Signals:
-        note_added: Emitted when user adds a note.
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
@@ -64,10 +59,8 @@ class LogbookPanel(BasePanel):
         self._entries: dict[str, EntryData] = {}
         super().__init__(parent)
 
-        # Deferred async init
+        # Deferred init (after widget is shown)
         QTimer.singleShot(0, self._deferred_init)
-
-    # ── UI setup ──────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
         self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -88,46 +81,33 @@ class LogbookPanel(BasePanel):
         self._entry_list.new_entry_requested.connect(self._on_new_entry_requested)
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
         self._entry_widget.fragment_changed.connect(self._on_fragment_changed)
+        self._entry_widget.title_changed.connect(self._on_title_changed)
 
-    # ── Deferred init ─────────────────────────────────────────────
+    # ── Init ──────────────────────────────────────────────────────
 
     def _deferred_init(self) -> None:
-        """Run async initialisation from the Qt event loop."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._async_init())
-            else:
-                loop.run_until_complete(self._async_init())
-        except RuntimeError:
-            logger.warning("No event loop for logbook init")
+            self._client = LogbookClient.get_instance()
+            self._client.init()
 
-    async def _async_init(self) -> None:
-        from lucid.logbook.client import LogbookClient
+            user = getpass.getuser()
+            self._logbook_id = self._client.get_or_create_logbook(user)
 
-        self._client = LogbookClient.get_instance()
-        await self._client.init()
+            self._load_entries()
+            self._start_event_listener()
 
-        # Get or create a default logbook
-        import getpass
-        user = getpass.getuser()
-        self._logbook_id = await self._client.get_or_create_logbook(user)
+            # Background sync after 10s
+            QTimer.singleShot(10_000, self._try_sync)
 
-        await self._load_entries()
+            logger.info("LogbookPanel initialised (logbook={})", self._logbook_id)
+        except Exception as e:
+            logger.error("LogbookPanel init failed: {}", e)
 
-        # Start event listener
-        self._start_event_listener()
-
-        # Schedule first sync
-        self._client.schedule_sync(delay_ms=10_000)
-
-        logger.info("LogbookPanel initialised (logbook={})", self._logbook_id)
-
-    async def _load_entries(self) -> None:
+    def _load_entries(self) -> None:
         if not self._client or not self._logbook_id:
             return
 
-        rows = await self._client.list_entries(self._logbook_id)
+        rows = self._client.list_entries(self._logbook_id)
         entry_datas: list[EntryData] = []
         for row in rows:
             ed = self._row_to_entry_data(row)
@@ -136,17 +116,18 @@ class LogbookPanel(BasePanel):
 
         self._entry_list.set_entries(entry_datas)
 
-        # Select first entry if available
         if entry_datas:
             first = entry_datas[0]
             self._entry_list.select_entry(first.id)
-            await self._select_entry(first.id)
+            self._select_entry(first.id)
 
     def _row_to_entry_data(self, row: dict[str, Any]) -> EntryData:
-        from datetime import datetime
         tags = row.get("tags", "[]")
         if isinstance(tags, str):
-            tags = json.loads(tags)
+            try:
+                tags = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags = []
         created = row.get("created_at", "")
         if isinstance(created, str) and created:
             try:
@@ -163,28 +144,18 @@ class LogbookPanel(BasePanel):
             updated_at=created_dt,
         )
 
-    # ── Event listener ────────────────────────────────────────────
-
     def _start_event_listener(self) -> None:
-        from lucid.logbook.event_listener import EventListener
-        listener = EventListener.get_instance()
-        listener.current_entry_id = self._current_entry_id
-        listener.start()
-
-    # ── Slots ─────────────────────────────────────────────────────
-
-    @Slot(str)
-    def _on_entry_selected(self, entry_id: str) -> None:
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._select_entry(entry_id))
-            else:
-                loop.run_until_complete(self._select_entry(entry_id))
-        except RuntimeError:
-            pass
+            from lucid.logbook.event_listener import EventListener
+            listener = EventListener.get_instance()
+            listener.current_entry_id = self._current_entry_id
+            listener.start()
+        except Exception as e:
+            logger.debug("Could not start event listener: {}", e)
 
-    async def _select_entry(self, entry_id: str) -> None:
+    # ── Entry selection ───────────────────────────────────────────
+
+    def _select_entry(self, entry_id: str) -> None:
         if not self._client:
             return
 
@@ -198,7 +169,7 @@ class LogbookPanel(BasePanel):
             pass
 
         # Load fragments
-        frag_rows = await self._client.list_fragments(entry_id)
+        frag_rows = self._client.list_fragments(entry_id)
         fragments: list[FragmentData] = []
         for fr in frag_rows:
             data_raw = fr.get("data")
@@ -214,51 +185,66 @@ class LogbookPanel(BasePanel):
                 content=fr.get("content", ""),
                 subtype=fr.get("subtype", ""),
                 metadata=data_raw or {},
-                created_at=self._entries.get(entry_id, EntryData()).created_at,
             ))
 
         entry_data = self._entries.get(entry_id, EntryData(id=entry_id))
         entry_data.fragments = fragments
         self._entry_widget.set_entry(entry_data)
 
+    # ── Slots ─────────────────────────────────────────────────────
+
+    @Slot(str)
+    def _on_entry_selected(self, entry_id: str) -> None:
+        self._select_entry(entry_id)
+
     @Slot()
     def _on_new_entry_requested(self) -> None:
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._create_entry())
-            else:
-                loop.run_until_complete(self._create_entry())
-        except RuntimeError:
-            pass
-
-    async def _create_entry(self) -> None:
         if not self._client or not self._logbook_id:
             return
-
-        entry_id = await self._client.create_entry(self._logbook_id, title="New Entry")
-        ed = EntryData(id=entry_id, title="New Entry")
-        self._entries[entry_id] = ed
-        self._entry_list.add_entry(ed)
-        self._entry_list.select_entry(entry_id)
-        await self._select_entry(entry_id)
-        logger.info("Created new entry {}", entry_id)
+        try:
+            entry_id = self._client.create_entry(self._logbook_id, title="")
+            ed = EntryData(id=entry_id, title="")
+            self._entries[entry_id] = ed
+            self._entry_list.add_entry(ed)
+            self._entry_list.select_entry(entry_id)
+            self._select_entry(entry_id)
+            logger.info("Created new entry {}", entry_id)
+        except Exception as e:
+            logger.error("Failed to create entry: {}", e)
 
     @Slot(str, str)
     def _on_fragment_added(self, entry_id: str, fragment_id: str) -> None:
         if not self._client:
             return
-        self._run_async(
+        try:
             self._client.add_fragment(entry_id, kind="text", fragment_id=fragment_id)
-        )
+        except Exception as e:
+            logger.error("Failed to persist fragment: {}", e)
 
     @Slot(str, str, str)
     def _on_fragment_changed(self, entry_id: str, fragment_id: str, content: str) -> None:
         if not self._client:
             return
-        self._run_async(
+        try:
             self._client.update_fragment(fragment_id, content=content)
-        )
+        except Exception as e:
+            logger.error("Failed to update fragment: {}", e)
+
+    @Slot(str, str)
+    def _on_title_changed(self, entry_id: str, new_title: str) -> None:
+        if not self._client:
+            return
+        if entry_id in self._entries:
+            self._entries[entry_id].title = new_title
+        try:
+            self._client.update_entry(entry_id, title=new_title)
+        except Exception as e:
+            logger.error("Failed to update title: {}", e)
+        self._entry_list.set_entries(list(self._entries.values()))
+
+    def _try_sync(self) -> None:
+        if self._client:
+            self._client.schedule_sync()
 
     # ── Introspection ─────────────────────────────────────────────
 
@@ -281,20 +267,3 @@ class LogbookPanel(BasePanel):
     def action_new_entry(self) -> bool:
         self._on_new_entry_requested()
         return True
-
-    # ── Helpers ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _run_async(coro: Any) -> None:
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(coro)
-            else:
-                loop.run_until_complete(coro)
-        except RuntimeError:
-            logger.debug("No event loop for async operation")
-
-    def _on_closing(self) -> None:
-        if self._client:
-            self._run_async(self._client.close())
