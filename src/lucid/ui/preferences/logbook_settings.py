@@ -164,8 +164,8 @@ class LogbookSettingsPlugin(SettingsPlugin):
             import httpx
 
             with httpx.Client(timeout=5.0) as client:
-                resp = client.get(f"{url.rstrip('/')}/logbook")
-                if resp.status_code in (200, 401, 403):
+                resp = client.get(f"{url.rstrip('/')}/health")
+                if resp.status_code == 200:
                     # 401/403 means server is up but needs auth — still a success
                     self._status_label.setText("Server reachable ✓")
                     self._status_label.setStyleSheet("color: green;")
