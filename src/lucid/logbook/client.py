@@ -78,11 +78,12 @@ class _SyncWorker(QThread):
 
     finished = Signal(int, int)  # (pushed, pulled)
 
-    def __init__(self, db_path: str, server_url: str, auth_token: str | None = None, parent: QObject | None = None) -> None:
+    def __init__(self, db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._db_path = db_path
         self._server_url = server_url
         self._auth_token = auth_token
+        self._user_id = user_id
 
     def run(self) -> None:
         if httpx is None:
@@ -97,6 +98,8 @@ class _SyncWorker(QThread):
             headers: dict[str, str] = {}
             if self._auth_token:
                 headers["Authorization"] = f"Bearer {self._auth_token}"
+            if self._user_id:
+                headers["X-User-Id"] = self._user_id
             if headers:
                 client_kwargs["headers"] = headers
             try:
@@ -117,6 +120,7 @@ class _SyncWorker(QThread):
                         resp = client.put(f"/logbook/entries/{r['id']}", json=r)
                         if resp.status_code == 404:
                             resp = client.post("/logbook/entries", json={
+                                "id": r["id"],
                                 "title": r.get("title"),
                                 "tags": r.get("tags", []),
                             })
@@ -135,6 +139,7 @@ class _SyncWorker(QThread):
                         resp = client.put(f"/logbook/fragments/{r['id']}", json=r)
                         if resp.status_code == 404:
                             resp = client.post(f"/logbook/entries/{r['entry_id']}/fragments", json={
+                                "id": r["id"],
                                 "kind": r.get("kind", "text"),
                                 "subtype": r.get("subtype"),
                                 "content": r.get("content", ""),
@@ -394,16 +399,21 @@ class LogbookClient:
             return
         if self._sync_worker and self._sync_worker.isRunning():
             return
-        # Get auth token from session manager if available
+        # Get auth token and user ID from session manager if available
         auth_token: str | None = None
+        user_id: str | None = None
         try:
             from lucid.auth.session import SessionManager
-            session = SessionManager.get_instance().session
+            sm = SessionManager.get_instance()
+            session = sm.session
             if session and session.token:
                 auth_token = session.token
+            user = sm.current_user
+            if user and user.id:
+                user_id = user.id
         except Exception:
             pass
-        self._sync_worker = _SyncWorker(str(self._db_path), self._server_url, auth_token=auth_token)
+        self._sync_worker = _SyncWorker(str(self._db_path), self._server_url, auth_token=auth_token, user_id=user_id)
         self._sync_worker.finished.connect(self._on_sync_done)
         self._sync_worker.start()
 
