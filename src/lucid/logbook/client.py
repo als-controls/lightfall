@@ -103,25 +103,38 @@ class _SyncWorker(QThread):
                 pass
 
             with httpx.Client(**client_kwargs) as client:
-                # Push pending entries
+                # Push pending entries (PUT to update, POST to create if 404)
                 for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
                     r = dict(row)
                     r["tags"] = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
                     try:
-                        resp = client.put(f"/api/entries/{r['id']}", json=r)
+                        resp = client.put(f"/logbook/entries/{r['id']}", json=r)
+                        if resp.status_code == 404:
+                            resp = client.post("/logbook/entries", json={
+                                "title": r.get("title"),
+                                "tags": r.get("tags", []),
+                            })
                         if resp.is_success:
                             db.execute("UPDATE entry SET sync_status = 'synced' WHERE id = ?", (r["id"],))
                             pushed += 1
                     except Exception:
                         pass
 
-                # Push pending fragments
+                # Push pending fragments (PUT to update, POST to create if 404)
                 for row in db.execute("SELECT * FROM fragment WHERE sync_status = 'pending'"):
                     r = dict(row)
                     if r.get("data") and isinstance(r["data"], str):
                         r["data"] = json.loads(r["data"])
                     try:
-                        resp = client.put(f"/api/fragments/{r['id']}", json=r)
+                        resp = client.put(f"/logbook/fragments/{r['id']}", json=r)
+                        if resp.status_code == 404:
+                            resp = client.post(f"/logbook/entries/{r['entry_id']}/fragments", json={
+                                "kind": r.get("kind", "text"),
+                                "subtype": r.get("subtype"),
+                                "content": r.get("content", ""),
+                                "data": r.get("data"),
+                                "position": r.get("position", 0),
+                            })
                         if resp.is_success:
                             db.execute("UPDATE fragment SET sync_status = 'synced' WHERE id = ?", (r["id"],))
                             pushed += 1
