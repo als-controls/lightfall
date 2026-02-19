@@ -95,8 +95,9 @@ def _card_stylesheet(subtype: str) -> str:
     return (
         f"ReadonlyFragmentWidget {{ "
         f"  background-color: {bg}; "
-        f"  border: none; "
+        f"  border: 1px solid {bg}; "
         f"  border-left: 4px solid {accent}; "
+        f"  border-radius: 4px; "
         f"  padding: 8px 12px; "
         f"  color: {text}; "
         f"  font-size: 10pt; "
