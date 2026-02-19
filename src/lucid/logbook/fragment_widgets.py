@@ -83,6 +83,60 @@ _SUBTYPE_ACCENTS: dict[str, str] = {
 _DEFAULT_ACCENT = "#607d8b"  # blue-grey for unknown subtypes
 
 
+def _highlight_code(code: str, info: str | None = None) -> str:
+    """Syntax-highlight a code block using Pygments."""
+    try:
+        from pygments import highlight
+        from pygments.formatters import HtmlFormatter
+        from pygments.lexers import get_lexer_by_name, guess_lexer
+        from pygments.util import ClassNotFound
+
+        lang = info or ""
+        try:
+            lexer = get_lexer_by_name(lang) if lang else guess_lexer(code)
+        except ClassNotFound:
+            lexer = get_lexer_by_name("text")
+
+        # Use inline styles (QLabel doesn't support <style> blocks)
+        style = "monokai" if is_dark_theme() else "default"
+        formatter = HtmlFormatter(noclasses=True, nowrap=False, style=style)
+        return highlight(code, lexer, formatter)
+    except ImportError:
+        # Pygments not available — plain code block
+        escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"<pre><code>{escaped}</code></pre>"
+
+
+# Module-level markdown renderer (created once)
+_md_renderer = None
+
+
+def _get_md_renderer():
+    global _md_renderer
+    if _md_renderer is None:
+        import mistune
+        _md_renderer = mistune.create_markdown(
+            plugins=["task_lists", "table", "strikethrough", "footnotes",
+                     "superscript", "subscript", "abbr", "def_list"],
+        )
+        # Override code block rendering with Pygments highlighting
+        _md_renderer.renderer.block_code = _highlight_code
+    return _md_renderer
+
+
+def _render_markdown(text: str) -> str:
+    """Render markdown to HTML with syntax highlighting and QLabel fixups."""
+    md = _get_md_renderer()
+    html = md(text)
+    # QLabel can't render <input> checkboxes — replace with Unicode
+    html = html.replace(
+        '<input class="task-list-item-checkbox" type="checkbox" disabled checked/>', "☑"
+    ).replace(
+        '<input class="task-list-item-checkbox" type="checkbox" disabled/>', "☐"
+    )
+    return html
+
+
 def _accent_for(subtype: str) -> str:
     return _SUBTYPE_ACCENTS.get(subtype, _DEFAULT_ACCENT)
 
@@ -217,15 +271,7 @@ class TextFragmentWidget(QFrame):
             return
 
         self._preview.setStyleSheet("padding: 6px 8px;")
-        import mistune
-        md = mistune.create_markdown(plugins=["task_lists", "table", "strikethrough"])
-        html = md(text)
-        # QLabel can't render <input> checkboxes — replace with Unicode
-        html = html.replace(
-            '<input class="task-list-item-checkbox" type="checkbox" disabled checked/>', "☑"
-        ).replace(
-            '<input class="task-list-item-checkbox" type="checkbox" disabled/>', "☐"
-        )
+        html = _render_markdown(text)
         self._preview.setText(html)
 
     @Slot()
