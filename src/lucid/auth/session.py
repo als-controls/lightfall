@@ -116,6 +116,7 @@ class Session:
     user: User
     token: str | None = None
     refresh_token: str | None = None
+    id_token: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)

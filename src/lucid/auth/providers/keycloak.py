@@ -692,6 +692,7 @@ class KeycloakAuthProvider(AuthProvider):
             user=user,
             token=access_token,
             refresh_token=tokens.get("refresh_token"),
+            id_token=tokens.get("id_token"),
         )
 
         logger.info("User '{}' authenticated via Keycloak", username)
@@ -735,26 +736,60 @@ class KeycloakAuthProvider(AuthProvider):
         return roles
 
     async def logout(self, session: Session) -> None:
-        """End session with Keycloak."""
+        """End session with Keycloak.
+
+        Performs a full logout:
+        1. Revokes the token via Keycloak's logout endpoint (ends SSO session)
+        2. Clears embedded browser cookies (prevents auto-login on next auth)
+        """
         if not session.token:
             return
 
         http = await self._ensure_http()
 
-        # Revoke the token
-        data = {
+        # Use RP-initiated logout with id_token_hint to end the SSO session
+        data: dict[str, str] = {
             "client_id": self._config.client_id,
-            "token": session.token,
         }
+        if session.id_token:
+            data["id_token_hint"] = session.id_token
+        if session.refresh_token:
+            data["refresh_token"] = session.refresh_token
         if self._config.client_secret:
             data["client_secret"] = self._config.client_secret
 
         try:
             async with http.post(self._config.logout_url, data=data) as resp:
-                if resp.status != 204:
+                if resp.status not in (200, 204):
                     logger.warning("Logout request returned status {}", resp.status)
         except Exception as e:
             logger.warning("Logout error: {}", e)
+
+        # Clear embedded browser cookies so Keycloak won't auto-login next time
+        self._clear_browser_cookies()
+
+    @staticmethod
+    def _clear_browser_cookies() -> None:
+        """Clear QWebEngine cookies to prevent Keycloak SSO auto-login.
+
+        This removes the Keycloak session cookies from the embedded browser
+        so the next login will prompt for credentials instead of silently
+        re-authenticating with the cached session.
+        """
+        try:
+            from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
+            from PySide6.QtWebEngineCore import QWebEngineProfile
+
+            profile = QWebEngineProfile.defaultProfile()
+            if profile:
+                cookie_store = profile.cookieStore()
+                cookie_store.deleteAllCookies()
+                logger.debug("Cleared embedded browser cookies")
+        except ImportError:
+            # WebEngine not available — nothing to clear
+            pass
+        except Exception as e:
+            logger.warning("Failed to clear browser cookies: {}", e)
 
     async def refresh(self, session: Session) -> Session | None:
         """Refresh the session tokens."""
