@@ -135,14 +135,8 @@ class _SyncWorker(QThread):
                 # Push pending fragments (PUT to update, POST to create if 404)
                 for row in db.execute("SELECT * FROM fragment WHERE sync_status = 'pending'"):
                     r = dict(row)
-                    # Skip fragments with non-UUID IDs (legacy data)
-                    try:
-                        import uuid as _uuid_mod
-                        _uuid_mod.UUID(r["id"])
-                    except (ValueError, AttributeError):
-                        logger.debug("Skipping fragment with non-UUID id: {}", r["id"])
-                        db.execute("UPDATE fragment SET sync_status = 'local_only' WHERE id = ?", (r["id"],))
-                        continue
+                    # Log the fragment ID for debugging
+                    logger.debug("Syncing fragment id={} (type={}, len={})", r["id"], type(r["id"]).__name__, len(str(r["id"])))
                     if r.get("data") and isinstance(r["data"], str):
                         r["data"] = json.loads(r["data"])
                     try:
