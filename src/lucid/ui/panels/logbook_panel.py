@@ -281,57 +281,79 @@ class LogbookPanel(BasePanel):
 
         # Try to send to the Claude panel
         try:
-            from lucid.core.services import ServiceRegistry
-
-            services = ServiceRegistry.get_instance()
-            # Find the Claude panel via panel manager
-            from lucid.ui.panels.manager import PanelManager
-            pm = services.get(PanelManager)
-            claude_panel = pm.get_panel("lucid.panels.claude")
-
-            if claude_panel is None:
-                # Open the Claude panel first
-                claude_panel = pm.open_panel("lucid.panels.claude")
-
-            if claude_panel and hasattr(claude_panel, "action_send_message"):
-                claude_panel.action_send_message(prompt)
-                logger.info("Sent fragment {} to Claude", fragment_id)
-
-                # Listen for response via the Claude widget's agent
-                self._pending_claude_entry = entry_id
-                self._pending_claude_frag = fragment_id
-                self._attach_claude_response_listener(claude_panel)
-            else:
-                logger.warning("Claude panel not available")
+            self._send_to_claude(entry_id, prompt)
         except Exception as e:
             logger.error("Failed to send to Claude: {}", e)
 
-    def _attach_claude_response_listener(self, claude_panel: Any) -> None:
-        """Attach a one-shot listener for the Claude response."""
+    def _get_claude_panel(self):
+        """Find or open the Claude panel. Returns (panel, agent) or (None, None)."""
         try:
-            widget = claude_panel._claude_widget
-            if widget and hasattr(widget, "response_finished"):
-                widget.response_finished.connect(
-                    self._on_claude_response, Qt.ConnectionType.SingleShotConnection
-                )
-            elif widget and hasattr(widget, "agent"):
-                # Poll for completion as fallback
-                agent = widget.agent
-                if hasattr(agent, "response_ready"):
-                    agent.response_ready.connect(
-                        self._on_claude_response, Qt.ConnectionType.SingleShotConnection
-                    )
+            from lucid.core.services import ServiceRegistry
+            from lucid.ui.panels.manager import PanelManager
+
+            services = ServiceRegistry.get_instance()
+            pm = services.get(PanelManager)
+            panel = pm.get_panel("lucid.panels.claude")
+
+            if panel is None:
+                panel = pm.open_panel("lucid.panels.claude")
+
+            if panel and panel._claude_widget and hasattr(panel._claude_widget, "agent"):
+                return panel, panel._claude_widget.agent
         except Exception as e:
-            logger.debug("Could not attach Claude response listener: {}", e)
+            logger.error("Could not get Claude panel: {}", e)
+        return None, None
 
-    def _on_claude_response(self, response_text: str = "") -> None:
-        """Handle Claude's response and inject it as a fragment."""
+    def _send_to_claude(self, entry_id: str, prompt: str) -> None:
+        """Send prompt to Claude and collect the response into a fragment."""
+        panel, agent = self._get_claude_panel()
+        if not agent:
+            logger.warning("Claude panel/agent not available")
+            return
+
+        if agent.is_busy():
+            logger.warning("Claude is busy, cannot send logbook request")
+            return
+
+        # Track pending response
+        self._pending_claude_entry = entry_id
+        self._pending_claude_messages: list[str] = []
+
+        # Connect to agent signals
+        agent.message_received.connect(self._on_claude_message)
+        agent.query_completed.connect(self._on_claude_complete)
+
+        # Send via the widget (shows in chat UI too)
+        panel.action_send_message(prompt)
+        logger.info("Sent logbook fragment to Claude for entry {}", entry_id)
+
+    @Slot(str)
+    def _on_claude_message(self, message: str) -> None:
+        """Collect Claude message chunks."""
+        if hasattr(self, "_pending_claude_messages"):
+            self._pending_claude_messages.append(message)
+
+    @Slot()
+    def _on_claude_complete(self) -> None:
+        """Claude finished responding — inject the response as a fragment."""
         entry_id = getattr(self, "_pending_claude_entry", None)
-        if not entry_id or not self._client:
+        messages = getattr(self, "_pending_claude_messages", [])
+
+        # Disconnect signals
+        try:
+            _, agent = self._get_claude_panel()
+            if agent:
+                agent.message_received.disconnect(self._on_claude_message)
+                agent.query_completed.disconnect(self._on_claude_complete)
+        except (RuntimeError, TypeError):
+            pass
+
+        if not entry_id or not messages or not self._client:
+            self._pending_claude_entry = None
+            self._pending_claude_messages = []
             return
 
-        if not response_text:
-            return
+        response_text = "\n\n".join(messages)
 
         try:
             frag_id = self._client.add_fragment(
@@ -348,7 +370,7 @@ class LogbookPanel(BasePanel):
             logger.error("Failed to inject Claude response: {}", e)
         finally:
             self._pending_claude_entry = None
-            self._pending_claude_frag = None
+            self._pending_claude_messages = []
 
     def _try_sync(self) -> None:
         if self._client:

@@ -193,14 +193,25 @@ class FragmentOverlay(QWidget):
 
         btn_style = (
             "QToolButton { "
-            "  border: none; border-radius: 3px; padding: 2px 4px; "
-            "  font-size: 11px; "
+            "  border: none; border-radius: 3px; padding: 2px 6px; "
             "} "
             "QToolButton:hover { background: rgba(255,255,255,0.15); }"
         )
 
+        # Use qtawesome icons
+        try:
+            import qtawesome as qta
+            claude_icon = qta.icon("mdi.robot-outline", color="#9c27b0")
+            delete_icon = qta.icon("mdi.delete-outline", color="#f44336")
+        except ImportError:
+            claude_icon = None
+            delete_icon = None
+
         self._claude_btn = QToolButton()
-        self._claude_btn.setText("🤖")
+        if claude_icon:
+            self._claude_btn.setIcon(claude_icon)
+        else:
+            self._claude_btn.setText("AI")
         self._claude_btn.setToolTip("Ask Claude about this")
         self._claude_btn.setStyleSheet(btn_style)
         self._claude_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -208,7 +219,10 @@ class FragmentOverlay(QWidget):
         layout.addWidget(self._claude_btn)
 
         self._delete_btn = QToolButton()
-        self._delete_btn.setText("🗑")
+        if delete_icon:
+            self._delete_btn.setIcon(delete_icon)
+        else:
+            self._delete_btn.setText("Del")
         self._delete_btn.setToolTip("Delete fragment")
         self._delete_btn.setStyleSheet(btn_style)
         self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
