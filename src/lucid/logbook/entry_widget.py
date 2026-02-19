@@ -232,13 +232,23 @@ class EntryWidget(QFrame):
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
+        toolbar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         toolbar.setStyleSheet(
             "QToolBar { border-top: 1px solid #444; padding: 2px 4px; spacing: 2px; }"
+            "QToolButton { focus-policy: no-focus; }"
         )
 
         # Formatting buttons
-        bold_btn = QToolButton()
-        bold_btn.setText("B")
+        def _no_focus_btn(text: str, tooltip: str = "") -> QToolButton:
+            btn = QToolButton()
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setText(text)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            if tooltip:
+                btn.setToolTip(tooltip)
+            return btn
+
+        bold_btn = _no_focus_btn("B")
         font = bold_btn.font()
         font.setBold(True)
         bold_btn.setFont(font)
@@ -247,6 +257,7 @@ class EntryWidget(QFrame):
         toolbar.addWidget(bold_btn)
 
         italic_btn = QToolButton()
+        italic_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         italic_btn.setText("I")
         font = italic_btn.font()
         font.setItalic(True)
@@ -256,6 +267,7 @@ class EntryWidget(QFrame):
         toolbar.addWidget(italic_btn)
 
         strike_btn = QToolButton()
+        strike_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         strike_btn.setText("S")
         font = strike_btn.font()
         font.setStrikeOut(True)
@@ -265,6 +277,7 @@ class EntryWidget(QFrame):
         toolbar.addWidget(strike_btn)
 
         code_btn = QToolButton()
+        code_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         code_btn.setText("</>")
         code_btn.setToolTip("Inline code (`code`)")
         code_btn.clicked.connect(lambda: self._insert_markdown_wrap("`"))
@@ -275,12 +288,14 @@ class EntryWidget(QFrame):
         # Heading buttons
         for level in (1, 2, 3):
             btn = QToolButton()
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setText(f"H{level}")
             btn.setToolTip(f"Heading {level}")
             btn.clicked.connect(lambda checked=False, lv=level: self._insert_heading(lv))
             toolbar.addWidget(btn)
 
         normal_btn = QToolButton()
+        normal_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         normal_btn.setText("¶")
         normal_btn.setToolTip("Normal text (remove heading)")
         normal_btn.clicked.connect(lambda: self._insert_heading(0))
@@ -290,12 +305,14 @@ class EntryWidget(QFrame):
 
         # List buttons
         ul_btn = QToolButton()
+        ul_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         ul_btn.setText("• List")
         ul_btn.setToolTip("Bullet list")
         ul_btn.clicked.connect(lambda: self._insert_line_prefix("- "))
         toolbar.addWidget(ul_btn)
 
         ol_btn = QToolButton()
+        ol_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         ol_btn.setText("1. List")
         ol_btn.setToolTip("Numbered list")
         ol_btn.clicked.connect(lambda: self._insert_line_prefix("1. "))

@@ -240,8 +240,13 @@ class TextFragmentWidget(QFrame):
 
     def eventFilter(self, obj: Any, event: Any) -> bool:  # noqa: N802
         from PySide6.QtCore import QEvent
+        from PySide6.QtWidgets import QApplication
 
         if obj is self._editor and event.type() == QEvent.Type.FocusOut:
+            # Don't exit edit mode if focus went to a NoFocus widget (toolbar buttons)
+            new_focus = QApplication.focusWidget()
+            if new_focus is not None and new_focus.focusPolicy() == Qt.FocusPolicy.NoFocus:
+                return super().eventFilter(obj, event)
             self._exit_edit_mode()
         return super().eventFilter(obj, event)
 
