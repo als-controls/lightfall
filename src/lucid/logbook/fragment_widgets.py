@@ -218,7 +218,8 @@ class TextFragmentWidget(QFrame):
 
         self._preview.setStyleSheet("padding: 6px 8px;")
         import mistune
-        html = mistune.html(text)
+        md = mistune.create_markdown(plugins=["task_lists", "table", "strikethrough"])
+        html = md(text)
         self._preview.setText(html)
 
     @Slot()
