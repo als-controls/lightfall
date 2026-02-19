@@ -316,6 +316,15 @@ class SessionManager(QObject):
         self.user_changed.emit(ANONYMOUS_USER)
         logger.info("User '{}' logged out", old_user.username)
 
+        # Purge synced logbook data so the local DB stays lean
+        try:
+            from lucid.logbook.client import LogbookClient
+            client = LogbookClient.get_instance()
+            if client._initialized:
+                client.purge_synced()
+        except Exception as exc:
+            logger.debug("Logbook purge on logout skipped: {}", exc)
+
     async def refresh_session(self) -> bool:
         """Attempt to refresh the current session.
 

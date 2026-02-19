@@ -159,6 +159,72 @@ class _SyncWorker(QThread):
                         pass
 
                 db.commit()
+
+                # ── Pull: fetch server entries and upsert locally ─────
+                try:
+                    resp = client.get("/logbook/entries")
+                    if resp.is_success:
+                        remote_entries = resp.json()
+                        for re in remote_entries:
+                            eid = str(re["id"])
+                            local = db.execute("SELECT id, updated_at FROM entry WHERE id = ?", (eid,)).fetchone()
+                            logbook_id = str(re["logbook_id"])
+
+                            # Ensure logbook row exists locally
+                            if not db.execute("SELECT id FROM logbook WHERE id = ?", (logbook_id,)).fetchone():
+                                # Get user_id from the logbook endpoint or use a placeholder
+                                db.execute(
+                                    "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+                                    (logbook_id, self._user_id or "unknown", re.get("created_at", _now())),
+                                )
+
+                            if local is None:
+                                # New entry from server — insert locally
+                                db.execute(
+                                    "INSERT INTO entry (id, logbook_id, title, tags, created_at, updated_at, sync_status) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, 'synced')",
+                                    (eid, logbook_id, re.get("title"),
+                                     json.dumps(re.get("tags", [])),
+                                     re.get("created_at", _now()), re.get("updated_at", _now())),
+                                )
+                                pulled += 1
+                            elif local["updated_at"] < re.get("updated_at", ""):
+                                # Server is newer — update local (only if not pending)
+                                cur = db.execute("SELECT sync_status FROM entry WHERE id = ?", (eid,)).fetchone()
+                                if cur and cur["sync_status"] != "pending":
+                                    db.execute(
+                                        "UPDATE entry SET title = ?, tags = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+                                        (re.get("title"), json.dumps(re.get("tags", [])), re.get("updated_at"), eid),
+                                    )
+                                    pulled += 1
+
+                            # Pull fragments for this entry
+                            for rf in re.get("fragments", []):
+                                fid = str(rf["id"])
+                                local_frag = db.execute("SELECT id, updated_at, sync_status FROM fragment WHERE id = ?", (fid,)).fetchone()
+                                if local_frag is None:
+                                    db.execute(
+                                        "INSERT INTO fragment (id, entry_id, position, kind, subtype, content, data, created_at, updated_at, sync_status) "
+                                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+                                        (fid, eid, rf.get("position", 0), rf.get("kind", "text"),
+                                         rf.get("subtype"), rf.get("content", ""),
+                                         json.dumps(rf.get("data")) if rf.get("data") else None,
+                                         rf.get("created_at", _now()), rf.get("updated_at", _now())),
+                                    )
+                                    pulled += 1
+                                elif local_frag["sync_status"] != "pending" and local_frag["updated_at"] < rf.get("updated_at", ""):
+                                    db.execute(
+                                        "UPDATE fragment SET position = ?, content = ?, data = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+                                        (rf.get("position", 0), rf.get("content", ""),
+                                         json.dumps(rf.get("data")) if rf.get("data") else None,
+                                         rf.get("updated_at"), fid),
+                                    )
+                                    pulled += 1
+
+                        db.commit()
+                except Exception as exc:
+                    logger.warning("Pull sync failed: {}", exc)
+
             db.close()
         except Exception as exc:
             logger.warning("Sync failed: {}", exc)
@@ -191,6 +257,7 @@ class LogbookClient:
         self._initialized = False
         self._sync_worker: _SyncWorker | None = None
         self._sync_timer: QTimer | None = None
+        self._on_pull_callback: callable | None = None
 
     @classmethod
     def get_instance(cls) -> LogbookClient:
@@ -221,8 +288,34 @@ class LogbookClient:
         logger.info("LogbookClient initialised (db={})", self._db_path)
         self.schedule_sync()
 
+    def purge_synced(self) -> None:
+        """Remove all locally-synced data, keeping only pending (unsynced) rows.
+
+        Called on close/logout so the local DB stays lean — it's a
+        temporary buffer, not a growing archive.
+        """
+        db = self._ensure_db()
+        # Delete synced fragments first (FK order)
+        db.execute("DELETE FROM fragment WHERE sync_status = 'synced'")
+        # Delete synced entries that have no remaining fragments
+        db.execute(
+            "DELETE FROM entry WHERE sync_status = 'synced' "
+            "AND id NOT IN (SELECT DISTINCT entry_id FROM fragment)"
+        )
+        # Delete logbooks with no remaining entries
+        db.execute(
+            "DELETE FROM logbook WHERE id NOT IN (SELECT DISTINCT logbook_id FROM entry)"
+        )
+        db.commit()
+        db.execute("VACUUM")
+        logger.info("Purged synced content from local logbook DB")
+
     def close(self) -> None:
         if self._db:
+            try:
+                self.purge_synced()
+            except Exception as exc:
+                logger.warning("Failed to purge synced data on close: {}", exc)
             self._db.close()
             self._db = None
         self._initialized = False
@@ -400,6 +493,10 @@ class LogbookClient:
 
     # ── Sync ──────────────────────────────────────────────────────
 
+    def set_on_pull_callback(self, callback: callable) -> None:
+        """Register a callback to be invoked when data is pulled from the server."""
+        self._on_pull_callback = callback
+
     def schedule_sync(self) -> None:
         """Debounce sync — waits 2s after last mutation before starting."""
         if self._offline_only or not self._server_url:
@@ -438,3 +535,5 @@ class LogbookClient:
     def _on_sync_done(self, pushed: int, pulled: int) -> None:
         if pushed or pulled:
             logger.info("Sync complete: {} pushed, {} pulled", pushed, pulled)
+        if pulled > 0 and self._on_pull_callback:
+            self._on_pull_callback()
