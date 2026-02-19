@@ -288,28 +288,10 @@ class LogbookPanel(BasePanel):
     def _get_claude_panel(self):
         """Find or open the Claude panel. Returns (panel, agent) or (None, None)."""
         try:
-            # Walk up to the main window
-            from PySide6.QtWidgets import QApplication
-            main_window = None
-            widget = self.parent()
-            while widget is not None:
-                if hasattr(widget, "get_panel"):
-                    main_window = widget
-                    break
-                widget = widget.parent()
-            if main_window is None:
-                for w in QApplication.instance().topLevelWidgets():
-                    if hasattr(w, "get_panel"):
-                        main_window = w
-                        break
+            from lucid.ui.panels.registry import PanelRegistry
 
-            if main_window is None:
-                logger.warning("Could not find main window with get_panel")
-                return None, None
-
-            panel = main_window.get_panel("lucid.panels.claude")
-            if panel is None and hasattr(main_window, "open_panel"):
-                panel = main_window.open_panel("lucid.panels.claude")
+            registry = PanelRegistry.get_instance()
+            panel = registry.create("lucid.panels.claude")
 
             if panel and getattr(panel, "_claude_widget", None) and hasattr(panel._claude_widget, "agent"):
                 return panel, panel._claude_widget.agent
