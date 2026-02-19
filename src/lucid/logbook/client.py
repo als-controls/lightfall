@@ -124,6 +124,8 @@ class _SyncWorker(QThread):
                                 "title": r.get("title"),
                                 "tags": r.get("tags", []),
                             })
+                        if not resp.is_success:
+                            logger.warning("Entry sync failed ({}): {}", resp.status_code, resp.text[:200])
                         if resp.is_success:
                             db.execute("UPDATE entry SET sync_status = 'synced' WHERE id = ?", (r["id"],))
                             pushed += 1
@@ -146,6 +148,8 @@ class _SyncWorker(QThread):
                                 "data": r.get("data"),
                                 "position": r.get("position", 0),
                             })
+                        if not resp.is_success:
+                            logger.warning("Fragment sync failed ({}): {}", resp.status_code, resp.text[:200])
                         if resp.is_success:
                             db.execute("UPDATE fragment SET sync_status = 'synced' WHERE id = ?", (r["id"],))
                             pushed += 1
