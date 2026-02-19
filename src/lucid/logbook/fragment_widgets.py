@@ -266,14 +266,25 @@ class ReadonlyFragmentWidget(QFrame):
     def __init__(
         self,
         fragment: FragmentData,
+        compact: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._fragment = fragment
 
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        if compact:
+            # Inside a CollapsibleGroup — no frame, minimal chrome
+            self.setFrameShape(QFrame.Shape.NoFrame)
+            accent = _accent_for(fragment.subtype)
+            self.setStyleSheet(
+                f"padding: 2px 8px 2px 12px; "
+                f"border-left: 3px solid {accent}; "
+            )
+        else:
+            self.setFrameShape(QFrame.Shape.StyledPanel)
+            self.setStyleSheet(_card_stylesheet(fragment.subtype))
+
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setStyleSheet(_card_stylesheet(fragment.subtype))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         layout = QVBoxLayout(self)
@@ -428,8 +439,8 @@ class CollapsibleGroup(QFrame):
         # --- content container (animated) ---
         self._content_widget = QWidget()
         self._content_layout = QVBoxLayout(self._content_widget)
-        self._content_layout.setContentsMargins(12, 0, 0, 4)
-        self._content_layout.setSpacing(4)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(2)
         outer.addWidget(self._content_widget)
 
         # Populate
@@ -473,7 +484,7 @@ class CollapsibleGroup(QFrame):
         self._fragment_widgets.clear()
 
         for frag in self._fragments:
-            w = ReadonlyFragmentWidget(frag)
+            w = ReadonlyFragmentWidget(frag, compact=True)
             self._content_layout.addWidget(w)
             self._fragment_widgets.append(w)
 
