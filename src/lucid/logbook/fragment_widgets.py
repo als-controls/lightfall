@@ -93,12 +93,14 @@ def _card_stylesheet(subtype: str) -> str:
     bg = "#2a2a2a" if is_dark_theme() else "#f5f5f5"
     text = "#cccccc" if is_dark_theme() else "#333333"
     return (
-        f"background-color: {bg}; "
-        f"border-left: 4px solid {accent}; "
-        f"border-radius: 4px; "
-        f"padding: 8px 12px; "
-        f"color: {text}; "
-        f"font-size: 10pt; "
+        f"ReadonlyFragmentWidget {{ "
+        f"  background-color: {bg}; "
+        f"  border: none; "
+        f"  border-left: 4px solid {accent}; "
+        f"  padding: 8px 12px; "
+        f"  color: {text}; "
+        f"  font-size: 10pt; "
+        f"}}"
     )
 
 
