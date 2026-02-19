@@ -188,6 +188,7 @@ class LogbookClient:
         self._db.commit()
         self._initialized = True
         logger.info("LogbookClient initialised (db={})", self._db_path)
+        self.schedule_sync()
 
     def close(self) -> None:
         if self._db:
@@ -244,6 +245,7 @@ class LogbookClient:
             (eid, logbook_id, title, json.dumps(tags or []), now, now),
         )
         db.commit()
+        self.schedule_sync()
         return eid
 
     def list_entries(self, logbook_id: str) -> list[dict[str, Any]]:
@@ -274,12 +276,14 @@ class LogbookClient:
         params.append(entry_id)
         db.execute(f"UPDATE entry SET {', '.join(parts)} WHERE id = ?", params)
         db.commit()
+        self.schedule_sync()
 
     def delete_entry(self, entry_id: str) -> None:
         db = self._ensure_db()
         db.execute("DELETE FROM fragment WHERE entry_id = ?", (entry_id,))
         db.execute("DELETE FROM entry WHERE id = ?", (entry_id,))
         db.commit()
+        self.schedule_sync()
 
     # ── Fragment CRUD ─────────────────────────────────────────────
 
@@ -310,6 +314,7 @@ class LogbookClient:
              json.dumps(data) if data else None, now, now),
         )
         db.commit()
+        self.schedule_sync()
         return fid
 
     def update_fragment(
@@ -335,6 +340,7 @@ class LogbookClient:
         params.append(fragment_id)
         db.execute(f"UPDATE fragment SET {', '.join(parts)} WHERE id = ?", params)
         db.commit()
+        self.schedule_sync()
 
     def reorder_fragments(self, entry_id: str, fragment_ids: list[str]) -> None:
         """Update fragment positions to match the given order."""
@@ -345,11 +351,13 @@ class LogbookClient:
                 (pos, fid, entry_id),
             )
         db.commit()
+        self.schedule_sync()
 
     def delete_fragment(self, fragment_id: str) -> None:
         db = self._ensure_db()
         db.execute("DELETE FROM fragment WHERE id = ?", (fragment_id,))
         db.commit()
+        self.schedule_sync()
 
     def list_fragments(self, entry_id: str) -> list[dict[str, Any]]:
         db = self._ensure_db()
