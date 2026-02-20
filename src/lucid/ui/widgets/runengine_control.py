@@ -140,18 +140,12 @@ class RunEngineControlWidget(QWidget):
 
         layout.addWidget(status_frame)
 
-        # Control buttons
-        self._pause_btn = QPushButton("Pause")
-        self._pause_btn.setToolTip("Pause the current run at the next checkpoint")
-        self._pause_btn.setEnabled(False)
-        self._pause_btn.clicked.connect(self._on_pause_clicked)
-        layout.addWidget(self._pause_btn)
-
-        self._resume_btn = QPushButton("Resume")
-        self._resume_btn.setToolTip("Resume a paused run")
-        self._resume_btn.setEnabled(False)
-        self._resume_btn.clicked.connect(self._on_resume_clicked)
-        layout.addWidget(self._resume_btn)
+        # Pause/Resume toggle button
+        self._pause_resume_btn = QPushButton("Pause")
+        self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
+        self._pause_resume_btn.setEnabled(False)
+        self._pause_resume_btn.clicked.connect(self._on_pause_resume_clicked)
+        layout.addWidget(self._pause_resume_btn)
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setToolTip("Stop the current run gracefully")
@@ -238,8 +232,20 @@ class RunEngineControlWidget(QWidget):
         is_running = state == "running"
         is_paused = state == "paused"
 
-        self._pause_btn.setEnabled(is_running)
-        self._resume_btn.setEnabled(is_paused)
+        # Update pause/resume toggle
+        if is_paused:
+            self._pause_resume_btn.setText("Resume")
+            self._pause_resume_btn.setToolTip("Resume a paused run")
+            self._pause_resume_btn.setEnabled(True)
+        elif is_running:
+            self._pause_resume_btn.setText("Pause")
+            self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
+            self._pause_resume_btn.setEnabled(True)
+        else:
+            self._pause_resume_btn.setText("Pause")
+            self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
+            self._pause_resume_btn.setEnabled(False)
+
         self._stop_btn.setEnabled(is_running or is_paused)
         self._abort_btn.setEnabled(is_running or is_paused)
 
@@ -249,8 +255,7 @@ class RunEngineControlWidget(QWidget):
 
     def _disable_all_buttons(self) -> None:
         """Disable all control buttons."""
-        self._pause_btn.setEnabled(False)
-        self._resume_btn.setEnabled(False)
+        self._pause_resume_btn.setEnabled(False)
         self._stop_btn.setEnabled(False)
         self._abort_btn.setEnabled(False)
 
@@ -287,18 +292,17 @@ class RunEngineControlWidget(QWidget):
         self._update_state()
 
     @Slot()
-    def _on_pause_clicked(self) -> None:
-        """Handle pause button click."""
-        if self._engine is not None:
-            self._engine.pause()
-        self.pause_requested.emit()
+    def _on_pause_resume_clicked(self) -> None:
+        """Handle pause/resume toggle button click."""
+        if self._engine is None:
+            return
 
-    @Slot()
-    def _on_resume_clicked(self) -> None:
-        """Handle resume button click."""
-        if self._engine is not None:
+        if self._engine.state_name == "paused":
             self._engine.resume()
-        self.resume_requested.emit()
+            self.resume_requested.emit()
+        else:
+            self._engine.pause()
+            self.pause_requested.emit()
 
     @Slot()
     def _on_stop_clicked(self) -> None:
