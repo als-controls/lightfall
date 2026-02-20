@@ -44,11 +44,17 @@ GLOBAL_ONLY_PREFS = {
     "session_duration",
     # Device backend settings
     "device_backend",
+    "device_mock_enabled",
     "device_mock_include_noisy",
+    "device_bcs_enabled",
     "device_bcs_host",
     "device_bcs_port",
     "device_bcs_beamline",
     "device_bcs_timeout_ms",
+    "device_happi_enabled",
+    "device_happi_path",
+    "device_happi_beamline",
+    "device_happi_instantiate",
     # Tiled settings
     "tiled_enabled",
     "tiled_url",

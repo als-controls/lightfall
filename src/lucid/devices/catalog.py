@@ -76,7 +76,9 @@ class DeviceCatalog(QObject):
             parent: Optional Qt parent.
         """
         super().__init__(parent)
-        self._backend: DeviceBackend | None = None
+        self._backend: DeviceBackend | None = None  # primary/legacy
+        self._backends: dict[str, DeviceBackend] = {}  # all active backends
+        self._device_backend_map: dict[UUID, str] = {}  # device_id -> backend name
         self._device_cache: dict[UUID, DeviceInfo] = {}
         self._name_index: dict[str, UUID] = {}
 
@@ -105,67 +107,137 @@ class DeviceCatalog(QObject):
 
     @property
     def backend(self) -> DeviceBackend | None:
-        """Get the current backend."""
+        """Get the primary backend (legacy compatibility)."""
         return self._backend
 
     @property
+    def backends(self) -> dict[str, DeviceBackend]:
+        """Get all registered backends."""
+        return dict(self._backends)
+
+    @property
     def is_connected(self) -> bool:
-        """Check if the catalog is connected to a backend."""
-        return self._backend is not None and self._backend.is_connected
+        """Check if any backend is connected."""
+        return any(b.is_connected for b in self._backends.values())
 
     def set_backend(self, backend: DeviceBackend) -> None:
-        """Set the device backend.
+        """Set the device backend (legacy single-backend API).
 
-        If already connected to a backend, disconnects first.
+        Clears all existing backends and adds this one.
 
         Args:
             backend: The backend to use.
         """
-        if self._backend is not None:
-            self.disconnect()
-
+        self.disconnect()
         self._backend = backend
+        self._backends[backend.name] = backend
         logger.info("Device catalog backend set to: {}", backend.name)
 
-    def connect(self) -> bool:
-        """Connect to the backend.
+    def add_backend(self, backend: DeviceBackend) -> None:
+        """Add a backend to the catalog.
 
-        Returns:
-            True if connection successful.
+        Multiple backends can be active simultaneously. Devices from all
+        connected backends are merged into a single unified view.
+
+        Args:
+            backend: The backend to add.
         """
         if self._backend is None:
+            self._backend = backend  # first one becomes primary
+        self._backends[backend.name] = backend
+        logger.info("Added device backend: {}", backend.name)
+
+    def remove_backend(self, name: str) -> None:
+        """Remove a backend by name.
+
+        Args:
+            name: Backend name to remove.
+        """
+        backend = self._backends.pop(name, None)
+        if backend is None:
+            return
+        if backend.is_connected:
+            backend.disconnect()
+            self.backend_disconnected.emit(name)
+
+        # Remove devices owned by this backend
+        to_remove = [did for did, bn in self._device_backend_map.items() if bn == name]
+        for did in to_remove:
+            device = self._device_cache.pop(did, None)
+            if device and device.name in self._name_index:
+                del self._name_index[device.name]
+            del self._device_backend_map[did]
+
+        if self._backend is backend:
+            self._backend = next(iter(self._backends.values()), None)
+
+        logger.info("Removed device backend: {}", name)
+
+    def connect(self) -> bool:
+        """Connect all registered backends.
+
+        Returns:
+            True if at least one backend connected successfully.
+        """
+        if not self._backends:
             logger.error("No backend configured")
             return False
 
-        if self._backend.connect():
-            self._rebuild_cache()
-            self.backend_connected.emit(self._backend.name)
-            logger.info("Device catalog connected")
-            return True
+        any_connected = False
+        for name, backend in self._backends.items():
+            try:
+                if backend.connect():
+                    self._load_backend_devices(backend)
+                    self.backend_connected.emit(name)
+                    any_connected = True
+                    logger.info("Backend '{}' connected", name)
+                else:
+                    logger.warning("Backend '{}' failed to connect", name)
+            except Exception as e:
+                logger.error("Error connecting backend '{}': {}", name, e)
 
-        return False
+        if any_connected:
+            logger.info("Device catalog connected ({} devices)", len(self._device_cache))
+
+        return any_connected
 
     def disconnect(self) -> None:
-        """Disconnect from the backend."""
-        if self._backend is not None:
-            name = self._backend.name
-            self._backend.disconnect()
-            self._device_cache.clear()
-            self._name_index.clear()
-            self.backend_disconnected.emit(name)
-            logger.info("Device catalog disconnected")
+        """Disconnect all backends."""
+        for name, backend in list(self._backends.items()):
+            if backend.is_connected:
+                backend.disconnect()
+                self.backend_disconnected.emit(name)
 
-    def _rebuild_cache(self) -> None:
-        """Rebuild the device cache from the backend."""
-        if self._backend is None:
-            return
-
+        self._backends.clear()
+        self._backend = None
         self._device_cache.clear()
         self._name_index.clear()
+        self._device_backend_map.clear()
+        logger.info("Device catalog disconnected")
 
-        for device in self._backend.get_all_devices():
+    def _load_backend_devices(self, backend: DeviceBackend) -> None:
+        """Load devices from a backend into the cache."""
+        for device in backend.get_all_devices():
+            if device.name in self._name_index:
+                # Name conflict — prefix with backend name
+                logger.warning(
+                    "Device name '{}' from backend '{}' conflicts with existing device, skipping",
+                    device.name, backend.name,
+                )
+                continue
             self._device_cache[device.id] = device
             self._name_index[device.name] = device.id
+            self._device_backend_map[device.id] = backend.name
+
+    def _rebuild_cache(self) -> None:
+        """Rebuild the device cache from all backends."""
+        self._device_cache.clear()
+        self._name_index.clear()
+        self._device_backend_map.clear()
+
+        for backend in self._backends.values():
+            if backend.is_connected:
+                self._load_backend_devices(backend)
 
         logger.debug("Rebuilt device cache with {} devices", len(self._device_cache))
 
@@ -233,6 +305,13 @@ class DeviceCatalog(QObject):
             return self._backend.get_device_by_prefix(prefix)
         return None
 
+    def _backend_for_device(self, device_id: UUID) -> DeviceBackend | None:
+        """Get the backend that owns a device."""
+        name = self._device_backend_map.get(device_id)
+        if name:
+            return self._backends.get(name)
+        return self._backend
+
     def list_devices(
         self,
         category: DeviceCategory | None = None,
@@ -240,6 +319,8 @@ class DeviceCatalog(QObject):
         active_only: bool = True,
     ) -> list[DeviceInfo]:
         """List devices with optional filtering.
+
+        Merges results from all connected backends.
 
         Args:
             category: Filter by device category.
@@ -249,16 +330,18 @@ class DeviceCatalog(QObject):
         Returns:
             List of matching devices.
         """
-        if self._backend:
-            return self._backend.list_devices(
-                category=category,
-                beamline=beamline,
-                active_only=active_only,
-            )
-        return []
+        results: list[DeviceInfo] = []
+        for backend in self._backends.values():
+            if backend.is_connected:
+                results.extend(backend.list_devices(
+                    category=category,
+                    beamline=beamline,
+                    active_only=active_only,
+                ))
+        return results
 
     def search_devices(self, query: str) -> list[DeviceInfo]:
-        """Search devices by query string.
+        """Search devices by query string across all backends.
 
         Args:
             query: Search string.
@@ -266,39 +349,46 @@ class DeviceCatalog(QObject):
         Returns:
             List of matching devices.
         """
-        if self._backend:
-            return self._backend.search_devices(query)
-        return []
+        results: list[DeviceInfo] = []
+        for backend in self._backends.values():
+            if backend.is_connected:
+                results.extend(backend.search_devices(query))
+        return results
 
     def get_all_devices(self) -> list[DeviceInfo]:
-        """Get all devices.
+        """Get all devices from all backends.
 
         Returns:
             List of all devices.
         """
-        if self._backend:
-            return self._backend.get_all_devices()
-        return []
+        results: list[DeviceInfo] = []
+        for backend in self._backends.values():
+            if backend.is_connected:
+                results.extend(backend.get_all_devices())
+        return results
 
     # === Device Management ===
 
-    def add_device(self, device: DeviceInfo) -> bool:
+    def add_device(self, device: DeviceInfo, backend_name: str | None = None) -> bool:
         """Add a new device.
 
         Args:
             device: Device to add.
+            backend_name: Target backend name. Uses primary if not specified.
 
         Returns:
             True if successfully added.
         """
-        if self._backend is None:
+        backend = self._backends.get(backend_name) if backend_name else self._backend
+        if backend is None:
             return False
 
-        if self._backend.add_device(device):
+        if backend.add_device(device):
             self._device_cache[device.id] = device
             self._name_index[device.name] = device.id
+            self._device_backend_map[device.id] = backend.name
             self.device_added.emit(device)
-            logger.info("Added device: {}", device.name)
+            logger.info("Added device: {} (backend: {})", device.name, backend.name)
             return True
 
         return False
@@ -312,11 +402,11 @@ class DeviceCatalog(QObject):
         Returns:
             True if successfully updated.
         """
-        if self._backend is None:
+        backend = self._backend_for_device(device.id)
+        if backend is None:
             return False
 
-        if self._backend.update_device(device):
-            # Update cache
+        if backend.update_device(device):
             old_name = None
             if device.id in self._device_cache:
                 old_name = self._device_cache[device.id].name
@@ -340,22 +430,22 @@ class DeviceCatalog(QObject):
         Returns:
             True if successfully removed.
         """
-        if self._backend is None:
-            return False
-
         if isinstance(device_id, str):
             device_id = UUID(device_id)
 
-        # Get device name for index cleanup
+        backend = self._backend_for_device(device_id)
+        if backend is None:
+            return False
+
         device = self._device_cache.get(device_id)
         device_name = device.name if device else None
 
-        if self._backend.remove_device(device_id):
-            # Clean up cache
+        if backend.remove_device(device_id):
             if device_id in self._device_cache:
                 del self._device_cache[device_id]
             if device_name and device_name in self._name_index:
                 del self._name_index[device_name]
+            self._device_backend_map.pop(device_id, None)
 
             self.device_removed.emit(str(device_id))
             logger.info("Removed device: {}", device_id)
@@ -477,13 +567,14 @@ class DeviceCatalog(QObject):
         Returns:
             List of configurations.
         """
-        if self._backend is None:
-            return []
-
         if isinstance(device_id, str):
             device_id = UUID(device_id)
 
-        return self._backend.get_device_configurations(device_id)
+        backend = self._backend_for_device(device_id)
+        if backend is None:
+            return []
+
+        return backend.get_device_configurations(device_id)
 
     def get_configuration(
         self, device_id: UUID | str, config_name: str
@@ -497,13 +588,14 @@ class DeviceCatalog(QObject):
         Returns:
             Configuration or None.
         """
-        if self._backend is None:
-            return None
-
         if isinstance(device_id, str):
             device_id = UUID(device_id)
 
-        return self._backend.get_configuration(device_id, config_name)
+        backend = self._backend_for_device(device_id)
+        if backend is None:
+            return None
+
+        return backend.get_configuration(device_id, config_name)
 
     def save_configuration(self, config: DeviceConfiguration) -> bool:
         """Save a device configuration.
@@ -514,9 +606,12 @@ class DeviceCatalog(QObject):
         Returns:
             True if successful.
         """
-        if self._backend is None:
+        if config.device_id is None:
             return False
-        return self._backend.save_configuration(config)
+        backend = self._backend_for_device(config.device_id)
+        if backend is None:
+            return False
+        return backend.save_configuration(config)
 
     def delete_configuration(self, config_id: UUID | str) -> bool:
         """Delete a configuration.
@@ -527,13 +622,14 @@ class DeviceCatalog(QObject):
         Returns:
             True if successful.
         """
-        if self._backend is None:
-            return False
-
         if isinstance(config_id, str):
             config_id = UUID(config_id)
 
-        return self._backend.delete_configuration(config_id)
+        # Need to search all backends since we only have config_id
+        for backend in self._backends.values():
+            if backend.is_connected and backend.delete_configuration(config_id):
+                return True
+        return False
 
     # === Maintenance History ===
 
@@ -549,13 +645,14 @@ class DeviceCatalog(QObject):
         Returns:
             List of maintenance records.
         """
-        if self._backend is None:
-            return []
-
         if isinstance(device_id, str):
             device_id = UUID(device_id)
 
-        return self._backend.get_maintenance_history(device_id, limit)
+        backend = self._backend_for_device(device_id)
+        if backend is None:
+            return []
+
+        return backend.get_maintenance_history(device_id, limit)
 
     def add_maintenance_record(self, record: MaintenanceRecord) -> bool:
         """Add a maintenance record.
@@ -566,9 +663,10 @@ class DeviceCatalog(QObject):
         Returns:
             True if successful.
         """
-        if self._backend is None:
+        backend = self._backend_for_device(record.device_id)
+        if backend is None:
             return False
-        return self._backend.add_maintenance_record(record)
+        return backend.add_maintenance_record(record)
 
     # === Snapshots ===
 
@@ -646,6 +744,10 @@ class DeviceCatalog(QObject):
         return {
             "connected": self.is_connected,
             "backend": self._backend.name if self._backend else None,
+            "backends": {
+                name: {"connected": b.is_connected, "info": b.get_backend_info()}
+                for name, b in self._backends.items()
+            },
             "device_count": len(devices),
             "cached_devices": len(self._device_cache),
             "devices_by_category": by_category,

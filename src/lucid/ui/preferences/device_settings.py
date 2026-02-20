@@ -1,7 +1,7 @@
 """Device backend settings plugin for NCS.
 
-This module contains the DeviceSettingsPlugin that allows users to
-select and configure the device backend (Mock, BCS, etc.).
+Allows enabling multiple device backends simultaneously, each with
+its own configuration section.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -16,7 +17,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QSpinBox,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -31,147 +31,113 @@ if TYPE_CHECKING:
 class DeviceSettingsPlugin(SettingsPlugin):
     """Settings plugin for device backend configuration.
 
-    Allows users to select and configure the device backend:
-    - Mock: Simulated devices for development/testing
-    - BCS: Connect to a BCS server via ZMQ
+    Users can enable multiple backends simultaneously. Each backend has
+    its own enable checkbox and configuration group. Devices from all
+    enabled backends are merged into a single catalog.
 
-    Note: Changes to the device backend require an application restart
-    to take effect.
+    Note: Changes require application restart to take effect.
     """
 
     def __init__(self) -> None:
-        """Initialize the device settings plugin."""
         self._widget: QWidget | None = None
-        self._backend_combo: QComboBox | None = None
-        self._options_stack: QStackedWidget | None = None
 
-        # Mock backend options
+        # Mock
+        self._mock_enabled: QCheckBox | None = None
         self._mock_noisy_check: QComboBox | None = None
 
-        # BCS backend options
+        # BCS
+        self._bcs_enabled: QCheckBox | None = None
         self._bcs_host_edit: QLineEdit | None = None
         self._bcs_port_spin: QSpinBox | None = None
         self._bcs_beamline_edit: QLineEdit | None = None
         self._bcs_timeout_spin: QSpinBox | None = None
 
+        # Happi
+        self._happi_enabled: QCheckBox | None = None
+        self._happi_path_edit: QLineEdit | None = None
+        self._happi_beamline_edit: QLineEdit | None = None
+        self._happi_instantiate: QCheckBox | None = None
+
     @property
     def name(self) -> str:
-        """Return unique identifier for this settings plugin."""
         return "devices"
 
     @property
     def display_name(self) -> str:
-        """Return human-readable name for preferences sidebar."""
         return "Devices"
 
     @property
     def icon(self) -> QIcon | None:
-        """Return optional icon for sidebar."""
         return None
 
     @property
     def category(self) -> str:
-        """Return category for grouping."""
         return "general"
 
     @property
     def priority(self) -> int:
-        """Return sort order (lower = higher in list)."""
-        return 20  # After appearance (0)
+        return 20
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
-
-        Args:
-            parent: Parent widget (the dialog).
-
-        Returns:
-            A QWidget containing the device settings controls.
-        """
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Backend selection group
-        backend_group = QGroupBox("Device Backend")
-        backend_layout = QFormLayout(backend_group)
-
-        # Backend selector
-        self._backend_combo = QComboBox()
-        self._backend_combo.addItem("Mock (Simulated)", "mock")
-        self._backend_combo.addItem("BCS (ZMQ)", "bcs")
-        self._backend_combo.currentIndexChanged.connect(self._on_backend_changed)
-        backend_layout.addRow("Backend:", self._backend_combo)
-
         # Restart notice
         notice = QLabel(
-            "<i>Note: Changes require application restart to take effect.</i>"
+            "<i>⚠ Changes to device backends require application restart.</i>"
         )
         notice.setWordWrap(True)
-        backend_layout.addRow(notice)
+        layout.addWidget(notice)
 
-        layout.addWidget(backend_group)
+        # Mock backend
+        layout.addWidget(self._create_mock_group())
 
-        # Stacked widget for backend-specific options
-        self._options_stack = QStackedWidget()
+        # BCS backend
+        layout.addWidget(self._create_bcs_group())
 
-        # Mock backend options page
-        mock_page = self._create_mock_options()
-        self._options_stack.addWidget(mock_page)
+        # Happi backend
+        layout.addWidget(self._create_happi_group())
 
-        # BCS backend options page
-        bcs_page = self._create_bcs_options()
-        self._options_stack.addWidget(bcs_page)
-
-        layout.addWidget(self._options_stack)
         layout.addStretch()
-
         self._widget = widget
         return widget
 
-    def _create_mock_options(self) -> QWidget:
-        """Create the Mock backend options widget."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
+    # ── Mock ──────────────────────────────────────────────────────
 
-        group = QGroupBox("Mock Backend Options")
+    def _create_mock_group(self) -> QGroupBox:
+        group = QGroupBox("Mock Backend")
+        group.setCheckable(True)
+        self._mock_enabled = group  # QGroupBox.isChecked()
         form = QFormLayout(group)
 
-        # Include noisy devices option
         self._mock_noisy_check = QComboBox()
         self._mock_noisy_check.addItem("Yes", True)
         self._mock_noisy_check.addItem("No", False)
         form.addRow("Include noisy devices:", self._mock_noisy_check)
 
-        # Description
         desc = QLabel(
-            "Mock backend provides simulated ophyd.sim devices for "
-            "development and testing. No external connections required."
+            "Simulated ophyd.sim devices for development and testing."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: gray;")
         form.addRow(desc)
 
-        layout.addWidget(group)
-        layout.addStretch()
-        return page
+        return group
 
-    def _create_bcs_options(self) -> QWidget:
-        """Create the BCS backend options widget."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
+    # ── BCS ───────────────────────────────────────────────────────
 
-        group = QGroupBox("BCS Backend Options")
+    def _create_bcs_group(self) -> QGroupBox:
+        group = QGroupBox("BCS Backend (ZMQ)")
+        group.setCheckable(True)
+        self._bcs_enabled = group
+
         form = QFormLayout(group)
 
-        # Host
         self._bcs_host_edit = QLineEdit()
         self._bcs_host_edit.setPlaceholderText("localhost")
         form.addRow("Server host:", self._bcs_host_edit)
 
-        # Port
         port_layout = QHBoxLayout()
         self._bcs_port_spin = QSpinBox()
         self._bcs_port_spin.setRange(1, 65535)
@@ -180,12 +146,10 @@ class DeviceSettingsPlugin(SettingsPlugin):
         port_layout.addStretch()
         form.addRow("Server port:", port_layout)
 
-        # Beamline
         self._bcs_beamline_edit = QLineEdit()
         self._bcs_beamline_edit.setPlaceholderText("(optional)")
         form.addRow("Beamline:", self._bcs_beamline_edit)
 
-        # Timeout
         timeout_layout = QHBoxLayout()
         self._bcs_timeout_spin = QSpinBox()
         self._bcs_timeout_spin.setRange(100, 60000)
@@ -196,49 +160,73 @@ class DeviceSettingsPlugin(SettingsPlugin):
         timeout_layout.addStretch()
         form.addRow("Timeout:", timeout_layout)
 
-        # Description
         desc = QLabel(
-            "BCS backend connects to a Beamline Control System server via ZMQ "
-            "and auto-discovers devices from the Happi database."
+            "Connects to a BCS server via ZMQ and auto-discovers devices "
+            "using bcsophyd. Requires bcsophyd package."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: gray;")
         form.addRow(desc)
 
-        layout.addWidget(group)
-        layout.addStretch()
-        return page
+        return group
 
-    def _on_backend_changed(self, index: int) -> None:
-        """Handle backend selection change."""
-        if self._options_stack:
-            self._options_stack.setCurrentIndex(index)
+    # ── Happi ─────────────────────────────────────────────────────
+
+    def _create_happi_group(self) -> QGroupBox:
+        group = QGroupBox("Happi Backend")
+        group.setCheckable(True)
+        self._happi_enabled = group
+
+        form = QFormLayout(group)
+
+        self._happi_path_edit = QLineEdit()
+        self._happi_path_edit.setPlaceholderText("Path to happi JSON db (or leave empty for $HAPPI_BACKEND)")
+        form.addRow("Database path:", self._happi_path_edit)
+
+        self._happi_beamline_edit = QLineEdit()
+        self._happi_beamline_edit.setPlaceholderText("(optional — filter by beamline)")
+        form.addRow("Beamline filter:", self._happi_beamline_edit)
+
+        self._happi_instantiate = QCheckBox("Instantiate ophyd devices on load")
+        self._happi_instantiate.setToolTip(
+            "If checked, happi will call item.get() to create live ophyd device "
+            "instances. Leave unchecked to load metadata only (faster, no EPICS needed)."
+        )
+        form.addRow(self._happi_instantiate)
+
+        desc = QLabel(
+            "Loads devices from a Happi device database. "
+            "Supports JSON file backends and happi's default configuration. "
+            "Requires happi package."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray;")
+        form.addRow(desc)
+
+        return group
+
+    # ── Load / Save ───────────────────────────────────────────────
 
     def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Populates the controls with current values from PreferencesManager.
-        """
-        if not self._backend_combo:
-            return
-
         prefs = PreferencesManager.get_instance()
 
-        # Load backend selection
-        backend = prefs.get("device_backend", "mock")
-        index = self._backend_combo.findData(backend)
-        if index >= 0:
-            self._backend_combo.setCurrentIndex(index)
-            self._on_backend_changed(index)
+        # Which backends are enabled (legacy compat: "device_backend" = "mock" or "bcs")
+        legacy_backend = prefs.get("device_backend", "mock")
+        mock_on = prefs.get("device_mock_enabled", legacy_backend == "mock")
+        bcs_on = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
+        happi_on = prefs.get("device_happi_enabled", False)
 
-        # Load mock options
+        # Mock
+        if isinstance(self._mock_enabled, QGroupBox):
+            self._mock_enabled.setChecked(mock_on)
         if self._mock_noisy_check:
-            include_noisy = prefs.get("device_mock_include_noisy", True)
-            noisy_index = self._mock_noisy_check.findData(include_noisy)
-            if noisy_index >= 0:
-                self._mock_noisy_check.setCurrentIndex(noisy_index)
+            idx = self._mock_noisy_check.findData(prefs.get("device_mock_include_noisy", True))
+            if idx >= 0:
+                self._mock_noisy_check.setCurrentIndex(idx)
 
-        # Load BCS options
+        # BCS
+        if isinstance(self._bcs_enabled, QGroupBox):
+            self._bcs_enabled.setChecked(bcs_on)
         if self._bcs_host_edit:
             self._bcs_host_edit.setText(prefs.get("device_bcs_host", "localhost"))
         if self._bcs_port_spin:
@@ -248,24 +236,40 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._bcs_timeout_spin:
             self._bcs_timeout_spin.setValue(prefs.get("device_bcs_timeout_ms", 5000))
 
+        # Happi
+        if isinstance(self._happi_enabled, QGroupBox):
+            self._happi_enabled.setChecked(happi_on)
+        if self._happi_path_edit:
+            self._happi_path_edit.setText(prefs.get("device_happi_path", ""))
+        if self._happi_beamline_edit:
+            self._happi_beamline_edit.setText(prefs.get("device_happi_beamline", ""))
+        if self._happi_instantiate:
+            self._happi_instantiate.setChecked(prefs.get("device_happi_instantiate", False))
+
     def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Writes the current control values to PreferencesManager.
-        """
-        if not self._backend_combo:
-            return
-
         prefs = PreferencesManager.get_instance()
 
-        # Save backend selection
-        prefs.set("device_backend", self._backend_combo.currentData())
+        mock_on = self._mock_enabled.isChecked() if isinstance(self._mock_enabled, QGroupBox) else False
+        bcs_on = self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
+        happi_on = self._happi_enabled.isChecked() if isinstance(self._happi_enabled, QGroupBox) else False
 
-        # Save mock options
+        prefs.set("device_mock_enabled", mock_on)
+        prefs.set("device_bcs_enabled", bcs_on)
+        prefs.set("device_happi_enabled", happi_on)
+
+        # Legacy compat: set device_backend to first enabled
+        if bcs_on:
+            prefs.set("device_backend", "bcs")
+        elif happi_on:
+            prefs.set("device_backend", "happi")
+        else:
+            prefs.set("device_backend", "mock")
+
+        # Mock
         if self._mock_noisy_check:
             prefs.set("device_mock_include_noisy", self._mock_noisy_check.currentData())
 
-        # Save BCS options
+        # BCS
         if self._bcs_host_edit:
             prefs.set("device_bcs_host", self._bcs_host_edit.text() or "localhost")
         if self._bcs_port_spin:
@@ -275,17 +279,20 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._bcs_timeout_spin:
             prefs.set("device_bcs_timeout_ms", self._bcs_timeout_spin.value())
 
-    def validate(self) -> list[str]:
-        """Validate current widget values.
+        # Happi
+        if self._happi_path_edit:
+            prefs.set("device_happi_path", self._happi_path_edit.text())
+        if self._happi_beamline_edit:
+            prefs.set("device_happi_beamline", self._happi_beamline_edit.text())
+        if self._happi_instantiate:
+            prefs.set("device_happi_instantiate", self._happi_instantiate.isChecked())
 
-        Returns:
-            List of error messages, or empty list if valid.
-        """
+    def validate(self) -> list[str]:
         errors = []
 
-        # Validate BCS host if BCS backend selected
-        if self._backend_combo and self._backend_combo.currentData() == "bcs":
+        bcs_on = self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
+        if bcs_on:
             if self._bcs_host_edit and not self._bcs_host_edit.text().strip():
-                errors.append("BCS server host is required")
+                errors.append("BCS server host is required when BCS backend is enabled")
 
         return errors

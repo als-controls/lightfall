@@ -80,7 +80,7 @@ from lucid.auth.session import SessionManager
 from lucid.config import ConfigManager
 from lucid.core import NCSApplication
 from lucid.devices import DeviceCatalog
-from lucid.devices.backends import BCSBackend, MockBackend
+from lucid.devices.backends import BCSBackend, HappiBackend, MockBackend
 from lucid.project import ProjectService, create_welcome_project
 from lucid.ui import NCSMainWindow
 from lucid.ui.panels.registry import PanelRegistry
@@ -179,40 +179,51 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
 def _setup_devices() -> None:
     """Setup the device catalog based on user preferences.
 
-    Initializes the DeviceCatalog with the backend configured in
-    preferences (Mock or BCS). Falls back to Mock if not configured.
+    Initializes the DeviceCatalog with all enabled backends.
+    Multiple backends can be active simultaneously — their devices
+    are merged into a single unified catalog.
     """
     catalog = DeviceCatalog.get_instance()
     prefs = PreferencesManager.get_instance()
 
-    # Get backend configuration from preferences
-    backend_type = prefs.get("device_backend", "mock")
+    # Check which backends are enabled (with legacy compat)
+    legacy_backend = prefs.get("device_backend", "mock")
+    mock_enabled = prefs.get("device_mock_enabled", legacy_backend == "mock")
+    bcs_enabled = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
+    happi_enabled = prefs.get("device_happi_enabled", False)
 
-    if backend_type == "bcs":
-        # BCS backend - connect to BCS server via ZMQ
+    # If nothing is explicitly enabled, fall back to mock
+    if not any([mock_enabled, bcs_enabled, happi_enabled]):
+        mock_enabled = True
+
+    if mock_enabled:
+        include_noisy = prefs.get("device_mock_include_noisy", True)
+        catalog.add_backend(MockBackend(include_noisy=include_noisy))
+        logger.info("Mock backend enabled (include_noisy={})", include_noisy)
+
+    if bcs_enabled:
         host = prefs.get("device_bcs_host", "localhost")
         port = prefs.get("device_bcs_port", 5577)
         timeout_ms = prefs.get("device_bcs_timeout_ms", 5000)
         beamline = prefs.get("device_bcs_beamline") or None
+        catalog.add_backend(BCSBackend(
+            host=host, port=port, timeout_ms=timeout_ms, beamline=beamline,
+        ))
+        logger.info("BCS backend enabled ({}:{})", host, port)
 
-        backend = BCSBackend(
-            host=host,
-            port=port,
-            timeout_ms=timeout_ms,
-            beamline=beamline,
-        )
-        logger.info("Using BCS backend ({}:{})", host, port)
-    else:
-        # Mock backend (default)
-        include_noisy = prefs.get("device_mock_include_noisy", True)
-        backend = MockBackend(include_noisy=include_noisy)
-        logger.info("Using Mock backend (include_noisy={})", include_noisy)
-
-    catalog.set_backend(backend)
+    if happi_enabled:
+        happi_path = prefs.get("device_happi_path", "") or None
+        happi_beamline = prefs.get("device_happi_beamline", "") or None
+        happi_instantiate = prefs.get("device_happi_instantiate", False)
+        catalog.add_backend(HappiBackend(
+            path=happi_path, beamline=happi_beamline, instantiate=happi_instantiate,
+        ))
+        logger.info("Happi backend enabled (path={})", happi_path or "default")
 
     if catalog.connect():
         device_count = len(catalog.get_all_devices())
-        logger.info("Device catalog initialized with {} devices", device_count)
+        backends_str = ", ".join(catalog.backends.keys())
+        logger.info("Device catalog initialized: {} devices from [{}]", device_count, backends_str)
     else:
         logger.error("Failed to connect device catalog")
 
