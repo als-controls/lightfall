@@ -11,6 +11,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from concurrent.futures import Future, ThreadPoolExecutor
+
 from PySide6.QtCore import (
     QAbstractItemModel,
     QModelIndex,
@@ -65,8 +67,8 @@ class DeviceTreeItem:
         self.device_info = device_info
         self.children: list[DeviceTreeItem] = []
 
-        # Cache some properties
-        self._value_cache: Any = None
+        # Cache for display values (updated by background thread)
+        self._cached_value: str = ""
         self._status_cache: str = ""
 
     def append_child(self, child: DeviceTreeItem) -> None:
@@ -98,7 +100,7 @@ class DeviceTreeItem:
         if column == 0:
             return self.name
         elif column == 1:
-            return self._get_value()
+            return self._cached_value
         elif column == 2:
             return self._get_type_string()
         elif column == 3:
@@ -186,6 +188,17 @@ class DeviceTreeItem:
 
         return None
 
+    def refresh_cached_value(self) -> bool:
+        """Recompute the cached value string. Returns True if it changed.
+
+        Safe to call from a background thread — only reads from ophyd objects.
+        """
+        new_value = self._get_value()
+        if new_value != self._cached_value:
+            self._cached_value = new_value
+            return True
+        return False
+
     def _get_value(self) -> str:
         """Get current value as string with units.
 
@@ -209,11 +222,8 @@ class DeviceTreeItem:
                     val = self._safe_get(self.ophyd_obj.readback)
                     if val is not None:
                         return self._format_value(val)
-                # Check for position (motors) — prefer get() to refresh cache
+                # Check for position (motors)
                 elif hasattr(self.ophyd_obj, "position"):
-                    val = self._safe_get(self.ophyd_obj)
-                    if val is not None:
-                        return self._format_value(val)
                     return self._format_value(self.ophyd_obj.position)
                 # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
@@ -337,9 +347,12 @@ class DeviceTreeModel(QAbstractItemModel):
         self._create_icons()
         self._populate()
 
-        # Periodic value refresh timer (updates Value column for live readback)
+        # Background value refresh: fetch values off the main thread
+        self._value_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dev-values")
+        self._value_future: Future | None = None
+
         self._value_timer = QTimer(self)
-        self._value_timer.timeout.connect(self._refresh_values)
+        self._value_timer.timeout.connect(self._poll_value_refresh)
         self._value_timer.start(2000)  # Every 2 seconds
 
     def _create_icons(self) -> None:
@@ -456,16 +469,42 @@ class DeviceTreeModel(QAbstractItemModel):
         except Exception as e:
             logger.debug("Error adding components for {}: {}", parent_item.name, e)
 
-    def _refresh_values(self) -> None:
-        """Emit dataChanged for the Value column to trigger live updates."""
+    def _poll_value_refresh(self) -> None:
+        """Timer callback: check if background fetch is done, then emit updates."""
+        if self._value_future is not None:
+            if not self._value_future.done():
+                return  # Still working, skip this tick
+            # Fetch completed — emit dataChanged for value column
+            self._value_future = None
+            self._emit_value_changed()
+
+        # Start a new background fetch
+        if self._root.children:
+            self._value_future = self._value_executor.submit(self._fetch_all_values)
+
+    def _fetch_all_values(self) -> None:
+        """Background thread: refresh cached values on all tree items."""
+        self._fetch_item_values(self._root)
+
+    def _fetch_item_values(self, item: DeviceTreeItem) -> None:
+        """Recursively refresh cached values for an item and its children."""
+        if item is not self._root:
+            try:
+                item.refresh_cached_value()
+            except Exception:
+                pass
+
+        for child in item.children:
+            self._fetch_item_values(child)
+
+    def _emit_value_changed(self) -> None:
+        """Emit dataChanged for the Value column across all rows."""
         if not self._root.children:
             return
-        # Emit dataChanged for column 1 (Value) across all visible rows
         top_left = self.index(0, 1)
         bottom_right = self.index(self._root.child_count() - 1, 1)
         self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
 
-        # Also refresh children (expanded items)
         for row in range(self._root.child_count()):
             parent_index = self.index(row, 0)
             child_count = self.rowCount(parent_index)
