@@ -209,8 +209,11 @@ class DeviceTreeItem:
                     val = self._safe_get(self.ophyd_obj.readback)
                     if val is not None:
                         return self._format_value(val)
-                # Check for position (motors)
+                # Check for position (motors) — prefer get() to refresh cache
                 elif hasattr(self.ophyd_obj, "position"):
+                    val = self._safe_get(self.ophyd_obj)
+                    if val is not None:
+                        return self._format_value(val)
                     return self._format_value(self.ophyd_obj.position)
                 # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
