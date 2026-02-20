@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     QAbstractItemModel,
     QModelIndex,
     QSortFilterProxyModel,
+    QTimer,
     Qt,
 )
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -124,7 +125,7 @@ class DeviceTreeItem:
                         return f"{val:.4g}"
                     return str(val)
 
-            # For devices, only show value if they have a readback signal
+            # For devices, show value from readback, position, or direct .get()
             elif self.node_type == NodeType.DEVICE:
                 if hasattr(self.ophyd_obj, "readback"):
                     readback = self.ophyd_obj.readback
@@ -133,12 +134,20 @@ class DeviceTreeItem:
                         if isinstance(val, float):
                             return f"{val:.4g}"
                         return str(val)
-                # Also check for position (motors)
+                # Check for position (motors)
                 elif hasattr(self.ophyd_obj, "position"):
                     pos = self.ophyd_obj.position
                     if isinstance(pos, float):
                         return f"{pos:.4g}"
                     return str(pos)
+                # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
+                elif hasattr(self.ophyd_obj, "get") and not hasattr(
+                    self.ophyd_obj, "component_names"
+                ):
+                    val = self.ophyd_obj.get()
+                    if isinstance(val, float):
+                        return f"{val:.4g}"
+                    return str(val)
         except Exception:
             pass
         return ""
@@ -254,6 +263,11 @@ class DeviceTreeModel(QAbstractItemModel):
         self._create_icons()
         self._populate()
 
+        # Periodic value refresh timer (updates Value column for live readback)
+        self._value_timer = QTimer(self)
+        self._value_timer.timeout.connect(self._refresh_values)
+        self._value_timer.start(2000)  # Every 2 seconds
+
     def _create_icons(self) -> None:
         """Create icons for device types."""
         icon_specs = {
@@ -367,6 +381,24 @@ class DeviceTreeModel(QAbstractItemModel):
 
         except Exception as e:
             logger.debug("Error adding components for {}: {}", parent_item.name, e)
+
+    def _refresh_values(self) -> None:
+        """Emit dataChanged for the Value column to trigger live updates."""
+        if not self._root.children:
+            return
+        # Emit dataChanged for column 1 (Value) across all visible rows
+        top_left = self.index(0, 1)
+        bottom_right = self.index(self._root.child_count() - 1, 1)
+        self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
+
+        # Also refresh children (expanded items)
+        for row in range(self._root.child_count()):
+            parent_index = self.index(row, 0)
+            child_count = self.rowCount(parent_index)
+            if child_count > 0:
+                child_top = self.index(0, 1, parent_index)
+                child_bottom = self.index(child_count - 1, 1, parent_index)
+                self.dataChanged.emit(child_top, child_bottom, [Qt.ItemDataRole.DisplayRole])
 
     def refresh(self) -> None:
         """Refresh the model from the catalog."""
