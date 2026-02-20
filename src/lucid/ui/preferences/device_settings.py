@@ -84,6 +84,12 @@ class DeviceSettingsPlugin(SettingsPlugin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
+        # Extra top padding so checkable QGroupBox indicators aren't clipped
+        widget.setStyleSheet(
+            "QGroupBox { margin-top: 8px; }"
+            "QGroupBox::title { subcontrol-origin: margin; padding: 0 4px; }"
+        )
+
         # Restart notice
         notice = QLabel(
             "<i>⚠ Changes to device backends require application restart.</i>"
