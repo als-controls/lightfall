@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 # Set Windows AppUserModelID BEFORE any Qt imports.
@@ -14,7 +15,63 @@ if sys.platform == "win32":
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+
+def _configure_remote_display() -> None:
+    """Configure environment for remote displays BEFORE Qt is imported.
+
+    Detects VNC/remote X11 and sets environment variables for software rendering.
+    Must run before any Qt imports.
+    """
+    # Check for VNC-specific environment variables
+    if os.environ.get("VNCDESKTOP") or os.environ.get("VNC_SESSION"):
+        is_remote = True
+    else:
+        # Check DISPLAY for remote X11 or high display numbers (VNC)
+        display = os.environ.get("DISPLAY", "")
+        is_remote = False
+        if display:
+            # Remote X11: hostname:0
+            if ":" in display and not display.startswith(":"):
+                is_remote = True
+            else:
+                # High display numbers often indicate VNC (:1, :2, etc.)
+                try:
+                    display_num = int(display.split(":")[1].split(".")[0])
+                    if display_num > 0:
+                        is_remote = True
+                except (IndexError, ValueError):
+                    pass
+
+    if is_remote:
+        # Disable Vulkan at the loader level
+        os.environ.setdefault("VK_ICD_FILENAMES", "")
+        os.environ.setdefault("VK_DRIVER_FILES", "")
+        # Force software rendering for Mesa/OpenGL
+        os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+        # Qt software rendering
+        os.environ.setdefault("QT_QUICK_BACKEND", "software")
+        os.environ.setdefault("QT_OPENGL", "software")
+        os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+        # Chromium flags for WebEngine
+        existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+        remote_flags = [
+            "--disable-gpu",
+            "--disable-gpu-compositing",
+            "--disable-vulkan",
+            "--disable-features=Vulkan,VulkanFromANGLE,UseSkiaRenderer",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+        ]
+        for flag in remote_flags:
+            if flag not in existing:
+                existing = f"{existing} {flag}".strip()
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = existing
+
+
+# Configure remote display BEFORE any Qt imports
+_configure_remote_display()
+
+from PySide6.QtCore import Qt  # noqa: E402
 
 from lucid.acquire import get_engine
 from lucid.acquire.plans import get_registry as get_plan_registry

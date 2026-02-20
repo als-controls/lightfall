@@ -76,6 +76,12 @@ builtin_manifest = PluginManifest(
             name="tiled",
             import_path="lucid.ui.preferences.tiled_settings:TiledSettingsPlugin",
         ),
+        # Logbook backend settings
+        PluginEntry(
+            type_name="settings",
+            name="logbook",
+            import_path="lucid.ui.preferences.logbook_settings:LogbookSettingsPlugin",
+        ),
         # Claude settings
         PluginEntry(
             type_name="settings",

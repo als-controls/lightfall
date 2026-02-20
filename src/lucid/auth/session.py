@@ -116,6 +116,7 @@ class Session:
     user: User
     token: str | None = None
     refresh_token: str | None = None
+    id_token: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -314,6 +315,15 @@ class SessionManager(QObject):
         self._set_state(AuthState.UNAUTHENTICATED)
         self.user_changed.emit(ANONYMOUS_USER)
         logger.info("User '{}' logged out", old_user.username)
+
+        # Purge synced logbook data so the local DB stays lean
+        try:
+            from lucid.logbook.client import LogbookClient
+            client = LogbookClient.get_instance()
+            if client._initialized:
+                client.purge_synced()
+        except Exception as exc:
+            logger.debug("Logbook purge on logout skipped: {}", exc)
 
     async def refresh_session(self) -> bool:
         """Attempt to refresh the current session.
