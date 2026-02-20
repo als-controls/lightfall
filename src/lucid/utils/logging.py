@@ -37,6 +37,18 @@ _application_start_time = time.perf_counter_ns()
 _configured = False
 
 
+# Third-party modules to suppress at DEBUG level (too noisy with polling)
+_NOISY_MODULES = ("bcsophyd",)
+
+
+def _third_party_filter(record: Record) -> bool:
+    """Filter out DEBUG messages from noisy third-party modules."""
+    if record["level"].no <= 10:  # DEBUG = 10
+        name = record["name"] or ""
+        return not any(name.startswith(mod) for mod in _NOISY_MODULES)
+    return True
+
+
 def _default_format(record: Record) -> str:
     """Default log format for LUCID."""
     level_colors = {
@@ -94,6 +106,7 @@ def configure_logging(
             level=level,
             format=fmt,
             colorize=colorize,
+            filter=_third_party_filter,
         )
 
     if log_file:
@@ -106,6 +119,7 @@ def configure_logging(
             rotation=rotation,
             retention=retention,
             compression="gz",
+            filter=_third_party_filter,
         )
 
     _configured = True
