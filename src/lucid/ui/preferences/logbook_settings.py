@@ -85,7 +85,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(self._enabled_check)
 
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("http://bcglucidlogbook.dhcp.lbl.gov")
+        self._url_edit.setPlaceholderText("http://bcglucidlogbook.dhcp.lbl.gov:8000")
         connection_layout.addRow("Server URL:", self._url_edit)
 
         # Test connection
