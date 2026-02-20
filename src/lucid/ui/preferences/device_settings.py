@@ -84,6 +84,23 @@ class DeviceSettingsPlugin(SettingsPlugin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
+        # Prevent checkbox indicator clipping on Windows dark themes
+        widget.setStyleSheet("""
+            QGroupBox {
+                margin-top: 14px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                top: 2px;
+                left: 8px;
+            }
+            QGroupBox::indicator {
+                subcontrol-origin: margin;
+                top: 2px;
+            }
+        """)
+
         # Restart notice
         notice = QLabel(
             "<i>⚠ Changes to device backends require application restart.</i>"
