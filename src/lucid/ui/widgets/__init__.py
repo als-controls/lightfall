@@ -50,6 +50,10 @@ from lucid.ui.widgets.motor_control import (
     MotorControlWidget,
     MultiMotorControlWidget,
 )
+from lucid.ui.widgets.signal_control import (
+    MultiSignalControlWidget,
+    SignalControlWidget,
+)
 from lucid.ui.widgets.plan_config import (
     PlanConfigWidget,
     PlanExecutionWidget,
@@ -82,6 +86,9 @@ __all__ = [
     # Motor widgets
     "MotorControlWidget",
     "MultiMotorControlWidget",
+    # Signal widgets
+    "SignalControlWidget",
+    "MultiSignalControlWidget",
     # Camera widgets
     "CameraControlWidget",
     "AndorCameraControlWidget",

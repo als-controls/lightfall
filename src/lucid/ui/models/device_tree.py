@@ -222,8 +222,19 @@ class DeviceTreeItem:
                     val = self._safe_get(self.ophyd_obj.readback)
                     if val is not None:
                         return self._format_value(val)
-                # Check for position (motors)
+                # Check for position (motors) — refresh from server if possible
                 elif hasattr(self.ophyd_obj, "position"):
+                    if hasattr(self.ophyd_obj, "zmq_get_motor_full"):
+                        try:
+                            result = self.ophyd_obj.zmq_get_motor_full(
+                                self.ophyd_obj.originalName
+                            )
+                            if result and len(result) > 0:
+                                self.ophyd_obj._position = result[0].get(
+                                    "Raw Motor Position", self.ophyd_obj._position
+                                )
+                        except Exception:
+                            pass
                     return self._format_value(self.ophyd_obj.position)
                 # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
