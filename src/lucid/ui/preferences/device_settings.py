@@ -84,12 +84,6 @@ class DeviceSettingsPlugin(SettingsPlugin):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        # Extra top padding so checkable QGroupBox indicators aren't clipped
-        widget.setStyleSheet(
-            "QGroupBox { margin-top: 10px; padding-top: 16px; }"
-            "QGroupBox::title { subcontrol-origin: margin; padding: 0 4px; }"
-        )
-
         # Restart notice
         notice = QLabel(
             "<i>⚠ Changes to device backends require application restart.</i>"
@@ -117,6 +111,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         group.setCheckable(True)
         self._mock_enabled = group  # QGroupBox.isChecked()
         form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
 
         self._mock_noisy_check = QComboBox()
         self._mock_noisy_check.addItem("Yes", True)
@@ -140,6 +135,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         self._bcs_enabled = group
 
         form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
 
         self._bcs_host_edit = QLineEdit()
         self._bcs_host_edit.setPlaceholderText("localhost")
@@ -185,6 +181,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         self._happi_enabled = group
 
         form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
 
         self._happi_path_edit = QLineEdit()
         self._happi_path_edit.setPlaceholderText("Path to happi JSON db (or leave empty for $HAPPI_BACKEND)")
