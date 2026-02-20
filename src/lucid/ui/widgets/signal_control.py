@@ -7,6 +7,9 @@ Provides control UIs for ophyd signal devices:
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
@@ -81,8 +84,45 @@ def _is_writable(ophyd_obj: Any) -> bool:
     return hasattr(ophyd_obj, "put") or hasattr(ophyd_obj, "set")
 
 
+def _run_coroutine(coro: Any) -> Any:
+    """Run an async coroutine from synchronous Qt code.
+
+    Spawns a temporary event loop in a thread to avoid blocking
+    or conflicting with Qt's event loop.
+
+    Args:
+        coro: Async coroutine to run.
+
+    Returns:
+        Result of the coroutine.
+    """
+    result = None
+    exception = None
+
+    def _run() -> None:
+        nonlocal result, exception
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(coro)
+        except Exception as e:
+            exception = e
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=2.0)
+
+    if exception:
+        raise exception
+    return result
+
+
 def _get_signal_value(ophyd_obj: Any) -> Any:
     """Get the current value of a signal.
+
+    Handles both sync and async get() methods (e.g. BCSSignal).
 
     Args:
         ophyd_obj: The ophyd object to read.
@@ -95,12 +135,36 @@ def _get_signal_value(ophyd_obj: Any) -> Any:
 
     try:
         if hasattr(ophyd_obj, "get"):
-            return ophyd_obj.get()
+            val = ophyd_obj.get()
+            # Handle async get() returning a coroutine
+            if inspect.isawaitable(val):
+                return _run_coroutine(val)
+            return val
         if hasattr(ophyd_obj, "value"):
             return ophyd_obj.value
     except Exception:
         pass
     return None
+
+
+def _put_signal_value(ophyd_obj: Any, value: Any) -> None:
+    """Set a value on an ophyd signal, handling async put/set.
+
+    Args:
+        ophyd_obj: The ophyd object to write to.
+        value: The value to set.
+    """
+    if ophyd_obj is None:
+        return
+
+    if hasattr(ophyd_obj, "put"):
+        result = ophyd_obj.put(value)
+        if inspect.isawaitable(result):
+            _run_coroutine(result)
+    elif hasattr(ophyd_obj, "set"):
+        result = ophyd_obj.set(value)
+        if inspect.isawaitable(result):
+            _run_coroutine(result)
 
 
 def _format_value(value: Any, precision: int = 4) -> str:
@@ -218,6 +282,8 @@ class SignalControlWidget(BaseControlWidget):
                 return self._signal.metadata.get("units", "")
             if hasattr(self._signal, "describe"):
                 desc = self._signal.describe()
+                if inspect.isawaitable(desc):
+                    desc = _run_coroutine(desc)
                 if desc:
                     # describe() returns {name: {shape, dtype, units, ...}}
                     for _key, info in desc.items():
@@ -409,11 +475,8 @@ class SignalControlWidget(BaseControlWidget):
                 unit=self._units,
             )
 
-            # Perform the set
-            if hasattr(self._signal, "put"):
-                self._signal.put(new_value)
-            elif hasattr(self._signal, "set"):
-                self._signal.set(new_value)
+            # Perform the set (handle async put/set)
+            _put_signal_value(self._signal, new_value)
 
             logger.info("Set {} to {}", self._signal_name, new_value)
 
@@ -686,11 +749,8 @@ class MultiSignalControlWidget(BaseControlWidget):
                 unit=unit,
             )
 
-            # Perform the set
-            if hasattr(sig, "put"):
-                sig.put(new_value)
-            elif hasattr(sig, "set"):
-                sig.set(new_value)
+            # Perform the set (handle async put/set)
+            _put_signal_value(sig, new_value)
 
             logger.info("Set {} to {}", name, new_value)
 
