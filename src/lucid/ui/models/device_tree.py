@@ -624,11 +624,14 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
 
         item_kind = index.data(self.KIND_ROLE)
 
-        # Items without kind (top-level devices) always pass kind filter
+        # Items without kind always pass kind filter
         if item_kind is None:
             return True
 
-        return item_kind in self._visible_kinds
+        # Handle compound kind strings like "normal|config" — match if
+        # ANY component is in the visible set
+        kind_parts = {k.strip() for k in item_kind.split("|")} if "|" in item_kind else {item_kind}
+        return bool(kind_parts & self._visible_kinds)
 
     def _has_matching_descendant(self, index: QModelIndex, pattern: str) -> bool:
         """Check if any descendant matches both text and kind filters."""
