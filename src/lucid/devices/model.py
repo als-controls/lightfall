@@ -27,6 +27,7 @@ class DeviceCategory(str, Enum):
     SIGNAL = "signal"
     POSITIONER = "positioner"
     CAMERA = "camera"
+    OPTIC = "optic"
     OTHER = "other"
 
 
