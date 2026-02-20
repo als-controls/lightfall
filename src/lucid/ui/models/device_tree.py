@@ -6,6 +6,7 @@ device/signal tree structure.
 
 from __future__ import annotations
 
+import inspect
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -164,6 +165,27 @@ class DeviceTreeItem:
             return f"{text} {units}"
         return text
 
+    @staticmethod
+    def _safe_get(obj: Any) -> Any:
+        """Get value from an object, handling async .get() methods.
+
+        Prefers get_sync() if available, otherwise calls get() and
+        handles the case where it returns a coroutine.
+        """
+        # Prefer synchronous getter if available
+        if hasattr(obj, "get_sync"):
+            return obj.get_sync()
+
+        if hasattr(obj, "get"):
+            result = obj.get()
+            # If get() returned a coroutine, close it to avoid warnings
+            if inspect.iscoroutine(result):
+                result.close()
+                return None
+            return result
+
+        return None
+
     def _get_value(self) -> str:
         """Get current value as string with units.
 
@@ -177,15 +199,16 @@ class DeviceTreeItem:
         try:
             # For signals, show their value directly
             if self.node_type == NodeType.SIGNAL:
-                if hasattr(self.ophyd_obj, "get"):
-                    return self._format_value(self.ophyd_obj.get())
+                val = self._safe_get(self.ophyd_obj)
+                if val is not None:
+                    return self._format_value(val)
 
             # For devices, show value from readback, position, or direct .get()
             elif self.node_type == NodeType.DEVICE:
                 if hasattr(self.ophyd_obj, "readback"):
-                    readback = self.ophyd_obj.readback
-                    if hasattr(readback, "get"):
-                        return self._format_value(readback.get())
+                    val = self._safe_get(self.ophyd_obj.readback)
+                    if val is not None:
+                        return self._format_value(val)
                 # Check for position (motors)
                 elif hasattr(self.ophyd_obj, "position"):
                     return self._format_value(self.ophyd_obj.position)
@@ -193,7 +216,9 @@ class DeviceTreeItem:
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
                     self.ophyd_obj, "component_names"
                 ):
-                    return self._format_value(self.ophyd_obj.get())
+                    val = self._safe_get(self.ophyd_obj)
+                    if val is not None:
+                        return self._format_value(val)
         except Exception:
             pass
         return ""
