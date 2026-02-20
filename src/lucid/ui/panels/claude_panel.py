@@ -496,8 +496,23 @@ class ClaudePanel(BasePanel):
             System prompt text to append.
         """
         # Start with core NCS system prompt
-        base_prompt = """
+        # Inject current user's name
+        user_name = ""
+        try:
+            from lucid.auth.session import SessionManager
+            user = SessionManager.get_instance().current_user
+            if user and user.display_name and user.display_name != "Guest":
+                user_name = user.display_name
+            elif user and user.username and user.username != "anonymous":
+                user_name = user.username
+        except Exception:
+            pass
+
+        user_context = f"\nThe current logged-in user is: {user_name}\n" if user_name else ""
+
+        base_prompt = f"""
 You are integrated with NCS (New Control System), a scientific data acquisition application.
+{user_context}
 
 ## NCS Domain Tools
 
