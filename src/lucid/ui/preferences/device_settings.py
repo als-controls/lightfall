@@ -82,6 +82,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
 
         # Restart notice
         notice = QLabel(
