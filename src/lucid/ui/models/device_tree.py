@@ -106,8 +106,66 @@ class DeviceTreeItem:
             return self._get_status()
         return None
 
+    def _get_units(self) -> str:
+        """Get the engineering units string for this object.
+
+        Checks ophyd metadata, .egu attribute, and device_info metadata.
+        """
+        obj = self.ophyd_obj
+        if obj is None:
+            return ""
+
+        # ophyd signals store units in .metadata or .egu
+        try:
+            if hasattr(obj, "metadata") and isinstance(obj.metadata, dict):
+                units = obj.metadata.get("units", "")
+                if units:
+                    return str(units)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(obj, "egu"):
+                egu = obj.egu
+                if egu:
+                    return str(egu)
+        except Exception:
+            pass
+
+        # For devices, check readback signal's units
+        if self.node_type == NodeType.DEVICE:
+            for attr in ("readback", "user_readback"):
+                try:
+                    sig = getattr(obj, attr, None)
+                    if sig is not None and hasattr(sig, "metadata"):
+                        units = sig.metadata.get("units", "")
+                        if units:
+                            return str(units)
+                except Exception:
+                    pass
+
+        # Fallback to device_info metadata
+        if self.device_info and self.device_info.metadata:
+            units = self.device_info.metadata.get("units", "")
+            if units:
+                return str(units)
+
+        return ""
+
+    def _format_value(self, val: Any) -> str:
+        """Format a value with units."""
+        if isinstance(val, float):
+            text = f"{val:.4g}"
+        else:
+            text = str(val)
+
+        units = self._get_units()
+        if units:
+            return f"{text} {units}"
+        return text
+
     def _get_value(self) -> str:
-        """Get current value as string.
+        """Get current value as string with units.
 
         Only shows values for:
         - Signals (leaf nodes)
@@ -120,34 +178,22 @@ class DeviceTreeItem:
             # For signals, show their value directly
             if self.node_type == NodeType.SIGNAL:
                 if hasattr(self.ophyd_obj, "get"):
-                    val = self.ophyd_obj.get()
-                    if isinstance(val, float):
-                        return f"{val:.4g}"
-                    return str(val)
+                    return self._format_value(self.ophyd_obj.get())
 
             # For devices, show value from readback, position, or direct .get()
             elif self.node_type == NodeType.DEVICE:
                 if hasattr(self.ophyd_obj, "readback"):
                     readback = self.ophyd_obj.readback
                     if hasattr(readback, "get"):
-                        val = readback.get()
-                        if isinstance(val, float):
-                            return f"{val:.4g}"
-                        return str(val)
+                        return self._format_value(readback.get())
                 # Check for position (motors)
                 elif hasattr(self.ophyd_obj, "position"):
-                    pos = self.ophyd_obj.position
-                    if isinstance(pos, float):
-                        return f"{pos:.4g}"
-                    return str(pos)
+                    return self._format_value(self.ophyd_obj.position)
                 # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
                     self.ophyd_obj, "component_names"
                 ):
-                    val = self.ophyd_obj.get()
-                    if isinstance(val, float):
-                        return f"{val:.4g}"
-                    return str(val)
+                    return self._format_value(self.ophyd_obj.get())
         except Exception:
             pass
         return ""
