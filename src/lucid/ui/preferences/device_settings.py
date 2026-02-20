@@ -87,7 +87,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         # Prevent checkbox indicator clipping on Windows dark themes
         widget.setStyleSheet("""
             QGroupBox {
-                margin-top: 14px;
+                margin-top: 7px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
