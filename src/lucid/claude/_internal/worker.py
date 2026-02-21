@@ -196,18 +196,20 @@ class PersistentClaudeWorker(QThread):
     result_received = Signal(dict)
     connected = Signal()
 
-    def __init__(self, client: Any, initial_prompt: str | None = None, parent: QObject | None = None):
+    def __init__(self, client: Any, initial_prompt: str | None = None, permission_manager: Any | None = None, parent: QObject | None = None):
         """
         Initialize the persistent worker.
 
         Args:
             client: ClaudeSDKClient instance (not yet connected)
             initial_prompt: Optional initial prompt to send on connection
+            permission_manager: Optional PermissionManager for cancelling pending approvals
             parent: Parent QObject
         """
         super().__init__(parent)
         self.client = client
         self.initial_prompt = initial_prompt
+        self._permission_manager = permission_manager
         self._query_queue: Queue = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._should_stop = False
@@ -414,13 +416,18 @@ class PersistentClaudeWorker(QThread):
 
         This sets a flag that will be checked during response processing.
         The actual cancellation happens at the next check point (between
-        messages or content blocks).
+        messages or content blocks). Also cancels any pending permission
+        requests so the query isn't blocked waiting for approval.
 
         Returns:
             True if a query was being processed and cancel was requested.
         """
         if self._is_processing:
             self._cancel_requested = True
+            # Cancel any pending permission requests so we're not stuck
+            # waiting for user approval on a query they want to cancel
+            if self._permission_manager is not None:
+                self._permission_manager.cancel_all_pending()
             return True
         return False
 

@@ -509,35 +509,25 @@ class PlanRegistry:
 
 
 def create_default_registry() -> PlanRegistry:
-    """Create a registry with standard Bluesky plans.
+    """Create a registry with NCS wrapper plans.
+
+    Raw bluesky builtins (bp.scan, bp.grid_scan, etc.) are NOT registered
+    directly because they use *args signatures that can't generate useful UIs.
+    Instead, typed wrapper plans in ncs_plans.py provide the same functionality
+    with proper type hints for automatic UI generation. The raw bp.* plans
+    remain accessible via ncs_run_plan_code and the IPython console.
 
     Returns:
-        PlanRegistry with standard plans registered.
+        PlanRegistry with NCS plans registered.
     """
     registry = PlanRegistry()
 
-    # Note: Raw bluesky builtins (bp.scan, bp.grid_scan, etc.) are NOT registered
-    # here because they use *args signatures that can't generate useful UIs.
-    # Instead, typed wrapper plans in example_plans.py and standard_plans.py
-    # provide the same functionality with proper type hints for UI generation.
-    # The raw bp.* plans remain accessible via ncs_run_plan_code and the
-    # IPython console for power users.
-
-    # Register standard typed wrapper plans
-    try:
-        from lucid.acquire.plans.standard_plans import register_standard_plans
-
-        register_standard_plans(registry)
-        logger.info("Registered standard wrapper plans")
-    except ImportError as e:
-        logger.debug(f"Could not register standard plans: {e}")
-
-    # Register custom NCS plans
+    # Register NCS wrapper plans (typed alternatives to raw bluesky builtins)
     try:
         from lucid.acquire.plans.ncs_plans import register_ncs_plans
 
         register_ncs_plans(registry)
-        logger.info("Registered custom NCS plans")
+        logger.info(f"Registered {len(registry)} NCS plans")
     except ImportError as e:
         logger.debug(f"Could not register NCS plans: {e}")
 

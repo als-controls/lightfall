@@ -134,6 +134,23 @@ class PermissionManager(QObject):
 
     # --- Permission request handling ---
 
+    def cancel_all_pending(self) -> None:
+        """Cancel all pending permission requests.
+
+        Denies all waiting requests, waking their coroutines.
+        Called when the user cancels a query so pending approval
+        dialogs don't block the cancellation.
+        """
+        for request_id in list(self._pending_requests.keys()):
+            self._responses[request_id] = (False, "Query cancelled by user")
+            loop = self._pending_loops.get(request_id)
+            event = self._pending_requests.get(request_id)
+            if loop and event:
+                try:
+                    loop.call_soon_threadsafe(event.set)
+                except RuntimeError:
+                    pass
+
     async def request_permission(
         self,
         tool_name: str,

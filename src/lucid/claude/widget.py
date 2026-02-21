@@ -138,7 +138,7 @@ class ClaudeAssistantWidget(QWidget):
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(4)
-        self._chat_layout.addStretch()  # Push messages to bottom
+        self._chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._scroll_area.setWidget(self._chat_container)
         layout.addWidget(self._scroll_area)
@@ -489,10 +489,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _add_widget(self, widget: QWidget) -> None:
         """Add a widget to the chat layout and scroll to bottom."""
-        # Insert before the bottom stretch
-        self._chat_layout.insertWidget(
-            self._chat_layout.count() - 1, widget
-        )
+        self._chat_layout.addWidget(widget)
         # Defer scroll so layout has time to update
         QTimer.singleShot(0, self._scroll_to_bottom)
 

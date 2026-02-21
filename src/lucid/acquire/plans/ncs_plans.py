@@ -1,19 +1,26 @@
 """Custom NCS plans that wrap standard Bluesky plans.
 
-These plans provide simplified interfaces for common use cases,
-hiding complexity from users who don't need the full flexibility
-of the underlying Bluesky plans.
+These plans provide simplified interfaces with proper type hints for
+automatic UI generation. They replace the raw bluesky builtins (which
+use *args and are difficult to generate UIs for).
 """
 
 from __future__ import annotations
 
 from collections.abc import Generator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from bluesky import plan_stubs as bps
+from bluesky import plans as bp
+
+from lucid.ui.annotations import DeviceFilter, Range, Unit
 
 if TYPE_CHECKING:
     from ophyd import Device
+
+# Type aliases
+Motor = Any
+Detector = Any
 
 
 # =============================================================================
@@ -21,9 +28,9 @@ if TYPE_CHECKING:
 # =============================================================================
 
 def simple_acquire(
-    detector: Device,
+    detector: Annotated[Detector, DeviceFilter(category="detector")],
     num_images: int = 1,
-    acquire_time: float | None = None,
+    acquire_time: Annotated[float, Unit("s")] | None = None,
     collect_dark: bool = False,
 ) -> Generator[Any, Any, Any]:
     """Simple acquisition with optional dark frame collection.
@@ -31,8 +38,6 @@ def simple_acquire(
     This plan handles the basic acquisition workflow:
     1. Optionally collect dark frame(s) with shutter closed
     2. Collect light frame(s) with shutter open
-
-    The detector must have cam.shutter_control signal for dark frame support.
 
     Args:
         detector: Area detector device with cam component.
@@ -42,84 +47,66 @@ def simple_acquire(
 
     Yields:
         Bluesky plan messages.
-
-    Example:
-        >>> RE(simple_acquire(det, num_images=5, collect_dark=True))
     """
-    # Set acquisition parameters if provided
     if acquire_time is not None:
         yield from bps.mv(detector.cam.acquire_time, acquire_time)
 
     yield from bps.mv(detector.cam.num_images, num_images)
     yield from bps.mv(detector.cam.image_mode, 0)  # Single mode
 
-    # Collect dark frame if requested
     if collect_dark and hasattr(detector.cam, "shutter_control"):
-        # Close shutter
         yield from bps.mv(detector.cam.shutter_control, 0)
-        yield from bps.sleep(0.1)  # Allow shutter to close
-
-        # Trigger dark acquisition
+        yield from bps.sleep(0.1)
         yield from bps.trigger_and_read([detector], name="dark")
-
-        # Open shutter
         yield from bps.mv(detector.cam.shutter_control, 1)
-        yield from bps.sleep(0.1)  # Allow shutter to open
+        yield from bps.sleep(0.1)
 
-    # Collect light frame(s)
     yield from bps.trigger_and_read([detector], name="primary")
 
 
-def continuous_acquire(
-    detector: Device,
-    acquire_time: float | None = None,
+# =============================================================================
+# Count
+# =============================================================================
+
+def count(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    num: Annotated[int, Range(min=1)] = 1,
+    delay: Annotated[float, Unit("s"), Range(min=0.0)] = 0.0,
 ) -> Generator[Any, Any, Any]:
-    """Start continuous acquisition (TV mode).
+    """Take one or more readings from detectors.
 
-    Sets image_mode to Continuous and starts acquisition.
-    Use bps.mv(detector.cam.acquire, 0) to stop.
+    Simply triggers and reads the detectors the specified number of times,
+    with an optional delay between readings.
 
     Args:
-        detector: Area detector device with cam component.
-        acquire_time: Exposure time (uses current setting if None).
+        detectors: Detectors to read.
+        num: Number of readings to take.
+        delay: Delay between readings in seconds.
 
     Yields:
         Bluesky plan messages.
     """
-    if acquire_time is not None:
-        yield from bps.mv(detector.cam.acquire_time, acquire_time)
-
-    yield from bps.mv(detector.cam.image_mode, 2)  # Continuous mode
-    yield from bps.mv(detector.cam.acquire, 1)
+    yield from bp.count(detectors, num=num, delay=delay)
 
 
-def stop_acquire(detector: Device) -> Generator[Any, Any, Any]:
-    """Stop acquisition.
-
-    Args:
-        detector: Area detector device with cam component.
-
-    Yields:
-        Bluesky plan messages.
-    """
-    yield from bps.mv(detector.cam.acquire, 0)
-
+# =============================================================================
+# 1D Scans
+# =============================================================================
 
 def scan_1d(
-    detectors: list,
-    motor: Any,
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
     start: float,
     stop: float,
-    num: int,
+    num: Annotated[int, Range(min=1)] = 21,
 ) -> Generator[Any, Any, Any]:
-    """Simple 1D scan over a single motor.
+    """1D scan over a single motor.
 
-    A simplified interface to the standard Bluesky scan() plan,
-    restricted to a single motor dimension. Use this for basic
-    step scans along one axis.
+    Steps a motor from start to stop in equally-spaced points,
+    reading detectors at each position.
 
     Args:
-        detectors: List of detectors to read at each point.
+        detectors: Detectors to read at each point.
         motor: Motor to scan.
         start: Starting position.
         stop: Ending position.
@@ -127,21 +114,16 @@ def scan_1d(
 
     Yields:
         Bluesky plan messages.
-
-    Example:
-        >>> RE(scan_1d([det], motor, -10, 10, 21))
     """
-    from bluesky import plans as bp
-
     yield from bp.scan(detectors, motor, start, stop, num)
 
 
 def rel_scan_1d(
-    detectors: list,
-    motor: Any,
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
     start: float,
     stop: float,
-    num: int,
+    num: Annotated[int, Range(min=1)] = 21,
 ) -> Generator[Any, Any, Any]:
     """Relative 1D scan over a single motor.
 
@@ -149,21 +131,294 @@ def rel_scan_1d(
     motor position.
 
     Args:
-        detectors: List of detectors to read at each point.
-        motor: Motor to scan (start/stop relative to current position).
+        detectors: Detectors to read at each point.
+        motor: Motor to scan (offsets relative to current position).
         start: Starting offset from current position.
         stop: Ending offset from current position.
         num: Number of points.
 
     Yields:
         Bluesky plan messages.
-
-    Example:
-        >>> RE(rel_scan_1d([det], motor, -5, 5, 11))
     """
-    from bluesky import plans as bp
-
     yield from bp.rel_scan(detectors, motor, start, stop, num)
+
+
+# =============================================================================
+# 2D Scans
+# =============================================================================
+
+def scan_2d(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor1: Annotated[Motor, DeviceFilter(category="motor")],
+    start1: float,
+    stop1: float,
+    num1: int,
+    motor2: Annotated[Motor, DeviceFilter(category="motor")],
+    start2: float,
+    stop2: float,
+    num2: int,
+    snake: bool = False,
+) -> Generator[Any, Any, Any]:
+    """2D grid scan over two motors.
+
+    Scans motor1 (outer loop) and motor2 (inner loop) through a grid
+    of positions. Optionally snakes the inner axis for faster scanning.
+
+    Args:
+        detectors: Detectors to read at each point.
+        motor1: First motor (outer loop).
+        start1: Start position for motor1.
+        stop1: Stop position for motor1.
+        num1: Number of points for motor1.
+        motor2: Second motor (inner loop).
+        start2: Start position for motor2.
+        stop2: Stop position for motor2.
+        num2: Number of points for motor2.
+        snake: If True, snake the inner axis.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.grid_scan(
+        detectors,
+        motor1, start1, stop1, num1,
+        motor2, start2, stop2, num2,
+        snake_axes=snake,
+    )
+
+
+def rel_scan_2d(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor1: Annotated[Motor, DeviceFilter(category="motor")],
+    start1: float,
+    stop1: float,
+    num1: int,
+    motor2: Annotated[Motor, DeviceFilter(category="motor")],
+    start2: float,
+    stop2: float,
+    num2: int,
+    snake: bool = False,
+) -> Generator[Any, Any, Any]:
+    """Relative 2D grid scan over two motors.
+
+    Like scan_2d, but positions are relative to the current motor positions.
+
+    Args:
+        detectors: Detectors to read at each point.
+        motor1: First motor (outer loop).
+        start1: Start offset for motor1.
+        stop1: Stop offset for motor1.
+        num1: Number of points for motor1.
+        motor2: Second motor (inner loop).
+        start2: Start offset for motor2.
+        stop2: Stop offset for motor2.
+        num2: Number of points for motor2.
+        snake: If True, snake the inner axis.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.rel_grid_scan(
+        detectors,
+        motor1, start1, stop1, num1,
+        motor2, start2, stop2, num2,
+        snake_axes=snake,
+    )
+
+
+# =============================================================================
+# List Scans
+# =============================================================================
+
+def list_scan_1d(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
+    positions: list[float],
+) -> Generator[Any, Any, Any]:
+    """Scan a motor through a list of specific positions.
+
+    Unlike a regular scan which uses evenly-spaced points, this plan
+    moves to each position in the given list.
+
+    Args:
+        detectors: Detectors to read at each point.
+        motor: Motor to move.
+        positions: List of positions to visit.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.list_scan(detectors, motor, positions)
+
+
+def rel_list_scan_1d(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
+    offsets: list[float],
+) -> Generator[Any, Any, Any]:
+    """Relative list scan — offsets from current motor position.
+
+    Args:
+        detectors: Detectors to read at each point.
+        motor: Motor to move (offsets relative to current position).
+        offsets: List of offsets from current position.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.rel_list_scan(detectors, motor, offsets)
+
+
+# =============================================================================
+# Adaptive Scan
+# =============================================================================
+
+def adaptive_scan(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    target_field: str,
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
+    start: float,
+    stop: float,
+    min_step: float,
+    max_step: float,
+    target_delta: float,
+    backstep: bool = True,
+    threshold: float = 0.8,
+) -> Generator[Any, Any, Any]:
+    """Adaptive scan that adjusts step size based on signal change.
+
+    Scans a motor while reading a target signal field. The step size
+    adapts between min_step and max_step based on how much the target
+    signal changes between points.
+
+    Args:
+        detectors: Detectors to read (must produce target_field).
+        target_field: Name of the signal field to watch (e.g. 'det_intensity').
+        motor: Motor to scan.
+        start: Starting position.
+        stop: Ending position.
+        min_step: Minimum step size.
+        max_step: Maximum step size.
+        target_delta: Target change in signal between points.
+        backstep: Whether to allow stepping backward for better resolution.
+        threshold: Threshold for step size adjustment (0-1).
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.adaptive_scan(
+        detectors, target_field, motor, start, stop,
+        min_step, max_step, target_delta, backstep,
+        threshold=threshold,
+    )
+
+
+# =============================================================================
+# Tune Centroid
+# =============================================================================
+
+def tune_centroid(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    target_field: str,
+    motor: Annotated[Motor, DeviceFilter(category="motor")],
+    start: float,
+    stop: float,
+    min_step: float,
+    num: Annotated[int, Range(min=2)] = 10,
+    step_factor: float = 3.0,
+    snake: bool = False,
+) -> Generator[Any, Any, Any]:
+    """Iteratively tune a motor to center on a signal peak.
+
+    Performs repeated scans, each time narrowing the range around the
+    centroid of the target signal until the step size reaches min_step.
+
+    Args:
+        detectors: Detectors to read (must produce target_field).
+        target_field: Signal field name to optimize (e.g. 'det_intensity').
+        motor: Motor to tune.
+        start: Initial start position.
+        stop: Initial stop position.
+        min_step: Minimum step size (convergence criterion).
+        num: Number of points per iteration.
+        step_factor: Factor by which to narrow the range each iteration.
+        snake: Whether to alternate scan direction.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    yield from bp.tune_centroid(
+        detectors, target_field, motor, start, stop,
+        min_step, num=num, step_factor=step_factor, snake=snake,
+    )
+
+
+def tune_centroid_2d(
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    target_field: str,
+    motor1: Annotated[Motor, DeviceFilter(category="motor")],
+    start1: float,
+    stop1: float,
+    min_step1: float,
+    motor2: Annotated[Motor, DeviceFilter(category="motor")],
+    start2: float,
+    stop2: float,
+    min_step2: float,
+    num: Annotated[int, Range(min=2)] = 10,
+    step_factor: float = 3.0,
+    snake: bool = False,
+    max_iterations: Annotated[int, Range(min=1, max=50)] = 10,
+) -> Generator[Any, Any, Any]:
+    """Iteratively tune two motors to center on a 2D signal peak.
+
+    Alternates tuning motor1 and motor2, each time centering on the
+    signal peak, until both converge or max_iterations is reached.
+
+    Args:
+        detectors: Detectors to read (must produce target_field).
+        target_field: Signal field name to optimize.
+        motor1: First motor to tune.
+        start1: Initial start for motor1.
+        stop1: Initial stop for motor1.
+        min_step1: Min step for motor1 convergence.
+        motor2: Second motor to tune.
+        start2: Initial start for motor2.
+        stop2: Initial stop for motor2.
+        min_step2: Min step for motor2 convergence.
+        num: Number of points per scan iteration.
+        step_factor: Factor to narrow range each iteration.
+        snake: Whether to alternate scan direction.
+        max_iterations: Maximum total tuning iterations.
+
+    Yields:
+        Bluesky plan messages.
+    """
+    for _ in range(max_iterations):
+        # Tune motor1
+        yield from bp.tune_centroid(
+            detectors, target_field, motor1, start1, stop1,
+            min_step1, num=num, step_factor=step_factor, snake=snake,
+        )
+        # Tune motor2
+        yield from bp.tune_centroid(
+            detectors, target_field, motor2, start2, stop2,
+            min_step2, num=num, step_factor=step_factor, snake=snake,
+        )
+
+
+# =============================================================================
+# Registration
+# =============================================================================
+
+def _register(registry, name, func, category, display_name, icon):
+    """Helper to register a plan with display metadata."""
+    from lucid.acquire.plans.registry import PlanInfo
+
+    plan_info = PlanInfo.from_function(name=name, func=func, category=category)
+    plan_info.display_name = display_name
+    plan_info.icon = icon
+    registry._plans[plan_info.name] = plan_info
+    registry._categories.add(plan_info.category)
 
 
 def register_ncs_plans(registry) -> None:
@@ -172,48 +427,38 @@ def register_ncs_plans(registry) -> None:
     Args:
         registry: PlanRegistry to register plans in.
     """
-    from lucid.acquire.plans.registry import PlanInfo
+    # Count
+    _register(registry, "count", count, "count",
+              "Count", ("#2196F3", "C"))
 
-    # 1D Scan - simple version of scan
-    plan_info = PlanInfo.from_function(
-        name="scan_1d",
-        func=scan_1d,
-        category="scan",
-    )
-    plan_info.display_name = "1D Scan"
-    plan_info.icon = ("#4CAF50", "1")  # Green with "1"
-    registry._plans[plan_info.name] = plan_info
-    registry._categories.add(plan_info.category)
+    # 1D Scans
+    _register(registry, "scan_1d", scan_1d, "scan",
+              "1D Scan", ("#4CAF50", "1"))
+    _register(registry, "rel_scan_1d", rel_scan_1d, "scan",
+              "Relative 1D Scan", ("#4CAF50", "R"))
 
-    # Relative 1D Scan
-    plan_info = PlanInfo.from_function(
-        name="rel_scan_1d",
-        func=rel_scan_1d,
-        category="scan",
-    )
-    plan_info.display_name = "Relative 1D Scan"
-    plan_info.icon = ("#4CAF50", "R")  # Green with "R"
-    registry._plans[plan_info.name] = plan_info
-    registry._categories.add(plan_info.category)
+    # 2D Scans
+    _register(registry, "scan_2d", scan_2d, "scan",
+              "2D Grid Scan", ("#4CAF50", "2"))
+    _register(registry, "rel_scan_2d", rel_scan_2d, "scan",
+              "Relative 2D Grid Scan", ("#4CAF50", "r"))
 
-    # Simple Acquire - camera acquisition with optional dark
-    plan_info = PlanInfo.from_function(
-        name="simple_acquire",
-        func=simple_acquire,
-        category="acquire",
-    )
-    plan_info.display_name = "Simple Acquire"
-    plan_info.icon = ("#2196F3", "A")  # Blue with "A"
-    registry._plans[plan_info.name] = plan_info
-    registry._categories.add(plan_info.category)
+    # List Scans
+    _register(registry, "list_scan_1d", list_scan_1d, "scan",
+              "List Scan", ("#9C27B0", "L"))
+    _register(registry, "rel_list_scan_1d", rel_list_scan_1d, "scan",
+              "Relative List Scan", ("#9C27B0", "l"))
 
-    # Continuous Acquire - TV mode
-    plan_info = PlanInfo.from_function(
-        name="continuous_acquire",
-        func=continuous_acquire,
-        category="acquire",
-    )
-    plan_info.display_name = "Continuous Acquire"
-    plan_info.icon = ("#FF9800", "C")  # Orange with "C"
-    registry._plans[plan_info.name] = plan_info
-    registry._categories.add(plan_info.category)
+    # Adaptive
+    _register(registry, "adaptive_scan", adaptive_scan, "scan",
+              "Adaptive Scan", ("#FF9800", "A"))
+
+    # Alignment
+    _register(registry, "tune_centroid", tune_centroid, "alignment",
+              "Tune Centroid", ("#FF9800", "T"))
+    _register(registry, "tune_centroid_2d", tune_centroid_2d, "alignment",
+              "Tune Centroid 2D", ("#FF9800", "2"))
+
+    # Camera Acquisition
+    _register(registry, "simple_acquire", simple_acquire, "acquire",
+              "Simple Acquire", ("#2196F3", "A"))

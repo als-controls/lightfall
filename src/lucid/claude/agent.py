@@ -336,7 +336,11 @@ class QtClaudeAgent(QObject):
             return True
 
         # Create and start persistent worker
-        self._worker = PersistentClaudeWorker(self.client, parent=self)
+        self._worker = PersistentClaudeWorker(
+            self.client,
+            permission_manager=self._permission_manager,
+            parent=self,
+        )
 
         # Connect signals
         self._worker.message_received.connect(self.message_received)
