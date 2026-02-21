@@ -1,7 +1,7 @@
 """MCP Tool Registry for collecting tools from all sources.
 
 The MCPToolRegistry is a singleton that collects MCP tools from:
-1. Built-in Qt tools (from pyside-claude)
+1. Built-in Qt tools (from lucid.claude)
 2. NCS core tools (panel interaction, etc.)
 3. Plugin-provided tools (via mcp_tool and skill plugin types)
 

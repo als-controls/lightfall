@@ -156,12 +156,12 @@ class PanelRegistry(QObject):
             DocumentsPanel,
         ]
 
-        # Try to import Claude panel (requires pyside-claude)
+        # Try to import Claude panel (lucid.claude)
         try:
             from lucid.ui.panels.claude_panel import ClaudePanel
             builtin_panels.append(ClaudePanel)
         except ImportError:
-            logger.debug("Claude panel not available (pyside-claude not installed)")
+            logger.debug("Claude panel not available (lucid.claude not available)")
 
         for panel_class in builtin_panels:
             try:

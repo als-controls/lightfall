@@ -23,7 +23,7 @@ __all__ = [
     "LogbookPanelPlugin",
 ]
 
-# Claude panel is optional (requires pyside-claude)
+# Claude panel (built into LUCID)
 try:
     from lucid.ui.panels.plugins.claude_plugin import ClaudePanelPlugin  # noqa: F401
 

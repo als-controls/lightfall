@@ -148,7 +148,7 @@ class IPythonToolPlugin(MCPToolPlugin):
         )
         async def execute_code(args: dict) -> dict[str, Any]:
             """Execute Python code in the IPython console."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             code = args["code"]
             capture_output = args.get("capture_output", True)
@@ -247,7 +247,7 @@ class IPythonToolPlugin(MCPToolPlugin):
         )
         async def push_variable(args: dict) -> dict[str, Any]:
             """Push a variable to the IPython namespace."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             name = args["name"]
             value_code = args["value_code"]
@@ -327,7 +327,7 @@ class IPythonToolPlugin(MCPToolPlugin):
         )
         async def get_namespace(args: dict) -> dict[str, Any]:
             """Get IPython namespace information."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             filter_prefix = args.get("filter_prefix", "")
             include_private = args.get("include_private", False)
@@ -389,7 +389,7 @@ class IPythonToolPlugin(MCPToolPlugin):
         )
         async def clear_console(args: dict) -> dict[str, Any]:
             """Clear the IPython console."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             def _clear():
                 panel = self._get_ipython_panel()
@@ -417,7 +417,7 @@ class IPythonToolPlugin(MCPToolPlugin):
         )
         async def reset_kernel(args: dict) -> dict[str, Any]:
             """Reset the IPython kernel."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             def _reset():
                 panel = self._get_ipython_panel()

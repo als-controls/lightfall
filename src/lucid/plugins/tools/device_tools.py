@@ -115,7 +115,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def list_devices(args: dict) -> dict[str, Any]:
             """List devices with optional filtering."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             from lucid.devices.model import DeviceCategory
 
@@ -209,7 +209,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def get_device(args: dict) -> dict[str, Any]:
             """Get detailed device information."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
 
@@ -298,7 +298,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def read_device(args: dict) -> dict[str, Any]:
             """Read current value/position from a device."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             refresh = args.get("refresh", False)
@@ -407,7 +407,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def get_device_state(args: dict) -> dict[str, Any]:
             """Get device state with status and alarms."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             refresh = args.get("refresh", True)
@@ -491,7 +491,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def set_device(args: dict) -> dict[str, Any]:
             """Set a value on a device."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             value = args["value"]
@@ -605,7 +605,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def move_motor(args: dict) -> dict[str, Any]:
             """Move a motor to a position."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             position = args["position"]
@@ -772,7 +772,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def stop_device(args: dict) -> dict[str, Any]:
             """Stop a device."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
 
@@ -851,7 +851,7 @@ class DeviceToolPlugin(MCPToolPlugin):
         )
         async def get_catalog_info(args: dict) -> dict[str, Any]:
             """Get device catalog information and API hints."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             from lucid.devices.model import DeviceCategory
 

@@ -84,7 +84,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def list_panels(args: dict) -> dict[str, Any]:
             """List available and open panels."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             def _list():
                 registry = self._get_panel_registry()
@@ -136,7 +136,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def open_panel(args: dict) -> dict[str, Any]:
             """Open a panel by ID."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -168,7 +168,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def close_panel(args: dict) -> dict[str, Any]:
             """Close a panel by ID."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -198,7 +198,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def activate_panel(args: dict) -> dict[str, Any]:
             """Activate a panel by ID."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -228,7 +228,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def get_panel_info(args: dict) -> dict[str, Any]:
             """Get detailed panel introspection data."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -268,7 +268,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def invoke_panel_action(args: dict) -> dict[str, Any]:
             """Invoke an action on a panel."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
             action = args["action"]
@@ -311,7 +311,7 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         )
         async def get_application_info(args: dict) -> dict[str, Any]:
             """Get application introspection data."""
-            from pyside_claude._internal.threading import run_on_main_thread
+            from lucid.claude._internal.threading import run_on_main_thread
 
             def _get_info():
                 return self._window.get_introspection_data()

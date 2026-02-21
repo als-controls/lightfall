@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 class ReloadBannerWidget(QFrame):
     """Banner widget shown when new plugins are detected.
 
-    Styled similar to the permission request widget from pyside-claude.
+    Styled similar to the permission request widget from lucid.claude.
     Shows a message about new plugins and a Reload button.
     """
 
@@ -156,11 +156,11 @@ class ClaudePanel(BasePanel):
     """Claude AI Assistant panel.
 
     Embeds a Claude chat interface with MCP tools for:
-    - Qt widget inspection and interaction (from pyside-claude)
+    - Qt widget inspection and interaction (from lucid.claude)
     - NCS panel management and introspection
     - Plugin-provided tools (Bluesky, devices, etc.)
 
-    The panel requires pyside-claude to be installed and an
+    The panel requires an
     Anthropic API key to be configured.
     """
 
@@ -326,7 +326,7 @@ class ClaudePanel(BasePanel):
             self._setup_claude_widget()
             self._is_agent_ready = True
         except ImportError as e:
-            self._error_message = f"pyside-claude not installed: {e}"
+            self._error_message = f"lucid.claude import failed: {e}"
             logger.warning(self._error_message)
             self._setup_error_ui(self._error_message)
         except ValueError as e:
@@ -372,7 +372,7 @@ class ClaudePanel(BasePanel):
 
     def _setup_claude_widget(self) -> None:
         """Setup the Claude assistant widget with extended tools."""
-        from pyside_claude import ClaudeAssistantWidget
+        from lucid.claude import ClaudeAssistantWidget
 
         from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
 

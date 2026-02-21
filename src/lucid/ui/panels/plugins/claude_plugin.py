@@ -16,7 +16,7 @@ class ClaudePanelPlugin(PanelPlugin):
     The Claude panel provides an AI assistant interface for interacting
     with the control system using natural language.
 
-    Note: This plugin requires pyside-claude to be installed.
+    Note: This plugin is built into LUCID.
     """
 
     @property
