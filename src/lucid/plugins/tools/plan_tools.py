@@ -37,6 +37,57 @@ class PlanToolPlugin(MCPToolPlugin):
         """Category for grouping in settings UI."""
         return "acquisition"
 
+    def _get_catalog(self):
+        """Get the device catalog instance."""
+        from lucid.devices import DeviceCatalog
+
+        return DeviceCatalog.get_instance()
+
+    def _resolve_plan_params(
+        self, plan_info: Any, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Resolve string device names to actual ophyd device objects.
+
+        Inspects plan parameters and resolves string device names
+        via the DeviceCatalog.
+
+        Args:
+            plan_info: PlanInfo with parameter metadata.
+            params: Raw parameters dict (device names as strings).
+
+        Returns:
+            Dict with device strings replaced by ophyd device objects.
+        """
+        resolved = dict(params)
+
+        try:
+            catalog = self._get_catalog()
+        except Exception:
+            return resolved
+
+        for p_info in plan_info.parameters:
+            if p_info.name not in resolved:
+                continue
+
+            val = resolved[p_info.name]
+
+            # List of strings → resolve each as a device
+            if isinstance(val, list) and all(isinstance(v, str) for v in val):
+                devices = []
+                for dev_name in val:
+                    dev = catalog.get_ophyd_device(dev_name)
+                    if dev is None:
+                        raise ValueError(f"Device '{dev_name}' not found in catalog")
+                    devices.append(dev)
+                resolved[p_info.name] = devices
+            elif isinstance(val, str):
+                # Try to resolve as a device; if not found, leave as string
+                dev = catalog.get_ophyd_device(val)
+                if dev is not None:
+                    resolved[p_info.name] = dev
+
+        return resolved
+
     def _validate_plan_code(self, code: str, name: str) -> tuple[bool, str | None]:
         """Validate plan code without writing to disk.
 
@@ -283,4 +334,408 @@ Plans are saved to ~/lucid/plans/ and immediately available in the Plan Runner."
                 "description": description,
             }
 
-        return [create_user_plan]
+        @tool(
+            name="ncs_list_plans",
+            description="""List all registered plans available in the LUCID plan registry.
+
+Returns plan names, categories, descriptions, and parameter signatures.
+Use this to discover what plans are available before running one with ncs_run_plan.
+
+Optionally filter by category (e.g., "scan", "count", "alignment", "user").""",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter (e.g., 'scan', 'count', 'alignment', 'user', 'general')",
+                    },
+                },
+            },
+        )
+        async def list_plans(args: dict) -> dict[str, Any]:
+            """List all registered plans."""
+            import json
+
+            from lucid.acquire.plans.registry import get_registry
+
+            registry = get_registry()
+            category = args.get("category")
+            plans = registry.list_plans(category=category)
+
+            result = []
+            for plan_info in plans:
+                params = []
+                for p in plan_info.parameters:
+                    param = {
+                        "name": p.name,
+                        "type": p.type_name,
+                        "required": p.required,
+                    }
+                    if p.description:
+                        param["description"] = p.description
+                    if not p.required and p.default is not inspect.Parameter.empty:
+                        param["default"] = repr(p.default)
+                    params.append(param)
+
+                result.append({
+                    "name": plan_info.name,
+                    "display_name": plan_info.get_display_name(),
+                    "category": plan_info.category,
+                    "description": plan_info.description,
+                    "parameters": params,
+                })
+
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": json.dumps({"plans": result, "total": len(result)}, indent=2),
+                }]
+            }
+
+        @tool(
+            name="ncs_run_plan",
+            description="""Run a registered plan from the LUCID plan registry by name.
+
+Use ncs_list_plans first to see available plans and their parameters.
+The plan is submitted to the RunEngine queue and executed asynchronously.
+
+Parameters are passed as a JSON object. Device parameters should use device
+names as strings — they will be resolved from the device registry automatically.
+
+Example:
+  ncs_run_plan(plan_name="scan", params={"detectors": ["det1"], "motor": "motor1", "start": -5, "stop": 5, "num": 21})
+  ncs_run_plan(plan_name="count", params={"detectors": ["det1"], "num": 5, "delay": 1.0})""",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "plan_name": {
+                        "type": "string",
+                        "description": "Name of the registered plan to run (e.g., 'scan', 'count', 'rel_scan')",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Parameters to pass to the plan function. Device names (strings) are resolved automatically.",
+                    },
+                },
+                "required": ["plan_name"],
+            },
+        )
+        async def run_plan(args: dict) -> dict[str, Any]:
+            """Run a registered plan by name."""
+            import json
+
+            from lucid.acquire.engine import get_engine
+            from lucid.acquire.plans.registry import get_registry
+
+            plan_name = args["plan_name"]
+            params = args.get("params", {})
+
+            # Look up the plan
+            registry = get_registry()
+            plan_info = registry.get_plan(plan_name)
+            if plan_info is None:
+                available = registry.plan_names
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Plan '{plan_name}' not found",
+                            "available_plans": available,
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+            # Resolve device names to device objects
+            resolved_params = {}
+            try:
+                resolved_params = self._resolve_plan_params(plan_info, params)
+            except Exception as e:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Parameter resolution error: {e}",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+            # Create the plan generator and submit
+            try:
+                engine = get_engine()
+                plan_generator = plan_info.func(**resolved_params)
+                proc_id = engine.submit(plan_generator, name=plan_name)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": True,
+                            "message": f"Plan '{plan_name}' submitted to RunEngine",
+                            "procedure_id": proc_id,
+                            "engine_state": engine.state_name,
+                        }),
+                    }]
+                }
+            except Exception as e:
+                logger.error("Failed to submit plan '{}': {}", plan_name, e)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Failed to submit plan: {e}",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+        @tool(
+            name="ncs_run_plan_code",
+            description="""Run arbitrary Python code as a Bluesky plan in the LUCID RunEngine.
+
+The code string is executed in an isolated namespace with common imports available.
+The code MUST define a generator (using yield from) that produces Bluesky messages.
+
+The code is wrapped in a function and executed — you write the body of a generator function.
+
+Pre-imported in the execution namespace:
+- bluesky.plans as bp
+- bluesky.plan_stubs as bps
+- All devices from the device registry (by name)
+- numpy as np
+
+Example code strings:
+  "yield from bp.scan([det], motor1, -5, 5, 21)"
+  "yield from bp.count([det], num=5, delay=1.0)"
+  "for i in range(3):\\n    yield from bp.scan([det], motor1, -i, i, 11)"
+
+WARNING: This executes arbitrary code in the RunEngine context. Use with caution.""",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python code string that yields Bluesky plan messages. Written as the body of a generator function.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Brief description of what this plan does (for logging and queue display)",
+                    },
+                },
+                "required": ["code"],
+            },
+        )
+        async def run_plan_code(args: dict) -> dict[str, Any]:
+            """Run arbitrary code as a Bluesky plan."""
+            import json
+            import textwrap
+
+            from lucid.acquire.engine import get_engine
+
+            code = args["code"]
+            description = args.get("description", "ad-hoc plan")
+
+            # Build the execution namespace with common imports
+            namespace: dict[str, Any] = {}
+            try:
+                import numpy as np
+                namespace["np"] = np
+                namespace["numpy"] = np
+            except ImportError:
+                pass
+
+            try:
+                import bluesky.plans as bp
+                import bluesky.plan_stubs as bps
+                namespace["bp"] = bp
+                namespace["bps"] = bps
+            except ImportError:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": "bluesky is not installed",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+            # Inject all ophyd devices from the device catalog
+            try:
+                catalog = self._get_catalog()
+                for dev_name, dev_obj in catalog.get_all_ophyd_devices().items():
+                    namespace[dev_name] = dev_obj
+            except Exception as e:
+                logger.debug("Could not inject devices into namespace: {}", e)
+
+            # Wrap user code in a generator function
+            indented_code = textwrap.indent(code, "    ")
+            wrapper = f"def _plan():\n{indented_code}\n"
+
+            # Compile and execute to define the function
+            try:
+                compiled = compile(wrapper, "<plan_code>", "exec")
+                exec(compiled, namespace)
+            except SyntaxError as e:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Syntax error at line {e.lineno}: {e.msg}",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+            except Exception as e:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Code execution error: {type(e).__name__}: {e}",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+            # Get the plan generator
+            plan_func = namespace.get("_plan")
+            if plan_func is None:
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": "Internal error: plan function not created",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+            # Submit to engine
+            try:
+                engine = get_engine()
+                plan_generator = plan_func()
+                proc_id = engine.submit(plan_generator, name=description)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": True,
+                            "message": f"Plan '{description}' submitted to RunEngine",
+                            "procedure_id": proc_id,
+                            "engine_state": engine.state_name,
+                        }),
+                    }]
+                }
+            except Exception as e:
+                logger.error("Failed to submit plan code: {}", e)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": json.dumps({
+                            "success": False,
+                            "error": f"Failed to submit plan: {e}",
+                        }),
+                    }],
+                    "is_error": True,
+                }
+
+        @tool(
+            name="ncs_get_user_plan",
+            description="Read the source code of a user plan by name.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Plan name (without .py extension)",
+                    },
+                },
+                "required": ["name"],
+            },
+        )
+        async def get_user_plan(args: dict) -> dict[str, Any]:
+            """Read source code of a user plan."""
+            from lucid.acquire.plans.user_plans import UserPlanService
+            from lucid.plugins.tools._mcp_helpers import mcp_result
+
+            name = args["name"]
+
+            try:
+                service = UserPlanService.get_instance()
+                plans_dir = service.get_plans_directory()
+            except Exception as e:
+                return mcp_result({"success": False, "error": f"Failed to access user plans service: {e}"}, is_error=True)
+
+            file_path = plans_dir / f"{name}.py"
+            if not file_path.exists():
+                return mcp_result({"success": False, "error": f"Plan '{name}' not found at {file_path}"}, is_error=True)
+
+            try:
+                code = file_path.read_text(encoding="utf-8")
+                return mcp_result({
+                    "success": True,
+                    "name": name,
+                    "path": str(file_path),
+                    "code": code,
+                })
+            except Exception as e:
+                return mcp_result({"success": False, "error": f"Failed to read plan: {e}"}, is_error=True)
+
+        @tool(
+            name="ncs_delete_user_plan",
+            description="Delete a user plan by name. Requires confirm=true.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Plan name (without .py extension)",
+                    },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "Must be true to confirm deletion",
+                    },
+                },
+                "required": ["name", "confirm"],
+            },
+        )
+        async def delete_user_plan(args: dict) -> dict[str, Any]:
+            """Delete a user plan."""
+            from lucid.acquire.plans.user_plans import UserPlanService
+            from lucid.plugins.tools._mcp_helpers import mcp_result
+
+            name = args["name"]
+            confirm = args.get("confirm", False)
+
+            if not confirm:
+                return mcp_result({"success": False, "error": "Deletion not confirmed. Set confirm=true to delete."}, is_error=True)
+
+            try:
+                service = UserPlanService.get_instance()
+                plans_dir = service.get_plans_directory()
+            except Exception as e:
+                return mcp_result({"success": False, "error": f"Failed to access user plans service: {e}"}, is_error=True)
+
+            file_path = plans_dir / f"{name}.py"
+            if not file_path.exists():
+                return mcp_result({"success": False, "error": f"Plan '{name}' not found at {file_path}"}, is_error=True)
+
+            try:
+                file_path.unlink()
+                logger.info("Deleted user plan '{}'", name)
+                return mcp_result({
+                    "success": True,
+                    "message": f"Plan '{name}' deleted",
+                    "path": str(file_path),
+                })
+            except Exception as e:
+                return mcp_result({"success": False, "error": f"Failed to delete plan: {e}"}, is_error=True)
+
+        return [create_user_plan, list_plans, run_plan, run_plan_code, get_user_plan, delete_user_plan]

@@ -516,30 +516,53 @@ You are integrated with NCS (New Control System), a scientific data acquisition 
 
 ## NCS Domain Tools
 
-These tools let you work with NCS directly - prefer these over generic Qt interaction:
+These tools let you work with NCS directly — prefer these over generic Qt interaction.
 
-**Panel Management:**
-- ncs_list_panels - See available panels and what's currently open
-- ncs_open_panel / ncs_close_panel / ncs_activate_panel - Manage panels
-- ncs_get_panel_info - Get panel widgets and available actions
-- ncs_invoke_panel_action - Trigger panel actions directly
+### Panel Management
+- ncs_list_panels — See available panels and what's currently open
+- ncs_open_panel / ncs_close_panel / ncs_activate_panel — Manage panels
+- ncs_get_panel_info — Get panel widgets and available actions
+- ncs_invoke_panel_action — Trigger panel actions directly
+- ncs_get_application_info — Get overall application state
 
-**Application State:**
-- ncs_get_application_info - Get overall application state
+### Device Interaction
+- ncs_list_devices — List devices with optional category/beamline/query filter
+- ncs_get_device — Detailed device info (capabilities, state, alarms, metadata)
+- ncs_read_device — Read current value/position (with optional hardware refresh)
+- ncs_get_device_state — Device status, alarms, connection info
+- ncs_set_device — Set a signal value (requires DEVICE_CONTROL permission)
+- ncs_move_motor — Move a motor to a position (requires DEVICE_CONTROL permission)
+- ncs_stop_device — Emergency stop a device (requires DEVICE_CONTROL permission)
+- ncs_get_catalog_info — Device catalog summary with counts by category
 
-**Device Interaction:**
-- ncs_list_devices - List available devices with optional category filter
-- ncs_get_device - Get detailed device info by name
-- ncs_read_device - Read current value/position from a device
-- ncs_set_device - Set a signal value
-- ncs_move_motor - Move a motor to a position
-- ncs_stop_device - Stop a device
-- ncs_get_catalog_info - Get device catalog summary
+### Plans & Acquisition
+- ncs_list_plans — List all registered plans with parameters (filter by category)
+- ncs_run_plan — Run a registered plan by name with parameters (devices resolved automatically)
+- ncs_run_plan_code — Run arbitrary Python code as a Bluesky plan in the RunEngine
+- ncs_create_user_plan — Create a new user plan file from Python code (saved to ~/lucid/plans/)
+- ncs_get_user_plan — Read back the source code of an existing user plan
+- ncs_delete_user_plan — Remove a user plan file (requires confirm=true)
 
-**IPython Console:**
-- ncs_ipython_execute - Execute Python code in the embedded IPython console
-- ncs_ipython_push_variable - Push variables to the console namespace
-- ncs_ipython_get_namespace - Inspect available variables
+### RunEngine Control & Monitoring
+- ncs_get_run_status — Current RunEngine state, whether busy, active procedure info
+- ncs_pause_plan — Pause the running plan (defer=true for checkpoint pause, false for immediate)
+- ncs_resume_plan — Resume a paused plan
+- ncs_abort_plan — Abort the running plan with optional reason
+
+### Run History & Data
+- ncs_get_run_history — Recent runs with UIDs, plan names, timestamps, exit status
+- ncs_get_scan_data — Retrieve data table from a completed run by UID
+- ncs_get_last_run — Shortcut to get the most recent run's UID + metadata
+
+### IPython Console
+- ncs_ipython_execute — Execute Python code in the embedded IPython console
+- ncs_ipython_push_variable — Push variables to the console namespace
+- ncs_ipython_get_namespace — Inspect available variables
+- ncs_ipython_clear — Clear the console
+
+### Skill Documentation
+- ncs_list_skills — List available skills and their descriptions
+- ncs_get_skill_docs — Get detailed documentation for a specific skill
 
 ## Key Panels
 - Bluesky panel: Controls data acquisition scans
@@ -569,10 +592,13 @@ from lucid.acquire import get_engine
 RE = get_engine()
 ```
 
-## Guidelines
-- Use panel actions (ncs_invoke_panel_action) rather than clicking widgets when available - they're more reliable
-- Only use ncs_list_panels or ncs_get_panel_info when you need to discover what's available
-- If you know which panel/action to use, invoke it directly
+## Workflow Tips
+- **Before running a scan:** Use ncs_list_devices to find devices, ncs_read_device to check positions
+- **Running a scan:** Use ncs_run_plan for registered plans, ncs_run_plan_code for ad-hoc plans
+- **During a scan:** Use ncs_get_run_status to monitor progress; ncs_pause_plan / ncs_abort_plan if needed
+- **After a scan:** Use ncs_get_last_run for metadata, ncs_get_scan_data to inspect results
+- **Creating plans:** Use ncs_create_user_plan with proper type hints for UI generation
+- Use panel actions (ncs_invoke_panel_action) rather than clicking widgets when available
 - **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
 """
 

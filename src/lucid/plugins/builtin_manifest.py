@@ -158,6 +158,11 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="mcp_tool",
+            name="engine_tools",
+            import_path="lucid.plugins.tools.engine_tools:EngineToolPlugin",
+        ),
+        PluginEntry(
+            type_name="mcp_tool",
             name="ipython_tools",
             import_path="lucid.plugins.tools.ipython_tools:IPythonToolPlugin",
         ),

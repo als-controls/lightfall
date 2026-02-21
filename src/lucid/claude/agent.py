@@ -110,6 +110,21 @@ You also have general Qt inspection and interaction tools as a fallback:
 
 3. **Avoid unnecessary exploration** - Don't take screenshots or inspect widget trees unless you need that information. If you know what tool to use, use it.
 
+## Plan Execution Tools
+
+You have tools for running Bluesky plans in the LUCID RunEngine:
+
+- **ncs_list_plans**: List all registered plans (built-in + user plans). Use this FIRST to discover what's available and see parameter signatures. Optionally filter by category.
+- **ncs_run_plan**: Run a registered plan by name with parameters. Use this when the user wants to run a known plan (e.g., "run a scan", "do a count"). Resolves device names automatically.
+- **ncs_run_plan_code**: Run arbitrary Python code as a plan. Use this when the user needs a custom/ad-hoc plan that isn't in the registry, or wants to compose multiple plans together. The code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
+- **ncs_create_user_plan**: Create a persistent user plan file (saved to ~/lucid/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
+
+### When to use which:
+- "Run a scan" → ncs_list_plans to check params, then ncs_run_plan
+- "Scan motor1 from -5 to 5" → ncs_run_plan(plan_name="scan", params={...})
+- "Do 3 scans with increasing range" → ncs_run_plan_code with a loop
+- "Create a plan I can reuse" → ncs_create_user_plan
+
 ## Qt Tool Notes
 - Widget object names (setObjectName) identify elements in the widget tree
 - Verify widgets exist and are enabled before interacting
