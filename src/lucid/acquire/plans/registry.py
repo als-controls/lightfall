@@ -516,51 +516,21 @@ def create_default_registry() -> PlanRegistry:
     """
     registry = PlanRegistry()
 
+    # Note: Raw bluesky builtins (bp.scan, bp.grid_scan, etc.) are NOT registered
+    # here because they use *args signatures that can't generate useful UIs.
+    # Instead, typed wrapper plans in example_plans.py and standard_plans.py
+    # provide the same functionality with proper type hints for UI generation.
+    # The raw bp.* plans remain accessible via ncs_run_plan_code and the
+    # IPython console for power users.
+
+    # Register standard typed wrapper plans
     try:
-        from bluesky import plans as bp
+        from lucid.acquire.plans.standard_plans import register_standard_plans
 
-        # Scan plans
-        if hasattr(bp, "scan"):
-            registry.register("scan", bp.scan, "scan")
-        if hasattr(bp, "rel_scan"):
-            registry.register("rel_scan", bp.rel_scan, "scan")
-        if hasattr(bp, "grid_scan"):
-            registry.register("grid_scan", bp.grid_scan, "scan")
-        if hasattr(bp, "rel_grid_scan"):
-            registry.register("rel_grid_scan", bp.rel_grid_scan, "scan")
-        if hasattr(bp, "list_scan"):
-            registry.register("list_scan", bp.list_scan, "scan")
-        if hasattr(bp, "rel_list_scan"):
-            registry.register("rel_list_scan", bp.rel_list_scan, "scan")
-        if hasattr(bp, "adaptive_scan"):
-            registry.register("adaptive_scan", bp.adaptive_scan, "scan")
-
-        # Count plans
-        if hasattr(bp, "count"):
-            registry.register("count", bp.count, "count")
-
-        # Alignment plans
-        if hasattr(bp, "tune_centroid"):
-            registry.register("tune_centroid", bp.tune_centroid, "alignment")
-        if hasattr(bp, "spiral"):
-            registry.register("spiral", bp.spiral, "alignment")
-        if hasattr(bp, "spiral_fermat"):
-            registry.register("spiral_fermat", bp.spiral_fermat, "alignment")
-
-        # Fly scan plans
-        if hasattr(bp, "fly"):
-            registry.register("fly", bp.fly, "fly")
-
-        # Multi-dimensional plans
-        if hasattr(bp, "inner_product_scan"):
-            registry.register("inner_product_scan", bp.inner_product_scan, "scan")
-        if hasattr(bp, "outer_product_scan"):
-            registry.register("outer_product_scan", bp.outer_product_scan, "scan")
-
-        logger.info(f"Registered {len(registry)} standard Bluesky plans")
-
-    except ImportError:
-        logger.warning("bluesky not available, no standard plans registered")
+        register_standard_plans(registry)
+        logger.info("Registered standard wrapper plans")
+    except ImportError as e:
+        logger.debug(f"Could not register standard plans: {e}")
 
     # Register custom NCS plans
     try:
