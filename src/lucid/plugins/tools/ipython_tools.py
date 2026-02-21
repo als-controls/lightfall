@@ -71,24 +71,37 @@ class IPythonToolPlugin(MCPToolPlugin):
             return None
         return window.get_panel("lucid.panels.ipython")
 
-    def _ensure_panel_open(self) -> bool:
-        """Ensure the IPython panel is open.
+    def _ensure_kernel_ready(self) -> bool:
+        """Ensure the IPython kernel is initialized.
 
-        Opens the panel if it's not already open.
+        If the panel already exists, checks kernel readiness.
+        If the panel doesn't exist, creates it via add_panel but then
+        immediately hides it so the user's layout isn't disrupted.
 
         Returns:
-            True if panel is available, False otherwise.
+            True if kernel is available, False otherwise.
         """
         panel = self._get_ipython_panel()
         if panel is not None:
-            return True
+            return panel._kernel_manager is not None
 
-        # Try to open the panel
+        # Panel doesn't exist yet — create it, then hide so it doesn't
+        # pop up unexpectedly when Claude runs code.
         window = self._get_main_window()
         if window is None:
             return False
+
         panel = window.add_panel("lucid.panels.ipython")
-        return panel is not None
+        if panel is None:
+            return False
+
+        # Hide the panel so it doesn't visually pop up.
+        # The kernel stays alive in the background.
+        dm = getattr(window, "_docking_manager", None)
+        if dm is not None:
+            dm.hide_panel("lucid.panels.ipython")
+
+        return panel._kernel_manager is not None
 
     def create_tools(self) -> list[Any]:
         """Create IPython MCP tools.
@@ -142,7 +155,7 @@ class IPythonToolPlugin(MCPToolPlugin):
 
             def _execute():
                 # Ensure panel is open
-                if not self._ensure_panel_open():
+                if not self._ensure_kernel_ready():
                     return mcp_result({
                         "success": False,
                         "error": "IPython console not available. Install with: pip install qtconsole ipykernel",
@@ -248,7 +261,7 @@ class IPythonToolPlugin(MCPToolPlugin):
                     })
 
                 # Ensure panel is open
-                if not self._ensure_panel_open():
+                if not self._ensure_kernel_ready():
                     return mcp_result({
                         "success": False,
                         "error": "IPython console not available",

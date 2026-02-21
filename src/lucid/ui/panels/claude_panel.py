@@ -527,15 +527,53 @@ These tools let you work with NCS directly - prefer these over generic Qt intera
 **Application State:**
 - ncs_get_application_info - Get overall application state
 
+**Device Interaction:**
+- ncs_list_devices - List available devices with optional category filter
+- ncs_get_device - Get detailed device info by name
+- ncs_read_device - Read current value/position from a device
+- ncs_set_device - Set a signal value
+- ncs_move_motor - Move a motor to a position
+- ncs_stop_device - Stop a device
+- ncs_get_catalog_info - Get device catalog summary
+
+**IPython Console:**
+- ncs_ipython_execute - Execute Python code in the embedded IPython console
+- ncs_ipython_push_variable - Push variables to the console namespace
+- ncs_ipython_get_namespace - Inspect available variables
+
 ## Key Panels
 - Bluesky panel: Controls data acquisition scans
 - Device panel: Shows available hardware devices
 - Logbook panel: Records experiment notes and actions
 
+## RunEngine (CRITICAL)
+LUCID has a built-in shared RunEngine. **NEVER create a new RunEngine.**
+Access it via:
+```python
+from lucid.acquire import get_engine
+engine = get_engine()
+```
+The engine is a QRunEngine (Qt-integrated). To run a Bluesky plan:
+```python
+from lucid.acquire import get_engine
+import bluesky.plans as bp
+engine = get_engine()
+engine(bp.scan([det], motor, start, stop, num))
+```
+The shared engine is connected to the document pipeline (LiveTable, Tiled, logbook).
+Creating a new RunEngine bypasses all of this — data won't be recorded.
+
+When using ncs_ipython_execute, the RunEngine is also accessible in the console namespace:
+```python
+from lucid.acquire import get_engine
+RE = get_engine()
+```
+
 ## Guidelines
 - Use panel actions (ncs_invoke_panel_action) rather than clicking widgets when available - they're more reliable
 - Only use ncs_list_panels or ncs_get_panel_info when you need to discover what's available
 - If you know which panel/action to use, invoke it directly
+- **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
 """
 
         # Append skill prompts from enabled skills

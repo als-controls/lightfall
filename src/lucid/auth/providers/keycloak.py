@@ -566,12 +566,55 @@ class KeycloakAuthProvider(AuthProvider):
         _OAuthCallbackHandler.callback_result = None
         _OAuthCallbackHandler.error = None
 
-        # Start callback server
+        # Start callback server — try configured port first, then fallbacks.
+        # On Windows, certain ports may be blocked by firewall or Hyper-V
+        # reservations (WinError 10013).
         parsed_redirect = urlparse(self._config.redirect_uri)
-        port = parsed_redirect.port or 8089
+        preferred_port = parsed_redirect.port or 8089
+        candidate_ports = [preferred_port] + [
+            p for p in (18089, 28089, 38089) if p != preferred_port
+        ]
 
-        server = HTTPServer(("localhost", port), _OAuthCallbackHandler)
-        server.timeout = self._callback_timeout
+        server = None
+        port = preferred_port
+        for candidate in candidate_ports:
+            try:
+                server = HTTPServer(("localhost", candidate), _OAuthCallbackHandler)
+                server.timeout = self._callback_timeout
+                port = candidate
+                break
+            except OSError as e:
+                logger.debug(
+                    "Cannot bind to port {}: {} — trying next", candidate, e
+                )
+                continue
+
+        if server is None:
+            logger.error(
+                "Could not bind callback server to any port (tried {})",
+                candidate_ports,
+            )
+            return None
+
+        if port != preferred_port:
+            logger.info(
+                "Using fallback callback port {} (configured {} was unavailable)",
+                port,
+                preferred_port,
+            )
+            # Rebuild auth_url with the actual port so redirect_uri matches
+            actual_redirect = (
+                f"{parsed_redirect.scheme or 'http'}://localhost:{port}"
+                f"{parsed_redirect.path or '/callback'}"
+            )
+            params = {
+                "client_id": self._config.client_id,
+                "redirect_uri": actual_redirect,
+                "response_type": "code",
+                "scope": self._config.scope,
+                "state": state,
+            }
+            auth_url = f"{self._config.auth_url}?{urlencode(params)}"
 
         def run_server() -> None:
             server.handle_request()
@@ -602,17 +645,25 @@ class KeycloakAuthProvider(AuthProvider):
             logger.error("State mismatch - possible CSRF attack")
             return None
 
-        # Exchange code for tokens
-        return await self._exchange_code(result["code"])
+        # Exchange code for tokens (use actual redirect_uri if port changed)
+        actual_redirect = None
+        if port != preferred_port:
+            actual_redirect = (
+                f"{parsed_redirect.scheme or 'http'}://localhost:{port}"
+                f"{parsed_redirect.path or '/callback'}"
+            )
+        return await self._exchange_code(result["code"], redirect_uri=actual_redirect)
 
-    async def _exchange_code(self, code: str) -> Session | None:
+    async def _exchange_code(
+        self, code: str, redirect_uri: str | None = None
+    ) -> Session | None:
         """Exchange authorization code for tokens."""
         http = await self._ensure_http()
 
         data = {
             "grant_type": "authorization_code",
             "client_id": self._config.client_id,
-            "redirect_uri": self._config.redirect_uri,
+            "redirect_uri": redirect_uri or self._config.redirect_uri,
             "code": code,
         }
 
