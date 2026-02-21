@@ -512,9 +512,9 @@ class ClaudePanel(BasePanel):
 
         user_context = f"\nThe current logged-in user is: {user_name}\n" if user_name else ""
 
-        base_prompt = f"""
+        base_prompt = """
 You are integrated with NCS (New Control System), a scientific data acquisition application.
-{user_context}
+""" + user_context + """
 
 ## NCS Domain Tools
 
