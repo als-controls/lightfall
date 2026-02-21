@@ -330,9 +330,11 @@ class ClaudePanel(BasePanel):
             logger.warning(self._error_message)
             self._setup_error_ui(self._error_message)
         except ValueError as e:
-            # API key not configured
+            # API key not configured (or other ValueError)
+            import traceback
             self._error_message = str(e)
-            logger.warning("Claude panel disabled: {}", self._error_message)
+            logger.warning("Claude panel disabled: " + str(self._error_message))
+            logger.debug("ValueError traceback:\n" + traceback.format_exc())
             self._setup_error_ui(self._error_message)
         except Exception as e:
             self._error_message = f"Failed to initialize Claude: {e}"
