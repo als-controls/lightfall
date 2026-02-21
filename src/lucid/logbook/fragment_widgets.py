@@ -514,6 +514,9 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
         plan = meta.get("plan_name", "unknown")
         uid = meta.get("uid", "")[:8]
         params = meta.get("params", {})
+        exit_status = meta.get("exit_status")
+        num_events = meta.get("num_events", {})
+
         param_str = ", ".join(f"{k}={v}" for k, v in list(params.items())[:4])
         if len(params) > 4:
             param_str += ", …"
@@ -521,6 +524,16 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
             f"<b>📋 Plan:</b> <code>{plan}</code>"
             f"<br><small>{param_str}</small>"
         )
+        if exit_status:
+            status_color = "#4CAF50" if exit_status == "success" else "#F44336"
+            total_events = sum(num_events.values()) if num_events else 0
+            html += (
+                f"<br><small style='color:{status_color}'>"
+                f"Status: {exit_status}"
+            )
+            if total_events:
+                html += f" · {total_events} event{'s' if total_events != 1 else ''}"
+            html += "</small>"
         if uid:
             html += f"<br><small style='color:#888'>UID {uid}</small>"
         self._label.setText(html)

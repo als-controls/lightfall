@@ -156,19 +156,66 @@ class EventListener(QObject):
             elif name == "stop":
                 exit_status = doc.get("exit_status", "unknown")
                 run_uid = doc.get("run_start", "")
-                data = {
-                    "exit_status": exit_status,
-                    "uid": run_uid,
-                    "num_events": doc.get("num_events", {}),
-                }
-                client.add_fragment(
-                    self._current_entry_id,
-                    kind="readonly",
-                    subtype="bluesky_plan",
-                    content=f"Run {run_uid[:8]} {exit_status}",
-                    data=data,
+                num_events = doc.get("num_events", {})
+
+                # Update the existing start fragment with stop info instead
+                # of creating a separate fragment (avoids "Plan: unknown" dupe).
+                self._update_start_fragment_with_stop(
+                    client, run_uid, exit_status, num_events
                 )
                 self.fragment_injected.emit(self._current_entry_id)
                 self._current_run_uid = None
         except Exception as e:
             logger.error("Failed to log run document: {}", e)
+
+    def _update_start_fragment_with_stop(
+        self,
+        client: Any,
+        run_uid: str,
+        exit_status: str,
+        num_events: dict,
+    ) -> None:
+        """Merge stop document info into the existing start fragment.
+
+        Finds the start fragment by matching UID in fragment data,
+        then updates it with exit status and event counts.
+        """
+        if not self._current_entry_id:
+            return
+
+        try:
+            fragments = client.list_fragments(self._current_entry_id)
+            for frag in fragments:
+                frag_data = frag.get("data") or frag.get("metadata") or {}
+                if (
+                    frag.get("subtype") == "bluesky_plan"
+                    and frag_data.get("uid", "").startswith(run_uid[:8])
+                    and "plan_name" in frag_data  # This is a start fragment
+                ):
+                    # Update the fragment data with stop info
+                    frag_data["exit_status"] = exit_status
+                    frag_data["num_events"] = num_events
+
+                    # Update content to include status
+                    plan_name = frag_data.get("plan_name", "unknown")
+                    new_content = f"Plan: {plan_name} ({run_uid[:8]}) — {exit_status}"
+
+                    client.update_fragment(
+                        frag["id"],
+                        content=new_content,
+                        data=frag_data,
+                    )
+                    logger.debug(
+                        "Updated start fragment with stop info: {} {}",
+                        run_uid[:8],
+                        exit_status,
+                    )
+                    return
+
+            # If no matching start fragment found, log a warning
+            logger.warning(
+                "Could not find start fragment for run {} to merge stop info",
+                run_uid[:8],
+            )
+        except Exception as e:
+            logger.error("Failed to update start fragment with stop info: {}", e)
