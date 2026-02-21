@@ -9,9 +9,17 @@ This package provides:
 - Login dialog
 """
 
-from lucid.ui.dialogs import LoginDialog
-from lucid.ui.mainwindow import NCSMainWindow
-from lucid.ui.toast import ToastManager
+def __getattr__(name):
+    if name == "LoginDialog":
+        from lucid.ui.dialogs import LoginDialog
+        return LoginDialog
+    if name == "NCSMainWindow":
+        from lucid.ui.mainwindow import NCSMainWindow
+        return NCSMainWindow
+    if name == "ToastManager":
+        from lucid.ui.toast import ToastManager
+        return ToastManager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "LoginDialog",
