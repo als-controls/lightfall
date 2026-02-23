@@ -550,12 +550,8 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
         )
 
     def _render_claude(self, content: str) -> None:
-        text = content[:500] + ("…" if len(content) > 500 else "")
-        text_escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        self._label.setText(
-            f"<b>🤖 Claude:</b><br>"
-            f"<span style='white-space: pre-wrap'>{text_escaped}</span>"
-        )
+        rendered = _render_markdown(content)
+        self._label.setText(f"<b>🤖 Claude:</b><br>{rendered}")
 
     def _render_json(self, meta: dict[str, Any]) -> None:
         raw = json.dumps(meta, indent=2, default=str)[:600]
