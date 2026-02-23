@@ -350,4 +350,4 @@ def report_bug(parent: QWidget | None = None) -> bool:
     """
     dialog = BugReportDialog(parent)
     result = dialog.exec()
-    return result == QDialog.DialogCode.Accepted
+    return result == LucidDialog.DialogCode.Accepted
