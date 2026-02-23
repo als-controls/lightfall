@@ -11,11 +11,11 @@ import json
 from datetime import datetime
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSplitter, QWidget
+from PySide6.QtCore import QTimer, Signal, Slot
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 from lucid.logbook.client import LogbookClient
-from lucid.logbook.entry_widget import EntryData, EntryListWidget, EntryWidget
+from lucid.logbook.entry_widget import EntryData, EntryWidget
 from lucid.logbook.fragment_widgets import FragmentData, FragmentType
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.utils.logging import logger
@@ -63,16 +63,8 @@ class LogbookPanel(BasePanel):
         QTimer.singleShot(0, self._deferred_init)
 
     def _setup_ui(self) -> None:
-        self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
-
-        self._entry_list = EntryListWidget()
         self._entry_widget = EntryWidget(EntryData())
-
-        self._splitter.addWidget(self._entry_list)
-        self._splitter.addWidget(self._entry_widget)
-        self._splitter.setStretchFactor(0, 1)
-        self._splitter.setStretchFactor(1, 3)
-        self._splitter.setSizes([250, 750])
+        self._entries_panel = None  # Resolved in _deferred_init
 
         # Guest mode warning banner (hidden by default)
         self._guest_banner = QFrame(self)
@@ -92,12 +84,9 @@ class LogbookPanel(BasePanel):
         self._guest_banner.hide()
         self._layout.addWidget(self._guest_banner)
 
-        self._layout.addWidget(self._splitter)
+        self._layout.addWidget(self._entry_widget)
 
-        # Signals
-        self._entry_list.entry_selected.connect(self._on_entry_selected)
-        self._entry_list.entry_delete_requested.connect(self._on_entry_deleted)
-        self._entry_list.new_entry_requested.connect(self._on_new_entry_requested)
+        # Entry widget signals
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
         self._entry_widget.fragment_changed.connect(self._on_fragment_changed)
         self._entry_widget.fragment_deleted.connect(self._on_fragment_deleted)
@@ -115,6 +104,9 @@ class LogbookPanel(BasePanel):
 
             user = getpass.getuser()
             self._logbook_id = self._client.get_or_create_logbook(user)
+
+            # Connect to the LogbookEntriesPanel sidebar
+            self._connect_entries_panel()
 
             # Show/hide guest warning based on current and future auth state
             try:
@@ -134,6 +126,24 @@ class LogbookPanel(BasePanel):
             logger.info("LogbookPanel initialised (logbook={})", self._logbook_id)
         except Exception as e:
             logger.error("LogbookPanel init failed: {}", e)
+
+    def _connect_entries_panel(self) -> None:
+        """Find and connect to the LogbookEntriesPanel sidebar."""
+        try:
+            from lucid.ui.panels.registry import PanelRegistry
+
+            registry = PanelRegistry.get_instance()
+            panel = registry.create("lucid.panels.logbook_entries")
+            if panel is not None:
+                self._entries_panel = panel
+                panel.entry_selected.connect(self._on_entry_selected)
+                panel.entry_delete_requested.connect(self._on_entry_deleted)
+                panel.new_entry_requested.connect(self._on_new_entry_requested)
+                logger.debug("Connected to LogbookEntriesPanel")
+            else:
+                logger.warning("LogbookEntriesPanel not found in registry")
+        except Exception as e:
+            logger.warning("Could not connect to LogbookEntriesPanel: {}", e)
 
     def _update_guest_banner(self, user: Any) -> None:
         """Show or hide the guest banner based on the user's role."""
@@ -155,11 +165,13 @@ class LogbookPanel(BasePanel):
             self._entries[ed.id] = ed
             entry_datas.append(ed)
 
-        self._entry_list.set_entries(entry_datas)
+        if self._entries_panel:
+            self._entries_panel.set_entries(entry_datas)
 
         if entry_datas:
             first = entry_datas[0]
-            self._entry_list.select_entry(first.id)
+            if self._entries_panel:
+                self._entries_panel.select_entry(first.id)
             self._select_entry(first.id)
 
     def _row_to_entry_data(self, row: dict[str, Any]) -> EntryData:
@@ -247,8 +259,9 @@ class LogbookPanel(BasePanel):
             entry_id = self._client.create_entry(self._logbook_id, title="")
             ed = EntryData(id=entry_id, title="")
             self._entries[entry_id] = ed
-            self._entry_list.add_entry(ed)
-            self._entry_list.select_entry(entry_id)
+            if self._entries_panel:
+                self._entries_panel.add_entry(ed)
+                self._entries_panel.select_entry(entry_id)
             self._select_entry(entry_id)
             logger.info("Created new entry {}", entry_id)
         except Exception as e:
@@ -288,7 +301,8 @@ class LogbookPanel(BasePanel):
             self._client.update_entry(entry_id, title=new_title)
         except Exception as e:
             logger.error("Failed to update title: {}", e)
-        self._entry_list.set_entries(list(self._entries.values()))
+        if self._entries_panel:
+            self._entries_panel.set_entries(list(self._entries.values()))
 
     @Slot(str, list)
     def _on_tags_changed(self, entry_id: str, tags: list[str]) -> None:
@@ -300,7 +314,8 @@ class LogbookPanel(BasePanel):
             self._client.update_entry(entry_id, tags=tags)
         except Exception as e:
             logger.error("Failed to update tags: {}", e)
-        self._entry_list.set_entries(list(self._entries.values()))
+        if self._entries_panel:
+            self._entries_panel.set_entries(list(self._entries.values()))
 
     @Slot(str)
     def _on_entry_deleted(self, entry_id: str) -> None:
@@ -315,7 +330,8 @@ class LogbookPanel(BasePanel):
                 if self._entries:
                     next_id = next(iter(self._entries))
                     self._select_entry(next_id)
-                    self._entry_list.select_entry(next_id)
+                    if self._entries_panel:
+                        self._entries_panel.select_entry(next_id)
                 else:
                     self._current_entry_id = None
                     self._entry_widget.set_entry(EntryData())

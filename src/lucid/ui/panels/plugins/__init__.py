@@ -14,12 +14,14 @@ from __future__ import annotations
 from lucid.ui.panels.plugins.bluesky_plugin import BlueskyPanelPlugin
 from lucid.ui.panels.plugins.device_plugin import DevicePanelPlugin
 from lucid.ui.panels.plugins.documents_plugin import DocumentsPanelPlugin
+from lucid.ui.panels.plugins.logbook_entries_plugin import LogbookEntriesPanelPlugin
 from lucid.ui.panels.plugins.logbook_plugin import LogbookPanelPlugin
 
 __all__ = [
     "BlueskyPanelPlugin",
     "DevicePanelPlugin",
     "DocumentsPanelPlugin",
+    "LogbookEntriesPanelPlugin",
     "LogbookPanelPlugin",
 ]
 

@@ -206,6 +206,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="logbook_entries",
+            import_path="lucid.ui.panels.plugins.logbook_entries_plugin:LogbookEntriesPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
             name="devices",
             import_path="lucid.ui.panels.plugins.device_plugin:DevicePanelPlugin",
             preload=True,
