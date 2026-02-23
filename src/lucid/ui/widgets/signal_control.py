@@ -7,9 +7,7 @@ Provides control UIs for ophyd signal devices:
 
 from __future__ import annotations
 
-import asyncio
 import inspect
-import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
@@ -87,8 +85,8 @@ def _is_writable(ophyd_obj: Any) -> bool:
 def _run_coroutine(coro: Any) -> Any:
     """Run an async coroutine from synchronous Qt code.
 
-    Spawns a temporary event loop in a thread to avoid blocking
-    or conflicting with Qt's event loop.
+    Uses the Qt-integrated asyncio event loop when available,
+    falling back to asyncio.run() otherwise.
 
     Args:
         coro: Async coroutine to run.
@@ -96,27 +94,9 @@ def _run_coroutine(coro: Any) -> Any:
     Returns:
         Result of the coroutine.
     """
-    result = None
-    exception = None
+    from lucid.utils.asyncio import run_coroutine_sync
 
-    def _run() -> None:
-        nonlocal result, exception
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(coro)
-        except Exception as e:
-            exception = e
-        finally:
-            loop.close()
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    thread.join(timeout=2.0)
-
-    if exception:
-        raise exception
-    return result
+    return run_coroutine_sync(coro, timeout=2.0)
 
 
 def _get_signal_value(ophyd_obj: Any) -> Any:
