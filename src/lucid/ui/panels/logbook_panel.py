@@ -116,13 +116,12 @@ class LogbookPanel(BasePanel):
             user = getpass.getuser()
             self._logbook_id = self._client.get_or_create_logbook(user)
 
-            # Show guest warning if applicable
+            # Show/hide guest warning based on current and future auth state
             try:
-                from lucid.auth.policy import Role
                 from lucid.auth.session import SessionManager
-                user = SessionManager.get_instance().current_user
-                if user.highest_role == Role.GUEST:
-                    self._guest_banner.show()
+                sm = SessionManager.get_instance()
+                self._update_guest_banner(sm.current_user)
+                sm.user_changed.connect(self._update_guest_banner)
             except Exception:
                 pass
 
@@ -135,6 +134,15 @@ class LogbookPanel(BasePanel):
             logger.info("LogbookPanel initialised (logbook={})", self._logbook_id)
         except Exception as e:
             logger.error("LogbookPanel init failed: {}", e)
+
+    def _update_guest_banner(self, user: Any) -> None:
+        """Show or hide the guest banner based on the user's role."""
+        try:
+            from lucid.auth.policy import Role
+            is_guest = user.highest_role == Role.GUEST
+        except Exception:
+            is_guest = True
+        self._guest_banner.setVisible(is_guest)
 
     def _load_entries(self) -> None:
         if not self._client or not self._logbook_id:
