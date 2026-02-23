@@ -649,6 +649,7 @@ class CollapsibleGroup(QFrame):
         self._animation = QPropertyAnimation(self._content_widget, b"maximumHeight")
         self._animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self._animation.setDuration(self._ANIM_DURATION)
+        self._hide_connected = False  # Track finished→_hide_after_collapse connection
 
     # -- public API --
 
@@ -712,16 +713,17 @@ class CollapsibleGroup(QFrame):
         if self._collapsed:
             self._animation.setStartValue(content_height)
             self._animation.setEndValue(0)
-            self._animation.finished.connect(self._hide_after_collapse)
+            if not self._hide_connected:
+                self._animation.finished.connect(self._hide_after_collapse)
+                self._hide_connected = True
         else:
             self._content_widget.setVisible(True)
             self._content_widget.setMaximumHeight(0)
             self._animation.setStartValue(0)
             self._animation.setEndValue(content_height)
-            try:
+            if self._hide_connected:
                 self._animation.finished.disconnect(self._hide_after_collapse)
-            except RuntimeError:
-                pass
+                self._hide_connected = False
         self._animation.start()
 
     @Slot()
