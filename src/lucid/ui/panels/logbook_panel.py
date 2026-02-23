@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtWidgets import QSplitter, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSplitter, QWidget
 
 from lucid.logbook.client import LogbookClient
 from lucid.logbook.entry_widget import EntryData, EntryListWidget, EntryWidget
@@ -74,6 +74,24 @@ class LogbookPanel(BasePanel):
         self._splitter.setStretchFactor(1, 3)
         self._splitter.setSizes([250, 750])
 
+        # Guest mode warning banner (hidden by default)
+        self._guest_banner = QFrame(self)
+        self._guest_banner.setObjectName("logbookGuestBanner")
+        self._guest_banner.setStyleSheet(
+            "#logbookGuestBanner {"
+            "  background-color: #fff3cd; color: #856404;"
+            "  border: 1px solid #ffc107; border-radius: 4px;"
+            "  padding: 6px 12px;"
+            "}"
+        )
+        banner_layout = QHBoxLayout(self._guest_banner)
+        banner_layout.setContentsMargins(8, 4, 8, 4)
+        banner_label = QLabel("⚠️ Guest mode — logbook changes are local only and will be lost on exit.")
+        banner_label.setStyleSheet("background: transparent; border: none;")
+        banner_layout.addWidget(banner_label)
+        self._guest_banner.hide()
+        self._layout.addWidget(self._guest_banner)
+
         self._layout.addWidget(self._splitter)
 
         # Signals
@@ -97,6 +115,16 @@ class LogbookPanel(BasePanel):
 
             user = getpass.getuser()
             self._logbook_id = self._client.get_or_create_logbook(user)
+
+            # Show guest warning if applicable
+            try:
+                from lucid.auth.policy import Role
+                from lucid.auth.session import SessionManager
+                user = SessionManager.get_instance().current_user
+                if user.highest_role == Role.GUEST:
+                    self._guest_banner.show()
+            except Exception:
+                pass
 
             self._load_entries()
             self._start_event_listener()

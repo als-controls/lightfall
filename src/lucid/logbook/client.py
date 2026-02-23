@@ -20,9 +20,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QThread, QTimer, Signal, QObject
+from PySide6.QtCore import QTimer
 
 from lucid.utils.logging import logger
+from lucid.utils.threads import QThreadFuture, thread_manager
 
 try:
     import httpx
@@ -73,163 +74,150 @@ CREATE INDEX IF NOT EXISTS idx_fragment_entry ON fragment(entry_id);
 """
 
 
-class _SyncWorker(QThread):
-    """Background thread for server sync."""
+def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None) -> tuple[int, int]:
+    """Run logbook sync (push pending → pull remote). Returns (pushed, pulled).
 
-    finished = Signal(int, int)  # (pushed, pulled)
+    Designed to run inside a QThreadFuture — pure function, no Qt objects.
+    """
+    if httpx is None:
+        return (0, 0)
 
-    def __init__(self, db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-        self._db_path = db_path
-        self._server_url = server_url
-        self._auth_token = auth_token
-        self._user_id = user_id
+    pushed = pulled = 0
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
 
-    def run(self) -> None:
-        if httpx is None:
-            return
-        pushed = pulled = 0
-        try:
-            db = sqlite3.connect(self._db_path)
-            db.row_factory = sqlite3.Row
+    # Use proxy settings if configured
+    client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
+    headers: dict[str, str] = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    if user_id:
+        headers["X-User-Id"] = user_id
+    if headers:
+        client_kwargs["headers"] = headers
+    try:
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+            logger.debug("Logbook sync using proxy: {}", proxy_url)
+    except Exception:
+        pass
 
-            # Use proxy settings if configured
-            client_kwargs: dict[str, Any] = {"base_url": self._server_url, "timeout": 10}
-            headers: dict[str, str] = {}
-            if self._auth_token:
-                headers["Authorization"] = f"Bearer {self._auth_token}"
-            if self._user_id:
-                headers["X-User-Id"] = self._user_id
-            if headers:
-                client_kwargs["headers"] = headers
-            try:
-                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
-                proxy_url = ProxySettingsProvider.should_use_proxy_for_url(self._server_url)
-                if proxy_url:
-                    client_kwargs["proxy"] = proxy_url
-                    logger.debug("Logbook sync using proxy: {}", proxy_url)
-            except Exception:
-                pass
-
-            with httpx.Client(**client_kwargs) as client:
-                # Push pending entries (PUT to update, POST to create if 404)
-                for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
-                    r = dict(row)
-                    r["tags"] = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
-                    try:
-                        resp = client.put(f"/logbook/entries/{r['id']}", json=r)
-                        if resp.status_code == 404:
-                            resp = client.post("/logbook/entries", json={
-                                "id": r["id"],
-                                "title": r.get("title"),
-                                "tags": r.get("tags", []),
-                            })
-                        if not resp.is_success:
-                            logger.warning("Entry sync failed ({}): {}", resp.status_code, resp.text[:200])
-                        if resp.is_success:
-                            db.execute("UPDATE entry SET sync_status = 'synced' WHERE id = ?", (r["id"],))
-                            pushed += 1
-                    except Exception:
-                        pass
-
-                # Push pending fragments (PUT to update, POST to create if 404)
-                for row in db.execute("SELECT * FROM fragment WHERE sync_status = 'pending'"):
-                    r = dict(row)
-                    # Log the fragment ID for debugging
-                    logger.debug("Syncing fragment id={} (type={}, len={})", r["id"], type(r["id"]).__name__, len(str(r["id"])))
-                    if r.get("data") and isinstance(r["data"], str):
-                        r["data"] = json.loads(r["data"])
-                    try:
-                        resp = client.put(f"/logbook/fragments/{r['id']}", json=r)
-                        if resp.status_code == 404:
-                            resp = client.post(f"/logbook/entries/{r['entry_id']}/fragments", json={
-                                "id": r["id"],
-                                "kind": r.get("kind", "text"),
-                                "subtype": r.get("subtype"),
-                                "content": r.get("content", ""),
-                                "data": r.get("data"),
-                                "position": r.get("position", 0),
-                            })
-                        if not resp.is_success:
-                            logger.warning("Fragment sync failed ({}): {}", resp.status_code, resp.text[:200])
-                        if resp.is_success:
-                            db.execute("UPDATE fragment SET sync_status = 'synced' WHERE id = ?", (r["id"],))
-                            pushed += 1
-                    except Exception:
-                        pass
-
-                db.commit()
-
-                # ── Pull: fetch server entries and upsert locally ─────
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            # Push pending entries (PUT to update, POST to create if 404)
+            for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
+                r = dict(row)
+                r["tags"] = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
                 try:
-                    resp = client.get("/logbook/entries")
+                    resp = client.put(f"/logbook/entries/{r['id']}", json=r)
+                    if resp.status_code == 404:
+                        resp = client.post("/logbook/entries", json={
+                            "id": r["id"],
+                            "title": r.get("title"),
+                            "tags": r.get("tags", []),
+                        })
+                    if not resp.is_success:
+                        logger.warning("Entry sync failed ({}): {}", resp.status_code, resp.text[:200])
                     if resp.is_success:
-                        remote_entries = resp.json()
-                        for re in remote_entries:
-                            eid = str(re["id"])
-                            local = db.execute("SELECT id, updated_at FROM entry WHERE id = ?", (eid,)).fetchone()
-                            logbook_id = str(re["logbook_id"])
+                        db.execute("UPDATE entry SET sync_status = 'synced' WHERE id = ?", (r["id"],))
+                        pushed += 1
+                except Exception:
+                    pass
 
-                            # Ensure logbook row exists locally
-                            if not db.execute("SELECT id FROM logbook WHERE id = ?", (logbook_id,)).fetchone():
-                                # Get user_id from the logbook endpoint or use a placeholder
-                                db.execute(
-                                    "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
-                                    (logbook_id, self._user_id or "unknown", re.get("created_at", _now())),
-                                )
+            # Push pending fragments (PUT to update, POST to create if 404)
+            for row in db.execute("SELECT * FROM fragment WHERE sync_status = 'pending'"):
+                r = dict(row)
+                logger.debug("Syncing fragment id={} (type={}, len={})", r["id"], type(r["id"]).__name__, len(str(r["id"])))
+                if r.get("data") and isinstance(r["data"], str):
+                    r["data"] = json.loads(r["data"])
+                try:
+                    resp = client.put(f"/logbook/fragments/{r['id']}", json=r)
+                    if resp.status_code == 404:
+                        resp = client.post(f"/logbook/entries/{r['entry_id']}/fragments", json={
+                            "id": r["id"],
+                            "kind": r.get("kind", "text"),
+                            "subtype": r.get("subtype"),
+                            "content": r.get("content", ""),
+                            "data": r.get("data"),
+                            "position": r.get("position", 0),
+                        })
+                    if not resp.is_success:
+                        logger.warning("Fragment sync failed ({}): {}", resp.status_code, resp.text[:200])
+                    if resp.is_success:
+                        db.execute("UPDATE fragment SET sync_status = 'synced' WHERE id = ?", (r["id"],))
+                        pushed += 1
+                except Exception:
+                    pass
 
-                            if local is None:
-                                # New entry from server — insert locally
+            db.commit()
+
+            # ── Pull: fetch server entries and upsert locally ─────
+            try:
+                resp = client.get("/logbook/entries")
+                if resp.is_success:
+                    remote_entries = resp.json()
+                    for re in remote_entries:
+                        eid = str(re["id"])
+                        local = db.execute("SELECT id, updated_at FROM entry WHERE id = ?", (eid,)).fetchone()
+                        logbook_id = str(re["logbook_id"])
+
+                        # Ensure logbook row exists locally
+                        if not db.execute("SELECT id FROM logbook WHERE id = ?", (logbook_id,)).fetchone():
+                            db.execute(
+                                "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+                                (logbook_id, user_id or "unknown", re.get("created_at", _now())),
+                            )
+
+                        if local is None:
+                            db.execute(
+                                "INSERT INTO entry (id, logbook_id, title, tags, created_at, updated_at, sync_status) "
+                                "VALUES (?, ?, ?, ?, ?, ?, 'synced')",
+                                (eid, logbook_id, re.get("title"),
+                                 json.dumps(re.get("tags", [])),
+                                 re.get("created_at", _now()), re.get("updated_at", _now())),
+                            )
+                            pulled += 1
+                        elif local["updated_at"] < re.get("updated_at", ""):
+                            cur = db.execute("SELECT sync_status FROM entry WHERE id = ?", (eid,)).fetchone()
+                            if cur and cur["sync_status"] != "pending":
                                 db.execute(
-                                    "INSERT INTO entry (id, logbook_id, title, tags, created_at, updated_at, sync_status) "
-                                    "VALUES (?, ?, ?, ?, ?, ?, 'synced')",
-                                    (eid, logbook_id, re.get("title"),
-                                     json.dumps(re.get("tags", [])),
-                                     re.get("created_at", _now()), re.get("updated_at", _now())),
+                                    "UPDATE entry SET title = ?, tags = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+                                    (re.get("title"), json.dumps(re.get("tags", [])), re.get("updated_at"), eid),
                                 )
                                 pulled += 1
-                            elif local["updated_at"] < re.get("updated_at", ""):
-                                # Server is newer — update local (only if not pending)
-                                cur = db.execute("SELECT sync_status FROM entry WHERE id = ?", (eid,)).fetchone()
-                                if cur and cur["sync_status"] != "pending":
-                                    db.execute(
-                                        "UPDATE entry SET title = ?, tags = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
-                                        (re.get("title"), json.dumps(re.get("tags", [])), re.get("updated_at"), eid),
-                                    )
-                                    pulled += 1
 
-                            # Pull fragments for this entry
-                            for rf in re.get("fragments", []):
-                                fid = str(rf["id"])
-                                local_frag = db.execute("SELECT id, updated_at, sync_status FROM fragment WHERE id = ?", (fid,)).fetchone()
-                                if local_frag is None:
-                                    db.execute(
-                                        "INSERT INTO fragment (id, entry_id, position, kind, subtype, content, data, created_at, updated_at, sync_status) "
-                                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
-                                        (fid, eid, rf.get("position", 0), rf.get("kind", "text"),
-                                         rf.get("subtype"), rf.get("content", ""),
-                                         json.dumps(rf.get("data")) if rf.get("data") else None,
-                                         rf.get("created_at", _now()), rf.get("updated_at", _now())),
-                                    )
-                                    pulled += 1
-                                elif local_frag["sync_status"] != "pending" and local_frag["updated_at"] < rf.get("updated_at", ""):
-                                    db.execute(
-                                        "UPDATE fragment SET position = ?, content = ?, data = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
-                                        (rf.get("position", 0), rf.get("content", ""),
-                                         json.dumps(rf.get("data")) if rf.get("data") else None,
-                                         rf.get("updated_at"), fid),
-                                    )
-                                    pulled += 1
+                        # Pull fragments for this entry
+                        for rf in re.get("fragments", []):
+                            fid = str(rf["id"])
+                            local_frag = db.execute("SELECT id, updated_at, sync_status FROM fragment WHERE id = ?", (fid,)).fetchone()
+                            if local_frag is None:
+                                db.execute(
+                                    "INSERT INTO fragment (id, entry_id, position, kind, subtype, content, data, created_at, updated_at, sync_status) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+                                    (fid, eid, rf.get("position", 0), rf.get("kind", "text"),
+                                     rf.get("subtype"), rf.get("content", ""),
+                                     json.dumps(rf.get("data")) if rf.get("data") else None,
+                                     rf.get("created_at", _now()), rf.get("updated_at", _now())),
+                                )
+                                pulled += 1
+                            elif local_frag["sync_status"] != "pending" and local_frag["updated_at"] < rf.get("updated_at", ""):
+                                db.execute(
+                                    "UPDATE fragment SET position = ?, content = ?, data = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+                                    (rf.get("position", 0), rf.get("content", ""),
+                                     json.dumps(rf.get("data")) if rf.get("data") else None,
+                                     rf.get("updated_at"), fid),
+                                )
+                                pulled += 1
 
-                        db.commit()
-                except Exception as exc:
-                    logger.warning("Pull sync failed: {}", exc)
+                    db.commit()
+            except Exception as exc:
+                logger.warning("Pull sync failed: {}", exc)
+    finally:
+        db.close()
 
-            db.close()
-        except Exception as exc:
-            logger.warning("Sync failed: {}", exc)
-
-        self.finished.emit(pushed, pulled)
+    return (pushed, pulled)
 
 
 class LogbookClient:
@@ -255,7 +243,6 @@ class LogbookClient:
         self._server_url: str | None = None
         self._offline_only = False
         self._initialized = False
-        self._sync_worker: _SyncWorker | None = None
         self._sync_timer: QTimer | None = None
         self._on_pull_callback: callable | None = None
 
@@ -508,12 +495,30 @@ class LogbookClient:
         # Restart the 2s debounce timer on each call
         self._sync_timer.start(2000)
 
+    @staticmethod
+    def _is_guest_user() -> bool:
+        """Check if the current user is a guest (no sync for guests)."""
+        try:
+            from lucid.auth.policy import Role
+            from lucid.auth.session import SessionManager
+            user = SessionManager.get_instance().current_user
+            return user.highest_role == Role.GUEST
+        except Exception:
+            return False
+
     def _do_sync(self) -> None:
-        """Actually start the background sync worker."""
-        if self._sync_worker and self._sync_worker.isRunning():
-            # Already running; re-schedule to pick up new changes after it finishes
+        """Actually start the background sync via QThreadFuture."""
+        # Don't sync for guest users — their data is local-only
+        if self._is_guest_user():
+            logger.debug("Skipping logbook sync for guest user")
+            return
+
+        # If a sync is already running, re-schedule to pick up new changes after
+        existing = thread_manager.get_by_key("logbook-sync")
+        if existing and existing.running:
             self._sync_timer.start(2000)
             return
+
         # Get auth token and user ID from session manager if available
         auth_token: str | None = None
         user_id: str | None = None
@@ -528,12 +533,26 @@ class LogbookClient:
                 user_id = user.id
         except Exception:
             pass
-        self._sync_worker = _SyncWorker(str(self._db_path), self._server_url, auth_token=auth_token, user_id=user_id)
-        self._sync_worker.finished.connect(self._on_sync_done)
-        self._sync_worker.start()
 
-    def _on_sync_done(self, pushed: int, pulled: int) -> None:
+        QThreadFuture(
+            _run_sync,
+            str(self._db_path),
+            self._server_url,
+            auth_token,
+            user_id,
+            callback_slot=self._on_sync_done,
+            except_slot=self._on_sync_error,
+            key="logbook-sync",
+            name="logbook-sync",
+        ).start()
+
+    def _on_sync_done(self, result: tuple[int, int]) -> None:
+        pushed, pulled = result
         if pushed or pulled:
             logger.info("Sync complete: {} pushed, {} pulled", pushed, pulled)
         if pulled > 0 and self._on_pull_callback:
             self._on_pull_callback()
+
+    @staticmethod
+    def _on_sync_error(exc: Exception) -> None:
+        logger.warning("Sync failed: {}", exc)
