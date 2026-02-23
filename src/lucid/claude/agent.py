@@ -1,12 +1,11 @@
 """QtClaudeAgent - Low-level API for Claude integration with Qt."""
 
-import logging
 import os
 import platform
 import tempfile
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from lucid.utils.logging import logger
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -424,7 +423,10 @@ class QtClaudeAgent(QObject):
         """
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._worker.wait()
+            if not self._worker.wait(5000):  # 5s timeout
+                logger.warning("Claude worker did not stop in time, terminating")
+                self._worker.terminate()
+                self._worker.wait(1000)
         self._is_connected = False
 
     def is_busy(self) -> bool:

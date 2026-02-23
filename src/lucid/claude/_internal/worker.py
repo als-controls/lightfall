@@ -3,8 +3,10 @@
 import asyncio
 import threading
 from typing import Any
-from queue import Queue
+from queue import Queue, Empty
 from PySide6.QtCore import QThread, Signal, QObject
+
+from lucid.utils.logging import logger
 
 
 class ClaudeWorker(QThread):
@@ -230,72 +232,69 @@ class PersistentClaudeWorker(QThread):
             self._shutdown_event = asyncio.Event()
 
             # Connect to Claude
-            print("[DEBUG] PersistentClaudeWorker: Attempting to connect...")
+            logger.debug("PersistentClaudeWorker: Attempting to connect...")
             self._loop.run_until_complete(self._connect())
             self._is_connected = True
-            print("[DEBUG] PersistentClaudeWorker: Connected successfully!")
+            logger.debug("PersistentClaudeWorker: Connected successfully")
             self.connected.emit()
 
             # Process queries until stopped
-            print("[DEBUG] PersistentClaudeWorker: Starting query processing loop...")
+            logger.debug("PersistentClaudeWorker: Starting query processing loop...")
             self._loop.run_until_complete(self._process_queries())
 
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            print(f"[DEBUG] PersistentClaudeWorker ERROR: {error_details}")
+            logger.error("PersistentClaudeWorker error: {}", error_details)
             self.error_occurred.emit(f"Worker error: {str(e)}\n{error_details}")
 
         finally:
-            # Signal shutdown and wait for processing loop to exit
             self._should_stop = True
-            if self._processing_stopped:
-                self._processing_stopped.wait(timeout=1.0)  # Wait up to 1 second
+            self._processing_stopped.set()
             if self._loop:
-                # Cancel any pending tasks
-                for task in asyncio.all_tasks(self._loop):
-                    task.cancel()
-                self._loop.close()
-            print("[DEBUG] PersistentClaudeWorker: Stopped")
+                # Cancel pending tasks gracefully
+                try:
+                    pending = asyncio.all_tasks(self._loop)
+                    for task in pending:
+                        task.cancel()
+                    # Let cancellations propagate
+                    if pending:
+                        self._loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                except Exception:
+                    pass  # Loop may already be stopping
+                finally:
+                    try:
+                        self._loop.close()
+                    except Exception:
+                        pass
+            logger.debug("PersistentClaudeWorker: Stopped")
 
     async def _connect(self) -> None:
         """Connect to Claude Agent SDK."""
         await self.client.connect(prompt=self.initial_prompt)
 
     async def _process_queries(self) -> None:
-        """Process queries from the queue."""
-        from queue import Empty
+        """Process queries from the queue.
 
+        Uses a simple poll loop with asyncio.sleep instead of run_in_executor,
+        which avoids "cannot schedule new futures after shutdown" errors during
+        application exit.
+        """
         try:
             while not self._should_stop:
-                # Check for new queries (non-blocking with timeout)
                 try:
-                    # Use wait_for with timeout to allow clean exit
-                    prompt = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None, lambda: self._query_queue.get(timeout=0.1)
-                        ),
-                        timeout=0.2
-                    )
-
-                    # Process the query
-                    print(f"[DEBUG] Processing query: {prompt[:50]}...")
-                    await self._run_query(prompt)
-
-                except asyncio.TimeoutError:
-                    continue
+                    prompt = self._query_queue.get_nowait()
                 except Empty:
-                    # Queue timeout or empty - continue loop
                     await asyncio.sleep(0.1)
-                except RuntimeError as e:
-                    # Handle "cannot schedule new futures after shutdown"
-                    if "shutdown" in str(e):
-                        break
-                    print(f"[DEBUG] Error in query processing loop: {e}")
-                    await asyncio.sleep(0.1)
-                except Exception as e:
-                    print(f"[DEBUG] Error in query processing loop: {e}")
-                    await asyncio.sleep(0.1)
+                    continue
+
+                logger.debug("Processing query: {}...", prompt[:50])
+                await self._run_query(prompt)
+
+        except asyncio.CancelledError:
+            pass  # Clean shutdown
         finally:
             self._processing_stopped.set()
 
@@ -405,10 +404,10 @@ class PersistentClaudeWorker(QThread):
             prompt: The query to send
         """
         if self._is_connected:
-            print(f"[DEBUG] Queuing query: {prompt[:50]}...")
+            logger.debug("Queuing query: {}...", prompt[:50])
             self._query_queue.put(prompt)
         else:
-            print("[DEBUG] Cannot send query - not connected!")
+            logger.warning("Cannot send query — not connected!")
 
     def cancel_current_query(self) -> bool:
         """
