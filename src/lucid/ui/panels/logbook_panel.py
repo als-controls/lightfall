@@ -79,13 +79,13 @@ class LogbookPanel(BasePanel):
         self._guest_banner.setObjectName("logbookGuestBanner")
         self._guest_banner.setStyleSheet(
             "#logbookGuestBanner {"
-            "  background-color: #fff3cd; color: #856404;"
             "  border: 1px solid #ffc107; border-radius: 4px;"
-            "  padding: 6px 12px;"
+            "  padding: 2px 8px;"
             "}"
         )
+        self._guest_banner.setFixedHeight(28)
         banner_layout = QHBoxLayout(self._guest_banner)
-        banner_layout.setContentsMargins(8, 4, 8, 4)
+        banner_layout.setContentsMargins(8, 2, 8, 2)
         banner_label = QLabel("⚠️ Guest mode — logbook changes are local only and will be lost on exit.")
         banner_label.setStyleSheet("background: transparent; border: none;")
         banner_layout.addWidget(banner_label)
