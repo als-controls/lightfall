@@ -155,6 +155,13 @@ class ClaudeAssistantWidget(QWidget):
         self.send_button.clicked.connect(self._on_send_button_clicked)
         input_layout.addWidget(self.send_button)
 
+        self.reset_button = QPushButton("↻")
+        self.reset_button.setFixedWidth(32)
+        self.reset_button.setToolTip("Reset conversation")
+        self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_button.clicked.connect(self._on_reset_conversation)
+        input_layout.addWidget(self.reset_button)
+
         layout.addLayout(input_layout)
 
         # Track busy state for button toggling
@@ -225,6 +232,30 @@ class ClaudeAssistantWidget(QWidget):
         else:
             self._append_system_message("No query to cancel")
 
+    def _on_reset_conversation(self) -> None:
+        """Reset the conversation — clear chat and start fresh."""
+        # Stop any in-progress query
+        self.agent.reset_conversation()
+
+        # Clear all chat messages
+        while self._chat_layout.count():
+            item = self._chat_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Clear any pending permission widgets
+        for widget in self._pending_permission_widgets.values():
+            widget.deleteLater()
+        self._pending_permission_widgets.clear()
+        self._pending_tool_names.clear()
+        self._permission_container.hide()
+
+        # Reset busy state
+        self._set_busy_state(False)
+
+        # Show confirmation
+        self._append_system_message("Conversation reset")
+
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.
 
@@ -240,12 +271,14 @@ class ClaudeAssistantWidget(QWidget):
             self.input_field.setPlaceholderText(status_text or "Processing...")
             self.send_button.setText("Cancel")
             self.send_button.setEnabled(True)
+            self.reset_button.setEnabled(False)
         else:
             # Enable input, restore placeholder, change button back
             self.input_field.setEnabled(True)
             self.input_field.setPlaceholderText(self._default_placeholder)
             self.send_button.setText("Send")
             self.send_button.setEnabled(True)
+            self.reset_button.setEnabled(True)
             self.input_field.setFocus()
 
     @Slot(str)

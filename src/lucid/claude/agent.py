@@ -487,6 +487,15 @@ class QtClaudeAgent(QObject):
         if self._permission_manager:
             self._permission_manager.respond(request_id, allowed, always, message)
 
+    def reset_conversation(self) -> None:
+        """Reset the conversation by stopping the worker.
+
+        The next query will automatically reconnect with a fresh
+        conversation via ``_ensure_connected()``.
+        """
+        self.stop()
+        logger.info("Claude conversation reset")
+
     def add_always_allowed_tool(self, tool_name: str) -> None:
         """
         Add a tool to the always-allowed list.
