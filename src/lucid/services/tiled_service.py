@@ -193,11 +193,11 @@ class TiledService(QObject):
             proxy_url = self._get_proxy_url(self._config.url)
             original_init = None
             if proxy_url:
-                original_init = self._patch_tiled_transport_class(proxy_url)
+                restore_info = self._patch_httpx_transport(proxy_url)
             try:
                 self._client = from_uri(self._config.url, **kwargs)
             finally:
-                self._restore_tiled_transport_class(original_init)
+                self._restore_httpx_transport(restore_info)
 
             # Verify connection by accessing context
             _ = self._client.context
@@ -332,18 +332,16 @@ class TiledService(QObject):
             return t
 
     @staticmethod
-    def _patch_tiled_transport_class(proxy_url: str) -> dict[str, Any] | None:
-        """Monkey-patch tiled's Transport to use a proxy-aware inner transport.
+    def _patch_httpx_transport(proxy_url: str) -> dict[str, Any] | None:
+        """Monkey-patch httpx.HTTPTransport so tiled's fallback uses our proxy.
 
-        Tiled's ``Transport.__init__`` does ``self.transport = transport or
-        httpx.HTTPTransport()``. We temporarily replace this so the default
-        inner transport is proxy-aware. This must happen BEFORE ``from_uri()``
-        since it connects immediately.
+        Tiled's ``Transport.__init__`` does::
 
-        We patch both ``tiled.client.transport.Transport`` AND
-        ``tiled.client.context.Transport`` because context.py imports the
-        class at module level (``from .transport import Transport``), so
-        the local reference is already bound.
+            self.transport = transport or httpx.HTTPTransport()
+
+        Instead of patching tiled's class (which doesn't work reliably on
+        Python 3.14), we temporarily replace ``httpx.HTTPTransport`` with
+        a factory that returns our proxy transport.
 
         Args:
             proxy_url: The proxy URL.
@@ -352,67 +350,60 @@ class TiledService(QObject):
             Dict with restore info, or None if patching failed.
         """
         try:
+            import httpx
             import tiled.client.transport as transport_mod
-            import tiled.client.context as context_mod
-
-            original_init = transport_mod.Transport.__init__
 
             proxy_transport = TiledService._create_proxy_transport(proxy_url)
             if proxy_transport is None:
                 return None
 
-            def patched_init(self, *, transport=None, **kwargs):
-                logger.info(
-                    "Tiled Transport.__init__ CALLED: transport={}, id(self.__class__)={}",
-                    type(transport).__name__ if transport else "None",
-                    id(self.__class__),
-                )
-                # Use proxy transport as default instead of plain HTTPTransport
-                if transport is None:
-                    transport = proxy_transport
-                    logger.info("Tiled Transport.__init__: injecting proxy transport")
-                else:
-                    logger.info("Tiled Transport.__init__: explicit transport passed, skipping proxy")
-                original_init(self, transport=transport, **kwargs)
+            # Save originals
+            original_httpx_cls = httpx.HTTPTransport
+            original_transport_ref = getattr(transport_mod, 'httpx', None)
 
-            # Patch both the source module and the already-imported reference
-            transport_mod.Transport.__init__ = patched_init
-            context_mod.Transport.__init__ = patched_init
+            # Create a factory that returns our proxy transport
+            class ProxyHTTPTransport(httpx.HTTPTransport):
+                """Drop-in replacement that ignores args and returns proxy transport."""
 
-            # Verify class identity
-            logger.info(
-                "Transport class identity check: transport_mod={}, context_mod={}, same={}",
-                id(transport_mod.Transport),
-                id(context_mod.Transport),
-                transport_mod.Transport is context_mod.Transport,
-            )
-            logger.info(
-                "Patched __init__ check: transport_mod={}, context_mod={}, is_patched={}",
-                id(transport_mod.Transport.__init__),
-                id(context_mod.Transport.__init__),
-                transport_mod.Transport.__init__ is patched_init,
-            )
-            logger.info("Patched tiled Transport class for proxy: {}", proxy_url)
+                def __new__(cls, *args, **kwargs):
+                    logger.info("ProxyHTTPTransport.__new__ called — returning SOCKS proxy transport")
+                    return proxy_transport
 
-            return {"original_init": original_init}
+            # Patch httpx.HTTPTransport everywhere tiled might reference it
+            httpx.HTTPTransport = ProxyHTTPTransport  # type: ignore[misc]
+
+            # Also patch in tiled's transport module if it imported httpx
+            if hasattr(transport_mod, 'httpx'):
+                transport_mod.httpx.HTTPTransport = ProxyHTTPTransport  # type: ignore[misc]
+
+            logger.info("Patched httpx.HTTPTransport for proxy: {}", proxy_url)
+
+            return {
+                "original_cls": original_httpx_cls,
+                "transport_mod": transport_mod,
+            }
         except Exception as e:
             import traceback
-            logger.error("Failed to patch tiled Transport: {}\n{}", e, traceback.format_exc())
+
+            logger.error("Failed to patch httpx.HTTPTransport: {}\n{}", e, traceback.format_exc())
             return None
 
     @staticmethod
-    def _restore_tiled_transport_class(restore_info: dict[str, Any] | None) -> None:
-        """Restore the original tiled Transport.__init__."""
+    def _restore_httpx_transport(restore_info: dict[str, Any] | None) -> None:
+        """Restore the original httpx.HTTPTransport."""
         if restore_info is None:
             return
         try:
-            import tiled.client.transport as transport_mod
-            import tiled.client.context as context_mod
+            import httpx
 
-            original_init = restore_info["original_init"]
-            transport_mod.Transport.__init__ = original_init
-            context_mod.Transport.__init__ = original_init
-            logger.debug("Restored original tiled Transport.__init__")
+            original_cls = restore_info["original_cls"]
+            transport_mod = restore_info["transport_mod"]
+
+            httpx.HTTPTransport = original_cls
+            if hasattr(transport_mod, 'httpx'):
+                transport_mod.httpx.HTTPTransport = original_cls
+
+            logger.debug("Restored original httpx.HTTPTransport")
         except Exception:
             pass
 
@@ -443,11 +434,11 @@ class TiledService(QObject):
         proxy_url = self._get_proxy_url(url)
         original_init = None
         if proxy_url:
-            original_init = self._patch_tiled_transport_class(proxy_url)
+            restore_info = self._patch_httpx_transport(proxy_url)
         try:
             client = from_uri(url, **kwargs)
         finally:
-            self._restore_tiled_transport_class(original_init)
+            self._restore_httpx_transport(restore_info)
 
         # Verify connection by accessing context
         _ = client.context
@@ -530,11 +521,11 @@ class TiledService(QObject):
             proxy_url = TiledService._get_proxy_url(url)
             original_init = None
             if proxy_url:
-                original_init = TiledService._patch_tiled_transport_class(proxy_url)
+                restore_info = TiledService._patch_httpx_transport(proxy_url)
             try:
                 client = from_uri(url, **kwargs)
             finally:
-                TiledService._restore_tiled_transport_class(original_init)
+                TiledService._restore_httpx_transport(restore_info)
             # Verify connection
             _ = client.context
             return True, "Connection successful"
