@@ -404,12 +404,40 @@ class TiledService(QObject):
                     logger.info("ProxyHTTPTransport.__new__ called — returning SOCKS proxy transport")
                     return proxy_transport
 
+            # Test proxy connectivity first
+            try:
+                target = "http://httpbin.org/get"  # Simple test endpoint
+                transport_test = TiledService._create_proxy_transport(proxy_url)
+                if transport_test:
+                    with httpx.Client(transport=transport_test, timeout=10.0) as test_client:
+                        resp = test_client.get(target)
+                        logger.info("Proxy test OK: {} → {} ({})", proxy_url, target, resp.status_code)
+            except Exception as e:
+                logger.error("Proxy test FAILED: {} — {}", proxy_url, e)
+
             # Patch httpx.HTTPTransport everywhere tiled might reference it
             httpx.HTTPTransport = ProxyHTTPTransport  # type: ignore[misc]
 
             # Also patch in tiled's transport module if it imported httpx
             if hasattr(transport_mod, 'httpx'):
                 transport_mod.httpx.HTTPTransport = ProxyHTTPTransport  # type: ignore[misc]
+
+            # Log tiled version and how it creates transports
+            try:
+                import tiled
+                import inspect
+                from tiled.client.context import Context
+
+                logger.info("Tiled version: {}", getattr(tiled, '__version__', 'unknown'))
+                init_src = inspect.getsource(Context.__init__)
+                relevant = [
+                    l.strip() for l in init_src.splitlines()
+                    if 'transport' in l.lower() or 'httpx' in l.lower() or 'client' in l.lower()
+                ][:8]
+                for line in relevant:
+                    logger.info("  Context src: {}", line)
+            except Exception as e:
+                logger.debug("Could not inspect tiled: {}", e)
 
             logger.info("Patched httpx.HTTPTransport for proxy: {}", proxy_url)
 
