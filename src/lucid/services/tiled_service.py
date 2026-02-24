@@ -332,7 +332,7 @@ class TiledService(QObject):
             return t
 
     @staticmethod
-    def _patch_tiled_transport_class(proxy_url: str) -> Any:
+    def _patch_tiled_transport_class(proxy_url: str) -> dict[str, Any] | None:
         """Monkey-patch tiled's Transport to use a proxy-aware inner transport.
 
         Tiled's ``Transport.__init__`` does ``self.transport = transport or
@@ -340,16 +340,22 @@ class TiledService(QObject):
         inner transport is proxy-aware. This must happen BEFORE ``from_uri()``
         since it connects immediately.
 
+        We patch both ``tiled.client.transport.Transport`` AND
+        ``tiled.client.context.Transport`` because context.py imports the
+        class at module level (``from .transport import Transport``), so
+        the local reference is already bound.
+
         Args:
             proxy_url: The proxy URL.
 
         Returns:
-            The original ``__init__`` to restore later, or None if patching failed.
+            Dict with restore info, or None if patching failed.
         """
         try:
-            from tiled.client.transport import Transport
+            import tiled.client.transport as transport_mod
+            import tiled.client.context as context_mod
 
-            original_init = Transport.__init__
+            original_init = transport_mod.Transport.__init__
 
             proxy_transport = TiledService._create_proxy_transport(proxy_url)
             if proxy_transport is None:
@@ -362,23 +368,29 @@ class TiledService(QObject):
                     logger.info("Tiled Transport.__init__: injecting proxy transport")
                 original_init(self, transport=transport, **kwargs)
 
-            Transport.__init__ = patched_init
+            # Patch both the source module and the already-imported reference
+            transport_mod.Transport.__init__ = patched_init
+            context_mod.Transport.__init__ = patched_init
             logger.info("Patched tiled Transport class for proxy: {}", proxy_url)
-            return original_init
+
+            return {"original_init": original_init}
         except Exception as e:
             import traceback
             logger.error("Failed to patch tiled Transport: {}\n{}", e, traceback.format_exc())
             return None
 
     @staticmethod
-    def _restore_tiled_transport_class(original_init: Any) -> None:
+    def _restore_tiled_transport_class(restore_info: dict[str, Any] | None) -> None:
         """Restore the original tiled Transport.__init__."""
-        if original_init is None:
+        if restore_info is None:
             return
         try:
-            from tiled.client.transport import Transport
+            import tiled.client.transport as transport_mod
+            import tiled.client.context as context_mod
 
-            Transport.__init__ = original_init
+            original_init = restore_info["original_init"]
+            transport_mod.Transport.__init__ = original_init
+            context_mod.Transport.__init__ = original_init
             logger.debug("Restored original tiled Transport.__init__")
         except Exception:
             pass
