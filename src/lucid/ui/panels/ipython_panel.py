@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
+from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent
@@ -264,14 +265,43 @@ class IPythonPanel(BasePanel):
 
         return toolbar
 
+    @staticmethod
+    def _create_kernel_in_thread() -> "QtInProcessKernelManager":
+        """Create and start a kernel in a background thread.
+
+        QtAsyncio's QAsyncioEventLoop doesn't implement ``add_reader()``,
+        which zmq/ipykernel needs during initialization. Running kernel
+        creation in a ``QThreadFuture`` gives it a thread with its own
+        standard asyncio ``SelectorEventLoop``, sidestepping the issue.
+
+        Returns:
+            A started QtInProcessKernelManager.
+        """
+        import asyncio
+
+        from qtconsole.inprocess import QtInProcessKernelManager
+
+        def _create() -> QtInProcessKernelManager:
+            # Ensure this thread has a standard event loop for zmq/ipykernel
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                km = QtInProcessKernelManager()
+                km.start_kernel()
+            finally:
+                loop.close()
+            return km
+
+        future = QThreadFuture(_create, register=False)
+        return future.result(timeout_ms=10000)
+
     def _setup_jupyter_widget(self) -> None:
         """Set up the Jupyter/IPython widget with in-process kernel."""
-        from qtconsole.inprocess import QtInProcessKernelManager
         from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
-        # Create kernel manager and start kernel
-        self._kernel_manager = QtInProcessKernelManager()
-        self._kernel_manager.start_kernel()
+        # Create kernel in a background thread to avoid
+        # QAsyncioEventLoop.add_reader() NotImplementedError
+        self._kernel_manager = self._create_kernel_in_thread()
 
         # Get kernel and set up namespace
         kernel = self._kernel_manager.kernel
@@ -427,8 +457,6 @@ class IPythonPanel(BasePanel):
         if not self._qtconsole_available:
             return
 
-        from qtconsole.inprocess import QtInProcessKernelManager
-
         # Stop existing client channels
         if self._kernel_client:
             try:
@@ -443,9 +471,8 @@ class IPythonPanel(BasePanel):
             except Exception as e:
                 logger.warning("Error shutting down kernel: {}", e)
 
-        # Create fresh kernel manager and start kernel
-        self._kernel_manager = QtInProcessKernelManager()
-        self._kernel_manager.start_kernel()
+        # Create fresh kernel manager in background thread
+        self._kernel_manager = self._create_kernel_in_thread()
 
         # Setup namespace on fresh kernel
         kernel = self._kernel_manager.kernel
