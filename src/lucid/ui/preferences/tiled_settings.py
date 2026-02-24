@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -107,11 +108,20 @@ class TiledSettingsPlugin(SettingsPlugin):
         connection_layout.addRow("Server URL:", self._url_edit)
         connection_layout.addRow("", self._url_error_label)
 
-        # API Key
+        # Authentication mode
+        self._auth_mode_combo = QComboBox()
+        self._auth_mode_combo.addItem("None", "none")
+        self._auth_mode_combo.addItem("API Key", "api_key")
+        self._auth_mode_combo.addItem("Keycloak (use LUCID session)", "keycloak")
+        self._auth_mode_combo.currentIndexChanged.connect(self._on_auth_mode_changed)
+        connection_layout.addRow("Authentication:", self._auth_mode_combo)
+
+        # API Key (shown only when API Key auth is selected)
         self._api_key_edit = QLineEdit()
         self._api_key_edit.setPlaceholderText("(optional)")
         self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        connection_layout.addRow("API Key:", self._api_key_edit)
+        self._api_key_label = QLabel("API Key:")
+        connection_layout.addRow(self._api_key_label, self._api_key_edit)
 
         # Test connection button and status
         test_layout = QHBoxLayout()
@@ -146,13 +156,25 @@ class TiledSettingsPlugin(SettingsPlugin):
         """Handle enable checkbox state change."""
         self._update_enabled_state()
 
+    def _on_auth_mode_changed(self, index: int) -> None:
+        """Show/hide API key field based on auth mode."""
+        self._update_enabled_state()
+
     def _update_enabled_state(self) -> None:
-        """Update widget enabled states based on checkbox."""
+        """Update widget enabled states based on checkbox and auth mode."""
         enabled = self._enabled_check.isChecked() if self._enabled_check else False
+        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
+        show_api_key = enabled and auth_mode == "api_key"
+
         if self._url_edit:
             self._url_edit.setEnabled(enabled)
+        if self._auth_mode_combo:
+            self._auth_mode_combo.setEnabled(enabled)
         if self._api_key_edit:
-            self._api_key_edit.setEnabled(enabled)
+            self._api_key_edit.setEnabled(show_api_key)
+            self._api_key_edit.setVisible(show_api_key)
+        if self._api_key_label:
+            self._api_key_label.setVisible(show_api_key)
         if self._test_button:
             self._test_button.setEnabled(enabled)
 
@@ -210,6 +232,12 @@ class TiledSettingsPlugin(SettingsPlugin):
         if self._url_edit:
             self._url_edit.setText(prefs.get("tiled_url", ""))
 
+        if self._auth_mode_combo:
+            auth_mode = prefs.get("tiled_auth_mode", "none")
+            index = self._auth_mode_combo.findData(auth_mode)
+            if index >= 0:
+                self._auth_mode_combo.setCurrentIndex(index)
+
         if self._api_key_edit:
             self._api_key_edit.setText(prefs.get("tiled_api_key", ""))
 
@@ -230,8 +258,11 @@ class TiledSettingsPlugin(SettingsPlugin):
         url = self._url_edit.text().strip() if self._url_edit else ""
         api_key = self._api_key_edit.text().strip() if self._api_key_edit else ""
 
+        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
+
         prefs.set("tiled_enabled", enabled)
         prefs.set("tiled_url", url)
+        prefs.set("tiled_auth_mode", auth_mode)
         prefs.set("tiled_api_key", api_key or "")
 
         # Update the TiledService with new configuration
@@ -243,6 +274,7 @@ class TiledSettingsPlugin(SettingsPlugin):
                 url=url,
                 api_key=api_key or None,
                 enabled=enabled,
+                auth_mode=auth_mode,
             )
 
             # Connect if enabled (async to avoid blocking UI)

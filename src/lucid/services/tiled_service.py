@@ -184,9 +184,16 @@ class TiledService(QObject):
         try:
             from tiled.client import from_uri
 
-            # Create client with optional API key
+            # Set up authentication
             kwargs = {}
-            if self._config.api_key:
+            if self._config.auth_mode == TiledAuthMode.API_KEY and self._config.api_key:
+                kwargs["api_key"] = self._config.api_key
+            elif self._config.auth_mode == TiledAuthMode.KEYCLOAK:
+                from lucid.services.tiled_auth import KeycloakTiledAuth
+
+                kwargs["auth"] = KeycloakTiledAuth()
+                logger.debug("Using Keycloak authentication for Tiled (sync)")
+            elif self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
 
             # Patch tiled Transport BEFORE from_uri (it connects immediately)
