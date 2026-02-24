@@ -1,12 +1,28 @@
 """QThread worker for running async Claude Agent SDK operations."""
 
 import asyncio
+import platform
 import threading
 from typing import Any
 from queue import Queue, Empty
 from PySide6.QtCore import QThread, Signal, QObject
 
 from lucid.utils.logging import logger
+
+
+def _create_background_event_loop() -> asyncio.AbstractEventLoop:
+    """Create an event loop suitable for background threads.
+
+    On Windows, uses ProactorEventLoop (needed for subprocess support).
+    On other platforms, uses SelectorEventLoop.
+
+    We can't use ``asyncio.new_event_loop()`` because the QtAsyncio
+    policy would create a QAsyncioEventLoop that doesn't work outside
+    the main thread.
+    """
+    if platform.system() == "Windows":
+        return asyncio.ProactorEventLoop()
+    return asyncio.SelectorEventLoop()
 
 
 class ClaudeWorker(QThread):
@@ -47,10 +63,7 @@ class ClaudeWorker(QThread):
         """
         try:
             # Create a standard event loop for this thread.
-            # asyncio.new_event_loop() would go through the QtAsyncio
-            # policy and create a QAsyncioEventLoop which doesn't work
-            # properly outside the main thread.
-            self._loop = asyncio.SelectorEventLoop()
+            self._loop = _create_background_event_loop()
             asyncio.set_event_loop(self._loop)
 
             # Run the query
@@ -156,8 +169,7 @@ class AgentConnectionWorker(QThread):
         """
         loop = None
         try:
-            # Create a standard event loop (not QtAsyncio)
-            loop = asyncio.SelectorEventLoop()
+            loop = _create_background_event_loop()
             asyncio.set_event_loop(loop)
 
             # Connect
@@ -229,11 +241,7 @@ class PersistentClaudeWorker(QThread):
         Thread entry point. Creates event loop, connects, and processes queries.
         """
         try:
-            # Create a standard event loop for this thread.
-            # asyncio.new_event_loop() would go through the QtAsyncio
-            # policy and create a QAsyncioEventLoop which doesn't work
-            # properly outside the main thread.
-            self._loop = asyncio.SelectorEventLoop()
+            self._loop = _create_background_event_loop()
             asyncio.set_event_loop(self._loop)
             self._shutdown_event = asyncio.Event()
 
