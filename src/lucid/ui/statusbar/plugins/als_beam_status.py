@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -45,11 +47,14 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     COLOR_CLOSED = "#F44336"  # Red - shutters closed
     COLOR_OFFLINE = "#9E9E9E"  # Gray - API unreachable
 
+    BEAM_STATUS_URL = "https://als.lbl.gov/beam-status/"
+
     def __init__(self) -> None:
         """Initialize the ALS beam status plugin."""
         super().__init__()
         self._label: QLabel | None = None
         self._service: ALSBeamStatusService | None = None
+        self._last_beam_available: bool | None = None  # Track for change detection
 
     @property
     def name(self) -> str:
@@ -59,6 +64,8 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the ALS beam status label.
 
+        Clicking the label opens the ALS beam status page.
+
         Args:
             parent: Parent widget.
 
@@ -66,7 +73,15 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
             QLabel showing beam status.
         """
         self._label = QLabel(parent)
+        self._label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._label.mousePressEvent = lambda _: self._open_beam_status_page()
         return self._label
+
+    def _open_beam_status_page(self) -> None:
+        """Open the ALS beam status page in the default browser."""
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl(self.BEAM_STATUS_URL))
 
     def update(self) -> None:
         """Update the label with current beam status."""
@@ -141,11 +156,21 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     def _update_display_data(self, data: ALSBeamData) -> None:
         """Update display with beam data.
 
+        Emits a toast notification when beam availability changes.
+
         Args:
             data: Current beam data.
         """
         if self._label is None:
             return
+
+        # Detect beam availability change and notify
+        if (
+            self._last_beam_available is not None
+            and data.beam_available != self._last_beam_available
+        ):
+            self._notify_status_change(data.beam_available)
+        self._last_beam_available = data.beam_available
 
         # Format: "500.3 mA | 6.6h | Available"
         current_str = f"{data.beam_current:.1f} mA"
@@ -158,6 +183,28 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         self._label.setText(text)
         self._label.setStyleSheet(f"color: {color};")
         self._label.setToolTip(self._build_tooltip(data))
+
+    def _notify_status_change(self, beam_available: bool) -> None:
+        """Show a toast notification when ring status changes.
+
+        Args:
+            beam_available: Whether beam is now available.
+        """
+        toast = ToastManager.get_instance()
+        link = f'<a href="{self.BEAM_STATUS_URL}">Beam Status</a>'
+
+        if beam_available:
+            toast.success(
+                "ALS Ring Open",
+                f"Beam is now available · {link}",
+                duration=10000,
+            )
+        else:
+            toast.warning(
+                "ALS Ring Closed",
+                f"Beam is no longer available · {link}",
+                duration=10000,
+            )
 
     def _update_display_offline(self) -> None:
         """Update display for offline/error state."""
