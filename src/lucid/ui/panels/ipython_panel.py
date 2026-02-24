@@ -282,8 +282,10 @@ class IPythonPanel(BasePanel):
         from qtconsole.inprocess import QtInProcessKernelManager
 
         def _create() -> QtInProcessKernelManager:
-            # Ensure this thread has a standard event loop for zmq/ipykernel
-            loop = asyncio.new_event_loop()
+            # Explicitly use SelectorEventLoop — asyncio.new_event_loop()
+            # would use the QtAsyncio policy and create another
+            # QAsyncioEventLoop that lacks add_reader().
+            loop = asyncio.SelectorEventLoop()
             asyncio.set_event_loop(loop)
             try:
                 km = QtInProcessKernelManager()
