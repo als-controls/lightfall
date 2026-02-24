@@ -285,8 +285,15 @@ class TiledService(QObject):
         try:
             from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
 
-            return ProxySettingsProvider.should_use_proxy_for_url(url)
-        except Exception:
+            proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
+            logger.info(
+                "Tiled proxy lookup for {}: {}",
+                url,
+                proxy if proxy else "no proxy configured",
+            )
+            return proxy
+        except Exception as e:
+            logger.warning("Tiled proxy lookup failed: {}", e)
             return None
 
     @staticmethod
@@ -307,25 +314,49 @@ class TiledService(QObject):
         try:
             http_client = client.context.http_client
             transport = http_client._transport  # tiled's Transport wrapper
+            logger.info(
+                "Tiled transport chain: http_client={}, _transport={}, inner={}",
+                type(http_client).__name__,
+                type(transport).__name__,
+                type(getattr(transport, 'transport', None)).__name__,
+            )
 
             if proxy_url.startswith("socks"):
                 try:
                     from httpx_socks import SyncProxyTransport
 
-                    transport.transport = SyncProxyTransport.from_url(proxy_url)
-                    logger.debug("Tiled using SOCKS proxy: {}", proxy_url)
+                    new_transport = SyncProxyTransport.from_url(proxy_url)
+                    transport.transport = new_transport
+                    logger.info(
+                        "Tiled inner transport replaced with SyncProxyTransport → {}",
+                        proxy_url,
+                    )
                 except ImportError:
-                    logger.warning(
+                    logger.error(
                         "httpx-socks not installed — cannot use SOCKS proxy for Tiled. "
                         "Install with: pip install httpx-socks"
                     )
+                    return
             else:
                 import httpx
 
-                transport.transport = httpx.HTTPTransport(proxy=proxy_url)
-                logger.debug("Tiled using HTTP proxy: {}", proxy_url)
+                new_transport = httpx.HTTPTransport(proxy=proxy_url)
+                transport.transport = new_transport
+                logger.info(
+                    "Tiled inner transport replaced with HTTPTransport(proxy={}) ",
+                    proxy_url,
+                )
+
+            # Verify the patch stuck
+            actual = getattr(transport, 'transport', None)
+            logger.info(
+                "Tiled transport after patch: inner={}, same_obj={}",
+                type(actual).__name__,
+                actual is new_transport,
+            )
         except Exception as e:
-            logger.warning("Failed to configure Tiled proxy: {}", e)
+            import traceback
+            logger.error("Failed to configure Tiled proxy: {}\n{}", e, traceback.format_exc())
 
     def _apply_proxy_to_client(self, client: Any, url: str) -> None:
         """Apply proxy settings to a tiled client if configured.
@@ -337,6 +368,8 @@ class TiledService(QObject):
         proxy_url = self._get_proxy_url(url)
         if proxy_url:
             self._patch_client_proxy(client, proxy_url)
+        else:
+            logger.info("Tiled: no proxy to apply for {}", url)
 
     def _do_connect(self, url: str, api_key: str | None, auth_mode: TiledAuthMode) -> Any:
         """Perform the actual connection (runs in background thread).
