@@ -282,16 +282,18 @@ class IPythonPanel(BasePanel):
         from qtconsole.inprocess import QtInProcessKernelManager
 
         def _create() -> QtInProcessKernelManager:
-            # Explicitly use SelectorEventLoop — asyncio.new_event_loop()
-            # would use the QtAsyncio policy and create another
-            # QAsyncioEventLoop that lacks add_reader().
-            loop = asyncio.SelectorEventLoop()
-            asyncio.set_event_loop(loop)
+            # QtAsyncio installs a global event loop *policy*, so even
+            # background threads (including tornado's IOLoopThread used
+            # by ipykernel's iopub_thread) get a QAsyncioEventLoop that
+            # lacks add_reader(). Temporarily swap to the default policy
+            # so all loops created during kernel init are SelectorEventLoops.
+            original_policy = asyncio.get_event_loop_policy()
+            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
             try:
                 km = QtInProcessKernelManager()
                 km.start_kernel()
             finally:
-                loop.close()
+                asyncio.set_event_loop_policy(original_policy)
             return km
 
         future = QThreadFuture(_create, register=False)
