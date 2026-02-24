@@ -302,6 +302,41 @@ class TiledService(QObject):
             return None
 
     @staticmethod
+    def _test_proxy_connectivity(proxy_url: str, target_url: str) -> None:
+        """Test that the proxy can actually reach the target URL.
+
+        Args:
+            proxy_url: The SOCKS/HTTP proxy URL.
+            target_url: The target URL to test.
+        """
+        try:
+            import httpx
+
+            if proxy_url.startswith("socks"):
+                from httpx_socks import SyncProxyTransport
+
+                transport = SyncProxyTransport.from_url(proxy_url)
+                with httpx.Client(transport=transport, timeout=10.0) as client:
+                    resp = client.get(target_url)
+                    logger.info(
+                        "Proxy connectivity test OK: {} → {} (status {})",
+                        proxy_url,
+                        target_url,
+                        resp.status_code,
+                    )
+            else:
+                with httpx.Client(proxy=proxy_url, timeout=10.0) as client:
+                    resp = client.get(target_url)
+                    logger.info(
+                        "Proxy connectivity test OK: {} → {} (status {})",
+                        proxy_url,
+                        target_url,
+                        resp.status_code,
+                    )
+        except Exception as e:
+            logger.error("Proxy connectivity test FAILED: {} → {}: {}", proxy_url, target_url, e)
+
+    @staticmethod
     def _create_proxy_transport(proxy_url: str) -> Any:
         """Create a proxy-aware httpx transport.
 
@@ -430,10 +465,30 @@ class TiledService(QObject):
             kwargs["auth"] = KeycloakTiledAuth()
             logger.debug("Using Keycloak authentication for Tiled")
 
-        # Patch tiled Transport BEFORE from_uri (it connects immediately)
+        # Proxy setup
         proxy_url = self._get_proxy_url(url)
-        original_init = None
+        restore_info = None
         if proxy_url:
+            # Test proxy connectivity first
+            self._test_proxy_connectivity(proxy_url, url)
+
+            # Log tiled internals for debugging
+            try:
+                import tiled
+                from tiled.client.context import Context
+                import inspect
+
+                logger.info("Tiled version: {}", getattr(tiled, '__version__', 'unknown'))
+                init_src = inspect.getsource(Context.__init__)
+                # Log first 5 lines mentioning transport or httpx
+                relevant = [
+                    l.strip() for l in init_src.splitlines()
+                    if 'transport' in l.lower() or 'httpx' in l.lower()
+                ][:5]
+                logger.info("Context.__init__ transport lines: {}", relevant)
+            except Exception as e:
+                logger.debug("Could not inspect tiled Context: {}", e)
+
             restore_info = self._patch_httpx_transport(proxy_url)
         try:
             client = from_uri(url, **kwargs)
