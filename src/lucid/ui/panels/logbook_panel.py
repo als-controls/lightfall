@@ -66,23 +66,25 @@ class LogbookPanel(BasePanel):
         self._entry_widget = EntryWidget(EntryData())
         self._entries_panel = None  # Resolved in _deferred_init
 
-        # Guest mode warning banner (hidden by default)
-        self._guest_banner = QFrame(self)
-        self._guest_banner.setObjectName("logbookGuestBanner")
-        self._guest_banner.setStyleSheet(
-            "#logbookGuestBanner {"
+        # Warning banner (guest mode / connection issues)
+        self._warning_banner = QFrame(self)
+        self._warning_banner.setObjectName("logbookWarningBanner")
+        self._warning_banner.setStyleSheet(
+            "#logbookWarningBanner {"
             "  border: 1px solid #ffc107; border-radius: 4px;"
             "  padding: 2px 8px;"
             "}"
         )
-        self._guest_banner.setFixedHeight(28)
-        banner_layout = QHBoxLayout(self._guest_banner)
+        self._warning_banner.setFixedHeight(28)
+        banner_layout = QHBoxLayout(self._warning_banner)
         banner_layout.setContentsMargins(8, 2, 8, 2)
-        banner_label = QLabel("⚠️ Guest mode — logbook changes are local only and will be lost on exit.")
-        banner_label.setStyleSheet("background: transparent; border: none;")
-        banner_layout.addWidget(banner_label)
-        self._guest_banner.hide()
-        self._layout.addWidget(self._guest_banner)
+        self._warning_label = QLabel()
+        self._warning_label.setStyleSheet("background: transparent; border: none;")
+        banner_layout.addWidget(self._warning_label)
+        self._warning_banner.hide()
+        self._layout.addWidget(self._warning_banner)
+        self._is_guest = False
+        self._is_disconnected = False
 
         self._layout.addWidget(self._entry_widget)
 
@@ -117,6 +119,10 @@ class LogbookPanel(BasePanel):
             except Exception:
                 pass
 
+            # Monitor sync connection status
+            self._client._on_sync_error_callback = lambda: self._set_disconnected(True)
+            self._client._on_sync_restored_callback = lambda: self._set_disconnected(False)
+
             self._load_entries()
             self._start_event_listener()
 
@@ -146,13 +152,33 @@ class LogbookPanel(BasePanel):
             logger.warning("Could not connect to LogbookEntriesPanel: {}", e)
 
     def _update_guest_banner(self, user: Any) -> None:
-        """Show or hide the guest banner based on the user's role."""
+        """Update guest state and refresh the warning banner."""
         try:
             from lucid.auth.policy import Role
-            is_guest = user.highest_role == Role.GUEST
+            self._is_guest = user.highest_role == Role.GUEST
         except Exception:
-            is_guest = True
-        self._guest_banner.setVisible(is_guest)
+            self._is_guest = True
+        self._update_warning_banner()
+
+    def _set_disconnected(self, disconnected: bool) -> None:
+        """Update connection state and refresh the warning banner."""
+        self._is_disconnected = disconnected
+        self._update_warning_banner()
+
+    def _update_warning_banner(self) -> None:
+        """Show/hide warning banner based on guest and connection state."""
+        if self._is_disconnected:
+            self._warning_label.setText(
+                "⚠️ Logbook server unreachable — changes may result in sync conflicts."
+            )
+            self._warning_banner.show()
+        elif self._is_guest:
+            self._warning_label.setText(
+                "⚠️ Guest mode — logbook changes may result in sync conflicts."
+            )
+            self._warning_banner.show()
+        else:
+            self._warning_banner.hide()
 
     def _load_entries(self) -> None:
         if not self._client or not self._logbook_id:

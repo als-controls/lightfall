@@ -245,6 +245,9 @@ class LogbookClient:
         self._initialized = False
         self._sync_timer: QTimer | None = None
         self._on_pull_callback: callable | None = None
+        self._on_sync_error_callback: callable | None = None
+        self._on_sync_restored_callback: callable | None = None
+        self._sync_failed = False
 
     @classmethod
     def get_instance(cls) -> LogbookClient:
@@ -552,7 +555,15 @@ class LogbookClient:
             logger.info("Sync complete: {} pushed, {} pulled", pushed, pulled)
         if pulled > 0 and self._on_pull_callback:
             self._on_pull_callback()
+        # Connection restored after previous failure
+        if self._sync_failed:
+            self._sync_failed = False
+            if self._on_sync_restored_callback:
+                self._on_sync_restored_callback()
 
-    @staticmethod
-    def _on_sync_error(exc: Exception) -> None:
+    def _on_sync_error(self, exc: Exception) -> None:
         logger.warning("Sync failed: {}", exc)
+        if not self._sync_failed:
+            self._sync_failed = True
+            if self._on_sync_error_callback:
+                self._on_sync_error_callback()
