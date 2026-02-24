@@ -63,7 +63,7 @@ bcs = [
     "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
 ]
 claude = [
-    "pyside-claude",
+    "claude-agent-sdk>=0.1.30",
 ]
 dev = [
     "pytest>=8.0",
@@ -219,7 +219,7 @@ requires = [
 
     # Sub-projects (from local wheels via --find-links)
     "epics-pyside",
-    "pyside-claude",
+    "claude-agent-sdk>=0.1.30",
 ]
 
 [tool.briefcase.app.lucid.macOS]
