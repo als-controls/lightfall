@@ -155,7 +155,9 @@ class ClaudeAssistantWidget(QWidget):
         self.send_button.clicked.connect(self._on_send_button_clicked)
         input_layout.addWidget(self.send_button)
 
-        self.reset_button = QPushButton("↻")
+        import qtawesome as qta
+
+        self.reset_button = QPushButton(qta.icon("mdi.broom"), "")
         self.reset_button.setFixedWidth(32)
         self.reset_button.setToolTip("Reset conversation")
         self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
