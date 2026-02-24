@@ -189,10 +189,15 @@ class TiledService(QObject):
             if self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
 
-            self._client = from_uri(self._config.url, **kwargs)
-
-            # Patch transport for proxy support
-            self._apply_proxy_to_client(self._client, self._config.url)
+            # Patch tiled Transport BEFORE from_uri (it connects immediately)
+            proxy_url = self._get_proxy_url(self._config.url)
+            original_init = None
+            if proxy_url:
+                original_init = self._patch_tiled_transport_class(proxy_url)
+            try:
+                self._client = from_uri(self._config.url, **kwargs)
+            finally:
+                self._restore_tiled_transport_class(original_init)
 
             # Verify connection by accessing context
             _ = self._client.context
@@ -297,79 +302,86 @@ class TiledService(QObject):
             return None
 
     @staticmethod
-    def _patch_client_proxy(client: Any, proxy_url: str) -> None:
-        """Patch a tiled client's httpx transport to use a proxy.
-
-        Tiled creates its own ``httpx.Client`` with a custom caching
-        ``Transport`` wrapper around ``httpx.HTTPTransport()``.  Because
-        the transport is explicit, httpx ignores env-var proxy settings.
-        We replace the inner transport with a proxy-aware one.
-
-        For SOCKS proxies, ``httpx_socks`` must be installed.
+    def _create_proxy_transport(proxy_url: str) -> Any:
+        """Create a proxy-aware httpx transport.
 
         Args:
-            client: A tiled client (has ``.context.http_client``).
             proxy_url: The proxy URL (e.g. ``socks5://localhost:1080``).
+
+        Returns:
+            A transport instance, or None if creation failed.
+        """
+        if proxy_url.startswith("socks"):
+            try:
+                from httpx_socks import SyncProxyTransport
+
+                t = SyncProxyTransport.from_url(proxy_url)
+                logger.info("Created SyncProxyTransport for {}", proxy_url)
+                return t
+            except ImportError:
+                logger.error(
+                    "httpx-socks not installed — cannot use SOCKS proxy for Tiled. "
+                    "Install with: pip install httpx-socks"
+                )
+                return None
+        else:
+            import httpx
+
+            t = httpx.HTTPTransport(proxy=proxy_url)
+            logger.info("Created HTTPTransport(proxy={}) for Tiled", proxy_url)
+            return t
+
+    @staticmethod
+    def _patch_tiled_transport_class(proxy_url: str) -> Any:
+        """Monkey-patch tiled's Transport to use a proxy-aware inner transport.
+
+        Tiled's ``Transport.__init__`` does ``self.transport = transport or
+        httpx.HTTPTransport()``. We temporarily replace this so the default
+        inner transport is proxy-aware. This must happen BEFORE ``from_uri()``
+        since it connects immediately.
+
+        Args:
+            proxy_url: The proxy URL.
+
+        Returns:
+            The original ``__init__`` to restore later, or None if patching failed.
         """
         try:
-            http_client = client.context.http_client
-            transport = http_client._transport  # tiled's Transport wrapper
-            logger.info(
-                "Tiled transport chain: http_client={}, _transport={}, inner={}",
-                type(http_client).__name__,
-                type(transport).__name__,
-                type(getattr(transport, 'transport', None)).__name__,
-            )
+            from tiled.client.transport import Transport
 
-            if proxy_url.startswith("socks"):
-                try:
-                    from httpx_socks import SyncProxyTransport
+            original_init = Transport.__init__
 
-                    new_transport = SyncProxyTransport.from_url(proxy_url)
-                    transport.transport = new_transport
-                    logger.info(
-                        "Tiled inner transport replaced with SyncProxyTransport → {}",
-                        proxy_url,
-                    )
-                except ImportError:
-                    logger.error(
-                        "httpx-socks not installed — cannot use SOCKS proxy for Tiled. "
-                        "Install with: pip install httpx-socks"
-                    )
-                    return
-            else:
-                import httpx
+            proxy_transport = TiledService._create_proxy_transport(proxy_url)
+            if proxy_transport is None:
+                return None
 
-                new_transport = httpx.HTTPTransport(proxy=proxy_url)
-                transport.transport = new_transport
-                logger.info(
-                    "Tiled inner transport replaced with HTTPTransport(proxy={}) ",
-                    proxy_url,
-                )
+            def patched_init(self, *, transport=None, **kwargs):
+                # Use proxy transport as default instead of plain HTTPTransport
+                if transport is None:
+                    transport = proxy_transport
+                    logger.info("Tiled Transport.__init__: injecting proxy transport")
+                original_init(self, transport=transport, **kwargs)
 
-            # Verify the patch stuck
-            actual = getattr(transport, 'transport', None)
-            logger.info(
-                "Tiled transport after patch: inner={}, same_obj={}",
-                type(actual).__name__,
-                actual is new_transport,
-            )
+            Transport.__init__ = patched_init
+            logger.info("Patched tiled Transport class for proxy: {}", proxy_url)
+            return original_init
         except Exception as e:
             import traceback
-            logger.error("Failed to configure Tiled proxy: {}\n{}", e, traceback.format_exc())
+            logger.error("Failed to patch tiled Transport: {}\n{}", e, traceback.format_exc())
+            return None
 
-    def _apply_proxy_to_client(self, client: Any, url: str) -> None:
-        """Apply proxy settings to a tiled client if configured.
+    @staticmethod
+    def _restore_tiled_transport_class(original_init: Any) -> None:
+        """Restore the original tiled Transport.__init__."""
+        if original_init is None:
+            return
+        try:
+            from tiled.client.transport import Transport
 
-        Args:
-            client: The tiled client.
-            url: The server URL (used to check if proxy applies).
-        """
-        proxy_url = self._get_proxy_url(url)
-        if proxy_url:
-            self._patch_client_proxy(client, proxy_url)
-        else:
-            logger.info("Tiled: no proxy to apply for {}", url)
+            Transport.__init__ = original_init
+            logger.debug("Restored original tiled Transport.__init__")
+        except Exception:
+            pass
 
     def _do_connect(self, url: str, api_key: str | None, auth_mode: TiledAuthMode) -> Any:
         """Perform the actual connection (runs in background thread).
@@ -394,10 +406,15 @@ class TiledService(QObject):
             kwargs["auth"] = KeycloakTiledAuth()
             logger.debug("Using Keycloak authentication for Tiled")
 
-        client = from_uri(url, **kwargs)
-
-        # Patch transport for proxy support (must be after client creation)
-        self._apply_proxy_to_client(client, url)
+        # Patch tiled Transport BEFORE from_uri (it connects immediately)
+        proxy_url = self._get_proxy_url(url)
+        original_init = None
+        if proxy_url:
+            original_init = self._patch_tiled_transport_class(proxy_url)
+        try:
+            client = from_uri(url, **kwargs)
+        finally:
+            self._restore_tiled_transport_class(original_init)
 
         # Verify connection by accessing context
         _ = client.context
@@ -477,10 +494,14 @@ class TiledService(QObject):
             if api_key:
                 kwargs["api_key"] = api_key
 
-            client = from_uri(url, **kwargs)
-            TiledService._patch_client_proxy(
-                client, proxy_url
-            ) if (proxy_url := TiledService._get_proxy_url(url)) else None
+            proxy_url = TiledService._get_proxy_url(url)
+            original_init = None
+            if proxy_url:
+                original_init = TiledService._patch_tiled_transport_class(proxy_url)
+            try:
+                client = from_uri(url, **kwargs)
+            finally:
+                TiledService._restore_tiled_transport_class(original_init)
             # Verify connection
             _ = client.context
             return True, "Connection successful"
