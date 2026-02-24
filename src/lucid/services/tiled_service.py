@@ -362,15 +362,36 @@ class TiledService(QObject):
                 return None
 
             def patched_init(self, *, transport=None, **kwargs):
+                logger.info(
+                    "Tiled Transport.__init__ CALLED: transport={}, id(self.__class__)={}",
+                    type(transport).__name__ if transport else "None",
+                    id(self.__class__),
+                )
                 # Use proxy transport as default instead of plain HTTPTransport
                 if transport is None:
                     transport = proxy_transport
                     logger.info("Tiled Transport.__init__: injecting proxy transport")
+                else:
+                    logger.info("Tiled Transport.__init__: explicit transport passed, skipping proxy")
                 original_init(self, transport=transport, **kwargs)
 
             # Patch both the source module and the already-imported reference
             transport_mod.Transport.__init__ = patched_init
             context_mod.Transport.__init__ = patched_init
+
+            # Verify class identity
+            logger.info(
+                "Transport class identity check: transport_mod={}, context_mod={}, same={}",
+                id(transport_mod.Transport),
+                id(context_mod.Transport),
+                transport_mod.Transport is context_mod.Transport,
+            )
+            logger.info(
+                "Patched __init__ check: transport_mod={}, context_mod={}, is_patched={}",
+                id(transport_mod.Transport.__init__),
+                id(context_mod.Transport.__init__),
+                transport_mod.Transport.__init__ is patched_init,
+            )
             logger.info("Patched tiled Transport class for proxy: {}", proxy_url)
 
             return {"original_init": original_init}
