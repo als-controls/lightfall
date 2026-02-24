@@ -301,6 +301,8 @@ class IPythonPanel(BasePanel):
 
     def _setup_jupyter_widget(self) -> None:
         """Set up the Jupyter/IPython widget with in-process kernel."""
+        import asyncio
+
         from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
         # Create kernel and client in a background thread to avoid
@@ -311,10 +313,18 @@ class IPythonPanel(BasePanel):
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
 
-        # Create the Jupyter widget (must be on main/Qt thread)
-        self._jupyter_widget = RichJupyterWidget()
-        self._jupyter_widget.kernel_manager = self._kernel_manager
-        self._jupyter_widget.kernel_client = self._kernel_client
+        # Swap policy on the main thread while connecting the widget.
+        # Setting kernel_manager/kernel_client triggers jupyter_core's
+        # run_sync which spawns a thread that calls run_forever() on the
+        # current event loop — fatal with QAsyncioEventLoop.
+        original_policy = asyncio.get_event_loop_policy()
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        try:
+            self._jupyter_widget = RichJupyterWidget()
+            self._jupyter_widget.kernel_manager = self._kernel_manager
+            self._jupyter_widget.kernel_client = self._kernel_client
+        finally:
+            asyncio.set_event_loop_policy(original_policy)
 
         self._layout.addWidget(self._jupyter_widget)
 
