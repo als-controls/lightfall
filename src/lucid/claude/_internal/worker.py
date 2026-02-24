@@ -46,8 +46,11 @@ class ClaudeWorker(QThread):
         Thread entry point. Creates an asyncio event loop and runs the query.
         """
         try:
-            # Create new event loop for this thread
-            self._loop = asyncio.new_event_loop()
+            # Create a standard event loop for this thread.
+            # asyncio.new_event_loop() would go through the QtAsyncio
+            # policy and create a QAsyncioEventLoop which doesn't work
+            # properly outside the main thread.
+            self._loop = asyncio.SelectorEventLoop()
             asyncio.set_event_loop(self._loop)
 
             # Run the query
@@ -226,8 +229,11 @@ class PersistentClaudeWorker(QThread):
         Thread entry point. Creates event loop, connects, and processes queries.
         """
         try:
-            # Create persistent event loop
-            self._loop = asyncio.new_event_loop()
+            # Create a standard event loop for this thread.
+            # asyncio.new_event_loop() would go through the QtAsyncio
+            # policy and create a QAsyncioEventLoop which doesn't work
+            # properly outside the main thread.
+            self._loop = asyncio.SelectorEventLoop()
             asyncio.set_event_loop(self._loop)
             self._shutdown_event = asyncio.Event()
 
