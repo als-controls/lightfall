@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent
@@ -265,66 +264,27 @@ class IPythonPanel(BasePanel):
 
         return toolbar
 
-    @staticmethod
-    def _init_kernel_and_client() -> tuple["QtInProcessKernelManager", Any]:
-        """Create kernel manager and client in a background thread.
-
-        QtAsyncio's QAsyncioEventLoop doesn't implement ``add_reader()``
-        and its ``run_forever()`` raises when already running, both of
-        which break ipykernel/jupyter_core initialization. We temporarily
-        swap the global event loop policy to ``DefaultEventLoopPolicy``
-        and run the entire kernel + client setup in a ``QThreadFuture``
-        so every asyncio loop created during init is a standard
-        ``SelectorEventLoop``.
-
-        Returns:
-            Tuple of (kernel_manager, kernel_client) ready to use.
-        """
-        import asyncio
-
-        from qtconsole.inprocess import QtInProcessKernelManager
-
-        def _create() -> tuple[QtInProcessKernelManager, Any]:
-            original_policy = asyncio.get_event_loop_policy()
-            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-            try:
-                km = QtInProcessKernelManager()
-                km.start_kernel()
-                client = km.client()
-                client.start_channels()
-            finally:
-                asyncio.set_event_loop_policy(original_policy)
-            return km, client
-
-        future = QThreadFuture(_create, register=False)
-        return future.result(timeout_ms=10000)
-
     def _setup_jupyter_widget(self) -> None:
         """Set up the Jupyter/IPython widget with in-process kernel."""
-        import asyncio
-
+        from qtconsole.inprocess import QtInProcessKernelManager
         from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
-        # Create kernel and client in a background thread to avoid
-        # QtAsyncio compatibility issues (add_reader + run_forever)
-        self._kernel_manager, self._kernel_client = self._init_kernel_and_client()
+        # Create kernel manager and start kernel
+        self._kernel_manager = QtInProcessKernelManager()
+        self._kernel_manager.start_kernel()
 
-        # Set up namespace (safe on main thread — just pushes to dict)
+        # Get kernel and set up namespace
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
 
-        # Swap policy on the main thread while connecting the widget.
-        # Setting kernel_manager/kernel_client triggers jupyter_core's
-        # run_sync which spawns a thread that calls run_forever() on the
-        # current event loop — fatal with QAsyncioEventLoop.
-        original_policy = asyncio.get_event_loop_policy()
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        try:
-            self._jupyter_widget = RichJupyterWidget()
-            self._jupyter_widget.kernel_manager = self._kernel_manager
-            self._jupyter_widget.kernel_client = self._kernel_client
-        finally:
-            asyncio.set_event_loop_policy(original_policy)
+        # Create client
+        self._kernel_client = self._kernel_manager.client()
+        self._kernel_client.start_channels()
+
+        # Create the Jupyter widget
+        self._jupyter_widget = RichJupyterWidget()
+        self._jupyter_widget.kernel_manager = self._kernel_manager
+        self._jupyter_widget.kernel_client = self._kernel_client
 
         self._layout.addWidget(self._jupyter_widget)
 
@@ -467,6 +427,8 @@ class IPythonPanel(BasePanel):
         if not self._qtconsole_available:
             return
 
+        from qtconsole.inprocess import QtInProcessKernelManager
+
         # Stop existing client channels
         if self._kernel_client:
             try:
@@ -481,12 +443,17 @@ class IPythonPanel(BasePanel):
             except Exception as e:
                 logger.warning("Error shutting down kernel: {}", e)
 
-        # Create fresh kernel and client in background thread
-        self._kernel_manager, self._kernel_client = self._init_kernel_and_client()
+        # Create fresh kernel manager and start kernel
+        self._kernel_manager = QtInProcessKernelManager()
+        self._kernel_manager.start_kernel()
 
         # Setup namespace on fresh kernel
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
+
+        # Create fresh client and start channels
+        self._kernel_client = self._kernel_manager.client()
+        self._kernel_client.start_channels()
 
         # Reconnect the Jupyter widget to the new kernel
         if self._jupyter_widget:

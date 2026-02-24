@@ -836,12 +836,12 @@ class NCSMainWindow(QMainWindow):
 
     def _on_logout(self) -> None:
         """Logout current user."""
-        from lucid.utils.asyncio import run_coroutine_sync
+        import asyncio
 
         from lucid.utils.threads import QThreadFuture
 
         def do_logout() -> None:
-            run_coroutine_sync(self._session_manager.logout())
+            asyncio.run(self._session_manager.logout())
 
         thread = QThreadFuture(do_logout, name="logout")
         thread.start()

@@ -140,16 +140,8 @@ class BlueskyEngine(BaseEngine):
         """
         from queue import Empty
 
-        # Create dedicated event loop for this thread.
-        # Create a standard event loop (not QtAsyncio).
-        # asyncio.new_event_loop() goes through the QtAsyncio policy.
-        # On Windows use ProactorEventLoop (subprocess support),
-        # elsewhere use SelectorEventLoop.
-        import platform
-        if platform.system() == "Windows":
-            self._loop = asyncio.ProactorEventLoop()
-        else:
-            self._loop = asyncio.SelectorEventLoop()
+        # Create dedicated event loop for this thread
+        self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
 
         # Create the RunEngine

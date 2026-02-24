@@ -285,17 +285,8 @@ class NCSApplication(QObject):
         if self._main_window:
             self._main_window.show()
 
-        logger.info("Starting application event loop (QtAsyncio)")
-        try:
-            import PySide6.QtAsyncio as QtAsyncio
-
-            QtAsyncio.run(keep_running=True, quit_qapp=True, handle_sigint=True)
-            exit_code = 0
-        except SystemExit as e:
-            exit_code = e.code if isinstance(e.code, int) else 0
-        except Exception:
-            logger.exception("Event loop error")
-            exit_code = 1
+        logger.info("Starting application event loop")
+        exit_code = self._qt_app.exec()
 
         self._shutdown()
         return exit_code

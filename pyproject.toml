@@ -31,7 +31,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "PySide6>=6.6.1",
+    "PySide6>=6.6",
     "PySide6-QtAds>=4.0",
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -172,7 +172,7 @@ icon = "resources/lucid"
 sources = ["src/lucid"]
 requires = [
     # Core UI
-    "PySide6>=6.6.1",
+    "PySide6>=6.6",
     "PySide6-QtAds>=4.0",
     "pyqtgraph>=0.13",
     "qtawesome>=1.3",

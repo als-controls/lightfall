@@ -7,6 +7,8 @@ are exposed as ophyd-compatible objects for use with Bluesky.
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -97,7 +99,7 @@ class BCSBackend(DeviceBackend):
         return self._port
 
     def _run_async(self, coro: Any) -> Any:
-        """Run async coroutine using the Qt-integrated asyncio event loop.
+        """Run async coroutine in dedicated thread to avoid Qt event loop conflict.
 
         Args:
             coro: Async coroutine to run.
@@ -105,9 +107,27 @@ class BCSBackend(DeviceBackend):
         Returns:
             Result of the coroutine.
         """
-        from lucid.utils.asyncio import run_coroutine_sync
+        result = None
+        exception = None
 
-        return run_coroutine_sync(coro)
+        def run_in_thread() -> None:
+            nonlocal result, exception
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(coro)
+            except Exception as e:
+                exception = e
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=run_in_thread)
+        thread.start()
+        thread.join()
+
+        if exception:
+            raise exception
+        return result
 
     def connect(self) -> bool:
         """Connect to BCS server and discover devices."""

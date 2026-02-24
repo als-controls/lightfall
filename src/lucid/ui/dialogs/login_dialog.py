@@ -6,6 +6,7 @@ or a local development account.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC
 from enum import Enum, auto
 from typing import TYPE_CHECKING
@@ -437,9 +438,7 @@ class LoginDialog(LucidDialog):
         self._current_provider = provider
 
         # Run async authenticate
-        from lucid.utils.asyncio import run_coroutine_sync
-
-        session = run_coroutine_sync(provider.authenticate())
+        session = asyncio.run(provider.authenticate())
 
         if session:
             # Apply app session duration (starts now, not when token was issued)
@@ -500,9 +499,7 @@ class LoginDialog(LucidDialog):
         self._current_provider = provider
 
         # Run async authenticate
-        from lucid.utils.asyncio import run_coroutine_sync
-
-        session = run_coroutine_sync(provider.authenticate(username=username, password=password))
+        session = asyncio.run(provider.authenticate(username=username, password=password))
 
         if session:
             # Apply app session duration (ensure it starts now)
