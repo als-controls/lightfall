@@ -112,18 +112,6 @@ class NCSMainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("&File")
 
-        # Open action
-        open_action = QAction("&Open...", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self._on_open)
-        file_menu.addAction(open_action)
-
-        # Recent files submenu
-        self._recent_menu = file_menu.addMenu("Recent Files")
-        self._update_recent_menu()
-
-        file_menu.addSeparator()
-
         # Save layout action
         save_layout_action = QAction("Save Layout", self)
         save_layout_action.triggered.connect(self._save_window_state)
@@ -148,42 +136,6 @@ class NCSMainWindow(QMainWindow):
         # Panels submenu
         self._panels_menu = view_menu.addMenu("Panels")
         self._update_panels_menu()
-
-        view_menu.addSeparator()
-
-        # Theme submenu
-        theme_menu = view_menu.addMenu("Theme")
-
-        light_action = QAction("Light", self)
-        light_action.setCheckable(True)
-        light_action.triggered.connect(lambda: self._set_theme(Theme.LIGHT))
-        theme_menu.addAction(light_action)
-
-        dark_action = QAction("Dark", self)
-        dark_action.setCheckable(True)
-        dark_action.triggered.connect(lambda: self._set_theme(Theme.DARK))
-        theme_menu.addAction(dark_action)
-
-        system_action = QAction("System", self)
-        system_action.setCheckable(True)
-        system_action.setChecked(True)
-        system_action.triggered.connect(lambda: self._set_theme(Theme.SYSTEM))
-        theme_menu.addAction(system_action)
-
-        self._theme_actions = {
-            Theme.LIGHT: light_action,
-            Theme.DARK: dark_action,
-            Theme.SYSTEM: system_action,
-        }
-
-        view_menu.addSeparator()
-
-        # Show/hide statusbar
-        self._statusbar_action = QAction("Show Status Bar", self)
-        self._statusbar_action.setCheckable(True)
-        self._statusbar_action.setChecked(self._prefs_manager.show_statusbar)
-        self._statusbar_action.triggered.connect(self._toggle_statusbar)
-        view_menu.addAction(self._statusbar_action)
 
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
@@ -584,37 +536,11 @@ class NCSMainWindow(QMainWindow):
                 )
                 cat_menu.addAction(action)
 
-    def _update_recent_menu(self) -> None:
-        """Update the recent files menu."""
-        self._recent_menu.clear()
-
-        recent = self._prefs_manager.get_recent_files()
-        if not recent:
-            action = QAction("(No recent files)", self)
-            action.setEnabled(False)
-            self._recent_menu.addAction(action)
-            return
-
-        for path in recent:
-            action = QAction(path, self)
-            action.triggered.connect(lambda checked, p=path: self._open_file(p))
-            self._recent_menu.addAction(action)
-
-        self._recent_menu.addSeparator()
-        clear_action = QAction("Clear Recent Files", self)
-        clear_action.triggered.connect(self._prefs_manager.clear_recent_files)
-        self._recent_menu.addAction(clear_action)
-
     # Theme handling
 
     def _apply_theme(self) -> None:
         """Apply current theme to the window."""
         self._theme_manager.apply_to_application()
-
-        # Update theme action checkmarks
-        current = self._theme_manager.theme
-        for theme, action in self._theme_actions.items():
-            action.setChecked(theme == current)
 
     def _set_theme(self, theme: Theme, *, save_preference: bool = True) -> None:
         """Set the application theme.
@@ -799,17 +725,6 @@ class NCSMainWindow(QMainWindow):
 
     # Action handlers
 
-    def _on_open(self) -> None:
-        """Handle open action."""
-        # TODO: Implement file open dialog
-        pass
-
-    def _open_file(self, path: str) -> None:
-        """Open a file by path."""
-        # TODO: Implement file opening
-        self._prefs_manager.add_recent_file(path)
-        self._update_recent_menu()
-
     def _on_preferences(self) -> None:
         """Open preferences dialog."""
         dialog = PreferencesDialog(self)
@@ -863,11 +778,6 @@ class NCSMainWindow(QMainWindow):
             self._user_info_action.setText(f"Logged in as: {user.display_name}")
         else:
             self._user_info_action.setText("Guest")
-
-    def _toggle_statusbar(self, checked: bool) -> None:
-        """Toggle statusbar visibility."""
-        self.statusBar().setVisible(checked)
-        self._prefs_manager.show_statusbar = checked
 
     # Window state
 
