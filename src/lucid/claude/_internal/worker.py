@@ -156,8 +156,8 @@ class AgentConnectionWorker(QThread):
         """
         loop = None
         try:
-            # Create event loop
-            loop = asyncio.new_event_loop()
+            # Create a standard event loop (not QtAsyncio)
+            loop = asyncio.SelectorEventLoop()
             asyncio.set_event_loop(loop)
 
             # Connect
