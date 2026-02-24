@@ -179,6 +179,7 @@ class FragmentOverlay(QWidget):
         claude_clicked(fragment_id): Claude button pressed.
     """
 
+    edit_clicked = Signal(str)
     delete_clicked = Signal(str)
     claude_clicked = Signal(str)
 
@@ -202,11 +203,24 @@ class FragmentOverlay(QWidget):
         # Use qtawesome icons
         try:
             import qtawesome as qta
+            edit_icon = qta.icon("mdi.pencil-outline", color="#2196F3")
             claude_icon = qta.icon("mdi.robot-outline", color="#9c27b0")
             delete_icon = qta.icon("mdi.delete-outline", color="#f44336")
         except ImportError:
+            edit_icon = None
             claude_icon = None
             delete_icon = None
+
+        self._edit_btn = QToolButton()
+        if edit_icon:
+            self._edit_btn.setIcon(edit_icon)
+        else:
+            self._edit_btn.setText("Edit")
+        self._edit_btn.setToolTip("Edit fragment")
+        self._edit_btn.setStyleSheet(btn_style)
+        self._edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self._fragment_id))
+        layout.addWidget(self._edit_btn)
 
         self._claude_btn = QToolButton()
         if claude_icon:
@@ -250,12 +264,18 @@ class _HoverMixin:
 
     def _init_overlay(self, fragment_id: str) -> None:
         self._overlay = FragmentOverlay(fragment_id, self)  # type: ignore[arg-type]
+        self._overlay.edit_clicked.connect(self._on_overlay_edit)
         self._overlay.delete_clicked.connect(self._on_overlay_delete)
         self._overlay.claude_clicked.connect(self._on_overlay_claude)
 
     # Signals that subclasses should declare
     delete_requested: Signal  # (fragment_id)
     claude_requested: Signal  # (fragment_id)
+
+    def _on_overlay_edit(self, fid: str) -> None:
+        """Handle edit button — enter edit mode if available."""
+        if hasattr(self, '_enter_edit_mode'):
+            self._enter_edit_mode()
 
     def _on_overlay_delete(self, fid: str) -> None:
         self.delete_requested.emit(fid)  # type: ignore[attr-defined]
@@ -378,9 +398,9 @@ class TextFragmentWidget(_HoverMixin, QFrame):
 
     # -- focus switching --
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self._enter_edit_mode()
-        super().mousePressEvent(event)
+        super().mouseDoubleClickEvent(event)
 
     def _enter_edit_mode(self) -> None:
         if self._editor.isVisible():
