@@ -266,35 +266,35 @@ class IPythonPanel(BasePanel):
         return toolbar
 
     @staticmethod
-    def _create_kernel_in_thread() -> "QtInProcessKernelManager":
-        """Create and start a kernel in a background thread.
+    def _init_kernel_and_client() -> tuple["QtInProcessKernelManager", Any]:
+        """Create kernel manager and client in a background thread.
 
-        QtAsyncio's QAsyncioEventLoop doesn't implement ``add_reader()``,
-        which zmq/ipykernel needs during initialization. Running kernel
-        creation in a ``QThreadFuture`` gives it a thread with its own
-        standard asyncio ``SelectorEventLoop``, sidestepping the issue.
+        QtAsyncio's QAsyncioEventLoop doesn't implement ``add_reader()``
+        and its ``run_forever()`` raises when already running, both of
+        which break ipykernel/jupyter_core initialization. We temporarily
+        swap the global event loop policy to ``DefaultEventLoopPolicy``
+        and run the entire kernel + client setup in a ``QThreadFuture``
+        so every asyncio loop created during init is a standard
+        ``SelectorEventLoop``.
 
         Returns:
-            A started QtInProcessKernelManager.
+            Tuple of (kernel_manager, kernel_client) ready to use.
         """
         import asyncio
 
         from qtconsole.inprocess import QtInProcessKernelManager
 
-        def _create() -> QtInProcessKernelManager:
-            # QtAsyncio installs a global event loop *policy*, so even
-            # background threads (including tornado's IOLoopThread used
-            # by ipykernel's iopub_thread) get a QAsyncioEventLoop that
-            # lacks add_reader(). Temporarily swap to the default policy
-            # so all loops created during kernel init are SelectorEventLoops.
+        def _create() -> tuple[QtInProcessKernelManager, Any]:
             original_policy = asyncio.get_event_loop_policy()
             asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
             try:
                 km = QtInProcessKernelManager()
                 km.start_kernel()
+                client = km.client()
+                client.start_channels()
             finally:
                 asyncio.set_event_loop_policy(original_policy)
-            return km
+            return km, client
 
         future = QThreadFuture(_create, register=False)
         return future.result(timeout_ms=10000)
@@ -303,19 +303,15 @@ class IPythonPanel(BasePanel):
         """Set up the Jupyter/IPython widget with in-process kernel."""
         from qtconsole.rich_jupyter_widget import RichJupyterWidget
 
-        # Create kernel in a background thread to avoid
-        # QAsyncioEventLoop.add_reader() NotImplementedError
-        self._kernel_manager = self._create_kernel_in_thread()
+        # Create kernel and client in a background thread to avoid
+        # QtAsyncio compatibility issues (add_reader + run_forever)
+        self._kernel_manager, self._kernel_client = self._init_kernel_and_client()
 
-        # Get kernel and set up namespace
+        # Set up namespace (safe on main thread — just pushes to dict)
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
 
-        # Create client
-        self._kernel_client = self._kernel_manager.client()
-        self._kernel_client.start_channels()
-
-        # Create the Jupyter widget
+        # Create the Jupyter widget (must be on main/Qt thread)
         self._jupyter_widget = RichJupyterWidget()
         self._jupyter_widget.kernel_manager = self._kernel_manager
         self._jupyter_widget.kernel_client = self._kernel_client
@@ -475,16 +471,12 @@ class IPythonPanel(BasePanel):
             except Exception as e:
                 logger.warning("Error shutting down kernel: {}", e)
 
-        # Create fresh kernel manager in background thread
-        self._kernel_manager = self._create_kernel_in_thread()
+        # Create fresh kernel and client in background thread
+        self._kernel_manager, self._kernel_client = self._init_kernel_and_client()
 
         # Setup namespace on fresh kernel
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
-
-        # Create fresh client and start channels
-        self._kernel_client = self._kernel_manager.client()
-        self._kernel_client.start_channels()
 
         # Reconnect the Jupyter widget to the new kernel
         if self._jupyter_widget:
