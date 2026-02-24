@@ -189,7 +189,11 @@ class TiledService(QObject):
             if self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
 
-            self._client = from_uri(self._config.url, **kwargs)
+            saved_env = self._apply_proxy_env(self._config.url)
+            try:
+                self._client = from_uri(self._config.url, **kwargs)
+            finally:
+                self._restore_proxy_env(saved_env)
 
             # Verify connection by accessing context
             _ = self._client.context
@@ -269,6 +273,50 @@ class TiledService(QObject):
         )
         self._connect_thread.start()
 
+    @staticmethod
+    def _apply_proxy_env(url: str) -> dict[str, str | None]:
+        """Set proxy environment variables if configured for the given URL.
+
+        Tiled uses httpx internally, which respects ``HTTPS_PROXY`` /
+        ``HTTP_PROXY`` / ``ALL_PROXY`` environment variables. We set
+        these before connecting and return the previous values so the
+        caller can restore them.
+
+        Args:
+            url: The Tiled server URL.
+
+        Returns:
+            Dict of env var name → previous value (or None if unset).
+        """
+        import os
+
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(url)
+        saved: dict[str, str | None] = {}
+
+        if proxy_url:
+            for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+                saved[var] = os.environ.get(var)
+                os.environ[var] = proxy_url
+            logger.debug("Tiled using proxy: {}", proxy_url)
+        return saved
+
+    @staticmethod
+    def _restore_proxy_env(saved: dict[str, str | None]) -> None:
+        """Restore previous proxy environment variables.
+
+        Args:
+            saved: Dict from ``_apply_proxy_env``.
+        """
+        import os
+
+        for var, prev in saved.items():
+            if prev is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = prev
+
     def _do_connect(self, url: str, api_key: str | None, auth_mode: TiledAuthMode) -> Any:
         """Perform the actual connection (runs in background thread).
 
@@ -292,7 +340,12 @@ class TiledService(QObject):
             kwargs["auth"] = KeycloakTiledAuth()
             logger.debug("Using Keycloak authentication for Tiled")
 
-        client = from_uri(url, **kwargs)
+        # Apply proxy settings via environment variables (httpx respects these)
+        saved_env = self._apply_proxy_env(url)
+        try:
+            client = from_uri(url, **kwargs)
+        finally:
+            self._restore_proxy_env(saved_env)
 
         # Verify connection by accessing context
         _ = client.context
@@ -372,9 +425,13 @@ class TiledService(QObject):
             if api_key:
                 kwargs["api_key"] = api_key
 
-            client = from_uri(url, **kwargs)
-            # Verify connection
-            _ = client.context
+            saved_env = TiledService._apply_proxy_env(url)
+            try:
+                client = from_uri(url, **kwargs)
+                # Verify connection
+                _ = client.context
+            finally:
+                TiledService._restore_proxy_env(saved_env)
             return True, "Connection successful"
 
         except ImportError:
