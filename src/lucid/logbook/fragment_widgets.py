@@ -180,6 +180,7 @@ class FragmentOverlay(QWidget):
     """
 
     edit_clicked = Signal(str)
+    copy_clicked = Signal(str)
     delete_clicked = Signal(str)
     claude_clicked = Signal(str)
 
@@ -204,10 +205,12 @@ class FragmentOverlay(QWidget):
         try:
             import qtawesome as qta
             edit_icon = qta.icon("mdi.pencil-outline", color="#2196F3")
+            copy_icon = qta.icon("mdi.content-copy", color="#9E9E9E")
             claude_icon = qta.icon("mdi.robot-outline", color="#9c27b0")
             delete_icon = qta.icon("mdi.delete-outline", color="#f44336")
         except ImportError:
             edit_icon = None
+            copy_icon = None
             claude_icon = None
             delete_icon = None
 
@@ -221,6 +224,17 @@ class FragmentOverlay(QWidget):
         self._edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self._fragment_id))
         layout.addWidget(self._edit_btn)
+
+        self._copy_btn = QToolButton()
+        if copy_icon:
+            self._copy_btn.setIcon(copy_icon)
+        else:
+            self._copy_btn.setText("Copy")
+        self._copy_btn.setToolTip("Copy content")
+        self._copy_btn.setStyleSheet(btn_style)
+        self._copy_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._copy_btn.clicked.connect(lambda: self.copy_clicked.emit(self._fragment_id))
+        layout.addWidget(self._copy_btn)
 
         self._claude_btn = QToolButton()
         if claude_icon:
@@ -265,6 +279,7 @@ class _HoverMixin:
     def _init_overlay(self, fragment_id: str) -> None:
         self._overlay = FragmentOverlay(fragment_id, self)  # type: ignore[arg-type]
         self._overlay.edit_clicked.connect(self._on_overlay_edit)
+        self._overlay.copy_clicked.connect(self._on_overlay_copy)
         self._overlay.delete_clicked.connect(self._on_overlay_delete)
         self._overlay.claude_clicked.connect(self._on_overlay_claude)
 
@@ -276,6 +291,21 @@ class _HoverMixin:
         """Handle edit button — enter edit mode if available."""
         if hasattr(self, '_enter_edit_mode'):
             self._enter_edit_mode()
+
+    def _on_overlay_copy(self, fid: str) -> None:
+        """Copy fragment content to clipboard."""
+        from PySide6.QtWidgets import QApplication
+
+        content = ""
+        fragment = getattr(self, '_fragment', None)
+        if fragment and hasattr(fragment, 'content'):
+            content = fragment.content
+        elif hasattr(self, 'get_content'):
+            content = self.get_content()
+
+        if content:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(content)
 
     def _on_overlay_delete(self, fid: str) -> None:
         self.delete_requested.emit(fid)  # type: ignore[attr-defined]
