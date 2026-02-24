@@ -100,7 +100,12 @@ class TiledSettingsPlugin(SettingsPlugin):
         # Server URL
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText("http://localhost:8000")
+        self._url_edit.editingFinished.connect(self._validate_url)
+        self._url_error_label = QLabel()
+        self._url_error_label.setStyleSheet("color: #f44336; font-size: 9pt;")
+        self._url_error_label.hide()
         connection_layout.addRow("Server URL:", self._url_edit)
+        connection_layout.addRow("", self._url_error_label)
 
         # API Key
         self._api_key_edit = QLineEdit()
@@ -262,5 +267,30 @@ class TiledSettingsPlugin(SettingsPlugin):
             url = self._url_edit.text().strip() if self._url_edit else ""
             if not url:
                 errors.append("Tiled server URL is required when enabled")
+            elif not self._is_valid_url(url):
+                errors.append("Tiled server URL must start with http:// or https://")
 
         return errors
+
+    @staticmethod
+    def _is_valid_url(url: str) -> bool:
+        """Check if URL is valid and uses http(s) scheme."""
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+            return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+        except Exception:
+            return False
+
+    def _validate_url(self) -> None:
+        """Validate URL field and show/hide inline error."""
+        url = self._url_edit.text().strip() if self._url_edit else ""
+        if not url:
+            self._url_error_label.hide()
+            return
+        if self._is_valid_url(url):
+            self._url_error_label.hide()
+        else:
+            self._url_error_label.setText("URL must start with http:// or https://")
+            self._url_error_label.show()
