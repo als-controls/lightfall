@@ -189,11 +189,10 @@ class TiledService(QObject):
             if self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
 
-            saved_env = self._apply_proxy_env(self._config.url)
-            try:
-                self._client = from_uri(self._config.url, **kwargs)
-            finally:
-                self._restore_proxy_env(saved_env)
+            self._client = from_uri(self._config.url, **kwargs)
+
+            # Patch transport for proxy support
+            self._apply_proxy_to_client(self._client, self._config.url)
 
             # Verify connection by accessing context
             _ = self._client.context
@@ -274,48 +273,70 @@ class TiledService(QObject):
         self._connect_thread.start()
 
     @staticmethod
-    def _apply_proxy_env(url: str) -> dict[str, str | None]:
-        """Set proxy environment variables if configured for the given URL.
-
-        Tiled uses httpx internally, which respects ``HTTPS_PROXY`` /
-        ``HTTP_PROXY`` / ``ALL_PROXY`` environment variables. We set
-        these before connecting and return the previous values so the
-        caller can restore them.
+    def _get_proxy_url(url: str) -> str | None:
+        """Get the proxy URL for a given Tiled server URL.
 
         Args:
             url: The Tiled server URL.
 
         Returns:
-            Dict of env var name → previous value (or None if unset).
+            Proxy URL or None.
         """
-        import os
+        try:
+            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
 
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
-
-        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(url)
-        saved: dict[str, str | None] = {}
-
-        if proxy_url:
-            for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
-                saved[var] = os.environ.get(var)
-                os.environ[var] = proxy_url
-            logger.debug("Tiled using proxy: {}", proxy_url)
-        return saved
+            return ProxySettingsProvider.should_use_proxy_for_url(url)
+        except Exception:
+            return None
 
     @staticmethod
-    def _restore_proxy_env(saved: dict[str, str | None]) -> None:
-        """Restore previous proxy environment variables.
+    def _patch_client_proxy(client: Any, proxy_url: str) -> None:
+        """Patch a tiled client's httpx transport to use a proxy.
+
+        Tiled creates its own ``httpx.Client`` with a custom caching
+        ``Transport`` wrapper around ``httpx.HTTPTransport()``.  Because
+        the transport is explicit, httpx ignores env-var proxy settings.
+        We replace the inner transport with a proxy-aware one.
+
+        For SOCKS proxies, ``httpx_socks`` must be installed.
 
         Args:
-            saved: Dict from ``_apply_proxy_env``.
+            client: A tiled client (has ``.context.http_client``).
+            proxy_url: The proxy URL (e.g. ``socks5://localhost:1080``).
         """
-        import os
+        try:
+            http_client = client.context.http_client
+            transport = http_client._transport  # tiled's Transport wrapper
 
-        for var, prev in saved.items():
-            if prev is None:
-                os.environ.pop(var, None)
+            if proxy_url.startswith("socks"):
+                try:
+                    from httpx_socks import SyncProxyTransport
+
+                    transport.transport = SyncProxyTransport.from_url(proxy_url)
+                    logger.debug("Tiled using SOCKS proxy: {}", proxy_url)
+                except ImportError:
+                    logger.warning(
+                        "httpx-socks not installed — cannot use SOCKS proxy for Tiled. "
+                        "Install with: pip install httpx-socks"
+                    )
             else:
-                os.environ[var] = prev
+                import httpx
+
+                transport.transport = httpx.HTTPTransport(proxy=proxy_url)
+                logger.debug("Tiled using HTTP proxy: {}", proxy_url)
+        except Exception as e:
+            logger.warning("Failed to configure Tiled proxy: {}", e)
+
+    def _apply_proxy_to_client(self, client: Any, url: str) -> None:
+        """Apply proxy settings to a tiled client if configured.
+
+        Args:
+            client: The tiled client.
+            url: The server URL (used to check if proxy applies).
+        """
+        proxy_url = self._get_proxy_url(url)
+        if proxy_url:
+            self._patch_client_proxy(client, proxy_url)
 
     def _do_connect(self, url: str, api_key: str | None, auth_mode: TiledAuthMode) -> Any:
         """Perform the actual connection (runs in background thread).
@@ -340,12 +361,10 @@ class TiledService(QObject):
             kwargs["auth"] = KeycloakTiledAuth()
             logger.debug("Using Keycloak authentication for Tiled")
 
-        # Apply proxy settings via environment variables (httpx respects these)
-        saved_env = self._apply_proxy_env(url)
-        try:
-            client = from_uri(url, **kwargs)
-        finally:
-            self._restore_proxy_env(saved_env)
+        client = from_uri(url, **kwargs)
+
+        # Patch transport for proxy support (must be after client creation)
+        self._apply_proxy_to_client(client, url)
 
         # Verify connection by accessing context
         _ = client.context
@@ -425,13 +444,12 @@ class TiledService(QObject):
             if api_key:
                 kwargs["api_key"] = api_key
 
-            saved_env = TiledService._apply_proxy_env(url)
-            try:
-                client = from_uri(url, **kwargs)
-                # Verify connection
-                _ = client.context
-            finally:
-                TiledService._restore_proxy_env(saved_env)
+            client = from_uri(url, **kwargs)
+            TiledService._patch_client_proxy(
+                client, proxy_url
+            ) if (proxy_url := TiledService._get_proxy_url(url)) else None
+            # Verify connection
+            _ = client.context
             return True, "Connection successful"
 
         except ImportError:
