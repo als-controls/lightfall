@@ -368,13 +368,14 @@ class TiledService(QObject):
 
     @staticmethod
     def _patch_tiled_for_proxy(proxy_url: str) -> dict[str, Any] | None:
-        """Replace tiled's Transport class with a proxy-aware version.
+        """Patch tiled to use a SOCKS/HTTP proxy for all connections.
 
-        Instead of patching ``__init__`` (unreliable on Python 3.14) or
-        ``httpx.HTTPTransport`` (never called), we replace the
-        ``Transport`` name in ``tiled.client.context``'s module namespace
-        so that ``transport=Transport(cache=cache)`` creates our
-        proxy-aware transport wrapper.
+        Tiled's ``Context.from_any_uri`` makes a bare ``httpx.get()`` call
+        (to check for HTTP→HTTPS redirects) before creating its transport.
+        We must patch both:
+
+        1. ``httpx.get`` / ``httpx.request`` — for the redirect check
+        2. ``context.Transport`` — for the actual client connection
 
         Args:
             proxy_url: The proxy URL.
@@ -391,25 +392,35 @@ class TiledService(QObject):
             if proxy_transport is None:
                 return None
 
+            # 1. Patch httpx.get (used by Context.from_any_uri for redirect check)
+            #    Create a proxy-aware client for top-level httpx functions.
+            original_httpx_get = httpx.get
+
+            def proxy_httpx_get(url, **kwargs):
+                logger.info("Intercepted httpx.get({}) — routing through proxy", url)
+                # Create a one-shot client with proxy transport
+                proxy_t = TiledService._create_proxy_transport(proxy_url)
+                with httpx.Client(transport=proxy_t, timeout=15.0) as client:
+                    return client.get(url, **kwargs)
+
+            context_mod.httpx.get = proxy_httpx_get  # type: ignore[attr-defined]
+
+            # 2. Patch Transport for the actual client
             class ProxyTransport(OriginalTransport):
                 """Transport wrapper that uses a proxy-aware inner transport."""
 
                 def __init__(self, *, transport=None, **kwargs):
                     logger.info("ProxyTransport.__init__: injecting proxy inner transport")
-                    # Always use the proxy transport, ignore the default
                     super().__init__(transport=proxy_transport, **kwargs)
 
-            # Replace Transport in context's namespace
             original_transport_cls = context_mod.Transport
             context_mod.Transport = ProxyTransport
 
-            logger.info(
-                "Replaced context.Transport with ProxyTransport for proxy: {}",
-                proxy_url,
-            )
+            logger.info("Patched tiled for proxy: {}", proxy_url)
 
             return {
-                "original_cls": original_transport_cls,
+                "original_transport_cls": original_transport_cls,
+                "original_httpx_get": original_httpx_get,
                 "context_mod": context_mod,
             }
         except Exception as e:
@@ -424,13 +435,14 @@ class TiledService(QObject):
 
     @staticmethod
     def _restore_tiled_transport(restore_info: dict[str, Any] | None) -> None:
-        """Restore the original Transport class in tiled.client.context."""
+        """Restore all tiled patches."""
         if restore_info is None:
             return
         try:
             context_mod = restore_info["context_mod"]
-            context_mod.Transport = restore_info["original_cls"]
-            logger.debug("Restored original context.Transport")
+            context_mod.Transport = restore_info["original_transport_cls"]
+            context_mod.httpx.get = restore_info["original_httpx_get"]
+            logger.debug("Restored original tiled Transport and httpx.get")
         except Exception:
             pass
 
