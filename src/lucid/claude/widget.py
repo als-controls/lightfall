@@ -168,8 +168,11 @@ class ClaudeAssistantWidget(QWidget):
         self._scroll_area.setWidget(self._chat_container)
         layout.addWidget(self._scroll_area)
 
-        # Autoscroll: follow content when scrollbar is at the bottom
-        self._scroll_area.verticalScrollBar().rangeChanged.connect(self._on_scroll_range_changed)
+        # Autoscroll: track whether user is at bottom before content changes
+        self._at_bottom = True
+        sb = self._scroll_area.verticalScrollBar()
+        sb.valueChanged.connect(self._on_scroll_value_changed)
+        sb.rangeChanged.connect(self._on_scroll_range_changed)
 
         # Input area
         input_layout = QHBoxLayout()
@@ -614,12 +617,15 @@ class ClaudeAssistantWidget(QWidget):
         )
         self._add_widget(card)
 
-    def _on_scroll_range_changed(self, _min: int, max_val: int) -> None:
-        """Auto-scroll when content grows and user is at the bottom."""
+    def _on_scroll_value_changed(self, value: int) -> None:
+        """Track whether user is at the bottom of the scroll area."""
         sb = self._scroll_area.verticalScrollBar()
-        # If user was near the bottom (within 50px), follow the content
-        if sb.value() >= max_val - 50 or sb.maximum() == 0:
-            sb.setValue(max_val)
+        self._at_bottom = value >= sb.maximum()
+
+    def _on_scroll_range_changed(self, _min: int, max_val: int) -> None:
+        """Auto-scroll to bottom when content grows, if user was at bottom."""
+        if self._at_bottom:
+            self._scroll_area.verticalScrollBar().setValue(max_val)
 
     def _scroll_to_bottom(self) -> None:
         """Scroll chat area to bottom."""
