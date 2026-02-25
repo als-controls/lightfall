@@ -191,7 +191,85 @@ For panel plugins:
 PanelRegistry.get_instance().register(MyPanel, replace=True)
 ```
 
-Returns success status and file path.""",
+Returns success status and file path.
+
+## CRITICAL: Panel Plugin Template
+
+You MUST use these exact imports and patterns:
+
+```python
+\"\"\"My panel description.\"\"\"
+from __future__ import annotations
+
+from typing import Any
+
+from PySide6.QtCore import Signal, Qt
+from PySide6.QtWidgets import (
+    QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
+)
+from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
+
+
+class MyPanel(BasePanel):
+    \"\"\"Panel description.\"\"\"
+
+    panel_metadata = PanelMetadata(
+        id="user.my_panel",
+        name="My Panel",
+        description="What this panel does",
+        icon="mdi6.icon-name",
+        category="User",
+    )
+
+    def _setup_ui(self) -> None:
+        \"\"\"Build the panel UI. Use self._layout (inherited QVBoxLayout).\"\"\"
+        # DO NOT create a new layout - use the inherited self._layout
+        self._layout.setContentsMargins(10, 10, 10, 10)
+
+        label = QLabel("Hello!")
+        self._layout.addWidget(label)
+
+        btn = QPushButton("Click me")
+        btn.clicked.connect(self._on_click)
+        self._layout.addWidget(btn)
+
+        self._layout.addStretch()
+
+    def _on_click(self) -> None:
+        \"\"\"Handle button click.\"\"\"
+        pass
+
+
+# REQUIRED: Self-register at module load time
+PanelRegistry.get_instance().register(MyPanel, replace=True)
+```
+
+## Common Mistakes to AVOID:
+- DON'T use `qtpy` imports - use `PySide6` directly
+- DON'T override `__init__` - override `_setup_ui()` instead
+- DON'T create `QVBoxLayout(self)` - use inherited `self._layout`
+- DON'T use `lucid.registries` - use `lucid.ui.panels.registry`
+- DON'T use `lucid.panels.base` - use `lucid.ui.panels.base`
+
+## Accessing Devices:
+```python
+from lucid.devices.catalog import DeviceCatalog
+catalog = DeviceCatalog.get_instance()
+motors = catalog.get_devices_by_category("motor")  # Returns DeviceInfo list
+```
+
+## Running Bluesky Plans:
+```python
+import bluesky.plan_stubs as bps
+from lucid.acquire import get_engine
+
+def my_plan():
+    yield from bps.mv(motor, 0)
+
+engine = get_engine()
+engine.submit(my_plan(), description="My plan")
+```""",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -277,19 +355,31 @@ Returns success status and file path.""",
                     "error": f"Failed to write plugin file: {e}",
                 }
 
+            # Verify file was actually written
+            if not file_path.exists():
+                return {
+                    "success": False,
+                    "error": f"File write appeared to succeed but file does not exist: {file_path}",
+                }
+
             # Load the plugin
             try:
                 success = service.load_plugin_from_file(file_path)
                 if not success:
                     info = service.get_plugin_info(file_path)
-                    if info and info.load_error:
-                        return {
-                            "success": False,
-                            "error": f"Plugin file written but failed to load: {info.load_error}",
-                            "path": str(file_path),
-                        }
+                    error_msg = info.load_error if info and info.load_error else "Unknown load error"
+                    return {
+                        "success": False,
+                        "error": f"Plugin file written but failed to load: {error_msg}",
+                        "path": str(file_path),
+                    }
             except Exception as e:
                 logger.warning("Plugin file written but failed to load: {}", e)
+                return {
+                    "success": False,
+                    "error": f"Plugin file written but failed to load: {e}",
+                    "path": str(file_path),
+                }
 
             logger.info(
                 "Created user plugin '{}': {} (overwrite={})",
@@ -312,7 +402,10 @@ Returns success status and file path.""",
 Useful for quick prototyping. The plugin is loaded immediately but will
 be lost when the application exits.
 
-Returns success status and temporary file path.""",
+Returns success status and temporary file path.
+
+IMPORTANT: Use the same imports and patterns as ncs_create_user_plugin.
+See that tool's description for the required template.""",
             input_schema={
                 "type": "object",
                 "properties": {
