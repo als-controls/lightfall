@@ -808,6 +808,9 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
     def _connect_icon_signals(self) -> None:
         """Connect agent signals to icon state changes."""
         if self._claude_widget is None or not hasattr(self._claude_widget, 'agent'):
+            logger.warning("Cannot connect icon signals: widget={}, has_agent={}",
+                           self._claude_widget is not None,
+                           hasattr(self._claude_widget, 'agent') if self._claude_widget else False)
             return
 
         agent = self._claude_widget.agent
@@ -817,6 +820,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         agent.query_completed.connect(self._icon_set_idle)
         agent.query_cancelled.connect(self._icon_set_idle)
         agent.error_occurred.connect(self._icon_set_error)
+        logger.info("Connected Claude agent icon signals")
 
     def _icon_set_idle(self) -> None:
         """Set sidebar icon to idle state (respects emotion override)."""
@@ -826,6 +830,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 
     def _icon_set_thinking(self, _thinking: str = "") -> None:
         """Set sidebar icon to thinking state with animation."""
+        logger.debug("Icon state -> thinking")
         self._stop_permission_animation()
         if self._thinking_timer is not None:
             return  # Already animating
