@@ -47,7 +47,7 @@ dependencies = [
     "bluesky>=1.10",
     "ophyd>=1.7",
     # tiled
-    "tiled[client]>=0.1.0",
+    "tiled[client]>=0.2.5",
     # networking / proxy support
     "httpx[socks]>=0.27",
     "aiohttp>=3.8",
@@ -198,7 +198,7 @@ requires = [
     # Data acquisition
     "bluesky>=1.10",
     "ophyd>=1.7",
-    "tiled[client]>=0.1.0",
+    "tiled[client]>=0.2.5",
 
     # IPython integration
     "qtconsole>=5.5",

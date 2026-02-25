@@ -285,6 +285,12 @@ class DockingManager(QObject):
                 if title_bar is not None:
                     title_bar.setVisible(False)
 
+        # Connect icon changes from panel to sidebar
+        if self._icon_sidebar:
+            panel.icon_changed.connect(
+                lambda icon_name, color, pid=panel_id: self._icon_sidebar.update_button_icon(pid, icon_name, color)
+            )
+
         # Connect visibility changes to sync sidebar
         widget.viewToggled.connect(
             lambda visible, pid=panel_id: self._on_panel_visibility_changed(pid, visible)

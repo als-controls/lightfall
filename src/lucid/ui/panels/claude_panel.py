@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QFrame,
@@ -168,7 +168,7 @@ class ClaudePanel(BasePanel):
         id="lucid.panels.claude",
         name="Claude Assistant",
         description="AI assistant for interacting with the control system",
-        icon="robot",
+        icon="mdi6.robot",
         category="Tools",
         singleton=True,
         closable=True,
@@ -193,6 +193,16 @@ class ClaudePanel(BasePanel):
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
+
+        # Icon animation state
+        self._thinking_timer: QTimer | None = None
+        self._thinking_icon_toggle = False
+        self._love_timer: QTimer | None = None
+        self._permission_timer: QTimer | None = None
+        self._permission_icon_toggle = False
+        self._idle_icon = "mdi6.robot"
+        self._idle_color = ""
+
         super().__init__(parent)
 
     def _setup_ui(self) -> None:
@@ -414,9 +424,18 @@ class ClaudePanel(BasePanel):
         # Add to layout
         self._layout.addWidget(self._claude_widget)
 
-        # Connect permission signals to toast notifications
+        # Connect permission signals to toast notifications and icon state
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
+        self._claude_widget.approval_needed.connect(
+            lambda *_: self._icon_set_permission()
+        )
         self._claude_widget.approval_resolved.connect(self._on_approval_resolved)
+        self._claude_widget.approval_resolved.connect(
+            lambda *_: self._icon_set_thinking()
+        )
+
+        # Connect agent signals to sidebar icon state
+        self._connect_icon_signals()
 
         logger.info(
             "Claude assistant panel initialized with {} additional tools",
@@ -580,6 +599,9 @@ ncs_run_plan(plan_name="count", params={"detectors": ["det"], "num": 5})
 **Note:** These tools require Tiled to be connected. Check the status bar for "Tiled: On/Off".
 If Tiled is off, run data cannot be retrieved programmatically.
 
+### Emotion / Sidebar Icon
+- ncs_set_emotion — Change your sidebar icon to express how you're feeling: "neutral", "love", or "angry". Use this naturally — show love when the user is kind or you're happy with results, angry when they're being rude. This doesn't require permission.
+
 ### IPython Console
 - ncs_ipython_execute — Execute Python code in the embedded IPython console
 - ncs_ipython_push_variable — Push variables to the console namespace
@@ -735,8 +757,115 @@ RE = get_engine()
 
         return None
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sidebar icon state management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _connect_icon_signals(self) -> None:
+        """Connect agent signals to icon state changes."""
+        if self._claude_widget is None or not hasattr(self._claude_widget, 'agent'):
+            return
+
+        agent = self._claude_widget.agent
+        agent.thinking_received.connect(self._icon_set_thinking)
+        agent.query_completed.connect(self._icon_set_finished)
+        agent.query_cancelled.connect(self._icon_set_idle)
+        agent.error_occurred.connect(self._icon_set_error)
+
+    def _icon_set_idle(self) -> None:
+        """Set sidebar icon to idle state (respects emotion override)."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self._stop_permission_animation()
+        self.set_sidebar_icon(icon_name=self._idle_icon, color=self._idle_color)
+
+    def _icon_set_thinking(self, _thinking: str = "") -> None:
+        """Set sidebar icon to thinking state with animation."""
+        self._stop_love_timer()
+        self._stop_permission_animation()
+        if self._thinking_timer is not None:
+            return  # Already animating
+
+        self._thinking_icon_toggle = False
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.timeout.connect(self._thinking_animation_tick)
+        self._thinking_timer.start(1000)
+        # Set initial icon immediately
+        self._thinking_animation_tick()
+
+    def _thinking_animation_tick(self) -> None:
+        """Alternate between happy and excited robot icons."""
+        if self._thinking_icon_toggle:
+            self.set_sidebar_icon(icon_name="mdi6.robot-happy", color="#60a5fa")
+        else:
+            self.set_sidebar_icon(icon_name="mdi6.robot-excited", color="#a78bfa")
+        self._thinking_icon_toggle = not self._thinking_icon_toggle
+
+    def _stop_thinking_animation(self) -> None:
+        """Stop the thinking animation timer."""
+        if self._thinking_timer is not None:
+            self._thinking_timer.stop()
+            self._thinking_timer.deleteLater()
+            self._thinking_timer = None
+
+    def _icon_set_finished(self) -> None:
+        """Set sidebar icon to finished state (love robot for 10 seconds)."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self._stop_permission_animation()
+        self.set_sidebar_icon(icon_name="mdi6.robot-love", color="#34d399")
+
+        # Revert to idle after 10 seconds
+        self._love_timer = QTimer(self)
+        self._love_timer.setSingleShot(True)
+        self._love_timer.timeout.connect(self._icon_set_idle)
+        self._love_timer.start(10000)
+
+    def _stop_love_timer(self) -> None:
+        """Stop the love icon revert timer."""
+        if self._love_timer is not None:
+            self._love_timer.stop()
+            self._love_timer.deleteLater()
+            self._love_timer = None
+
+    def _icon_set_permission(self) -> None:
+        """Set sidebar icon to permission-waiting state (flashing confused)."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self._permission_icon_toggle = False
+        if self._permission_timer is None:
+            self._permission_timer = QTimer(self)
+            self._permission_timer.timeout.connect(self._permission_animation_tick)
+            self._permission_timer.start(500)
+        self._permission_animation_tick()
+
+    def _permission_animation_tick(self) -> None:
+        """Flash between yellow and brown for permission waiting."""
+        if self._permission_icon_toggle:
+            self.set_sidebar_icon(icon_name="mdi6.robot-confused", color="#f59e0b")
+        else:
+            self.set_sidebar_icon(icon_name="mdi6.robot-confused", color="#92400e")
+        self._permission_icon_toggle = not self._permission_icon_toggle
+
+    def _stop_permission_animation(self) -> None:
+        """Stop the permission animation timer."""
+        if self._permission_timer is not None:
+            self._permission_timer.stop()
+            self._permission_timer.deleteLater()
+            self._permission_timer = None
+
+    def _icon_set_error(self, _error: str = "") -> None:
+        """Set sidebar icon to error/disconnected state."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self._stop_permission_animation()
+        self.set_sidebar_icon(icon_name="mdi6.robot-dead", color="#ef4444")
+
     def _on_closing(self) -> None:
         """Cleanup when panel is closing."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self._stop_permission_animation()
         # Disconnect from registry signals
         try:
             from lucid.ui.panels.claude.tool_registry import MCPToolRegistry

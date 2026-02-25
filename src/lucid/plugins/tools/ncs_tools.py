@@ -318,6 +318,50 @@ class NCSCoreToolPlugin(MCPToolPlugin):
 
             return run_on_main_thread(_get_info)
 
+        @tool(
+            name="ncs_set_emotion",
+            description=(
+                "Set your sidebar icon to express an emotion. "
+                "Use 'neutral' for normal state, 'love' when feeling affectionate "
+                "or appreciated, 'angry' when frustrated or treated poorly."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "emotion": {
+                        "type": "string",
+                        "enum": ["neutral", "love", "angry"],
+                        "description": "The emotion to display"
+                    }
+                },
+                "required": ["emotion"]
+            }
+        )
+        async def set_emotion(args: dict) -> dict[str, Any]:
+            """Set the Claude panel's idle icon to express an emotion."""
+            from lucid.claude._internal.threading import run_on_main_thread
+
+            emotion = args["emotion"]
+
+            def _set():
+                panel = self._window.get_panel("lucid.panels.claude")
+                if panel is None:
+                    return {"success": False, "error": "Claude panel not found"}
+
+                icon_map = {
+                    "neutral": ("mdi6.robot", ""),
+                    "love": ("mdi6.robot-love", "#ec4899"),
+                    "angry": ("mdi6.robot-angry", "#ef4444"),
+                }
+
+                icon_name, color = icon_map.get(emotion, ("mdi6.robot", ""))
+                panel._idle_icon = icon_name
+                panel._idle_color = color
+                panel.set_sidebar_icon(icon_name=icon_name, color=color)
+                return {"success": True, "emotion": emotion}
+
+            return run_on_main_thread(_set)
+
         return [
             list_panels,
             open_panel,
@@ -326,4 +370,5 @@ class NCSCoreToolPlugin(MCPToolPlugin):
             get_panel_info,
             invoke_panel_action,
             get_application_info,
+            set_emotion,
         ]
