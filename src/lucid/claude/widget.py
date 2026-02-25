@@ -5,10 +5,34 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QScrollArea, QFrame,
     QSizePolicy,
 )
-from PySide6.QtCore import Qt, Slot, Signal, QTimer
+from PySide6.QtCore import QSize, Qt, Slot, Signal, QTimer
 from PySide6.QtGui import QPalette
 from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
+
+
+class HeightForWidthWidget(QWidget):
+    """Container widget that correctly reports minimumSizeHint for word-wrapped content.
+
+    QScrollArea with widgetResizable=True uses layout.minimumSize() which
+    calculates height at the widget's preferred width, not its actual width.
+    This causes inflated height when word-wrapped QLabels are present.
+    """
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        if self.layout():
+            return self.layout().heightForWidth(width)
+        return super().heightForWidth(width)
+
+    def minimumSizeHint(self):
+        base = super().minimumSizeHint()
+        if self.layout() and self.width() > 0:
+            h = self.layout().minimumHeightForWidth(self.width())
+            return QSize(base.width(), h)
+        return base
 
 
 class ClaudeAssistantWidget(QWidget):
@@ -135,10 +159,7 @@ class ClaudeAssistantWidget(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
-        self._chat_container = QWidget()
-        sp = self._chat_container.sizePolicy()
-        sp.setHeightForWidth(True)
-        self._chat_container.setSizePolicy(sp)
+        self._chat_container = HeightForWidthWidget()
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(4)
