@@ -511,13 +511,7 @@ class ClaudeAssistantWidget(QWidget):
             | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
         body_label.setCursor(Qt.CursorShape.IBeamCursor)
-        # Strip paragraph margins from rendered markdown
-        styled_html = (
-            '<style>p { margin: 0px; padding: 0px; } '
-            'ul, ol { margin-top: 2px; margin-bottom: 2px; }</style>'
-            + body_html
-        )
-        body_label.setText(styled_html)
+        body_label.setText(body_html)
         body_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
