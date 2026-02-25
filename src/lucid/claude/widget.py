@@ -141,7 +141,7 @@ class ClaudeAssistantWidget(QWidget):
         )
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
-        self._chat_layout.setSpacing(4)
+        self._chat_layout.setSpacing(2)
 
         self._scroll_area.setWidget(self._chat_container)
         layout.addWidget(self._scroll_area)
@@ -573,7 +573,8 @@ class ClaudeAssistantWidget(QWidget):
         lbl.setWordWrap(True)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setText(self._escape_html(message))
-        lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        lbl.setFixedHeight(lbl.fontMetrics().height() + 2)
         lbl.setContentsMargins(4, 0, 4, 0)
         lbl.setStyleSheet(
             f"QLabel {{ color: {colors['system']}; font-style: italic; "
