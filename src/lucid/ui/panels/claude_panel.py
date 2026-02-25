@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -692,7 +692,7 @@ RE = get_engine()
     def _on_approval_needed(
         self, request_id: str, tool_name: str, tool_input: dict
     ) -> None:
-        """Handle permission request signal with a toast notification.
+        """Handle permission request signal with an actionable toast.
 
         Args:
             request_id: Unique ID for this request.
@@ -702,15 +702,65 @@ RE = get_engine()
         # Extract a human-friendly tool name (remove mcp__ prefix if present)
         display_name = tool_name
         if display_name.startswith("mcp__"):
-            display_name = display_name[5:]  # Remove "mcp__"
+            display_name = display_name[5:]
         display_name = display_name.replace("_", " ").title()
 
-        toast = ToastManager.get_instance()
-        toast.warning(
+        toast_mgr = ToastManager.get_instance()
+        toast = toast_mgr.warning(
             "Permission Required",
             f"Claude wants to use: {display_name}",
-            duration=8000,
+            duration=30000,
         )
+
+        # Add approve/deny buttons to the toast
+        btn_container = QWidget(toast)
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        btn_layout.setSpacing(6)
+
+        approve_btn = QPushButton("✓ Approve")
+        approve_btn.setFixedHeight(22)
+        approve_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        approve_btn.setStyleSheet(
+            "QPushButton { background: #22c55e; color: white; border: none; "
+            "border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: 11px; }"
+            "QPushButton:hover { background: #16a34a; }"
+        )
+
+        deny_btn = QPushButton("✗ Deny")
+        deny_btn.setFixedHeight(22)
+        deny_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        deny_btn.setStyleSheet(
+            "QPushButton { background: #ef4444; color: white; border: none; "
+            "border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: 11px; }"
+            "QPushButton:hover { background: #dc2626; }"
+        )
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(approve_btn)
+        btn_layout.addWidget(deny_btn)
+        btn_layout.addStretch()
+
+        # Position buttons below the toast text
+        toast_width = toast.width() if toast.width() > 0 else 300
+        btn_container.setGeometry(10, toast.height() - 34, toast_width - 20, 30)
+        btn_container.show()
+
+        def on_approve():
+            if self._claude_widget and request_id in self._claude_widget._pending_permission_widgets:
+                widget = self._claude_widget._pending_permission_widgets[request_id]
+                widget.allowed.emit(request_id, False)
+            toast.hide()
+
+        def on_deny():
+            if self._claude_widget and request_id in self._claude_widget._pending_permission_widgets:
+                widget = self._claude_widget._pending_permission_widgets[request_id]
+                widget.denied.emit(request_id, "Denied via toast")
+            toast.hide()
+
+        approve_btn.clicked.connect(on_approve)
+        deny_btn.clicked.connect(on_deny)
+
         logger.debug("Permission requested for tool: {}", tool_name)
 
     def _on_approval_resolved(self, request_id: str, was_allowed: bool) -> None:
