@@ -130,6 +130,7 @@ You have tools for running Bluesky plans in the LUCID RunEngine:
 - Verify widgets exist and are enabled before interacting
 - Some widgets have auto-generated names like "<unnamed_QPushButton>"
 """
+QT_SYSTEM_PROMPT = ""
 
 
 class QtClaudeAgent(QObject):
