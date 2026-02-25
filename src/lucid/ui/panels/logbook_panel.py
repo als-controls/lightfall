@@ -397,8 +397,7 @@ class LogbookPanel(BasePanel):
         # Build the prompt from fragment content
         content = frag.content or json.dumps(frag.metadata, indent=2, default=str)
         prompt = (
-            f"The user is asking about this logbook fragment:\n\n{content}\n\n"
-            "Please provide a helpful, concise response."
+            f"{content}"
         )
 
         # Try to send to the Claude panel
