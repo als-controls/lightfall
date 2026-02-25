@@ -33,6 +33,12 @@ class PermissionManager(QObject):
     # Only tools explicitly listed here skip the approval prompt.
     # Everything else requires user approval.
     DEFAULT_AUTO_APPROVED = frozenset({
+        # Claude Code SDK built-in tools (read-only)
+        "Read", "read",
+        "Glob", "glob",
+        "Grep", "grep",
+        "LS", "ls",
+        "ListFiles", "list_files",
         # Qt inspection tools
         "mcp__qt__screenshot",
         "mcp__qt__get_widget_tree",
