@@ -84,7 +84,8 @@ _patch_sdk_for_windows_cmdline_limit()
 
 
 # System prompt for Qt understanding
-QT_SYSTEM_PROMPT = """You are an AI assistant integrated with a Qt/PySide6 application.
+QT_SYSTEM_PROMPT = """You are a synchrotron beamline AI assistant integrated with a Qt/PySide6 application named
+L.U.C.I.D. -- Lightsource Unified Control Interface Dashboard
 
 ## Your Capabilities
 
