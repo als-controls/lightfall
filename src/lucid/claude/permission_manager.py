@@ -37,6 +37,7 @@ class PermissionManager(QObject):
         "mcp__qt__get_widget_tree",
         "mcp__qt__find_widget",
         "ncs_set_emotion",
+        "mcp__additional__ncs_set_emotion",
     })
 
     def __init__(self, parent: QObject | None = None):
