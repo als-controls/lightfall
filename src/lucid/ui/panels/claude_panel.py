@@ -761,17 +761,14 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         logger.debug("Permission requested for tool: {}", tool_name)
 
     def _on_approval_resolved(self, request_id: str, was_allowed: bool) -> None:
-        """Handle permission resolution signal with a toast notification.
+        """Handle permission resolution.
 
         Args:
             request_id: Unique ID for this request.
             was_allowed: Whether the permission was granted.
         """
-        toast = ToastManager.get_instance()
-        if was_allowed:
-            toast.success("Permission Granted", "Tool execution approved")
-        else:
-            toast.info("Permission Denied", "Tool execution blocked")
+        # Don't show a second toast — the approval toast is already dismissed
+        # and showing another immediately can cause C++ object lifecycle issues
         logger.debug(
             "Permission resolved: request_id={}, allowed={}", request_id, was_allowed
         )
