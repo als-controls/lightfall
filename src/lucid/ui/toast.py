@@ -151,7 +151,19 @@ class ToastManager(QObject):
         toast.setDuration(duration if duration is not None else self.DEFAULT_DURATION)
         toast.applyPreset(self._get_preset(preset))
 
-        toast.show()
+        try:
+            toast.show()
+        except RuntimeError:
+            # pyqttoast iterates over all toast instances for positioning,
+            # including ones with deleted C++ widgets. Safe to ignore.
+            logger.debug("Toast show() hit deleted C++ object, retrying")
+            try:
+                Toast.setMaximumOnScreen(self.DEFAULT_MAX_ON_SCREEN)
+                toast.show()
+            except RuntimeError:
+                logger.warning("Could not show toast: {}", title)
+                return toast
+
         logger.debug("Showing toast: {}", title)
 
         return toast
