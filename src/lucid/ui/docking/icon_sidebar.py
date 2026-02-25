@@ -393,6 +393,41 @@ class IconStripSidebar(QFrame):
 
         return QIcon(icon_name)
 
+    def update_button_icon(self, panel_id: str, icon_name: str = "", color: str = "") -> None:
+        """Update a button's icon and/or color at runtime.
+
+        Args:
+            panel_id: Panel identifier.
+            icon_name: New qtawesome icon name. Empty string keeps current icon.
+            color: Icon color as hex string. Empty string uses theme default.
+        """
+        button = self._buttons.get(panel_id)
+        if button is None:
+            return
+
+        # Update stored icon name if a new one is provided
+        if icon_name:
+            self._button_icons[panel_id] = icon_name
+        else:
+            icon_name = self._button_icons.get(panel_id, "")
+
+        if not icon_name:
+            return
+
+        # Resolve color: use provided color or fall back to theme default
+        if not color:
+            try:
+                from lucid.ui.theme import ThemeManager
+                theme_mgr = ThemeManager.get_instance()
+                color = theme_mgr.colors.text
+            except Exception:
+                color = "#cccccc"
+
+        icon = self._resolve_icon(icon_name, color)
+        button.setIcon(icon)
+
+        logger.debug("Updated sidebar icon for {}: icon={}, color={}", panel_id, icon_name, color)
+
     def _on_button_toggled(self, panel_id: str, checked: bool) -> None:
         """Handle button toggle.
 

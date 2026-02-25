@@ -133,6 +133,7 @@ class BasePanel(QWidget):
     deactivated = Signal()
     state_changed = Signal(str, object)  # key, value
     closing = Signal()
+    icon_changed = Signal(str, str)  # icon_name, color (empty = theme default)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the base panel.
@@ -226,6 +227,21 @@ class BasePanel(QWidget):
     def _on_closing(self) -> None:
         """Hook for subclasses when panel is closing."""
         pass
+
+    # Sidebar icon updates
+
+    def set_sidebar_icon(self, icon_name: str = "", color: str = "") -> None:
+        """Update the sidebar icon and/or color at runtime.
+
+        Emits icon_changed which the docking manager connects to the sidebar.
+
+        Args:
+            icon_name: New qtawesome icon name (e.g. "mdi6.alert-circle").
+                       Empty string keeps the current icon.
+            color: Icon color as hex string (e.g. "#e74c3c").
+                   Empty string resets to theme default.
+        """
+        self.icon_changed.emit(icon_name, color)
 
     # State management
 
