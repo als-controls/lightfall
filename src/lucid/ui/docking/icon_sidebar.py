@@ -426,8 +426,6 @@ class IconStripSidebar(QFrame):
         icon = self._resolve_icon(icon_name, color)
         button.setIcon(icon)
 
-        logger.debug("Updated sidebar icon for {}: icon={}, color={}", panel_id, icon_name, color)
-
     def _on_button_toggled(self, panel_id: str, checked: bool) -> None:
         """Handle button toggle.
 
