@@ -545,16 +545,40 @@ These tools let you work with NCS directly — prefer these over generic Qt inte
 - ncs_get_user_plan — Read back the source code of an existing user plan
 - ncs_delete_user_plan — Remove a user plan file (requires confirm=true)
 
+**IMPORTANT: ncs_run_plan vs ncs_run_plan_code**
+
+`ncs_run_plan` works best for plans with explicit named parameters (like `scan_1d` which has
+`motor`, `start`, `stop`, `num`). However, many Bluesky built-in plans (like `grid_scan`, `scan`,
+`rel_scan`) use `*args` patterns where motor/start/stop/num are passed as positional tuples.
+
+For these `*args`-style plans, **use `ncs_run_plan_code` instead**:
+```python
+# grid_scan - 2D scan over two motors
+ncs_run_plan_code(code="yield from bp.grid_scan([det], motor1, 0, 10, 11, motor2, 0, 10, 11)")
+
+# scan - 1D scan (use scan_1d with ncs_run_plan instead for cleaner syntax)
+ncs_run_plan_code(code="yield from bp.scan([det], motor, -5, 5, 21)")
+```
+
+Plans with explicit parameters work well with `ncs_run_plan`:
+```python
+ncs_run_plan(plan_name="scan_1d", params={"detectors": ["det"], "motor": "motor1", "start": 0, "stop": 10, "num": 11})
+ncs_run_plan(plan_name="count", params={"detectors": ["det"], "num": 5})
+```
+
 ### RunEngine Control & Monitoring
 - ncs_get_run_status — Current RunEngine state, whether busy, active procedure info
 - ncs_pause_plan — Pause the running plan (defer=true for checkpoint pause, false for immediate)
 - ncs_resume_plan — Resume a paused plan
 - ncs_abort_plan — Abort the running plan with optional reason
 
-### Run History & Data
+### Run History & Data (requires Tiled connection)
 - ncs_get_run_history — Recent runs with UIDs, plan names, timestamps, exit status
 - ncs_get_scan_data — Retrieve data table from a completed run by UID
 - ncs_get_last_run — Shortcut to get the most recent run's UID + metadata
+
+**Note:** These tools require Tiled to be connected. Check the status bar for "Tiled: On/Off".
+If Tiled is off, run data cannot be retrieved programmatically.
 
 ### IPython Console
 - ncs_ipython_execute — Execute Python code in the embedded IPython console
