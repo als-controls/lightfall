@@ -33,11 +33,31 @@ class PermissionManager(QObject):
     # Only tools explicitly listed here skip the approval prompt.
     # Everything else requires user approval.
     DEFAULT_AUTO_APPROVED = frozenset({
+        # Qt inspection tools
         "mcp__qt__screenshot",
         "mcp__qt__get_widget_tree",
         "mcp__qt__find_widget",
-        "ncs_set_emotion",
+        # Read-only LUCID tools (panels, devices, plans, engine, data)
+        "mcp__additional__ncs_list_panels",
+        "mcp__additional__ncs_get_panel_info",
+        "mcp__additional__ncs_get_application_info",
+        "mcp__additional__ncs_list_devices",
+        "mcp__additional__ncs_get_device",
+        "mcp__additional__ncs_read_device",
+        "mcp__additional__ncs_get_device_state",
+        "mcp__additional__ncs_get_catalog_info",
+        "mcp__additional__ncs_list_plans",
+        "mcp__additional__ncs_get_user_plan",
+        "mcp__additional__ncs_get_run_status",
+        "mcp__additional__ncs_get_run_history",
+        "mcp__additional__ncs_get_scan_data",
+        "mcp__additional__ncs_get_last_run",
+        "mcp__additional__ncs_list_skills",
+        "mcp__additional__ncs_get_skill_docs",
+        "mcp__additional__ncs_ipython_get_namespace",
+        # Emotion (cosmetic only)
         "mcp__additional__ncs_set_emotion",
+        "ncs_set_emotion",
     })
 
     def __init__(self, parent: QObject | None = None):
