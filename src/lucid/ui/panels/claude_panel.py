@@ -198,6 +198,8 @@ class ClaudePanel(BasePanel):
         self._thinking_timer: QTimer | None = None
         self._thinking_icon_toggle = False
         self._love_timer: QTimer | None = None
+        self._idle_icon = "mdi6.robot"
+        self._idle_color = ""
 
         super().__init__(parent)
 
@@ -565,6 +567,9 @@ These tools let you work with NCS directly — prefer these over generic Qt inte
 - ncs_get_scan_data — Retrieve data table from a completed run by UID
 - ncs_get_last_run — Shortcut to get the most recent run's UID + metadata
 
+### Emotion / Sidebar Icon
+- ncs_set_emotion — Change your sidebar icon to express how you're feeling: "neutral", "love", or "angry". Use this naturally — show love when the user is kind or you're happy with results, angry when they're being rude. This doesn't require permission.
+
 ### IPython Console
 - ncs_ipython_execute — Execute Python code in the embedded IPython console
 - ncs_ipython_push_variable — Push variables to the console namespace
@@ -736,10 +741,10 @@ RE = get_engine()
         agent.error_occurred.connect(self._icon_set_error)
 
     def _icon_set_idle(self) -> None:
-        """Set sidebar icon to idle state."""
+        """Set sidebar icon to idle state (respects emotion override)."""
         self._stop_thinking_animation()
         self._stop_love_timer()
-        self.set_sidebar_icon(icon_name="mdi6.robot", color="")
+        self.set_sidebar_icon(icon_name=self._idle_icon, color=self._idle_color)
 
     def _icon_set_thinking(self, _thinking: str = "") -> None:
         """Set sidebar icon to thinking state with animation."""
