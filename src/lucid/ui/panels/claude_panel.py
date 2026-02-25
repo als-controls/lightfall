@@ -433,6 +433,9 @@ class ClaudePanel(BasePanel):
             lambda *_: self._icon_set_thinking()
         )
 
+        # Connect icon state: query_started for immediate feedback
+        self._claude_widget.query_started.connect(lambda: self._icon_set_thinking())
+
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
 

@@ -43,6 +43,7 @@ class ClaudeAssistantWidget(QWidget):
     """
 
     # Signals
+    query_started = Signal()                     # Emitted when a query begins processing
     approval_needed = Signal(str, str, dict)   # request_id, tool_name, tool_input
     approval_resolved = Signal(str, bool)       # request_id, was_allowed
 
@@ -222,6 +223,7 @@ class ClaudeAssistantWidget(QWidget):
 
         # Set busy state - disable input and change button to Cancel
         self._set_busy_state(True, "Claude is thinking...")
+        self.query_started.emit()
 
         # Send to Claude (non-blocking)
         self.agent.query_sync(prompt)
