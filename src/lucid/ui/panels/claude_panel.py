@@ -793,7 +793,9 @@ RE = get_engine()
             return
 
         agent = self._claude_widget.agent
+        agent.message_received.connect(self._icon_set_thinking)
         agent.thinking_received.connect(self._icon_set_thinking)
+        agent.tool_called.connect(lambda *_: self._icon_set_thinking())
         agent.query_completed.connect(self._icon_set_finished)
         agent.query_cancelled.connect(self._icon_set_idle)
         agent.error_occurred.connect(self._icon_set_error)
