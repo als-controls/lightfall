@@ -483,14 +483,15 @@ class ClaudeAssistantWidget(QWidget):
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         border_left = f"border-left: 4px solid {accent}; " if accent else ""
+        v_pad = "4px 12px" if small else "8px 12px"
         card.setStyleSheet(
             f"QFrame#chatCard {{ background: {bg}; {border_left}"
-            f"border-radius: 4px; padding: 8px 12px; }}"
+            f"border-radius: 4px; padding: {v_pad}; }}"
         )
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(2)
+        card_layout.setSpacing(1 if small else 2)
 
         if label:
             lbl = QLabel(label.upper())
@@ -572,9 +573,11 @@ class ClaudeAssistantWidget(QWidget):
         lbl.setWordWrap(True)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setText(self._escape_html(message))
+        lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        lbl.setContentsMargins(4, 0, 4, 0)
         lbl.setStyleSheet(
             f"QLabel {{ color: {colors['system']}; font-style: italic; "
-            f"font-size: 9pt; padding: 2px 4px; }}"
+            f"font-size: 9pt; padding: 0px; margin: 0px; }}"
         )
         self._add_widget(lbl)
 
