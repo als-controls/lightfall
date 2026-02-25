@@ -136,6 +136,9 @@ class ClaudeAssistantWidget(QWidget):
         )
 
         self._chat_container = QWidget()
+        sp = self._chat_container.sizePolicy()
+        sp.setHeightForWidth(True)
+        self._chat_container.setSizePolicy(sp)
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(4)
