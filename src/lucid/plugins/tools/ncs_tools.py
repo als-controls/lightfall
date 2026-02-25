@@ -47,9 +47,14 @@ class NCSCoreToolPlugin(MCPToolPlugin):
         return "ncs_core"
 
     @property
-    def tool_description(self) -> str:
+    def description(self) -> str:
         """Plugin description."""
         return "Core LUCID application interaction tools"
+
+    @property
+    def tool_description(self) -> str:
+        """Plugin description (alias)."""
+        return self.description
 
     def _get_panel_registry(self):
         """Get the panel registry."""
