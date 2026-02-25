@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QFrame,
@@ -168,7 +168,7 @@ class ClaudePanel(BasePanel):
         id="lucid.panels.claude",
         name="Claude Assistant",
         description="AI assistant for interacting with the control system",
-        icon="robot",
+        icon="mdi6.robot",
         category="Tools",
         singleton=True,
         closable=True,
@@ -193,6 +193,12 @@ class ClaudePanel(BasePanel):
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
+
+        # Icon animation state
+        self._thinking_timer: QTimer | None = None
+        self._thinking_icon_toggle = False
+        self._love_timer: QTimer | None = None
+
         super().__init__(parent)
 
     def _setup_ui(self) -> None:
@@ -417,6 +423,9 @@ class ClaudePanel(BasePanel):
         # Connect permission signals to toast notifications
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
         self._claude_widget.approval_resolved.connect(self._on_approval_resolved)
+
+        # Connect agent signals to sidebar icon state
+        self._connect_icon_signals()
 
         logger.info(
             "Claude assistant panel initialized with {} additional tools",
@@ -711,8 +720,84 @@ RE = get_engine()
 
         return None
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sidebar icon state management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _connect_icon_signals(self) -> None:
+        """Connect agent signals to icon state changes."""
+        if self._claude_widget is None or not hasattr(self._claude_widget, 'agent'):
+            return
+
+        agent = self._claude_widget.agent
+        agent.thinking_received.connect(self._icon_set_thinking)
+        agent.query_completed.connect(self._icon_set_finished)
+        agent.query_cancelled.connect(self._icon_set_idle)
+        agent.error_occurred.connect(self._icon_set_error)
+
+    def _icon_set_idle(self) -> None:
+        """Set sidebar icon to idle state."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self.set_sidebar_icon(icon_name="mdi6.robot", color="")
+
+    def _icon_set_thinking(self, _thinking: str = "") -> None:
+        """Set sidebar icon to thinking state with animation."""
+        self._stop_love_timer()
+        if self._thinking_timer is not None:
+            return  # Already animating
+
+        self._thinking_icon_toggle = False
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.timeout.connect(self._thinking_animation_tick)
+        self._thinking_timer.start(1000)
+        # Set initial icon immediately
+        self._thinking_animation_tick()
+
+    def _thinking_animation_tick(self) -> None:
+        """Alternate between happy and excited robot icons."""
+        if self._thinking_icon_toggle:
+            self.set_sidebar_icon(icon_name="mdi6.robot-happy", color="#60a5fa")
+        else:
+            self.set_sidebar_icon(icon_name="mdi6.robot-excited", color="#a78bfa")
+        self._thinking_icon_toggle = not self._thinking_icon_toggle
+
+    def _stop_thinking_animation(self) -> None:
+        """Stop the thinking animation timer."""
+        if self._thinking_timer is not None:
+            self._thinking_timer.stop()
+            self._thinking_timer.deleteLater()
+            self._thinking_timer = None
+
+    def _icon_set_finished(self) -> None:
+        """Set sidebar icon to finished state (love robot for 10 seconds)."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self.set_sidebar_icon(icon_name="mdi6.robot-love", color="#34d399")
+
+        # Revert to idle after 10 seconds
+        self._love_timer = QTimer(self)
+        self._love_timer.setSingleShot(True)
+        self._love_timer.timeout.connect(self._icon_set_idle)
+        self._love_timer.start(10000)
+
+    def _stop_love_timer(self) -> None:
+        """Stop the love icon revert timer."""
+        if self._love_timer is not None:
+            self._love_timer.stop()
+            self._love_timer.deleteLater()
+            self._love_timer = None
+
+    def _icon_set_error(self, _error: str = "") -> None:
+        """Set sidebar icon to error/disconnected state."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
+        self.set_sidebar_icon(icon_name="mdi6.robot-dead", color="#ef4444")
+
     def _on_closing(self) -> None:
         """Cleanup when panel is closing."""
+        self._stop_thinking_animation()
+        self._stop_love_timer()
         # Disconnect from registry signals
         try:
             from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
