@@ -136,10 +136,12 @@ class ClaudeAssistantWidget(QWidget):
         )
 
         self._chat_container = QWidget()
+        self._chat_container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(4)
-        self._chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._scroll_area.setWidget(self._chat_container)
         layout.addWidget(self._scroll_area)
