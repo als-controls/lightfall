@@ -7,23 +7,21 @@ device/signal tree structure.
 from __future__ import annotations
 
 import inspect
+from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from concurrent.futures import Future, ThreadPoolExecutor
-
 from PySide6.QtCore import (
     QAbstractItemModel,
     QModelIndex,
     QSortFilterProxyModel,
-    QTimer,
     Qt,
+    QTimer,
 )
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 if TYPE_CHECKING:
-
     from lucid.devices import DeviceCatalog, DeviceInfo
 
 
@@ -226,9 +224,7 @@ class DeviceTreeItem:
                 elif hasattr(self.ophyd_obj, "position"):
                     if hasattr(self.ophyd_obj, "zmq_get_motor_full"):
                         try:
-                            result = self.ophyd_obj.zmq_get_motor_full(
-                                self.ophyd_obj.originalName
-                            )
+                            result = self.ophyd_obj.zmq_get_motor_full(self.ophyd_obj.originalName)
                             if result and len(result) > 0:
                                 self.ophyd_obj._position = result[0].get(
                                     "Raw Motor Position",
@@ -355,9 +351,15 @@ class DeviceTreeModel(QAbstractItemModel):
         self._catalog = catalog
         self._root = DeviceTreeItem("root", NodeType.ROOT)
         self._icons: dict[str, QIcon] = {}
+        self._device_id_to_item: dict[str, DeviceTreeItem] = {}  # For quick lookup
 
         self._create_icons()
         self._populate()
+
+        # Connect to catalog signals for dynamic updates
+        self._catalog.device_state_changed.connect(self._on_device_state_changed)
+        self._catalog.device_connected.connect(self._on_device_connected)
+        self._catalog.device_connection_failed.connect(self._on_device_connection_failed)
 
         # Background value refresh: fetch values off the main thread
         self._value_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dev-values")
@@ -368,7 +370,8 @@ class DeviceTreeModel(QAbstractItemModel):
         self._value_timer.start(2000)  # Every 2 seconds
 
     def _create_icons(self) -> None:
-        """Create icons for device types."""
+        """Create icons for device types and connection states."""
+        # Device type icons
         icon_specs = {
             "motor": ("#4CAF50", "M"),  # Green
             "detector": ("#2196F3", "D"),  # Blue
@@ -381,6 +384,36 @@ class DeviceTreeModel(QAbstractItemModel):
 
         for name, (color, letter) in icon_specs.items():
             self._icons[name] = self._create_letter_icon(color, letter)
+
+        # Connection status icons (small dots for status column)
+        status_specs = {
+            "status_online": ("#4CAF50", "●"),  # Green dot
+            "status_connecting": ("#FFC107", "◐"),  # Yellow half-circle
+            "status_offline": ("#9E9E9E", "○"),  # Gray circle
+            "status_error": ("#F44336", "●"),  # Red dot
+        }
+        for name, (color, symbol) in status_specs.items():
+            self._icons[name] = self._create_status_icon(color, symbol)
+
+    def _create_status_icon(self, color: str, symbol: str) -> QIcon:
+        """Create a small status indicator icon."""
+        size = 12
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw symbol
+        painter.setPen(QColor(color))
+        font = painter.font()
+        font.setPixelSize(10)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, symbol)
+
+        painter.end()
+
+        return QIcon(pixmap)
 
     def _create_letter_icon(self, color: str, letter: str) -> QIcon:
         """Create a simple colored icon with a letter."""
@@ -412,6 +445,7 @@ class DeviceTreeModel(QAbstractItemModel):
         """Populate the model from the catalog."""
         self.beginResetModel()
         self._root.children.clear()
+        self._device_id_to_item.clear()
 
         # Get all devices from catalog
         devices = self._catalog.get_all_devices()
@@ -435,6 +469,9 @@ class DeviceTreeModel(QAbstractItemModel):
             ophyd_obj=ophyd_device,
             device_info=device_info,
         )
+
+        # Track for quick lookup by device_id
+        self._device_id_to_item[str(device_info.id)] = item
 
         # Add components as children
         if ophyd_device is not None:
@@ -525,6 +562,71 @@ class DeviceTreeModel(QAbstractItemModel):
                 child_bottom = self.index(child_count - 1, 1, parent_index)
                 self.dataChanged.emit(child_top, child_bottom, [Qt.ItemDataRole.DisplayRole])
 
+    def _on_device_state_changed(self, device_id: str, state: Any) -> None:
+        """Handle device state change from catalog."""
+        item = self._device_id_to_item.get(device_id)
+        if item is None:
+            return
+
+        # Find the row for this item
+        row = self._root.children.index(item) if item in self._root.children else -1
+        if row < 0:
+            return
+
+        # Emit dataChanged for the status column (column 4)
+        index = self.index(row, 4)
+        self.dataChanged.emit(
+            index,
+            index,
+            [
+                Qt.ItemDataRole.DisplayRole,
+                Qt.ItemDataRole.DecorationRole,
+                Qt.ItemDataRole.ForegroundRole,
+            ],
+        )
+
+    def _on_device_connected(self, device_id: str) -> None:
+        """Handle device connected signal — rebuild its children."""
+        item = self._device_id_to_item.get(device_id)
+        if item is None:
+            return
+
+        # Get the updated device info from catalog
+        device = self._catalog.get_device(device_id)
+        if device is None:
+            return
+
+        # Update the item's ophyd reference
+        item.ophyd_obj = device.ophyd_device
+
+        # Find row
+        row = self._root.children.index(item) if item in self._root.children else -1
+        if row < 0:
+            return
+
+        # Remove old children
+        if item.children:
+            self.beginRemoveRows(self.index(row, 0), 0, len(item.children) - 1)
+            item.children.clear()
+            self.endRemoveRows()
+
+        # Add new children from the now-connected ophyd device
+        if device.ophyd_device is not None:
+            self._add_components(item, device.ophyd_device)
+            if item.children:
+                self.beginInsertRows(self.index(row, 0), 0, len(item.children) - 1)
+                self.endInsertRows()
+
+        # Emit dataChanged for all columns
+        top_left = self.index(row, 0)
+        bottom_right = self.index(row, len(self.COLUMNS) - 1)
+        self.dataChanged.emit(top_left, bottom_right)
+
+    def _on_device_connection_failed(self, device_id: str, error: str) -> None:
+        """Handle device connection failed signal."""
+        # Just update status column
+        self._on_device_state_changed(device_id, None)
+
     def refresh(self) -> None:
         """Refresh the model from the catalog."""
         self._populate()
@@ -563,9 +665,7 @@ class DeviceTreeModel(QAbstractItemModel):
 
     # === QAbstractItemModel implementation ===
 
-    def index(
-        self, row: int, column: int, parent: QModelIndex | None = None
-    ) -> QModelIndex:
+    def index(self, row: int, column: int, parent: QModelIndex | None = None) -> QModelIndex:
         """Create index for item at row, column under parent."""
         if parent is None:
             parent = QModelIndex()
@@ -628,6 +728,17 @@ class DeviceTreeModel(QAbstractItemModel):
             if index.column() == 0:
                 category = item.get_device_category()
                 return self.get_icon(category)
+            elif index.column() == 4:
+                # Status column icon
+                status = item.data(4)
+                if status == "online" or status == "connected":
+                    return self._icons.get("status_online")
+                elif status == "connecting":
+                    return self._icons.get("status_connecting")
+                elif status == "error":
+                    return self._icons.get("status_error")
+                elif status == "offline" or status == "unknown":
+                    return self._icons.get("status_offline")
 
         elif role == Qt.ItemDataRole.ForegroundRole:
             # Color status column
@@ -635,9 +746,11 @@ class DeviceTreeModel(QAbstractItemModel):
                 status = item.data(4)
                 if status == "online" or status == "connected":
                     return QColor("#4CAF50")  # Green
+                elif status == "connecting":
+                    return QColor("#FFC107")  # Yellow/amber
                 elif status == "error":
                     return QColor("#F44336")  # Red
-                elif status == "offline":
+                elif status == "offline" or status == "unknown":
                     return QColor("#9E9E9E")  # Gray
             # Color kind column
             elif index.column() == 3:
@@ -720,9 +833,7 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
         """Get the currently visible kinds."""
         return self._visible_kinds
 
-    def filterAcceptsRow(
-        self, source_row: int, source_parent: QModelIndex
-    ) -> bool:
+    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         """Check if row should be shown.
 
         Shows items that match both text filter and kind filter,

@@ -113,6 +113,8 @@ class MotorControlWidget(BaseControlWidget):
         self._units: str = ""
         self._precision: int = 4
         self._update_timer: QTimer | None = None
+        self._device_info: Any = None  # DeviceInfo for connection tracking
+        self._is_connecting: bool = False
         super().__init__(parent)
 
     @classmethod
@@ -124,24 +126,139 @@ class MotorControlWidget(BaseControlWidget):
     def set_items(self, items: list[DeviceTreeItem]) -> None:
         """Set the motor to control."""
         self._items = items
+        self._disconnect_connection_signals()
 
         if items and len(items) == 1:
             item = items[0]
             self._motor = item.ophyd_obj
             self._motor_name = item.name
+            self._device_info = item.device_info
 
             # Get units and precision from metadata
             if item.device_info and item.device_info.metadata:
                 self._units = item.device_info.metadata.get("units", "")
                 self._precision = item.device_info.metadata.get("precision", 4)
 
+            # Check if device is connecting or needs connection
+            if self._motor is None and item.device_info:
+                from lucid.devices.model import DeviceStatus
+
+                state = item.device_info._state
+                if state and state.status == DeviceStatus.CONNECTING:
+                    self._is_connecting = True
+                    self._show_connecting_state()
+                    self._connect_connection_signals()
+                    return
+                elif state and state.status in (DeviceStatus.UNKNOWN, DeviceStatus.OFFLINE):
+                    # Try on-demand connection
+                    self._request_connection()
+                    return
+
+            self._is_connecting = False
             self._update_display()
             self._start_updates()
         else:
             self._motor = None
             self._motor_name = ""
+            self._device_info = None
+            self._is_connecting = False
             self._stop_updates()
             self._clear_display()
+
+    def _connect_connection_signals(self) -> None:
+        """Connect to DeviceCatalog signals for connection updates."""
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            catalog.device_connected.connect(self._on_device_connected)
+            catalog.device_connection_failed.connect(self._on_device_connection_failed)
+        except Exception:
+            pass
+
+    def _disconnect_connection_signals(self) -> None:
+        """Disconnect from DeviceCatalog signals."""
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            catalog.device_connected.disconnect(self._on_device_connected)
+            catalog.device_connection_failed.disconnect(self._on_device_connection_failed)
+        except Exception:
+            pass
+
+    def _request_connection(self) -> None:
+        """Request on-demand connection for the current device."""
+        if self._device_info is None:
+            self._show_no_connection()
+            return
+
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            if catalog.request_device_connection(self._device_info.id):
+                self._is_connecting = True
+                self._show_connecting_state()
+                self._connect_connection_signals()
+            else:
+                self._show_no_connection()
+        except Exception as e:
+            logger.warning("Failed to request device connection: {}", e)
+            self._show_no_connection()
+
+    @Slot(str)
+    def _on_device_connected(self, device_id_str: str) -> None:
+        """Handle device connected signal."""
+        if self._device_info is None:
+            return
+        if device_id_str != str(self._device_info.id):
+            return
+
+        # Device is now connected — update our reference
+        self._motor = self._device_info._ophyd_device
+        self._is_connecting = False
+        self._disconnect_connection_signals()
+        self._update_display()
+        self._start_updates()
+        logger.debug("Motor '{}' connected, controls enabled", self._motor_name)
+
+    @Slot(str, str)
+    def _on_device_connection_failed(self, device_id_str: str, error: str) -> None:
+        """Handle device connection failed signal."""
+        if self._device_info is None:
+            return
+        if device_id_str != str(self._device_info.id):
+            return
+
+        self._is_connecting = False
+        self._disconnect_connection_signals()
+        self._show_connection_failed(error)
+
+    def _show_connecting_state(self) -> None:
+        """Show UI state while device is connecting."""
+        self._name_label.setText(f"{self._motor_name} (Connecting...)")
+        self._rbv_display.setText("...")
+        self._moving_indicator.set_state("warning")
+        self._moving_label.setText("Connecting")
+        self._set_controls_enabled(False)
+
+    def _show_no_connection(self) -> None:
+        """Show UI state when device cannot be connected."""
+        self._name_label.setText(f"{self._motor_name} (Not Connected)")
+        self._rbv_display.setText("---")
+        self._moving_indicator.set_state("off")
+        self._moving_label.setText("Unavailable")
+        self._set_controls_enabled(False)
+
+    def _show_connection_failed(self, error: str) -> None:
+        """Show UI state when connection failed."""
+        self._name_label.setText(f"{self._motor_name} (Connection Failed)")
+        self._rbv_display.setText("---")
+        self._moving_indicator.set_state("error")
+        self._moving_label.setText("Failed")
+        self._set_controls_enabled(False)
+        # Could add a retry button here
 
     def _setup_ui(self) -> None:
         """Setup the motor control UI."""
@@ -200,7 +317,7 @@ class MotorControlWidget(BaseControlWidget):
         tweak_group = QGroupBox("Relative Motion")
         tweak_layout = QHBoxLayout(tweak_group)
 
-        self._twr_btn = QPushButton("\u25C0")  # Left arrow
+        self._twr_btn = QPushButton("\u25c0")  # Left arrow
         self._twr_btn.setToolTip("Move negative")
         self._twr_btn.setFixedWidth(40)
         self._twr_btn.clicked.connect(self._on_tweak_reverse)
@@ -212,7 +329,7 @@ class MotorControlWidget(BaseControlWidget):
         self._tweak_edit.setMaximumWidth(80)
         tweak_layout.addWidget(self._tweak_edit)
 
-        self._twf_btn = QPushButton("\u25B6")  # Right arrow
+        self._twf_btn = QPushButton("\u25b6")  # Right arrow
         self._twf_btn.setToolTip("Move positive")
         self._twf_btn.setFixedWidth(40)
         self._twf_btn.clicked.connect(self._on_tweak_forward)
@@ -492,7 +609,7 @@ class MotorRowWidget(QWidget):
         layout.addSpacing(16)
 
         # Tweak reverse button
-        self._twr_btn = QPushButton("\u25C0")
+        self._twr_btn = QPushButton("\u25c0")
         self._twr_btn.setFixedWidth(30)
         self._twr_btn.setToolTip("Move negative")
         self._twr_btn.clicked.connect(self._on_tweak_reverse)
@@ -506,7 +623,7 @@ class MotorRowWidget(QWidget):
         layout.addWidget(self._value_edit)
 
         # Tweak forward button
-        self._twf_btn = QPushButton("\u25B6")
+        self._twf_btn = QPushButton("\u25b6")
         self._twf_btn.setFixedWidth(30)
         self._twf_btn.setToolTip("Move positive")
         self._twf_btn.clicked.connect(self._on_tweak_forward)
@@ -519,7 +636,7 @@ class MotorRowWidget(QWidget):
         layout.addWidget(self._go_btn)
 
         # Stop button
-        self._stop_btn = QPushButton("\u25A0")
+        self._stop_btn = QPushButton("\u25a0")
         self._stop_btn.setFixedWidth(30)
         self._stop_btn.setToolTip("Stop")
         self._stop_btn.setStyleSheet("color: #F44336; font-weight: bold;")

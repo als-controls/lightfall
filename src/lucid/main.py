@@ -173,6 +173,13 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     device_catalog = DeviceCatalog.get_instance()
     services.register_instance(DeviceCatalog, device_catalog)
 
+    # Initialize connection manager with settings
+    from lucid.devices.connection_manager import DeviceConnectionManager
+
+    connection_manager = DeviceConnectionManager.get_instance()
+    connection_manager.load_settings()
+    services.register_instance(DeviceConnectionManager, connection_manager)
+
     logger.debug("Application services registered")
 
 
@@ -214,11 +221,29 @@ def _setup_devices() -> None:
     if happi_enabled:
         happi_path = prefs.get("device_happi_path", "") or None
         happi_beamline = prefs.get("device_happi_beamline", "") or None
-        happi_instantiate = prefs.get("device_happi_instantiate", False)
+
+        # Get instantiation mode (new setting) with fallback to legacy bool
+        instantiate_mode = prefs.get("device_instantiate_mode", None)
+        if instantiate_mode is None:
+            # Legacy fallback: convert bool to mode string
+            legacy_instantiate = prefs.get("device_happi_instantiate", False)
+            instantiate_mode = "blocking" if legacy_instantiate else "none"
+
+        # Get connection timeout
+        connection_timeout = prefs.get("device_connection_timeout", 5.0)
+
         catalog.add_backend(HappiBackend(
-            path=happi_path, beamline=happi_beamline, instantiate=happi_instantiate,
+            path=happi_path,
+            beamline=happi_beamline,
+            instantiate=instantiate_mode,
+            connection_timeout=connection_timeout,
         ))
-        logger.info("Happi backend enabled (path={})", happi_path or "default")
+        logger.info(
+            "Happi backend enabled (path={}, mode={}, timeout={}s)",
+            happi_path or "default",
+            instantiate_mode,
+            connection_timeout,
+        )
 
     if catalog.connect():
         device_count = len(catalog.get_all_devices())

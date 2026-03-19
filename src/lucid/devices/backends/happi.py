@@ -26,7 +26,6 @@ from lucid.devices.model import (
     MaintenanceRecord,
 )
 
-
 # Happi item class to NCS DeviceCategory mapping
 _CLASS_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
@@ -75,17 +74,24 @@ class HappiBackend(DeviceBackend):
     Supports JSON file backends (default) and any backend happi supports.
     Devices are loaded from happi and optionally instantiated as ophyd objects.
 
+    Instantiation modes:
+        - "none": Load metadata only, no ophyd devices (fastest startup)
+        - "blocking": Instantiate ophyd devices synchronously on connect()
+        - "background": Load metadata immediately, instantiate in background threads
+
     Example:
-        >>> backend = HappiBackend(path="/path/to/happi.json")
+        >>> backend = HappiBackend(path="/path/to/happi.json", instantiate="background")
         >>> backend.connect()
-        >>> devices = backend.list_devices()
+        >>> devices = backend.list_devices()  # Available immediately
+        >>> # Devices connect in background, DeviceConnectionManager emits signals
     """
 
     def __init__(
         self,
         path: str | None = None,
         beamline: str | None = None,
-        instantiate: bool = False,
+        instantiate: bool | str = False,
+        connection_timeout: float | None = None,
     ) -> None:
         """Initialize the Happi backend.
 
@@ -93,11 +99,31 @@ class HappiBackend(DeviceBackend):
             path: Path to a happi JSON database file. If None, uses
                   the HAPPI_BACKEND environment variable / happi defaults.
             beamline: Beamline identifier for device metadata filtering.
-            instantiate: If True, call item.get() to instantiate ophyd
-                         devices on load. If False, only load metadata.
+            instantiate: Device instantiation mode:
+                - False or "none": Metadata only (no ophyd devices)
+                - True or "blocking": Synchronous instantiation on connect()
+                - "background": Async instantiation via DeviceConnectionManager
+            connection_timeout: Timeout for device connections in seconds.
+                Only used for "background" mode. If None, uses the
+                DeviceConnectionManager's default timeout.
         """
         self._path = path
         self._beamline = beamline
+        self._connection_timeout = connection_timeout
+
+        # Normalize instantiate parameter
+        if instantiate is False or instantiate == "none":
+            self._instantiate_mode = "none"
+        elif instantiate is True or instantiate == "blocking":
+            self._instantiate_mode = "blocking"
+        elif instantiate == "background":
+            self._instantiate_mode = "background"
+        else:
+            logger.warning(
+                "Unknown instantiate mode '{}', defaulting to 'none'",
+                instantiate,
+            )
+            self._instantiate_mode = "none"
         self._instantiate = instantiate
 
         self._client: Any = None  # happi.Client
@@ -126,15 +152,13 @@ class HappiBackend(DeviceBackend):
         try:
             import happi
         except ImportError:
-            logger.error(
-                "happi package not installed. "
-                "Install with: pip install ncs[happi]"
-            )
+            logger.error("happi package not installed. Install with: pip install ncs[happi]")
             return False
 
         try:
             if self._path:
                 from happi.backends.json_db import JSONBackend
+
                 db = JSONBackend(self._path)
                 self._client = happi.Client(database=db)
             else:
@@ -144,10 +168,16 @@ class HappiBackend(DeviceBackend):
             self._discover_devices()
             self._connected = True
             logger.info(
-                "Happi backend connected ({} devices from {})",
+                "Happi backend connected ({} devices from {}, mode={})",
                 len(self._devices),
                 self._path or "default config",
+                self._instantiate_mode,
             )
+
+            # Start background connections if in background mode
+            if self._instantiate_mode == "background":
+                self._start_background_connections()
+
             return True
 
         except Exception as e:
@@ -174,6 +204,78 @@ class HappiBackend(DeviceBackend):
             except Exception as e:
                 name = getattr(result, "name", "?")
                 logger.warning("Failed to load happi device '{}': {}", name, e)
+
+    def _start_background_connections(self) -> None:
+        """Start background connections for all devices with pending happi results."""
+        from lucid.devices.connection_manager import DeviceConnectionManager
+
+        manager = DeviceConnectionManager.get_instance()
+
+        # Connect the manager's signals to update our device cache
+        manager.device_connected.connect(self._on_device_connected)
+        manager.device_failed.connect(self._on_device_failed)
+
+        # Collect devices that need connection
+        to_connect: list[tuple[DeviceInfo, Any]] = []
+        for device in self._devices.values():
+            happi_result = device.metadata.pop("_happi_result", None)
+            if happi_result is not None:
+                to_connect.append((device, happi_result))
+
+        if to_connect:
+            logger.info(
+                "Starting background connection for {} happi devices",
+                len(to_connect),
+            )
+            manager.connect_all(to_connect, timeout=self._connection_timeout)
+
+    def _on_device_connected(self, result: Any) -> None:
+        """Handle successful device connection from ConnectionManager."""
+        from lucid.devices.connection_manager import ConnectionResult
+
+        if not isinstance(result, ConnectionResult):
+            return
+
+        device = self._devices.get(result.device_id)
+        if device is None:
+            return
+
+        # Update the device with the ophyd instance
+        device._ophyd_device = result.ophyd_device
+        device._state = DeviceState(
+            device_id=device.id,
+            status=DeviceStatus.ONLINE,
+            connected=True,
+        )
+        logger.debug("Happi device '{}' connected", device.name)
+
+    def _on_device_failed(self, result: Any) -> None:
+        """Handle failed device connection from ConnectionManager."""
+        from lucid.devices.connection_manager import ConnectionResult, ConnectionState
+
+        if not isinstance(result, ConnectionResult):
+            return
+
+        device = self._devices.get(result.device_id)
+        if device is None:
+            return
+
+        # Update state to reflect failure
+        if result.state == ConnectionState.TIMEOUT:
+            status = DeviceStatus.OFFLINE
+        else:
+            status = DeviceStatus.ERROR
+
+        device._state = DeviceState(
+            device_id=device.id,
+            status=status,
+            connected=False,
+        )
+        logger.debug(
+            "Happi device '{}' connection failed: {}",
+            device.name,
+            result.error,
+        )
 
     def _add_device_from_result(self, result: Any) -> None:
         """Create DeviceInfo from a happi SearchResult."""
@@ -223,8 +325,9 @@ class HappiBackend(DeviceBackend):
             metadata=metadata,
         )
 
-        # Optionally instantiate the ophyd device
-        if self._instantiate:
+        # Handle instantiation based on mode
+        if self._instantiate_mode == "blocking":
+            # Synchronous instantiation (original behavior)
             try:
                 ophyd_device = result.get() if hasattr(result, "get") else None
                 if ophyd_device is not None:
@@ -232,12 +335,30 @@ class HappiBackend(DeviceBackend):
             except Exception as e:
                 logger.debug("Could not instantiate '{}': {}", item_name, e)
 
-        # Set initial state
-        device_info._state = DeviceState(
-            device_id=device_info.id,
-            status=DeviceStatus.ONLINE if device_info._ophyd_device else DeviceStatus.UNKNOWN,
-            connected=device_info._ophyd_device is not None,
-        )
+            # Set state based on connection result
+            device_info._state = DeviceState(
+                device_id=device_info.id,
+                status=DeviceStatus.ONLINE if device_info._ophyd_device else DeviceStatus.UNKNOWN,
+                connected=device_info._ophyd_device is not None,
+            )
+
+        elif self._instantiate_mode == "background":
+            # Queue for background connection
+            device_info._state = DeviceState(
+                device_id=device_info.id,
+                status=DeviceStatus.CONNECTING,
+                connected=False,
+            )
+            # Store the happi result for later connection
+            device_info.metadata["_happi_result"] = result
+
+        else:
+            # "none" mode — metadata only
+            device_info._state = DeviceState(
+                device_id=device_info.id,
+                status=DeviceStatus.UNKNOWN,
+                connected=False,
+            )
 
         self._devices[device_info.id] = device_info
         self._configurations[device_info.id] = []
@@ -343,11 +464,22 @@ class HappiBackend(DeviceBackend):
     # === Introspection ===
 
     def get_backend_info(self) -> dict[str, Any]:
+        # Count devices by connection state
+        connected_count = sum(1 for d in self._devices.values() if d._ophyd_device is not None)
+        connecting_count = sum(
+            1
+            for d in self._devices.values()
+            if d._state and d._state.status == DeviceStatus.CONNECTING
+        )
+
         return {
             "name": self.name,
             "connected": self.is_connected,
             "device_count": len(self._devices),
+            "devices_connected": connected_count,
+            "devices_connecting": connecting_count,
             "path": self._path,
             "beamline": self._beamline,
-            "instantiate": self._instantiate,
+            "instantiate_mode": self._instantiate_mode,
+            "connection_timeout": self._connection_timeout,
         }

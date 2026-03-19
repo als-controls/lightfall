@@ -13,7 +13,6 @@ import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
@@ -239,6 +238,8 @@ class SignalControlWidget(BaseControlWidget):
         self._precision: int = 4
         self._writable: bool = False
         self._update_timer: QTimer | None = None
+        self._device_info: Any = None  # DeviceInfo for connection tracking
+        self._is_connecting: bool = False
         super().__init__(parent)
 
     @classmethod
@@ -249,11 +250,13 @@ class SignalControlWidget(BaseControlWidget):
     def set_items(self, items: list[DeviceTreeItem]) -> None:
         """Set the signal to control."""
         self._items = items
+        self._disconnect_connection_signals()
 
         if items and len(items) == 1:
             item = items[0]
             self._signal = item.ophyd_obj
             self._signal_name = item.name
+            self._device_info = item.device_info
             self._writable = _is_writable(self._signal)
 
             # Get units and precision from metadata
@@ -263,15 +266,129 @@ class SignalControlWidget(BaseControlWidget):
             else:
                 self._units = self._get_units_from_signal()
 
+            # Check if device is connecting or needs connection
+            if self._signal is None and item.device_info:
+                from lucid.devices.model import DeviceStatus
+
+                state = item.device_info._state
+                if state and state.status == DeviceStatus.CONNECTING:
+                    self._is_connecting = True
+                    self._show_connecting_state()
+                    self._connect_connection_signals()
+                    return
+                elif state and state.status in (DeviceStatus.UNKNOWN, DeviceStatus.OFFLINE):
+                    # Try on-demand connection
+                    self._request_connection()
+                    return
+
+            self._is_connecting = False
             self._update_display()
             self._update_writable_ui()
             self._start_updates()
         else:
             self._signal = None
             self._signal_name = ""
+            self._device_info = None
             self._writable = False
+            self._is_connecting = False
             self._stop_updates()
             self._clear_display()
+
+    def _connect_connection_signals(self) -> None:
+        """Connect to DeviceCatalog signals for connection updates."""
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            catalog.device_connected.connect(self._on_device_connected)
+            catalog.device_connection_failed.connect(self._on_device_connection_failed)
+        except Exception:
+            pass
+
+    def _disconnect_connection_signals(self) -> None:
+        """Disconnect from DeviceCatalog signals."""
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            catalog.device_connected.disconnect(self._on_device_connected)
+            catalog.device_connection_failed.disconnect(self._on_device_connection_failed)
+        except Exception:
+            pass
+
+    def _request_connection(self) -> None:
+        """Request on-demand connection for the current device."""
+        if self._device_info is None:
+            self._show_no_connection()
+            return
+
+        try:
+            from lucid.devices import DeviceCatalog
+
+            catalog = DeviceCatalog.get_instance()
+            if catalog.request_device_connection(self._device_info.id):
+                self._is_connecting = True
+                self._show_connecting_state()
+                self._connect_connection_signals()
+            else:
+                self._show_no_connection()
+        except Exception as e:
+            logger.warning("Failed to request device connection: {}", e)
+            self._show_no_connection()
+
+    @Slot(str)
+    def _on_device_connected(self, device_id_str: str) -> None:
+        """Handle device connected signal."""
+        if self._device_info is None:
+            return
+        if device_id_str != str(self._device_info.id):
+            return
+
+        # Device is now connected — update our reference
+        self._signal = self._device_info._ophyd_device
+        self._writable = _is_writable(self._signal)
+        self._is_connecting = False
+        self._disconnect_connection_signals()
+        self._update_display()
+        self._update_writable_ui()
+        self._start_updates()
+        logger.debug("Signal '{}' connected, controls enabled", self._signal_name)
+
+    @Slot(str, str)
+    def _on_device_connection_failed(self, device_id_str: str, error: str) -> None:
+        """Handle device connection failed signal."""
+        if self._device_info is None:
+            return
+        if device_id_str != str(self._device_info.id):
+            return
+
+        self._is_connecting = False
+        self._disconnect_connection_signals()
+        self._show_connection_failed(error)
+
+    def _show_connecting_state(self) -> None:
+        """Show UI state while device is connecting."""
+        self._name_label.setText(f"{self._signal_name} (Connecting...)")
+        self._value_display.setText("...")
+        self._status_dot.set_color("#FFC107")  # Yellow/warning
+        self._status_label.setText("Connecting")
+        self._set_controls_enabled(False)
+
+    def _show_no_connection(self) -> None:
+        """Show UI state when device cannot be connected."""
+        self._name_label.setText(f"{self._signal_name} (Not Connected)")
+        self._value_display.setText("---")
+        self._status_dot.set_connected(False)
+        self._status_label.setText("Unavailable")
+        self._set_controls_enabled(False)
+
+    def _show_connection_failed(self, error: str) -> None:
+        """Show UI state when connection failed."""
+        self._name_label.setText(f"{self._signal_name} (Connection Failed)")
+        self._value_display.setText("---")
+        self._status_dot.set_connected(False)
+        self._status_label.setText("Failed")
+        self._set_controls_enabled(False)
 
     def _get_units_from_signal(self) -> str:
         """Try to get units from the ophyd signal metadata."""
@@ -535,9 +652,7 @@ class SignalRowWidget(QWidget):
         self._value_label = QLabel("---")
         self._value_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
         self._value_label.setMinimumWidth(100)
-        self._value_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._value_label)
 
         # Units
@@ -689,9 +804,7 @@ class MultiSignalControlWidget(BaseControlWidget):
 
         # Update count
         writable_count = sum(1 for _, s, _ in self._signals if _is_writable(s))
-        self._count_label.setText(
-            f"{len(self._signals)} signals ({writable_count} writable)"
-        )
+        self._count_label.setText(f"{len(self._signals)} signals ({writable_count} writable)")
 
     def _start_updates(self) -> None:
         """Start periodic updates."""

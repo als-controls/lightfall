@@ -36,6 +36,7 @@ class DeviceStatus(str, Enum):
 
     ONLINE = "online"  # Device is connected and operational
     OFFLINE = "offline"  # Device is not connected
+    CONNECTING = "connecting"  # Connection in progress
     ERROR = "error"  # Device has an error condition
     MAINTENANCE = "maintenance"  # Device is under maintenance
     UNKNOWN = "unknown"  # Status cannot be determined

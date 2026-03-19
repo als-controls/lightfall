@@ -66,6 +66,9 @@ class DeviceCatalog(QObject):
     device_removed = Signal(str)  # device_id as string
     device_updated = Signal(object)  # DeviceInfo
     device_state_changed = Signal(str, object)  # device_id, DeviceState
+    device_connecting = Signal(str)  # device_id — connection started
+    device_connected = Signal(str)  # device_id — connection succeeded
+    device_connection_failed = Signal(str, str)  # device_id, error message
     backend_connected = Signal(str)  # backend name
     backend_disconnected = Signal(str)  # backend name
 
@@ -78,6 +81,7 @@ class DeviceCatalog(QObject):
         super().__init__(parent)
         self._backend: DeviceBackend | None = None  # primary/legacy
         self._backends: dict[str, DeviceBackend] = {}  # all active backends
+        self._connection_manager_connected = False
         self._device_backend_map: dict[UUID, str] = {}  # device_id -> backend name
         self._device_cache: dict[UUID, DeviceInfo] = {}
         self._name_index: dict[str, UUID] = {}
@@ -198,11 +202,16 @@ class DeviceCatalog(QObject):
 
         if any_connected:
             logger.info("Device catalog connected ({} devices)", len(self._device_cache))
+            # Connect to DeviceConnectionManager for background connection updates
+            self._connect_to_connection_manager()
 
         return any_connected
 
     def disconnect(self) -> None:
         """Disconnect all backends."""
+        # Cancel any pending connections
+        self._disconnect_from_connection_manager()
+
         for name, backend in list(self._backends.items()):
             if backend.is_connected:
                 backend.disconnect()
@@ -215,6 +224,111 @@ class DeviceCatalog(QObject):
         self._device_backend_map.clear()
         logger.info("Device catalog disconnected")
 
+    def _connect_to_connection_manager(self) -> None:
+        """Connect to DeviceConnectionManager signals for background updates."""
+        if self._connection_manager_connected:
+            return
+
+        try:
+            from lucid.devices.connection_manager import DeviceConnectionManager
+
+            manager = DeviceConnectionManager.get_instance()
+            manager.device_connecting.connect(self._on_device_connecting)
+            manager.device_connected.connect(self._on_device_connected)
+            manager.device_failed.connect(self._on_device_failed)
+            self._connection_manager_connected = True
+            logger.debug("Connected to DeviceConnectionManager")
+        except Exception as e:
+            logger.warning("Failed to connect to DeviceConnectionManager: {}", e)
+
+    def _disconnect_from_connection_manager(self) -> None:
+        """Disconnect from DeviceConnectionManager and cancel pending connections."""
+        if not self._connection_manager_connected:
+            return
+
+        try:
+            from lucid.devices.connection_manager import DeviceConnectionManager
+
+            manager = DeviceConnectionManager.get_instance()
+            manager.cancel_all()
+            manager.device_connecting.disconnect(self._on_device_connecting)
+            manager.device_connected.disconnect(self._on_device_connected)
+            manager.device_failed.disconnect(self._on_device_failed)
+            self._connection_manager_connected = False
+        except Exception as e:
+            logger.debug("Error disconnecting from ConnectionManager: {}", e)
+
+    def _on_device_connecting(self, device_id_str: str) -> None:
+        """Handle device connection started."""
+        try:
+            device_id = UUID(device_id_str)
+            device = self._device_cache.get(device_id)
+            if device and device._state:
+                device._state.status = DeviceStatus.CONNECTING
+                self.device_state_changed.emit(device_id_str, device._state)
+            self.device_connecting.emit(device_id_str)
+        except Exception as e:
+            logger.debug("Error handling device_connecting: {}", e)
+
+    def _on_device_connected(self, result: Any) -> None:
+        """Handle successful device connection from ConnectionManager."""
+        try:
+            from lucid.devices.connection_manager import ConnectionResult
+
+            if not isinstance(result, ConnectionResult):
+                return
+
+            device = self._device_cache.get(result.device_id)
+            if device is None:
+                return
+
+            # Update device with ophyd instance
+            device._ophyd_device = result.ophyd_device
+            device._state = DeviceState(
+                device_id=device.id,
+                status=DeviceStatus.ONLINE,
+                connected=True,
+            )
+
+            self.device_state_changed.emit(str(result.device_id), device._state)
+            self.device_connected.emit(str(result.device_id))
+            logger.debug("Device '{}' connected via ConnectionManager", device.name)
+
+        except Exception as e:
+            logger.warning("Error handling device_connected: {}", e)
+
+    def _on_device_failed(self, result: Any) -> None:
+        """Handle failed device connection from ConnectionManager."""
+        try:
+            from lucid.devices.connection_manager import ConnectionResult, ConnectionState
+
+            if not isinstance(result, ConnectionResult):
+                return
+
+            device = self._device_cache.get(result.device_id)
+            if device is None:
+                return
+
+            # Update state to reflect failure
+            if result.state == ConnectionState.TIMEOUT:
+                status = DeviceStatus.OFFLINE
+            else:
+                status = DeviceStatus.ERROR
+
+            device._state = DeviceState(
+                device_id=device.id,
+                status=status,
+                connected=False,
+            )
+
+            self.device_state_changed.emit(str(result.device_id), device._state)
+            self.device_connection_failed.emit(
+                str(result.device_id), result.error or "Unknown error"
+            )
+
+        except Exception as e:
+            logger.warning("Error handling device_failed: {}", e)
+
     def _load_backend_devices(self, backend: DeviceBackend) -> None:
         """Load devices from a backend into the cache."""
         for device in backend.get_all_devices():
@@ -222,7 +336,8 @@ class DeviceCatalog(QObject):
                 # Name conflict — prefix with backend name
                 logger.warning(
                     "Device name '{}' from backend '{}' conflicts with existing device, skipping",
-                    device.name, backend.name,
+                    device.name,
+                    backend.name,
                 )
                 continue
             self._device_cache[device.id] = device
@@ -240,6 +355,94 @@ class DeviceCatalog(QObject):
                 self._load_backend_devices(backend)
 
         logger.debug("Rebuilt device cache with {} devices", len(self._device_cache))
+
+    # === On-Demand Connection ===
+
+    def request_device_connection(self, device_id: UUID | str) -> bool:
+        """Request connection for a device that hasn't been instantiated yet.
+
+        Use this for on-demand connection when instantiate_mode is "none".
+        If the device is already connected or connecting, this is a no-op.
+
+        Args:
+            device_id: Device ID to connect.
+
+        Returns:
+            True if connection was requested, False if already connected or not found.
+        """
+        if isinstance(device_id, str):
+            device_id = UUID(device_id)
+
+        device = self._device_cache.get(device_id)
+        if device is None:
+            logger.warning("Cannot connect unknown device: {}", device_id)
+            return False
+
+        # Skip if already connected
+        if device._ophyd_device is not None:
+            return False
+
+        # Skip if already connecting
+        if device._state and device._state.status == DeviceStatus.CONNECTING:
+            return False
+
+        # Check if we have a happi result stored
+        happi_result = device.metadata.get("_happi_result")
+        if happi_result is None:
+            logger.warning(
+                "Device '{}' has no happi result for on-demand connection",
+                device.name,
+            )
+            return False
+
+        try:
+            from lucid.devices.connection_manager import DeviceConnectionManager
+
+            manager = DeviceConnectionManager.get_instance()
+            manager.connect_device(device, happi_result)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to request device connection: {}", e)
+            return False
+
+    def retry_device_connection(self, device_id: UUID | str) -> bool:
+        """Retry a failed device connection.
+
+        Args:
+            device_id: Device ID to retry.
+
+        Returns:
+            True if retry was requested, False if not applicable.
+        """
+        if isinstance(device_id, str):
+            device_id = UUID(device_id)
+
+        device = self._device_cache.get(device_id)
+        if device is None:
+            return False
+
+        # Only retry if in failed state
+        if device._state and device._state.status not in (
+            DeviceStatus.ERROR,
+            DeviceStatus.OFFLINE,
+        ):
+            return False
+
+        happi_result = device.metadata.get("_happi_result")
+        if happi_result is None:
+            return False
+
+        try:
+            from lucid.devices.connection_manager import DeviceConnectionManager
+
+            manager = DeviceConnectionManager.get_instance()
+            manager.retry_connection(device, happi_result)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to retry device connection: {}", e)
+            return False
 
     # === Device Access ===
 
@@ -333,11 +536,13 @@ class DeviceCatalog(QObject):
         results: list[DeviceInfo] = []
         for backend in self._backends.values():
             if backend.is_connected:
-                results.extend(backend.list_devices(
-                    category=category,
-                    beamline=beamline,
-                    active_only=active_only,
-                ))
+                results.extend(
+                    backend.list_devices(
+                        category=category,
+                        beamline=beamline,
+                        active_only=active_only,
+                    )
+                )
         return results
 
     def search_devices(self, query: str) -> list[DeviceInfo]:
@@ -556,9 +761,7 @@ class DeviceCatalog(QObject):
 
     # === Configuration Management ===
 
-    def get_device_configurations(
-        self, device_id: UUID | str
-    ) -> list[DeviceConfiguration]:
+    def get_device_configurations(self, device_id: UUID | str) -> list[DeviceConfiguration]:
         """Get all configurations for a device.
 
         Args:

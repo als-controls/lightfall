@@ -2,6 +2,7 @@
 
 This package provides:
 - DeviceCatalog: Unified device access facade
+- DeviceConnectionManager: Background device connection with timeouts
 - DeviceBackend: Abstract base for storage backends
 - Device models: DeviceInfo, DeviceConfiguration, etc.
 - MockBackend: Simulated devices using ophyd.sim
@@ -10,6 +11,11 @@ This package provides:
 
 from lucid.devices.base import DeviceBackend
 from lucid.devices.catalog import DeviceCatalog
+from lucid.devices.connection_manager import (
+    ConnectionResult,
+    ConnectionState,
+    DeviceConnectionManager,
+)
 from lucid.devices.model import (
     ConnectionType,
     DeviceCategory,
@@ -25,6 +31,10 @@ from lucid.devices.monitoring import DeviceHealth, DeviceMetric, DeviceMetricsCo
 __all__ = [
     # Catalog
     "DeviceCatalog",
+    # Connection
+    "DeviceConnectionManager",
+    "ConnectionState",
+    "ConnectionResult",
     # Backend
     "DeviceBackend",
     # Models
