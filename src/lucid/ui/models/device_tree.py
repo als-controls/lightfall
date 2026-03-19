@@ -91,7 +91,7 @@ class DeviceTreeItem:
 
     def column_count(self) -> int:
         """Number of columns."""
-        return 5  # Name, Value, Type, Kind, Status
+        return 5  # Name, Value, Status, Type, Kind
 
     def data(self, column: int) -> Any:
         """Get data for column."""
@@ -100,11 +100,11 @@ class DeviceTreeItem:
         elif column == 1:
             return self._cached_value
         elif column == 2:
-            return self._get_type_string()
-        elif column == 3:
-            return self._get_kind_string()
-        elif column == 4:
             return self._get_status()
+        elif column == 3:
+            return self._get_type_string()
+        elif column == 4:
+            return self._get_kind_string()
         return None
 
     def _get_units(self) -> str:
@@ -334,7 +334,7 @@ class DeviceTreeModel(QAbstractItemModel):
         4: Status - connection status
     """
 
-    COLUMNS = ["Name", "Value", "Type", "Kind", "Status"]
+    COLUMNS = ["Name", "Value", "Status", "Type", "Kind"]
 
     def __init__(
         self,
@@ -573,8 +573,8 @@ class DeviceTreeModel(QAbstractItemModel):
         if row < 0:
             return
 
-        # Emit dataChanged for the status column (column 4)
-        index = self.index(row, 4)
+        # Emit dataChanged for the status column (column 2)
+        index = self.index(row, 2)
         self.dataChanged.emit(
             index,
             index,
@@ -728,9 +728,9 @@ class DeviceTreeModel(QAbstractItemModel):
             if index.column() == 0:
                 category = item.get_device_category()
                 return self.get_icon(category)
-            elif index.column() == 4:
+            elif index.column() == 2:
                 # Status column icon
-                status = item.data(4)
+                status = item.data(2)
                 if status == "online" or status == "connected":
                     return self._icons.get("status_online")
                 elif status == "connecting":
@@ -742,8 +742,8 @@ class DeviceTreeModel(QAbstractItemModel):
 
         elif role == Qt.ItemDataRole.ForegroundRole:
             # Color status column
-            if index.column() == 4:
-                status = item.data(4)
+            if index.column() == 2:
+                status = item.data(2)
                 if status == "online" or status == "connected":
                     return QColor("#4CAF50")  # Green
                 elif status == "connecting":
@@ -753,8 +753,8 @@ class DeviceTreeModel(QAbstractItemModel):
                 elif status == "offline" or status == "unknown":
                     return QColor("#9E9E9E")  # Gray
             # Color kind column
-            elif index.column() == 3:
-                kind = item.data(3)
+            elif index.column() == 4:
+                kind = item.data(4)
                 if kind == "hinted":
                     return QColor("#4CAF50")  # Green - important
                 elif kind == "config":
