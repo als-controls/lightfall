@@ -245,11 +245,25 @@ class DeviceTreeItem:
         return ""
 
     def _get_type_string(self) -> str:
-        """Get type description (actual class name)."""
-        if self.ophyd_obj is None:
-            return ""
+        """Get type description (device class name).
 
-        return type(self.ophyd_obj).__name__
+        For top-level devices, uses device_info.device_class from happi metadata
+        when available — this works even before the ophyd device is instantiated.
+        Falls back to the ophyd object's class name if connected.
+        """
+        # Prefer device_class from happi metadata (available before instantiation)
+        if self.device_info and self.device_info.device_class:
+            # Extract the class name from the full path (e.g., "ophyd.EpicsMotor" -> "EpicsMotor")
+            device_class = self.device_info.device_class
+            if "." in device_class:
+                return device_class.rsplit(".", 1)[-1]
+            return device_class
+
+        # Fall back to ophyd object's class if instantiated
+        if self.ophyd_obj is not None:
+            return type(self.ophyd_obj).__name__
+
+        return ""
 
     def _get_kind_string(self) -> str:
         """Get the ophyd Kind as a string."""

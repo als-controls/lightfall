@@ -10,22 +10,23 @@ Provides specialized control UIs for camera devices with:
 Widget Hierarchy:
     CameraControlWidget: Base camera control with direct acquisition
         PlanBasedCameraControlWidget: Uses Bluesky plans for acquisition
-            AndorCameraControlWidget: Andor cameras with cooler control
-            PIMTECameraControlWidget: Princeton PIMTE with temperature display
+
+Device-specific camera widgets (Andor, PIMTE, etc.) are provided by
+endstation plugin packages (e.g., lucid-endstation-7011).
 
 Mixins:
     TVModeMixin: Adds TV mode (continuous streaming) support
+
+Panels:
+    CoolerPanel: Cooler control for Andor-style cameras
+    TemperaturePanel: Temperature display for PIMTE-style cameras
 """
 
-from lucid.ui.widgets.camera.andor import AndorCameraControlWidget
 from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
-from lucid.ui.widgets.camera.pimte import PIMTECameraControlWidget
 from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 
 __all__ = [
     "CameraControlWidget",
     "TVModeMixin",
     "PlanBasedCameraControlWidget",
-    "AndorCameraControlWidget",
-    "PIMTECameraControlWidget",
 ]

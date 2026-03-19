@@ -38,9 +38,7 @@ except ImportError:
     DeviceParameter = None  # type: ignore
     DeviceParameterItem = None  # type: ignore
 from lucid.ui.widgets.camera import (
-    AndorCameraControlWidget,
     CameraControlWidget,
-    PIMTECameraControlWidget,
 )
 from lucid.ui.widgets.document_stream import (
     DocumentStreamModel,
@@ -91,8 +89,6 @@ __all__ = [
     "MultiSignalControlWidget",
     # Camera widgets
     "CameraControlWidget",
-    "AndorCameraControlWidget",
-    "PIMTECameraControlWidget",
     # RunEngine control
     "RunEngineControlWidget",
     "RunEngineStatusBar",
