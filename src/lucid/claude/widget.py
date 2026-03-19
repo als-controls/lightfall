@@ -136,7 +136,7 @@ class ClaudeAssistantWidget(QWidget):
     def _setup_ui(self) -> None:
         """Setup the user interface."""
         self.setWindowTitle("Claude Assistant")
-        self.setMinimumSize(400, 150)
+        self.setMinimumSize(400, 100)
 
         # Main layout
         layout = QVBoxLayout(self)
