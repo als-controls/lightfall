@@ -361,6 +361,7 @@ class DeviceTreeModel(QAbstractItemModel):
             catalog: Device catalog to populate from.
             parent: Qt parent.
         """
+        logger.info("DeviceTreeModel.__init__() START")
         super().__init__(parent)
         self._catalog = catalog
         self._root = DeviceTreeItem("root", NodeType.ROOT)
@@ -382,6 +383,7 @@ class DeviceTreeModel(QAbstractItemModel):
         self._value_timer = QTimer(self)
         self._value_timer.timeout.connect(self._poll_value_refresh)
         self._value_timer.start(2000)  # Every 2 seconds
+        logger.info("DeviceTreeModel.__init__() END")
 
     def _create_icons(self) -> None:
         """Create icons for device types and connection states."""

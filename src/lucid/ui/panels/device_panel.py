@@ -224,6 +224,7 @@ class DevicePanel(BasePanel):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the device panel."""
+        logger.info("DevicePanel.__init__() START")
         self._catalog = DeviceCatalog.get_instance()
 
         # Create model before calling super().__init__ which calls _setup_ui
@@ -236,6 +237,7 @@ class DevicePanel(BasePanel):
         # Connect catalog signals
         self._catalog.device_added.connect(self._on_device_changed)
         self._catalog.device_removed.connect(self._on_device_changed)
+        logger.info("DevicePanel.__init__() END")
 
     def _setup_ui(self) -> None:
         """Setup the panel UI with device tree above, control/info tabs below."""

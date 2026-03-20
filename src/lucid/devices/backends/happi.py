@@ -146,6 +146,7 @@ class HappiBackend(DeviceBackend):
 
     def connect(self) -> bool:
         """Connect to the happi database and load devices."""
+        logger.info("HappiBackend.connect() START (instantiate={})", self._instantiate_mode)
         if self._connected:
             return True
 
@@ -178,6 +179,7 @@ class HappiBackend(DeviceBackend):
             if self._instantiate_mode == "background":
                 self._start_background_connections()
 
+            logger.info("HappiBackend.connect() END")
             return True
 
         except Exception as e:
