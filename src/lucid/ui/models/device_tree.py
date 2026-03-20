@@ -508,10 +508,16 @@ class DeviceTreeModel(QAbstractItemModel):
             if not hasattr(ophyd_obj, "component_names"):
                 return
 
-            for comp_name in ophyd_obj.component_names:
+            comp_names = ophyd_obj.component_names
+            logger.debug("Device {} has {} components: {}", parent_item.name, len(comp_names), comp_names)
+
+            for comp_name in comp_names:
+                logger.debug("Accessing component: {}.{}", parent_item.name, comp_name)
                 try:
                     comp = getattr(ophyd_obj, comp_name)
-                except Exception:
+                    logger.debug("Got component: {}.{}", parent_item.name, comp_name)
+                except Exception as e:
+                    logger.debug("Failed to get component {}.{}: {}", parent_item.name, comp_name, e)
                     continue
 
                 # Determine if this is a device or signal
