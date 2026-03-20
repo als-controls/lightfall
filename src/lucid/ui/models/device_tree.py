@@ -459,20 +459,24 @@ class DeviceTreeModel(QAbstractItemModel):
 
     def _populate(self) -> None:
         """Populate the model from the catalog."""
+        logger.info("DeviceTreeModel._populate() START")
         self.beginResetModel()
         self._root.children.clear()
         self._device_id_to_item.clear()
 
         # Get all devices from catalog
+        logger.info("Calling catalog.get_all_devices()...")
         devices = self._catalog.get_all_devices()
+        logger.info("Got {} devices from catalog", len(devices))
 
         for device_info in sorted(devices, key=lambda d: d.name):
+            logger.debug("Creating tree item for device: {}", device_info.name)
             device_item = self._create_device_item(device_info)
             if device_item:
                 self._root.append_child(device_item)
 
         self.endResetModel()
-        logger.debug("Populated device tree with {} top-level devices", len(self._root.children))
+        logger.info("DeviceTreeModel._populate() END - {} top-level devices", len(self._root.children))
 
     def _create_device_item(self, device_info: DeviceInfo) -> DeviceTreeItem | None:
         """Create a tree item for a device and its components."""
@@ -491,7 +495,9 @@ class DeviceTreeModel(QAbstractItemModel):
 
         # Add components as children
         if ophyd_device is not None:
+            logger.debug("Adding components for device: {}", device_info.name)
             self._add_components(item, ophyd_device)
+            logger.debug("Finished adding components for device: {}", device_info.name)
 
         return item
 
