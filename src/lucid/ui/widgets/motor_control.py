@@ -299,46 +299,6 @@ class MotorControlWidget(BaseControlWidget):
         status_layout.addStretch()
 
         self._layout.addLayout(status_layout)
-        
-        # Status flags bar - detailed motor state
-        flags_group = QGroupBox("Status Flags")
-        flags_layout = QHBoxLayout(flags_group)
-        flags_layout.setSpacing(12)
-        
-        # DMOV indicator (Done Move)
-        self._dmov_indicator = StatusIndicator()
-        self._dmov_label = QLabel("Done")
-        dmov_box = QHBoxLayout()
-        dmov_box.addWidget(self._dmov_indicator)
-        dmov_box.addWidget(self._dmov_label)
-        flags_layout.addLayout(dmov_box)
-        
-        # High limit indicator
-        self._hlm_indicator = StatusIndicator()
-        self._hlm_label = QLabel("Hi Lim")
-        hlm_box = QHBoxLayout()
-        hlm_box.addWidget(self._hlm_indicator)
-        hlm_box.addWidget(self._hlm_label)
-        flags_layout.addLayout(hlm_box)
-        
-        # Low limit indicator
-        self._llm_indicator = StatusIndicator()
-        self._llm_label = QLabel("Lo Lim")
-        llm_box = QHBoxLayout()
-        llm_box.addWidget(self._llm_indicator)
-        llm_box.addWidget(self._llm_label)
-        flags_layout.addLayout(llm_box)
-        
-        # Home switch indicator
-        self._home_indicator = StatusIndicator()
-        self._home_label = QLabel("Home")
-        home_box = QHBoxLayout()
-        home_box.addWidget(self._home_indicator)
-        home_box.addWidget(self._home_label)
-        flags_layout.addLayout(home_box)
-        
-        flags_layout.addStretch()
-        self._layout.addWidget(flags_group)
 
         # Position group
         pos_group = QGroupBox("Position")
@@ -421,6 +381,46 @@ class MotorControlWidget(BaseControlWidget):
         btn_layout.addWidget(self._stop_btn)
         btn_layout.addStretch()
         self._layout.addLayout(btn_layout)
+
+        # Status flags bar - detailed motor state
+        flags_group = QGroupBox("Status Flags")
+        flags_layout = QHBoxLayout(flags_group)
+        flags_layout.setSpacing(12)
+        
+        # DMOV indicator (Done Move)
+        self._dmov_indicator = StatusIndicator()
+        self._dmov_label = QLabel("Done")
+        dmov_box = QHBoxLayout()
+        dmov_box.addWidget(self._dmov_indicator)
+        dmov_box.addWidget(self._dmov_label)
+        flags_layout.addLayout(dmov_box)
+        
+        # High limit indicator
+        self._hlm_indicator = StatusIndicator()
+        self._hlm_label = QLabel("Hi Lim")
+        hlm_box = QHBoxLayout()
+        hlm_box.addWidget(self._hlm_indicator)
+        hlm_box.addWidget(self._hlm_label)
+        flags_layout.addLayout(hlm_box)
+        
+        # Low limit indicator
+        self._llm_indicator = StatusIndicator()
+        self._llm_label = QLabel("Lo Lim")
+        llm_box = QHBoxLayout()
+        llm_box.addWidget(self._llm_indicator)
+        llm_box.addWidget(self._llm_label)
+        flags_layout.addLayout(llm_box)
+        
+        # Home switch indicator
+        self._home_indicator = StatusIndicator()
+        self._home_label = QLabel("Home")
+        home_box = QHBoxLayout()
+        home_box.addWidget(self._home_indicator)
+        home_box.addWidget(self._home_label)
+        flags_layout.addLayout(home_box)
+        
+        flags_layout.addStretch()
+        self._layout.addWidget(flags_group)
 
         self._layout.addStretch()
 
