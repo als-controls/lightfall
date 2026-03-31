@@ -1,9 +1,14 @@
-"""Local UDP-to-TCP forwarder for Channel Access through SSH tunnels.
+"""Local CA search responder for remote EPICS access through SSH tunnels.
 
-When LUCID is used remotely with a CA Gateway accessible via SSH tunnel,
-CA clients need UDP for PV name search — but SSH only tunnels TCP. This
-service runs a local UDP listener that forwards search/data packets
-through the TCP tunnel, allowing pyepics/ophyd to work transparently.
+When LUCID connects to a remote CA Gateway via SSH tunnel, CA clients
+need UDP for PV name search — but SSH only tunnels TCP. This service
+runs a local UDP responder that answers all CA search requests with
+"connect to localhost:<port> via TCP", directing the CA client through
+the SSH tunnel to the real CA Gateway.
+
+The flow:
+    [caproto/ophyd] --UDP search--> [CATunnelService] --"connect to localhost:5099"-->
+    [caproto/ophyd] --TCP connect--> [SSH tunnel] --TCP--> [CA Gateway] --CA--> [IOCs]
 
 Usage:
     The tunnel is configured via LUCID preferences:
@@ -12,9 +17,8 @@ Usage:
 
     When enabled, the service:
         1. Binds a local UDP socket on the gateway port
-        2. Forwards incoming UDP packets to the same port via TCP
-        3. Relays TCP responses back as UDP to the original sender
-        4. Sets EPICS_CA_AUTO_ADDR_LIST=NO and EPICS_CA_ADDR_LIST=localhost:<port>
+        2. Responds to all CA search requests with the gateway address
+        3. Sets EPICS_CA_AUTO_ADDR_LIST=NO and EPICS_CA_ADDR_LIST=localhost:<port>
 
     This must be started BEFORE any EPICS/ophyd initialization.
 """
@@ -23,18 +27,86 @@ from __future__ import annotations
 
 import os
 import socket
+import struct
 import threading
 from typing import ClassVar
 
 from lucid.utils.logging import logger
 
+# CA protocol constants
+CA_PROTO_SEARCH = 6
+CA_PROTO_VERSION = 0
+CA_VERSION = 13
+
+
+def _parse_search_requests(data: bytes) -> list[tuple[int, int, str]]:
+    """Parse CA search request messages from a UDP packet.
+
+    Returns list of (search_id, reply_flag, pv_name) tuples.
+    """
+    results = []
+    offset = 0
+    while offset + 16 <= len(data):
+        cmd, payload_size, dtype, dcount, p1, p2 = struct.unpack_from(
+            ">HHHHII", data, offset
+        )
+        if cmd == CA_PROTO_SEARCH and payload_size > 0:
+            payload_start = offset + 16
+            payload_end = payload_start + payload_size
+            if payload_end <= len(data):
+                pv_bytes = data[payload_start:payload_end]
+                pv_name = pv_bytes.split(b"\0")[0].decode("ascii", errors="ignore")
+                if pv_name:
+                    # p1 is the search ID (CID), dtype is reply flag
+                    results.append((p1, dtype, pv_name))
+        offset += 16 + payload_size
+    return results
+
+
+def _build_search_response(search_id: int, port: int, sid: int = 0xffffffff) -> bytes:
+    """Build a CA search response message.
+
+    Tells the client: "I have this PV, connect to me on TCP at port <port>."
+    The IP address is taken from the UDP source address by the client
+    (localhost in our case).
+
+    Args:
+        search_id: The CID from the search request.
+        port: TCP port to connect to (the tunneled gateway port).
+        sid: Server ID (0xffffffff = use sender's IP).
+    """
+    return struct.pack(
+        ">HHHHII",
+        CA_PROTO_SEARCH,  # command
+        8,                # payload size (extended header for port+ip)
+        port,             # server port (in data_type field)
+        0,                # data_count = 0
+        sid,              # SID (0xffffffff = use UDP source addr)
+        search_id,        # CID (must match request)
+    )
+
+
+def _build_version_response() -> bytes:
+    """Build a CA version response message."""
+    return struct.pack(
+        ">HHHHII",
+        CA_PROTO_VERSION,  # command
+        0,                 # payload size
+        0,                 # unused
+        CA_VERSION,        # version
+        0,                 # unused
+        0,                 # unused
+    )
+
 
 class CATunnelService:
-    """Singleton service that bridges UDP CA traffic to a TCP tunnel.
+    """Singleton service that responds to local CA searches, directing
+    TCP connections through an SSH tunnel to a remote CA Gateway.
 
-    Runs a background thread that listens for UDP packets on a local port
-    and forwards them to the same address via TCP. Responses are relayed
-    back as UDP to the original sender.
+    Instead of forwarding packets, this acts as a fake CA search
+    responder — it tells caproto/ophyd "yes, I have that PV, connect
+    to localhost:<port> via TCP." The TCP connection then goes through
+    the SSH tunnel to the real CA Gateway.
     """
 
     _instance: ClassVar[CATunnelService | None] = None
@@ -67,12 +139,11 @@ class CATunnelService:
         return self._running
 
     def start(self, gateway: str = "localhost:5099") -> bool:
-        """Start the UDP-to-TCP forwarder.
+        """Start the CA search responder.
 
         Args:
-            gateway: The CA Gateway address as host:port. This is both
-                the TCP target (reached via SSH tunnel) and the local
-                UDP listen address.
+            gateway: The CA Gateway address as host:port. The SSH tunnel
+                should forward this port to the remote gateway.
 
         Returns:
             True if started successfully, False on error.
@@ -102,27 +173,31 @@ class CATunnelService:
             self._port,
         )
 
-        # Bind UDP socket
+        # Bind UDP socket on the same port
+        # (SSH -L only binds TCP, so UDP on this port is free)
         try:
             self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._udp_sock.bind((self._host, self._port))
-            self._udp_sock.settimeout(1.0)  # Allow periodic shutdown checks
+            self._udp_sock.settimeout(1.0)
         except OSError as e:
-            logger.error("Failed to bind UDP socket on {}:{}: {}", self._host, self._port, e)
+            logger.error(
+                "Failed to bind UDP socket on {}:{}: {}", self._host, self._port, e
+            )
             self._udp_sock = None
             return False
 
         self._running = True
         self._thread = threading.Thread(
-            target=self._run_forwarder,
+            target=self._run_responder,
             name="ca-tunnel",
             daemon=True,
         )
         self._thread.start()
 
         logger.info(
-            "CA tunnel started: UDP {}:{} -> TCP {}:{}",
+            "CA tunnel started: answering UDP searches on {}:{}, "
+            "directing TCP to {}:{} (via SSH tunnel)",
             self._host,
             self._port,
             self._host,
@@ -131,7 +206,7 @@ class CATunnelService:
         return True
 
     def stop(self) -> None:
-        """Stop the forwarder."""
+        """Stop the responder."""
         if not self._running:
             return
 
@@ -150,8 +225,12 @@ class CATunnelService:
 
         logger.info("CA tunnel stopped")
 
-    def _run_forwarder(self) -> None:
-        """Main forwarder loop (runs in background thread)."""
+    def _run_responder(self) -> None:
+        """Main responder loop (runs in background thread).
+
+        Listens for UDP CA search requests and responds with
+        "connect to localhost:<port>" for every PV requested.
+        """
         while self._running and self._udp_sock is not None:
             try:
                 data, addr = self._udp_sock.recvfrom(65536)
@@ -162,39 +241,23 @@ class CATunnelService:
                     logger.warning("CA tunnel UDP socket error, stopping")
                 break
 
-            # Forward via TCP
+            if len(data) < 16:
+                continue
+
+            # Parse search requests
+            searches = _parse_search_requests(data)
+            if not searches:
+                # Might be a version message or repeater registration — ignore
+                continue
+
+            # Build response: version + search replies
+            response = _build_version_response()
+            for search_id, reply_flag, pv_name in searches:
+                response += _build_search_response(search_id, self._port)
+                logger.debug("CA tunnel: search for '{}' -> localhost:{}", pv_name, self._port)
+
+            # Send response back to the requesting client
             try:
-                tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                tcp_sock.settimeout(3.0)
-                tcp_sock.connect((self._host, self._port))
-                tcp_sock.sendall(data)
-
-                # Read response (CA search replies are small)
-                # Use a short timeout — the gateway responds quickly
-                tcp_sock.settimeout(2.0)
-                chunks = []
-                try:
-                    while True:
-                        chunk = tcp_sock.recv(65536)
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        # CA responses are typically a single packet
-                        # Don't wait for more if we got data
-                        tcp_sock.settimeout(0.1)
-                except socket.timeout:
-                    pass
-                finally:
-                    tcp_sock.close()
-
-                if chunks:
-                    response = b"".join(chunks)
-                    self._udp_sock.sendto(response, addr)
-
-            except (ConnectionRefusedError, ConnectionResetError) as e:
-                logger.debug("CA tunnel TCP connection failed: {}", e)
-            except socket.timeout:
-                logger.debug("CA tunnel TCP timeout for packet from {}", addr)
+                self._udp_sock.sendto(response, addr)
             except OSError as e:
-                if self._running:
-                    logger.debug("CA tunnel forward error: {}", e)
+                logger.debug("CA tunnel: failed to send response to {}: {}", addr, e)
