@@ -206,6 +206,17 @@ def _setup_ca_tunnel() -> None:
     service = CATunnelService.get_instance()
     if service.start(gateway=gateway):
         logger.info("CA tunnel active: gateway={}", gateway)
+
+        # Increase ophyd's default connection timeout for tunneled connections
+        try:
+            import ophyd
+
+            ophyd.signal.EpicsSignalBase.set_defaults(
+                connection_timeout=10.0, timeout=10.0
+            )
+            logger.info("Set ophyd signal timeouts to 10s for remote access")
+        except Exception as e:
+            logger.debug("Could not set ophyd timeouts: {}", e)
     else:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
