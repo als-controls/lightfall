@@ -183,6 +183,33 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     logger.debug("Application services registered")
 
 
+def _setup_ca_tunnel() -> None:
+    """Start the CA UDP-to-TCP tunnel if configured.
+
+    When connecting to a remote CA Gateway through an SSH tunnel,
+    CA clients need UDP for PV search but SSH only forwards TCP.
+    This service bridges the gap by forwarding local UDP packets
+    through the TCP tunnel.
+
+    Must run BEFORE any EPICS/ophyd initialization.
+    """
+    prefs = PreferencesManager.get_instance()
+
+    enabled = prefs.get("ca_tunnel_enabled", False)
+    if not enabled:
+        return
+
+    gateway = prefs.get("ca_tunnel_gateway", "localhost:5099")
+
+    from lucid.services.ca_tunnel import CATunnelService
+
+    service = CATunnelService.get_instance()
+    if service.start(gateway=gateway):
+        logger.info("CA tunnel active: gateway={}", gateway)
+    else:
+        logger.error("Failed to start CA tunnel for gateway={}", gateway)
+
+
 def _setup_devices() -> None:
     """Setup the device catalog based on user preferences.
 
@@ -701,6 +728,9 @@ def main() -> int:
 
     # Setup authentication
     _setup_auth(config)
+
+    # Start CA tunnel if configured (must be before device setup)
+    _setup_ca_tunnel()
 
     # Setup device catalog with mock backend
     _setup_devices()
