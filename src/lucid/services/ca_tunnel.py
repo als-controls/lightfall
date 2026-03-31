@@ -78,7 +78,7 @@ def _build_search_response(search_id: int, port: int, sid: int = 0xffffffff) -> 
     return struct.pack(
         ">HHHHII",
         CA_PROTO_SEARCH,  # command
-        8,                # payload size (extended header for port+ip)
+        0,                # payload size
         port,             # server port (in data_type field)
         0,                # data_count = 0
         sid,              # SID (0xffffffff = use UDP source addr)
