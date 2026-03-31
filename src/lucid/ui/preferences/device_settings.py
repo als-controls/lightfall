@@ -47,6 +47,10 @@ class DeviceSettingsPlugin(SettingsPlugin):
         self._connect_on_startup: QCheckBox | None = None
         self._instantiate_mode: QComboBox | None = None
 
+        # CA Tunnel
+        self._ca_tunnel_enabled: QCheckBox | None = None
+        self._ca_tunnel_gateway: QLineEdit | None = None
+
         # Mock
         self._mock_enabled: QCheckBox | None = None
         self._mock_noisy_check: QComboBox | None = None
@@ -179,7 +183,44 @@ class DeviceSettingsPlugin(SettingsPlugin):
         desc.setStyleSheet("color: gray;")
         form.addRow(desc)
 
+        # CA Tunnel (remote access)
+        tunnel_label = QLabel("<b>Remote Access (CA Tunnel)</b>")
+        form.addRow(tunnel_label)
+
+        self._ca_tunnel_enabled = QCheckBox("Enable CA tunnel for remote access")
+        self._ca_tunnel_enabled.setToolTip(
+            "Bridges local UDP CA traffic to a remote CA Gateway via TCP.\n"
+            "Requires an SSH tunnel forwarding the gateway port, and a\n"
+            "CA Gateway running on the remote host.\n\n"
+            "SSH example: ssh -L 5099:localhost:5099 user@host"
+        )
+        self._ca_tunnel_enabled.toggled.connect(self._on_tunnel_toggled)
+        form.addRow(self._ca_tunnel_enabled)
+
+        self._ca_tunnel_gateway = QLineEdit()
+        self._ca_tunnel_gateway.setPlaceholderText("localhost:5099")
+        self._ca_tunnel_gateway.setToolTip(
+            "Address of the CA Gateway as host:port.\n"
+            "This should match your SSH tunnel's local forwarded port."
+        )
+        self._ca_tunnel_gateway.setEnabled(False)
+        form.addRow("Gateway address:", self._ca_tunnel_gateway)
+
+        tunnel_desc = QLabel(
+            "For remote development: forwards EPICS Channel Access through "
+            "an SSH tunnel to a CA Gateway on the beamline network. "
+            "Requires restart."
+        )
+        tunnel_desc.setWordWrap(True)
+        tunnel_desc.setStyleSheet("color: gray;")
+        form.addRow(tunnel_desc)
+
         return group
+
+    def _on_tunnel_toggled(self, checked: bool) -> None:
+        """Enable/disable the gateway address field."""
+        if self._ca_tunnel_gateway:
+            self._ca_tunnel_gateway.setEnabled(checked)
 
     # ── Mock ──────────────────────────────────────────────────────
 
@@ -337,6 +378,13 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._happi_instantiate:
             self._happi_instantiate.setChecked(prefs.get("device_happi_instantiate", False))
 
+        # CA Tunnel
+        if self._ca_tunnel_enabled:
+            self._ca_tunnel_enabled.setChecked(prefs.get("ca_tunnel_enabled", False))
+        if self._ca_tunnel_gateway:
+            self._ca_tunnel_gateway.setText(prefs.get("ca_tunnel_gateway", "localhost:5099"))
+            self._ca_tunnel_gateway.setEnabled(prefs.get("ca_tunnel_enabled", False))
+
     def save_settings(self) -> None:
         prefs = PreferencesManager.get_instance()
 
@@ -393,6 +441,12 @@ class DeviceSettingsPlugin(SettingsPlugin):
             prefs.set("device_happi_beamline", self._happi_beamline_edit.text())
         if self._happi_instantiate:
             prefs.set("device_happi_instantiate", self._happi_instantiate.isChecked())
+
+        # CA Tunnel
+        if self._ca_tunnel_enabled:
+            prefs.set("ca_tunnel_enabled", self._ca_tunnel_enabled.isChecked())
+        if self._ca_tunnel_gateway:
+            prefs.set("ca_tunnel_gateway", self._ca_tunnel_gateway.text() or "localhost:5099")
 
     def validate(self) -> list[str]:
         errors = []
