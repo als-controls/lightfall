@@ -153,7 +153,7 @@ class HappiBackend(DeviceBackend):
         try:
             import happi
         except ImportError:
-            logger.error("happi package not installed. Install with: pip install ncs[happi]")
+            logger.error("happi package not installed. Install with: pip install lucid[happi]")
             return False
 
         try:
@@ -209,6 +209,8 @@ class HappiBackend(DeviceBackend):
 
     def _start_background_connections(self) -> None:
         """Start background connections for all devices with pending happi results."""
+        import importlib
+
         from lucid.devices.connection_manager import DeviceConnectionManager
 
         manager = DeviceConnectionManager.get_instance()
@@ -225,6 +227,26 @@ class HappiBackend(DeviceBackend):
                 to_connect.append((device, happi_result))
 
         if to_connect:
+            # Pre-import all device classes on the main thread to avoid
+            # import lock deadlocks when multiple background threads try
+            # to import from the same package simultaneously.
+            seen_modules: set[str] = set()
+            for device, happi_result in to_connect:
+                device_class = device.device_class or ""
+                if "." in device_class:
+                    module_path = device_class.rsplit(".", 1)[0]
+                    if module_path not in seen_modules:
+                        seen_modules.add(module_path)
+                        try:
+                            importlib.import_module(module_path)
+                            logger.debug("Pre-imported device module: {}", module_path)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to pre-import device module '{}': {}",
+                                module_path,
+                                e,
+                            )
+
             logger.info(
                 "Starting background connection for {} happi devices",
                 len(to_connect),
