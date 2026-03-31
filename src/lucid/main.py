@@ -207,16 +207,23 @@ def _setup_ca_tunnel() -> None:
     if service.start(gateway=gateway):
         logger.info("CA tunnel active: gateway={}", gateway)
 
-        # Increase ophyd's default connection timeout for tunneled connections
+        # Increase caproto's default connection timeout for tunneled connections.
+        # caproto.threading.pyepics_compat.PV defaults to 1s which is too
+        # tight for SSH-tunneled connections.
         try:
-            import ophyd
+            from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
-            ophyd.signal.EpicsSignalBase.set_defaults(
-                connection_timeout=10.0, timeout=10.0
-            )
-            logger.info("Set ophyd signal timeouts to 10s for remote access")
+            _orig_init = _CaprotoPV.__init__
+
+            def _patched_init(self, *args, connection_timeout=None, **kwargs):
+                if connection_timeout is None:
+                    connection_timeout = 10.0
+                _orig_init(self, *args, connection_timeout=connection_timeout, **kwargs)
+
+            _CaprotoPV.__init__ = _patched_init
+            logger.info("Set caproto PV connection timeout to 10s for remote access")
         except Exception as e:
-            logger.debug("Could not set ophyd timeouts: {}", e)
+            logger.debug("Could not patch caproto timeout: {}", e)
     else:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
