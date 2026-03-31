@@ -63,27 +63,34 @@ def _parse_search_requests(data: bytes) -> list[tuple[int, int, str]]:
     return results
 
 
-def _build_search_response(search_id: int, port: int, sid: int = 0xffffffff) -> bytes:
+def _build_search_response(search_id: int, port: int) -> bytes:
     """Build a CA search response message.
 
     Tells the client: "I have this PV, connect to me on TCP at port <port>."
-    The IP address is taken from the UDP source address by the client
-    (localhost in our case).
+
+    The CA spec (and caproto) expects payload_size=8 with an 8-byte payload
+    containing the server's IP address as a big-endian uint32 (padded to 8).
+    We use 127.0.0.1 (0x7f000001) so caproto connects to localhost.
 
     Args:
         search_id: The CID from the search request.
         port: TCP port to connect to (the tunneled gateway port).
-        sid: Server ID (0xffffffff = use sender's IP).
     """
-    return struct.pack(
+    # Header: command=6, payload_size=8, data_type=port, data_count=0,
+    #         parameter1=SID (0xffffffff), parameter2=CID
+    header = struct.pack(
         ">HHHHII",
         CA_PROTO_SEARCH,  # command
-        0,                # payload size
-        port,             # server port (in data_type field)
+        8,                # payload size (8 bytes of IP address)
+        port,             # server TCP port (in data_type field)
         0,                # data_count = 0
-        sid,              # SID (0xffffffff = use UDP source addr)
+        0xffffffff,       # SID (0xffffffff = use address from payload)
         search_id,        # CID (must match request)
     )
+    # Payload: 4 bytes IP address + 4 bytes padding
+    # 127.0.0.1 = 0x7f000001
+    payload = struct.pack(">II", 0x7f000001, 0)
+    return header + payload
 
 
 def _build_version_response() -> bytes:
