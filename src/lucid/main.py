@@ -207,21 +207,26 @@ def _setup_ca_tunnel() -> None:
     if service.start(gateway=gateway):
         logger.info("CA tunnel active: gateway={}", gateway)
 
-        # Increase caproto's default connection timeout for tunneled connections.
-        # caproto.threading.pyepics_compat.PV defaults to 1s which is too
-        # tight for SSH-tunneled connections.
+        # Increase connection timeout for tunneled connections.
+        # ophyd passes timeout=1.0 to caproto's PV.wait_for_connection,
+        # which is too tight for SSH-tunneled connections. Patch to
+        # enforce a minimum of 10s.
+        _tunnel_min_timeout = 10.0
         try:
             from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
-            _orig_init = _CaprotoPV.__init__
+            _orig_wait = _CaprotoPV.wait_for_connection
 
-            def _patched_init(self, *args, connection_timeout=None, **kwargs):
-                if connection_timeout is None:
-                    connection_timeout = 10.0
-                _orig_init(self, *args, connection_timeout=connection_timeout, **kwargs)
+            def _patched_wait(self, timeout=None):
+                if timeout is None or timeout < _tunnel_min_timeout:
+                    timeout = _tunnel_min_timeout
+                return _orig_wait(self, timeout=timeout)
 
-            _CaprotoPV.__init__ = _patched_init
-            logger.info("Set caproto PV connection timeout to 10s for remote access")
+            _CaprotoPV.wait_for_connection = _patched_wait
+            logger.info(
+                "Patched caproto PV.wait_for_connection minimum timeout to {}s",
+                _tunnel_min_timeout,
+            )
         except Exception as e:
             logger.debug("Could not patch caproto timeout: {}", e)
     else:
