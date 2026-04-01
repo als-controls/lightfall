@@ -875,7 +875,20 @@ def main() -> int:
             target=_force_exit, daemon=True, name="shutdown-watchdog"
         ).start()
 
-        # 1. Stop CA tunnel first — kill the relay sockets so no more
+        # 1. Halt any running Bluesky plan immediately so it doesn't
+        #    try to read PVs while we're tearing down connections.
+        try:
+            import lucid.acquire.engine as _eng_mod
+
+            engine = _eng_mod._engine
+            if engine is not None and hasattr(engine, '_RE') and engine._RE is not None:
+                if engine._RE.state in ("running", "paused"):
+                    logger.info("Halting Bluesky plan for shutdown")
+                    engine._RE.halt()
+        except Exception:
+            pass
+
+        # 2. Stop CA tunnel — kill the relay sockets so no more
         #    data arrives on caproto circuits. This prevents the
         #    "cannot schedule new futures after shutdown" errors that
         #    happen when data arrives after executor.shutdown().
@@ -889,7 +902,7 @@ def main() -> int:
         except Exception:
             pass
 
-        # 2. Disconnect device catalog (ophyd devices, connection manager)
+        # 3. Disconnect device catalog (ophyd devices, connection manager)
         try:
             catalog = DeviceCatalog.get_instance()
             catalog.disconnect()
@@ -897,7 +910,7 @@ def main() -> int:
         except Exception:
             pass
 
-        # 3. Disconnect the caproto shared Context + SharedBroadcaster.
+        # 4. Disconnect the caproto shared Context + SharedBroadcaster.
         #    This closes circuit sockets and shuts down executors.
         #    wait=False so we don't block on thread joins — the watchdog
         #    handles the case where ThreadPoolExecutor.shutdown() hangs.
