@@ -388,6 +388,75 @@ class HappiBackend(DeviceBackend):
         self._configurations[device_info.id] = []
         self._maintenance[device_info.id] = []
 
+    def reconnect_failed_devices(
+        self,
+        timeout: float = 15.0,
+        callback: Any = None,
+    ) -> tuple[int, int]:
+        """Reconnect devices that failed their initial connection.
+
+        Goes back to the happi client to re-instantiate ophyd devices.
+        This works even after the initial happi_result has been consumed.
+
+        Args:
+            timeout: Per-device connection timeout in seconds.
+            callback: Optional callable(device_name, success) for progress.
+
+        Returns:
+            Tuple of (connected_count, failed_count).
+        """
+        if self._client is None:
+            logger.warning("Cannot reconnect: happi client not available")
+            return (0, 0)
+
+        connected = 0
+        failed = 0
+
+        for device in self._devices.values():
+            # Skip already connected devices
+            if device._ophyd_device is not None:
+                continue
+            if device._state and device._state.connected:
+                continue
+
+            try:
+                results = self._client.search(name=device.name)
+                if not results:
+                    failed += 1
+                    continue
+
+                obj = results[0].get()
+                obj.wait_for_connection(timeout=timeout)
+
+                if obj.connected:
+                    device._ophyd_device = obj
+                    device._state = DeviceState(
+                        device_id=device.id,
+                        status=DeviceStatus.ONLINE,
+                        connected=True,
+                    )
+                    connected += 1
+                    logger.debug("Reconnected device '{}'", device.name)
+                    if callback:
+                        callback(device.name, True)
+                else:
+                    failed += 1
+                    if callback:
+                        callback(device.name, False)
+
+            except Exception as e:
+                failed += 1
+                logger.debug("Failed to reconnect '{}': {}", device.name, e)
+                if callback:
+                    callback(device.name, False)
+
+        logger.info(
+            "Device reconnection: {} connected, {} failed",
+            connected,
+            failed,
+        )
+        return (connected, failed)
+
     # === Device CRUD ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:

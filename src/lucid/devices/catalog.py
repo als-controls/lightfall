@@ -444,6 +444,39 @@ class DeviceCatalog(QObject):
             logger.error("Failed to retry device connection: {}", e)
             return False
 
+    def reconnect_failed_devices(
+        self,
+        timeout: float = 15.0,
+        callback: Any = None,
+    ) -> tuple[int, int]:
+        """Reconnect all failed devices across all backends.
+
+        Args:
+            timeout: Per-device connection timeout in seconds.
+            callback: Optional callable(device_name, success) for progress.
+
+        Returns:
+            Tuple of (total_connected, total_failed).
+        """
+        total_connected = 0
+        total_failed = 0
+
+        for name, backend in self._backends.items():
+            if hasattr(backend, "reconnect_failed_devices"):
+                connected, failed = backend.reconnect_failed_devices(
+                    timeout=timeout, callback=callback,
+                )
+                total_connected += connected
+                total_failed += failed
+
+                # Emit signals for newly connected devices
+                if connected > 0:
+                    for device in backend.list_devices():
+                        if device._state and device._state.connected:
+                            self.device_connected.emit(str(device.id))
+
+        return (total_connected, total_failed)
+
     # === Device Access ===
 
     def get_device(self, device_id: UUID | str) -> DeviceInfo | None:

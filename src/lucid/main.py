@@ -229,6 +229,40 @@ def _setup_ca_tunnel() -> None:
             )
         except Exception as e:
             logger.debug("Could not patch caproto timeout: {}", e)
+        # Schedule exponential backoff retries for failed device connections.
+        # The tunnel may not be fully working when devices first try to connect.
+        # Retry at 2s, 4s, 8s, 16s, 32s, 64s after device setup completes.
+        def _schedule_retries():
+            from PySide6.QtCore import QTimer
+
+            delays = [2000, 4000, 8000, 16000, 32000, 64000]  # ms
+
+            def _retry():
+                from lucid.devices import DeviceCatalog
+
+                catalog = DeviceCatalog.get_instance()
+                connected, failed = catalog.reconnect_failed_devices(timeout=15.0)
+                if connected > 0:
+                    logger.info(
+                        "CA tunnel retry: {} devices reconnected, {} still failed",
+                        connected,
+                        failed,
+                    )
+                if failed == 0 or not delays:
+                    logger.info("CA tunnel retry: all reachable devices connected")
+                    return
+                # Schedule next retry
+                if delays:
+                    next_delay = delays.pop(0)
+                    QTimer.singleShot(next_delay, _retry)
+
+            if delays:
+                first_delay = delays.pop(0)
+                QTimer.singleShot(first_delay, _retry)
+
+        # Store for later — will be called after _setup_devices()
+        app_module = __import__(__name__)
+        app_module._ca_tunnel_schedule_retries = _schedule_retries
     else:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
@@ -757,6 +791,13 @@ def main() -> int:
 
     # Setup device catalog with mock backend
     _setup_devices()
+
+    # Start CA tunnel retries if tunnel is active
+    app_module = __import__(__name__)
+    _retry_fn = getattr(app_module, "_ca_tunnel_schedule_retries", None)
+    if _retry_fn:
+        _retry_fn()
+        del app_module._ca_tunnel_schedule_retries
 
     # Setup Bluesky RunEngine and plans
     _setup_bluesky(app)

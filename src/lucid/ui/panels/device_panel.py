@@ -356,6 +356,12 @@ class DevicePanel(BasePanel):
         refresh_action.triggered.connect(self._refresh)
         toolbar.addAction(refresh_action)
 
+        # Reconnect failed devices
+        reconnect_action = QAction("Reconnect", self)
+        reconnect_action.setToolTip("Retry connection for offline devices")
+        reconnect_action.triggered.connect(self._reconnect_failed)
+        toolbar.addAction(reconnect_action)
+
         toolbar.addSeparator()
 
         # Expand all
@@ -392,6 +398,34 @@ class DevicePanel(BasePanel):
         """Refresh the device model."""
         self._model.refresh()
         logger.debug("Device tree refreshed")
+
+    def _reconnect_failed(self) -> None:
+        """Retry connection for all offline devices in a background thread."""
+        from lucid.devices import DeviceCatalog
+        from lucid.utils.threads import QThreadFuture
+
+        catalog = DeviceCatalog.get_instance()
+
+        def _do_reconnect():
+            return catalog.reconnect_failed_devices(timeout=15.0)
+
+        def _on_done(result):
+            connected, failed = result
+            if connected > 0:
+                self._model.refresh()
+            logger.info(
+                "Reconnect: {} devices connected, {} still offline",
+                connected,
+                failed,
+            )
+
+        thread = QThreadFuture(
+            _do_reconnect,
+            callback_slot=_on_done,
+            name="reconnect-devices",
+        )
+        thread.start()
+        logger.info("Reconnecting offline devices...")
 
     # === Signal Handlers ===
 
