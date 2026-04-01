@@ -442,37 +442,38 @@ class HappiBackend(DeviceBackend):
     def _do_reconnect(
         self, timeout: float, callback: Any
     ) -> tuple[int, int]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         if self._client is None:
             logger.warning("Cannot reconnect: happi client not available")
             return (0, 0)
-
-        connected = 0
-        failed = 0
 
         # Track per-device failure counts
         if not hasattr(self, "_fail_counts"):
             self._fail_counts: dict[str, int] = {}
 
+        # Collect devices that need reconnection
+        to_reconnect = []
         for device in list(self._devices.values()):
-            # Skip already connected devices
             if device._ophyd_device is not None:
                 continue
             if device._state and device._state.connected:
                 continue
-
-            # Skip devices that have failed too many times
             if device.name in self._permanently_failed:
                 continue
+            to_reconnect.append(device)
 
+        if not to_reconnect:
+            return (0, 0)
+
+        def _connect_one(device: DeviceInfo) -> tuple[DeviceInfo, bool]:
+            """Try to connect a single device. Runs in thread pool."""
             try:
                 results = self._client.search(name=device.name)
                 if not results:
-                    failed += 1
-                    continue
-
+                    return (device, False)
                 obj = results[0].get()
                 obj.wait_for_connection(timeout=timeout)
-
                 if obj.connected:
                     device._ophyd_device = obj
                     device._state = DeviceState(
@@ -480,6 +481,20 @@ class HappiBackend(DeviceBackend):
                         status=DeviceStatus.ONLINE,
                         connected=True,
                     )
+                    return (device, True)
+                return (device, False)
+            except Exception:
+                return (device, False)
+
+        connected = 0
+        failed = 0
+
+        # Run connections in parallel (max 10 threads to avoid overwhelming)
+        with ThreadPoolExecutor(max_workers=10, thread_name_prefix="reconnect") as pool:
+            futures = {pool.submit(_connect_one, dev): dev for dev in to_reconnect}
+            for future in as_completed(futures):
+                device, success = future.result()
+                if success:
                     connected += 1
                     self._fail_counts.pop(device.name, None)
                     logger.debug("Reconnected device '{}'", device.name)
@@ -496,34 +511,13 @@ class HappiBackend(DeviceBackend):
                             status=DeviceStatus.OFFLINE,
                             connected=False,
                         )
-                        logger.debug(
-                            "Device '{}' failed {} times, marking offline",
-                            device.name,
-                            count,
-                        )
+                        logger.debug("Device '{}' failed {} times, marking offline", device.name, count)
                     if callback:
                         callback(device.name, False)
 
-            except Exception as e:
-                failed += 1
-                count = self._fail_counts.get(device.name, 0) + 1
-                self._fail_counts[device.name] = count
-                if count >= 3:
-                    self._permanently_failed.add(device.name)
-                    device._state = DeviceState(
-                        device_id=device.id,
-                        status=DeviceStatus.OFFLINE,
-                        connected=False,
-                    )
-                logger.debug("Failed to reconnect '{}': {}", device.name, e)
-                if callback:
-                    callback(device.name, False)
-
         logger.info(
             "Device reconnection: {} connected, {} failed, {} permanently skipped",
-            connected,
-            failed,
-            len(self._permanently_failed),
+            connected, failed, len(self._permanently_failed),
         )
         return (connected, failed)
 
