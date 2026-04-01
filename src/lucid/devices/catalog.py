@@ -309,6 +309,13 @@ class DeviceCatalog(QObject):
             if device is None:
                 return
 
+            # If the backend already set a state (e.g. CONNECTING for
+            # CA tunnel retry), respect it instead of overwriting.
+            if device._state and device._state.status == DeviceStatus.CONNECTING:
+                # Backend wants to keep retrying — don't override
+                self.device_state_changed.emit(str(result.device_id), device._state)
+                return
+
             # Update state to reflect failure
             if result.state == ConnectionState.TIMEOUT:
                 status = DeviceStatus.OFFLINE
