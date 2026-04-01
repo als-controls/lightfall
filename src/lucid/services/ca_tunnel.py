@@ -213,23 +213,17 @@ class CATunnelService:
             tcp_sock.settimeout(5.0)
             tcp_sock.connect((self._host, self._port))
 
-            # 1. Version request
-            tcp_sock.sendall(struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0))
+            # Build all messages to send at once
+            msgs = b""
 
-            # Read version response (don't consume too much — search reply
-            # may arrive in the same recv)
-            ver_resp = tcp_sock.recv(16)  # Exactly one header
-            if len(ver_resp) < 16:
-                logger.debug("CA tunnel: short version response from gateway")
-                return None
+            # 1. Version request
+            msgs += struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0)
 
             # 2. Hostname
             host = b"localhost\0"
             pad = (8 - len(host) % 8) % 8
             host_padded = host + b"\0" * pad
-            tcp_sock.sendall(
-                struct.pack(">HHHHII", 20, len(host_padded), 0, 0, 0, 0) + host_padded
-            )
+            msgs += struct.pack(">HHHHII", 20, len(host_padded), 0, 0, 0, 0) + host_padded
 
             # 3. Username
             import getpass
@@ -239,13 +233,11 @@ class CATunnelService:
                 user = b"lucid\0"
             pad = (8 - len(user) % 8) % 8
             user_padded = user + b"\0" * pad
-            tcp_sock.sendall(
-                struct.pack(">HHHHII", 21, len(user_padded), 0, 0, 0, 0) + user_padded
-            )
+            msgs += struct.pack(">HHHHII", 21, len(user_padded), 0, 0, 0, 0) + user_padded
 
-            # 4. Send all search requests
+            # 4. Search requests
             for cid, reply_flag, pv_payload in search_requests:
-                search_msg = struct.pack(
+                msgs += struct.pack(
                     ">HHHHII",
                     CA_PROTO_SEARCH,
                     len(pv_payload),
@@ -254,10 +246,12 @@ class CATunnelService:
                     cid,
                     cid,
                 ) + pv_payload
-                tcp_sock.sendall(search_msg)
 
-            # 5. Read responses (gateway may take a moment to search)
-            time.sleep(0.5)
+            # Send everything at once
+            tcp_sock.sendall(msgs)
+
+            # 5. Read all responses
+            time.sleep(1.0)
             tcp_sock.settimeout(3.0)
             all_data = b""
             try:
@@ -266,15 +260,20 @@ class CATunnelService:
                     if not chunk:
                         break
                     all_data += chunk
-                    # Don't wait too long for more data
                     tcp_sock.settimeout(0.5)
             except socket.timeout:
                 pass
 
+            logger.debug(
+                "CA tunnel: gateway returned {} bytes: {}",
+                len(all_data),
+                all_data[:64].hex() if all_data else "(empty)",
+            )
+
             # Keep the TCP connection open briefly so the gateway maintains
             # its knowledge of the search results for subsequent circuits
             def _close_later():
-                time.sleep(5.0)
+                time.sleep(10.0)
                 try:
                     tcp_sock.close()
                 except Exception:
@@ -394,8 +393,15 @@ class CATunnelService:
                 offset += 16 + psize
 
             # Send response back to caproto
-            if udp_response:
+            if len(udp_response) > 16:  # More than just the version header
+                logger.debug(
+                    "CA tunnel: sending {} bytes UDP response to {}",
+                    len(udp_response),
+                    addr,
+                )
                 try:
                     self._udp_sock.sendto(udp_response, addr)
                 except OSError as e:
                     logger.debug("CA tunnel: failed to send UDP response to {}: {}", addr, e)
+            else:
+                logger.debug("CA tunnel: no search results to relay (response was version-only)")
