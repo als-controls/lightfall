@@ -851,10 +851,40 @@ def main() -> int:
     # Show login dialog on startup
     _show_startup_login(window)
 
-    # Register cleanup for CA tunnel on exit
+    # Register cleanup on exit — order matters:
+    # 1. Disconnect devices (cancels ophyd connections, clears subscriptions)
+    # 2. Disconnect caproto shared Context (tears down circuits + threads)
+    # 3. Stop CA tunnel (closes sockets)
+    # If we stop the tunnel first, in-flight caproto commands hit dead circuits
+    # and the error-handling threads keep the process alive.
     from PySide6.QtCore import QCoreApplication
 
-    def _cleanup_ca_tunnel():
+    def _cleanup_on_exit():
+        # 1. Disconnect device catalog (ophyd devices, connection manager)
+        try:
+            catalog = DeviceCatalog.get_instance()
+            catalog.disconnect()
+            logger.debug("Device catalog disconnected during shutdown")
+        except Exception:
+            pass
+
+        # 2. Disconnect the caproto shared Context + SharedBroadcaster.
+        #    This cleanly tears down all VirtualCircuits, cancels subscriptions,
+        #    and joins background threads before we yank the tunnel out.
+        try:
+            from caproto.threading.pyepics_compat import PV as _CaprotoPV
+
+            ctx = _CaprotoPV.default_context()
+            if ctx is not None:
+                # wait=False signals threads to stop without blocking.
+                # The sockets are closed immediately, preventing new
+                # commands from arriving on the circuits.
+                ctx.disconnect(wait=False)
+                logger.debug("Caproto context disconnected during shutdown")
+        except Exception:
+            pass
+
+        # 3. Stop CA tunnel last (sockets can now close safely)
         try:
             from lucid.services.ca_tunnel import CATunnelService
 
@@ -864,7 +894,7 @@ def main() -> int:
         except Exception:
             pass
 
-    QCoreApplication.instance().aboutToQuit.connect(_cleanup_ca_tunnel)
+    QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
 
     # Run the application
     return app.run()
