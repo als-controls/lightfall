@@ -200,7 +200,7 @@ class OphydImageView(QWidget):
     """PyQtGraph-based image view for ophyd area detector devices.
 
     Displays image data from ophyd signal's array_data, polling periodically
-    to show live updates. Works with any ophyd device that has an image.array_data
+    to show live updates. Works with any ophyd device that has an image1.array_data or image.array_data
     signal, whether backed by EPICS or in-memory signals.
 
     Uses PyQtGraph's ImageView for proper image display with:
@@ -243,14 +243,23 @@ class OphydImageView(QWidget):
 
         try:
             # Get image data from ophyd device
-            if hasattr(self._device, "image") and hasattr(self._device.image, "array_data"):
-                image_data = self._device.image.array_data.get()
+            # Try common AreaDetector image plugin names
+            image_plugin = None
+            for attr in ("image1", "image"):
+                plugin = getattr(self._device, attr, None)
+                if plugin is not None and hasattr(plugin, "array_data"):
+                    image_plugin = plugin
+                    break
+
+            if image_plugin is not None:
+                image_data = image_plugin.array_data.get()
                 if image_data is not None:
                     self._display_array(image_data)
             else:
                 logger.debug(
                     f"Device {self._device.name if hasattr(self._device, 'name') else self._device} "
-                    f"missing image.array_data signal"
+                    f"missing image plugin with array_data signal "
+                    f"(tried image1, image)"
                 )
         except Exception as e:
             logger.warning(f"Failed to update image: {e}")
@@ -575,7 +584,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         """Create or update the image view for the current ophyd device.
 
         Uses OphydImageView which works with any ophyd area detector device
-        that has an image.array_data signal.
+        that has an image1.array_data or image.array_data signal.
         """
         # Remove old image view if exists
         if self._image_view is not None:
