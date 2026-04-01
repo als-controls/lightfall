@@ -209,13 +209,15 @@ def _setup_ca_tunnel() -> None:
 
         # Increase connection timeout for tunneled connections.
         # ophyd passes timeout=1.0 to caproto's PV.wait_for_connection,
-        # which is too tight for SSH-tunneled connections. Patch to
-        # enforce a minimum of 10s.
-        _tunnel_min_timeout = 10.0
+        # which is too tight for initial SSH-tunneled connections.
+        # Use 3s minimum — enough for the tunnel round-trip without
+        # making the UI sluggish for unconnected PVs.
+        _tunnel_min_timeout = 3.0
         try:
             from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
             _orig_wait = _CaprotoPV.wait_for_connection
+            _CaprotoPV._orig_wait_for_connection = _orig_wait
 
             def _patched_wait(self, timeout=None):
                 if timeout is None or timeout < _tunnel_min_timeout:
@@ -848,6 +850,21 @@ def main() -> int:
 
     # Show login dialog on startup
     _show_startup_login(window)
+
+    # Register cleanup for CA tunnel on exit
+    from PySide6.QtCore import QCoreApplication
+
+    def _cleanup_ca_tunnel():
+        try:
+            from lucid.services.ca_tunnel import CATunnelService
+
+            tunnel = CATunnelService.get_instance()
+            if tunnel.is_running:
+                tunnel.stop()
+        except Exception:
+            pass
+
+    QCoreApplication.instance().aboutToQuit.connect(_cleanup_ca_tunnel)
 
     # Run the application
     return app.run()
