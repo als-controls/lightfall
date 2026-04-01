@@ -510,11 +510,39 @@ class DeviceTreeModel(QAbstractItemModel):
             comp_names = ophyd_obj.component_names
             logger.debug("Device {} has {} components: {}", parent_item.name, len(comp_names), comp_names)
 
+            # Use already-instantiated signals when available.
+            # For uninstantiated components, use ophyd's _sig_attrs to
+            # determine the type without triggering connection.
+            sig_attrs = getattr(ophyd_obj, "_sig_attrs", {})
+
             for comp_name in comp_names:
-                logger.debug("Accessing component: {}.{}", parent_item.name, comp_name)
                 try:
-                    comp = getattr(ophyd_obj, comp_name)
-                    logger.debug("Got component: {}.{}", parent_item.name, comp_name)
+                    # Check if already instantiated (no connection attempt)
+                    if comp_name in getattr(ophyd_obj, "_signals", {}):
+                        comp = ophyd_obj._signals[comp_name]
+                    else:
+                        # Not instantiated yet — create a placeholder tree
+                        # node. Accessing via getattr would trigger
+                        # wait_for_connection and block the UI.
+                        is_sub_device = False
+                        cpt = sig_attrs.get(comp_name)
+                        if cpt is not None:
+                            try:
+                                from ophyd import Device
+
+                                is_sub_device = issubclass(cpt.cls, Device)
+                            except (TypeError, ImportError):
+                                pass
+
+                        node_type = NodeType.DEVICE if is_sub_device else NodeType.SIGNAL
+                        child_item = DeviceTreeItem(
+                            name=comp_name,
+                            node_type=node_type,
+                            parent=parent_item,
+                            ophyd_obj=None,  # Not connected yet
+                        )
+                        parent_item.append_child(child_item)
+                        continue
                 except Exception as e:
                     logger.debug("Failed to get component {}.{}: {}", parent_item.name, comp_name, e)
                     continue
