@@ -213,29 +213,19 @@ class CATunnelService:
             tcp_sock.settimeout(5.0)
             tcp_sock.connect((self._host, self._port))
 
-            # 1. Version handshake first (must complete before search)
-            tcp_sock.sendall(struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0))
-            tcp_sock.settimeout(3.0)
-            ver_data = b""
-            while len(ver_data) < 16:
-                chunk = tcp_sock.recv(16 - len(ver_data))
-                if not chunk:
-                    break
-                ver_data += chunk
-            if len(ver_data) < 16:
-                logger.debug("CA tunnel: no version response from gateway")
-                return None
-
-            # 2. Now send host + user + search
+            # Build complete message sequence
             msgs = b""
 
-            # Hostname
+            # 1. Version
+            msgs += struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0)
+
+            # 2. Hostname
             host = b"localhost\0"
             pad = (8 - len(host) % 8) % 8
             host_padded = host + b"\0" * pad
             msgs += struct.pack(">HHHHII", 20, len(host_padded), 0, 0, 0, 0) + host_padded
 
-            # Username
+            # 3. Username
             import getpass
             try:
                 user = getpass.getuser().encode() + b"\0"
@@ -245,7 +235,7 @@ class CATunnelService:
             user_padded = user + b"\0" * pad
             msgs += struct.pack(">HHHHII", 21, len(user_padded), 0, 0, 0, 0) + user_padded
 
-            # Search requests
+            # 4. Search requests
             for cid, reply_flag, pv_payload in search_requests:
                 msgs += struct.pack(
                     ">HHHHII",
@@ -257,18 +247,25 @@ class CATunnelService:
                     cid,
                 ) + pv_payload
 
+            # Send everything, then read everything
             tcp_sock.sendall(msgs)
 
-            # 3. Read search responses
+            # Read all responses — version + search replies arrive together
+            # First read: wait up to 5s for first data
             tcp_sock.settimeout(5.0)
             all_data = b""
             try:
+                chunk = tcp_sock.recv(65536)
+                if chunk:
+                    all_data += chunk
+                # Quick follow-up reads for any remaining data
+                tcp_sock.settimeout(1.0)
                 while True:
                     chunk = tcp_sock.recv(65536)
                     if not chunk:
                         break
                     all_data += chunk
-                    tcp_sock.settimeout(1.0)
+                    tcp_sock.settimeout(0.5)
             except socket.timeout:
                 pass
 
