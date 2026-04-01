@@ -216,8 +216,9 @@ class CATunnelService:
             # 1. Version request
             tcp_sock.sendall(struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0))
 
-            # Read version response
-            ver_resp = tcp_sock.recv(4096)
+            # Read version response (don't consume too much — search reply
+            # may arrive in the same recv)
+            ver_resp = tcp_sock.recv(16)  # Exactly one header
             if len(ver_resp) < 16:
                 logger.debug("CA tunnel: short version response from gateway")
                 return None
