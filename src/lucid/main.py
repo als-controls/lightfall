@@ -235,13 +235,18 @@ def _setup_ca_tunnel() -> None:
         def _schedule_retries():
             from PySide6.QtCore import QTimer
 
+            from lucid.utils.threads import QThreadFuture
+
             delays = [2000, 4000, 8000, 16000, 32000, 64000]  # ms
 
-            def _retry():
+            def _do_reconnect():
                 from lucid.devices import DeviceCatalog
 
                 catalog = DeviceCatalog.get_instance()
-                connected, failed = catalog.reconnect_failed_devices(timeout=15.0)
+                return catalog.reconnect_failed_devices(timeout=15.0)
+
+            def _on_done(result):
+                connected, failed = result
                 if connected > 0:
                     logger.info(
                         "CA tunnel retry: {} devices reconnected, {} still failed",
@@ -254,11 +259,19 @@ def _setup_ca_tunnel() -> None:
                 # Schedule next retry
                 if delays:
                     next_delay = delays.pop(0)
-                    QTimer.singleShot(next_delay, _retry)
+                    QTimer.singleShot(next_delay, _start_retry)
+
+            def _start_retry():
+                thread = QThreadFuture(
+                    _do_reconnect,
+                    callback_slot=_on_done,
+                    name="ca-tunnel-retry",
+                )
+                thread.start()
 
             if delays:
                 first_delay = delays.pop(0)
-                QTimer.singleShot(first_delay, _retry)
+                QTimer.singleShot(first_delay, _start_retry)
 
         # Store for later — will be called after _setup_devices()
         app_module = __import__(__name__)
