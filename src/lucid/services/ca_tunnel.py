@@ -253,22 +253,26 @@ class CATunnelService:
             # Send everything, then read everything
             tcp_sock.sendall(msgs)
 
-            # Read all responses — version + search replies arrive together
-            # First read: wait up to 5s for first data
-            tcp_sock.settimeout(5.0)
+            # Read all responses. The gateway does real CA searches on the
+            # beamline network — remote IOCs can take seconds to respond.
+            # We need to wait long enough for the slowest IOC in the batch.
+            # Strategy: wait up to 5s for first data, then keep reading
+            # with a 2s inactivity timeout (no new data for 2s = done).
+            num_searches = len(search_requests)
+            initial_timeout = min(5.0 + num_searches * 0.1, 10.0)
+            tcp_sock.settimeout(initial_timeout)
             all_data = b""
             try:
                 chunk = tcp_sock.recv(65536)
                 if chunk:
                     all_data += chunk
-                # Quick follow-up reads for any remaining data
-                tcp_sock.settimeout(1.0)
+                # Keep reading until 2s of silence
+                tcp_sock.settimeout(2.0)
                 while True:
                     chunk = tcp_sock.recv(65536)
                     if not chunk:
                         break
                     all_data += chunk
-                    tcp_sock.settimeout(0.5)
             except socket.timeout:
                 pass
 
