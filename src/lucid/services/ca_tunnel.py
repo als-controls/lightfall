@@ -1,26 +1,31 @@
-"""Local CA search responder for remote EPICS access through SSH tunnels.
+"""CA search relay for remote EPICS access through SSH tunnels.
 
 When LUCID connects to a remote CA Gateway via SSH tunnel, CA clients
-need UDP for PV name search — but SSH only tunnels TCP. This service
-runs a local UDP responder that answers all CA search requests with
-"connect to localhost:<port> via TCP", directing the CA client through
-the SSH tunnel to the real CA Gateway.
+(caproto) need UDP for PV name search — but SSH only tunnels TCP. This
+service relays UDP CA search requests to the gateway over TCP, then
+sends the gateway's response back as UDP.
 
-The flow:
-    [caproto/ophyd] --UDP search--> [CATunnelService] --"connect to localhost:5099"-->
-    [caproto/ophyd] --TCP connect--> [SSH tunnel] --TCP--> [CA Gateway] --CA--> [IOCs]
+The key insight: the CA Gateway accepts search requests over TCP (on its
+main server port). After a TCP search, the gateway knows about the PV
+and will accept CreateChan requests on new TCP connections. We relay
+the search over TCP so the gateway is primed, then tell caproto to
+connect to the gateway's TCP port.
+
+Flow:
+    1. caproto sends UDP search for "PV:NAME" to localhost:5099
+    2. CATunnelService receives it, opens TCP to localhost:5099 (SSH tunnel)
+    3. Sends version + search over TCP to the gateway
+    4. Gateway does real CA search on beamline network, responds
+    5. CATunnelService sends search response back to caproto as UDP
+    6. caproto opens TCP to localhost:5099 for the circuit
+    7. Gateway already knows about PV → CreateChan succeeds
 
 Usage:
-    The tunnel is configured via LUCID preferences:
+    Preferences:
         - ca_tunnel_enabled: bool (default False)
         - ca_tunnel_gateway: str (default "localhost:5099")
 
-    When enabled, the service:
-        1. Binds a local UDP socket on the gateway port
-        2. Responds to all CA search requests with the gateway address
-        3. Sets EPICS_CA_AUTO_ADDR_LIST=NO and EPICS_CA_ADDR_LIST=localhost:<port>
-
-    This must be started BEFORE any EPICS/ophyd initialization.
+    Must be started BEFORE any EPICS/ophyd initialization.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import os
 import socket
 import struct
 import threading
+import time
 from typing import ClassVar
 
 from lucid.utils.logging import logger
@@ -36,13 +42,15 @@ from lucid.utils.logging import logger
 # CA protocol constants
 CA_PROTO_SEARCH = 6
 CA_PROTO_VERSION = 0
+CA_PROTO_NOT_FOUND = 14
 CA_VERSION = 13
 
 
-def _parse_search_requests(data: bytes) -> list[tuple[int, int, str]]:
+def _parse_search_requests(data: bytes) -> list[tuple[int, int, bytes]]:
     """Parse CA search request messages from a UDP packet.
 
-    Returns list of (search_id, reply_flag, pv_name) tuples.
+    Returns list of (cid, reply_flag, pv_payload) tuples.
+    pv_payload includes the PV name with padding, ready to re-send.
     """
     results = []
     offset = 0
@@ -54,66 +62,25 @@ def _parse_search_requests(data: bytes) -> list[tuple[int, int, str]]:
             payload_start = offset + 16
             payload_end = payload_start + payload_size
             if payload_end <= len(data):
-                pv_bytes = data[payload_start:payload_end]
-                pv_name = pv_bytes.split(b"\0")[0].decode("ascii", errors="ignore")
-                if pv_name:
-                    # p1 is the search ID (CID), dtype is reply flag
-                    results.append((p1, dtype, pv_name))
+                pv_payload = data[payload_start:payload_end]
+                pv_name = pv_payload.split(b"\0")[0].decode("ascii", errors="ignore")
+                results.append((p1, dtype, pv_payload))
+                logger.debug("CA tunnel: search for '{}' -> relay via TCP", pv_name)
         offset += 16 + payload_size
     return results
 
 
-def _build_search_response(search_id: int, port: int) -> bytes:
-    """Build a CA search response message.
-
-    Tells the client: "I have this PV, connect to me on TCP at port <port>."
-
-    The CA spec (and caproto) expects payload_size=8 with an 8-byte payload
-    containing the server's IP address as a big-endian uint32 (padded to 8).
-    We use 127.0.0.1 (0x7f000001) so caproto connects to localhost.
-
-    Args:
-        search_id: The CID from the search request.
-        port: TCP port to connect to (the tunneled gateway port).
-    """
-    # Header: command=6, payload_size=8, data_type=port, data_count=0,
-    #         parameter1=SID (0xffffffff), parameter2=CID
-    header = struct.pack(
-        ">HHHHII",
-        CA_PROTO_SEARCH,  # command
-        8,                # payload size (8 bytes of IP address)
-        port,             # server TCP port (in data_type field)
-        0,                # data_count = 0
-        0xffffffff,       # SID (0xffffffff = use address from payload)
-        search_id,        # CID (must match request)
-    )
-    # Payload: 4 bytes IP address + 4 bytes padding
-    # 127.0.0.1 = 0x7f000001
-    payload = struct.pack(">II", 0x7f000001, 0)
-    return header + payload
-
-
-def _build_version_response() -> bytes:
-    """Build a CA version response message."""
-    return struct.pack(
-        ">HHHHII",
-        CA_PROTO_VERSION,  # command
-        0,                 # payload size
-        0,                 # unused
-        CA_VERSION,        # version
-        0,                 # unused
-        0,                 # unused
-    )
-
-
 class CATunnelService:
-    """Singleton service that responds to local CA searches, directing
-    TCP connections through an SSH tunnel to a remote CA Gateway.
+    """Singleton service that relays CA UDP searches to the gateway via TCP.
 
-    Instead of forwarding packets, this acts as a fake CA search
-    responder — it tells caproto/ophyd "yes, I have that PV, connect
-    to localhost:<port> via TCP." The TCP connection then goes through
-    the SSH tunnel to the real CA Gateway.
+    When caproto sends a UDP search, this service:
+    1. Opens a TCP connection to the gateway (through SSH tunnel)
+    2. Sends version + host + user + search request
+    3. Reads the search response
+    4. Sends it back to caproto as UDP
+
+    This primes the gateway with knowledge of the PV, so when caproto
+    subsequently opens a TCP circuit to CreateChan, the gateway accepts it.
     """
 
     _instance: ClassVar[CATunnelService | None] = None
@@ -146,11 +113,10 @@ class CATunnelService:
         return self._running
 
     def start(self, gateway: str = "localhost:5099") -> bool:
-        """Start the CA search responder.
+        """Start the CA search relay.
 
         Args:
-            gateway: The CA Gateway address as host:port. The SSH tunnel
-                should forward this port to the remote gateway.
+            gateway: The CA Gateway address as host:port.
 
         Returns:
             True if started successfully, False on error.
@@ -203,17 +169,14 @@ class CATunnelService:
         self._thread.start()
 
         logger.info(
-            "CA tunnel started: answering UDP searches on {}:{}, "
-            "directing TCP to {}:{} (via SSH tunnel)",
-            self._host,
-            self._port,
+            "CA tunnel started: relaying UDP searches on {}:{} via TCP",
             self._host,
             self._port,
         )
         return True
 
     def stop(self) -> None:
-        """Stop the responder."""
+        """Stop the relay."""
         if not self._running:
             return
 
@@ -232,11 +195,145 @@ class CATunnelService:
 
         logger.info("CA tunnel stopped")
 
-    def _run_responder(self) -> None:
-        """Main responder loop (runs in background thread).
+    def _relay_search_via_tcp(self, search_requests: list[tuple[int, int, bytes]]) -> bytes | None:
+        """Relay search requests to the gateway via TCP.
 
-        Listens for UDP CA search requests and responds with
-        "connect to localhost:<port>" for every PV requested.
+        Opens a TCP connection, sends version + hostname + username + search
+        requests, reads back the responses, and returns them.
+
+        Args:
+            search_requests: List of (cid, reply_flag, pv_payload) tuples.
+
+        Returns:
+            Raw bytes of gateway's response, or None on failure.
+        """
+        tcp_sock = None
+        try:
+            tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            tcp_sock.settimeout(5.0)
+            tcp_sock.connect((self._host, self._port))
+
+            # 1. Version request
+            tcp_sock.sendall(struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0))
+
+            # Read version response
+            ver_resp = tcp_sock.recv(4096)
+            if len(ver_resp) < 16:
+                logger.debug("CA tunnel: short version response from gateway")
+                return None
+
+            # 2. Hostname
+            host = b"localhost\0"
+            pad = (8 - len(host) % 8) % 8
+            host_padded = host + b"\0" * pad
+            tcp_sock.sendall(
+                struct.pack(">HHHHII", 20, len(host_padded), 0, 0, 0, 0) + host_padded
+            )
+
+            # 3. Username
+            import getpass
+            try:
+                user = getpass.getuser().encode() + b"\0"
+            except Exception:
+                user = b"lucid\0"
+            pad = (8 - len(user) % 8) % 8
+            user_padded = user + b"\0" * pad
+            tcp_sock.sendall(
+                struct.pack(">HHHHII", 21, len(user_padded), 0, 0, 0, 0) + user_padded
+            )
+
+            # 4. Send all search requests
+            for cid, reply_flag, pv_payload in search_requests:
+                search_msg = struct.pack(
+                    ">HHHHII",
+                    CA_PROTO_SEARCH,
+                    len(pv_payload),
+                    reply_flag,
+                    CA_VERSION,
+                    cid,
+                    cid,
+                ) + pv_payload
+                tcp_sock.sendall(search_msg)
+
+            # 5. Read responses (gateway may take a moment to search)
+            time.sleep(0.5)
+            tcp_sock.settimeout(3.0)
+            all_data = b""
+            try:
+                while True:
+                    chunk = tcp_sock.recv(65536)
+                    if not chunk:
+                        break
+                    all_data += chunk
+                    # Don't wait too long for more data
+                    tcp_sock.settimeout(0.5)
+            except socket.timeout:
+                pass
+
+            # Keep the TCP connection open briefly so the gateway maintains
+            # its knowledge of the search results for subsequent circuits
+            def _close_later():
+                time.sleep(5.0)
+                try:
+                    tcp_sock.close()
+                except Exception:
+                    pass
+
+            closer = threading.Thread(target=_close_later, daemon=True)
+            closer.start()
+
+            return all_data if all_data else None
+
+        except (ConnectionRefusedError, ConnectionResetError, socket.timeout) as e:
+            logger.debug("CA tunnel TCP relay failed: {}", e)
+            if tcp_sock:
+                try:
+                    tcp_sock.close()
+                except Exception:
+                    pass
+            return None
+        except OSError as e:
+            logger.debug("CA tunnel TCP relay error: {}", e)
+            if tcp_sock:
+                try:
+                    tcp_sock.close()
+                except Exception:
+                    pass
+            return None
+
+    def _build_search_response_for_udp(self, cid: int) -> bytes:
+        """Build a CA search response directing caproto to connect via TCP.
+
+        The gateway's TCP search response has port=0 meaning "use this
+        connection." But caproto will open a NEW TCP connection for the
+        circuit. We need to tell it the gateway's port explicitly.
+
+        Args:
+            cid: The client's search ID.
+
+        Returns:
+            Raw bytes for a UDP search response.
+        """
+        # Header: cmd=6, payload=8, data_type=port, data_count=0,
+        #         p1=SID(0xffffffff), p2=CID
+        header = struct.pack(
+            ">HHHHII",
+            CA_PROTO_SEARCH,
+            8,              # payload size
+            self._port,     # server TCP port
+            0,              # data_count
+            0xffffffff,     # SID = use address from payload
+            cid,            # CID
+        )
+        # Payload: 127.0.0.1 + padding
+        payload = struct.pack(">II", 0x7f000001, 0)
+        return header + payload
+
+    def _run_responder(self) -> None:
+        """Main relay loop (runs in background thread).
+
+        Listens for UDP CA search requests, relays them to the gateway
+        via TCP, then sends the gateway's response back as UDP.
         """
         while self._running and self._udp_sock is not None:
             try:
@@ -254,17 +351,50 @@ class CATunnelService:
             # Parse search requests
             searches = _parse_search_requests(data)
             if not searches:
-                # Might be a version message or repeater registration — ignore
                 continue
 
-            # Build response: version + search replies
-            response = _build_version_response()
-            for search_id, reply_flag, pv_name in searches:
-                response += _build_search_response(search_id, self._port)
-                logger.debug("CA tunnel: search for '{}' -> localhost:{}", pv_name, self._port)
+            # Relay searches to gateway via TCP
+            gateway_response = self._relay_search_via_tcp(searches)
 
-            # Send response back to the requesting client
-            try:
-                self._udp_sock.sendto(response, addr)
-            except OSError as e:
-                logger.debug("CA tunnel: failed to send response to {}: {}", addr, e)
+            if gateway_response is None:
+                # Gateway unreachable or no response
+                continue
+
+            # Parse gateway TCP response and build UDP responses
+            # The gateway may respond with search replies (cmd=6) or
+            # not-found (cmd=14). We need to rewrite port=0 responses
+            # to include the actual gateway port.
+            udp_response = b""
+
+            # Add version response first
+            udp_response += struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0)
+
+            offset = 0
+            while offset + 16 <= len(gateway_response):
+                cmd, psize, dtype, dcount, p1, p2 = struct.unpack_from(
+                    ">HHHHII", gateway_response, offset
+                )
+
+                if cmd == CA_PROTO_SEARCH:
+                    # Gateway found the PV — rewrite with our port and IP
+                    cid = p2
+                    udp_response += self._build_search_response_for_udp(cid)
+                    logger.debug("CA tunnel: PV found (CID={}), directing to localhost:{}", cid, self._port)
+                elif cmd == CA_PROTO_NOT_FOUND:
+                    # PV not found — forward as-is
+                    udp_response += gateway_response[offset:offset + 16 + psize]
+                elif cmd == CA_PROTO_VERSION:
+                    # Skip version responses (we already added one)
+                    pass
+                else:
+                    # Forward other messages as-is
+                    udp_response += gateway_response[offset:offset + 16 + psize]
+
+                offset += 16 + psize
+
+            # Send response back to caproto
+            if udp_response:
+                try:
+                    self._udp_sock.sendto(udp_response, addr)
+                except OSError as e:
+                    logger.debug("CA tunnel: failed to send UDP response to {}: {}", addr, e)
