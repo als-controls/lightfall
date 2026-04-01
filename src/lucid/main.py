@@ -852,11 +852,11 @@ def main() -> int:
     _show_startup_login(window)
 
     # Register cleanup on exit — order matters:
-    # 1. Disconnect devices (cancels ophyd connections, clears subscriptions)
-    # 2. Disconnect caproto shared Context (tears down circuits + threads)
-    # 3. Stop CA tunnel (closes sockets)
-    # If we stop the tunnel first, in-flight caproto commands hit dead circuits
-    # and the error-handling threads keep the process alive.
+    # 1. Stop CA tunnel (kills relay sockets, stops new data arriving)
+    # 2. Disconnect devices (cancels ophyd connections)
+    # 3. Disconnect caproto Context (tears down circuits + threads)
+    # The watchdog ensures we exit within 5s even if caproto blocks.
+    import threading as _threading
     from PySide6.QtCore import QCoreApplication
 
     def _cleanup_on_exit():
@@ -864,17 +864,32 @@ def main() -> int:
         # than 5 seconds (e.g. caproto ThreadPoolExecutor.shutdown()
         # blocks waiting for callbacks), force-terminate the process.
         import os
+        import time as _time
 
         def _force_exit():
-            import time
-            time.sleep(5)
+            _time.sleep(5)
             logger.warning("Shutdown taking too long, forcing exit")
             os._exit(0)
 
-        watchdog = threading.Thread(target=_force_exit, daemon=True, name="shutdown-watchdog")
-        watchdog.start()
+        _threading.Thread(
+            target=_force_exit, daemon=True, name="shutdown-watchdog"
+        ).start()
 
-        # 1. Disconnect device catalog (ophyd devices, connection manager)
+        # 1. Stop CA tunnel first — kill the relay sockets so no more
+        #    data arrives on caproto circuits. This prevents the
+        #    "cannot schedule new futures after shutdown" errors that
+        #    happen when data arrives after executor.shutdown().
+        try:
+            from lucid.services.ca_tunnel import CATunnelService
+
+            tunnel = CATunnelService.get_instance()
+            if tunnel.is_running:
+                tunnel.stop()
+                logger.debug("CA tunnel stopped during shutdown")
+        except Exception:
+            pass
+
+        # 2. Disconnect device catalog (ophyd devices, connection manager)
         try:
             catalog = DeviceCatalog.get_instance()
             catalog.disconnect()
@@ -882,12 +897,10 @@ def main() -> int:
         except Exception:
             pass
 
-        # 2. Disconnect the caproto shared Context + SharedBroadcaster.
-        #    This closes all circuit sockets and signals threads to stop.
-        #    We use wait=False because circuit.disconnect() internally calls
-        #    ThreadPoolExecutor.shutdown(wait=True) which can block if
-        #    user callbacks are stuck (e.g. trying to emit Qt signals
-        #    after the event loop stops).
+        # 3. Disconnect the caproto shared Context + SharedBroadcaster.
+        #    This closes circuit sockets and shuts down executors.
+        #    wait=False so we don't block on thread joins — the watchdog
+        #    handles the case where ThreadPoolExecutor.shutdown() hangs.
         try:
             from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
@@ -895,16 +908,6 @@ def main() -> int:
             if ctx is not None:
                 ctx.disconnect(wait=False)
                 logger.debug("Caproto context disconnected during shutdown")
-        except Exception:
-            pass
-
-        # 3. Stop CA tunnel last (sockets can now close safely)
-        try:
-            from lucid.services.ca_tunnel import CATunnelService
-
-            tunnel = CATunnelService.get_instance()
-            if tunnel.is_running:
-                tunnel.stop()
         except Exception:
             pass
 
