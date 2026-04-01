@@ -9,6 +9,7 @@ See: https://github.com/pcdshub/happi
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -388,15 +389,21 @@ class HappiBackend(DeviceBackend):
         self._configurations[device_info.id] = []
         self._maintenance[device_info.id] = []
 
+    _reconnect_lock = threading.Lock()
+    _permanently_failed: set[str] = set()  # Device names that failed 3+ times
+
     def reconnect_failed_devices(
         self,
-        timeout: float = 15.0,
+        timeout: float = 5.0,
         callback: Any = None,
     ) -> tuple[int, int]:
         """Reconnect devices that failed their initial connection.
 
         Goes back to the happi client to re-instantiate ophyd devices.
         This works even after the initial happi_result has been consumed.
+
+        Uses a lock to prevent concurrent reconnection attempts.
+        Tracks devices that consistently fail and skips them.
 
         Args:
             timeout: Per-device connection timeout in seconds.
@@ -405,6 +412,18 @@ class HappiBackend(DeviceBackend):
         Returns:
             Tuple of (connected_count, failed_count).
         """
+        if not self._reconnect_lock.acquire(blocking=False):
+            logger.debug("Reconnect already in progress, skipping")
+            return (0, 0)
+
+        try:
+            return self._do_reconnect(timeout, callback)
+        finally:
+            self._reconnect_lock.release()
+
+    def _do_reconnect(
+        self, timeout: float, callback: Any
+    ) -> tuple[int, int]:
         if self._client is None:
             logger.warning("Cannot reconnect: happi client not available")
             return (0, 0)
@@ -412,11 +431,19 @@ class HappiBackend(DeviceBackend):
         connected = 0
         failed = 0
 
-        for device in self._devices.values():
+        # Track per-device failure counts
+        if not hasattr(self, "_fail_counts"):
+            self._fail_counts: dict[str, int] = {}
+
+        for device in list(self._devices.values()):
             # Skip already connected devices
             if device._ophyd_device is not None:
                 continue
             if device._state and device._state.connected:
+                continue
+
+            # Skip devices that have failed too many times
+            if device.name in self._permanently_failed:
                 continue
 
             try:
@@ -436,26 +463,48 @@ class HappiBackend(DeviceBackend):
                         connected=True,
                     )
                     connected += 1
+                    self._fail_counts.pop(device.name, None)
                     logger.debug("Reconnected device '{}'", device.name)
                     if callback:
                         callback(device.name, True)
                 else:
                     failed += 1
+                    count = self._fail_counts.get(device.name, 0) + 1
+                    self._fail_counts[device.name] = count
+                    if count >= 3:
+                        self._permanently_failed.add(device.name)
+                        logger.debug(
+                            "Device '{}' failed {} times, skipping future retries",
+                            device.name,
+                            count,
+                        )
                     if callback:
                         callback(device.name, False)
 
             except Exception as e:
                 failed += 1
+                count = self._fail_counts.get(device.name, 0) + 1
+                self._fail_counts[device.name] = count
+                if count >= 3:
+                    self._permanently_failed.add(device.name)
                 logger.debug("Failed to reconnect '{}': {}", device.name, e)
                 if callback:
                     callback(device.name, False)
 
         logger.info(
-            "Device reconnection: {} connected, {} failed",
+            "Device reconnection: {} connected, {} failed, {} permanently skipped",
             connected,
             failed,
+            len(self._permanently_failed),
         )
         return (connected, failed)
+
+    def reset_failed_devices(self) -> None:
+        """Clear the permanently failed device list, allowing retries."""
+        self._permanently_failed.clear()
+        if hasattr(self, "_fail_counts"):
+            self._fail_counts.clear()
+        logger.info("Reset failed device tracking")
 
     # === Device CRUD ===
 

@@ -243,7 +243,7 @@ def _setup_ca_tunnel() -> None:
                 from lucid.devices import DeviceCatalog
 
                 catalog = DeviceCatalog.get_instance()
-                return catalog.reconnect_failed_devices(timeout=15.0)
+                return catalog.reconnect_failed_devices(timeout=5.0)
 
             def _on_done(result):
                 connected, failed = result

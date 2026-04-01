@@ -406,8 +406,13 @@ class DevicePanel(BasePanel):
 
         catalog = DeviceCatalog.get_instance()
 
+        # Reset permanently failed tracking so manual reconnect retries everything
+        for backend in catalog.backends.values():
+            if hasattr(backend, "reset_failed_devices"):
+                backend.reset_failed_devices()
+
         def _do_reconnect():
-            return catalog.reconnect_failed_devices(timeout=15.0)
+            return catalog.reconnect_failed_devices(timeout=5.0)
 
         def _on_done(result):
             connected, failed = result
