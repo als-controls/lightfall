@@ -254,7 +254,7 @@ class OphydImageView(QWidget):
             if image_plugin is not None:
                 image_data = image_plugin.array_data.get()
                 if image_data is not None:
-                    self._display_array(image_data)
+                    self._display_array(image_data, image_plugin)
             else:
                 logger.debug(
                     f"Device {self._device.name if hasattr(self._device, 'name') else self._device} "
@@ -264,8 +264,13 @@ class OphydImageView(QWidget):
         except Exception as e:
             logger.warning(f"Failed to update image: {e}")
 
-    def _display_array(self, array) -> None:
-        """Display a numpy array as an image."""
+    def _display_array(self, array, image_plugin=None) -> None:
+        """Display a numpy array as an image.
+
+        If the array is 1-D (flattened by the IOC), reshape it using
+        dimensions from the image plugin (width/height) or the parent
+        cam (array_size_x/array_size_y).
+        """
         try:
             import numpy as np
 
@@ -275,7 +280,19 @@ class OphydImageView(QWidget):
             # Handle arrays with singleton dimensions (e.g., (1, 480, 640))
             arr = np.squeeze(array)
 
-            # Ensure 2D array after squeezing
+            # If still 1-D, try to reshape using plugin or cam dimensions
+            if arr.ndim == 1:
+                width, height = self._get_image_dimensions(image_plugin)
+                if width and height and width * height == arr.size:
+                    arr = arr.reshape((height, width))
+                else:
+                    logger.debug(
+                        f"Cannot reshape 1-D array (size={arr.size}) "
+                        f"with dimensions {width}x{height}"
+                    )
+                    return
+
+            # Ensure 2D array after squeezing/reshaping
             if arr.ndim != 2:
                 logger.debug(f"Cannot display array with shape {arr.shape}")
                 return
@@ -284,6 +301,40 @@ class OphydImageView(QWidget):
 
         except Exception as e:
             logger.debug(f"Failed to display array: {e}")
+
+    def _get_image_dimensions(self, image_plugin=None):
+        """Get image width and height from the plugin or cam.
+
+        Tries (in order):
+        1. image plugin's own width/height (ArraySize0_RBV, ArraySize1_RBV)
+        2. parent cam's array_size_x / array_size_y
+        Returns (width, height) or (None, None) on failure.
+        """
+        try:
+            # Try image plugin dimensions first (most accurate post-processing shape)
+            if image_plugin is not None:
+                w = getattr(image_plugin, "width", None)
+                h = getattr(image_plugin, "height", None)
+                if w is not None and h is not None:
+                    width, height = int(w.get()), int(h.get())
+                    if width > 0 and height > 0:
+                        return width, height
+
+            # Fall back to cam dimensions
+            cam = getattr(self._device, "cam", None)
+            if cam is not None:
+                size = getattr(cam, "array_size", None)
+                if size is not None:
+                    dims = size.get()
+                    if hasattr(dims, "array_size_x") and hasattr(dims, "array_size_y"):
+                        width = int(dims.array_size_x)
+                        height = int(dims.array_size_y)
+                        if width > 0 and height > 0:
+                            return width, height
+        except Exception as e:
+            logger.debug(f"Failed to get image dimensions: {e}")
+
+        return None, None
 
     def close(self) -> None:
         """Stop updates and clean up."""
