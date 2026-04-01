@@ -860,6 +860,20 @@ def main() -> int:
     from PySide6.QtCore import QCoreApplication
 
     def _cleanup_on_exit():
+        # Schedule a hard exit as a safety net. If cleanup takes more
+        # than 5 seconds (e.g. caproto ThreadPoolExecutor.shutdown()
+        # blocks waiting for callbacks), force-terminate the process.
+        import os
+
+        def _force_exit():
+            import time
+            time.sleep(5)
+            logger.warning("Shutdown taking too long, forcing exit")
+            os._exit(0)
+
+        watchdog = threading.Thread(target=_force_exit, daemon=True, name="shutdown-watchdog")
+        watchdog.start()
+
         # 1. Disconnect device catalog (ophyd devices, connection manager)
         try:
             catalog = DeviceCatalog.get_instance()
@@ -869,16 +883,16 @@ def main() -> int:
             pass
 
         # 2. Disconnect the caproto shared Context + SharedBroadcaster.
-        #    This cleanly tears down all VirtualCircuits, cancels subscriptions,
-        #    and joins background threads before we yank the tunnel out.
+        #    This closes all circuit sockets and signals threads to stop.
+        #    We use wait=False because circuit.disconnect() internally calls
+        #    ThreadPoolExecutor.shutdown(wait=True) which can block if
+        #    user callbacks are stuck (e.g. trying to emit Qt signals
+        #    after the event loop stops).
         try:
             from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
             ctx = _CaprotoPV.default_context()
             if ctx is not None:
-                # wait=False signals threads to stop without blocking.
-                # The sockets are closed immediately, preventing new
-                # commands from arriving on the circuits.
                 ctx.disconnect(wait=False)
                 logger.debug("Caproto context disconnected during shutdown")
         except Exception:
