@@ -261,26 +261,35 @@ class CATunnelService:
             num_searches = len(search_requests)
             tcp_sock.settimeout(3.0)
             all_data = b""
-            responses_seen = 0
+            found_count = 0
+            not_found_count = 0
             try:
-                while responses_seen < num_searches:
+                while (found_count + not_found_count) < num_searches:
                     chunk = tcp_sock.recv(65536)
                     if not chunk:
                         break
                     all_data += chunk
-                    # Count search responses (cmd=6) and not-found (cmd=14)
-                    # in the new chunk
+                    # Count responses in the new chunk
                     off = 0
                     while off + 16 <= len(chunk):
                         cmd = struct.unpack_from(">H", chunk, off)[0]
                         psize = struct.unpack_from(">H", chunk, off + 2)[0]
-                        if cmd in (CA_PROTO_SEARCH, CA_PROTO_NOT_FOUND):
-                            responses_seen += 1
+                        if cmd == CA_PROTO_SEARCH:
+                            found_count += 1
+                        elif cmd == CA_PROTO_NOT_FOUND:
+                            not_found_count += 1
                         off += 16 + psize
-                    # After first data arrives, use shorter timeout
+                    # After first data, use shorter timeout for stragglers
                     tcp_sock.settimeout(0.5)
             except socket.timeout:
                 pass
+
+            logger.debug(
+                "CA tunnel: {} found, {} not-found out of {} searched",
+                found_count,
+                not_found_count,
+                num_searches,
+            )
 
             logger.debug(
                 "CA tunnel: gateway returned {} bytes: {}",
@@ -399,8 +408,11 @@ class CATunnelService:
                     udp_response += self._build_search_response_for_udp(cid)
                     logger.debug("CA tunnel: PV found (CID={}), directing to localhost:{}", cid, self._port)
                 elif cmd == CA_PROTO_NOT_FOUND:
-                    # PV not found — forward as-is
-                    udp_response += gateway_response[offset:offset + 16 + psize]
+                    # PV not found — do NOT forward to caproto. The gateway
+                    # may not have had enough time to search. Let caproto
+                    # retry on its own schedule; the gateway may find it
+                    # on a subsequent attempt.
+                    pass
                 elif cmd == CA_PROTO_VERSION:
                     # Skip version responses (we already added one)
                     pass
