@@ -54,6 +54,8 @@ def simple_acquire(
     yield from bps.mv(detector.cam.num_images, num_images)
     yield from bps.mv(detector.cam.image_mode, 0)  # Single mode
 
+    yield from bps.open_run()
+
     if collect_dark and hasattr(detector.cam, "shutter_control"):
         yield from bps.mv(detector.cam.shutter_control, 0)
         yield from bps.sleep(0.1)
@@ -62,6 +64,8 @@ def simple_acquire(
         yield from bps.sleep(0.1)
 
     yield from bps.trigger_and_read([detector], name="primary")
+
+    yield from bps.close_run()
 
 
 # =============================================================================
