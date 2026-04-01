@@ -411,6 +411,18 @@ class DevicePanel(BasePanel):
             if hasattr(backend, "reset_failed_devices"):
                 backend.reset_failed_devices()
 
+        # Reset tunnel blacklist so searches are relayed again
+        try:
+            from lucid.services.ca_tunnel import CATunnelService
+
+            tunnel = CATunnelService.get_instance()
+            if tunnel.is_running:
+                tunnel._search_attempts.clear()
+                tunnel._blacklisted_pvs.clear()
+                logger.debug("Reset CA tunnel search blacklist")
+        except Exception:
+            pass
+
         def _do_reconnect():
             return catalog.reconnect_failed_devices(timeout=5.0)
 

@@ -92,11 +92,12 @@ class CATunnelService:
         self._udp_sock: socket.socket | None = None
         self._host = "127.0.0.1"
         self._port = 5099
-        # Track PVs that the gateway couldn't find.
-        # Key: pv_name, value: number of NOT_FOUND responses.
-        # After 3 NOT_FOUNDs, stop relaying searches for that PV.
-        self._not_found_counts: dict[str, int] = {}
+        # Track PVs that weren't found by the gateway.
+        # Key: pv_name, value: number of search attempts without a FOUND response.
+        # After N attempts, stop relaying searches for that PV.
+        self._search_attempts: dict[str, int] = {}
         self._blacklisted_pvs: set[str] = set()
+        self._MAX_SEARCH_ATTEMPTS = 5
 
     @classmethod
     def get_instance(cls) -> CATunnelService:
@@ -385,13 +386,15 @@ class CATunnelService:
             if not all_searches:
                 continue
 
-            # Build CID→PV name mapping and filter blacklisted
+            # Build CID→PV name mapping, filter blacklisted, count attempts
             searches = []
             cid_to_pv: dict[int, str] = {}
             for cid, reply_flag, pv_payload in all_searches:
                 pv_name = pv_payload.split(b"\0")[0].decode("ascii", errors="ignore")
                 if pv_name in self._blacklisted_pvs:
                     continue
+                # Increment search attempt count
+                self._search_attempts[pv_name] = self._search_attempts.get(pv_name, 0) + 1
                 searches.append((cid, reply_flag, pv_payload))
                 cid_to_pv[cid] = pv_name
 
@@ -410,6 +413,7 @@ class CATunnelService:
             # not-found (cmd=14). We need to rewrite port=0 responses
             # to include the actual gateway port.
             udp_response = b""
+            found_pvs: set[str] = set()
 
             # Add version response first
             udp_response += struct.pack(">HHHHII", 0, 0, 0, CA_VERSION, 0, 0)
@@ -424,27 +428,10 @@ class CATunnelService:
                     # Gateway found the PV — rewrite with our port and IP
                     cid = p2
                     udp_response += self._build_search_response_for_udp(cid)
-                    # Clear any not-found tracking for this PV
-                    pv_name = cid_to_pv.get(cid, "")
-                    if pv_name:
-                        self._not_found_counts.pop(pv_name, None)
-                        self._blacklisted_pvs.discard(pv_name)
+                    found_pvs.add(cid_to_pv.get(cid, ""))
                     logger.debug("CA tunnel: PV found (CID={}), directing to localhost:{}", cid, self._port)
                 elif cmd == CA_PROTO_NOT_FOUND:
-                    # Track NOT_FOUND by PV name. After 3 failures,
-                    # blacklist the PV to stop wasting gateway queries.
-                    not_found_cid = p2
-                    pv_name = cid_to_pv.get(not_found_cid, "")
-                    if pv_name:
-                        count = self._not_found_counts.get(pv_name, 0) + 1
-                        self._not_found_counts[pv_name] = count
-                        if count >= 3:
-                            self._blacklisted_pvs.add(pv_name)
-                            logger.debug(
-                                "CA tunnel: '{}' not found {} times, stopping searches",
-                                pv_name,
-                                count,
-                            )
+                    pass  # Handled below via attempt counting
                 elif cmd == CA_PROTO_VERSION:
                     # Skip version responses (we already added one)
                     pass
@@ -453,6 +440,21 @@ class CATunnelService:
                     udp_response += gateway_response[offset:offset + 16 + psize]
 
                 offset += 16 + psize
+
+            # Clear attempt counts for found PVs, blacklist persistent failures
+            for pv_name in found_pvs:
+                self._search_attempts.pop(pv_name, None)
+                self._blacklisted_pvs.discard(pv_name)
+
+            for pv_name in set(cid_to_pv.values()) - found_pvs:
+                attempts = self._search_attempts.get(pv_name, 0)
+                if attempts >= self._MAX_SEARCH_ATTEMPTS:
+                    self._blacklisted_pvs.add(pv_name)
+                    logger.info(
+                        "CA tunnel: '{}' not found after {} attempts, stopping searches",
+                        pv_name,
+                        attempts,
+                    )
 
             # Send response back to caproto
             if len(udp_response) > 16:  # More than just the version header

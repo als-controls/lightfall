@@ -476,11 +476,13 @@ class DeviceCatalog(QObject):
                 total_connected += connected
                 total_failed += failed
 
-                # Emit signals for newly connected devices
-                if connected > 0:
-                    for device in backend.list_devices():
-                        if device._state and device._state.connected:
+                # Emit signals for state changes
+                for device in backend.list_devices():
+                    if device._state:
+                        if device._state.connected:
                             self.device_connected.emit(str(device.id))
+                        elif device._state.status in (DeviceStatus.OFFLINE, DeviceStatus.ERROR):
+                            self.device_state_changed.emit(str(device.id), device._state)
 
         return (total_connected, total_failed)
 
