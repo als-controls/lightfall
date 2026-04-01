@@ -9,6 +9,7 @@ See: https://github.com/pcdshub/happi
 
 from __future__ import annotations
 
+import os
 import threading
 from datetime import datetime
 from typing import Any
@@ -285,7 +286,24 @@ class HappiBackend(DeviceBackend):
         if device is None:
             return
 
-        # Update state to reflect failure
+        # When CA tunnel is active, keep devices in CONNECTING state on
+        # first failure — the auto-retry cycle will try again. Only mark
+        # as OFFLINE after retries give up (via reconnect_failed_devices).
+        ca_tunnel_active = os.environ.get("EPICS_CA_ADDR_LIST", "") != ""
+        if ca_tunnel_active and device.name not in self._permanently_failed:
+            device._state = DeviceState(
+                device_id=device.id,
+                status=DeviceStatus.CONNECTING,
+                connected=False,
+            )
+            logger.debug(
+                "Happi device '{}' initial connection failed, will retry: {}",
+                device.name,
+                result.error,
+            )
+            return
+
+        # No tunnel or permanently failed — mark offline/error
         if result.state == ConnectionState.TIMEOUT:
             status = DeviceStatus.OFFLINE
         else:
@@ -473,8 +491,13 @@ class HappiBackend(DeviceBackend):
                     self._fail_counts[device.name] = count
                     if count >= 3:
                         self._permanently_failed.add(device.name)
+                        device._state = DeviceState(
+                            device_id=device.id,
+                            status=DeviceStatus.OFFLINE,
+                            connected=False,
+                        )
                         logger.debug(
-                            "Device '{}' failed {} times, skipping future retries",
+                            "Device '{}' failed {} times, marking offline",
                             device.name,
                             count,
                         )
@@ -487,6 +510,11 @@ class HappiBackend(DeviceBackend):
                 self._fail_counts[device.name] = count
                 if count >= 3:
                     self._permanently_failed.add(device.name)
+                    device._state = DeviceState(
+                        device_id=device.id,
+                        status=DeviceStatus.OFFLINE,
+                        connected=False,
+                    )
                 logger.debug("Failed to reconnect '{}': {}", device.name, e)
                 if callback:
                     callback(device.name, False)
