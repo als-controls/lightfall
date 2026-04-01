@@ -253,26 +253,32 @@ class CATunnelService:
             # Send everything, then read everything
             tcp_sock.sendall(msgs)
 
-            # Read all responses. The gateway does real CA searches on the
-            # beamline network — remote IOCs can take seconds to respond.
-            # We need to wait long enough for the slowest IOC in the batch.
-            # Strategy: wait up to 5s for first data, then keep reading
-            # with a 2s inactivity timeout (no new data for 2s = done).
+            # Read responses. The gateway does real CA searches and may take
+            # time for remote IOCs. Strategy: read with short timeouts, count
+            # how many search responses (found + not-found) we've received.
+            # Stop when we have responses for all searches, or after a brief
+            # inactivity period.
             num_searches = len(search_requests)
-            initial_timeout = min(5.0 + num_searches * 0.1, 10.0)
-            tcp_sock.settimeout(initial_timeout)
+            tcp_sock.settimeout(3.0)
             all_data = b""
+            responses_seen = 0
             try:
-                chunk = tcp_sock.recv(65536)
-                if chunk:
-                    all_data += chunk
-                # Keep reading until 2s of silence
-                tcp_sock.settimeout(2.0)
-                while True:
+                while responses_seen < num_searches:
                     chunk = tcp_sock.recv(65536)
                     if not chunk:
                         break
                     all_data += chunk
+                    # Count search responses (cmd=6) and not-found (cmd=14)
+                    # in the new chunk
+                    off = 0
+                    while off + 16 <= len(chunk):
+                        cmd = struct.unpack_from(">H", chunk, off)[0]
+                        psize = struct.unpack_from(">H", chunk, off + 2)[0]
+                        if cmd in (CA_PROTO_SEARCH, CA_PROTO_NOT_FOUND):
+                            responses_seen += 1
+                        off += 16 + psize
+                    # After first data arrives, use shorter timeout
+                    tcp_sock.settimeout(0.5)
             except socket.timeout:
                 pass
 
