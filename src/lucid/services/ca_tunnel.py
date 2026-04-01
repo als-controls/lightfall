@@ -235,13 +235,16 @@ class CATunnelService:
             user_padded = user + b"\0" * pad
             msgs += struct.pack(">HHHHII", 21, len(user_padded), 0, 0, 0, 0) + user_padded
 
-            # 4. Search requests
+            # 4. Search requests — always use DO_REPLY(10) so the gateway
+            # sends a response. Caproto often sends NO_REPLY(5) for
+            # broadcast searches, but we need the gateway to answer.
+            DO_REPLY = 10
             for cid, reply_flag, pv_payload in search_requests:
                 msgs += struct.pack(
                     ">HHHHII",
                     CA_PROTO_SEARCH,
                     len(pv_payload),
-                    reply_flag,
+                    DO_REPLY,
                     CA_VERSION,
                     cid,
                     cid,
