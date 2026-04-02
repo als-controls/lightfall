@@ -946,22 +946,13 @@ def main() -> int:
         ManagedThreadPool.shutdown_all(wait=False)
         logger.debug("Managed thread pools shut down")
 
-        # 5. Disconnect the caproto shared Context + SharedBroadcaster.
-        #    This closes circuit sockets and shuts down executors.
-        #    wait=False so we don't block on thread joins — the watchdog
-        #    handles the case where ThreadPoolExecutor.shutdown() hangs.
-        logger.debug("About to disconnect caproto context...")
-        try:
-            from caproto.threading.pyepics_compat import PV as _CaprotoPV
-
-            ctx = _CaprotoPV.default_context()
-            if ctx is not None:
-                ctx.disconnect(wait=False)
-                logger.debug("Caproto context disconnected during shutdown")
-            else:
-                logger.debug("No caproto context to disconnect")
-        except Exception as exc:
-            logger.warning("Caproto disconnect error: {}", exc)
+        # 5. Skip caproto Context.disconnect().
+        #    Previously we called ctx.disconnect(wait=False) here, but it
+        #    triggers an access violation (0xC0000005) on Windows — caproto's
+        #    C-level socket code touches memory freed by earlier teardown.
+        #    With ManagedThreadPool (daemon threads) and CA tunnel stopped,
+        #    all caproto threads will die automatically on process exit.
+        logger.debug("Skipping caproto context disconnect (daemon threads exit with process)")
 
         # Log remaining threads so we can see what's blocking exit
         _log_active_threads("post-cleanup")
