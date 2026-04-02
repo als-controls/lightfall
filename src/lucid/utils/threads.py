@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ThreadManager",
+    "ManagedThreadPool",
     "get_thread_manager",
     "thread_manager",
     "QThreadFuture",
@@ -214,9 +215,10 @@ class ThreadManager:
         return True
 
     def shutdown(self) -> None:
-        """Shutdown all threads. Called automatically on application quit."""
+        """Shutdown all threads and pools. Called automatically on application quit."""
         logger.debug("ThreadManager shutting down")
         self.cancel_all(timeout_ms=3000)
+        ManagedThreadPool.shutdown_all(wait=False)
 
 
 def get_thread_manager() -> ThreadManager:
@@ -226,6 +228,141 @@ def get_thread_manager() -> ThreadManager:
 
 # Module-level singleton access
 thread_manager = get_thread_manager()
+
+
+# -----------------------------------------------------------------------------
+# Managed Thread Pool
+# -----------------------------------------------------------------------------
+class ManagedThreadPool:
+    """A ThreadPoolExecutor wrapper with daemon threads and lifecycle management.
+
+    Solves the problem where ``ThreadPoolExecutor`` creates non-daemon threads
+    that prevent process exit. All threads created by this pool are daemon
+    threads, and the pool registers itself with ``ThreadManager`` for
+    automatic shutdown on application quit.
+
+    Usage::
+
+        pool = ManagedThreadPool(max_workers=2, name="my-pool")
+        future = pool.submit(some_function, arg1, arg2)
+
+        # Pool shuts down automatically on app quit, or manually:
+        pool.shutdown()
+
+    Args:
+        max_workers: Maximum number of concurrent threads.
+        name: Name prefix for threads (used in logging and thread names).
+    """
+
+    # Class-level registry for all pools, so ThreadManager can shut them all down
+    _all_pools: list[ManagedThreadPool] = []
+    _pools_lock = threading.Lock()
+
+    def __init__(self, max_workers: int = 1, name: str = "managed-pool") -> None:
+        self._name = name
+        self._shutdown_flag = False
+        self._lock = threading.Lock()
+
+        # Create executor with daemon thread factory
+        import concurrent.futures
+
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=name,
+        )
+
+        # Patch the executor to create daemon threads.
+        # ThreadPoolExecutor._adjust_thread_count creates threads internally;
+        # we intercept by wrapping the thread creation.
+        original_adjust = self._executor._adjust_thread_count
+
+        def _daemon_adjust():
+            """Call original, then mark any new threads as daemon."""
+            # Snapshot current threads
+            before = set(self._executor._threads)
+            original_adjust()
+            for t in self._executor._threads - before:
+                t.daemon = True
+
+        self._executor._adjust_thread_count = _daemon_adjust
+
+        # Register for global cleanup
+        with ManagedThreadPool._pools_lock:
+            ManagedThreadPool._all_pools.append(self)
+
+        logger.debug("ManagedThreadPool '{}' created (max_workers={})", name, max_workers)
+
+    @property
+    def name(self) -> str:
+        """Pool name."""
+        return self._name
+
+    def submit(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> Any:
+        """Submit a callable for execution.
+
+        Args:
+            fn: The callable to execute.
+            *args: Positional arguments for the callable.
+            **kwargs: Keyword arguments for the callable.
+
+        Returns:
+            A ``concurrent.futures.Future`` representing the result.
+
+        Raises:
+            RuntimeError: If the pool has been shut down.
+        """
+        if self._shutdown_flag:
+            raise RuntimeError(f"ManagedThreadPool '{self._name}' is shut down")
+        return self._executor.submit(fn, *args, **kwargs)
+
+    def shutdown(self, wait: bool = False) -> None:
+        """Shut down the pool.
+
+        Args:
+            wait: If True, block until all running tasks complete.
+                  Defaults to False (non-blocking) since threads are daemon.
+        """
+        with self._lock:
+            if self._shutdown_flag:
+                return
+            self._shutdown_flag = True
+
+        self._executor.shutdown(wait=wait, cancel_futures=True)
+
+        # Remove from global registry
+        with ManagedThreadPool._pools_lock:
+            try:
+                ManagedThreadPool._all_pools.remove(self)
+            except ValueError:
+                pass
+
+        logger.debug("ManagedThreadPool '{}' shut down", self._name)
+
+    @classmethod
+    def shutdown_all(cls, wait: bool = False) -> None:
+        """Shut down all managed thread pools.
+
+        Called automatically by ThreadManager during application shutdown.
+
+        Args:
+            wait: If True, block until all running tasks complete.
+        """
+        with cls._pools_lock:
+            pools = list(cls._all_pools)
+
+        for pool in pools:
+            try:
+                pool.shutdown(wait=wait)
+            except Exception as exc:
+                logger.debug("Error shutting down pool '{}': {}", pool._name, exc)
+
+    def __del__(self) -> None:
+        """Clean up on garbage collection."""
+        if not self._shutdown_flag:
+            try:
+                self.shutdown(wait=False)
+            except Exception:
+                pass
 
 
 # -----------------------------------------------------------------------------

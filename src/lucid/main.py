@@ -938,7 +938,15 @@ def main() -> int:
         except Exception:
             pass
 
-        # 4. Disconnect the caproto shared Context + SharedBroadcaster.
+        # 4. Shut down managed thread pools (dev-values, etc.)
+        #    ThreadManager.shutdown() also does this via aboutToQuit,
+        #    but belt-and-suspenders in case ordering varies.
+        from lucid.utils.threads import ManagedThreadPool
+
+        ManagedThreadPool.shutdown_all(wait=False)
+        logger.debug("Managed thread pools shut down")
+
+        # 5. Disconnect the caproto shared Context + SharedBroadcaster.
         #    This closes circuit sockets and shuts down executors.
         #    wait=False so we don't block on thread joins — the watchdog
         #    handles the case where ThreadPoolExecutor.shutdown() hangs.

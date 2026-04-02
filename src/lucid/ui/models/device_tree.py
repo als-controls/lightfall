@@ -7,7 +7,7 @@ device/signal tree structure.
 from __future__ import annotations
 
 import inspect
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -376,8 +376,11 @@ class DeviceTreeModel(QAbstractItemModel):
         self._catalog.device_connected.connect(self._on_device_connected)
         self._catalog.device_connection_failed.connect(self._on_device_connection_failed)
 
-        # Background value refresh: fetch values off the main thread
-        self._value_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dev-values")
+        # Background value refresh: fetch values off the main thread.
+        # Uses ManagedThreadPool for daemon threads + automatic shutdown.
+        from lucid.utils.threads import ManagedThreadPool
+
+        self._value_pool = ManagedThreadPool(max_workers=1, name="dev-values")
         self._value_future: Future | None = None
 
         self._value_timer = QTimer(self)
@@ -573,6 +576,19 @@ class DeviceTreeModel(QAbstractItemModel):
         except Exception as e:
             logger.debug("Error adding components for {}: {}", parent_item.name, e)
 
+    def cleanup(self) -> None:
+        """Stop background polling and shut down the value pool.
+
+        Can be called explicitly, but ``ManagedThreadPool`` also shuts
+        down automatically via ``ThreadManager`` on application quit.
+        """
+        self._value_timer.stop()
+        if self._value_future is not None and not self._value_future.done():
+            self._value_future.cancel()
+            self._value_future = None
+        self._value_pool.shutdown(wait=False)
+        logger.debug("DeviceTreeModel cleaned up")
+
     def _poll_value_refresh(self) -> None:
         """Timer callback: check if background fetch is done, then emit updates."""
         if self._value_future is not None:
@@ -584,7 +600,7 @@ class DeviceTreeModel(QAbstractItemModel):
 
         # Start a new background fetch
         if self._root.children:
-            self._value_future = self._value_executor.submit(self._fetch_all_values)
+            self._value_future = self._value_pool.submit(self._fetch_all_values)
 
     def _fetch_all_values(self) -> None:
         """Background thread: refresh cached values on all tree items."""
