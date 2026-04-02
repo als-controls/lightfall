@@ -234,12 +234,14 @@ thread_manager = get_thread_manager()
 # Managed Thread Pool
 # -----------------------------------------------------------------------------
 class ManagedThreadPool:
-    """A ThreadPoolExecutor wrapper with daemon threads and lifecycle management.
+    """A lightweight thread pool with daemon threads and lifecycle management.
 
-    Solves the problem where ``ThreadPoolExecutor`` creates non-daemon threads
-    that prevent process exit. All threads created by this pool are daemon
-    threads, and the pool registers itself with ``ThreadManager`` for
-    automatic shutdown on application quit.
+    Unlike ``ThreadPoolExecutor``, this creates daemon threads directly —
+    no monkey-patching of CPython internals, no conflicts with Sentry's
+    threading integration, and no non-daemon threads blocking process exit.
+
+    The pool registers itself with ``ThreadManager`` for automatic shutdown
+    on application quit.
 
     Usage::
 
@@ -259,38 +261,47 @@ class ManagedThreadPool:
     _pools_lock = threading.Lock()
 
     def __init__(self, max_workers: int = 1, name: str = "managed-pool") -> None:
+        import queue as _queue
+        from concurrent.futures import Future
+
         self._name = name
         self._shutdown_flag = False
         self._lock = threading.Lock()
+        self._work_queue: _queue.SimpleQueue[tuple[Callable, Future] | None] = _queue.SimpleQueue()
+        self._Future = Future
 
-        # Create executor with daemon thread factory
-        import concurrent.futures
-
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix=name,
-        )
-
-        # Patch the executor to create daemon threads.
-        # ThreadPoolExecutor._adjust_thread_count creates threads internally;
-        # we intercept by wrapping the thread creation.
-        original_adjust = self._executor._adjust_thread_count
-
-        def _daemon_adjust():
-            """Call original, then mark any new threads as daemon."""
-            # Snapshot current threads
-            before = set(self._executor._threads)
-            original_adjust()
-            for t in self._executor._threads - before:
-                t.daemon = True
-
-        self._executor._adjust_thread_count = _daemon_adjust
+        # Spin up daemon worker threads
+        self._workers: list[threading.Thread] = []
+        for i in range(max_workers):
+            t = threading.Thread(
+                target=self._worker,
+                daemon=True,
+                name=f"{name}_{i}",
+            )
+            t.start()
+            self._workers.append(t)
 
         # Register for global cleanup
         with ManagedThreadPool._pools_lock:
             ManagedThreadPool._all_pools.append(self)
 
         logger.debug("ManagedThreadPool '{}' created (max_workers={})", name, max_workers)
+
+    def _worker(self) -> None:
+        """Worker loop: pull tasks from the queue and execute them."""
+        while True:
+            item = self._work_queue.get()
+            if item is None:
+                # Poison pill — shut down this worker
+                return
+            fn, future = item
+            if future.cancelled():
+                continue
+            try:
+                result = fn()
+                future.set_result(result)
+            except Exception as exc:
+                future.set_exception(exc)
 
     @property
     def name(self) -> str:
@@ -313,13 +324,16 @@ class ManagedThreadPool:
         """
         if self._shutdown_flag:
             raise RuntimeError(f"ManagedThreadPool '{self._name}' is shut down")
-        return self._executor.submit(fn, *args, **kwargs)
+        future = self._Future()
+        # Bind args/kwargs into a no-arg callable
+        self._work_queue.put((lambda: fn(*args, **kwargs), future))
+        return future
 
     def shutdown(self, wait: bool = False) -> None:
         """Shut down the pool.
 
         Args:
-            wait: If True, block until all running tasks complete.
+            wait: If True, block until all worker threads finish.
                   Defaults to False (non-blocking) since threads are daemon.
         """
         with self._lock:
@@ -327,7 +341,13 @@ class ManagedThreadPool:
                 return
             self._shutdown_flag = True
 
-        self._executor.shutdown(wait=wait, cancel_futures=True)
+        # Send poison pills to each worker
+        for _ in self._workers:
+            self._work_queue.put(None)
+
+        if wait:
+            for t in self._workers:
+                t.join(timeout=5.0)
 
         # Remove from global registry
         with ManagedThreadPool._pools_lock:
