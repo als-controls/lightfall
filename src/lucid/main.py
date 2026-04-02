@@ -872,8 +872,28 @@ def main() -> int:
         for _name in ("caproto", "caproto.ch", "caproto.circ", "caproto.ctx", "caproto.bcast"):
             _logging.getLogger(_name).setLevel(_logging.CRITICAL)
 
+        def _log_active_threads(label: str = ""):
+            threads = _threading.enumerate()
+            non_daemon = [t for t in threads if not t.daemon and t.is_alive()]
+            daemon = [t for t in threads if t.daemon and t.is_alive()]
+            logger.info(
+                "Active threads ({}): {} total, {} non-daemon, {} daemon",
+                label, len(threads), len(non_daemon), len(daemon),
+            )
+            for t in non_daemon:
+                logger.info(
+                    "  [non-daemon] {!r} (ident={}, native_id={})",
+                    t.name, t.ident, getattr(t, 'native_id', '?'),
+                )
+            for t in daemon:
+                logger.debug(
+                    "  [daemon]     {!r} (ident={}, native_id={})",
+                    t.name, t.ident, getattr(t, 'native_id', '?'),
+                )
+
         def _force_exit():
             _time.sleep(5)
+            _log_active_threads("watchdog-5s")
             logger.warning("Shutdown taking too long, forcing exit")
             os._exit(0)
 
@@ -929,6 +949,9 @@ def main() -> int:
                 logger.debug("Caproto context disconnected during shutdown")
         except Exception:
             pass
+
+        # Log remaining threads so we can see what's blocking exit
+        _log_active_threads("post-cleanup")
 
     QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
 
