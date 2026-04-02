@@ -895,6 +895,8 @@ def main() -> int:
             _time.sleep(5)
             _log_active_threads("watchdog-5s")
             logger.warning("Shutdown taking too long, forcing exit")
+            sys.stderr.flush()
+            sys.stdout.flush()
             os._exit(0)
 
         _threading.Thread(
@@ -940,6 +942,7 @@ def main() -> int:
         #    This closes circuit sockets and shuts down executors.
         #    wait=False so we don't block on thread joins — the watchdog
         #    handles the case where ThreadPoolExecutor.shutdown() hangs.
+        logger.debug("About to disconnect caproto context...")
         try:
             from caproto.threading.pyepics_compat import PV as _CaprotoPV
 
@@ -947,11 +950,15 @@ def main() -> int:
             if ctx is not None:
                 ctx.disconnect(wait=False)
                 logger.debug("Caproto context disconnected during shutdown")
-        except Exception:
-            pass
+            else:
+                logger.debug("No caproto context to disconnect")
+        except Exception as exc:
+            logger.warning("Caproto disconnect error: {}", exc)
 
         # Log remaining threads so we can see what's blocking exit
         _log_active_threads("post-cleanup")
+        sys.stderr.flush()
+        sys.stdout.flush()
 
     QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
 
