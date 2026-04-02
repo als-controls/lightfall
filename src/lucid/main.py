@@ -863,8 +863,14 @@ def main() -> int:
         # Schedule a hard exit as a safety net. If cleanup takes more
         # than 5 seconds (e.g. caproto ThreadPoolExecutor.shutdown()
         # blocks waiting for callbacks), force-terminate the process.
+        import logging as _logging
         import os
         import time as _time
+
+        # Mute caproto loggers during shutdown — stale commands arriving
+        # on closed channels/circuits are expected and harmless.
+        for _name in ("caproto", "caproto.ch", "caproto.circ", "caproto.ctx", "caproto.bcast"):
+            _logging.getLogger(_name).setLevel(_logging.CRITICAL)
 
         def _force_exit():
             _time.sleep(5)
