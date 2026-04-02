@@ -9,6 +9,7 @@ See: https://github.com/pcdshub/happi
 
 from __future__ import annotations
 
+import importlib
 import os
 import threading
 from datetime import datetime
@@ -28,14 +29,26 @@ from lucid.devices.model import (
     MaintenanceRecord,
 )
 
-# Happi item class to NCS DeviceCategory mapping
-_CLASS_CATEGORY_MAP: dict[str, DeviceCategory] = {
+# Mapping from ophyd base class names to DeviceCategory.
+# Checked via MRO introspection — no string matching on user class names.
+# Order matters: first match wins (more specific classes should come first).
+_BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
+    # (module, class_name, category)
+    ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
+    ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
+    ("ophyd.signal", "Signal", DeviceCategory.SIGNAL),
+    ("ophyd", "MotorBundle", DeviceCategory.MOTOR),
+    ("ophyd.epics_motor", "EpicsMotor", DeviceCategory.MOTOR),
+    ("ophyd.positioner", "PositionerBase", DeviceCategory.MOTOR),
+]
+
+# Fallback: happi functional_group / item type keywords
+_FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
     "detector": DeviceCategory.DETECTOR,
     "areadetector": DeviceCategory.DETECTOR,
     "signal": DeviceCategory.SIGNAL,
-    "trigger": DeviceCategory.OTHER,
     "slit": DeviceCategory.MOTOR,
     "lens": DeviceCategory.OPTIC,
     "mirror": DeviceCategory.OPTIC,
@@ -43,18 +56,65 @@ _CLASS_CATEGORY_MAP: dict[str, DeviceCategory] = {
 }
 
 
+def _resolve_class(device_class: str) -> type | None:
+    """Import and return the device class without instantiating it.
+
+    Args:
+        device_class: Dotted import path, e.g. "ophyd.EpicsMotor"
+            or "my_pkg.devices.MyDetector".
+
+    Returns:
+        The class object, or None if import fails.
+    """
+    if not device_class or "." not in device_class:
+        return None
+
+    module_path, _, class_name = device_class.rpartition(".")
+    if not module_path or not class_name:
+        return None
+
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name, None)
+    except Exception:
+        return None
+
+
+def _guess_category_from_mro(cls: type) -> DeviceCategory | None:
+    """Determine device category by inspecting the class MRO.
+
+    Walks the method resolution order and checks against known ophyd
+    base classes. This works for any device class across any plugin
+    repo without needing to know specific class names.
+    """
+    mro_keys = {(c.__module__, c.__name__) for c in cls.__mro__}
+    for module, class_name, category in _BASE_CLASS_CATEGORY_MAP:
+        if (module, class_name) in mro_keys:
+            return category
+    return None
+
+
 def _guess_category(item: Any) -> DeviceCategory:
-    """Guess device category from happi item metadata."""
-    # Check device_class name
+    """Determine device category from happi item metadata.
+
+    Strategy (in order):
+    1. Import the device class and inspect its MRO for known ophyd
+       base classes (works for any plugin without string matching).
+    2. Fall back to happi functional_group keyword matching.
+    """
     device_class = getattr(item, "device_class", "") or ""
-    for key, cat in _CLASS_CATEGORY_MAP.items():
-        if key in device_class.lower():
+
+    # Try MRO-based introspection first
+    cls = _resolve_class(device_class)
+    if cls is not None:
+        cat = _guess_category_from_mro(cls)
+        if cat is not None:
             return cat
 
-    # Check item type / functional group
-    func_group = getattr(item, "functional_group", "") or ""
-    for key, cat in _CLASS_CATEGORY_MAP.items():
-        if key in func_group.lower():
+    # Fallback: check functional_group keywords
+    func_group = (getattr(item, "functional_group", "") or "").lower()
+    for key, cat in _FUNC_GROUP_CATEGORY_MAP.items():
+        if key in func_group:
             return cat
 
     return DeviceCategory.OTHER
