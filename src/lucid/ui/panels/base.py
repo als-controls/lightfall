@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from lucid.auth.policy import Permission
@@ -148,11 +148,12 @@ class BasePanel(QWidget):
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
 
-        # Force background painting — QWidget doesn't paint its background
-        # by default, so gaps between child widgets would show through to
-        # the parent (QDockWidget sea color). This ensures the panel fills
-        # its entire area with the island color set via QSS.
-        self.setAutoFillBackground(True)
+        # Force QSS background painting — QWidget doesn't paint its own
+        # background by default. WA_StyledBackground makes Qt paint the
+        # QSS-defined background (including border-radius) in paintEvent.
+        # Unlike setAutoFillBackground (which paints a flat palette rect
+        # ignoring border-radius), this respects the full stylesheet.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         # Setup layout
         self._layout = QVBoxLayout(self)
