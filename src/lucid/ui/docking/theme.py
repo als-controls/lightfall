@@ -85,10 +85,10 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
 }}
 
 /* --------------------------------------------------------------------------
-   Custom Panel Title Bar — sea-colored header
+   Custom Panel Title Bar — island (dark) surface
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
-    background: {sea};
+    background: {island};
     border-bottom: none;
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
@@ -127,10 +127,9 @@ QDockWidget {{
     titlebar-normal-icon: url(none);
 }}
 
-/* Native title bar (hidden when we use custom PanelTitleBar, but style
-   it for any dock widgets that don't opt into custom titles) */
+/* Native title bar — island (dark) surface */
 QDockWidget::title {{
-    background: {sea};
+    background: {island};
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
     border-bottom: none;
@@ -196,6 +195,18 @@ QDockWidget QTableView {{
     border-bottom-left-radius: {radius}px;
     border-bottom-right-radius: {radius}px;
     background: {island};
+}}
+
+/* Table/tree headers inside docks — island surface */
+QDockWidget QHeaderView::section {{
+    background: {island};
+    color: {colors.text_secondary};
+    border: none;
+    border-bottom: 1px solid {colors.border};
+    border-right: 1px solid {colors.border};
+    padding: 6px 8px;
+    font-weight: 600;
+    font-size: 12px;
 }}
 """}
 """
