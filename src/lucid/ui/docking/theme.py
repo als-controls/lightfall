@@ -13,10 +13,16 @@ Color model (Islands dark):
 Qt does NOT clip children to parent border-radius. So we round the
 children themselves:
     - PanelTitleBar: island bg + top rounding
-    - Content widget: island bg + bottom rounding
-    - Edge-touching children (text edits, tables): bottom rounding
-The QDockWidget is transparent with margin — the sea shows through
-the gaps and the rounded corners.
+    - Panel content: island bg + bottom rounding
+The QDockWidget has sea bg so rounded corner areas show sea color.
+
+Widget tree (from dump_dock_tree):
+    PanelDockWidget [dock_*]              ← sea bg, border-radius
+      QAbstractButton [qt_dockwidget_*]   ← hidden (custom title bar)
+      SomePanel [lucid.panels.*]          ← island bg, bottom rounding
+      PanelTitleBar [PanelTitleBar]        ← island bg, top rounding
+        QLabel [PanelTitleLabel]
+        QToolButton [PanelTitleCloseButton]
 """
 
 from __future__ import annotations
@@ -123,19 +129,19 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
 }}
 
 /* ==========================================================================
-   QDockWidget — transparent shell with margin for sea gaps
+   QDockWidget — sea background so corners show sea color
    ========================================================================== */
 
 QDockWidget {{
-    background: transparent;
+    background: {sea};
     border: none;
-    {"margin: " + str(gap) + "px;" if islands else ""}
     titlebar-close-icon: url(none);
     titlebar-normal-icon: url(none);
 }}
 
 /* --------------------------------------------------------------------------
    Custom Panel Title Bar — island bg + top rounding
+   Targeted by object name so it doesn't conflict with QDockWidget > QWidget
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
     background: {island};
@@ -146,9 +152,9 @@ QDockWidget {{
 
 #PanelTitleLabel {{
     color: {colors.text_secondary};
+    background: transparent;
     font-weight: 600;
     font-size: 11px;
-    background: transparent;
 }}
 
 #PanelTitleCloseButton {{
@@ -167,7 +173,7 @@ QDockWidget {{
 }}
 
 /* --------------------------------------------------------------------------
-   Native title bar fallback (when no custom title bar is set)
+   Native title bar fallback (hidden when custom title bar is set)
    -------------------------------------------------------------------------- */
 QDockWidget::title {{
     background: {island};
@@ -194,7 +200,12 @@ QDockWidget::float-button:hover {{
 }}
 
 /* --------------------------------------------------------------------------
-   Dock content — island bg + bottom rounding
+   Panel content — island bg + bottom rounding
+   The title bar is also a direct child of QDockWidget, but we target
+   it by #PanelTitleBar above. Here we use QDockWidget > QWidget to
+   catch the panel widget and give it bottom rounding.
+   Note: this also matches PanelTitleBar (which is a QWidget), so
+   PanelTitleBar's more-specific #id selector overrides it.
    -------------------------------------------------------------------------- */
 QDockWidget > QWidget {{
     background: {island};
@@ -228,6 +239,16 @@ QDockWidget QHeaderView::section {{
     padding: 6px 8px;
     font-weight: 600;
     font-size: 12px;
+}}
+
+/* Toolbars inside panels */
+QDockWidget QToolBar {{
+    background: {island};
+    border: none;
+}}
+
+QDockWidget QToolBar QToolButton {{
+    background: transparent;
 }}
 """}
 
