@@ -808,10 +808,10 @@ QHeaderView::section {{
         if self._css_overrides:
             base_stylesheet += f"\n/* Theme-specific overrides */\n{self._css_overrides}"
 
-        # Append QtAds stylesheet if available
+        # Append docking stylesheet if available
         try:
-            from lucid.ui.docking.theme import generate_qtads_stylesheet
-            base_stylesheet += f"\n{generate_qtads_stylesheet(c)}"
+            from lucid.ui.docking.theme import generate_docking_stylesheet
+            base_stylesheet += f"\n{generate_docking_stylesheet(c)}"
         except ImportError:
             pass
 

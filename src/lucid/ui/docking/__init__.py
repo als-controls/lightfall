@@ -1,12 +1,12 @@
-"""Advanced docking system using PySide6-QtAds.
+"""Docking system using native QDockWidget.
 
-This module provides VS Code/PyCharm-like docking with a single CDockManager:
+This module provides VS Code/PyCharm-like docking with:
 - Custom icon strip sidebar for panel navigation
 - Left dock area: Primary tools (Bluesky, Devices) - one at a time
 - Bottom dock area: Auxiliary panels (Claude, Documents, etc.) - one at a time
 - Center area: Always-visible content (Logbook)
 - Persistent layout state
-- Theme integration
+- Theme integration (Islands mode with rounded panels)
 """
 
 from lucid.ui.docking.icon_sidebar import IconStripSidebar

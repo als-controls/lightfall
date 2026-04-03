@@ -1,8 +1,7 @@
 """IconStripSidebar - Custom icon strip sidebar for panel navigation.
 
 Provides a VS Code/PyCharm-like icon strip that controls docked panels.
-Unlike QtAds auto-hide sidebars, icons remain visible regardless of
-whether panels are shown (pinned).
+Icons remain visible regardless of whether panels are shown (pinned).
 
 Architecture:
     +------+
