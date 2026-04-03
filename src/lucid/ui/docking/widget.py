@@ -189,6 +189,10 @@ class PanelDockWidget(QDockWidget):
             self._title_bar.close_requested.connect(lambda: self.setVisible(False))
             self.setTitleBarWidget(self._title_bar)
 
+        # QDockWidget ignores QSS background in favor of the QPalette
+        # Window role. Force it to paint its own background so QSS works.
+        self.setAutoFillBackground(True)
+
         # Connect visibility to panel lifecycle
         self.visibilityChanged.connect(self._on_visibility_changed)
 
