@@ -251,13 +251,10 @@ class NCSMainWindow(QMainWindow):
         self._config_manager = config_manager
         self._prefs_manager.set_config_manager(config_manager)
 
-        # Apply theme from config
+        # Apply theme from config — use string-based API to support
+        # plugin themes (like "islands") that aren't in the Theme enum
         theme_str = config_manager.get("ui.theme", "system")
-        try:
-            theme = Theme(theme_str)
-            self._theme_manager.set_theme(theme)
-        except ValueError:
-            pass
+        self._theme_manager.set_theme_by_name(theme_str)
 
     # Panel management
 
@@ -695,11 +692,8 @@ class NCSMainWindow(QMainWindow):
     def _on_preference_changed(self, key: str, value: Any) -> None:
         """Handle preference change."""
         if key == "theme":
-            try:
-                # Don't save preference - it was already saved, that's why we got this signal
-                self._set_theme(Theme(value), save_preference=False)
-            except ValueError:
-                pass
+            # Use string-based API to support plugin themes
+            self._theme_manager.set_theme_by_name(str(value))
 
     @Slot(str, object)
     def _on_panel_registered(self, panel_id: str, metadata: Any) -> None:
