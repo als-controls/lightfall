@@ -251,10 +251,10 @@ class NCSMainWindow(QMainWindow):
         self._config_manager = config_manager
         self._prefs_manager.set_config_manager(config_manager)
 
-        # Apply theme from config — use string-based API to support
-        # plugin themes (like "islands") that aren't in the Theme enum
-        theme_str = config_manager.get("ui.theme", "system")
-        self._theme_manager.set_theme_by_name(theme_str)
+        # Theme is applied by AppearanceSettingsPlugin.on_loaded() (preload)
+        # which reads preferences.theme via PreferencesManager.
+        # Do NOT re-apply here — the old code read a different key (ui.theme)
+        # and clobbered the correct theme with the wrong default.
 
     # Panel management
 
