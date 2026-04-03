@@ -520,7 +520,7 @@ class EntryListWidget(QFrame):
         self._selected_id: str | None = None
         self._active_tag_filter: str | None = None
 
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.setMinimumWidth(220)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
@@ -530,11 +530,14 @@ class EntryListWidget(QFrame):
 
         # --- toolbar row ---
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(4)
         new_btn = QPushButton("＋ New Entry")
+        new_btn.setStyleSheet("padding: 4px 10px;")
         new_btn.clicked.connect(self.new_entry_requested)
         toolbar.addWidget(new_btn)
 
         self._sort_combo = QComboBox()
+        self._sort_combo.setStyleSheet("padding: 4px 6px;")
         self._sort_combo.addItems(["Created", "Updated"])
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         toolbar.addWidget(self._sort_combo)
