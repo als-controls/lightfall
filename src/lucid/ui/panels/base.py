@@ -148,6 +148,12 @@ class BasePanel(QWidget):
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
 
+        # Force background painting — QWidget doesn't paint its background
+        # by default, so gaps between child widgets would show through to
+        # the parent (QDockWidget sea color). This ensures the panel fills
+        # its entire area with the island color set via QSS.
+        self.setAutoFillBackground(True)
+
         # Setup layout
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
