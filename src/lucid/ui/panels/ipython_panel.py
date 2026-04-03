@@ -286,6 +286,9 @@ class IPythonPanel(BasePanel):
         self._jupyter_widget.kernel_manager = self._kernel_manager
         self._jupyter_widget.kernel_client = self._kernel_client
 
+        # Apply console style based on current theme
+        self._apply_console_style()
+
         self._layout.addWidget(self._jupyter_widget)
 
         # Set up widget targeting filter
@@ -294,6 +297,49 @@ class IPythonPanel(BasePanel):
         self._targeting_filter.targeting_cancelled.connect(self._on_targeting_cancelled)
 
         logger.info("IPython console initialized")
+
+    def _apply_console_style(self) -> None:
+        """Apply syntax style to the Jupyter widget based on the current theme.
+
+        Uses the PreferencesManager for the console style preference,
+        defaulting to monokai for dark themes and default for light.
+        """
+        if self._jupyter_widget is None:
+            return
+
+        from qtconsole.styles import sheet_from_template
+
+        try:
+            from lucid.ui.preferences import PreferencesManager
+            prefs = PreferencesManager.get_instance()
+            syntax_style = prefs.get("console_syntax_style", "")
+        except Exception:
+            syntax_style = ""
+
+        # Auto-detect from theme if not explicitly set
+        if not syntax_style:
+            try:
+                from lucid.ui.theme import ThemeManager
+                is_dark = ThemeManager.get_instance().is_dark
+            except Exception:
+                is_dark = True
+            syntax_style = "monokai" if is_dark else "default"
+
+        # Apply the Pygments syntax style
+        self._jupyter_widget.syntax_style = syntax_style
+
+        # Generate matching stylesheet from qtconsole's template
+        colors = "linux" if syntax_style in (
+            "monokai", "native", "vim", "fruity", "rrt", "dracula",
+            "one-dark", "nord", "nord-darker", "gruvbox-dark",
+            "paraiso-dark", "solarized-dark", "github-dark",
+            "inkpot", "stata-dark",
+        ) else "lightbg"
+        self._jupyter_widget.style_sheet = sheet_from_template(
+            syntax_style, colors=colors,
+        )
+
+        logger.debug("Applied console syntax style: {}", syntax_style)
 
     def _setup_initial_namespace(self, kernel: Any) -> None:
         """Set up the initial kernel namespace with application objects.

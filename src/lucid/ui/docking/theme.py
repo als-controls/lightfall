@@ -272,11 +272,12 @@ QMainWindow > QMainWindow > QWidget {{
 """}
 
 /* --------------------------------------------------------------------------
-   Splitters — island colored (content area), not sea
+   Splitters — island colored with rounded corners
    -------------------------------------------------------------------------- */
 {"" if not islands else f"""
 QSplitter {{
     background: {island};
+    border-radius: {radius}px;
 }}
 
 QSplitter::handle {{
