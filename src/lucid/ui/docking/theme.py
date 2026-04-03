@@ -261,12 +261,101 @@ QMainWindow > QMainWindow {{
 
 /* --------------------------------------------------------------------------
    Central widget (e.g. logbook) — island with rounding + margin
+   .QWidget only matches exact QWidget class; use QWidget to match subclasses
    -------------------------------------------------------------------------- */
 {"" if not islands else f"""
-QMainWindow > QMainWindow > .QWidget {{
+QMainWindow > QMainWindow > QWidget {{
     background: {island};
     border-radius: {radius}px;
     margin: {gap}px;
+}}
+"""}
+
+/* --------------------------------------------------------------------------
+   Splitters — island colored (content area), not sea
+   -------------------------------------------------------------------------- */
+{"" if not islands else f"""
+QSplitter {{
+    background: {island};
+}}
+
+QSplitter::handle {{
+    background: {colors.border};
+}}
+
+QSplitter::handle:horizontal {{
+    width: 2px;
+}}
+
+QSplitter::handle:vertical {{
+    height: 2px;
+}}
+
+QSplitter::handle:hover {{
+    background: {colors.primary};
+}}
+"""}
+
+/* --------------------------------------------------------------------------
+   Scrollbars — rounded handles
+   -------------------------------------------------------------------------- */
+{"" if not islands else f"""
+QScrollBar:vertical {{
+    background: transparent;
+    width: 10px;
+    margin: 0;
+    border: none;
+}}
+
+QScrollBar::handle:vertical {{
+    background: {colors.border};
+    border-radius: 4px;
+    min-height: 30px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: {colors.text_secondary};
+}}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {{
+    height: 0;
+    border: none;
+}}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+    margin: 0;
+    border: none;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {colors.border};
+    border-radius: 4px;
+    min-width: 30px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: {colors.text_secondary};
+}}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {{
+    width: 0;
+    border: none;
+}}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {{
+    background: transparent;
 }}
 """}
 
