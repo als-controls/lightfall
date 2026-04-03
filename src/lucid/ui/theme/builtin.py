@@ -145,331 +145,369 @@ class IslandsThemePlugin(ThemePlugin):
     def is_dark(self) -> bool:
         return True
 
+    # --- Islands color constants (used in both definition and CSS) ---
+    _BG = "#18181B"       # background (deepest)
+    _ISLAND = "#1E1E22"   # surface / island panels
+    _SEA = "#27272A"      # sea (gaps, title bars, menubar)
+    _INPUT = "#1F1F23"    # input fields
+    _BORDER = "#3F3F46"
+    _BORDER_HI = "#52525B"
+    _ACCENT = "#6B57FF"
+    _ACCENT_HOVER = "#5B47EF"
+    _ACCENT_PRESS = "#4B37DF"
+    _TEXT = "#FAFAFA"
+    _TEXT2 = "#A1A1AA"
+
     def get_theme_definition(self) -> ThemeDefinition:
         # Color palette inspired by JetBrains Islands theme
         # Islands (surface) are darker, the sea (gaps between panels) is lighter
+        c = self  # shortcut to class attrs
         return ThemeDefinition(
-            # Purple accent - the signature Islands color
-            primary="#6B57FF",
+            primary=c._ACCENT,
             secondary="#8B7FFF",
-            # Status colors - slightly muted to match the soft aesthetic
             success="#3FB950",
             warning="#D29922",
             error="#F85149",
             info="#58A6FF",
-            # Islands (panels) — darker, the "land"
-            background="#18181B",
-            surface="#1E1E22",
-            # Sea — lighter than islands, visible in gaps between panels
-            sea="#27272A",
-            # Text colors - high contrast but not pure white
-            text="#FAFAFA",
-            text_secondary="#A1A1AA",
-            # Borders - subtle, creates soft edges
-            border="#3F3F46",
-            # Connection states
+            background=c._BG,
+            surface=c._ISLAND,
+            sea=c._SEA,
+            text=c._TEXT,
+            text_secondary=c._TEXT2,
+            border=c._BORDER,
             connected="#3FB950",
             disconnected="#5C2323",
-            # CSS overrides for Islands-specific styling
-            css_overrides=_ISLANDS_CSS_OVERRIDES,
+            css_overrides=_build_islands_css(c),
         )
 
 
-# Islands theme CSS overrides for rounded corners, shadows, and visual separation
-_ISLANDS_CSS_OVERRIDES = """
+def _build_islands_css(c) -> str:
+    """Build Islands CSS overrides from the class color constants."""
+    return f"""
 /* Islands Theme - Visual separation and rounded corners */
 
-/* Main containers get island treatment */
-QGroupBox {
+/* --------------------------------------------------------------------------
+   Menu bar — sea color, sits above the islands
+   -------------------------------------------------------------------------- */
+QMenuBar {{
+    background: {c._SEA};
+    color: {c._TEXT};
+    border: none;
+    padding: 2px 4px;
+    spacing: 2px;
+}}
+
+QMenuBar::item {{
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 6px;
+}}
+
+QMenuBar::item:selected {{
+    background: {c._BORDER};
+}}
+
+/* --------------------------------------------------------------------------
+   Menus — island-styled popups
+   -------------------------------------------------------------------------- */
+QMenu {{
+    background-color: {c._SEA};
+    border: 1px solid {c._BORDER};
+    border-radius: 8px;
+    padding: 4px;
+}}
+
+QMenu::item {{
+    padding: 8px 24px;
+    border-radius: 4px;
+    margin: 2px 4px;
+}}
+
+QMenu::item:selected {{
+    background-color: {c._ACCENT};
+    color: white;
+}}
+
+QMenu::separator {{
+    height: 1px;
+    background: {c._BORDER};
+    margin: 6px 12px;
+}}
+
+/* Fix: Qt renders a white corner artifact on rounded menus.
+   Force the menu viewport (scroll area) to be transparent. */
+QMenu QWidget {{
+    background: transparent;
+}}
+
+/* --------------------------------------------------------------------------
+   Group boxes — island containers
+   -------------------------------------------------------------------------- */
+QGroupBox {{
     border-radius: 8px;
     margin-top: 12px;
     padding: 12px 8px 8px 8px;
-    background-color: #27272A;
-}
+    background-color: {c._SEA};
+}}
 
-QGroupBox::title {
+QGroupBox::title {{
     subcontrol-origin: margin;
     left: 12px;
     padding: 0 6px;
-    background-color: #27272A;
+    background-color: {c._SEA};
     border-radius: 4px;
-}
+}}
 
-/* Dock widgets as islands */
-QDockWidget {
-    titlebar-close-icon: url(close.png);
-    titlebar-normal-icon: url(float.png);
-}
-
-QDockWidget::title {
-    background: #27272A;
-    padding: 8px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-}
-
-QDockWidget > QWidget {
-    background: #27272A;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
-}
-
-/* Tab bar with rounded tabs */
-QTabWidget::pane {
-    border: 1px solid #3F3F46;
+/* --------------------------------------------------------------------------
+   Tabs
+   -------------------------------------------------------------------------- */
+QTabWidget::pane {{
+    border: 1px solid {c._BORDER};
     border-radius: 8px;
-    background: #27272A;
+    background: {c._SEA};
     margin-top: -1px;
-}
+}}
 
-QTabBar::tab {
-    background: #18181B;
-    border: 1px solid #3F3F46;
+QTabBar::tab {{
+    background: {c._BG};
+    border: 1px solid {c._BORDER};
     border-bottom: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
     padding: 8px 16px;
     margin-right: 2px;
-}
+}}
 
-QTabBar::tab:selected {
-    background: #27272A;
-    border-bottom-color: #27272A;
-}
+QTabBar::tab:selected {{
+    background: {c._SEA};
+    border-bottom-color: {c._SEA};
+}}
 
-QTabBar::tab:hover:!selected {
-    background: #1F1F23;
-}
+QTabBar::tab:hover:!selected {{
+    background: {c._INPUT};
+}}
 
-/* Rounded inputs */
-QLineEdit {
+/* --------------------------------------------------------------------------
+   Inputs
+   -------------------------------------------------------------------------- */
+QLineEdit {{
     border-radius: 6px;
     padding: 6px 10px;
-    background: #1F1F23;
-    border: 1px solid #3F3F46;
-}
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
 
-QLineEdit:focus {
-    border-color: #6B57FF;
-    background: #27272A;
-}
+QLineEdit:focus {{
+    border-color: {c._ACCENT};
+    background: {c._SEA};
+}}
 
-QComboBox {
+QComboBox {{
     border-radius: 6px;
     padding: 6px 10px;
-    background: #1F1F23;
-    border: 1px solid #3F3F46;
-}
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
 
-QComboBox:focus {
-    border-color: #6B57FF;
-}
+QComboBox:focus {{
+    border-color: {c._ACCENT};
+}}
 
-QComboBox::drop-down {
+QComboBox::drop-down {{
     border: none;
     border-top-right-radius: 6px;
     border-bottom-right-radius: 6px;
-}
+}}
 
-QSpinBox, QDoubleSpinBox {
+QSpinBox, QDoubleSpinBox {{
     border-radius: 6px;
     padding: 6px;
-    background: #1F1F23;
-    border: 1px solid #3F3F46;
-}
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
 
-QSpinBox:focus, QDoubleSpinBox:focus {
-    border-color: #6B57FF;
-}
+QSpinBox:focus, QDoubleSpinBox:focus {{
+    border-color: {c._ACCENT};
+}}
 
-/* Rounded buttons with subtle hover */
-QPushButton {
-    background: #27272A;
-    border: 1px solid #3F3F46;
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+QPushButton {{
+    background: {c._SEA};
+    border: 1px solid {c._BORDER};
     border-radius: 6px;
     padding: 8px 16px;
-}
+}}
 
-QPushButton:hover {
-    background: #3F3F46;
-    border-color: #52525B;
-}
+QPushButton:hover {{
+    background: {c._BORDER};
+    border-color: {c._BORDER_HI};
+}}
 
-QPushButton:pressed {
-    background: #52525B;
-}
+QPushButton:pressed {{
+    background: {c._BORDER_HI};
+}}
 
-/* Primary button with accent color */
-QPushButton[primary="true"] {
-    background: #6B57FF;
+QPushButton[primary="true"] {{
+    background: {c._ACCENT};
     color: white;
     border: none;
     border-radius: 6px;
-}
+}}
 
-QPushButton[primary="true"]:hover {
-    background: #5B47EF;
-}
+QPushButton[primary="true"]:hover {{
+    background: {c._ACCENT_HOVER};
+}}
 
-QPushButton[primary="true"]:pressed {
-    background: #4B37DF;
-}
+QPushButton[primary="true"]:pressed {{
+    background: {c._ACCENT_PRESS};
+}}
 
-/* Scrollbars with rounded handles */
-QScrollBar:vertical {
-    background: #18181B;
+/* --------------------------------------------------------------------------
+   Scrollbars
+   -------------------------------------------------------------------------- */
+QScrollBar:vertical {{
+    background: {c._BG};
     width: 14px;
     margin: 0;
     border-radius: 7px;
-}
+}}
 
-QScrollBar::handle:vertical {
-    background: #3F3F46;
+QScrollBar::handle:vertical {{
+    background: {c._BORDER};
     min-height: 30px;
     border-radius: 5px;
     margin: 3px;
-}
+}}
 
-QScrollBar::handle:vertical:hover {
-    background: #52525B;
-}
+QScrollBar::handle:vertical:hover {{
+    background: {c._BORDER_HI};
+}}
 
-QScrollBar:horizontal {
-    background: #18181B;
+QScrollBar:horizontal {{
+    background: {c._BG};
     height: 14px;
     margin: 0;
     border-radius: 7px;
-}
+}}
 
-QScrollBar::handle:horizontal {
-    background: #3F3F46;
+QScrollBar::handle:horizontal {{
+    background: {c._BORDER};
     min-width: 30px;
     border-radius: 5px;
     margin: 3px;
-}
+}}
 
-QScrollBar::handle:horizontal:hover {
-    background: #52525B;
-}
+QScrollBar::handle:horizontal:hover {{
+    background: {c._BORDER_HI};
+}}
 
-QScrollBar::add-line, QScrollBar::sub-line {
+QScrollBar::add-line, QScrollBar::sub-line {{
     border: none;
     background: none;
     height: 0;
     width: 0;
-}
+}}
 
-QScrollBar::add-page, QScrollBar::sub-page {
+QScrollBar::add-page, QScrollBar::sub-page {{
     background: none;
-}
+}}
 
-/* Menu with island styling */
-QMenu {
-    background-color: #27272A;
-    border: 1px solid #3F3F46;
-    border-radius: 8px;
-    padding: 4px;
-}
-
-QMenu::item {
-    padding: 8px 24px;
-    border-radius: 4px;
-    margin: 2px 4px;
-}
-
-QMenu::item:selected {
-    background-color: #6B57FF;
-    color: white;
-}
-
-QMenu::separator {
-    height: 1px;
-    background: #3F3F46;
-    margin: 6px 12px;
-}
-
-/* Tooltips as small islands */
-QToolTip {
-    background-color: #27272A;
-    color: #FAFAFA;
-    border: 1px solid #3F3F46;
+/* --------------------------------------------------------------------------
+   Tooltips
+   -------------------------------------------------------------------------- */
+QToolTip {{
+    background-color: {c._SEA};
+    color: {c._TEXT};
+    border: 1px solid {c._BORDER};
     border-radius: 6px;
     padding: 6px 10px;
-}
+}}
 
-/* Progress bar with rounded ends */
-QProgressBar {
+/* --------------------------------------------------------------------------
+   Progress bar
+   -------------------------------------------------------------------------- */
+QProgressBar {{
     border: none;
     border-radius: 4px;
     text-align: center;
-    background: #1F1F23;
+    background: {c._INPUT};
     height: 8px;
-}
+}}
 
-QProgressBar::chunk {
-    background: #6B57FF;
+QProgressBar::chunk {{
+    background: {c._ACCENT};
     border-radius: 4px;
-}
+}}
 
-/* Tree/list/table views */
-QTreeView, QListView, QTableView {
-    border: 1px solid #3F3F46;
+/* --------------------------------------------------------------------------
+   Tree / List / Table views
+   -------------------------------------------------------------------------- */
+QTreeView, QListView, QTableView {{
+    border: 1px solid {c._BORDER};
     border-radius: 8px;
-    background: #1F1F23;
-}
+    background: {c._INPUT};
+}}
 
-QTreeView::item, QListView::item, QTableView::item {
+QTreeView::item, QListView::item, QTableView::item {{
     padding: 4px;
     border-radius: 4px;
-}
+}}
 
-QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {
-    background: #6B57FF;
+QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
+    background: {c._ACCENT};
     color: white;
-}
+}}
 
-QTreeView::item:hover:!selected, QListView::item:hover:!selected, QTableView::item:hover:!selected {
-    background: #27272A;
-}
+QTreeView::item:hover:!selected, QListView::item:hover:!selected, QTableView::item:hover:!selected {{
+    background: {c._SEA};
+}}
 
-/* Header with subtle styling */
-QHeaderView::section {
-    background: #27272A;
+/* --------------------------------------------------------------------------
+   Headers
+   -------------------------------------------------------------------------- */
+QHeaderView::section {{
+    background: {c._SEA};
     border: none;
-    border-right: 1px solid #3F3F46;
-    border-bottom: 1px solid #3F3F46;
+    border-right: 1px solid {c._BORDER};
+    border-bottom: 1px solid {c._BORDER};
     padding: 8px;
-}
+}}
 
-QHeaderView::section:first {
+QHeaderView::section:first {{
     border-top-left-radius: 8px;
-}
+}}
 
-QHeaderView::section:last {
+QHeaderView::section:last {{
     border-top-right-radius: 8px;
     border-right: none;
-}
+}}
 
-/* Splitters */
-QSplitter::handle {
-    background: #3F3F46;
-}
+/* --------------------------------------------------------------------------
+   Splitters
+   -------------------------------------------------------------------------- */
+QSplitter::handle {{
+    background: {c._BORDER};
+}}
 
-QSplitter::handle:horizontal {
+QSplitter::handle:horizontal {{
     width: 2px;
-}
+}}
 
-QSplitter::handle:vertical {
+QSplitter::handle:vertical {{
     height: 2px;
-}
+}}
 
-/* Status bar as subtle footer */
-QStatusBar {
-    background: #1F1F23;
-    border-top: 1px solid #3F3F46;
-}
+/* --------------------------------------------------------------------------
+   Status bar
+   -------------------------------------------------------------------------- */
+QStatusBar {{
+    background: {c._SEA};
+    border-top: none;
+}}
 
-QStatusBar::item {
+QStatusBar::item {{
     border: none;
-}
+}}
 """

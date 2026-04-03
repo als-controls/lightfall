@@ -52,10 +52,8 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
    Icon Strip Sidebar
    ========================================================================== */
 #IconStripSidebar {{
-    background: {island};
+    background: {sea};
     border-right: {"none" if islands else f"1px solid {colors.border}"};
-    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
-    {"border-bottom-left-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 #IconStripSidebar QToolButton {{
@@ -87,11 +85,11 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
 }}
 
 /* --------------------------------------------------------------------------
-   Custom Panel Title Bar
+   Custom Panel Title Bar — sea-colored header
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
-    background: {island};
-    border-bottom: 1px solid {colors.border};
+    background: {sea};
+    border-bottom: none;
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
@@ -122,7 +120,7 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
    ========================================================================== */
 
 QDockWidget {{
-    background: {island};
+    background: {sea};
     {"border: none;" if islands else f"border: 1px solid {colors.border};"}
     {"border-radius: " + str(radius) + "px;" if islands else ""}
     titlebar-close-icon: url(none);
@@ -132,10 +130,10 @@ QDockWidget {{
 /* Native title bar (hidden when we use custom PanelTitleBar, but style
    it for any dock widgets that don't opt into custom titles) */
 QDockWidget::title {{
-    background: {island};
+    background: {sea};
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
-    border-bottom: 1px solid {colors.border};
+    border-bottom: none;
     padding: 6px 8px;
     color: {colors.text_secondary};
     font-weight: 600;
@@ -178,7 +176,7 @@ QMainWindow::separator:hover {{
 }}
 
 /* --------------------------------------------------------------------------
-   Content inside dock widgets — match island rounding
+   Content inside dock widgets — island surface with rounding
    -------------------------------------------------------------------------- */
 {"" if not islands else f"""
 QDockWidget > QWidget {{
