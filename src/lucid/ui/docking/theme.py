@@ -4,16 +4,19 @@ Generates stylesheets for QDockWidget and the docking system that match
 the application theme.
 
 When the active theme defines a `sea` color (distinct from `background`),
-panels get the "Islands" treatment: rounded corners, no hard borders,
-with visible sea-colored gaps between panels.
+panels get the "Islands" treatment: rounded corners, visible gaps.
 
 Color model (Islands dark):
-    sea    (#27272A) — lighter, the app background / gaps / corners
+    sea    (#27272A) — lighter, app background / gaps / visible in corners
     island (#1E1E22) — darker, panel title bars + content + headers
 
-The QDockWidget itself has sea background + border-radius. Its children
-(title bar, content) are island-colored with NO rounding — the parent's
-sea background peeks through the rounded corners.
+Qt does NOT clip children to parent border-radius. So we round the
+children themselves:
+    - PanelTitleBar: island bg + top rounding
+    - Content widget: island bg + bottom rounding
+    - Edge-touching children (text edits, tables): bottom rounding
+The QDockWidget is transparent with margin — the sea shows through
+the gaps and the rounded corners.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 RADIUS = 10          # panel corner radius
 RADIUS_SM = 6        # small elements (buttons, inputs)
-GAP = 6              # sea gap between islands (px)
+GAP = 3              # sea gap around islands (margin, px)
 
 
 def _is_islands_mode(colors: ThemeColors) -> bool:
@@ -89,19 +92,33 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
     border-radius: 1px;
 }}
 
+/* ==========================================================================
+   QDockWidget — transparent shell with margin for sea gaps
+   ========================================================================== */
+
+QDockWidget {{
+    background: transparent;
+    border: none;
+    {"margin: " + str(gap) + "px;" if islands else ""}
+    titlebar-close-icon: url(none);
+    titlebar-normal-icon: url(none);
+}}
+
 /* --------------------------------------------------------------------------
-   Custom Panel Title Bar — island color, NO rounding
-   (rounding comes from the QDockWidget parent's sea background)
+   Custom Panel Title Bar — island bg + top rounding
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
     background: {island};
     border: none;
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 #PanelTitleLabel {{
     color: {colors.text_secondary};
     font-weight: 600;
     font-size: 11px;
+    background: transparent;
 }}
 
 #PanelTitleCloseButton {{
@@ -119,24 +136,14 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
     background: {colors.text_secondary};
 }}
 
-/* ==========================================================================
-   QDockWidget — sea background + border-radius
-   The sea peeks through the rounded corners. Children paint island
-   on top without rounding, so the sea corners are visible.
-   ========================================================================== */
-
-QDockWidget {{
-    background: {sea};
-    {"border: none;" if islands else f"border: 1px solid {colors.border};"}
-    {"border-radius: " + str(radius) + "px;" if islands else ""}
-    titlebar-close-icon: url(none);
-    titlebar-normal-icon: url(none);
-}}
-
-/* Native title bar — island, no rounding */
+/* --------------------------------------------------------------------------
+   Native title bar fallback (when no custom title bar is set)
+   -------------------------------------------------------------------------- */
 QDockWidget::title {{
     background: {island};
     border: none;
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
     padding: 6px 8px;
     color: {colors.text_secondary};
     font-weight: 600;
@@ -157,20 +164,27 @@ QDockWidget::float-button:hover {{
 }}
 
 /* --------------------------------------------------------------------------
-   Content inside dock widgets — island, no rounding
+   Dock content — island bg + bottom rounding
    -------------------------------------------------------------------------- */
 QDockWidget > QWidget {{
     background: {island};
+    {"border-bottom-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-bottom-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 {"" if not islands else f"""
-/* Scrollable content widgets inside docks */
+/* Edge-touching scrollable widgets — must inherit bottom rounding
+   so they don't paint opaque rectangles over the rounded corners */
 QDockWidget QPlainTextEdit,
 QDockWidget QTextEdit,
 QDockWidget QListView,
 QDockWidget QTreeView,
-QDockWidget QTableView {{
+QDockWidget QTableView,
+QDockWidget QScrollArea {{
     border: none;
+    border-radius: 0px;
+    border-bottom-left-radius: {radius}px;
+    border-bottom-right-radius: {radius}px;
     background: {island};
 }}
 
@@ -195,13 +209,13 @@ QMainWindow > QMainWindow {{
 }}
 
 /* --------------------------------------------------------------------------
-   Central widget (e.g. logbook) — island with rounded corners
-   The inner QMainWindow's sea background shows through the corners.
+   Central widget (e.g. logbook) — island with rounding + margin
    -------------------------------------------------------------------------- */
 {"" if not islands else f"""
 QMainWindow > QMainWindow > .QWidget {{
     background: {island};
     border-radius: {radius}px;
+    margin: {gap}px;
 }}
 """}
 
@@ -210,8 +224,8 @@ QMainWindow > QMainWindow > .QWidget {{
    -------------------------------------------------------------------------- */
 QMainWindow::separator {{
     background: {sea};
-    width: {max(gap, 2)}px;
-    height: {max(gap, 2)}px;
+    width: {max(gap * 2, 2)}px;
+    height: {max(gap * 2, 2)}px;
 }}
 
 QMainWindow::separator:hover {{
