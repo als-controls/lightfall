@@ -323,21 +323,29 @@ class IPythonPanel(BasePanel):
                 is_dark = ThemeManager.get_instance().is_dark
             except Exception:
                 is_dark = True
-            syntax_style = "monokai" if is_dark else "default"
+            syntax_style = "dracula" if is_dark else "default"
 
         # Apply the Pygments syntax style
         self._jupyter_widget.syntax_style = syntax_style
 
         # Generate matching stylesheet from qtconsole's template
-        colors = "linux" if syntax_style in (
+        dark_styles = {
             "monokai", "native", "vim", "fruity", "rrt", "dracula",
             "one-dark", "nord", "nord-darker", "gruvbox-dark",
             "paraiso-dark", "solarized-dark", "github-dark",
             "inkpot", "stata-dark",
-        ) else "lightbg"
-        self._jupyter_widget.style_sheet = sheet_from_template(
-            syntax_style, colors=colors,
-        )
+        }
+        colors = "linux" if syntax_style in dark_styles else "lightbg"
+        base_sheet = sheet_from_template(syntax_style, colors=colors)
+
+        # Append rounded corners for the text areas
+        base_sheet += """
+            QPlainTextEdit, QTextEdit {
+                border-radius: 8px;
+                border: none;
+            }
+        """
+        self._jupyter_widget.style_sheet = base_sheet
 
         logger.debug("Applied console syntax style: {}", syntax_style)
 
