@@ -522,8 +522,9 @@ class ThemeManager(QObject):
         """Apply a dark color palette to the application."""
         palette = QPalette()
 
-        # Window colors
-        palette.setColor(QPalette.ColorRole.Window, QColor(self._colors.background))
+        # Window color = sea (the app background / gaps between panels).
+        # QDockWidget paints from this role directly, ignoring QSS.
+        palette.setColor(QPalette.ColorRole.Window, QColor(self._colors.sea))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(self._colors.text))
         palette.setColor(QPalette.ColorRole.Base, QColor(self._colors.surface))
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor(self._colors.background))

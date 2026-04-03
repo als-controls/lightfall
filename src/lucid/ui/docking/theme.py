@@ -277,29 +277,9 @@ QMainWindow::separator {{
     background: {sea};
     width: {max(gap * 2, 2)}px;
     height: {max(gap * 2, 2)}px;
-    border: none;
 }}
 
 QMainWindow::separator:hover {{
-    background: {colors.primary};
-    {"border-radius: 3px;" if islands else ""}
-}}
-
-/* Splitters inside panels and between dock areas */
-QSplitter::handle {{
-    background: {sea};
-    {"border-radius: 3px;" if islands else ""}
-}}
-
-QSplitter::handle:horizontal {{
-    width: {max(gap * 2, 2)}px;
-}}
-
-QSplitter::handle:vertical {{
-    height: {max(gap * 2, 2)}px;
-}}
-
-QSplitter::handle:hover {{
     background: {colors.primary};
 }}
 """
