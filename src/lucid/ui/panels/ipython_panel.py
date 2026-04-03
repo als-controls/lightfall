@@ -286,6 +286,12 @@ class IPythonPanel(BasePanel):
         self._jupyter_widget.kernel_manager = self._kernel_manager
         self._jupyter_widget.kernel_client = self._kernel_client
 
+        # Force QSS background painting with border-radius
+        from PySide6.QtCore import Qt
+        self._jupyter_widget.setAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground, True,
+        )
+
         # Apply console style based on current theme
         self._apply_console_style()
 
@@ -338,14 +344,18 @@ class IPythonPanel(BasePanel):
         colors = "linux" if syntax_style in dark_styles else "lightbg"
         base_sheet = sheet_from_template(syntax_style, colors=colors)
 
-        # Append rounded corners for the text areas
-        base_sheet += """
-            QPlainTextEdit, QTextEdit {
+        self._jupyter_widget.style_sheet = base_sheet
+
+        # Apply rounded corners via QSS directly on the widget.
+        # qtconsole's style_sheet is document CSS (HTML), not Qt QSS.
+        # We need setStyleSheet() on the actual Qt widgets.
+        self._jupyter_widget.setStyleSheet("""
+            RichJupyterWidget { border-radius: 8px; }
+            RichJupyterWidget QTextEdit {
                 border-radius: 8px;
                 border: none;
             }
-        """
-        self._jupyter_widget.style_sheet = base_sheet
+        """)
 
         logger.debug("Applied console syntax style: {}", syntax_style)
 
