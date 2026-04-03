@@ -147,7 +147,7 @@ class IslandsThemePlugin(ThemePlugin):
 
     def get_theme_definition(self) -> ThemeDefinition:
         # Color palette inspired by JetBrains Islands theme
-        # Canvas (main background) is darker, surfaces (islands) are lighter
+        # Islands (surface) are darker, the sea (gaps between panels) is lighter
         return ThemeDefinition(
             # Purple accent - the signature Islands color
             primary="#6B57FF",
@@ -157,10 +157,11 @@ class IslandsThemePlugin(ThemePlugin):
             warning="#D29922",
             error="#F85149",
             info="#58A6FF",
-            # Canvas background - very dark, the "sea" on which islands float
+            # Islands (panels) — darker, the "land"
             background="#18181B",
-            # Island surface - elevated panels, noticeably lighter than canvas
-            surface="#27272A",
+            surface="#1E1E22",
+            # Sea — lighter than islands, visible in gaps between panels
+            sea="#27272A",
             # Text colors - high contrast but not pure white
             text="#FAFAFA",
             text_secondary="#A1A1AA",

@@ -1,6 +1,10 @@
 """QtAds theme integration.
 
 Generates stylesheets for QtAds widgets that match the application theme.
+
+When the active theme defines a `sea` color (distinct from `background`),
+panels get the "Islands" treatment: rounded corners, no hard borders,
+with visible sea-colored gaps between panels.
 """
 
 from __future__ import annotations
@@ -9,6 +13,23 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from lucid.ui.theme.manager import ThemeColors
+
+# ---------------------------------------------------------------------------
+# Layout constants
+# ---------------------------------------------------------------------------
+RADIUS = 10          # panel corner radius
+RADIUS_SM = 6        # small elements (buttons, inputs)
+GAP = 6              # sea gap between islands (px)
+TITLE_HEIGHT = 30    # dock title bar height
+
+
+def _is_islands_mode(colors: ThemeColors) -> bool:
+    """Check whether the current theme uses Islands layout.
+
+    Islands mode is active when the theme defines a ``sea`` color that
+    differs from ``background``.
+    """
+    return bool(colors.sea) and colors.sea != colors.background
 
 
 def generate_qtads_stylesheet(colors: ThemeColors) -> str:
@@ -20,18 +41,32 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
     Returns:
         CSS stylesheet string for QtAds widgets.
     """
+    islands = _is_islands_mode(colors)
+    sea = colors.sea if islands else colors.background
+    island = colors.surface if islands else colors.surface
+
+    # In Islands mode the dock manager background is the sea.
+    # Panels (islands) float on it with rounded corners and no borders.
+    # In non-Islands mode we fall back to the existing flat look.
+
+    border_rule = "border: none;" if islands else f"border: 1px solid {colors.border};"
+    dock_area_border = "border: none;" if islands else f"border: 1px solid {colors.border};"
+    radius = RADIUS if islands else 0
+
     return f"""
 /* ==========================================================================
    Icon Strip Sidebar
    ========================================================================== */
 #IconStripSidebar {{
-    background: {colors.surface};
-    border-right: 1px solid {colors.border};
+    background: {island if islands else colors.surface};
+    border-right: {"none" if islands else f"1px solid {colors.border}"};
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-bottom-left-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 #IconStripSidebar QToolButton {{
     border: none;
-    border-radius: 4px;
+    border-radius: {RADIUS_SM}px;
     padding: 3px;
     background: transparent;
 }}
@@ -61,14 +96,16 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
    Custom Panel Title Bar (for side panels with NoTab)
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
-    background: {colors.surface};
+    background: {island};
     border-bottom: 1px solid {colors.border};
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 #PanelTitleLabel {{
-    color: {colors.text};
-    font-weight: 500;
-    font-size: 12px;
+    color: {colors.text_secondary};
+    font-weight: 600;
+    font-size: 11px;
 }}
 
 #PanelTitleCloseButton {{
@@ -91,15 +128,21 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
+   Dock manager — the "sea"
+   -------------------------------------------------------------------------- */
+ads--CDockManager {{
+    background: {sea};
+    {"padding: " + str(GAP) + "px;" if islands else ""}
+}}
+
+/* --------------------------------------------------------------------------
    Auto-hide sidebar tabs (icon buttons on the edges)
-   Large icons, no rotation, tooltip on hover
    -------------------------------------------------------------------------- */
 ads--CAutoHideTab {{
-    background: {colors.surface};
+    background: {island};
     border: 1px solid {colors.border};
     padding: 3px;
     qproperty-iconSize: 17px 17px;
-    /* Prevent icon rotation on vertical sidebars */
     qproperty-iconRotated: false;
 }}
 
@@ -116,20 +159,21 @@ ads--CAutoHideTab[activeTab="true"] {{
    Auto-hide sidebar container (the slide-out panel)
    -------------------------------------------------------------------------- */
 ads--CAutoHideDockContainer {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
+    background: {island};
+    {border_rule}
+    {"border-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 /* --------------------------------------------------------------------------
    Auto-hide sidebar (the icon strip itself)
    -------------------------------------------------------------------------- */
 ads--CAutoHideSideBar {{
-    background: {colors.surface};
+    background: {island if islands else colors.surface};
     border: none;
 }}
 
 /* --------------------------------------------------------------------------
-   Dock widget tabs (styled as flat title headers, not clickable tabs)
+   Dock widget tabs
    -------------------------------------------------------------------------- */
 ads--CDockWidgetTab {{
     background: transparent;
@@ -170,19 +214,20 @@ ads--CDockWidgetTab QToolButton:hover {{
 }}
 
 /* --------------------------------------------------------------------------
-   Dock area title bar (contains tab bar and buttons)
-   Styled as a minimal header bar
+   Dock area title bar
    -------------------------------------------------------------------------- */
 ads--CDockAreaTitleBar {{
-    background: {colors.surface};
+    background: {island};
     border: none;
     border-bottom: 1px solid {colors.border};
     padding: 0;
-    min-height: 26px;
-    max-height: 26px;
+    min-height: {TITLE_HEIGHT}px;
+    max-height: {TITLE_HEIGHT}px;
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
-/* Title bar buttons (close, menu, etc.) */
+/* Title bar buttons */
 ads--CDockAreaTitleBar QToolButton {{
     background: transparent;
     border: none;
@@ -200,26 +245,30 @@ ads--CDockAreaTitleBar QToolButton:pressed {{
 }}
 
 /* --------------------------------------------------------------------------
-   Dock area tab bar (holds the tabs/titles)
+   Dock area tab bar
    -------------------------------------------------------------------------- */
 ads--CDockAreaTabBar {{
-    background: {colors.surface};
+    background: {island};
     border: none;
 }}
 
 /* --------------------------------------------------------------------------
-   Dock splitters
+   Dock splitters — sea-colored gaps between islands
    -------------------------------------------------------------------------- */
+ads--CDockSplitter {{
+    background: {sea};
+}}
+
 ads--CDockSplitter::handle {{
-    background: {colors.border};
+    background: {sea};
 }}
 
 ads--CDockSplitter::handle:horizontal {{
-    width: 2px;
+    width: {GAP if islands else 2}px;
 }}
 
 ads--CDockSplitter::handle:vertical {{
-    height: 2px;
+    height: {GAP if islands else 2}px;
 }}
 
 ads--CDockSplitter::handle:hover {{
@@ -230,33 +279,62 @@ ads--CDockSplitter::handle:hover {{
    Dock container (main dock area)
    -------------------------------------------------------------------------- */
 ads--CDockContainerWidget {{
-    background: {colors.background};
+    background: {sea};
 }}
 
 /* --------------------------------------------------------------------------
-   Dock area widget
+   Dock area widget — each "island"
    -------------------------------------------------------------------------- */
 ads--CDockAreaWidget {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
+    background: {island};
+    {dock_area_border}
+    {"border-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 ads--CDockAreaWidget[focused="true"] {{
-    border-color: {colors.primary};
+    {"border: 1px solid " + colors.primary + ";" if not islands else ""}
+    {"" if not islands else "/* focus indicated by accent, no border in islands */"}
 }}
+
+/* --------------------------------------------------------------------------
+   Content inside dock areas — match island rounding
+   -------------------------------------------------------------------------- */
+{"" if not islands else f"""
+ads--CDockAreaWidget > QWidget {{
+    background: {island};
+    border-bottom-left-radius: {radius}px;
+    border-bottom-right-radius: {radius}px;
+}}
+
+/* Scrollable content widgets inside dock areas inherit rounding */
+ads--CDockAreaWidget QPlainTextEdit,
+ads--CDockAreaWidget QTextEdit,
+ads--CDockAreaWidget QListView,
+ads--CDockAreaWidget QTreeView,
+ads--CDockAreaWidget QTableView {{
+    border: none;
+    border-radius: 0px;
+    border-bottom-left-radius: {radius}px;
+    border-bottom-right-radius: {radius}px;
+    background: {island};
+}}
+"""}
 
 /* --------------------------------------------------------------------------
    Floating dock container (detached windows)
    -------------------------------------------------------------------------- */
 ads--CFloatingDockContainer {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
+    background: {island};
+    {border_rule}
+    {"border-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 /* Floating window title bar */
 ads--CFloatingWidgetTitleBar {{
-    background: {colors.surface};
+    background: {island};
     border-bottom: 1px solid {colors.border};
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 ads--CFloatingWidgetTitleBar QLabel {{
@@ -278,14 +356,14 @@ ads--CFloatingWidgetTitleBar QToolButton:hover {{
    Overlay cross for drop targets
    -------------------------------------------------------------------------- */
 ads--CDockOverlayCross {{
-    qproperty-iconColors: "{colors.background} {colors.primary} {colors.text} {colors.border} {colors.surface}";
+    qproperty-iconColors: "{island} {colors.primary} {colors.text} {colors.border} {island}";
 }}
 
 /* --------------------------------------------------------------------------
    Resize handle
    -------------------------------------------------------------------------- */
 ads--CResizeHandle {{
-    background: {colors.border};
+    background: {sea if islands else colors.border};
 }}
 
 ads--CResizeHandle:hover {{

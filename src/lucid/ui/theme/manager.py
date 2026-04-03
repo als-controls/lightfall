@@ -73,12 +73,18 @@ class ThemeColors:
     connected: str = ""
     disconnected: str = ""
 
+    # Islands layout: "sea" is the visible gap behind floating panels.
+    # When empty, falls back to background (non-Islands themes unchanged).
+    sea: str = ""
+
     def __post_init__(self) -> None:
         """Set default state colors based on theme."""
         if not self.connected:
             self.connected = self.success
         if not self.disconnected:
             self.disconnected = self.error
+        if not self.sea:
+            self.sea = self.background
 
     @classmethod
     def from_definition(cls, definition: ThemeDefinition) -> ThemeColors:
@@ -104,6 +110,7 @@ class ThemeColors:
             border=definition.border,
             connected=definition.connected,
             disconnected=definition.disconnected,
+            sea=definition.sea,
         )
 
 
