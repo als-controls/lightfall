@@ -34,6 +34,36 @@ RADIUS_SM = 6        # small elements (buttons, inputs)
 GAP = 3              # sea gap around islands (margin, px)
 
 
+def dump_dock_tree() -> None:
+    """Debug helper: print the widget tree inside all QDockWidgets.
+
+    Run from LUCID's Python console:
+        from lucid.ui.docking.theme import dump_dock_tree
+        dump_dock_tree()
+    """
+    from PySide6.QtWidgets import QApplication, QDockWidget, QWidget
+
+    def _walk(widget: QWidget, indent: int = 0) -> None:
+        name = widget.objectName() or "(no name)"
+        cls = type(widget).__name__
+        bg = widget.palette().color(widget.backgroundRole()).name()
+        geo = widget.geometry()
+        vis = "V" if widget.isVisible() else "H"
+        print(
+            f"{'  ' * indent}{cls} [{name}] bg={bg} "
+            f"{geo.width()}x{geo.height()} {vis}"
+        )
+        for child in widget.children():
+            if isinstance(child, QWidget):
+                _walk(child, indent + 1)
+
+    for w in QApplication.instance().allWidgets():
+        if isinstance(w, QDockWidget) and w.isVisible():
+            print(f"\n=== {w.objectName()} ===")
+            _walk(w)
+            print()
+
+
 def _is_islands_mode(colors: ThemeColors) -> bool:
     """Check whether the current theme uses Islands layout."""
     return bool(colors.sea) and colors.sea != colors.background
