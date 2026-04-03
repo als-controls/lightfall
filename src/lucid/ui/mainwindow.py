@@ -443,6 +443,11 @@ class NCSMainWindow(QMainWindow):
         logger.info("Applied default panel layout with {} deferred panels",
                     len(registered_left) + len(registered_bottom))
 
+        # Re-apply theme now that dock widgets exist.
+        # The initial apply_to_application() runs before panels are created,
+        # so child selectors (QDockWidget > QWidget, etc.) don't bind.
+        self._apply_theme()
+
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the window.
 

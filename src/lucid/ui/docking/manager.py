@@ -391,6 +391,13 @@ class DockingManager(QObject):
             logger.error("Failed to add deferred panel to dock: {}", panel_id)
             return None
 
+        # Re-apply theme so new dock widget picks up child selectors
+        try:
+            from lucid.ui.theme import ThemeManager
+            ThemeManager.get_instance().apply_to_application()
+        except Exception:
+            pass
+
         logger.info("Instantiated deferred panel: {}", panel_id)
         return panel
 
