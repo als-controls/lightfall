@@ -525,7 +525,7 @@ class EntryListWidget(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 6, 4, 4)
+        root.setContentsMargins(4, 4, 4, 4)
         root.setSpacing(4)
 
         # --- toolbar row ---

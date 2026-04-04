@@ -96,10 +96,10 @@ class PanelTitleBar(QFrame):
         """
         super().__init__(parent)
         self.setObjectName("PanelTitleBar")
-        self.setFixedHeight(28)
+        self.setFixedHeight(32)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 0, 4, 0)
+        layout.setContentsMargins(8, 2, 4, 4)
         layout.setSpacing(4)
 
         # Title label

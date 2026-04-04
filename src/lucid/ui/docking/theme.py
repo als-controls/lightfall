@@ -229,6 +229,13 @@ QDockWidget QScrollArea {{
     background: {island};
 }}
 
+/* List widgets inside docks — island surface, no frame */
+QDockWidget QListWidget,
+QDockWidget QListView {{
+    background: {island};
+    border: none;
+}}
+
 /* Table/tree headers inside docks — island surface */
 QDockWidget QHeaderView::section {{
     background: {island};
