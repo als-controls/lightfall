@@ -237,6 +237,14 @@ QDockWidget QFrame {{
     border: none;
 }}
 
+/* EntryListWidget — full island rounding so it doesn't paint over
+   the panel's rounded corners */
+#EntryListWidget {{
+    background: {island};
+    border: none;
+    border-radius: {radius}px;
+}}
+
 /* Table/tree headers inside docks — island surface */
 QDockWidget QHeaderView::section {{
     background: {island};
