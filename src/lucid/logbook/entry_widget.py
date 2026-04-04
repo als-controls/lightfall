@@ -16,17 +16,41 @@ from datetime import datetime
 from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import QMimeData, Qt, Signal, Slot
-from PySide6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont
+from PySide6.QtCore import (
+    QAbstractListModel,
+    QModelIndex,
+    QRect,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+    Signal,
+    Slot,
+)
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QCursor,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QFont,
+    QFontMetrics,
+    QMouseEvent,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -102,17 +126,7 @@ class _TagChip(QFrame):
             layout.addWidget(close_btn)
 
 
-def _tag_chip(tag: str) -> QLabel:
-    """Create a small coloured chip label for a tag (read-only, for sidebar)."""
-    lbl = QLabel(tag)
-    bg = "#3a3a5c" if is_dark_theme() else "#e0e0f0"
-    fg = "#c0c0e0" if is_dark_theme() else "#333366"
-    lbl.setStyleSheet(
-        f"background: {bg}; color: {fg}; border-radius: 6px; "
-        f"padding: 2px 8px; font-size: 8pt;"
-    )
-    lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-    return lbl
+# _tag_chip removed — delegate paints chips directly
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +469,9 @@ class EntryWidget(QFrame):
             widget_y = w.y() + w.height() / 2
             if drop_y < widget_y:
                 # Map widget back to fragment index
-                frag = getattr(w, '_fragment', None) if not isinstance(w, CollapsibleGroup) else None
+                frag = (
+                    getattr(w, "_fragment", None) if not isinstance(w, CollapsibleGroup) else None
+                )
                 if frag:
                     target_idx = next(
                         (j for j, f in enumerate(self._entry.fragments) if f.id == frag.id),
@@ -501,11 +517,289 @@ class EntryWidget(QFrame):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Model / View components for EntryListWidget
+# ---------------------------------------------------------------------------
+
+# Custom data roles
+_TitleRole = Qt.ItemDataRole.UserRole + 1
+_DateRole = Qt.ItemDataRole.UserRole + 2
+_TagsRole = Qt.ItemDataRole.UserRole + 3
+_EntryIdRole = Qt.ItemDataRole.UserRole + 4
+_UpdatedAtRole = Qt.ItemDataRole.UserRole + 5
+_CreatedAtRole = Qt.ItemDataRole.UserRole + 6
+
+
+class EntryListModel(QAbstractListModel):
+    """Stores ``EntryData`` objects for a ``QListView``."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._entries: list[EntryData] = []
+
+    # -- QAbstractListModel interface --
+
+    def rowCount(self, parent: QModelIndex | None = None) -> int:  # noqa: N802
+        return len(self._entries)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid() or not (0 <= index.row() < len(self._entries)):
+            return None
+        entry = self._entries[index.row()]
+        if role == Qt.ItemDataRole.DisplayRole or role == _TitleRole:
+            return entry.title or _first_line(entry)
+        if role == _DateRole:
+            return entry.created_at.strftime("%Y-%m-%d %H:%M")
+        if role == _TagsRole:
+            return entry.tags
+        if role == _EntryIdRole:
+            return entry.id
+        if role == _UpdatedAtRole:
+            return entry.updated_at
+        if role == _CreatedAtRole:
+            return entry.created_at
+        return None
+
+    # -- public helpers --
+
+    def set_entries(self, entries: list[EntryData]) -> None:
+        self.beginResetModel()
+        self._entries = list(entries)
+        self.endResetModel()
+
+    def add_entry(self, entry: EntryData) -> None:
+        row = len(self._entries)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self._entries.append(entry)
+        self.endInsertRows()
+
+    def remove_entry(self, entry_id: str) -> None:
+        for row, e in enumerate(self._entries):
+            if e.id == entry_id:
+                self.beginRemoveRows(QModelIndex(), row, row)
+                self._entries.pop(row)
+                self.endRemoveRows()
+                return
+
+    def entry_at(self, index: QModelIndex) -> EntryData | None:
+        if index.isValid() and 0 <= index.row() < len(self._entries):
+            return self._entries[index.row()]
+        return None
+
+    def all_entries(self) -> list[EntryData]:
+        return list(self._entries)
+
+
+class EntrySortFilterProxy(QSortFilterProxyModel):
+    """Sort by *created_at* or *updated_at* (descending) and filter by tag."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._sort_role_key: str = "created_at"  # or "updated_at"
+        self._tag_filter: str | None = None
+        self.setSortRole(_CreatedAtRole)
+        self.setDynamicSortFilter(True)
+        self.sort(0, Qt.SortOrder.DescendingOrder)
+
+    # -- public --
+
+    def set_sort_key(self, key: str) -> None:
+        self._sort_role_key = key
+        role = _CreatedAtRole if key == "created_at" else _UpdatedAtRole
+        self.setSortRole(role)
+        self.invalidate()
+        self.sort(0, Qt.SortOrder.DescendingOrder)
+
+    def set_tag_filter(self, tag: str | None) -> None:
+        self._tag_filter = tag
+        self.invalidateFilter()
+
+    @property
+    def tag_filter(self) -> str | None:
+        return self._tag_filter
+
+    # -- overrides --
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:  # noqa: N802
+        lv = left.data(self.sortRole())
+        rv = right.data(self.sortRole())
+        if lv is None or rv is None:
+            return False
+        # Normalize to offset-naive for comparison
+        if hasattr(lv, "tzinfo") and lv.tzinfo is not None:
+            lv = lv.replace(tzinfo=None)
+        if hasattr(rv, "tzinfo") and rv.tzinfo is not None:
+            rv = rv.replace(tzinfo=None)
+        return lv < rv
+
+    def filterAcceptsRow(  # noqa: N802
+        self, source_row: int, source_parent: QModelIndex
+    ) -> bool:
+        if self._tag_filter is None:
+            return True
+        idx = self.sourceModel().index(source_row, 0, source_parent)
+        tags = idx.data(_TagsRole) or []
+        return self._tag_filter in tags
+
+
+class EntryDelegate(QStyledItemDelegate):
+    """Custom delegate that replicates the old ``_EntryRow`` look."""
+
+    delete_clicked = Signal(str)  # entry_id
+
+    _ROW_PADDING = 6
+    _LINE_SPACING = 2
+    _CHIP_H_PAD = 6
+    _CHIP_V_PAD = 2
+    _CHIP_RADIUS = 6
+    _CHIP_SPACING = 4
+    _DELETE_SIZE = 18
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._hovered_index: QModelIndex = QModelIndex()
+
+    def set_hovered_index(self, index: QModelIndex) -> None:
+        self._hovered_index = index
+
+    # -- painting --
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = option.rect
+        is_selected = bool(option.state & option.state.State_Selected)
+        is_hovered = self._hovered_index.isValid() and self._hovered_index.row() == index.row()
+        dark = is_dark_theme()
+
+        # Background
+        if is_selected:
+            bg = QColor("#3a3a5c") if dark else QColor("#d0d0f0")
+            painter.fillRect(rect, bg)
+        elif is_hovered:
+            hover_bg = QColor("#2a2a4c") if dark else QColor("#e8e8f8")
+            painter.fillRect(rect, hover_bg)
+
+        pad = self._ROW_PADDING
+        x0 = rect.left() + pad
+        y0 = rect.top() + pad
+        avail_w = rect.width() - 2 * pad
+
+        # Title (bold, 9pt)
+        title_font = QFont()
+        title_font.setPointSize(9)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.setPen(QPen(QColor("#e0e0e0" if dark else "#222222")))
+        title_text = index.data(_TitleRole) or "Untitled entry"
+        fm_title = QFontMetrics(title_font)
+        elided = fm_title.elidedText(title_text, Qt.TextElideMode.ElideRight, avail_w)
+        painter.drawText(x0, y0 + fm_title.ascent(), elided)
+
+        # Second line: date + tag chips
+        y1 = y0 + fm_title.height() + self._LINE_SPACING
+
+        date_font = QFont()
+        date_font.setPointSize(8)
+        painter.setFont(date_font)
+        painter.setPen(QPen(QColor("#888888")))
+        date_text = index.data(_DateRole) or ""
+        fm_date = QFontMetrics(date_font)
+        painter.drawText(x0, y1 + fm_date.ascent(), date_text)
+
+        chip_x = x0 + fm_date.horizontalAdvance(date_text) + 8
+        tags = (index.data(_TagsRole) or [])[:3]
+        chip_bg = QColor("#3a3a5c" if dark else "#e0e0f0")
+        chip_fg = QColor("#c0c0e0" if dark else "#333366")
+        chip_font = QFont()
+        chip_font.setPointSize(8)
+        fm_chip = QFontMetrics(chip_font)
+
+        for tag in tags:
+            tw = fm_chip.horizontalAdvance(tag)
+            chip_w = tw + 2 * self._CHIP_H_PAD
+            chip_h = fm_chip.height() + 2 * self._CHIP_V_PAD
+            chip_rect = QRect(int(chip_x), int(y1), int(chip_w), int(chip_h))
+            painter.setBrush(QBrush(chip_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(chip_rect, self._CHIP_RADIUS, self._CHIP_RADIUS)
+            painter.setPen(QPen(chip_fg))
+            painter.setFont(chip_font)
+            painter.drawText(chip_rect, Qt.AlignmentFlag.AlignCenter, tag)
+            chip_x += chip_w + self._CHIP_SPACING
+
+        # Delete button on hover
+        if is_hovered:
+            ds = self._DELETE_SIZE
+            dx = rect.right() - ds - pad
+            dy = rect.top() + pad
+            del_rect = QRect(dx, dy, ds, ds)
+
+            painter.setBrush(QBrush(QColor(244, 67, 54, 50)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(del_rect, 3, 3)
+
+            del_font = QFont()
+            del_font.setPointSize(9)
+            del_font.setBold(True)
+            painter.setFont(del_font)
+            painter.setPen(QPen(QColor("#f44336")))
+            painter.drawText(del_rect, Qt.AlignmentFlag.AlignCenter, "✕")
+
+        painter.restore()
+
+    def sizeHint(  # noqa: N802
+        self, option: QStyleOptionViewItem, index: QModelIndex
+    ) -> QSize:
+        title_font = QFont()
+        title_font.setPointSize(9)
+        title_font.setBold(True)
+        date_font = QFont()
+        date_font.setPointSize(8)
+        h = (
+            self._ROW_PADDING
+            + QFontMetrics(title_font).height()
+            + self._LINE_SPACING
+            + QFontMetrics(date_font).height()
+            + 2 * self._CHIP_V_PAD
+            + self._ROW_PADDING
+        )
+        return QSize(option.rect.width(), max(h, 44))
+
+    # -- delete click detection --
+
+    def editorEvent(self, event, model, option, index) -> bool:  # noqa: N802
+        if (
+            isinstance(event, QMouseEvent)
+            and event.type() == event.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            rect = option.rect
+            pad = self._ROW_PADDING
+            ds = self._DELETE_SIZE
+            dx = rect.right() - ds - pad
+            dy = rect.top() + pad
+            del_rect = QRect(dx, dy, ds, ds)
+            if del_rect.contains(event.position().toPoint()):
+                entry_id = index.data(_EntryIdRole)
+                if entry_id:
+                    self.delete_clicked.emit(entry_id)
+                    return True
+        return super().editorEvent(event, model, option, index)
+
+
 class EntryListWidget(QFrame):
     """Sidebar listing all logbook entries.
 
     Signals:
         entry_selected(entry_id): User clicked an entry.
+        entry_delete_requested(entry_id): User requested deletion.
         new_entry_requested(): User clicked 'New Entry'.
     """
 
@@ -515,10 +809,7 @@ class EntryListWidget(QFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._entries: list[EntryData] = []
-        self._sort_key: str = "created_at"  # or "updated_at"
         self._selected_id: str | None = None
-        self._active_tag_filter: str | None = None
 
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -550,87 +841,70 @@ class EntryListWidget(QFrame):
         self._tag_filter_container.setVisible(False)
         root.addWidget(self._tag_filter_container)
 
-        # --- scrollable list ---
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # --- model / view ---
+        self._model = EntryListModel(self)
+        self._proxy = EntrySortFilterProxy(self)
+        self._proxy.setSourceModel(self._model)
 
-        self._list_container = QWidget()
-        self._list_layout = QVBoxLayout(self._list_container)
-        self._list_layout.setContentsMargins(0, 0, 0, 0)
-        self._list_layout.setSpacing(2)
-        self._list_layout.addStretch()
+        self._delegate = EntryDelegate(self)
+        self._delegate.delete_clicked.connect(self._on_row_delete)
 
-        scroll.setWidget(self._list_container)
-        root.addWidget(scroll, 1)
+        self._view = QListView()
+        self._view.setModel(self._proxy)
+        self._view.setItemDelegate(self._delegate)
+        self._view.setFrameShape(QFrame.Shape.NoFrame)
+        self._view.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self._view.setMouseTracking(True)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        self._view.entered.connect(self._on_view_entered)
+        self._view.selectionModel().currentChanged.connect(self._on_current_changed)
+        self._view.setStyleSheet(
+            "QListView { background: transparent; }"
+            "QListView::item { border: none; }"
+            "QListView::item:selected { background: transparent; }"
+            "QListView::item:hover { background: transparent; }"
+        )
 
-        self._row_widgets: list[QWidget] = []
+        root.addWidget(self._view, 1)
 
     # -- public API --
 
     def set_entries(self, entries: list[EntryData]) -> None:
         """Replace the full entry list."""
-        self._entries = list(entries)
-        self._rebuild()
+        self._model.set_entries(entries)
+        self._rebuild_tag_filter()
+        self._restore_selection()
 
     def add_entry(self, entry: EntryData) -> None:
-        self._entries.append(entry)
-        self._rebuild()
+        self._model.add_entry(entry)
+        self._rebuild_tag_filter()
 
     def select_entry(self, entry_id: str) -> None:
         self._selected_id = entry_id
-        self._update_selection_highlight()
+        self._restore_selection()
 
     # -- internal --
 
-    def _rebuild(self) -> None:
-        for w in self._row_widgets:
-            self._list_layout.removeWidget(w)
-            w.deleteLater()
-        self._row_widgets.clear()
-
-        # Rebuild tag filter bar
-        self._rebuild_tag_filter()
-
-        key = self._sort_key
-
-        def _sort_val(e):
-            v = getattr(e, key)
-            # Normalize to offset-naive for comparison
-            if hasattr(v, 'tzinfo') and v.tzinfo is not None:
-                v = v.replace(tzinfo=None)
-            return v
-
-        sorted_entries = sorted(
-            self._entries,
-            key=_sort_val,
-            reverse=True,
-        )
-
-        # Apply tag filter
-        if self._active_tag_filter:
-            sorted_entries = [e for e in sorted_entries if self._active_tag_filter in e.tags]
-
-        for idx, entry in enumerate(sorted_entries):
-            row = _EntryRow(entry, self)
-            row.clicked.connect(self._on_row_clicked)
-            row.delete_clicked.connect(self._on_row_delete)
-            self._list_layout.insertWidget(idx, row)
-            self._row_widgets.append(row)
-
-        self._update_selection_highlight()
+    def _restore_selection(self) -> None:
+        """Select the row matching ``_selected_id`` in the proxy view."""
+        if not self._selected_id:
+            return
+        for row in range(self._proxy.rowCount()):
+            idx = self._proxy.index(row, 0)
+            if idx.data(_EntryIdRole) == self._selected_id:
+                self._view.setCurrentIndex(idx)
+                return
 
     def _rebuild_tag_filter(self) -> None:
         """Rebuild the tag filter chips from all entries."""
-        # Clear
         while self._tag_filter_layout.count():
             item = self._tag_filter_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Collect all unique tags
         all_tags: set[str] = set()
-        for e in self._entries:
+        for e in self._model.all_entries():
             all_tags.update(e.tags)
 
         if not all_tags:
@@ -642,7 +916,7 @@ class EntryListWidget(QFrame):
         # "All" button
         all_btn = QToolButton()
         all_btn.setText("All")
-        active = self._active_tag_filter is None
+        active = self._proxy.tag_filter is None
         bg = "#4a4a6c" if active else "transparent"
         all_btn.setStyleSheet(
             f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
@@ -656,7 +930,7 @@ class EntryListWidget(QFrame):
         for tag in sorted(all_tags):
             btn = QToolButton()
             btn.setText(tag)
-            active = self._active_tag_filter == tag
+            active = self._proxy.tag_filter == tag
             bg = "#4a4a6c" if active else "transparent"
             btn.setStyleSheet(
                 f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
@@ -670,39 +944,39 @@ class EntryListWidget(QFrame):
         self._tag_filter_layout.addStretch()
 
     def _on_tag_filter(self, tag: str | None) -> None:
-        self._active_tag_filter = tag
-        self._rebuild()
+        self._proxy.set_tag_filter(tag)
+        self._rebuild_tag_filter()
 
-    def _update_selection_highlight(self) -> None:
-        sel_bg = "#3a3a5c" if is_dark_theme() else "#d0d0f0"
-        for w in self._row_widgets:
-            if isinstance(w, _EntryRow):
-                is_sel = w.entry_id == self._selected_id
-                w.setStyleSheet(
-                    f"background: {sel_bg}; border-radius: 4px;" if is_sel else ""
-                )
+    @Slot(QModelIndex)
+    def _on_view_entered(self, index: QModelIndex) -> None:
+        self._delegate.set_hovered_index(index)
+        self._view.viewport().update()
 
-    @Slot(str)
-    def _on_row_clicked(self, entry_id: str) -> None:
-        self._selected_id = entry_id
-        self._update_selection_highlight()
-        self.entry_selected.emit(entry_id)
+    @Slot(QModelIndex, QModelIndex)
+    def _on_current_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
+        if not current.isValid():
+            return
+        entry_id = current.data(_EntryIdRole)
+        if entry_id and entry_id != self._selected_id:
+            self._selected_id = entry_id
+            self.entry_selected.emit(entry_id)
 
     @Slot(str)
     def _on_row_delete(self, entry_id: str) -> None:
-        self._entries = [e for e in self._entries if e.id != entry_id]
+        self._model.remove_entry(entry_id)
+        entries = self._model.all_entries()
         if self._selected_id == entry_id:
-            self._selected_id = self._entries[0].id if self._entries else None
-        self._rebuild()
+            self._selected_id = entries[0].id if entries else None
+        self._rebuild_tag_filter()
         self.entry_delete_requested.emit(entry_id)
-        # Auto-select next entry
         if self._selected_id:
+            self._restore_selection()
             self.entry_selected.emit(self._selected_id)
 
     @Slot(int)
     def _on_sort_changed(self, index: int) -> None:
-        self._sort_key = "created_at" if index == 0 else "updated_at"
-        self._rebuild()
+        key = "created_at" if index == 0 else "updated_at"
+        self._proxy.set_sort_key(key)
 
 
 # ---------------------------------------------------------------------------
@@ -710,74 +984,7 @@ class EntryListWidget(QFrame):
 # ---------------------------------------------------------------------------
 
 
-class _EntryRow(QFrame):
-    """Single row in the entry list sidebar."""
-
-    clicked = Signal(str)
-    delete_clicked = Signal(str)  # entry_id
-
-    def __init__(self, entry: EntryData, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.entry_id = entry.id
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(1)
-
-        title = entry.title or _first_line(entry)
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 9pt;")
-        title_lbl.setWordWrap(True)
-        layout.addWidget(title_lbl)
-
-        meta_row = QHBoxLayout()
-        date_lbl = QLabel(entry.created_at.strftime("%Y-%m-%d %H:%M"))
-        date_lbl.setStyleSheet("font-size: 8pt; color: #888;")
-        meta_row.addWidget(date_lbl)
-
-        for tag in entry.tags[:3]:
-            meta_row.addWidget(_tag_chip(tag))
-        meta_row.addStretch()
-        layout.addLayout(meta_row)
-
-        # Delete button (overlay, shown on hover)
-        from PySide6.QtCore import QSize
-        self._delete_btn = QToolButton(self)
-        try:
-            import qtawesome as qta
-            self._delete_btn.setIcon(qta.icon("mdi.trash-can-outline", color="#f44336"))
-            self._delete_btn.setIconSize(QSize(16, 16))
-        except Exception:
-            self._delete_btn.setText("✕")
-        self._delete_btn.setToolTip("Delete entry")
-        self._delete_btn.setFixedSize(22, 22)
-        self._delete_btn.setStyleSheet(
-            "QToolButton { border: none; border-radius: 3px; } "
-            "QToolButton:hover { background: rgba(244,67,54,0.2); }"
-        )
-        self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._delete_btn.clicked.connect(lambda: self.delete_clicked.emit(self.entry_id))
-        self._delete_btn.setVisible(False)
-
-    def enterEvent(self, event: Any) -> None:  # noqa: N802
-        self._delete_btn.move(self.width() - self._delete_btn.sizeHint().width() - 4, 4)
-        self._delete_btn.setVisible(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event: Any) -> None:  # noqa: N802
-        self._delete_btn.setVisible(False)
-        super().leaveEvent(event)
-
-    def resizeEvent(self, event: Any) -> None:  # noqa: N802
-        if self._delete_btn.isVisible():
-            self._delete_btn.move(self.width() - self._delete_btn.sizeHint().width() - 4, 4)
-        super().resizeEvent(event)
-
-    def mousePressEvent(self, event: Any) -> None:  # noqa: N802
-        self.clicked.emit(self.entry_id)
-        super().mousePressEvent(event)
+# _EntryRow removed — replaced by EntryDelegate + QListView
 
 
 def _first_line(entry: EntryData) -> str:
