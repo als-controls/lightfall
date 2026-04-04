@@ -107,6 +107,7 @@ class DockingManager(QObject):
 
         # Create inner QMainWindow (hosts QDockWidgets)
         self._inner_window = QMainWindow()
+        self._inner_window.setObjectName("InnerDockWindow")
         self._inner_window.setDockNestingEnabled(True)
         self._inner_window.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._inner_window)

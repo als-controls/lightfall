@@ -271,16 +271,15 @@ QDockWidget QToolBar QToolButton {{
 /* --------------------------------------------------------------------------
    Inner QMainWindow — the "sea"
    -------------------------------------------------------------------------- */
-QMainWindow > QMainWindow {{
+#InnerDockWindow {{
     background: {sea};
 }}
 
 /* --------------------------------------------------------------------------
    Central widget (e.g. logbook) — island with rounding + margin
-   .QWidget only matches exact QWidget class; use QWidget to match subclasses
    -------------------------------------------------------------------------- */
 {"" if not islands else f"""
-QMainWindow > QMainWindow > QWidget {{
+#InnerDockWindow > QWidget {{
     background: {island};
     border-radius: {radius}px;
     margin: {gap}px;
