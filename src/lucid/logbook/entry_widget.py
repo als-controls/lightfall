@@ -18,6 +18,7 @@ from typing import Any
 from loguru import logger
 from PySide6.QtCore import (
     QAbstractListModel,
+    QEvent,
     QModelIndex,
     QRect,
     QSize,
@@ -875,6 +876,7 @@ class EntryListWidget(QFrame):
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
         self._view.entered.connect(self._on_view_entered)
+        self._view.viewport().installEventFilter(self)
         self._view.selectionModel().currentChanged.connect(self._on_current_changed)
         self._view.setStyleSheet(
             "QListView { background: transparent; }"
@@ -968,6 +970,12 @@ class EntryListWidget(QFrame):
     def _on_view_entered(self, index: QModelIndex) -> None:
         self._delegate.set_hovered_index(index)
         self._view.viewport().update()
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if obj is self._view.viewport() and event.type() == QEvent.Type.Leave:
+            self._delegate.set_hovered_index(QModelIndex())
+            self._view.viewport().update()
+        return super().eventFilter(obj, event)
 
     @Slot(QModelIndex, QModelIndex)
     def _on_current_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
