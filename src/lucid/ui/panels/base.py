@@ -155,9 +155,10 @@ class BasePanel(QWidget):
         # ignoring border-radius), this respects the full stylesheet.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        # Setup layout
+        # Setup layout — top margin gives space below the PanelTitleBar
+        # which overlaps the content area slightly in QDockWidget
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setContentsMargins(0, 4, 0, 0)
 
         # Allow subclasses to setup UI
         self._setup_ui()

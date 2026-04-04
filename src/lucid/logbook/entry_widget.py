@@ -521,6 +521,7 @@ class EntryListWidget(QFrame):
         self._active_tag_filter: str | None = None
 
         self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumWidth(220)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
