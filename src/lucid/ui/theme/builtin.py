@@ -292,7 +292,7 @@ QTabBar::tab:hover:!selected {{
    -------------------------------------------------------------------------- */
 QLineEdit {{
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 4px 8px;
     background: {c._INPUT};
     border: 1px solid {c._BORDER};
 }}
@@ -304,7 +304,7 @@ QLineEdit:focus {{
 
 QComboBox {{
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 4px 8px;
     background: {c._INPUT};
     border: 1px solid {c._BORDER};
 }}
@@ -321,7 +321,7 @@ QComboBox::drop-down {{
 
 QSpinBox, QDoubleSpinBox {{
     border-radius: 6px;
-    padding: 6px;
+    padding: 4px;
     background: {c._INPUT};
     border: 1px solid {c._BORDER};
 }}
@@ -337,7 +337,7 @@ QPushButton {{
     background: {c._SEA};
     border: 1px solid {c._BORDER};
     border-radius: 6px;
-    padding: 8px 16px;
+    padding: 4px 12px;
 }}
 
 QPushButton:hover {{

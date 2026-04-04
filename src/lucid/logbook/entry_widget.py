@@ -525,19 +525,17 @@ class EntryListWidget(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
+        root.setContentsMargins(4, 6, 4, 4)
         root.setSpacing(4)
 
         # --- toolbar row ---
         toolbar = QHBoxLayout()
         toolbar.setSpacing(4)
         new_btn = QPushButton("＋ New Entry")
-        new_btn.setStyleSheet("padding: 4px 10px;")
         new_btn.clicked.connect(self.new_entry_requested)
         toolbar.addWidget(new_btn)
 
         self._sort_combo = QComboBox()
-        self._sort_combo.setStyleSheet("padding: 4px 6px;")
         self._sort_combo.addItems(["Created", "Updated"])
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         toolbar.addWidget(self._sort_combo)
