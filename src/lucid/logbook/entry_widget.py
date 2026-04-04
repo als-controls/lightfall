@@ -875,7 +875,6 @@ class EntryListWidget(QFrame):
         self._view.setMouseTracking(True)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
-        self._view.entered.connect(self._on_view_entered)
         self._view.viewport().installEventFilter(self)
         self._view.selectionModel().currentChanged.connect(self._on_current_changed)
         self._view.setStyleSheet(
@@ -966,15 +965,15 @@ class EntryListWidget(QFrame):
         self._proxy.set_tag_filter(tag)
         self._rebuild_tag_filter()
 
-    @Slot(QModelIndex)
-    def _on_view_entered(self, index: QModelIndex) -> None:
-        self._delegate.set_hovered_index(index)
-        self._view.viewport().update()
-
     def eventFilter(self, obj, event):  # noqa: N802
-        if obj is self._view.viewport() and event.type() == QEvent.Type.Leave:
-            self._delegate.set_hovered_index(QModelIndex())
-            self._view.viewport().update()
+        if obj is self._view.viewport():
+            if event.type() == QEvent.Type.MouseMove:
+                idx = self._view.indexAt(event.position().toPoint())
+                self._delegate.set_hovered_index(idx)
+                self._view.viewport().update()
+            elif event.type() == QEvent.Type.Leave:
+                self._delegate.set_hovered_index(QModelIndex())
+                self._view.viewport().update()
         return super().eventFilter(obj, event)
 
     @Slot(QModelIndex, QModelIndex)
