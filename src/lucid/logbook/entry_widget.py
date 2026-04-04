@@ -678,13 +678,19 @@ class EntryDelegate(QStyledItemDelegate):
         is_hovered = self._hovered_index.isValid() and self._hovered_index.row() == index.row()
         dark = is_dark_theme()
 
-        # Background
+        # Background — rounded rects for islands feel
+        _CARD_RADIUS = 6
+        card_rect = rect.adjusted(2, 1, -2, -1)
         if is_selected:
             bg = QColor("#3a3a5c") if dark else QColor("#d0d0f0")
-            painter.fillRect(rect, bg)
+            painter.setBrush(QBrush(bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(card_rect, _CARD_RADIUS, _CARD_RADIUS)
         elif is_hovered:
             hover_bg = QColor("#2a2a4c") if dark else QColor("#e8e8f8")
-            painter.fillRect(rect, hover_bg)
+            painter.setBrush(QBrush(hover_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(card_rect, _CARD_RADIUS, _CARD_RADIUS)
 
         pad = self._ROW_PADDING
         x0 = rect.left() + pad
@@ -810,6 +816,7 @@ class EntryListWidget(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._selected_id: str | None = None
+        self.setObjectName("EntryListWidget")
 
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -817,18 +824,28 @@ class EntryListWidget(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
-        root.setSpacing(4)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
 
         # --- toolbar row ---
         toolbar = QHBoxLayout()
         toolbar.setSpacing(4)
         new_btn = QPushButton("＋ New Entry")
+        new_btn.setStyleSheet(
+            "QPushButton { border: 1px solid #555; border-radius: 6px; "
+            "padding: 4px 10px; font-size: 9pt; } "
+            "QPushButton:hover { background: #3a3a5c; }"
+        )
+        new_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         new_btn.clicked.connect(self.new_entry_requested)
         toolbar.addWidget(new_btn)
 
         self._sort_combo = QComboBox()
         self._sort_combo.addItems(["Created", "Updated"])
+        self._sort_combo.setStyleSheet(
+            "QComboBox { border: 1px solid #555; border-radius: 6px; "
+            "padding: 3px 8px; font-size: 8pt; }"
+        )
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         toolbar.addWidget(self._sort_combo)
         root.addLayout(toolbar)
