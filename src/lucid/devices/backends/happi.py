@@ -313,6 +313,8 @@ class HappiBackend(DeviceBackend):
         # Collect devices that need connection
         to_connect: list[tuple[DeviceInfo, Any]] = []
         for device in self._devices.values():
+            if not device.active:
+                continue
             happi_result = device.metadata.pop("_happi_result", None)
             if happi_result is not None:
                 to_connect.append((device, happi_result))
@@ -353,6 +355,15 @@ class HappiBackend(DeviceBackend):
 
         device = self._devices.get(result.device_id)
         if device is None:
+            return
+
+        if not device.active:
+            device._state = DeviceState(
+                device_id=device.id,
+                status=DeviceStatus.OFFLINE,
+                connected=False,
+            )
+            logger.debug("Device '{}' is inactive, skipping connection", device.name)
             return
 
         # Update the device with the ophyd instance
@@ -472,8 +483,14 @@ class HappiBackend(DeviceBackend):
             active=active,
         )
 
-        # Handle instantiation based on mode
-        if self._instantiate_mode == "blocking":
+        # Inactive devices: do NOT instantiate or queue for connection
+        if not device_info.active:
+            device_info._state = DeviceState(
+                device_id=device_info.id,
+                status=DeviceStatus.OFFLINE,
+                connected=False,
+            )
+        elif self._instantiate_mode == "blocking":
             # Synchronous instantiation (original behavior)
             try:
                 ophyd_device = result.get() if hasattr(result, "get") else None

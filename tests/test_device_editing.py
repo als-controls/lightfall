@@ -460,3 +460,40 @@ class TestDeviceEditingIntegration:
         be3 = HappiBackend(path=happi_json, instantiate=False)
         be3.connect()
         assert be3.get_device_by_name("lifecycle_motor") is None
+
+
+class TestInactiveDeviceNotInstantiated:
+    """Test that inactive devices are not instantiated on load."""
+
+    @pytest.fixture
+    def happi_json(self, tmp_path):
+        db_path = tmp_path / "inactive_test.json"
+        db_path.write_text(json.dumps({}))
+        return str(db_path)
+
+    def test_inactive_device_not_connected_on_load(self, happi_json):
+        """Inactive device should have OFFLINE status after loading."""
+        pytest.importorskip("happi")
+        from lucid.devices.backends.happi import HappiBackend
+
+        # Create backend and add a device
+        be1 = HappiBackend(path=happi_json, instantiate=False)
+        be1.connect()
+        device = DeviceInfo(
+            name="inactive_det",
+            device_class="ophyd.sim.SynGauss",
+            prefix="INACTIVE:DET:",
+            active=False,
+        )
+        be1.add_device(device)
+
+        # Reload from disk
+        be2 = HappiBackend(path=happi_json, instantiate=False)
+        be2.connect()
+        loaded = be2.get_device_by_name("inactive_det")
+        assert loaded is not None
+        assert loaded.active is False
+        assert loaded._ophyd_device is None
+        assert loaded._state is not None
+        assert loaded._state.status.value == "offline"
+        assert loaded._state.connected is False
