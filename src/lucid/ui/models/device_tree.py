@@ -683,9 +683,18 @@ class DeviceTreeModel(QAbstractItemModel):
 
         # Add new children from the now-connected ophyd device
         if device.ophyd_device is not None:
-            self._add_components(item, device.ophyd_device)
-            if item.children:
-                self.beginInsertRows(self.index(row, 0), 0, len(item.children) - 1)
+            # Build children into a temporary parent to avoid mutating
+            # item.children before beginInsertRows (Qt requires notification
+            # before data mutation).
+            temp_item = DeviceTreeItem("_temp", NodeType.ROOT)
+            self._add_components(temp_item, device.ophyd_device)
+            if temp_item.children:
+                self.beginInsertRows(
+                    self.index(row, 0), 0, len(temp_item.children) - 1
+                )
+                for child in temp_item.children:
+                    child.parent_item = item
+                item.children = temp_item.children
                 self.endInsertRows()
 
         # Emit dataChanged for all columns
