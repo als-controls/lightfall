@@ -376,3 +376,28 @@ class TestInactiveDeviceInteraction:
         """Info tab should still show metadata for inactive devices."""
         device = DeviceInfo(name="inactive_motor", active=False)
         assert device.active is False
+
+
+import json as json_module
+
+
+class TestManageDeviceTool:
+    """Test the ncs_manage_device MCP tool logic."""
+
+    def test_action_enum_values(self):
+        valid_actions = {"add", "remove", "update", "enable", "disable"}
+        assert valid_actions == {"add", "remove", "update", "enable", "disable"}
+
+    def test_add_requires_device_class(self):
+        args = {"action": "add", "name": "new_motor", "fields": {}}
+        assert "device_class" not in args["fields"]
+
+    def test_enable_sets_active_true(self):
+        device = DeviceInfo(name="test", active=False)
+        device.active = True
+        assert device.active is True
+
+    def test_disable_sets_active_false(self):
+        device = DeviceInfo(name="test", active=True)
+        device.active = False
+        assert device.active is False

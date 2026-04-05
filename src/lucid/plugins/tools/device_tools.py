@@ -930,6 +930,107 @@ class DeviceToolPlugin(MCPToolPlugin):
 
             return run_on_main_thread(_get_info)
 
+        @tool(
+            name="ncs_manage_device",
+            description=(
+                "Add, remove, update, enable, or disable a device in the catalog. "
+                "Requires an editable backend (e.g., happi JSON). "
+                "Use 'add' to create new devices, 'update' to change fields, "
+                "'enable'/'disable' to toggle active state, 'remove' to delete."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "remove", "update", "enable", "disable"],
+                        "description": "The management action to perform",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Device name (identifier for all actions)",
+                    },
+                    "fields": {
+                        "type": "object",
+                        "description": (
+                            "Fields to set (for add/update). Keys: display_name, "
+                            "device_class, prefix, beamline, group, icon_override, "
+                            "active, plus any extra metadata fields."
+                        ),
+                        "additionalProperties": True,
+                    },
+                },
+                "required": ["action", "name"],
+            },
+        )
+        async def manage_device(args: dict) -> dict[str, Any]:
+            """Manage device catalog entries."""
+            from lucid.claude._internal.threading import run_on_main_thread
+            from lucid.devices.model import DeviceInfo as DI
+
+            action = args["action"]
+            name = args["name"]
+            fields = args.get("fields", {})
+
+            def _manage():
+                catalog = self._get_catalog()
+                if not catalog.is_connected:
+                    return mcp_result({"success": False, "error": "Device catalog not connected"})
+
+                backend = catalog.backend
+                if backend is None or not backend.is_editable:
+                    return mcp_result({"success": False, "error": "Backend does not support editing"})
+
+                if action == "add":
+                    if not fields.get("device_class"):
+                        return mcp_result({"success": False, "error": "device_class is required for add action"})
+                    known = {"name", "display_name", "device_class", "prefix", "beamline", "group", "icon_override", "active"}
+                    device_kwargs = {"name": name}
+                    extra = {}
+                    for k, v in fields.items():
+                        if k in known:
+                            device_kwargs[k] = v
+                        else:
+                            extra[k] = v
+                    device_kwargs["metadata"] = extra
+                    device = DI(**device_kwargs)
+                    if catalog.add_device(device):
+                        return mcp_result({"success": True, "action": "add", "device": name, "message": f"Device '{name}' added"})
+                    return mcp_result({"success": False, "error": f"Failed to add device '{name}' (may already exist)"})
+
+                device = catalog.get_device_by_name(name)
+                if device is None:
+                    return mcp_result({"success": False, "error": f"Device '{name}' not found"})
+
+                if action == "remove":
+                    if catalog.remove_device(device.id):
+                        return mcp_result({"success": True, "action": "remove", "device": name, "message": f"Device '{name}' removed"})
+                    return mcp_result({"success": False, "error": f"Failed to remove device '{name}'"})
+
+                if action == "enable":
+                    device.active = True
+                    catalog.update_device(device)
+                    return mcp_result({"success": True, "action": "enable", "device": name, "message": f"Device '{name}' enabled"})
+
+                if action == "disable":
+                    device.active = False
+                    catalog.update_device(device)
+                    return mcp_result({"success": True, "action": "disable", "device": name, "message": f"Device '{name}' disabled"})
+
+                if action == "update":
+                    known = {"display_name", "device_class", "prefix", "beamline", "group", "icon_override", "active"}
+                    for k, v in fields.items():
+                        if k in known:
+                            setattr(device, k, v)
+                        else:
+                            device.metadata[k] = v
+                    catalog.update_device(device)
+                    return mcp_result({"success": True, "action": "update", "device": name, "message": f"Device '{name}' updated", "fields_changed": list(fields.keys())})
+
+                return mcp_result({"success": False, "error": f"Unknown action: {action}"})
+
+            return run_on_main_thread(_manage)
+
         return [
             list_devices,
             get_device,
@@ -939,4 +1040,5 @@ class DeviceToolPlugin(MCPToolPlugin):
             move_motor,
             stop_device,
             get_catalog_info,
+            manage_device,
         ]
