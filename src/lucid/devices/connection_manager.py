@@ -287,6 +287,210 @@ class DeviceConnectionManager(QObject):
         for device_info, happi_result in devices:
             self.connect_device(device_info, happi_result, timeout)
 
+    def connect_all_phased(
+        self,
+        devices: list[tuple[DeviceInfo, Any]],
+        timeout: float | None = None,
+    ) -> None:
+        """Connect devices in two phases to avoid caproto search serialization.
+
+        Phase 1 (single thread): Instantiate all ophyd devices via
+        ``happi_result.get()``.  This registers every PV name with
+        caproto's broadcaster so the first search round covers all PVs.
+
+        Phase 2 (parallel threads): Call ``wait_for_connection`` on each
+        device concurrently.
+
+        Args:
+            devices: List of (DeviceInfo, happi_result) tuples.
+            timeout: Optional per-device timeout override in seconds.
+        """
+        if not devices:
+            return
+
+        logger.info(
+            "Starting phased connection for {} devices", len(devices)
+        )
+
+        # Track pending count for the whole batch up front
+        with self._pending_lock:
+            self._pending_count += len(devices)
+
+        # Mark all as CONNECTING and emit signals
+        for device_info, _ in devices:
+            self._connection_states[device_info.id] = ConnectionState.CONNECTING
+            self.device_connecting.emit(str(device_info.id))
+
+        def _phase1_instantiate():
+            """Instantiate all ophyd devices on a single thread."""
+            instantiated: list[tuple[DeviceInfo, Any, float]] = []
+            failed: list[tuple[DeviceInfo, str, float]] = []
+
+            for device_info, happi_result in devices:
+                start = time.monotonic()
+                try:
+                    if not hasattr(happi_result, "get"):
+                        raise ValueError("happi_result has no get() method")
+                    ophyd_device = happi_result.get()
+                    if ophyd_device is None:
+                        raise ValueError("happi_result.get() returned None")
+                    elapsed = (time.monotonic() - start) * 1000
+                    instantiated.append((device_info, ophyd_device, elapsed))
+                    logger.debug(
+                        "Instantiated '{}' in {:.1f}ms",
+                        device_info.name,
+                        elapsed,
+                    )
+                except Exception as e:
+                    elapsed = (time.monotonic() - start) * 1000
+                    failed.append((device_info, str(e), elapsed))
+                    logger.warning(
+                        "Failed to instantiate '{}': {}", device_info.name, e
+                    )
+
+            return instantiated, failed
+
+        def _on_phase1_done(result):
+            """Start phase 2: parallel wait_for_connection threads."""
+            instantiated, failed = result
+
+            # Emit failures immediately
+            for device_info, error, elapsed in failed:
+                fail_result = ConnectionResult(
+                    device_id=device_info.id,
+                    device_name=device_info.name,
+                    state=ConnectionState.FAILED,
+                    error=error,
+                    elapsed_ms=elapsed,
+                )
+                self._connection_states[device_info.id] = ConnectionState.FAILED
+                self._connection_results[device_info.id] = fail_result
+                self.device_failed.emit(fail_result)
+                self._check_batch_complete()
+
+            # Start parallel wait threads for successfully instantiated devices
+            for device_info, ophyd_device, inst_elapsed in instantiated:
+                effective_timeout = timeout or self.get_device_timeout(
+                    device_info.id
+                )
+                thread = QThreadFuture(
+                    self._do_wait_for_connection,
+                    device_info,
+                    ophyd_device,
+                    effective_timeout,
+                    inst_elapsed,
+                    callback_slot=self._on_connection_complete,
+                    except_slot=self._on_connection_error,
+                    name=f"wait_{device_info.name}",
+                    key=f"device_connect_{device_info.id}",
+                )
+                self._active_threads[device_info.id] = thread
+                thread.start()
+
+        def _on_phase1_error(error):
+            """Handle unexpected error in the instantiation phase."""
+            logger.error("Phase 1 instantiation failed: {}", error)
+            # Fail all devices in the batch
+            for device_info, _ in devices:
+                fail_result = ConnectionResult(
+                    device_id=device_info.id,
+                    device_name=device_info.name,
+                    state=ConnectionState.FAILED,
+                    error=str(error),
+                )
+                self._connection_states[device_info.id] = ConnectionState.FAILED
+                self._connection_results[device_info.id] = fail_result
+                self.device_failed.emit(fail_result)
+                self._check_batch_complete()
+
+        phase1_thread = QThreadFuture(
+            _phase1_instantiate,
+            callback_slot=_on_phase1_done,
+            except_slot=_on_phase1_error,
+            name="phased-instantiate-all",
+        )
+        phase1_thread.start()
+
+    def _do_wait_for_connection(
+        self,
+        device_info: DeviceInfo,
+        ophyd_device: Any,
+        timeout: float,
+        inst_elapsed_ms: float,
+    ) -> ConnectionResult:
+        """Wait for an already-instantiated ophyd device to connect.
+
+        Args:
+            device_info: The DeviceInfo.
+            ophyd_device: Already-instantiated ophyd device.
+            timeout: Connection timeout in seconds.
+            inst_elapsed_ms: Time already spent on instantiation.
+
+        Returns:
+            ConnectionResult with success/failure info.
+        """
+        device_id = device_info.id
+        device_name = device_info.name
+        start_time = time.monotonic()
+
+        try:
+            if hasattr(ophyd_device, "wait_for_connection"):
+                ophyd_device.wait_for_connection(timeout=timeout)
+            elif hasattr(ophyd_device, "connected"):
+                deadline = time.monotonic() + timeout
+                while not ophyd_device.connected and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                if not ophyd_device.connected:
+                    raise TimeoutError(
+                        f"Device did not connect within {timeout}s"
+                    )
+
+            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
+            logger.info(
+                "Device '{}' connected in {:.1f}ms (inst+wait)",
+                device_name,
+                elapsed,
+            )
+            return ConnectionResult(
+                device_id=device_id,
+                device_name=device_name,
+                state=ConnectionState.CONNECTED,
+                ophyd_device=ophyd_device,
+                elapsed_ms=elapsed,
+            )
+
+        except TimeoutError as e:
+            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
+            logger.warning(
+                "Device '{}' timed out after {:.1f}ms: {}",
+                device_name,
+                elapsed,
+                e,
+            )
+            return ConnectionResult(
+                device_id=device_id,
+                device_name=device_name,
+                state=ConnectionState.TIMEOUT,
+                error=str(e),
+                elapsed_ms=elapsed,
+            )
+
+        except Exception as e:
+            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
+            logger.warning(
+                "Device '{}' connection failed after {:.1f}ms: {}",
+                device_name,
+                elapsed,
+                e,
+            )
+            return ConnectionResult(
+                device_id=device_id,
+                device_name=device_name,
+                state=ConnectionState.FAILED,
+                error=str(e),
+                elapsed_ms=elapsed,
+            )
+
     def retry_connection(
         self,
         device_info: DeviceInfo,
