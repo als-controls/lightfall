@@ -45,6 +45,11 @@ _BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
 ]
 
 # Fallback: happi functional_group / item type keywords
+_HAPPI_NATIVE_KEYS = {
+    "name", "device_class", "active", "args", "kwargs", "type",
+    "prefix", "beamline", "documentation",
+}
+
 _FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
@@ -687,9 +692,16 @@ class HappiBackend(DeviceBackend):
                 device_class=device.device_class or "ophyd.Device",
                 active=device.active,
             )
-            # prefix and beamline go in extraneous for HappiItem
-            item.extraneous["prefix"] = device.prefix or ""
-            item.extraneous["beamline"] = device.beamline or ""
+            # Set prefix and beamline as native happi attributes when
+            # supported (e.g. OphydItem subclasses).  Always write through
+            # to extraneous so the value persists with HappiItem too.
+            for attr in ("prefix", "beamline"):
+                value = getattr(device, attr, "") or ""
+                try:
+                    setattr(item, attr, value)
+                except Exception:
+                    pass
+                item.extraneous[attr] = value
             # Store LUCID-specific fields as extraneous metadata
             if device.display_name:
                 item.extraneous["display_name"] = device.display_name
@@ -699,6 +711,11 @@ class HappiBackend(DeviceBackend):
                 item.extraneous["group"] = device.group
             if device.location:
                 item.extraneous["location"] = device.location
+            # Sync extra metadata, skipping happi native keys
+            for key, value in device.metadata.items():
+                if key.startswith("_") or key in _HAPPI_NATIVE_KEYS:
+                    continue
+                item.extraneous[key] = value
 
             self._client.add_item(item)
 
@@ -733,17 +750,26 @@ class HappiBackend(DeviceBackend):
             item.device_class = device.device_class or "ophyd.Device"
             item.active = device.active
 
-            # Update fields stored in extraneous
-            item.extraneous["prefix"] = device.prefix or ""
-            item.extraneous["beamline"] = device.beamline or ""
+            # Set prefix and beamline as native happi attributes when
+            # supported (e.g. OphydItem subclasses).  Always write through
+            # to extraneous so the value persists with HappiItem too.
+            for attr in ("prefix", "beamline"):
+                value = getattr(device, attr, "") or ""
+                try:
+                    setattr(item, attr, value)
+                except Exception:
+                    pass
+                item.extraneous[attr] = value
+
+            # LUCID-specific fields in extraneous
             item.extraneous["display_name"] = device.display_name or ""
             item.extraneous["icon_override"] = device.icon_override or ""
             item.extraneous["group"] = device.group or ""
             item.extraneous["location"] = device.location or ""
 
-            # Sync extra metadata (skip internal keys)
+            # Sync extra metadata (skip internal and happi native keys)
             for key, value in device.metadata.items():
-                if key.startswith("_"):
+                if key.startswith("_") or key in _HAPPI_NATIVE_KEYS:
                     continue
                 item.extraneous[key] = value
 

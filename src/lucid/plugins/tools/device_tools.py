@@ -1009,12 +1009,14 @@ class DeviceToolPlugin(MCPToolPlugin):
 
                 if action == "enable":
                     device.active = True
-                    catalog.update_device(device)
+                    if not catalog.update_device(device):
+                        return mcp_result({"success": False, "error": f"Failed to enable device '{name}'"})
                     return mcp_result({"success": True, "action": "enable", "device": name, "message": f"Device '{name}' enabled"})
 
                 if action == "disable":
                     device.active = False
-                    catalog.update_device(device)
+                    if not catalog.update_device(device):
+                        return mcp_result({"success": False, "error": f"Failed to disable device '{name}'"})
                     return mcp_result({"success": True, "action": "disable", "device": name, "message": f"Device '{name}' disabled"})
 
                 if action == "update":
@@ -1024,7 +1026,8 @@ class DeviceToolPlugin(MCPToolPlugin):
                             setattr(device, k, v)
                         else:
                             device.metadata[k] = v
-                    catalog.update_device(device)
+                    if not catalog.update_device(device):
+                        return mcp_result({"success": False, "error": f"Failed to update device '{name}'"})
                     return mcp_result({"success": True, "action": "update", "device": name, "message": f"Device '{name}' updated", "fields_changed": list(fields.keys())})
 
                 return mcp_result({"success": False, "error": f"Unknown action: {action}"})
