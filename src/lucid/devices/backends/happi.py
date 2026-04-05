@@ -576,6 +576,8 @@ class HappiBackend(DeviceBackend):
         # Collect devices that need reconnection
         to_reconnect = []
         for device in list(self._devices.values()):
+            if not device.active:
+                continue
             if device._ophyd_device is not None:
                 continue
             if device._state and device._state.connected:
