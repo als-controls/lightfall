@@ -1,16 +1,13 @@
 """Tests for DeviceConnectionManager two-phase connection."""
 
 import time
-import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 from PySide6.QtCore import QCoreApplication
 
 from lucid.devices.connection_manager import (
-    ConnectionResult,
-    ConnectionState,
     DeviceConnectionManager,
 )
 
