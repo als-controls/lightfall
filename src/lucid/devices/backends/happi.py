@@ -360,7 +360,7 @@ class HappiBackend(DeviceBackend):
         if not device.active:
             device._state = DeviceState(
                 device_id=device.id,
-                status=DeviceStatus.OFFLINE,
+                status=DeviceStatus.INACTIVE,
                 connected=False,
             )
             logger.debug("Device '{}' is inactive, skipping connection", device.name)
@@ -487,7 +487,7 @@ class HappiBackend(DeviceBackend):
         if not device_info.active:
             device_info._state = DeviceState(
                 device_id=device_info.id,
-                status=DeviceStatus.OFFLINE,
+                status=DeviceStatus.INACTIVE,
                 connected=False,
             )
         elif self._instantiate_mode == "blocking":

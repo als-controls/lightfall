@@ -495,5 +495,5 @@ class TestInactiveDeviceNotInstantiated:
         assert loaded.active is False
         assert loaded._ophyd_device is None
         assert loaded._state is not None
-        assert loaded._state.status.value == "offline"
+        assert loaded._state.status.value == "inactive"
         assert loaded._state.connected is False
