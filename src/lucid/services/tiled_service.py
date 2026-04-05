@@ -541,6 +541,34 @@ class TiledService(QObject):
             self._set_state(TiledConnectionState.ERROR, f"Connection failed: {error}")
             logger.error("Failed to connect to Tiled: {}", error)
 
+            # Show a toast hint if the error looks like a SOCKS proxy failure
+            if self._is_proxy_connection_error(error):
+                try:
+                    from lucid.ui.toast import ToastManager
+
+                    ToastManager.get_instance().warning(
+                        "SOCKS proxy not reachable",
+                        "Is your SSH tunnel or proxy running? "
+                        "Check Preferences → Proxy to verify settings.",
+                    )
+                except Exception:
+                    pass  # toast system not available yet
+
+    @staticmethod
+    def _is_proxy_connection_error(error: Exception) -> bool:
+        """Check whether an error indicates a SOCKS proxy connection failure."""
+        # Walk the exception chain (cause / context)
+        exc: BaseException | None = error
+        while exc is not None:
+            type_name = type(exc).__name__
+            if "ProxyConnectionError" in type_name or "ProxyError" in type_name:
+                return True
+            msg = str(exc).lower()
+            if "could not connect to proxy" in msg or "proxy connection" in msg:
+                return True
+            exc = exc.__cause__ or exc.__context__
+        return False
+
     def disconnect(self) -> None:
         """Disconnect from the Tiled server.
 
