@@ -281,3 +281,81 @@ class TestDeviceEditDialog:
         params = dialog.get_values()
         assert params["extra_fields"]["custom_key"] == "custom_value"
         assert params["extra_fields"]["another"] == "data"
+
+
+from unittest.mock import MagicMock, patch
+
+
+class TestDevicePanelContextMenu:
+    """Test context menu integration on the device panel."""
+
+    @pytest.fixture
+    def qapp(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        yield app
+
+    def test_context_menu_policy_set(self, qapp):
+        """Tree view should have CustomContextMenu policy."""
+        from lucid.ui.panels.device_panel import DevicePanel
+        DevicePanel._instance = None
+        panel = DevicePanel()
+        assert (
+            panel._tree_view.contextMenuPolicy()
+            == Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        DevicePanel._instance = None
+
+    def test_build_context_menu_on_device(self, qapp):
+        """Context menu on a device should have Edit, Enable/Disable, etc."""
+        from lucid.ui.panels.device_panel import DevicePanel
+        DevicePanel._instance = None
+        panel = DevicePanel()
+        device = DeviceInfo(name="test_motor", active=True)
+        menu = panel._build_context_menu(device_info=device, is_editable=True)
+        action_texts = [a.text() for a in menu.actions()]
+        assert "Edit..." in action_texts
+        assert "Disable" in action_texts
+        assert "Copy Name" in action_texts
+        assert "Copy Prefix" in action_texts
+        assert "Delete" in action_texts
+        assert "Add New Device..." in action_texts
+        DevicePanel._instance = None
+
+    def test_build_context_menu_inactive_shows_enable(self, qapp):
+        """Context menu on inactive device should show 'Enable'."""
+        from lucid.ui.panels.device_panel import DevicePanel
+        DevicePanel._instance = None
+        panel = DevicePanel()
+        device = DeviceInfo(name="test_motor", active=False)
+        menu = panel._build_context_menu(device_info=device, is_editable=True)
+        action_texts = [a.text() for a in menu.actions()]
+        assert "Enable" in action_texts
+        assert "Disable" not in action_texts
+        DevicePanel._instance = None
+
+    def test_build_context_menu_not_editable_hides_edit_actions(self, qapp):
+        """Non-editable backend should hide edit/delete/add actions."""
+        from lucid.ui.panels.device_panel import DevicePanel
+        DevicePanel._instance = None
+        panel = DevicePanel()
+        device = DeviceInfo(name="test_motor", active=True)
+        menu = panel._build_context_menu(device_info=device, is_editable=False)
+        action_texts = [a.text() for a in menu.actions()]
+        assert "Edit..." not in action_texts
+        assert "Delete" not in action_texts
+        assert "Add New Device..." not in action_texts
+        assert "Copy Name" in action_texts
+        DevicePanel._instance = None
+
+    def test_build_context_menu_empty_space(self, qapp):
+        """Context menu on empty space should only have Add New Device."""
+        from lucid.ui.panels.device_panel import DevicePanel
+        DevicePanel._instance = None
+        panel = DevicePanel()
+        menu = panel._build_context_menu(device_info=None, is_editable=True)
+        action_texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+        assert action_texts == ["Add New Device..."]
+        DevicePanel._instance = None

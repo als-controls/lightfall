@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QScrollArea,
     QSplitter,
     QTabWidget,
@@ -306,6 +307,10 @@ class DevicePanel(BasePanel):
         # Set reasonable default column widths
         self._tree_view.setColumnWidth(0, 200)
 
+        # Context menu
+        self._tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree_view.customContextMenuRequested.connect(self._on_context_menu)
+
         splitter.addWidget(self._tree_view)
 
         # Bottom: tabs with Control and Info
@@ -536,6 +541,121 @@ class DevicePanel(BasePanel):
     def _on_device_changed(self, _: Any) -> None:
         """Handle device added/removed from catalog."""
         self._refresh()
+
+    # === Context Menu ===
+
+    def _get_backend_editable(self) -> bool:
+        """Check if the current backend supports editing."""
+        from lucid.devices import DeviceCatalog
+        catalog = DeviceCatalog.get_instance()
+        backend = catalog.backend
+        return backend is not None and backend.is_editable
+
+    def _build_context_menu(self, device_info, is_editable: bool):
+        """Build context menu for a device or empty space."""
+        from PySide6.QtWidgets import QApplication
+        menu = QMenu(self._tree_view)
+
+        if device_info is not None:
+            if is_editable:
+                edit_action = menu.addAction("Edit...")
+                edit_action.triggered.connect(lambda: self._edit_device(device_info))
+                if device_info.active:
+                    toggle_action = menu.addAction("Disable")
+                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, False))
+                else:
+                    toggle_action = menu.addAction("Enable")
+                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, True))
+                menu.addSeparator()
+
+            copy_name_action = menu.addAction("Copy Name")
+            copy_name_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.name))
+            copy_prefix_action = menu.addAction("Copy Prefix")
+            copy_prefix_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.prefix or ""))
+
+            if is_editable:
+                menu.addSeparator()
+                delete_action = menu.addAction("Delete")
+                delete_action.triggered.connect(lambda: self._delete_device(device_info))
+                menu.addSeparator()
+
+        if is_editable:
+            add_action = menu.addAction("Add New Device...")
+            add_action.triggered.connect(self._add_new_device)
+
+        return menu
+
+    def _on_context_menu(self, pos) -> None:
+        """Handle right-click on tree view."""
+        from lucid.ui.models.device_tree import NodeType
+        index = self._tree_view.indexAt(pos)
+        device_info = None
+        if index.isValid():
+            source_index = self._proxy_model.mapToSource(index)
+            if source_index.isValid():
+                item = source_index.internalPointer()
+                if item is not None and item.node_type == NodeType.DEVICE:
+                    device_info = item.device_info
+        is_editable = self._get_backend_editable()
+        menu = self._build_context_menu(device_info, is_editable)
+        if not menu.actions():
+            return
+        menu.exec(self._tree_view.viewport().mapToGlobal(pos))
+
+    def _edit_device(self, device_info) -> None:
+        """Open edit dialog for a device."""
+        from lucid.devices import DeviceCatalog
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
+        if dialog.exec():
+            values = dialog.get_values()
+            device_info.display_name = values["display_name"]
+            device_info.prefix = values["prefix"]
+            device_info.beamline = values["beamline"]
+            device_info.group = values["group"]
+            device_info.icon_override = values["icon_override"]
+            device_info.active = values["active"]
+            device_info.metadata.update(values.get("extra_fields", {}))
+            catalog = DeviceCatalog.get_instance()
+            catalog.update_device(device_info)
+
+    def _add_new_device(self) -> None:
+        """Open edit dialog in create mode."""
+        from lucid.devices import DeviceCatalog
+        from lucid.devices.model import DeviceInfo
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="create", parent=self)
+        if dialog.exec():
+            values = dialog.get_values()
+            device = DeviceInfo(
+                name=values["name"], device_class=values["device_class"],
+                prefix=values["prefix"], beamline=values["beamline"],
+                display_name=values["display_name"], group=values["group"],
+                icon_override=values["icon_override"], active=values["active"],
+                metadata=values.get("extra_fields", {}),
+            )
+            catalog = DeviceCatalog.get_instance()
+            if not catalog.add_device(device):
+                QMessageBox.warning(self, "Add Failed",
+                    f"Failed to add device '{values['name']}'. It may already exist.")
+
+    def _delete_device(self, device_info) -> None:
+        """Delete device after confirmation."""
+        from lucid.devices import DeviceCatalog
+        reply = QMessageBox.question(self, "Delete Device",
+            f"Delete device '{device_info.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            catalog = DeviceCatalog.get_instance()
+            catalog.remove_device(device_info.id)
+
+    def _toggle_device_active(self, device_info, active: bool) -> None:
+        """Enable or disable a device."""
+        from lucid.devices import DeviceCatalog
+        device_info.active = active
+        catalog = DeviceCatalog.get_instance()
+        catalog.update_device(device_info)
 
     # === Event Handling ===
 
