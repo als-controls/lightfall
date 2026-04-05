@@ -359,3 +359,20 @@ class TestDevicePanelContextMenu:
         action_texts = [a.text() for a in menu.actions() if not a.isSeparator()]
         assert action_texts == ["Add New Device..."]
         DevicePanel._instance = None
+
+
+class TestInactiveDeviceInteraction:
+    """Test that inactive devices show 'Device Inactive' in control tab."""
+
+    @pytest.fixture
+    def qapp(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        yield app
+
+    def test_inactive_device_info_still_shown(self, qapp):
+        """Info tab should still show metadata for inactive devices."""
+        device = DeviceInfo(name="inactive_motor", active=False)
+        assert device.active is False

@@ -508,8 +508,17 @@ class DevicePanel(BasePanel):
             self._overview_widget.set_item(None)
             self.items_selected.emit([])
 
-        # Update control widget with all selected items
-        self._control_widget.set_items(selected_items)
+        # Update control widget — skip for inactive devices
+        active_items = [
+            item for item in selected_items
+            if item.device_info is None or item.device_info.active
+        ]
+
+        if selected_items and not active_items:
+            # All selected items are inactive — show "Device Inactive" label
+            self._control_widget.show_inactive_message()
+        else:
+            self._control_widget.set_items(active_items)
 
     def _post_device_focus_event(self, item: DeviceTreeItem) -> None:
         """Post a device focus event to the Synoptic panel.
@@ -740,7 +749,12 @@ class DevicePanel(BasePanel):
 
         # Manually update the overview widget
         self._overview_widget.set_item(target_item)
-        self._control_widget.set_items([target_item])
+
+        # Show inactive message if device is inactive, else show controls
+        if target_item.device_info is not None and not target_item.device_info.active:
+            self._control_widget.show_inactive_message()
+        else:
+            self._control_widget.set_items([target_item])
 
         logger.debug("Selected device in tree: {}", device_id)
 
