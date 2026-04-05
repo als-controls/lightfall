@@ -61,6 +61,15 @@ class DeviceBackend(ABC):
         """
         ...
 
+    @property
+    def is_editable(self) -> bool:
+        """Whether this backend supports editing (add/update/remove).
+
+        Returns False by default. Backends that persist changes
+        (e.g., HappiBackend with JSON) should override to return True.
+        """
+        return False
+
     @abstractmethod
     def connect(self) -> bool:
         """Connect to the backend storage.

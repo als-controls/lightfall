@@ -39,3 +39,18 @@ class TestDeviceInfoNewFields:
         summary = device.to_summary()
         assert summary["display_name"] == "Main Motor"
         assert summary["group"] == "hutch_a"
+
+
+from lucid.devices.base import DeviceBackend
+
+
+class TestBackendEditable:
+    """Test the is_editable property on backends."""
+
+    def test_base_backend_not_editable(self):
+        """DeviceBackend.is_editable should default to False."""
+        # We can't instantiate the ABC directly, so test via a concrete subclass
+        from lucid.devices.backends.mock import MockBackend
+
+        backend = MockBackend()
+        assert backend.is_editable is False
