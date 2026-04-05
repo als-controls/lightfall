@@ -409,7 +409,6 @@ class HappiBackend(DeviceBackend):
         item = result.item if hasattr(result, "item") else result
 
         item_name = getattr(item, "name", str(item))
-        prefix = getattr(item, "prefix", "") or ""
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
         location = getattr(item, "location_group", "") or ""
@@ -441,6 +440,8 @@ class HappiBackend(DeviceBackend):
 
         # Read LUCID-specific fields from extraneous or metadata
         extraneous = getattr(item, "extraneous", {}) or {}
+        # prefix may be a native happi field OR stored in extraneous (LUCID write-through)
+        prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
         display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
         icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
         group = extraneous.get("group", "") or metadata.get("group", "") or ""

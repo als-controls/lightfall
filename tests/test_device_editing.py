@@ -401,3 +401,62 @@ class TestManageDeviceTool:
         device = DeviceInfo(name="test", active=True)
         device.active = False
         assert device.active is False
+
+
+class TestDeviceEditingIntegration:
+    """End-to-end integration test: add → edit → disable → delete via backend."""
+
+    @pytest.fixture
+    def happi_json(self, tmp_path):
+        db_path = tmp_path / "integration_happi.json"
+        db_path.write_text(json.dumps({}))
+        return str(db_path)
+
+    def test_full_lifecycle(self, happi_json):
+        """Add a device, update it, disable it, then delete it."""
+        pytest.importorskip("happi")
+        from lucid.devices.backends.happi import HappiBackend
+
+        backend = HappiBackend(path=happi_json, instantiate=False)
+        backend.connect()
+
+        # Add
+        device = DeviceInfo(
+            name="lifecycle_motor",
+            device_class="ophyd.EpicsMotor",
+            prefix="LIFE:MOTOR:",
+            display_name="Lifecycle Motor",
+            group="test_group",
+        )
+        assert backend.add_device(device) is True
+        assert backend.get_device_by_name("lifecycle_motor") is not None
+
+        # Update
+        device.display_name = "Updated Lifecycle Motor"
+        device.prefix = "LIFE:MOTOR:V2:"
+        assert backend.update_device(device) is True
+
+        # Verify update persisted
+        be2 = HappiBackend(path=happi_json, instantiate=False)
+        be2.connect()
+        found = be2.get_device_by_name("lifecycle_motor")
+        assert found is not None
+        assert found.prefix == "LIFE:MOTOR:V2:"
+
+        # Disable
+        device.active = False
+        backend.update_device(device)
+        inactive = backend.list_devices(active_only=True)
+        assert all(d.name != "lifecycle_motor" for d in inactive)
+
+        all_devices = backend.list_devices(active_only=False)
+        assert any(d.name == "lifecycle_motor" for d in all_devices)
+
+        # Delete
+        assert backend.remove_device(device.id) is True
+        assert backend.get_device_by_name("lifecycle_motor") is None
+
+        # Verify deletion persisted
+        be3 = HappiBackend(path=happi_json, instantiate=False)
+        be3.connect()
+        assert be3.get_device_by_name("lifecycle_motor") is None
