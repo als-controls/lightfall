@@ -282,15 +282,6 @@ class DeviceCatalog(QObject):
             if device is None:
                 return
 
-            # Don't connect inactive devices
-            if not device.active:
-                device._state = DeviceState(
-                    device_id=device.id,
-                    status=DeviceStatus.OFFLINE,
-                    connected=False,
-                )
-                return
-
             # Update device with ophyd instance
             device._ophyd_device = result.ophyd_device
             device._state = DeviceState(
