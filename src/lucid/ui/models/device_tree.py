@@ -808,7 +808,7 @@ class DeviceTreeModel(QAbstractItemModel):
                     return self._icons.get("status_connecting")
                 elif status == "error":
                     return self._icons.get("status_error")
-                elif status == "inactive":
+                elif status == "disabled":
                     return self._icons.get("status_offline")
                 elif status == "offline" or status == "unknown":
                     return self._icons.get("status_offline")
