@@ -133,11 +133,13 @@ class DeviceTreeItem:
         except Exception:
             pass
 
-        # For devices, check readback signal's units
+        # For devices, check readback signal's units.
+        # Use _signals dict to avoid triggering ophyd's lazy descriptor.
         if self.node_type == NodeType.DEVICE:
+            signals = getattr(obj, "_signals", {})
             for attr in ("readback", "user_readback"):
                 try:
-                    sig = getattr(obj, attr, None)
+                    sig = signals.get(attr)
                     if sig is not None and hasattr(sig, "metadata"):
                         units = sig.metadata.get("units", "")
                         if units:
@@ -216,8 +218,12 @@ class DeviceTreeItem:
 
             # For devices, show value from readback, position, or direct .get()
             elif self.node_type == NodeType.DEVICE:
-                if hasattr(self.ophyd_obj, "readback"):
-                    val = self._safe_get(self.ophyd_obj.readback)
+                # Check _signals dict directly to avoid triggering ophyd's
+                # lazy Component descriptor, which calls wait_for_connection
+                # and blocks the value-poll thread.
+                signals = getattr(self.ophyd_obj, "_signals", {})
+                if "readback" in signals:
+                    val = self._safe_get(signals["readback"])
                     if val is not None:
                         return self._format_value(val)
                 # Check for position (motors) — refresh via sync ZMQ call
