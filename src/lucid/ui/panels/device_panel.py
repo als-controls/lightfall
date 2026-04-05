@@ -355,17 +355,13 @@ class DevicePanel(BasePanel):
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
 
-        # Refresh action
-        refresh_action = QAction("Refresh", self)
-        refresh_action.setToolTip("Refresh device tree")
-        refresh_action.triggered.connect(self._refresh)
-        toolbar.addAction(refresh_action)
-
-        # Reconnect failed devices
-        reconnect_action = QAction("Reconnect", self)
-        reconnect_action.setToolTip("Retry connection for offline devices")
-        reconnect_action.triggered.connect(self._reconnect_failed)
-        toolbar.addAction(reconnect_action)
+        # Sync: reconnect failed devices + refresh tree
+        sync_action = QAction("Sync", self)
+        sync_action.setToolTip(
+            "Retry failed device connections and refresh the tree"
+        )
+        sync_action.triggered.connect(self._sync_devices)
+        toolbar.addAction(sync_action)
 
         toolbar.addSeparator()
 
@@ -399,19 +395,14 @@ class DevicePanel(BasePanel):
         self._tree_view.collapseAll()
         self._tree_view.expandToDepth(depth)
 
-    def _refresh(self) -> None:
-        """Refresh the device model."""
-        self._model.refresh()
-        logger.debug("Device tree refreshed")
-
-    def _reconnect_failed(self) -> None:
-        """Retry connection for all offline devices in a background thread."""
+    def _sync_devices(self) -> None:
+        """Retry failed connections and refresh the device tree."""
         from lucid.devices import DeviceCatalog
         from lucid.utils.threads import QThreadFuture
 
         catalog = DeviceCatalog.get_instance()
 
-        # Reset permanently failed tracking so manual reconnect retries everything
+        # Reset permanently failed tracking so we retry everything
         for backend in catalog.backends.values():
             if hasattr(backend, "reset_failed_devices"):
                 backend.reset_failed_devices()
@@ -421,10 +412,9 @@ class DevicePanel(BasePanel):
 
         def _on_done(result):
             connected, failed = result
-            if connected > 0:
-                self._model.refresh()
+            self._model.refresh()
             logger.info(
-                "Reconnect: {} devices connected, {} still offline",
+                "Sync: {} devices connected, {} still offline",
                 connected,
                 failed,
             )
@@ -432,10 +422,10 @@ class DevicePanel(BasePanel):
         thread = QThreadFuture(
             _do_reconnect,
             callback_slot=_on_done,
-            name="reconnect-devices",
+            name="sync-devices",
         )
         thread.start()
-        logger.info("Reconnecting offline devices...")
+        logger.info("Syncing devices...")
 
     # === Signal Handlers ===
 
