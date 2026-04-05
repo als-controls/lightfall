@@ -202,3 +202,82 @@ class TestInactiveDeviceRendering:
         """Active device should NOT return grey foreground for name column."""
         active_device = DeviceInfo(name="active_motor", active=True)
         assert active_device.active is True
+
+
+class TestDeviceEditDialog:
+    """Test the device edit dialog."""
+
+    @pytest.fixture
+    def qapp(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        yield app
+
+    def test_create_mode_empty_fields(self, qapp):
+        """Dialog in create mode should start with empty fields."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="create")
+        params = dialog.get_values()
+        assert params["name"] == ""
+        assert params["device_class"] == ""
+        assert params["display_name"] == ""
+
+    def test_edit_mode_populates_fields(self, qapp):
+        """Dialog in edit mode should populate from device."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        device = DeviceInfo(
+            name="my_motor",
+            device_class="ophyd.EpicsMotor",
+            prefix="MY:MOTOR:",
+            display_name="My Motor",
+            group="hutch_a",
+            beamline="8.0.1",
+            active=True,
+        )
+        dialog = DeviceEditDialog(mode="edit", device=device)
+        params = dialog.get_values()
+        assert params["name"] == "my_motor"
+        assert params["device_class"] == "ophyd.EpicsMotor"
+        assert params["prefix"] == "MY:MOTOR:"
+        assert params["display_name"] == "My Motor"
+        assert params["group"] == "hutch_a"
+        assert params["beamline"] == "8.0.1"
+        assert params["active"] is True
+
+    def test_edit_mode_name_readonly(self, qapp):
+        """In edit mode, name should be read-only."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        device = DeviceInfo(name="locked_name", device_class="ophyd.EpicsMotor")
+        dialog = DeviceEditDialog(mode="edit", device=device)
+        name_param = dialog._params.child("Identity", "name")
+        assert name_param.opts.get("readonly", False) is True
+
+    def test_edit_mode_device_class_readonly(self, qapp):
+        """In edit mode, device_class should be read-only."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        device = DeviceInfo(name="test", device_class="ophyd.EpicsMotor")
+        dialog = DeviceEditDialog(mode="edit", device=device)
+        dc_param = dialog._params.child("Identity", "device_class")
+        assert dc_param.opts.get("readonly", False) is True
+
+    def test_create_mode_name_editable(self, qapp):
+        """In create mode, name should be editable."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="create")
+        name_param = dialog._params.child("Identity", "name")
+        assert name_param.opts.get("readonly", False) is False
+
+    def test_extra_fields_from_metadata(self, qapp):
+        """Extra metadata fields should appear in the dialog."""
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        device = DeviceInfo(
+            name="test",
+            device_class="ophyd.EpicsMotor",
+            metadata={"custom_key": "custom_value", "another": "data"},
+        )
+        dialog = DeviceEditDialog(mode="edit", device=device)
+        params = dialog.get_values()
+        assert params["extra_fields"]["custom_key"] == "custom_value"
+        assert params["extra_fields"]["another"] == "data"
