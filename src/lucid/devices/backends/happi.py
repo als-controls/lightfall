@@ -232,6 +232,16 @@ class HappiBackend(DeviceBackend):
                     db_path.parent.mkdir(parents=True, exist_ok=True)
                     db_path.write_text(json.dumps({}))
                     logger.info("Created new happi JSON database at {}", self._path)
+                    # Toast notification (fire-and-forget)
+                    try:
+                        from lucid.core.app import LucidApp
+                        app = LucidApp.instance()
+                        if app and hasattr(app, "show_notification"):
+                            app.show_notification(
+                                f"Created new device database at {self._path}"
+                            )
+                    except Exception:
+                        pass  # Notification is best-effort
 
             if self._path:
                 from happi.backends.json_db import JSONBackend
@@ -728,8 +738,13 @@ class HappiBackend(DeviceBackend):
             item.extraneous["display_name"] = device.display_name or ""
             item.extraneous["icon_override"] = device.icon_override or ""
             item.extraneous["group"] = device.group or ""
-            if device.location:
-                item.extraneous["location"] = device.location
+            item.extraneous["location"] = device.location or ""
+
+            # Sync extra metadata (skip internal keys)
+            for key, value in device.metadata.items():
+                if key.startswith("_"):
+                    continue
+                item.extraneous[key] = value
 
             item.save()
 
