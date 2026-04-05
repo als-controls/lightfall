@@ -344,7 +344,7 @@ class HappiBackend(DeviceBackend):
                 "Starting background connection for {} happi devices",
                 len(to_connect),
             )
-            manager.connect_all(to_connect, timeout=self._connection_timeout)
+            manager.connect_all_phased(to_connect, timeout=self._connection_timeout)
 
     def _on_device_connected(self, result: Any) -> None:
         """Handle successful device connection from ConnectionManager."""
