@@ -10,9 +10,11 @@ See: https://github.com/pcdshub/happi
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import threading
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -206,6 +208,10 @@ class HappiBackend(DeviceBackend):
     def path(self) -> str | None:
         return self._path
 
+    @property
+    def is_editable(self) -> bool:
+        return True
+
     def connect(self) -> bool:
         """Connect to the happi database and load devices."""
         logger.info("HappiBackend.connect() START (instantiate={})", self._instantiate_mode)
@@ -219,6 +225,14 @@ class HappiBackend(DeviceBackend):
             return False
 
         try:
+            # Auto-init: create the JSON file if it doesn't exist
+            if self._path:
+                db_path = Path(self._path)
+                if not db_path.exists():
+                    db_path.parent.mkdir(parents=True, exist_ok=True)
+                    db_path.write_text(json.dumps({}))
+                    logger.info("Created new happi JSON database at {}", self._path)
+
             if self._path:
                 from happi.backends.json_db import JSONBackend
 
@@ -415,6 +429,16 @@ class HappiBackend(DeviceBackend):
         elif isinstance(item, dict):
             metadata = dict(item)
 
+        # Read LUCID-specific fields from extraneous or metadata
+        extraneous = getattr(item, "extraneous", {}) or {}
+        display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
+        icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
+        group = extraneous.get("group", "") or metadata.get("group", "") or ""
+        active = getattr(item, "active", True)
+        # Handle string "True"/"False" from JSON
+        if isinstance(active, str):
+            active = active.lower() != "false"
+
         device_info = DeviceInfo(
             name=item_name,
             description=f"Happi: {device_class}" if device_class else f"Happi device: {item_name}",
@@ -426,6 +450,10 @@ class HappiBackend(DeviceBackend):
             location=location,
             tags=tags,
             metadata=metadata,
+            display_name=display_name,
+            icon_override=icon_override,
+            group=group,
+            active=active,
         )
 
         # Handle instantiation based on mode
@@ -626,21 +654,123 @@ class HappiBackend(DeviceBackend):
         return [d for d in self._devices.values() if d.matches_search(query)]
 
     def add_device(self, device: DeviceInfo) -> bool:
-        """Happi backend is read-only from NCS. Use happi CLI to add devices."""
-        logger.warning("Happi backend is read-only from NCS. Use happi CLI to manage devices.")
-        return False
+        """Add a device to the happi database and persist to JSON.
+
+        Creates a HappiItem with the device's metadata and stores
+        LUCID-specific fields (display_name, icon_override, group)
+        in the item's extraneous dict.
+        """
+        if self._client is None:
+            return False
+
+        # Reject duplicates
+        if self.get_device_by_name(device.name) is not None:
+            logger.warning("Device '{}' already exists, cannot add duplicate", device.name)
+            return False
+
+        try:
+            import happi
+
+            item = happi.HappiItem(
+                name=device.name,
+                device_class=device.device_class or "ophyd.Device",
+                active=device.active,
+            )
+            # prefix and beamline go in extraneous for HappiItem
+            item.extraneous["prefix"] = device.prefix or ""
+            item.extraneous["beamline"] = device.beamline or ""
+            # Store LUCID-specific fields as extraneous metadata
+            if device.display_name:
+                item.extraneous["display_name"] = device.display_name
+            if device.icon_override:
+                item.extraneous["icon_override"] = device.icon_override
+            if device.group:
+                item.extraneous["group"] = device.group
+            if device.location:
+                item.extraneous["location"] = device.location
+
+            self._client.add_item(item)
+
+            # Add to in-memory cache
+            self._devices[device.id] = device
+            self._configurations[device.id] = []
+            self._maintenance[device.id] = []
+
+            logger.info("Added device '{}' to happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to add device '{}': {}", device.name, e)
+            return False
 
     def update_device(self, device: DeviceInfo) -> bool:
+        """Update a device in the happi database with write-through to JSON."""
         if device.id not in self._devices:
             return False
-        device.modified = datetime.now()
-        self._devices[device.id] = device
-        return True
+        if self._client is None:
+            return False
+
+        try:
+            results = self._client.search(name=device.name)
+            if not results:
+                logger.warning("Device '{}' not found in happi for update", device.name)
+                return False
+
+            item = results[0].item
+
+            # Update standard happi fields
+            item.device_class = device.device_class or "ophyd.Device"
+            item.active = device.active
+
+            # Update fields stored in extraneous
+            item.extraneous["prefix"] = device.prefix or ""
+            item.extraneous["beamline"] = device.beamline or ""
+            item.extraneous["display_name"] = device.display_name or ""
+            item.extraneous["icon_override"] = device.icon_override or ""
+            item.extraneous["group"] = device.group or ""
+            if device.location:
+                item.extraneous["location"] = device.location
+
+            item.save()
+
+            # Update in-memory cache
+            device.modified = datetime.now()
+            self._devices[device.id] = device
+
+            logger.info("Updated device '{}' in happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to update device '{}': {}", device.name, e)
+            return False
 
     def remove_device(self, device_id: UUID) -> bool:
-        """Happi backend is read-only from NCS."""
-        logger.warning("Happi backend is read-only from NCS. Use happi CLI to manage devices.")
-        return False
+        """Remove a device from the happi database and JSON file."""
+        if self._client is None:
+            return False
+
+        device = self._devices.get(device_id)
+        if device is None:
+            return False
+
+        try:
+            results = self._client.search(name=device.name)
+            if not results:
+                logger.warning("Device '{}' not found in happi for removal", device.name)
+                return False
+            self._client.remove_item(results[0].item)
+
+            # Remove from in-memory caches
+            del self._devices[device_id]
+            self._configurations.pop(device_id, None)
+            self._maintenance.pop(device_id, None)
+
+            logger.info("Removed device '{}' from happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to remove device '{}': {}", device.name, e)
+            return False
 
     # === Configuration ===
 
