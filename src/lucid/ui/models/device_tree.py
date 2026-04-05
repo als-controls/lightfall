@@ -812,6 +812,11 @@ class DeviceTreeModel(QAbstractItemModel):
                     return self._icons.get("status_offline")
 
         elif role == Qt.ItemDataRole.ForegroundRole:
+            # Grey out inactive devices entirely
+            device_info = item.device_info
+            if device_info is not None and not device_info.active:
+                return QColor("#9E9E9E")  # Grey for all columns
+
             # Color status column
             if index.column() == 2:
                 status = item.data(2)

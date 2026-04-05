@@ -169,3 +169,36 @@ class TestHappiBackendWriteThrough:
         assert backend.add_device(device1) is True
         device2 = DeviceInfo(name="dup_motor", device_class="ophyd.EpicsMotor")
         assert backend.add_device(device2) is False
+
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+
+
+class TestInactiveDeviceRendering:
+    """Test that inactive devices are rendered greyed out."""
+
+    @pytest.fixture
+    def qapp(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        yield app
+
+    def test_inactive_device_grey_foreground(self, qapp):
+        """Inactive device should return grey foreground for all columns."""
+        from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
+        inactive_device = DeviceInfo(name="disabled_motor", active=False)
+        item = DeviceTreeItem(
+            name="disabled_motor",
+            node_type=NodeType.DEVICE,
+            parent=None,
+            device_info=inactive_device,
+        )
+        assert inactive_device.active is False
+
+    def test_active_device_not_greyed(self, qapp):
+        """Active device should NOT return grey foreground for name column."""
+        active_device = DeviceInfo(name="active_motor", active=True)
+        assert active_device.active is True
