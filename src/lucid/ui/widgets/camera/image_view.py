@@ -48,6 +48,7 @@ class _FrameData:
 
     raw_image: np.ndarray
     display_image: np.ndarray
+    log_mode: bool  # whether display_image was log-transformed
     hist_x: np.ndarray | None = None
     hist_y: np.ndarray | None = None
     roi_stats: list[str] | None = None
@@ -273,12 +274,17 @@ class OphydImageView(QWidget):
         if arr.ndim != 2:
             return
 
+        # Snapshot toggle states at the start of processing so the frame
+        # is internally consistent even if the user toggles mid-poll.
+        log_mode = self._log_mode
+        bg_correct = self._bg_correct
+
         # Background correction (reads cached dark, no I/O)
-        if self._bg_correct:
+        if bg_correct:
             arr = self._dark_manager.subtract(arr)
 
         # Log transform
-        if self._log_mode:
+        if log_mode:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 display_arr = np.log1p(arr.astype(np.float64))
@@ -307,6 +313,7 @@ class OphydImageView(QWidget):
         self._pending_frame = _FrameData(
             raw_image=arr,
             display_image=display_arr,
+            log_mode=log_mode,
             hist_x=hist_x,
             hist_y=hist_y,
             roi_stats=roi_stats,
@@ -382,7 +389,9 @@ class OphydImageView(QWidget):
             self._auto_levels()
             self.reset_axes()
 
-        self._apply_display_levels()
+        # Use the frame's log_mode (not current self._log_mode) so levels
+        # match the data that was actually computed by the background thread.
+        self._apply_display_levels(log_mode=frame.log_mode)
 
         # Update histogram bins
         if frame.hist_x is not None and frame.hist_y is not None:
@@ -527,14 +536,23 @@ class OphydImageView(QWidget):
         self._bg_correct = checked
         self._bg_correct_btn.setIcon(self._bg_icon_on if checked else self._bg_icon_off)
 
-    def _apply_display_levels(self) -> None:
-        """Map histogram levels (real units) to the displayed ImageItem."""
+    def _apply_display_levels(self, log_mode: bool | None = None) -> None:
+        """Map histogram levels (real units) to the displayed ImageItem.
+
+        Args:
+            log_mode: Whether the currently displayed image is log-transformed.
+                      If None, uses self._log_mode (for interactive updates).
+                      When called from _apply_frame, pass the frame's log_mode
+                      to ensure levels match the data.
+        """
         if self._updating_levels:
             return
         self._updating_levels = True
         try:
+            if log_mode is None:
+                log_mode = self._log_mode
             lo, hi = self._histogram.getLevels()
-            if self._log_mode:
+            if log_mode:
                 lo = np.log1p(max(lo, 0.0))
                 hi = np.log1p(max(hi, 0.0))
             self._image_item.setLevels([lo, hi])
