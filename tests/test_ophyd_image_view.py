@@ -111,3 +111,34 @@ class TestLUTBehavior:
         view.close()
 
 
+class TestToolbar:
+    """Toolbar buttons above the image."""
+
+    def test_toolbar_buttons_exist(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+
+        assert view._reset_lut_btn is not None
+        assert view._reset_axes_btn is not None
+        assert view._log_intensity_btn is not None
+        assert view._log_intensity_btn.isCheckable()
+        view.close()
+
+    def test_reset_lut_button_resets_flag(self, qapp):
+        data = np.random.randint(0, 100, (100, 100), dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._display_array(data)
+        assert view._first_frame is False
+
+        view._reset_lut_btn.click()
+        assert view._first_frame is True
+        view.close()
+
+    def test_reset_axes_button_calls_autorange(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+
+        view._reset_axes_btn.click()
+        view.close()

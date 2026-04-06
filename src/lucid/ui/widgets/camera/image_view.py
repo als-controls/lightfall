@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from lucid.utils.logging import logger
 
@@ -37,6 +37,7 @@ class OphydImageView(QWidget):
         self._device = ophyd_device
         self._timer: QTimer | None = None
         self._first_frame = True
+        self._log_mode = False
 
         self._setup_ui()
         self._start_updates()
@@ -45,6 +46,30 @@ class OphydImageView(QWidget):
         """Build the viewer layout: [image + axes | histogram]."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        # Toolbar
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(4)
+
+        self._reset_lut_btn = QPushButton("Reset LUT")
+        self._reset_lut_btn.setFixedHeight(24)
+        self._reset_lut_btn.clicked.connect(self.reset_lut)
+        toolbar.addWidget(self._reset_lut_btn)
+
+        self._reset_axes_btn = QPushButton("Reset Axes")
+        self._reset_axes_btn.setFixedHeight(24)
+        self._reset_axes_btn.clicked.connect(self.reset_axes)
+        toolbar.addWidget(self._reset_axes_btn)
+
+        self._log_intensity_btn = QPushButton("Log Intensity")
+        self._log_intensity_btn.setFixedHeight(24)
+        self._log_intensity_btn.setCheckable(True)
+        self._log_intensity_btn.toggled.connect(self._on_log_intensity_toggled)
+        toolbar.addWidget(self._log_intensity_btn)
+
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
 
         # Main horizontal split: image view | histogram
         h_layout = QHBoxLayout()
@@ -168,6 +193,10 @@ class OphydImageView(QWidget):
     def reset_axes(self) -> None:
         """Reset view to fit the entire image."""
         self._plot_item.getViewBox().autoRange()
+
+    def _on_log_intensity_toggled(self, checked: bool) -> None:
+        """Toggle log intensity display. Full implementation in Task 4."""
+        self._log_mode = checked
 
     def close(self) -> None:
         """Stop updates and clean up."""
