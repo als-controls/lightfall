@@ -201,6 +201,7 @@ class RunEngineControlWidget(QWidget):
         self._engine.sigFinish.connect(self._on_run_finish)
         self._engine.sigPause.connect(self._on_pause)
         self._engine.sigResume.connect(self._on_resume)
+        self._engine.sigQueueChanged.connect(self._on_queue_changed)
 
     def _disconnect_signals(self) -> None:
         """Disconnect from engine signals."""
@@ -213,6 +214,7 @@ class RunEngineControlWidget(QWidget):
             self._engine.sigFinish.disconnect(self._on_run_finish)
             self._engine.sigPause.disconnect(self._on_pause)
             self._engine.sigResume.disconnect(self._on_resume)
+            self._engine.sigQueueChanged.disconnect(self._on_queue_changed)
         except RuntimeError:
             pass  # Already disconnected
 
@@ -289,6 +291,11 @@ class RunEngineControlWidget(QWidget):
     @Slot()
     def _on_resume(self) -> None:
         """Handle resume event."""
+        self._update_state()
+
+    @Slot()
+    def _on_queue_changed(self) -> None:
+        """Handle queue change (plan submitted or dequeued)."""
         self._update_state()
 
     @Slot()
