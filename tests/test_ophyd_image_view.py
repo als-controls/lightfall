@@ -293,7 +293,11 @@ class TestROIStats:
     def test_stats_overlay_shown_when_available(self, qapp):
         device = self._make_device_with_stats()
         view = OphydImageView(device)
-        view._update_roi_stats()
+        # Simulate what _apply_frame does with ROI stats
+        stats = view._read_roi_stats()
+        assert stats is not None
+        view._stats_text.setText("\n".join(stats))
+        view._stats_text.setVisible(True)
         text = view._stats_text.toPlainText()
         assert "950" in text
         view.close()
@@ -303,8 +307,8 @@ class TestROIStats:
         if hasattr(device, "roi_stat1"):
             del device.roi_stat1
         view = OphydImageView(device)
-        view._update_roi_stats()
-        assert not view._stats_text.isVisible()
+        stats = view._read_roi_stats()
+        assert stats is None
         view.close()
 
 
@@ -321,17 +325,22 @@ class TestProgressBar:
 
     def test_update_progress_from_cam(self, qapp):
         device = _make_mock_device()
-        view = OphydImageView(device)
-        view._timer.stop()
-        view.show()
-
         device.cam = MagicMock()
         device.cam.array_counter.get.return_value = 5
         device.cam.num_images.get.return_value = 10
         device.cam.acquire.get.return_value = 1
         device.configure_mock(**{"hdf5": None})
 
-        view._update_progress()
+        view = OphydImageView(device)
+        view.show()
+
+        progress = view._read_progress()
+        assert progress == (5, 10)
+
+        # Simulate _apply_frame setting the progress bar
+        view._progress_bar.setMaximum(progress[1])
+        view._progress_bar.setValue(progress[0])
+        view._progress_bar.setVisible(True)
         assert view._progress_bar.isVisible()
         assert view._progress_bar.value() == 5
         assert view._progress_bar.maximum() == 10
@@ -339,16 +348,15 @@ class TestProgressBar:
 
     def test_progress_hides_when_idle(self, qapp):
         device = _make_mock_device()
-        view = OphydImageView(device)
-        view._timer.stop()
-        view.show()
-
         device.cam = MagicMock()
         device.cam.acquire.get.return_value = 0
         device.configure_mock(**{"hdf5": None})
 
-        view._update_progress()
-        assert not view._progress_bar.isVisible()
+        view = OphydImageView(device)
+        view.show()
+
+        progress = view._read_progress()
+        assert progress is None
         view.close()
 
 

@@ -4,22 +4,36 @@ Displays live image data with:
 - Axis ticks via PlotItem
 - Histogram/LUT control
 - Correct orientation (col-major axis order, matching Xi-CAM convention)
-- Efficient frame updates via ImageItem.setImage()
+- Background-threaded device polling and data preprocessing
+
+Device I/O (array_data.get(), roi stats, progress counters) and numpy
+preprocessing (reshape, BG subtraction, log transform, histogram) all
+run on a background thread. The main thread only does Qt widget updates.
 
 The LUT is auto-scaled on the first frame received using percentile bounds
-(second-lowest as min, 99th percentile as max). Subsequent frames preserve
+(1st percentile as min, 99th percentile as max). Subsequent frames preserve
 the user's manual LUT adjustments until Reset LUT is pressed.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 import warnings
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
 from lucid.utils.logging import logger
@@ -28,34 +42,62 @@ if TYPE_CHECKING:
     pass
 
 
+@dataclass
+class _FrameData:
+    """Preprocessed frame data produced by the background thread."""
+
+    raw_image: np.ndarray
+    display_image: np.ndarray
+    hist_x: np.ndarray | None = None
+    hist_y: np.ndarray | None = None
+    roi_stats: list[str] | None = None
+    progress: tuple[int, int] | None = None  # (current, total) or None if idle
+
+
 class OphydImageView(QWidget):
     """PyQtGraph-based scientific image viewer for ophyd area detectors.
 
-    Uses PlotItem for axes, ImageItem for rendering, and HistogramLUTItem
-    for color scale control. Polls the device's image plugin at ~10 fps.
+    Device polling and data preprocessing run on a background thread.
+    The main thread timer picks up the latest preprocessed frame and
+    only does Qt widget updates.
 
     Image orientation uses col-major axis order (matching Xi-CAM convention)
     with no Y-axis inversion, so no QTransform or data preprocessing needed.
     """
 
+    _STAT_FIELDS = (
+        "min_value", "max_value", "mean_value", "total",
+        "centroid_x", "centroid_y",
+    )
+
     def __init__(self, ophyd_device: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._device = ophyd_device
-        self._timer: QTimer | None = None
         self._first_frame = True
         self._log_mode = False
+        self._bg_correct = False
         self._raw_image: np.ndarray | None = None
-        self._updating_levels = False  # guard against recursive level updates
+        self._updating_levels = False
 
         self._dark_manager = DarkFrameManager(
             device_name=ophyd_device.name if hasattr(ophyd_device, "name") else "unknown"
         )
 
+        # Background thread state
+        self._pending_frame: _FrameData | None = None
+        self._poll_thread: threading.Thread | None = None
+        self._poll_stop = threading.Event()
+        self._frame_count = 0
+
         self._setup_ui()
         self._start_updates()
 
+    # =====================================================================
+    # UI Setup
+    # =====================================================================
+
     def _setup_ui(self) -> None:
-        """Build the viewer layout: [image + axes | histogram]."""
+        """Build the viewer layout: [toolbar | image+histogram | coords | progress]."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -83,6 +125,7 @@ class OphydImageView(QWidget):
         self._bg_correct_btn = QPushButton("BG Correct")
         self._bg_correct_btn.setFixedHeight(24)
         self._bg_correct_btn.setCheckable(True)
+        self._bg_correct_btn.toggled.connect(self._on_bg_correct_toggled)
         toolbar.addWidget(self._bg_correct_btn)
 
         toolbar.addStretch()
@@ -103,8 +146,6 @@ class OphydImageView(QWidget):
         self._plot_item.setLabel("left", "y (px)")
 
         # ImageItem uses col-major axis order (Xi-CAM convention).
-        # With col-major, array[row, col] maps to screen(x=row, y=col),
-        # which gives correct orientation without any QTransform.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="col-major")
         self._plot_item.addItem(self._image_item)
@@ -132,9 +173,8 @@ class OphydImageView(QWidget):
         self._plot_item.scene().sigMouseMoved.connect(self._on_mouse_moved)
         h_layout.addWidget(self._graphics_view, stretch=1)
 
-        # HistogramLUTItem for color scale control (manually wired, not
-        # using setImageItem, so we can decouple log-scaled display from
-        # linear histogram bins/levels).
+        # HistogramLUTItem — manually wired so we can decouple log display
+        # from linear histogram.
         self._histogram = pg.HistogramLUTItem()
         self._histogram.sigLevelsChanged.connect(self._apply_display_levels)
         self._histogram.gradient.sigGradientChanged.connect(
@@ -155,6 +195,7 @@ class OphydImageView(QWidget):
         self._coords_label.setStyleSheet("font-family: monospace; font-size: 11px;")
         layout.addWidget(self._coords_label)
 
+        # Progress bar
         self._progress_bar = QProgressBar()
         self._progress_bar.setFixedHeight(16)
         self._progress_bar.setTextVisible(True)
@@ -162,40 +203,210 @@ class OphydImageView(QWidget):
         self._progress_bar.setVisible(False)
         layout.addWidget(self._progress_bar)
 
-    def _start_updates(self) -> None:
-        """Start polling the device for image data."""
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._update_image)
-        self._timer.start(100)  # ~10 fps
+    # =====================================================================
+    # Background polling thread
+    # =====================================================================
 
-    def _update_image(self) -> None:
-        """Poll device image plugin and update display."""
+    def _start_updates(self) -> None:
+        """Start the background polling thread and main-thread UI timer."""
+        # Background thread: polls device, preprocesses data
+        self._poll_stop.clear()
+        self._poll_thread = threading.Thread(
+            target=self._poll_loop, daemon=True, name="imageview-poll"
+        )
+        self._poll_thread.start()
+
+        # Main thread timer: picks up preprocessed frames, updates widgets
+        self._ui_timer = QTimer(self)
+        self._ui_timer.timeout.connect(self._apply_frame)
+        self._ui_timer.start(50)  # 20 fps check rate (only updates if new frame)
+
+    def _poll_loop(self) -> None:
+        """Background thread: poll device and preprocess frames.
+
+        Runs continuously at ~10 fps. All device .get() calls and numpy
+        operations happen here, never on the main thread.
+        """
+        while not self._poll_stop.is_set():
+            try:
+                self._poll_once()
+            except Exception as e:
+                logger.debug(f"Poll error: {e}")
+            self._poll_stop.wait(0.1)  # ~10 fps
+
+    def _poll_once(self) -> None:
+        """Single poll iteration — read device, preprocess, store result."""
         if self._device is None:
             return
 
-        try:
-            image_plugin = None
-            for attr in ("image1", "image"):
-                plugin = getattr(self._device, attr, None)
-                if plugin is not None and hasattr(plugin, "array_data"):
-                    image_plugin = plugin
-                    break
+        # --- Read image data (blocking I/O) ---
+        image_plugin = None
+        for attr in ("image1", "image"):
+            plugin = getattr(self._device, attr, None)
+            if plugin is not None and hasattr(plugin, "array_data"):
+                image_plugin = plugin
+                break
 
-            if image_plugin is not None:
-                image_data = image_plugin.array_data.get()
-                if image_data is not None:
-                    self._display_array(image_data, image_plugin)
-                    self._update_roi_stats()
-                    self._update_progress()
-        except Exception as e:
-            logger.warning(f"Failed to update image: {e}")
+        if image_plugin is None:
+            return
+
+        image_data = image_plugin.array_data.get()
+        if image_data is None:
+            return
+
+        # --- Preprocess (all numpy, no Qt) ---
+        arr = np.squeeze(image_data)
+
+        if arr.ndim == 1:
+            width, height = self._get_image_dimensions(image_plugin)
+            if width and height and width * height == arr.size:
+                arr = arr.reshape((height, width))
+            else:
+                return
+
+        if arr.ndim != 2:
+            return
+
+        # Background correction (reads cached dark, no I/O)
+        if self._bg_correct:
+            arr = self._dark_manager.subtract(arr)
+
+        # Log transform
+        if self._log_mode:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                display_arr = np.log1p(arr.astype(np.float64))
+        else:
+            display_arr = arr
+
+        # Histogram (throttled, subsampled)
+        self._frame_count += 1
+        hist_x, hist_y = None, None
+        if self._frame_count % 5 == 1:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                step = max(1, arr.size // 500_000)
+                vals = arr.ravel()[::step]
+                hist_y_arr, hist_x_arr = np.histogram(vals, bins=256)
+                hist_x = (hist_x_arr[:-1] + hist_x_arr[1:]) / 2
+                hist_y = hist_y_arr
+
+        # --- ROI stats (blocking I/O) ---
+        roi_stats = self._read_roi_stats()
+
+        # --- Progress (blocking I/O) ---
+        progress = self._read_progress()
+
+        # Store for main thread pickup
+        self._pending_frame = _FrameData(
+            raw_image=arr,
+            display_image=display_arr,
+            hist_x=hist_x,
+            hist_y=hist_y,
+            roi_stats=roi_stats,
+            progress=progress,
+        )
+
+    def _read_roi_stats(self) -> list[str] | None:
+        """Read ROI statistics from device (background thread)."""
+        stats_plugin = getattr(self._device, "roi_stat1", None)
+        if stats_plugin is None:
+            return None
+        try:
+            lines = []
+            for field_name in self._STAT_FIELDS:
+                signal = getattr(stats_plugin, field_name, None)
+                if signal is not None:
+                    value = signal.get()
+                    label = field_name.replace("_", " ").title()
+                    if isinstance(value, float):
+                        lines.append(f"{label}: {value:.1f}")
+                    else:
+                        lines.append(f"{label}: {value}")
+            return lines if lines else None
+        except Exception:
+            return None
+
+    def _read_progress(self) -> tuple[int, int] | None:
+        """Read acquisition progress from device (background thread)."""
+        cam = getattr(self._device, "cam", None)
+        if cam is None:
+            return None
+        try:
+            acquiring = getattr(cam, "acquire", None)
+            if acquiring is None or not acquiring.get():
+                return None
+
+            # Try HDF5 plugin first
+            hdf5 = getattr(self._device, "hdf5", None)
+            if hdf5 is not None:
+                capture = getattr(hdf5, "capture", None)
+                if capture is not None and capture.get():
+                    return int(hdf5.num_captured.get()), int(cam.num_images.get())
+
+            # Fall back to cam.array_counter
+            counter = getattr(cam, "array_counter", None)
+            num_images = getattr(cam, "num_images", None)
+            if counter is not None and num_images is not None:
+                return int(counter.get()), int(num_images.get())
+        except Exception:
+            pass
+        return None
+
+    # =====================================================================
+    # Main thread: apply preprocessed frame to widgets
+    # =====================================================================
+
+    def _apply_frame(self) -> None:
+        """Main thread: pick up the latest preprocessed frame and update widgets."""
+        frame = self._pending_frame
+        if frame is None:
+            return
+        self._pending_frame = None
+
+        # Cache raw image for coordinate readback
+        self._raw_image = frame.raw_image
+
+        # Update image display
+        self._image_item.setImage(frame.display_image, autoLevels=False)
+
+        # First frame: auto-levels and auto-range
+        if self._first_frame:
+            self._first_frame = False
+            self._auto_levels()
+            self.reset_axes()
+
+        self._apply_display_levels()
+
+        # Update histogram bins
+        if frame.hist_x is not None and frame.hist_y is not None:
+            self._histogram.plot.setData(frame.hist_x, frame.hist_y)
+
+        # Update ROI stats overlay
+        if frame.roi_stats is not None:
+            self._stats_text.setText("\n".join(frame.roi_stats))
+            vb = self._plot_item.getViewBox()
+            view_range = vb.viewRange()
+            self._stats_text.setPos(view_range[0][1], view_range[1][0])
+            self._stats_text.setVisible(True)
+        else:
+            self._stats_text.setVisible(False)
+
+        # Update progress bar
+        if frame.progress is not None:
+            current, total = frame.progress
+            self._progress_bar.setMaximum(total)
+            self._progress_bar.setValue(current)
+            self._progress_bar.setVisible(True)
+        else:
+            self._progress_bar.setVisible(False)
 
     def _display_array(self, array: np.ndarray, image_plugin: Any = None) -> None:
-        """Process and display a numpy array.
+        """Synchronous display for testing and direct use.
 
-        First frame: auto-scale histogram levels using percentile bounds.
-        Subsequent frames: preserve user-adjusted levels.
-        Log mode: ImageItem shows log1p(data); histogram stays in real units.
+        Preprocesses the array and updates widgets in one call on the
+        current thread.  The normal runtime path uses the background
+        poll thread instead.
         """
         if array is None or array.size == 0:
             return
@@ -212,14 +423,11 @@ class OphydImageView(QWidget):
         if arr.ndim != 2:
             return
 
-        # Background correction
-        if self._bg_correct_btn.isChecked():
+        if self._bg_correct:
             arr = self._dark_manager.subtract(arr)
 
-        # Always cache raw data
         self._raw_image = arr
 
-        # Determine what to display
         if self._log_mode:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
@@ -227,48 +435,18 @@ class OphydImageView(QWidget):
         else:
             display_arr = arr
 
-        # Set image without auto-levels (we manage levels manually)
         self._image_item.setImage(display_arr, autoLevels=False)
 
         if self._first_frame:
             self._first_frame = False
-            # Percentile-based LUT: second-lowest as min, 99th percentile as max
             self._auto_levels()
             self.reset_axes()
 
-        # Apply current levels to the displayed image
         self._apply_display_levels()
 
-        # Update histogram bins (throttled — only every Nth frame)
-        self._frame_count = getattr(self, "_frame_count", 0) + 1
-        if self._frame_count % 5 == 1:  # every 5th frame
-            self._update_histogram(arr)
-
-    def _get_image_dimensions(self, image_plugin: Any = None) -> tuple[int | None, int | None]:
-        """Get image width and height from plugin or cam."""
-        try:
-            if image_plugin is not None:
-                w = getattr(image_plugin, "width", None)
-                h = getattr(image_plugin, "height", None)
-                if w is not None and h is not None:
-                    width, height = int(w.get()), int(h.get())
-                    if width > 0 and height > 0:
-                        return width, height
-
-            cam = getattr(self._device, "cam", None)
-            if cam is not None:
-                size = getattr(cam, "array_size", None)
-                if size is not None:
-                    dims = size.get()
-                    if hasattr(dims, "array_size_x") and hasattr(dims, "array_size_y"):
-                        width = int(dims.array_size_x)
-                        height = int(dims.array_size_y)
-                        if width > 0 and height > 0:
-                            return width, height
-        except Exception as e:
-            logger.debug(f"Failed to get image dimensions: {e}")
-
-        return None, None
+    # =====================================================================
+    # LUT / Axes / Log / BG controls
+    # =====================================================================
 
     def reset_lut(self) -> None:
         """Reset LUT using percentile-based bounds from current image."""
@@ -279,30 +457,21 @@ class OphydImageView(QWidget):
             self._first_frame = True
 
     def reset_axes(self) -> None:
-        """Reset view to fit the image bounds exactly.
-
-        Sets the view range to match the image dimensions rather than
-        using autoRange which can add padding or behave unexpectedly
-        with transforms.
-        """
+        """Reset view to fit the image bounds exactly."""
         if self._raw_image is not None:
-            h, w = self._raw_image.shape[:2]
-            vb = self._plot_item.getViewBox()
-            # Set range to image pixel bounds; the ImageItem's transform
-            # maps these to view coordinates.
             bounds = self._image_item.mapRectToView(
                 self._image_item.boundingRect()
             )
-            vb.setRange(bounds, padding=0.02)
+            self._plot_item.getViewBox().setRange(bounds, padding=0.02)
         else:
             self._plot_item.getViewBox().autoRange()
 
     def _auto_levels(self) -> None:
         """Set histogram levels using percentile-based bounds.
 
-        Uses second-lowest value as min and 99th percentile as max,
-        following Xi-CAM's approach. This excludes hot pixels and dead
-        pixels from dominating the color scale.
+        Uses 1st percentile as min and 99th percentile as max.
+        This excludes hot pixels and dead pixels from dominating the
+        color scale.
         """
         arr = self._raw_image
         if arr is None:
@@ -315,28 +484,26 @@ class OphydImageView(QWidget):
             step = max(1, arr.size // 1_000_000)
             data = arr.ravel()[::step].astype(np.float64)
 
-            img_min = np.nanmin(data)
-            img_max = np.nanmax(data)
-
-            if img_min == img_max:
-                self._histogram.setLevels(float(img_min), float(img_min + 1))
+            if data.size == 0:
                 return
 
-            # Second-lowest value as min (excludes dead pixels at exact min)
-            lo = float(np.min(data, where=data > img_min, initial=img_max))
-            # 99th percentile as max (excludes hot pixels)
-            hi = float(np.nanpercentile(
-                np.where(data < img_max, data, img_min), 99
-            ))
+            lo = float(np.nanpercentile(data, 1))
+            hi = float(np.nanpercentile(data, 99))
 
             if lo >= hi:
-                lo = float(img_min)
-                hi = float(img_max)
+                lo = float(np.nanmin(data))
+                hi = float(np.nanmax(data))
+            if lo == hi:
+                hi = lo + 1.0
 
             self._histogram.setLevels(lo, hi)
 
     def _on_log_intensity_toggled(self, checked: bool) -> None:
-        """Toggle log intensity display and re-render the current frame."""
+        """Toggle log intensity mode.
+
+        The background thread reads this flag and applies the transform.
+        Re-render the current cached frame immediately for responsiveness.
+        """
         self._log_mode = checked
         if self._raw_image is not None:
             if self._log_mode:
@@ -348,27 +515,12 @@ class OphydImageView(QWidget):
             self._image_item.setImage(display_arr, autoLevels=False)
             self._apply_display_levels()
 
-    def _update_histogram(self, arr: np.ndarray) -> None:
-        """Compute histogram of raw data and update the histogram widget.
-
-        Subsamples large images for speed. Called every Nth frame to avoid
-        being a bottleneck.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            step = max(1, arr.size // 500_000)
-            vals = arr.ravel()[::step]
-            hist_y, hist_x = np.histogram(vals, bins=256)
-            hist_x_centers = (hist_x[:-1] + hist_x[1:]) / 2
-            self._histogram.plot.setData(hist_x_centers, hist_y)
+    def _on_bg_correct_toggled(self, checked: bool) -> None:
+        """Toggle background correction. The background thread reads this flag."""
+        self._bg_correct = checked
 
     def _apply_display_levels(self) -> None:
-        """Map histogram levels (real units) to the displayed ImageItem.
-
-        In log mode the real-unit levels are transformed via log1p before
-        being applied, so the ImageItem (which holds log-scaled pixels)
-        gets the correct clipping range.
-        """
+        """Map histogram levels (real units) to the displayed ImageItem."""
         if self._updating_levels:
             return
         self._updating_levels = True
@@ -386,35 +538,9 @@ class OphydImageView(QWidget):
         lut = self._histogram.gradient.getLookupTable(256)
         self._image_item.setLookupTable(lut)
 
-    _STAT_FIELDS = ("min_value", "max_value", "mean_value", "total", "centroid_x", "centroid_y")
-
-    def _update_roi_stats(self) -> None:
-        stats_plugin = getattr(self._device, "roi_stat1", None)
-        if stats_plugin is None:
-            self._stats_text.setVisible(False)
-            return
-        try:
-            lines = []
-            for field in self._STAT_FIELDS:
-                signal = getattr(stats_plugin, field, None)
-                if signal is not None:
-                    value = signal.get()
-                    label = field.replace("_", " ").title()
-                    if isinstance(value, float):
-                        lines.append(f"{label}: {value:.1f}")
-                    else:
-                        lines.append(f"{label}: {value}")
-            if lines:
-                self._stats_text.setText("\n".join(lines))
-                vb = self._plot_item.getViewBox()
-                view_range = vb.viewRange()
-                self._stats_text.setPos(view_range[0][1], view_range[1][0])
-                self._stats_text.setVisible(True)
-            else:
-                self._stats_text.setVisible(False)
-        except Exception as e:
-            logger.debug(f"Failed to read ROI stats: {e}")
-            self._stats_text.setVisible(False)
+    # =====================================================================
+    # Crosshair / coordinates
+    # =====================================================================
 
     def _on_mouse_moved(self, pos) -> None:
         vb = self._plot_item.getViewBox()
@@ -454,44 +580,45 @@ class OphydImageView(QWidget):
         intensity = image[row, col]
         return f"x={x:.1f}  y={y:.1f}  I={intensity:.0f}"
 
-    def _update_progress(self) -> None:
-        """Update the acquisition progress bar from device counters."""
-        cam = getattr(self._device, "cam", None)
-        if cam is None:
-            self._progress_bar.setVisible(False)
-            return
+    # =====================================================================
+    # Device dimension helpers (called from background thread)
+    # =====================================================================
+
+    def _get_image_dimensions(self, image_plugin: Any = None) -> tuple[int | None, int | None]:
+        """Get image width and height from plugin or cam."""
         try:
-            acquiring = getattr(cam, "acquire", None)
-            if acquiring is None or not acquiring.get():
-                self._progress_bar.setVisible(False)
-                return
-            # Try HDF5 plugin first
-            hdf5 = getattr(self._device, "hdf5", None)
-            if hdf5 is not None:
-                capture = getattr(hdf5, "capture", None)
-                if capture is not None and capture.get():
-                    current = int(hdf5.num_captured.get())
-                    total = int(cam.num_images.get())
-                    self._progress_bar.setMaximum(total)
-                    self._progress_bar.setValue(current)
-                    self._progress_bar.setVisible(True)
-                    return
-            # Fall back to cam.array_counter
-            counter = getattr(cam, "array_counter", None)
-            num_images = getattr(cam, "num_images", None)
-            if counter is not None and num_images is not None:
-                current = int(counter.get())
-                total = int(num_images.get())
-                self._progress_bar.setMaximum(total)
-                self._progress_bar.setValue(current)
-                self._progress_bar.setVisible(True)
-                return
-            self._progress_bar.setVisible(False)
-        except Exception:
-            self._progress_bar.setVisible(False)
+            if image_plugin is not None:
+                w = getattr(image_plugin, "width", None)
+                h = getattr(image_plugin, "height", None)
+                if w is not None and h is not None:
+                    width, height = int(w.get()), int(h.get())
+                    if width > 0 and height > 0:
+                        return width, height
+
+            cam = getattr(self._device, "cam", None)
+            if cam is not None:
+                size = getattr(cam, "array_size", None)
+                if size is not None:
+                    dims = size.get()
+                    if hasattr(dims, "array_size_x") and hasattr(dims, "array_size_y"):
+                        width = int(dims.array_size_x)
+                        height = int(dims.array_size_y)
+                        if width > 0 and height > 0:
+                            return width, height
+        except Exception as e:
+            logger.debug(f"Failed to get image dimensions: {e}")
+
+        return None, None
+
+    # =====================================================================
+    # Lifecycle
+    # =====================================================================
 
     def close(self) -> None:
-        """Stop updates and clean up."""
-        if self._timer is not None:
-            self._timer.stop()
+        """Stop background thread and timers."""
+        self._poll_stop.set()
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=2.0)
+        if hasattr(self, "_ui_timer") and self._ui_timer is not None:
+            self._ui_timer.stop()
         super().close()
