@@ -35,6 +35,7 @@ from lucid.devices.model import DeviceCategory
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lucid.utils.logging import logger
+from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass
@@ -384,6 +385,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
         # Signal subscriptions: list of (signal, subscription_id) tuples
         self._subscriptions: list[tuple[Any, int]] = []
+        self._connect_thread: QThreadFuture | None = None
 
         # Cached values from device signals
         self._values: dict[str, Any] = {}
@@ -457,6 +459,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             self._name_label.setText(item.name)
         else:
             self._device = None
+            self._cancel_connect_thread()
             self._disconnect_signals()
             self._stop_updates()
             self._clear_display()
@@ -647,12 +650,13 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             self._image_layout.addWidget(self._image_view)
 
     def _connect_signals(self) -> None:
-        """Subscribe to ophyd device signals.
+        """Subscribe to ophyd device signals in the background.
 
-        Connects to the cam component signals for acquisition control.
-        Works uniformly with any ophyd device, whether backed by EPICS
-        or in-memory signals.
+        Spawns a QThreadFuture so that hasattr/getattr/get/subscribe
+        calls (which may trigger ophyd lazy instantiation and caproto
+        wait_for_connection) do not block the UI thread.
         """
+        self._cancel_connect_thread()
         self._disconnect_signals()
 
         if self._device is None or not hasattr(self._device, "cam"):
@@ -660,57 +664,93 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             self._status_label.setText("No cam component")
             return
 
+        self._status_indicator.set_state("disconnected")
+        self._status_label.setText("Connecting...")
+
         cam = self._device.cam
 
-        # Signal mapping: ophyd attribute -> (internal names for value storage)
-        # Some signals populate both setpoint and readback names for simplicity
-        signal_map = {
-            "acquire_time": ("acquire_time", "acquire_time_rbv"),
-            "num_images": ("num_images", "num_images_rbv"),
-            "image_mode": ("image_mode", "image_mode_rbv"),
-            "acquire": ("acquire",),
-            "detector_state": ("detector_state",),
-        }
+        def _background_connect():
+            """Run on background thread — collect signal info."""
+            signal_map = {
+                "acquire_time": ("acquire_time", "acquire_time_rbv"),
+                "num_images": ("num_images", "num_images_rbv"),
+                "image_mode": ("image_mode", "image_mode_rbv"),
+                "acquire": ("acquire",),
+                "detector_state": ("detector_state",),
+            }
 
-        def make_callback(names: tuple[str, ...]):
-            """Create a callback that updates the specified value names."""
-            def callback(value, **kwargs):
-                for name in names:
-                    self._on_value_changed(name, value)
-            return callback
+            initial_values = {}
+            subscriptions = []
 
-        for attr, names in signal_map.items():
-            if hasattr(cam, attr):
-                signal = getattr(cam, attr)
-
-                # Get initial value
-                try:
-                    value = signal.get()
+            def make_callback(names: tuple[str, ...]):
+                def callback(value, **kwargs):
                     for name in names:
-                        self._values[name] = value
-                except Exception as e:
-                    logger.debug(f"Failed to get initial value for {attr}: {e}")
+                        self._on_value_changed(name, value)
+                return callback
 
-                # Subscribe for updates
-                try:
-                    sub_id = signal.subscribe(make_callback(names))
-                    self._subscriptions.append((signal, sub_id))
-                except Exception as e:
-                    logger.debug(f"Failed to subscribe to {attr}: {e}")
+            for attr, names in signal_map.items():
+                if hasattr(cam, attr):
+                    signal = getattr(cam, attr)
 
-        # Mark as connected
-        self._status_indicator.set_state("on")
-        self._status_label.setText("Connected")
-        self._set_controls_enabled(True)
+                    try:
+                        value = signal.get()
+                        for name in names:
+                            initial_values[name] = value
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to get initial value for {}: {}", attr, e
+                        )
 
-        # Trigger initial display updates
-        self._update_acquire_time_display()
-        self._update_num_images_display()
-        self._update_image_mode_display()
-        self._update_detector_state()
+                    try:
+                        sub_id = signal.subscribe(make_callback(names))
+                        subscriptions.append((signal, sub_id))
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to subscribe to {}: {}", attr, e
+                        )
+
+            return initial_values, subscriptions
+
+        def _on_connected(result):
+            """Main thread callback — apply results to UI."""
+            initial_values, subscriptions = result
+            self._subscriptions = subscriptions
+            self._values.update(initial_values)
+
+            self._status_indicator.set_state("on")
+            self._status_label.setText("Connected")
+            self._set_controls_enabled(True)
+
+            self._update_acquire_time_display()
+            self._update_num_images_display()
+            self._update_image_mode_display()
+
+            self._connect_thread = None
+
+        def _on_error(error):
+            """Main thread callback — handle failure."""
+            logger.warning("Camera signal connection failed: {}", error)
+            self._status_indicator.set_state("disconnected")
+            self._status_label.setText("Connection failed")
+            self._connect_thread = None
+
+        self._connect_thread = QThreadFuture(
+            _background_connect,
+            callback_slot=_on_connected,
+            except_slot=_on_error,
+            name="camera-connect-signals",
+        )
+        self._connect_thread.start()
+
+    def _cancel_connect_thread(self) -> None:
+        """Cancel any in-flight background signal connection."""
+        if self._connect_thread is not None and self._connect_thread.running:
+            self._connect_thread.cancel()
+            self._connect_thread = None
 
     def _disconnect_signals(self) -> None:
         """Disconnect all ophyd signal subscriptions."""
+        self._cancel_connect_thread()
         for signal, sub_id in self._subscriptions:
             try:
                 signal.unsubscribe(sub_id)

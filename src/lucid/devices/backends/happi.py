@@ -9,9 +9,12 @@ See: https://github.com/pcdshub/happi
 
 from __future__ import annotations
 
+import importlib
+import json
 import os
 import threading
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -28,14 +31,31 @@ from lucid.devices.model import (
     MaintenanceRecord,
 )
 
-# Happi item class to NCS DeviceCategory mapping
-_CLASS_CATEGORY_MAP: dict[str, DeviceCategory] = {
+# Mapping from ophyd base class names to DeviceCategory.
+# Checked via MRO introspection — no string matching on user class names.
+# Order matters: first match wins (more specific classes should come first).
+_BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
+    # (module, class_name, category)
+    ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
+    ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
+    ("ophyd.signal", "Signal", DeviceCategory.SIGNAL),
+    ("ophyd", "MotorBundle", DeviceCategory.MOTOR),
+    ("ophyd.epics_motor", "EpicsMotor", DeviceCategory.MOTOR),
+    ("ophyd.positioner", "PositionerBase", DeviceCategory.MOTOR),
+]
+
+# Fallback: happi functional_group / item type keywords
+_HAPPI_NATIVE_KEYS = {
+    "name", "device_class", "active", "args", "kwargs", "type",
+    "prefix", "beamline", "documentation",
+}
+
+_FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
     "detector": DeviceCategory.DETECTOR,
     "areadetector": DeviceCategory.DETECTOR,
     "signal": DeviceCategory.SIGNAL,
-    "trigger": DeviceCategory.OTHER,
     "slit": DeviceCategory.MOTOR,
     "lens": DeviceCategory.OPTIC,
     "mirror": DeviceCategory.OPTIC,
@@ -43,18 +63,65 @@ _CLASS_CATEGORY_MAP: dict[str, DeviceCategory] = {
 }
 
 
+def _resolve_class(device_class: str) -> type | None:
+    """Import and return the device class without instantiating it.
+
+    Args:
+        device_class: Dotted import path, e.g. "ophyd.EpicsMotor"
+            or "my_pkg.devices.MyDetector".
+
+    Returns:
+        The class object, or None if import fails.
+    """
+    if not device_class or "." not in device_class:
+        return None
+
+    module_path, _, class_name = device_class.rpartition(".")
+    if not module_path or not class_name:
+        return None
+
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name, None)
+    except Exception:
+        return None
+
+
+def _guess_category_from_mro(cls: type) -> DeviceCategory | None:
+    """Determine device category by inspecting the class MRO.
+
+    Walks the method resolution order and checks against known ophyd
+    base classes. This works for any device class across any plugin
+    repo without needing to know specific class names.
+    """
+    mro_keys = {(c.__module__, c.__name__) for c in cls.__mro__}
+    for module, class_name, category in _BASE_CLASS_CATEGORY_MAP:
+        if (module, class_name) in mro_keys:
+            return category
+    return None
+
+
 def _guess_category(item: Any) -> DeviceCategory:
-    """Guess device category from happi item metadata."""
-    # Check device_class name
+    """Determine device category from happi item metadata.
+
+    Strategy (in order):
+    1. Import the device class and inspect its MRO for known ophyd
+       base classes (works for any plugin without string matching).
+    2. Fall back to happi functional_group keyword matching.
+    """
     device_class = getattr(item, "device_class", "") or ""
-    for key, cat in _CLASS_CATEGORY_MAP.items():
-        if key in device_class.lower():
+
+    # Try MRO-based introspection first
+    cls = _resolve_class(device_class)
+    if cls is not None:
+        cat = _guess_category_from_mro(cls)
+        if cat is not None:
             return cat
 
-    # Check item type / functional group
-    func_group = getattr(item, "functional_group", "") or ""
-    for key, cat in _CLASS_CATEGORY_MAP.items():
-        if key in func_group.lower():
+    # Fallback: check functional_group keywords
+    func_group = (getattr(item, "functional_group", "") or "").lower()
+    for key, cat in _FUNC_GROUP_CATEGORY_MAP.items():
+        if key in func_group:
             return cat
 
     return DeviceCategory.OTHER
@@ -146,6 +213,10 @@ class HappiBackend(DeviceBackend):
     def path(self) -> str | None:
         return self._path
 
+    @property
+    def is_editable(self) -> bool:
+        return True
+
     def connect(self) -> bool:
         """Connect to the happi database and load devices."""
         logger.info("HappiBackend.connect() START (instantiate={})", self._instantiate_mode)
@@ -159,6 +230,24 @@ class HappiBackend(DeviceBackend):
             return False
 
         try:
+            # Auto-init: create the JSON file if it doesn't exist
+            if self._path:
+                db_path = Path(self._path)
+                if not db_path.exists():
+                    db_path.parent.mkdir(parents=True, exist_ok=True)
+                    db_path.write_text(json.dumps({}))
+                    logger.info("Created new happi JSON database at {}", self._path)
+                    # Toast notification (fire-and-forget)
+                    try:
+                        from lucid.core.app import LucidApp
+                        app = LucidApp.instance()
+                        if app and hasattr(app, "show_notification"):
+                            app.show_notification(
+                                f"Created new device database at {self._path}"
+                            )
+                    except Exception:
+                        pass  # Notification is best-effort
+
             if self._path:
                 from happi.backends.json_db import JSONBackend
 
@@ -224,6 +313,8 @@ class HappiBackend(DeviceBackend):
         # Collect devices that need connection
         to_connect: list[tuple[DeviceInfo, Any]] = []
         for device in self._devices.values():
+            if not device.active:
+                continue
             happi_result = device.metadata.pop("_happi_result", None)
             if happi_result is not None:
                 to_connect.append((device, happi_result))
@@ -253,7 +344,7 @@ class HappiBackend(DeviceBackend):
                 "Starting background connection for {} happi devices",
                 len(to_connect),
             )
-            manager.connect_all(to_connect, timeout=self._connection_timeout)
+            manager.connect_all_phased(to_connect, timeout=self._connection_timeout)
 
     def _on_device_connected(self, result: Any) -> None:
         """Handle successful device connection from ConnectionManager."""
@@ -264,6 +355,15 @@ class HappiBackend(DeviceBackend):
 
         device = self._devices.get(result.device_id)
         if device is None:
+            return
+
+        if not device.active:
+            device._state = DeviceState(
+                device_id=device.id,
+                status=DeviceStatus.INACTIVE,
+                connected=False,
+            )
+            logger.debug("Device '{}' is inactive, skipping connection", device.name)
             return
 
         # Update the device with the ophyd instance
@@ -325,7 +425,6 @@ class HappiBackend(DeviceBackend):
         item = result.item if hasattr(result, "item") else result
 
         item_name = getattr(item, "name", str(item))
-        prefix = getattr(item, "prefix", "") or ""
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
         location = getattr(item, "location_group", "") or ""
@@ -355,6 +454,18 @@ class HappiBackend(DeviceBackend):
         elif isinstance(item, dict):
             metadata = dict(item)
 
+        # Read LUCID-specific fields from extraneous or metadata
+        extraneous = getattr(item, "extraneous", {}) or {}
+        # prefix may be a native happi field OR stored in extraneous (LUCID write-through)
+        prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
+        display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
+        icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
+        group = extraneous.get("group", "") or metadata.get("group", "") or ""
+        active = getattr(item, "active", True)
+        # Handle string "True"/"False" from JSON
+        if isinstance(active, str):
+            active = active.lower() != "false"
+
         device_info = DeviceInfo(
             name=item_name,
             description=f"Happi: {device_class}" if device_class else f"Happi device: {item_name}",
@@ -366,10 +477,20 @@ class HappiBackend(DeviceBackend):
             location=location,
             tags=tags,
             metadata=metadata,
+            display_name=display_name,
+            icon_override=icon_override,
+            group=group,
+            active=active,
         )
 
-        # Handle instantiation based on mode
-        if self._instantiate_mode == "blocking":
+        # Inactive devices: do NOT instantiate or queue for connection
+        if not device_info.active:
+            device_info._state = DeviceState(
+                device_id=device_info.id,
+                status=DeviceStatus.INACTIVE,
+                connected=False,
+            )
+        elif self._instantiate_mode == "blocking":
             # Synchronous instantiation (original behavior)
             try:
                 ophyd_device = result.get() if hasattr(result, "get") else None
@@ -455,6 +576,8 @@ class HappiBackend(DeviceBackend):
         # Collect devices that need reconnection
         to_reconnect = []
         for device in list(self._devices.values()):
+            if not device.active:
+                continue
             if device._ophyd_device is not None:
                 continue
             if device._state and device._state.connected:
@@ -566,21 +689,149 @@ class HappiBackend(DeviceBackend):
         return [d for d in self._devices.values() if d.matches_search(query)]
 
     def add_device(self, device: DeviceInfo) -> bool:
-        """Happi backend is read-only from NCS. Use happi CLI to add devices."""
-        logger.warning("Happi backend is read-only from NCS. Use happi CLI to manage devices.")
-        return False
+        """Add a device to the happi database and persist to JSON.
+
+        Creates a HappiItem with the device's metadata and stores
+        LUCID-specific fields (display_name, icon_override, group)
+        in the item's extraneous dict.
+        """
+        if self._client is None:
+            return False
+
+        # Reject duplicates
+        if self.get_device_by_name(device.name) is not None:
+            logger.warning("Device '{}' already exists, cannot add duplicate", device.name)
+            return False
+
+        try:
+            import happi
+
+            item = happi.HappiItem(
+                name=device.name,
+                device_class=device.device_class or "ophyd.Device",
+                active=device.active,
+            )
+            # Set prefix and beamline as native happi attributes when
+            # supported (e.g. OphydItem subclasses).  Always write through
+            # to extraneous so the value persists with HappiItem too.
+            for attr in ("prefix", "beamline"):
+                value = getattr(device, attr, "") or ""
+                try:
+                    setattr(item, attr, value)
+                except Exception:
+                    pass
+                item.extraneous[attr] = value
+            # Store LUCID-specific fields as extraneous metadata
+            if device.display_name:
+                item.extraneous["display_name"] = device.display_name
+            if device.icon_override:
+                item.extraneous["icon_override"] = device.icon_override
+            if device.group:
+                item.extraneous["group"] = device.group
+            if device.location:
+                item.extraneous["location"] = device.location
+            # Sync extra metadata, skipping happi native keys
+            for key, value in device.metadata.items():
+                if key.startswith("_") or key in _HAPPI_NATIVE_KEYS:
+                    continue
+                item.extraneous[key] = value
+
+            self._client.add_item(item)
+
+            # Add to in-memory cache
+            self._devices[device.id] = device
+            self._configurations[device.id] = []
+            self._maintenance[device.id] = []
+
+            logger.info("Added device '{}' to happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to add device '{}': {}", device.name, e)
+            return False
 
     def update_device(self, device: DeviceInfo) -> bool:
+        """Update a device in the happi database with write-through to JSON."""
         if device.id not in self._devices:
             return False
-        device.modified = datetime.now()
-        self._devices[device.id] = device
-        return True
+        if self._client is None:
+            return False
+
+        try:
+            results = self._client.search(name=device.name)
+            if not results:
+                logger.warning("Device '{}' not found in happi for update", device.name)
+                return False
+
+            item = results[0].item
+
+            # Update standard happi fields
+            item.device_class = device.device_class or "ophyd.Device"
+            item.active = device.active
+
+            # Set prefix and beamline as native happi attributes when
+            # supported (e.g. OphydItem subclasses).  Always write through
+            # to extraneous so the value persists with HappiItem too.
+            for attr in ("prefix", "beamline"):
+                value = getattr(device, attr, "") or ""
+                try:
+                    setattr(item, attr, value)
+                except Exception:
+                    pass
+                item.extraneous[attr] = value
+
+            # LUCID-specific fields in extraneous
+            item.extraneous["display_name"] = device.display_name or ""
+            item.extraneous["icon_override"] = device.icon_override or ""
+            item.extraneous["group"] = device.group or ""
+            item.extraneous["location"] = device.location or ""
+
+            # Sync extra metadata (skip internal and happi native keys)
+            for key, value in device.metadata.items():
+                if key.startswith("_") or key in _HAPPI_NATIVE_KEYS:
+                    continue
+                item.extraneous[key] = value
+
+            item.save()
+
+            # Update in-memory cache
+            device.modified = datetime.now()
+            self._devices[device.id] = device
+
+            logger.info("Updated device '{}' in happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to update device '{}': {}", device.name, e)
+            return False
 
     def remove_device(self, device_id: UUID) -> bool:
-        """Happi backend is read-only from NCS."""
-        logger.warning("Happi backend is read-only from NCS. Use happi CLI to manage devices.")
-        return False
+        """Remove a device from the happi database and JSON file."""
+        if self._client is None:
+            return False
+
+        device = self._devices.get(device_id)
+        if device is None:
+            return False
+
+        try:
+            results = self._client.search(name=device.name)
+            if not results:
+                logger.warning("Device '{}' not found in happi for removal", device.name)
+                return False
+            self._client.remove_item(results[0].item)
+
+            # Remove from in-memory caches
+            del self._devices[device_id]
+            self._configurations.pop(device_id, None)
+            self._maintenance.pop(device_id, None)
+
+            logger.info("Removed device '{}' from happi backend", device.name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to remove device '{}': {}", device.name, e)
+            return False
 
     # === Configuration ===
 

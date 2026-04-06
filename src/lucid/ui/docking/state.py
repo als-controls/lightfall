@@ -1,9 +1,7 @@
 """DockingState - Layout state persistence for the docking system.
 
 Handles saving and restoring dock widget positions, sizes, and
-auto-hide states across application sessions.
-
-Uses a single CDockManager for state persistence.
+visibility across application sessions using QMainWindow state.
 """
 
 from __future__ import annotations
@@ -15,45 +13,41 @@ from PySide6.QtCore import QByteArray, QSettings
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from PySide6QtAds import CDockManager
+    from PySide6.QtWidgets import QMainWindow
 
 
-# State version for migration handling
-# Bumped to 5 for lazy panel loading (deferred instantiation)
-STATE_VERSION = 5
+# State version for migration handling — bumped for QDockWidget migration
+STATE_VERSION = 6
 
 
 class DockingState:
-    """Manages docking layout state persistence for single CDockManager.
+    """Manages docking layout state persistence.
 
-    Saves and restores:
-    - Dock manager state (positions, sizes, sidebar assignments)
-    - Tab groupings
-    - Floating window positions
+    Uses QMainWindow.saveState()/restoreState() for native dock layout
+    persistence including positions, sizes, and floating state.
     """
 
     STATE_KEY = "state"
 
-    def __init__(self, dock_manager: CDockManager) -> None:
-        """Initialize the state manager for single dock manager.
+    def __init__(self, main_window: QMainWindow) -> None:
+        """Initialize the state manager.
 
         Args:
-            dock_manager: The CDockManager instance.
+            main_window: The QMainWindow instance.
         """
-        self._dock_manager = dock_manager
+        self._main_window = main_window
         self._settings_group = "docking"
 
     def save(self, settings: QSettings | None = None) -> QByteArray:
         """Save the current docking state.
 
         Args:
-            settings: Optional QSettings to save to. If provided,
-                state is persisted to settings storage.
+            settings: Optional QSettings to save to.
 
         Returns:
             The state as a QByteArray.
         """
-        state = self._dock_manager.saveState()
+        state = self._main_window.saveState()
 
         if settings is not None:
             settings.beginGroup(self._settings_group)
@@ -81,7 +75,7 @@ class DockingState:
         version = settings.value("version", 0)
         settings.endGroup()
 
-        # Handle version mismatch - don't restore incompatible state
+        # Handle version mismatch
         if version != STATE_VERSION:
             logger.info(
                 "Docking state version mismatch (saved={}, current={}), "
@@ -94,11 +88,10 @@ class DockingState:
         if state is None:
             return False
 
-        # Restore state
         if isinstance(state, QByteArray):
-            success = self._dock_manager.restoreState(state)
+            success = self._main_window.restoreState(state)
         else:
-            success = self._dock_manager.restoreState(QByteArray(state))
+            success = self._main_window.restoreState(QByteArray(state))
 
         if success:
             logger.debug("Restored docking state from settings")
@@ -106,17 +99,6 @@ class DockingState:
             logger.warning("Failed to restore docking state")
 
         return success
-
-    def restore_from_bytes(self, state: QByteArray) -> bool:
-        """Restore state from a QByteArray.
-
-        Args:
-            state: The state bytes to restore.
-
-        Returns:
-            True if successful.
-        """
-        return self._dock_manager.restoreState(state)
 
     def clear(self, settings: QSettings | None = None) -> None:
         """Clear saved docking state.
@@ -126,12 +108,6 @@ class DockingState:
         """
         if settings is not None:
             settings.beginGroup(self._settings_group)
-            settings.remove(self.STATE_KEY)
-            # Also clear old v1 and v2 keys for clean slate
-            settings.remove("state")
-            settings.remove("left_state")
-            settings.remove("right_state")
-            settings.remove("splitter_state")
-            settings.remove("version")
+            settings.remove("")  # Remove all keys in group
             settings.endGroup()
             logger.debug("Cleared saved docking state")

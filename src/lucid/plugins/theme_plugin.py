@@ -50,6 +50,10 @@ class ThemeDefinition:
     connected: str = ""
     disconnected: str = ""
 
+    # Islands layout: "sea" is the visible gap behind floating panels.
+    # When empty, falls back to background (non-Islands themes unchanged).
+    sea: str = ""
+
     css_overrides: str = ""
 
     def __post_init__(self) -> None:

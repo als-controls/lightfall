@@ -1,6 +1,28 @@
-"""QtAds theme integration.
+"""Docking theme integration.
 
-Generates stylesheets for QtAds widgets that match the application theme.
+Generates stylesheets for QDockWidget and the docking system that match
+the application theme.
+
+When the active theme defines a `sea` color (distinct from `background`),
+panels get the "Islands" treatment: rounded corners, visible gaps.
+
+Color model (Islands dark):
+    sea    (#27272A) — lighter, app background / gaps / visible in corners
+    island (#1E1E22) — darker, panel title bars + content + headers
+
+Qt does NOT clip children to parent border-radius. So we round the
+children themselves:
+    - PanelTitleBar: island bg + top rounding
+    - Panel content: island bg + bottom rounding
+The QDockWidget has sea bg so rounded corner areas show sea color.
+
+Widget tree (from dump_dock_tree):
+    PanelDockWidget [dock_*]              ← sea bg, border-radius
+      QAbstractButton [qt_dockwidget_*]   ← hidden (custom title bar)
+      SomePanel [lucid.panels.*]          ← island bg, bottom rounding
+      PanelTitleBar [PanelTitleBar]        ← island bg, top rounding
+        QLabel [PanelTitleLabel]
+        QToolButton [PanelTitleCloseButton]
 """
 
 from __future__ import annotations
@@ -10,28 +32,77 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from lucid.ui.theme.manager import ThemeColors
 
+# ---------------------------------------------------------------------------
+# Layout constants
+# ---------------------------------------------------------------------------
+RADIUS = 10          # panel corner radius
+RADIUS_SM = 6        # small elements (buttons, inputs)
+GAP = 3              # sea gap around islands (margin, px)
 
-def generate_qtads_stylesheet(colors: ThemeColors) -> str:
-    """Generate a stylesheet for QtAds widgets.
+
+def dump_dock_tree() -> None:
+    """Debug helper: print the widget tree inside all QDockWidgets.
+
+    Run from LUCID's Python console:
+        from lucid.ui.docking.theme import dump_dock_tree
+        dump_dock_tree()
+    """
+    from PySide6.QtWidgets import QApplication, QDockWidget, QWidget
+
+    def _walk(widget: QWidget, indent: int = 0) -> None:
+        name = widget.objectName() or "(no name)"
+        cls = type(widget).__name__
+        bg = widget.palette().color(widget.backgroundRole()).name()
+        geo = widget.geometry()
+        vis = "V" if widget.isVisible() else "H"
+        print(
+            f"{'  ' * indent}{cls} [{name}] bg={bg} "
+            f"{geo.width()}x{geo.height()} {vis}"
+        )
+        for child in widget.children():
+            if isinstance(child, QWidget):
+                _walk(child, indent + 1)
+
+    for w in QApplication.instance().allWidgets():
+        if isinstance(w, QDockWidget) and w.isVisible():
+            print(f"\n=== {w.objectName()} ===")
+            _walk(w)
+            print()
+
+
+def _is_islands_mode(colors: ThemeColors) -> bool:
+    """Check whether the current theme uses Islands layout."""
+    return bool(colors.sea) and colors.sea != colors.background
+
+
+def generate_docking_stylesheet(colors: ThemeColors) -> str:
+    """Generate a stylesheet for the docking system.
 
     Args:
         colors: The current theme colors.
 
     Returns:
-        CSS stylesheet string for QtAds widgets.
+        CSS stylesheet string.
     """
+    islands = _is_islands_mode(colors)
+    sea = colors.sea if islands else colors.background
+    island = colors.surface if islands else colors.surface
+
+    radius = RADIUS if islands else 0
+    gap = GAP if islands else 0
+
     return f"""
 /* ==========================================================================
-   Icon Strip Sidebar
+   Icon Strip Sidebar — sits in the sea
    ========================================================================== */
 #IconStripSidebar {{
-    background: {colors.surface};
-    border-right: 1px solid {colors.border};
+    background: {sea};
+    border-right: {"none" if islands else f"1px solid {colors.border}"};
 }}
 
 #IconStripSidebar QToolButton {{
     border: none;
-    border-radius: 4px;
+    border-radius: {RADIUS_SM}px;
     padding: 3px;
     background: transparent;
 }}
@@ -57,18 +128,33 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
     border-radius: 1px;
 }}
 
+/* ==========================================================================
+   QDockWidget — sea background so corners show sea color
+   ========================================================================== */
+
+QDockWidget {{
+    background: {sea};
+    border: none;
+    titlebar-close-icon: url(none);
+    titlebar-normal-icon: url(none);
+}}
+
 /* --------------------------------------------------------------------------
-   Custom Panel Title Bar (for side panels with NoTab)
+   Custom Panel Title Bar — island bg + top rounding
+   Targeted by object name so it doesn't conflict with QDockWidget > QWidget
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
-    background: {colors.surface};
-    border-bottom: 1px solid {colors.border};
+    background: {island};
+    border: none;
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
 #PanelTitleLabel {{
-    color: {colors.text};
-    font-weight: 500;
-    font-size: 12px;
+    color: {colors.text_secondary};
+    background: transparent;
+    font-weight: 600;
+    font-size: 11px;
 }}
 
 #PanelTitleCloseButton {{
@@ -86,209 +172,228 @@ def generate_qtads_stylesheet(colors: ThemeColors) -> str:
     background: {colors.text_secondary};
 }}
 
-/* ==========================================================================
-   QtAds Advanced Docking Stylesheet
-   ========================================================================== */
-
 /* --------------------------------------------------------------------------
-   Auto-hide sidebar tabs (icon buttons on the edges)
-   Large icons, no rotation, tooltip on hover
+   Native title bar fallback (hidden when custom title bar is set)
    -------------------------------------------------------------------------- */
-ads--CAutoHideTab {{
-    background: {colors.surface};
-    border: 1px solid {colors.border};
-    padding: 3px;
-    qproperty-iconSize: 17px 17px;
-    /* Prevent icon rotation on vertical sidebars */
-    qproperty-iconRotated: false;
+QDockWidget::title {{
+    background: {island};
+    border: none;
+    {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
+    padding: 6px 8px;
+    color: {colors.text_secondary};
+    font-weight: 600;
+    font-size: 11px;
 }}
 
-ads--CAutoHideTab:hover {{
+QDockWidget::close-button,
+QDockWidget::float-button {{
+    border: none;
+    background: transparent;
+    padding: 2px;
+    border-radius: 3px;
+}}
+
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {{
     background: {colors.border};
 }}
 
-ads--CAutoHideTab[activeTab="true"] {{
-    background: {colors.primary};
-    border-color: {colors.primary};
+/* --------------------------------------------------------------------------
+   Panel content — island bg + bottom rounding
+   The title bar is also a direct child of QDockWidget, but we target
+   it by #PanelTitleBar above. Here we use QDockWidget > QWidget to
+   catch the panel widget and give it bottom rounding.
+   Note: this also matches PanelTitleBar (which is a QWidget), so
+   PanelTitleBar's more-specific #id selector overrides it.
+   -------------------------------------------------------------------------- */
+QDockWidget > QWidget {{
+    background: {island};
+    {"border-bottom-left-radius: " + str(radius) + "px;" if islands else ""}
+    {"border-bottom-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
-/* --------------------------------------------------------------------------
-   Auto-hide sidebar container (the slide-out panel)
-   -------------------------------------------------------------------------- */
-ads--CAutoHideDockContainer {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
+{"" if not islands else f"""
+/* Edge-touching scrollable widgets — must inherit bottom rounding
+   so they don't paint opaque rectangles over the rounded corners */
+QDockWidget QPlainTextEdit,
+QDockWidget QTextEdit,
+QDockWidget QListView,
+QDockWidget QTreeView,
+QDockWidget QTableView,
+QDockWidget QScrollArea {{
+    border: none;
+    border-radius: 0px;
+    border-bottom-left-radius: {radius}px;
+    border-bottom-right-radius: {radius}px;
+    background: {island};
 }}
 
-/* --------------------------------------------------------------------------
-   Auto-hide sidebar (the icon strip itself)
-   -------------------------------------------------------------------------- */
-ads--CAutoHideSideBar {{
-    background: {colors.surface};
+/* List widgets and frames inside docks — island surface, no frame */
+QDockWidget QListWidget,
+QDockWidget QListView,
+QDockWidget QFrame {{
+    background: {island};
     border: none;
 }}
 
-/* --------------------------------------------------------------------------
-   Dock widget tabs (styled as flat title headers, not clickable tabs)
-   -------------------------------------------------------------------------- */
-ads--CDockWidgetTab {{
-    background: transparent;
+/* EntryListWidget — full island rounding so it doesn't paint over
+   the panel's rounded corners */
+#EntryListWidget {{
+    background: {island};
     border: none;
-    padding: 4px 8px;
-    margin: 0;
+    border-radius: {radius}px;
 }}
 
-ads--CDockWidgetTab:hover {{
-    background: transparent;
-}}
-
-ads--CDockWidgetTab[activeTab="true"] {{
-    background: transparent;
-}}
-
-ads--CDockWidgetTab[focused="true"] {{
-    background: transparent;
-}}
-
-/* Tab/title label */
-ads--CDockWidgetTab > QLabel {{
-    color: {colors.text};
-    font-weight: 500;
+/* Table/tree headers inside docks — island surface */
+QDockWidget QHeaderView::section {{
+    background: {island};
+    color: {colors.text_secondary};
+    border: none;
+    border-bottom: 1px solid {colors.border};
+    border-right: 1px solid {colors.border};
+    padding: 6px 8px;
+    font-weight: 600;
     font-size: 12px;
 }}
 
-/* Tab buttons (close, etc.) */
-ads--CDockWidgetTab QToolButton {{
+/* Toolbars inside panels */
+QDockWidget QToolBar {{
+    background: {island};
+    border: none;
+}}
+
+QDockWidget QToolBar QToolButton {{
     background: transparent;
-    border: none;
-    padding: 2px;
 }}
+"""}
 
-ads--CDockWidgetTab QToolButton:hover {{
-    background: {colors.border};
-    border-radius: 2px;
+/* --------------------------------------------------------------------------
+   Inner QMainWindow — the "sea"
+   -------------------------------------------------------------------------- */
+#InnerDockWindow {{
+    background: {sea};
 }}
 
 /* --------------------------------------------------------------------------
-   Dock area title bar (contains tab bar and buttons)
-   Styled as a minimal header bar
+   Central widget (e.g. logbook) — island with rounding + margin
    -------------------------------------------------------------------------- */
-ads--CDockAreaTitleBar {{
-    background: {colors.surface};
-    border: none;
-    border-bottom: 1px solid {colors.border};
-    padding: 0;
-    min-height: 26px;
-    max-height: 26px;
+{"" if not islands else f"""
+#InnerDockWindow > QWidget {{
+    background: {island};
+    border-radius: {radius}px;
+    margin: {gap}px;
 }}
-
-/* Title bar buttons (close, menu, etc.) */
-ads--CDockAreaTitleBar QToolButton {{
-    background: transparent;
-    border: none;
-    padding: 4px;
-    margin: 2px;
-}}
-
-ads--CDockAreaTitleBar QToolButton:hover {{
-    background: {colors.border};
-    border-radius: 2px;
-}}
-
-ads--CDockAreaTitleBar QToolButton:pressed {{
-    background: {colors.text_secondary};
-}}
+"""}
 
 /* --------------------------------------------------------------------------
-   Dock area tab bar (holds the tabs/titles)
+   Splitters — island colored with rounded corners
    -------------------------------------------------------------------------- */
-ads--CDockAreaTabBar {{
-    background: {colors.surface};
-    border: none;
+{"" if not islands else f"""
+QSplitter {{
+    background: {island};
+    border-radius: {radius}px;
 }}
 
-/* --------------------------------------------------------------------------
-   Dock splitters
-   -------------------------------------------------------------------------- */
-ads--CDockSplitter::handle {{
+QSplitter::handle {{
     background: {colors.border};
 }}
 
-ads--CDockSplitter::handle:horizontal {{
+QSplitter::handle:horizontal {{
     width: 2px;
 }}
 
-ads--CDockSplitter::handle:vertical {{
+QSplitter::handle:vertical {{
     height: 2px;
 }}
 
-ads--CDockSplitter::handle:hover {{
+QSplitter::handle:hover {{
     background: {colors.primary};
 }}
+"""}
 
 /* --------------------------------------------------------------------------
-   Dock container (main dock area)
+   Scrollbars — rounded handles
    -------------------------------------------------------------------------- */
-ads--CDockContainerWidget {{
-    background: {colors.background};
-}}
-
-/* --------------------------------------------------------------------------
-   Dock area widget
-   -------------------------------------------------------------------------- */
-ads--CDockAreaWidget {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
-}}
-
-ads--CDockAreaWidget[focused="true"] {{
-    border-color: {colors.primary};
-}}
-
-/* --------------------------------------------------------------------------
-   Floating dock container (detached windows)
-   -------------------------------------------------------------------------- */
-ads--CFloatingDockContainer {{
-    background: {colors.background};
-    border: 1px solid {colors.border};
-}}
-
-/* Floating window title bar */
-ads--CFloatingWidgetTitleBar {{
-    background: {colors.surface};
-    border-bottom: 1px solid {colors.border};
-}}
-
-ads--CFloatingWidgetTitleBar QLabel {{
-    color: {colors.text};
-    padding-left: 4px;
-}}
-
-ads--CFloatingWidgetTitleBar QToolButton {{
+{"" if not islands else f"""
+QScrollBar:vertical {{
     background: transparent;
+    width: 10px;
+    margin: 0;
     border: none;
 }}
 
-ads--CFloatingWidgetTitleBar QToolButton:hover {{
+QScrollBar::handle:vertical {{
     background: {colors.border};
-    border-radius: 2px;
+    border-radius: 4px;
+    min-height: 30px;
+    margin: 2px;
 }}
+
+QScrollBar::handle:vertical:hover {{
+    background: {colors.text_secondary};
+}}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {{
+    height: 0;
+    border: none;
+}}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+    margin: 0;
+    border: none;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {colors.border};
+    border-radius: 4px;
+    min-width: 30px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: {colors.text_secondary};
+}}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {{
+    width: 0;
+    border: none;
+}}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {{
+    background: transparent;
+}}
+"""}
 
 /* --------------------------------------------------------------------------
-   Overlay cross for drop targets
+   QMainWindow separators — sea-colored gaps between islands
    -------------------------------------------------------------------------- */
-ads--CDockOverlayCross {{
-    qproperty-iconColors: "{colors.background} {colors.primary} {colors.text} {colors.border} {colors.surface}";
+QMainWindow::separator {{
+    background: {sea};
+    width: {max(gap * 2, 2)}px;
+    height: {max(gap * 2, 2)}px;
 }}
 
-/* --------------------------------------------------------------------------
-   Resize handle
-   -------------------------------------------------------------------------- */
-ads--CResizeHandle {{
-    background: {colors.border};
-}}
-
-ads--CResizeHandle:hover {{
+QMainWindow::separator:hover {{
     background: {colors.primary};
 }}
 """
+
+
+# Backward compatibility alias
+def generate_qtads_stylesheet(colors: ThemeColors) -> str:
+    """Generate docking stylesheet (backward-compatible name).
+
+    .. deprecated:: Use generate_docking_stylesheet() instead.
+    """
+    return generate_docking_stylesheet(colors)

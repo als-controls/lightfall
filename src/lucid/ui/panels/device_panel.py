@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QScrollArea,
     QSplitter,
     QTabWidget,
@@ -306,6 +307,10 @@ class DevicePanel(BasePanel):
         # Set reasonable default column widths
         self._tree_view.setColumnWidth(0, 200)
 
+        # Context menu
+        self._tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree_view.customContextMenuRequested.connect(self._on_context_menu)
+
         splitter.addWidget(self._tree_view)
 
         # Bottom: tabs with Control and Info
@@ -350,17 +355,13 @@ class DevicePanel(BasePanel):
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
 
-        # Refresh action
-        refresh_action = QAction("Refresh", self)
-        refresh_action.setToolTip("Refresh device tree")
-        refresh_action.triggered.connect(self._refresh)
-        toolbar.addAction(refresh_action)
-
-        # Reconnect failed devices
-        reconnect_action = QAction("Reconnect", self)
-        reconnect_action.setToolTip("Retry connection for offline devices")
-        reconnect_action.triggered.connect(self._reconnect_failed)
-        toolbar.addAction(reconnect_action)
+        # Sync: reconnect failed devices + refresh tree
+        sync_action = QAction("Sync", self)
+        sync_action.setToolTip(
+            "Retry failed device connections and refresh the tree"
+        )
+        sync_action.triggered.connect(self._sync_devices)
+        toolbar.addAction(sync_action)
 
         toolbar.addSeparator()
 
@@ -394,19 +395,14 @@ class DevicePanel(BasePanel):
         self._tree_view.collapseAll()
         self._tree_view.expandToDepth(depth)
 
-    def _refresh(self) -> None:
-        """Refresh the device model."""
-        self._model.refresh()
-        logger.debug("Device tree refreshed")
-
-    def _reconnect_failed(self) -> None:
-        """Retry connection for all offline devices in a background thread."""
+    def _sync_devices(self) -> None:
+        """Retry failed connections and refresh the device tree."""
         from lucid.devices import DeviceCatalog
         from lucid.utils.threads import QThreadFuture
 
         catalog = DeviceCatalog.get_instance()
 
-        # Reset permanently failed tracking so manual reconnect retries everything
+        # Reset permanently failed tracking so we retry everything
         for backend in catalog.backends.values():
             if hasattr(backend, "reset_failed_devices"):
                 backend.reset_failed_devices()
@@ -416,10 +412,9 @@ class DevicePanel(BasePanel):
 
         def _on_done(result):
             connected, failed = result
-            if connected > 0:
-                self._model.refresh()
+            self._model.refresh()
             logger.info(
-                "Reconnect: {} devices connected, {} still offline",
+                "Sync: {} devices connected, {} still offline",
                 connected,
                 failed,
             )
@@ -427,10 +422,10 @@ class DevicePanel(BasePanel):
         thread = QThreadFuture(
             _do_reconnect,
             callback_slot=_on_done,
-            name="reconnect-devices",
+            name="sync-devices",
         )
         thread.start()
-        logger.info("Reconnecting offline devices...")
+        logger.info("Syncing devices...")
 
     # === Signal Handlers ===
 
@@ -503,8 +498,17 @@ class DevicePanel(BasePanel):
             self._overview_widget.set_item(None)
             self.items_selected.emit([])
 
-        # Update control widget with all selected items
-        self._control_widget.set_items(selected_items)
+        # Update control widget — skip for inactive devices
+        active_items = [
+            item for item in selected_items
+            if item.device_info is None or item.device_info.active
+        ]
+
+        if selected_items and not active_items:
+            # All selected items are inactive — show "Device Inactive" label
+            self._control_widget.show_inactive_message()
+        else:
+            self._control_widget.set_items(active_items)
 
     def _post_device_focus_event(self, item: DeviceTreeItem) -> None:
         """Post a device focus event to the Synoptic panel.
@@ -536,6 +540,121 @@ class DevicePanel(BasePanel):
     def _on_device_changed(self, _: Any) -> None:
         """Handle device added/removed from catalog."""
         self._refresh()
+
+    # === Context Menu ===
+
+    def _get_backend_editable(self) -> bool:
+        """Check if the current backend supports editing."""
+        from lucid.devices import DeviceCatalog
+        catalog = DeviceCatalog.get_instance()
+        backend = catalog.backend
+        return backend is not None and backend.is_editable
+
+    def _build_context_menu(self, device_info, is_editable: bool):
+        """Build context menu for a device or empty space."""
+        from PySide6.QtWidgets import QApplication
+        menu = QMenu(self._tree_view)
+
+        if device_info is not None:
+            if is_editable:
+                edit_action = menu.addAction("Edit...")
+                edit_action.triggered.connect(lambda: self._edit_device(device_info))
+                if device_info.active:
+                    toggle_action = menu.addAction("Disable")
+                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, False))
+                else:
+                    toggle_action = menu.addAction("Enable")
+                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, True))
+                menu.addSeparator()
+
+            copy_name_action = menu.addAction("Copy Name")
+            copy_name_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.name))
+            copy_prefix_action = menu.addAction("Copy Prefix")
+            copy_prefix_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.prefix or ""))
+
+            if is_editable:
+                menu.addSeparator()
+                delete_action = menu.addAction("Delete")
+                delete_action.triggered.connect(lambda: self._delete_device(device_info))
+                menu.addSeparator()
+
+        if is_editable:
+            add_action = menu.addAction("Add New Device...")
+            add_action.triggered.connect(self._add_new_device)
+
+        return menu
+
+    def _on_context_menu(self, pos) -> None:
+        """Handle right-click on tree view."""
+        from lucid.ui.models.device_tree import NodeType
+        index = self._tree_view.indexAt(pos)
+        device_info = None
+        if index.isValid():
+            source_index = self._proxy_model.mapToSource(index)
+            if source_index.isValid():
+                item = source_index.internalPointer()
+                if item is not None and item.node_type == NodeType.DEVICE:
+                    device_info = item.device_info
+        is_editable = self._get_backend_editable()
+        menu = self._build_context_menu(device_info, is_editable)
+        if not menu.actions():
+            return
+        menu.exec(self._tree_view.viewport().mapToGlobal(pos))
+
+    def _edit_device(self, device_info) -> None:
+        """Open edit dialog for a device."""
+        from lucid.devices import DeviceCatalog
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
+        if dialog.exec():
+            values = dialog.get_values()
+            device_info.display_name = values["display_name"]
+            device_info.prefix = values["prefix"]
+            device_info.beamline = values["beamline"]
+            device_info.group = values["group"]
+            device_info.icon_override = values["icon_override"]
+            device_info.active = values["active"]
+            device_info.metadata.update(values.get("extra_fields", {}))
+            catalog = DeviceCatalog.get_instance()
+            catalog.update_device(device_info)
+
+    def _add_new_device(self) -> None:
+        """Open edit dialog in create mode."""
+        from lucid.devices import DeviceCatalog
+        from lucid.devices.model import DeviceInfo
+        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        dialog = DeviceEditDialog(mode="create", parent=self)
+        if dialog.exec():
+            values = dialog.get_values()
+            device = DeviceInfo(
+                name=values["name"], device_class=values["device_class"],
+                prefix=values["prefix"], beamline=values["beamline"],
+                display_name=values["display_name"], group=values["group"],
+                icon_override=values["icon_override"], active=values["active"],
+                metadata=values.get("extra_fields", {}),
+            )
+            catalog = DeviceCatalog.get_instance()
+            if not catalog.add_device(device):
+                QMessageBox.warning(self, "Add Failed",
+                    f"Failed to add device '{values['name']}'. It may already exist.")
+
+    def _delete_device(self, device_info) -> None:
+        """Delete device after confirmation."""
+        from lucid.devices import DeviceCatalog
+        reply = QMessageBox.question(self, "Delete Device",
+            f"Delete device '{device_info.name}'? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            catalog = DeviceCatalog.get_instance()
+            catalog.remove_device(device_info.id)
+
+    def _toggle_device_active(self, device_info, active: bool) -> None:
+        """Enable or disable a device."""
+        from lucid.devices import DeviceCatalog
+        device_info.active = active
+        catalog = DeviceCatalog.get_instance()
+        catalog.update_device(device_info)
 
     # === Event Handling ===
 
@@ -620,7 +739,12 @@ class DevicePanel(BasePanel):
 
         # Manually update the overview widget
         self._overview_widget.set_item(target_item)
-        self._control_widget.set_items([target_item])
+
+        # Show inactive message if device is inactive, else show controls
+        if target_item.device_info is not None and not target_item.device_info.active:
+            self._control_widget.show_inactive_message()
+        else:
+            self._control_widget.set_items([target_item])
 
         logger.debug("Selected device in tree: {}", device_id)
 

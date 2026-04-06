@@ -73,12 +73,18 @@ class ThemeColors:
     connected: str = ""
     disconnected: str = ""
 
+    # Islands layout: "sea" is the visible gap behind floating panels.
+    # When empty, falls back to background (non-Islands themes unchanged).
+    sea: str = ""
+
     def __post_init__(self) -> None:
         """Set default state colors based on theme."""
         if not self.connected:
             self.connected = self.success
         if not self.disconnected:
             self.disconnected = self.error
+        if not self.sea:
+            self.sea = self.background
 
     @classmethod
     def from_definition(cls, definition: ThemeDefinition) -> ThemeColors:
@@ -104,6 +110,7 @@ class ThemeColors:
             border=definition.border,
             connected=definition.connected,
             disconnected=definition.disconnected,
+            sea=definition.sea,
         )
 
 
@@ -515,8 +522,9 @@ class ThemeManager(QObject):
         """Apply a dark color palette to the application."""
         palette = QPalette()
 
-        # Window colors
-        palette.setColor(QPalette.ColorRole.Window, QColor(self._colors.background))
+        # Window color = sea (the app background / gaps between panels).
+        # QDockWidget paints from this role directly, ignoring QSS.
+        palette.setColor(QPalette.ColorRole.Window, QColor(self._colors.sea))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(self._colors.text))
         palette.setColor(QPalette.ColorRole.Base, QColor(self._colors.surface))
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor(self._colors.background))
@@ -801,10 +809,10 @@ QHeaderView::section {{
         if self._css_overrides:
             base_stylesheet += f"\n/* Theme-specific overrides */\n{self._css_overrides}"
 
-        # Append QtAds stylesheet if available
+        # Append docking stylesheet if available
         try:
-            from lucid.ui.docking.theme import generate_qtads_stylesheet
-            base_stylesheet += f"\n{generate_qtads_stylesheet(c)}"
+            from lucid.ui.docking.theme import generate_docking_stylesheet
+            base_stylesheet += f"\n{generate_docking_stylesheet(c)}"
         except ImportError:
             pass
 

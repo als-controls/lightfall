@@ -23,6 +23,19 @@ ALS_BEAM_STATUS_URL = "https://controls.als.lbl.gov/als-beamstatus/curvals"
 POLL_INTERVAL_MS = 60000
 
 
+def _is_proxy_connection_error(error: BaseException) -> bool:
+    """Check whether an error indicates a SOCKS proxy connection failure."""
+    exc: BaseException | None = error
+    while exc is not None:
+        name = type(exc).__name__
+        if "ProxyConnectionError" in name or "ProxyError" in name:
+            return True
+        if "could not connect to proxy" in str(exc).lower():
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 @dataclass
 class ALSBeamData:
     """Structured ALS beam status data.
@@ -82,6 +95,7 @@ class ALSBeamStatusService(QObject):
         self._is_connected = False
         self._last_error: str | None = None
         self._polling = False
+        self._proxy_toast_shown = False
 
         # Polling timer
         self._poll_timer = QTimer(self)
@@ -187,6 +201,7 @@ class ALSBeamStatusService(QObject):
             data: Fetched beam data.
         """
         self._data = data
+        self._proxy_toast_shown = False
         self._set_connected(True)
         self.status_changed.emit(data)
 
@@ -199,6 +214,19 @@ class ALSBeamStatusService(QObject):
         logger.debug("Failed to fetch ALS beam status: {}", error)
         self._last_error = str(error)
         self._set_connected(False)
+
+        if not self._proxy_toast_shown and _is_proxy_connection_error(error):
+            self._proxy_toast_shown = True
+            try:
+                from lucid.ui.toast import ToastManager
+
+                ToastManager.get_instance().warning(
+                    "SOCKS proxy not reachable",
+                    "Is your SSH tunnel or proxy running? "
+                    "Check Preferences → Proxy to verify settings.",
+                )
+            except Exception:
+                pass
 
     def _set_connected(self, connected: bool) -> None:
         """Update connection state and emit signal if changed."""
@@ -227,20 +255,10 @@ class ALSBeamStatusService(QObject):
             except ImportError:
                 logger.debug("httpx-socks not available, trying without proxy")
 
-        try:
-            with httpx.Client(transport=transport, timeout=10.0) as client:
-                response = client.get(ALS_BEAM_STATUS_URL)
-                response.raise_for_status()
-                return self._parse_response(response.json())
-        except httpx.ConnectError:
-            # Try without proxy if SOCKS connection failed
-            if transport is not None:
-                logger.debug("SOCKS proxy connection failed, trying direct")
-                with httpx.Client(timeout=10.0) as client:
-                    response = client.get(ALS_BEAM_STATUS_URL)
-                    response.raise_for_status()
-                    return self._parse_response(response.json())
-            raise
+        with httpx.Client(transport=transport, timeout=10.0) as client:
+            response = client.get(ALS_BEAM_STATUS_URL)
+            response.raise_for_status()
+            return self._parse_response(response.json())
 
     def _parse_response(self, data: list[dict[str, Any]]) -> ALSBeamData:
         """Parse the ALS API response into ALSBeamData.

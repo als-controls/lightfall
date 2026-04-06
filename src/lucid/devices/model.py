@@ -39,6 +39,7 @@ class DeviceStatus(str, Enum):
     CONNECTING = "connecting"  # Connection in progress
     ERROR = "error"  # Device has an error condition
     MAINTENANCE = "maintenance"  # Device is under maintenance
+    INACTIVE = "disabled"  # Device is disabled by user
     UNKNOWN = "unknown"  # Status cannot be determined
 
 
@@ -182,6 +183,9 @@ class DeviceInfo(BaseModel):
     created: datetime = Field(default_factory=datetime.now)
     modified: datetime = Field(default_factory=datetime.now)
     active: bool = True
+    display_name: str = ""  # User-facing label (falls back to name if empty)
+    icon_override: str = ""  # Enum string for icon override (empty = auto from category)
+    group: str = ""  # User-defined grouping
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Runtime state (not persisted)
@@ -248,6 +252,9 @@ class DeviceInfo(BaseModel):
             "status": self._state.status.value if self._state else "unknown",
             "connected": self._state.connected if self._state else False,
             "active": self.active,
+            "display_name": self.display_name,
+            "icon_override": self.icon_override,
+            "group": self.group,
         }
 
 

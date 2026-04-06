@@ -62,6 +62,23 @@ class NoControlWidget(QWidget):
         self._message.setText(message)
 
 
+class InactiveDeviceWidget(QWidget):
+    """Widget shown when all selected devices are inactive."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.addStretch()
+
+        label = QLabel("Device Inactive")
+        label.setStyleSheet("color: #9E9E9E; font-style: italic; font-size: 14px;")
+        from PySide6.QtCore import Qt
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+        layout.addStretch()
+
+
 class DeviceControlWidget(QWidget):
     """Container widget that shows appropriate controls for device selection.
 
@@ -117,6 +134,9 @@ class DeviceControlWidget(QWidget):
         self._no_control = NoControlWidget()
         self._stack.addWidget(self._no_control)
 
+        self._no_inactive = InactiveDeviceWidget()
+        self._stack.addWidget(self._no_inactive)
+
         # Start with no selection
         self._stack.setCurrentWidget(self._no_selection)
 
@@ -171,6 +191,13 @@ class DeviceControlWidget(QWidget):
 
         self._no_control.set_message(msg)
         self._stack.setCurrentWidget(self._no_control)
+
+    def show_inactive_message(self) -> None:
+        """Show a 'Device Inactive' placeholder in the control area."""
+        self._matching_controllers = []
+        self._current_widget = None
+        self._hide_selector()
+        self._stack.setCurrentWidget(self._no_inactive)
 
     def _update_selector(self) -> None:
         """Update the widget selector combo box."""

@@ -133,11 +133,13 @@ class DeviceTreeItem:
         except Exception:
             pass
 
-        # For devices, check readback signal's units
+        # For devices, check readback signal's units.
+        # Use _signals dict to avoid triggering ophyd's lazy descriptor.
         if self.node_type == NodeType.DEVICE:
+            signals = getattr(obj, "_signals", {})
             for attr in ("readback", "user_readback"):
                 try:
-                    sig = getattr(obj, attr, None)
+                    sig = signals.get(attr)
                     if sig is not None and hasattr(sig, "metadata"):
                         units = sig.metadata.get("units", "")
                         if units:
@@ -216,8 +218,12 @@ class DeviceTreeItem:
 
             # For devices, show value from readback, position, or direct .get()
             elif self.node_type == NodeType.DEVICE:
-                if hasattr(self.ophyd_obj, "readback"):
-                    val = self._safe_get(self.ophyd_obj.readback)
+                # Check _signals dict directly to avoid triggering ophyd's
+                # lazy Component descriptor, which calls wait_for_connection
+                # and blocks the value-poll thread.
+                signals = getattr(self.ophyd_obj, "_signals", {})
+                if "readback" in signals:
+                    val = self._safe_get(signals["readback"])
                     if val is not None:
                         return self._format_value(val)
                 # Check for position (motors) — refresh via sync ZMQ call
@@ -683,9 +689,18 @@ class DeviceTreeModel(QAbstractItemModel):
 
         # Add new children from the now-connected ophyd device
         if device.ophyd_device is not None:
-            self._add_components(item, device.ophyd_device)
-            if item.children:
-                self.beginInsertRows(self.index(row, 0), 0, len(item.children) - 1)
+            # Build children into a temporary parent to avoid mutating
+            # item.children before beginInsertRows (Qt requires notification
+            # before data mutation).
+            temp_item = DeviceTreeItem("_temp", NodeType.ROOT)
+            self._add_components(temp_item, device.ophyd_device)
+            if temp_item.children:
+                self.beginInsertRows(
+                    self.index(row, 0), 0, len(temp_item.children) - 1
+                )
+                for child in temp_item.children:
+                    child.parent_item = item
+                item.children = temp_item.children
                 self.endInsertRows()
 
         # Emit dataChanged for all columns
@@ -808,10 +823,17 @@ class DeviceTreeModel(QAbstractItemModel):
                     return self._icons.get("status_connecting")
                 elif status == "error":
                     return self._icons.get("status_error")
+                elif status == "disabled":
+                    return self._icons.get("status_offline")
                 elif status == "offline" or status == "unknown":
                     return self._icons.get("status_offline")
 
         elif role == Qt.ItemDataRole.ForegroundRole:
+            # Grey out inactive devices entirely
+            device_info = item.device_info
+            if device_info is not None and not device_info.active:
+                return QColor("#9E9E9E")  # Grey for all columns
+
             # Color status column
             if index.column() == 2:
                 status = item.data(2)

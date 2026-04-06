@@ -251,13 +251,10 @@ class NCSMainWindow(QMainWindow):
         self._config_manager = config_manager
         self._prefs_manager.set_config_manager(config_manager)
 
-        # Apply theme from config
-        theme_str = config_manager.get("ui.theme", "system")
-        try:
-            theme = Theme(theme_str)
-            self._theme_manager.set_theme(theme)
-        except ValueError:
-            pass
+        # Theme is applied by AppearanceSettingsPlugin.on_loaded() (preload)
+        # which reads preferences.theme via PreferencesManager.
+        # Do NOT re-apply here — the old code read a different key (ui.theme)
+        # and clobbered the correct theme with the wrong default.
 
     # Panel management
 
@@ -442,6 +439,11 @@ class NCSMainWindow(QMainWindow):
         self._default_layout_applied = True
         logger.info("Applied default panel layout with {} deferred panels",
                     len(registered_left) + len(registered_bottom))
+
+        # Re-apply theme now that dock widgets exist.
+        # The initial apply_to_application() runs before panels are created,
+        # so child selectors (QDockWidget > QWidget, etc.) don't bind.
+        self._apply_theme()
 
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the window.
@@ -690,11 +692,8 @@ class NCSMainWindow(QMainWindow):
     def _on_preference_changed(self, key: str, value: Any) -> None:
         """Handle preference change."""
         if key == "theme":
-            try:
-                # Don't save preference - it was already saved, that's why we got this signal
-                self._set_theme(Theme(value), save_preference=False)
-            except ValueError:
-                pass
+            # Use string-based API to support plugin themes
+            self._theme_manager.set_theme_by_name(str(value))
 
     @Slot(str, object)
     def _on_panel_registered(self, panel_id: str, metadata: Any) -> None:

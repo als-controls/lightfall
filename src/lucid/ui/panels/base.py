@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from lucid.auth.policy import Permission
@@ -148,9 +148,17 @@ class BasePanel(QWidget):
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
 
-        # Setup layout
+        # Force QSS background painting — QWidget doesn't paint its own
+        # background by default. WA_StyledBackground makes Qt paint the
+        # QSS-defined background (including border-radius) in paintEvent.
+        # Unlike setAutoFillBackground (which paints a flat palette rect
+        # ignoring border-radius), this respects the full stylesheet.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        # Setup layout — top margin gives space below the PanelTitleBar
+        # which overlaps the content area slightly in QDockWidget
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setContentsMargins(0, 4, 0, 0)
 
         # Allow subclasses to setup UI
         self._setup_ui()

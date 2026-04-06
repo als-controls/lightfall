@@ -112,6 +112,19 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         font_layout.addStretch()
         appearance_layout.addRow("Font Size:", font_layout)
 
+        # Console syntax style
+        self._console_style_combo = QComboBox()
+        self._console_style_combo.addItem("Auto (follows theme)", "")
+        # Popular dark styles
+        for style_name in [
+            "monokai", "dracula", "one-dark", "nord", "gruvbox-dark",
+            "native", "vim", "github-dark", "solarized-dark",
+            # Light styles
+            "default", "friendly", "tango", "solarized-light",
+        ]:
+            self._console_style_combo.addItem(style_name.title(), style_name)
+        appearance_layout.addRow("Console Style:", self._console_style_combo)
+
         layout.addWidget(appearance_group)
         layout.addStretch()
 
@@ -156,6 +169,13 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         # Set font size
         self._font_spin.setValue(prefs.font_size)
 
+        # Set console style
+        if self._console_style_combo:
+            console_style = prefs.get("console_syntax_style", "")
+            index = self._console_style_combo.findData(console_style)
+            if index >= 0:
+                self._console_style_combo.setCurrentIndex(index)
+
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
 
@@ -167,6 +187,9 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
         prefs.theme = self._theme_combo.currentData()
         prefs.font_size = self._font_spin.value()
+
+        if self._console_style_combo:
+            prefs.set("console_syntax_style", self._console_style_combo.currentData())
 
     def validate(self) -> list[str]:
         """Validate current widget values.
