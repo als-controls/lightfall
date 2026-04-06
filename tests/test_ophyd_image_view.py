@@ -62,3 +62,52 @@ class TestOphydImageViewBasic:
 
         assert view._histogram is not None
         view.close()
+
+
+class TestLUTBehavior:
+    """LUT should auto-scale on first frame, then stay stable."""
+
+    def test_first_frame_sets_levels(self, qapp):
+        """First frame should auto-scale the histogram levels."""
+        data = np.zeros((100, 100), dtype=np.uint16)
+        data[50, 50] = 1000
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._display_array(data)
+        assert view._first_frame is False
+
+        levels = view._histogram.getLevels()
+        assert levels[0] < levels[1]
+        view.close()
+
+    def test_subsequent_frames_preserve_levels(self, qapp):
+        """After first frame, levels should not change on new frames."""
+        data1 = np.random.randint(0, 100, (100, 100), dtype=np.uint16)
+        device = _make_mock_device(data1)
+        view = OphydImageView(device)
+
+        view._display_array(data1)
+        levels_after_first = view._histogram.getLevels()
+
+        data2 = np.random.randint(500, 1000, (100, 100), dtype=np.uint16)
+        view._display_array(data2)
+        levels_after_second = view._histogram.getLevels()
+
+        assert levels_after_first == levels_after_second
+        view.close()
+
+    def test_reset_lut_flag(self, qapp):
+        """reset_lut() should re-enable auto-levels for next frame."""
+        data = np.random.randint(0, 100, (100, 100), dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._display_array(data)
+        assert view._first_frame is False
+
+        view.reset_lut()
+        assert view._first_frame is True
+        view.close()
+
+

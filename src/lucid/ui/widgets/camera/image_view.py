@@ -161,6 +161,14 @@ class OphydImageView(QWidget):
 
         return None, None
 
+    def reset_lut(self) -> None:
+        """Reset LUT to auto-scale on the next frame."""
+        self._first_frame = True
+
+    def reset_axes(self) -> None:
+        """Reset view to fit the entire image."""
+        self._plot_item.getViewBox().autoRange()
+
     def close(self) -> None:
         """Stop updates and clean up."""
         if self._timer is not None:
