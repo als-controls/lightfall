@@ -93,6 +93,12 @@ class OphydImageView(QWidget):
         self._image_item.setOpts(axisOrder="row-major")
         self._plot_item.addItem(self._image_item)
 
+        # ROI stats overlay
+        self._stats_text = pg.TextItem(anchor=(1, 0), color="#00FF00")
+        self._stats_text.setFont(pg.QtGui.QFont("monospace", 9))
+        self._stats_text.setVisible(False)
+        self._plot_item.addItem(self._stats_text)
+
         # Crosshair
         linepen = pg.mkPen("#FFA500", width=1)
         self._vline = pg.InfiniteLine(angle=90, movable=False, pen=linepen)
@@ -156,6 +162,7 @@ class OphydImageView(QWidget):
                 image_data = image_plugin.array_data.get()
                 if image_data is not None:
                     self._display_array(image_data, image_plugin)
+                    self._update_roi_stats()
         except Exception as e:
             logger.warning(f"Failed to update image: {e}")
 
@@ -283,6 +290,36 @@ class OphydImageView(QWidget):
         """Propagate colormap changes from the histogram to the ImageItem."""
         lut = self._histogram.gradient.getLookupTable(256)
         self._image_item.setLookupTable(lut)
+
+    _STAT_FIELDS = ("min_value", "max_value", "mean_value", "total", "centroid_x", "centroid_y")
+
+    def _update_roi_stats(self) -> None:
+        stats_plugin = getattr(self._device, "roi_stat1", None)
+        if stats_plugin is None:
+            self._stats_text.setVisible(False)
+            return
+        try:
+            lines = []
+            for field in self._STAT_FIELDS:
+                signal = getattr(stats_plugin, field, None)
+                if signal is not None:
+                    value = signal.get()
+                    label = field.replace("_", " ").title()
+                    if isinstance(value, float):
+                        lines.append(f"{label}: {value:.1f}")
+                    else:
+                        lines.append(f"{label}: {value}")
+            if lines:
+                self._stats_text.setText("\n".join(lines))
+                vb = self._plot_item.getViewBox()
+                view_range = vb.viewRange()
+                self._stats_text.setPos(view_range[0][1], view_range[1][0])
+                self._stats_text.setVisible(True)
+            else:
+                self._stats_text.setVisible(False)
+        except Exception as e:
+            logger.debug(f"Failed to read ROI stats: {e}")
+            self._stats_text.setVisible(False)
 
     def _on_mouse_moved(self, pos) -> None:
         vb = self._plot_item.getViewBox()

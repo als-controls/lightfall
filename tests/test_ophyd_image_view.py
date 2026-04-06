@@ -265,3 +265,36 @@ class TestCrosshair:
         assert view._format_coordinates(-1, 50) == ""
         assert view._format_coordinates(50, 200) == ""
         view.close()
+
+
+class TestROIStats:
+    """Hardware ROI statistics display."""
+
+    def _make_device_with_stats(self):
+        device = _make_mock_device()
+        stats = MagicMock()
+        stats.min_value.get.return_value = 10
+        stats.max_value.get.return_value = 950
+        stats.mean_value.get.return_value = 123.4
+        stats.total.get.return_value = 1234000
+        stats.centroid_x.get.return_value = 320.5
+        stats.centroid_y.get.return_value = 240.1
+        device.roi_stat1 = stats
+        return device
+
+    def test_stats_overlay_shown_when_available(self, qapp):
+        device = self._make_device_with_stats()
+        view = OphydImageView(device)
+        view._update_roi_stats()
+        text = view._stats_text.toPlainText()
+        assert "950" in text
+        view.close()
+
+    def test_stats_overlay_hidden_when_no_plugin(self, qapp):
+        device = _make_mock_device()
+        if hasattr(device, "roi_stat1"):
+            del device.roi_stat1
+        view = OphydImageView(device)
+        view._update_roi_stats()
+        assert not view._stats_text.isVisible()
+        view.close()
