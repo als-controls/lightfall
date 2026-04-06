@@ -616,10 +616,16 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
     def _on_value_changed(self, name: str, value: Any) -> None:
         """Handle ophyd signal value updates.
 
+        Called from ophyd's callback thread — must not touch Qt widgets
+        directly.  Stores the value (GIL-safe dict write) and marshals
+        the UI update to the main thread.
+
         Args:
             name: Internal name for the value (e.g., 'acquire_time_rbv')
             value: New value from the signal
         """
+        from lucid.utils.threads import invoke_in_main_thread
+
         # Extract scalar from array if needed (some signals return arrays)
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
@@ -627,7 +633,11 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
         self._values[name] = value
 
-        # Update UI based on which value changed
+        # Marshal UI update to main thread
+        invoke_in_main_thread(self._apply_value_update, name)
+
+    def _apply_value_update(self, name: str) -> None:
+        """Apply a cached value update to the UI (main thread only)."""
         if name == "acquire_time_rbv":
             self._update_acquire_time_display()
         elif name == "num_images_rbv":

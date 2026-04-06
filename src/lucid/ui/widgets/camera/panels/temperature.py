@@ -170,7 +170,13 @@ class TemperaturePanel(QGroupBox):
         self._values.clear()
 
     def _on_value_changed(self, name: str, value: Any) -> None:
-        """Handle ophyd signal value updates."""
+        """Handle ophyd signal value updates.
+
+        Called from ophyd's callback thread — stores value and marshals
+        the UI update to the main thread.
+        """
+        from lucid.utils.threads import invoke_in_main_thread
+
         # Extract scalar from array if needed
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
@@ -178,7 +184,10 @@ class TemperaturePanel(QGroupBox):
 
         self._values[name] = value
 
-        # Update UI
+        invoke_in_main_thread(self._apply_value_update, name)
+
+    def _apply_value_update(self, name: str) -> None:
+        """Apply a cached value update to the UI (main thread only)."""
         if name == "temperature":
             self._update_temperature_display()
         elif name == "setpoint":
