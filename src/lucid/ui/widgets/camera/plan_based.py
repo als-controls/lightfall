@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtWidgets import QCheckBox, QGroupBox, QWidget
+from PySide6.QtWidgets import QCheckBox, QGroupBox, QPushButton, QWidget
 
 from lucid.ui.widgets.camera.base import CameraControlWidget
 from lucid.utils.logging import logger
@@ -43,6 +43,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._collect_dark_checkbox: QCheckBox | None = None
+        self._dark_manager_token: int | None = None
         super().__init__(parent)
 
     def _create_device_panels(self) -> list[QGroupBox]:
@@ -61,6 +62,13 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
             "Collect a dark frame (shutter closed) before each acquisition"
         )
         options_layout.addWidget(self._collect_dark_checkbox)
+
+        self._capture_dark_btn = QPushButton("Capture Dark")
+        self._capture_dark_btn.setToolTip(
+            "Capture a dark frame now (closes shutter, acquires, reopens)"
+        )
+        self._capture_dark_btn.clicked.connect(self._on_capture_dark)
+        options_layout.addWidget(self._capture_dark_btn)
 
         # Insert at beginning of panels list
         panels.insert(0, options_group)
@@ -141,6 +149,46 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
             acquire_time=acquire_time,
             collect_dark=collect_dark,
         )
+
+    def _update_image_view(self) -> None:
+        super()._update_image_view()
+        if self._image_view is not None:
+            self._subscribe_dark_manager()
+            self._image_view._dark_manager.load_dark_from_tiled()
+
+    def _subscribe_dark_manager(self) -> None:
+        self._unsubscribe_dark_manager()
+        try:
+            from lucid.acquire.engine import get_engine
+            engine = get_engine()
+            dark_mgr = self._image_view._dark_manager
+            self._dark_manager_token = engine.subscribe(dark_mgr)
+        except Exception as e:
+            logger.debug(f"Could not subscribe dark manager: {e}")
+
+    def _unsubscribe_dark_manager(self) -> None:
+        if self._dark_manager_token is not None:
+            try:
+                from lucid.acquire.engine import get_engine
+                get_engine().unsubscribe(self._dark_manager_token)
+            except Exception:
+                pass
+            self._dark_manager_token = None
+
+    def _on_capture_dark(self) -> None:
+        if self._device is None:
+            return
+        from lucid.acquire.plans.ncs_plans import simple_acquire
+        plan = simple_acquire(detector=self._device, num_images=1, collect_dark=True)
+        try:
+            from lucid.acquire.engine import get_engine
+            get_engine().submit(plan)
+        except Exception as e:
+            logger.error(f"Failed to capture dark: {e}")
+
+    def closeEvent(self, event) -> None:
+        self._unsubscribe_dark_manager()
+        super().closeEvent(event)
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools."""

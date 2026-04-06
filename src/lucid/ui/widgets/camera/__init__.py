@@ -23,10 +23,14 @@ Panels:
 """
 
 from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
+from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
+from lucid.ui.widgets.camera.image_view import OphydImageView
 from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 
 __all__ = [
     "CameraControlWidget",
-    "TVModeMixin",
+    "DarkFrameManager",
+    "OphydImageView",
     "PlanBasedCameraControlWidget",
+    "TVModeMixin",
 ]
