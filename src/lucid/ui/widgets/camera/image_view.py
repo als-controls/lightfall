@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from lucid.utils.logging import logger
 
@@ -93,9 +93,21 @@ class OphydImageView(QWidget):
         self._image_item.setOpts(axisOrder="row-major")
         self._plot_item.addItem(self._image_item)
 
+        # Crosshair
+        linepen = pg.mkPen("#FFA500", width=1)
+        self._vline = pg.InfiniteLine(angle=90, movable=False, pen=linepen)
+        self._hline = pg.InfiniteLine(angle=0, movable=False, pen=linepen)
+        self._vline.setVisible(False)
+        self._hline.setVisible(False)
+        self._plot_item.addItem(self._vline)
+        self._plot_item.addItem(self._hline)
+
         # GraphicsView to host the PlotItem
         self._graphics_view = pg.GraphicsView()
         self._graphics_view.setCentralItem(self._plot_item)
+
+        # Mouse tracking (must connect after PlotItem has a scene via GraphicsView)
+        self._plot_item.scene().sigMouseMoved.connect(self._on_mouse_moved)
         h_layout.addWidget(self._graphics_view, stretch=1)
 
         # HistogramLUTItem for color scale control (manually wired, not
@@ -113,6 +125,13 @@ class OphydImageView(QWidget):
         h_layout.addWidget(self._hist_view)
 
         layout.addLayout(h_layout)
+
+        # Coordinate display label
+        self._coords_label = QLabel("")
+        self._coords_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._coords_label.setFixedHeight(20)
+        self._coords_label.setStyleSheet("font-family: monospace; font-size: 11px;")
+        layout.addWidget(self._coords_label)
 
     def _start_updates(self) -> None:
         """Start polling the device for image data."""
@@ -264,6 +283,38 @@ class OphydImageView(QWidget):
         """Propagate colormap changes from the histogram to the ImageItem."""
         lut = self._histogram.gradient.getLookupTable(256)
         self._image_item.setLookupTable(lut)
+
+    def _on_mouse_moved(self, pos) -> None:
+        vb = self._plot_item.getViewBox()
+        if not vb.sceneBoundingRect().contains(pos):
+            self._vline.setVisible(False)
+            self._hline.setVisible(False)
+            self._coords_label.setText("")
+            return
+        mouse_point = vb.mapSceneToView(pos)
+        x, y = mouse_point.x(), mouse_point.y()
+        text = self._format_coordinates(x, y)
+        if text:
+            self._vline.setPos(x)
+            self._hline.setPos(y)
+            self._vline.setVisible(True)
+            self._hline.setVisible(True)
+            self._coords_label.setText(text)
+        else:
+            self._vline.setVisible(False)
+            self._hline.setVisible(False)
+            self._coords_label.setText("")
+
+    def _format_coordinates(self, x: float, y: float) -> str:
+        """Format pixel coordinates and intensity at (x, y)."""
+        image = self._raw_image  # Use raw image for true intensity values
+        if image is None:
+            return ""
+        row, col = int(y), int(x)
+        if row < 0 or col < 0 or row >= image.shape[0] or col >= image.shape[1]:
+            return ""
+        intensity = image[row, col]
+        return f"x={x:.1f}  y={y:.1f}  I={intensity:.0f}"
 
     def close(self) -> None:
         """Stop updates and clean up."""

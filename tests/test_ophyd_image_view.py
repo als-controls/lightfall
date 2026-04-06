@@ -217,3 +217,51 @@ class TestLogIntensity:
         view._display_array(data)
         np.testing.assert_array_equal(view._raw_image, data)
         view.close()
+
+
+class TestCrosshair:
+    """Crosshair and coordinate display."""
+
+    def test_crosshair_lines_exist(self, qapp):
+        from pyqtgraph import InfiniteLine
+
+        device = _make_mock_device()
+        view = OphydImageView(device)
+
+        assert isinstance(view._vline, InfiniteLine)
+        assert isinstance(view._hline, InfiniteLine)
+        assert not view._vline.isVisible()
+        assert not view._hline.isVisible()
+        view.close()
+
+    def test_coords_label_exists(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+
+        assert view._coords_label is not None
+        assert view._coords_label.text() == ""
+        view.close()
+
+    def test_format_coordinates(self, qapp):
+        """_format_coordinates should produce x=... y=... I=... string."""
+        data = np.ones((100, 100), dtype=np.uint16) * 42
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+        view._display_array(data)
+
+        text = view._format_coordinates(50.0, 25.0)
+        assert "x=50.0" in text
+        assert "y=25.0" in text
+        assert "I=42" in text
+        view.close()
+
+    def test_format_coordinates_out_of_bounds(self, qapp):
+        """Out-of-bounds coordinates should return empty string."""
+        data = np.ones((100, 100), dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+        view._display_array(data)
+
+        assert view._format_coordinates(-1, 50) == ""
+        assert view._format_coordinates(50, 200) == ""
+        view.close()
