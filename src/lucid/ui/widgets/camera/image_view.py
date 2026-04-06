@@ -102,27 +102,33 @@ class OphydImageView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Toolbar
+        import qtawesome as qta
+
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(4)
 
-        self._reset_lut_btn = QPushButton("Reset LUT")
+        self._reset_lut_btn = QPushButton(qta.icon("mdi6.chart-histogram"), "Reset LUT")
         self._reset_lut_btn.setFixedHeight(24)
         self._reset_lut_btn.clicked.connect(self.reset_lut)
         toolbar.addWidget(self._reset_lut_btn)
 
-        self._reset_axes_btn = QPushButton("Reset Axes")
+        self._reset_axes_btn = QPushButton(qta.icon("mdi6.magnify"), "Reset Axes")
         self._reset_axes_btn.setFixedHeight(24)
         self._reset_axes_btn.clicked.connect(self.reset_axes)
         toolbar.addWidget(self._reset_axes_btn)
 
-        self._log_intensity_btn = QPushButton("Log Intensity")
+        self._log_icon_off = qta.icon("mdi6.lightbulb")
+        self._log_icon_on = qta.icon("mdi6.lightbulb-on-outline")
+        self._log_intensity_btn = QPushButton(self._log_icon_off, "Log Intensity")
         self._log_intensity_btn.setFixedHeight(24)
         self._log_intensity_btn.setCheckable(True)
         self._log_intensity_btn.toggled.connect(self._on_log_intensity_toggled)
         toolbar.addWidget(self._log_intensity_btn)
 
-        self._bg_correct_btn = QPushButton("BG Correct")
+        self._bg_icon_off = qta.icon("mdi6.lightbulb-night")
+        self._bg_icon_on = qta.icon("mdi6.lightbulb-night-outline")
+        self._bg_correct_btn = QPushButton(self._bg_icon_off, "BG Correct")
         self._bg_correct_btn.setFixedHeight(24)
         self._bg_correct_btn.setCheckable(True)
         self._bg_correct_btn.toggled.connect(self._on_bg_correct_toggled)
@@ -505,6 +511,7 @@ class OphydImageView(QWidget):
         Re-render the current cached frame immediately for responsiveness.
         """
         self._log_mode = checked
+        self._log_intensity_btn.setIcon(self._log_icon_on if checked else self._log_icon_off)
         if self._raw_image is not None:
             if self._log_mode:
                 with warnings.catch_warnings():
@@ -518,6 +525,7 @@ class OphydImageView(QWidget):
     def _on_bg_correct_toggled(self, checked: bool) -> None:
         """Toggle background correction. The background thread reads this flag."""
         self._bg_correct = checked
+        self._bg_correct_btn.setIcon(self._bg_icon_on if checked else self._bg_icon_off)
 
     def _apply_display_levels(self) -> None:
         """Map histogram levels (real units) to the displayed ImageItem."""

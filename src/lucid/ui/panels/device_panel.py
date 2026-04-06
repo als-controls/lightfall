@@ -351,12 +351,14 @@ class DevicePanel(BasePanel):
 
     def _create_toolbar(self) -> QToolBar:
         """Create the panel toolbar."""
+        import qtawesome as qta
+
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
 
         # Sync: reconnect failed devices + refresh tree
-        sync_action = QAction("Sync", self)
+        sync_action = QAction(qta.icon("mdi6.sync"), "Sync", self)
         sync_action.setToolTip(
             "Retry failed device connections and refresh the tree"
         )
@@ -366,27 +368,14 @@ class DevicePanel(BasePanel):
         toolbar.addSeparator()
 
         # Expand all
-        expand_action = QAction("Expand All", self)
+        expand_action = QAction(qta.icon("mdi6.arrow-expand-vertical"), "Expand All", self)
         expand_action.triggered.connect(lambda: self._tree_view.expandAll())
         toolbar.addAction(expand_action)
 
         # Collapse all
-        collapse_action = QAction("Collapse", self)
+        collapse_action = QAction(qta.icon("mdi6.arrow-collapse-vertical"), "Collapse", self)
         collapse_action.triggered.connect(lambda: self._tree_view.collapseAll())
         toolbar.addAction(collapse_action)
-
-        toolbar.addSeparator()
-
-        # Expand to depth
-        depth1_action = QAction("Depth 1", self)
-        depth1_action.setToolTip("Expand to depth 1 (devices only)")
-        depth1_action.triggered.connect(lambda: self._expand_to_depth(0))
-        toolbar.addAction(depth1_action)
-
-        depth2_action = QAction("Depth 2", self)
-        depth2_action.setToolTip("Expand to depth 2 (devices + components)")
-        depth2_action.triggered.connect(lambda: self._expand_to_depth(1))
-        toolbar.addAction(depth2_action)
 
         return toolbar
 
