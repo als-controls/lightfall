@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication, QProgressBar
 
+from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
 from lucid.ui.widgets.camera.image_view import OphydImageView
 
 
@@ -341,4 +342,42 @@ class TestProgressBar:
 
         view._update_progress()
         assert not view._progress_bar.isVisible()
+        view.close()
+
+
+class TestBackgroundCorrection:
+
+    def test_bg_correct_button_exists(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        assert view._bg_correct_btn is not None
+        assert view._bg_correct_btn.isCheckable()
+        view.close()
+
+    def test_bg_correct_subtracts_dark(self, qapp):
+        data = np.full((100, 100), 200, dtype=np.uint16)
+        dark = np.full((100, 100), 50, dtype=np.float64)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+        view.show()
+
+        view._dark_manager._cached_dark = dark
+        view._bg_correct_btn.setChecked(True)
+        view._display_array(data)
+
+        # _raw_image should be the corrected image (200 - 50 = 150)
+        np.testing.assert_allclose(view._raw_image, 150, atol=1)
+        view.close()
+
+    def test_bg_correct_off_shows_raw(self, qapp):
+        data = np.full((100, 100), 200, dtype=np.uint16)
+        dark = np.full((100, 100), 50, dtype=np.float64)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._dark_manager._cached_dark = dark
+        view._bg_correct_btn.setChecked(False)
+        view._display_array(data)
+
+        np.testing.assert_allclose(view._raw_image, 200, atol=1)
         view.close()

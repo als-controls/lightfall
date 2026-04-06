@@ -19,6 +19,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
+from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class OphydImageView(QWidget):
         self._log_mode = False
         self._raw_image: np.ndarray | None = None
         self._updating_levels = False  # guard against recursive level updates
+
+        self._dark_manager = DarkFrameManager(
+            device_name=ophyd_device.name if hasattr(ophyd_device, "name") else "unknown"
+        )
 
         self._setup_ui()
         self._start_updates()
@@ -69,6 +74,11 @@ class OphydImageView(QWidget):
         self._log_intensity_btn.setCheckable(True)
         self._log_intensity_btn.toggled.connect(self._on_log_intensity_toggled)
         toolbar.addWidget(self._log_intensity_btn)
+
+        self._bg_correct_btn = QPushButton("BG Correct")
+        self._bg_correct_btn.setFixedHeight(24)
+        self._bg_correct_btn.setCheckable(True)
+        toolbar.addWidget(self._bg_correct_btn)
 
         toolbar.addStretch()
         layout.addLayout(toolbar)
@@ -195,6 +205,10 @@ class OphydImageView(QWidget):
 
         if arr.ndim != 2:
             return
+
+        # Background correction
+        if self._bg_correct_btn.isChecked():
+            arr = self._dark_manager.subtract(arr)
 
         # Always cache raw data
         self._raw_image = arr
