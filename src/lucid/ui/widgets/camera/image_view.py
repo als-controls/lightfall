@@ -3,7 +3,7 @@
 Displays live image data with:
 - Axis ticks via PlotItem
 - Histogram/LUT control
-- Correct orientation (row 0 at top, CCW rotation applied via QTransform)
+- Correct orientation (col-major axis order, matching Xi-CAM convention)
 - Efficient frame updates via ImageItem.setImage()
 
 The LUT is auto-scaled on the first frame received using percentile bounds
@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
@@ -35,8 +34,8 @@ class OphydImageView(QWidget):
     Uses PlotItem for axes, ImageItem for rendering, and HistogramLUTItem
     for color scale control. Polls the device's image plugin at ~10 fps.
 
-    Image orientation is handled entirely via QTransform on the ImageItem
-    (CCW rotation + Y-axis inversion), not by preprocessing the data array.
+    Image orientation uses col-major axis order (matching Xi-CAM convention)
+    with no Y-axis inversion, so no QTransform or data preprocessing needed.
     """
 
     def __init__(self, ophyd_device: Any, parent: QWidget | None = None) -> None:
@@ -99,19 +98,15 @@ class OphydImageView(QWidget):
         self._plot_item.setDefaultPadding(0)
         self._plot_item.hideButtons()
         self._plot_item.setMenuEnabled(False)
-        self._plot_item.getViewBox().invertY(True)
         self._plot_item.getViewBox().setAspectLocked(True)
         self._plot_item.setLabel("bottom", "x (px)")
         self._plot_item.setLabel("left", "y (px)")
 
-        # ImageItem lives inside the PlotItem.
-        # Orientation is handled via QTransform: CCW 90° rotation.
-        # This is applied once and stays — no per-frame data manipulation.
+        # ImageItem uses col-major axis order (Xi-CAM convention).
+        # With col-major, array[row, col] maps to screen(x=row, y=col),
+        # which gives correct orientation without any QTransform.
         self._image_item = pg.ImageItem()
-        self._image_item.setOpts(axisOrder="row-major")
-        self._image_transform = QTransform()
-        self._image_transform.rotate(-90)
-        self._image_item.setTransform(self._image_transform)
+        self._image_item.setOpts(axisOrder="col-major")
         self._plot_item.addItem(self._image_item)
 
         # ROI stats overlay
@@ -445,26 +440,19 @@ class OphydImageView(QWidget):
     def _format_coordinates(self, x: float, y: float) -> str:
         """Format pixel coordinates and intensity at view position (x, y).
 
-        Maps view coordinates back to pixel coordinates through the
-        ImageItem's inverse transform to get the correct array index
-        regardless of any rotation/flip applied.
+        With col-major axis order, view (x, y) maps directly to
+        array[int(x), int(y)] — x is the row axis, y is the column axis.
         """
         image = self._raw_image
         if image is None:
             return ""
 
-        from PySide6.QtCore import QPointF
-
-        # Map view coords → ImageItem local coords (undoes the CCW rotation)
-        view_pt = QPointF(x, y)
-        px_pt = self._image_item.mapFromView(view_pt)
-        col, row = int(px_pt.x()), int(px_pt.y())
-
+        row, col = int(x), int(y)
         if row < 0 or col < 0 or row >= image.shape[0] or col >= image.shape[1]:
             return ""
 
         intensity = image[row, col]
-        return f"x={col}  y={row}  I={intensity:.0f}"
+        return f"x={x:.1f}  y={y:.1f}  I={intensity:.0f}"
 
     def _update_progress(self) -> None:
         """Update the acquisition progress bar from device counters."""

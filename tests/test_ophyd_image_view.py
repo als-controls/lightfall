@@ -48,12 +48,14 @@ class TestOphydImageViewBasic:
         assert view._plot_item.axes["left"]["item"].isVisible()
         view.close()
 
-    def test_image_orientation_y_inverted(self, qapp):
-        """Y axis should be inverted so row 0 is at the top."""
+    def test_image_orientation_col_major(self, qapp):
+        """ImageItem should use col-major axis order (Xi-CAM convention)."""
         device = _make_mock_device()
         view = OphydImageView(device)
 
-        assert view._plot_item.getViewBox().yInverted()
+        assert view._image_item.axisOrder == "col-major"
+        # No Y inversion needed with col-major
+        assert not view._plot_item.getViewBox().yInverted()
         view.close()
 
     def test_histogram_present(self, qapp):
@@ -248,26 +250,16 @@ class TestCrosshair:
         view.close()
 
     def test_format_coordinates(self, qapp):
-        """_format_coordinates should produce x=... y=... I=... string.
-
-        Note: A CCW rotation transform is applied, so we test by checking
-        that the function returns a properly formatted string with
-        intensity from the raw image when given valid mapped coordinates.
-        We use the ImageItem's own mapping to find a valid view position.
-        """
+        """_format_coordinates should produce x=... y=... I=... string."""
         data = np.ones((100, 100), dtype=np.uint16) * 42
         device = _make_mock_device(data)
         view = OphydImageView(device)
         view._display_array(data)
 
-        # Map a known pixel position (50, 25) to view coords via the transform
-        from PySide6.QtCore import QPointF
-
-        px_pt = QPointF(50, 25)
-        view_pt = view._image_item.mapToView(px_pt)
-        text = view._format_coordinates(view_pt.x(), view_pt.y())
-        assert "x=50" in text
-        assert "y=25" in text
+        # With col-major, view (x, y) maps to array[x, y]
+        text = view._format_coordinates(50.0, 25.0)
+        assert "x=50.0" in text
+        assert "y=25.0" in text
         assert "I=42" in text
         view.close()
 
@@ -278,9 +270,8 @@ class TestCrosshair:
         view = OphydImageView(device)
         view._display_array(data)
 
-        # Use very large view coordinates that definitely map outside the image
-        assert view._format_coordinates(-9999, -9999) == ""
-        assert view._format_coordinates(9999, 9999) == ""
+        assert view._format_coordinates(-1, 50) == ""
+        assert view._format_coordinates(50, 200) == ""
         view.close()
 
 
