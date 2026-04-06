@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from lucid.utils.logging import logger
 
@@ -139,6 +139,13 @@ class OphydImageView(QWidget):
         self._coords_label.setStyleSheet("font-family: monospace; font-size: 11px;")
         layout.addWidget(self._coords_label)
 
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setTextVisible(True)
+        self._progress_bar.setFormat("%v / %m  (%p%)")
+        self._progress_bar.setVisible(False)
+        layout.addWidget(self._progress_bar)
+
     def _start_updates(self) -> None:
         """Start polling the device for image data."""
         self._timer = QTimer(self)
@@ -163,6 +170,7 @@ class OphydImageView(QWidget):
                 if image_data is not None:
                     self._display_array(image_data, image_plugin)
                     self._update_roi_stats()
+                    self._update_progress()
         except Exception as e:
             logger.warning(f"Failed to update image: {e}")
 
@@ -352,6 +360,42 @@ class OphydImageView(QWidget):
             return ""
         intensity = image[row, col]
         return f"x={x:.1f}  y={y:.1f}  I={intensity:.0f}"
+
+    def _update_progress(self) -> None:
+        """Update the acquisition progress bar from device counters."""
+        cam = getattr(self._device, "cam", None)
+        if cam is None:
+            self._progress_bar.setVisible(False)
+            return
+        try:
+            acquiring = getattr(cam, "acquire", None)
+            if acquiring is None or not acquiring.get():
+                self._progress_bar.setVisible(False)
+                return
+            # Try HDF5 plugin first
+            hdf5 = getattr(self._device, "hdf5", None)
+            if hdf5 is not None:
+                capture = getattr(hdf5, "capture", None)
+                if capture is not None and capture.get():
+                    current = int(hdf5.num_captured.get())
+                    total = int(cam.num_images.get())
+                    self._progress_bar.setMaximum(total)
+                    self._progress_bar.setValue(current)
+                    self._progress_bar.setVisible(True)
+                    return
+            # Fall back to cam.array_counter
+            counter = getattr(cam, "array_counter", None)
+            num_images = getattr(cam, "num_images", None)
+            if counter is not None and num_images is not None:
+                current = int(counter.get())
+                total = int(num_images.get())
+                self._progress_bar.setMaximum(total)
+                self._progress_bar.setValue(current)
+                self._progress_bar.setVisible(True)
+                return
+            self._progress_bar.setVisible(False)
+        except Exception:
+            self._progress_bar.setVisible(False)
 
     def close(self) -> None:
         """Stop updates and clean up."""

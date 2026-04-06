@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, PropertyMock
 
 import numpy as np
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QProgressBar
 
 from lucid.ui.widgets.camera.image_view import OphydImageView
 
@@ -297,4 +297,48 @@ class TestROIStats:
         view = OphydImageView(device)
         view._update_roi_stats()
         assert not view._stats_text.isVisible()
+        view.close()
+
+
+class TestProgressBar:
+    """Acquisition progress tracking."""
+
+    def test_progress_bar_exists_and_hidden(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        view.show()
+        assert isinstance(view._progress_bar, QProgressBar)
+        assert not view._progress_bar.isVisible()
+        view.close()
+
+    def test_update_progress_from_cam(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        view._timer.stop()
+        view.show()
+
+        device.cam = MagicMock()
+        device.cam.array_counter.get.return_value = 5
+        device.cam.num_images.get.return_value = 10
+        device.cam.acquire.get.return_value = 1
+        device.configure_mock(**{"hdf5": None})
+
+        view._update_progress()
+        assert view._progress_bar.isVisible()
+        assert view._progress_bar.value() == 5
+        assert view._progress_bar.maximum() == 10
+        view.close()
+
+    def test_progress_hides_when_idle(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        view._timer.stop()
+        view.show()
+
+        device.cam = MagicMock()
+        device.cam.acquire.get.return_value = 0
+        device.configure_mock(**{"hdf5": None})
+
+        view._update_progress()
+        assert not view._progress_bar.isVisible()
         view.close()
