@@ -142,3 +142,78 @@ class TestToolbar:
 
         view._reset_axes_btn.click()
         view.close()
+
+
+class TestLogIntensity:
+    """Log intensity: displayed image is log-scaled, histogram shows true values."""
+
+    def test_log_mode_off_by_default(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        assert view._log_mode is False
+        view.close()
+
+    def test_toggle_log_mode(self, qapp):
+        device = _make_mock_device()
+        view = OphydImageView(device)
+        view._log_intensity_btn.setChecked(True)
+        assert view._log_mode is True
+        view._log_intensity_btn.setChecked(False)
+        assert view._log_mode is False
+        view.close()
+
+    def test_log_mode_displays_log_data(self, qapp):
+        """ImageItem should contain log1p(data) when log mode is on."""
+        data = np.full((100, 100), 100, dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._log_intensity_btn.setChecked(True)
+        view._display_array(data)
+
+        displayed = view._image_item.image
+        expected = np.log1p(data.astype(np.float64))
+        np.testing.assert_allclose(displayed, expected, rtol=1e-5)
+        view.close()
+
+    def test_linear_mode_displays_raw_data(self, qapp):
+        """ImageItem should contain raw data when log mode is off."""
+        data = np.full((100, 100), 100, dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._log_intensity_btn.setChecked(False)
+        view._display_array(data)
+
+        displayed = view._image_item.image
+        np.testing.assert_array_equal(displayed, data)
+        view.close()
+
+    def test_histogram_levels_in_real_units(self, qapp):
+        """Histogram level handles should operate in real intensity units."""
+        data = np.random.randint(10, 1000, (100, 100), dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._display_array(data)
+        levels_linear = view._histogram.getLevels()
+
+        view._log_intensity_btn.setChecked(True)
+        view._display_array(data)
+        levels_log = view._histogram.getLevels()
+
+        # Histogram levels stay in real units regardless of log mode
+        assert abs(levels_linear[0] - levels_log[0]) < 1.0
+        assert abs(levels_linear[1] - levels_log[1]) < 1.0
+        view.close()
+
+    def test_raw_image_cached(self, qapp):
+        """_raw_image should always contain the original un-transformed data."""
+        data = np.full((100, 100), 42, dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+
+        view._log_intensity_btn.setChecked(True)
+        view._display_array(data)
+        np.testing.assert_array_equal(view._raw_image, data)
+        view.close()

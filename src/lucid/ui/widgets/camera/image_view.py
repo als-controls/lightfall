@@ -38,6 +38,8 @@ class OphydImageView(QWidget):
         self._timer: QTimer | None = None
         self._first_frame = True
         self._log_mode = False
+        self._raw_image: np.ndarray | None = None
+        self._updating_levels = False  # guard against recursive level updates
 
         self._setup_ui()
         self._start_updates()
@@ -96,9 +98,14 @@ class OphydImageView(QWidget):
         self._graphics_view.setCentralItem(self._plot_item)
         h_layout.addWidget(self._graphics_view, stretch=1)
 
-        # HistogramLUTItem for color scale control
+        # HistogramLUTItem for color scale control (manually wired, not
+        # using setImageItem, so we can decouple log-scaled display from
+        # linear histogram bins/levels).
         self._histogram = pg.HistogramLUTItem()
-        self._histogram.setImageItem(self._image_item)
+        self._histogram.sigLevelsChanged.connect(self._apply_display_levels)
+        self._histogram.gradient.sigGradientChanged.connect(
+            self._on_gradient_changed,
+        )
 
         self._hist_view = pg.GraphicsView()
         self._hist_view.setCentralItem(self._histogram)
@@ -136,8 +143,9 @@ class OphydImageView(QWidget):
     def _display_array(self, array: np.ndarray, image_plugin: Any = None) -> None:
         """Process and display a numpy array.
 
-        First frame: autoLevels=True to set initial LUT range.
-        Subsequent frames: autoLevels=False to preserve user adjustments.
+        First frame: auto-scale histogram levels from raw data range.
+        Subsequent frames: preserve user-adjusted levels.
+        Log mode: ImageItem shows log1p(data); histogram stays in real units.
         """
         if array is None or array.size == 0:
             return
@@ -154,11 +162,32 @@ class OphydImageView(QWidget):
         if arr.ndim != 2:
             return
 
-        auto_levels = self._first_frame
-        self._image_item.setImage(arr, autoLevels=auto_levels)
+        # Always cache raw data
+        self._raw_image = arr
+
+        # Update histogram bins from raw data
+        self._update_histogram(arr)
+
+        # Determine what to display
+        if self._log_mode:
+            display_arr = np.log1p(arr.astype(np.float64))
+        else:
+            display_arr = arr
+
+        # Set image without auto-levels (we manage levels manually)
+        self._image_item.setImage(display_arr, autoLevels=False)
+
         if self._first_frame:
             self._first_frame = False
+            # Set histogram levels from raw data range
+            mn, mx = float(arr.min()), float(arr.max())
+            if mn == mx:
+                mx = mn + 1.0
+            self._histogram.setLevels(mn, mx)
             self._plot_item.getViewBox().autoRange()
+
+        # Apply current levels to the displayed image
+        self._apply_display_levels()
 
     def _get_image_dimensions(self, image_plugin: Any = None) -> tuple[int | None, int | None]:
         """Get image width and height from plugin or cam."""
@@ -195,8 +224,46 @@ class OphydImageView(QWidget):
         self._plot_item.getViewBox().autoRange()
 
     def _on_log_intensity_toggled(self, checked: bool) -> None:
-        """Toggle log intensity display. Full implementation in Task 4."""
+        """Toggle log intensity display and re-render the current frame."""
         self._log_mode = checked
+        if self._raw_image is not None:
+            if self._log_mode:
+                display_arr = np.log1p(self._raw_image.astype(np.float64))
+            else:
+                display_arr = self._raw_image
+            self._image_item.setImage(display_arr, autoLevels=False)
+            self._apply_display_levels()
+
+    def _update_histogram(self, arr: np.ndarray) -> None:
+        """Compute histogram of raw data and update the histogram widget."""
+        vals = arr.ravel()
+        hist_y, hist_x = np.histogram(vals, bins=256)
+        hist_x_centers = (hist_x[:-1] + hist_x[1:]) / 2
+        self._histogram.plot.setData(hist_x_centers, hist_y)
+
+    def _apply_display_levels(self) -> None:
+        """Map histogram levels (real units) to the displayed ImageItem.
+
+        In log mode the real-unit levels are transformed via log1p before
+        being applied, so the ImageItem (which holds log-scaled pixels)
+        gets the correct clipping range.
+        """
+        if self._updating_levels:
+            return
+        self._updating_levels = True
+        try:
+            lo, hi = self._histogram.getLevels()
+            if self._log_mode:
+                lo = np.log1p(max(lo, 0.0))
+                hi = np.log1p(max(hi, 0.0))
+            self._image_item.setLevels([lo, hi])
+        finally:
+            self._updating_levels = False
+
+    def _on_gradient_changed(self) -> None:
+        """Propagate colormap changes from the histogram to the ImageItem."""
+        lut = self._histogram.gradient.getLookupTable(256)
+        self._image_item.setLookupTable(lut)
 
     def close(self) -> None:
         """Stop updates and clean up."""
