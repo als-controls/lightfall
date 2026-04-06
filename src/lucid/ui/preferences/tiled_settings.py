@@ -187,6 +187,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         api_key = self._api_key_edit.text() if self._api_key_edit else None
         if api_key:
             api_key = api_key.strip() or None
+        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
 
         if not url:
             self._status_label.setText("Enter a URL first")
@@ -205,7 +206,7 @@ class TiledSettingsPlugin(SettingsPlugin):
             from lucid.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
-            success, message = service.test_connection(url, api_key)
+            success, message = service.test_connection(url, api_key, auth_mode=auth_mode)
 
             if success:
                 self._status_label.setText("Connected!")

@@ -586,12 +586,18 @@ class TiledService(QObject):
         self._set_state(TiledConnectionState.DISCONNECTED, "Disconnected from Tiled server")
         logger.info("Disconnected from Tiled server")
 
-    def test_connection(self, url: str, api_key: str | None = None) -> tuple[bool, str]:
+    def test_connection(
+        self,
+        url: str,
+        api_key: str | None = None,
+        auth_mode: str | None = None,
+    ) -> tuple[bool, str]:
         """Test connection to a Tiled server without modifying state.
 
         Args:
             url: Tiled server URL to test.
             api_key: Optional API key.
+            auth_mode: Authentication mode ("none", "api_key", "keycloak").
 
         Returns:
             Tuple of (success, message).
@@ -603,7 +609,12 @@ class TiledService(QObject):
             from tiled.client import from_uri
 
             kwargs = {}
-            if api_key:
+            if auth_mode == "keycloak":
+                headers = self._get_keycloak_headers()
+                if not headers:
+                    return False, "Not authenticated — log in to Keycloak first"
+                kwargs["headers"] = headers
+            elif api_key:
                 kwargs["api_key"] = api_key
 
             proxy_url = TiledService._get_proxy_url(url)
