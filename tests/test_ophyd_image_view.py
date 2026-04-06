@@ -98,17 +98,20 @@ class TestLUTBehavior:
         assert levels_after_first == levels_after_second
         view.close()
 
-    def test_reset_lut_flag(self, qapp):
-        """reset_lut() should re-enable auto-levels for next frame."""
+    def test_reset_lut_recalculates_levels(self, qapp):
+        """reset_lut() should recalculate levels from current image."""
         data = np.random.randint(0, 100, (100, 100), dtype=np.uint16)
         device = _make_mock_device(data)
         view = OphydImageView(device)
 
         view._display_array(data)
-        assert view._first_frame is False
+        # Manually set levels to something wrong
+        view._histogram.setLevels(0, 1)
 
         view.reset_lut()
-        assert view._first_frame is True
+        lo, hi = view._histogram.getLevels()
+        # Should have recalculated from the data
+        assert hi > 1
         view.close()
 
 
@@ -125,16 +128,17 @@ class TestToolbar:
         assert view._log_intensity_btn.isCheckable()
         view.close()
 
-    def test_reset_lut_button_resets_flag(self, qapp):
+    def test_reset_lut_button_recalculates(self, qapp):
         data = np.random.randint(0, 100, (100, 100), dtype=np.uint16)
         device = _make_mock_device(data)
         view = OphydImageView(device)
 
         view._display_array(data)
-        assert view._first_frame is False
+        view._histogram.setLevels(0, 1)
 
         view._reset_lut_btn.click()
-        assert view._first_frame is True
+        lo, hi = view._histogram.getLevels()
+        assert hi > 1
         view.close()
 
     def test_reset_axes_button_calls_autorange(self, qapp):
@@ -244,15 +248,26 @@ class TestCrosshair:
         view.close()
 
     def test_format_coordinates(self, qapp):
-        """_format_coordinates should produce x=... y=... I=... string."""
+        """_format_coordinates should produce x=... y=... I=... string.
+
+        Note: A CCW rotation transform is applied, so we test by checking
+        that the function returns a properly formatted string with
+        intensity from the raw image when given valid mapped coordinates.
+        We use the ImageItem's own mapping to find a valid view position.
+        """
         data = np.ones((100, 100), dtype=np.uint16) * 42
         device = _make_mock_device(data)
         view = OphydImageView(device)
         view._display_array(data)
 
-        text = view._format_coordinates(50.0, 25.0)
-        assert "x=50.0" in text
-        assert "y=25.0" in text
+        # Map a known pixel position (50, 25) to view coords via the transform
+        from PySide6.QtCore import QPointF
+
+        px_pt = QPointF(50, 25)
+        view_pt = view._image_item.mapToView(px_pt)
+        text = view._format_coordinates(view_pt.x(), view_pt.y())
+        assert "x=50" in text
+        assert "y=25" in text
         assert "I=42" in text
         view.close()
 
@@ -263,8 +278,9 @@ class TestCrosshair:
         view = OphydImageView(device)
         view._display_array(data)
 
-        assert view._format_coordinates(-1, 50) == ""
-        assert view._format_coordinates(50, 200) == ""
+        # Use very large view coordinates that definitely map outside the image
+        assert view._format_coordinates(-9999, -9999) == ""
+        assert view._format_coordinates(9999, 9999) == ""
         view.close()
 
 

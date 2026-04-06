@@ -3,20 +3,23 @@
 Displays live image data with:
 - Axis ticks via PlotItem
 - Histogram/LUT control
-- Correct orientation (row 0 at top)
+- Correct orientation (row 0 at top, CCW rotation applied via QTransform)
 - Efficient frame updates via ImageItem.setImage()
 
-The LUT is auto-scaled on the first frame received, then held stable.
-Users reset it manually via the Reset LUT button (added in a later task).
+The LUT is auto-scaled on the first frame received using percentile bounds
+(second-lowest as min, 99th percentile as max). Subsequent frames preserve
+the user's manual LUT adjustments until Reset LUT is pressed.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
@@ -31,6 +34,9 @@ class OphydImageView(QWidget):
 
     Uses PlotItem for axes, ImageItem for rendering, and HistogramLUTItem
     for color scale control. Polls the device's image plugin at ~10 fps.
+
+    Image orientation is handled entirely via QTransform on the ImageItem
+    (CCW rotation + Y-axis inversion), not by preprocessing the data array.
     """
 
     def __init__(self, ophyd_device: Any, parent: QWidget | None = None) -> None:
@@ -98,9 +104,14 @@ class OphydImageView(QWidget):
         self._plot_item.setLabel("bottom", "x (px)")
         self._plot_item.setLabel("left", "y (px)")
 
-        # ImageItem lives inside the PlotItem
+        # ImageItem lives inside the PlotItem.
+        # Orientation is handled via QTransform: CCW 90° rotation.
+        # This is applied once and stays — no per-frame data manipulation.
         self._image_item = pg.ImageItem()
         self._image_item.setOpts(axisOrder="row-major")
+        self._image_transform = QTransform()
+        self._image_transform.rotate(-90)
+        self._image_item.setTransform(self._image_transform)
         self._plot_item.addItem(self._image_item)
 
         # ROI stats overlay
@@ -187,7 +198,7 @@ class OphydImageView(QWidget):
     def _display_array(self, array: np.ndarray, image_plugin: Any = None) -> None:
         """Process and display a numpy array.
 
-        First frame: auto-scale histogram levels from raw data range.
+        First frame: auto-scale histogram levels using percentile bounds.
         Subsequent frames: preserve user-adjusted levels.
         Log mode: ImageItem shows log1p(data); histogram stays in real units.
         """
@@ -213,12 +224,11 @@ class OphydImageView(QWidget):
         # Always cache raw data
         self._raw_image = arr
 
-        # Update histogram bins from raw data
-        self._update_histogram(arr)
-
         # Determine what to display
         if self._log_mode:
-            display_arr = np.log1p(arr.astype(np.float64))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                display_arr = np.log1p(arr.astype(np.float64))
         else:
             display_arr = arr
 
@@ -227,15 +237,17 @@ class OphydImageView(QWidget):
 
         if self._first_frame:
             self._first_frame = False
-            # Set histogram levels from raw data range
-            mn, mx = float(arr.min()), float(arr.max())
-            if mn == mx:
-                mx = mn + 1.0
-            self._histogram.setLevels(mn, mx)
-            self._plot_item.getViewBox().autoRange()
+            # Percentile-based LUT: second-lowest as min, 99th percentile as max
+            self._auto_levels()
+            self.reset_axes()
 
         # Apply current levels to the displayed image
         self._apply_display_levels()
+
+        # Update histogram bins (throttled — only every Nth frame)
+        self._frame_count = getattr(self, "_frame_count", 0) + 1
+        if self._frame_count % 5 == 1:  # every 5th frame
+            self._update_histogram(arr)
 
     def _get_image_dimensions(self, image_plugin: Any = None) -> tuple[int | None, int | None]:
         """Get image width and height from plugin or cam."""
@@ -264,30 +276,96 @@ class OphydImageView(QWidget):
         return None, None
 
     def reset_lut(self) -> None:
-        """Reset LUT to auto-scale on the next frame."""
-        self._first_frame = True
+        """Reset LUT using percentile-based bounds from current image."""
+        if self._raw_image is not None:
+            self._auto_levels()
+            self._apply_display_levels()
+        else:
+            self._first_frame = True
 
     def reset_axes(self) -> None:
-        """Reset view to fit the entire image."""
-        self._plot_item.getViewBox().autoRange()
+        """Reset view to fit the image bounds exactly.
+
+        Sets the view range to match the image dimensions rather than
+        using autoRange which can add padding or behave unexpectedly
+        with transforms.
+        """
+        if self._raw_image is not None:
+            h, w = self._raw_image.shape[:2]
+            vb = self._plot_item.getViewBox()
+            # Set range to image pixel bounds; the ImageItem's transform
+            # maps these to view coordinates.
+            bounds = self._image_item.mapRectToView(
+                self._image_item.boundingRect()
+            )
+            vb.setRange(bounds, padding=0.02)
+        else:
+            self._plot_item.getViewBox().autoRange()
+
+    def _auto_levels(self) -> None:
+        """Set histogram levels using percentile-based bounds.
+
+        Uses second-lowest value as min and 99th percentile as max,
+        following Xi-CAM's approach. This excludes hot pixels and dead
+        pixels from dominating the color scale.
+        """
+        arr = self._raw_image
+        if arr is None:
+            return
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+
+            # Subsample large images for speed
+            step = max(1, arr.size // 1_000_000)
+            data = arr.ravel()[::step].astype(np.float64)
+
+            img_min = np.nanmin(data)
+            img_max = np.nanmax(data)
+
+            if img_min == img_max:
+                self._histogram.setLevels(float(img_min), float(img_min + 1))
+                return
+
+            # Second-lowest value as min (excludes dead pixels at exact min)
+            lo = float(np.min(data, where=data > img_min, initial=img_max))
+            # 99th percentile as max (excludes hot pixels)
+            hi = float(np.nanpercentile(
+                np.where(data < img_max, data, img_min), 99
+            ))
+
+            if lo >= hi:
+                lo = float(img_min)
+                hi = float(img_max)
+
+            self._histogram.setLevels(lo, hi)
 
     def _on_log_intensity_toggled(self, checked: bool) -> None:
         """Toggle log intensity display and re-render the current frame."""
         self._log_mode = checked
         if self._raw_image is not None:
             if self._log_mode:
-                display_arr = np.log1p(self._raw_image.astype(np.float64))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    display_arr = np.log1p(self._raw_image.astype(np.float64))
             else:
                 display_arr = self._raw_image
             self._image_item.setImage(display_arr, autoLevels=False)
             self._apply_display_levels()
 
     def _update_histogram(self, arr: np.ndarray) -> None:
-        """Compute histogram of raw data and update the histogram widget."""
-        vals = arr.ravel()
-        hist_y, hist_x = np.histogram(vals, bins=256)
-        hist_x_centers = (hist_x[:-1] + hist_x[1:]) / 2
-        self._histogram.plot.setData(hist_x_centers, hist_y)
+        """Compute histogram of raw data and update the histogram widget.
+
+        Subsamples large images for speed. Called every Nth frame to avoid
+        being a bottleneck.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            step = max(1, arr.size // 500_000)
+            vals = arr.ravel()[::step]
+            hist_y, hist_x = np.histogram(vals, bins=256)
+            hist_x_centers = (hist_x[:-1] + hist_x[1:]) / 2
+            self._histogram.plot.setData(hist_x_centers, hist_y)
 
     def _apply_display_levels(self) -> None:
         """Map histogram levels (real units) to the displayed ImageItem.
@@ -365,15 +443,28 @@ class OphydImageView(QWidget):
             self._coords_label.setText("")
 
     def _format_coordinates(self, x: float, y: float) -> str:
-        """Format pixel coordinates and intensity at (x, y)."""
-        image = self._raw_image  # Use raw image for true intensity values
+        """Format pixel coordinates and intensity at view position (x, y).
+
+        Maps view coordinates back to pixel coordinates through the
+        ImageItem's inverse transform to get the correct array index
+        regardless of any rotation/flip applied.
+        """
+        image = self._raw_image
         if image is None:
             return ""
-        row, col = int(y), int(x)
+
+        from PySide6.QtCore import QPointF
+
+        # Map view coords → ImageItem local coords (undoes the CCW rotation)
+        view_pt = QPointF(x, y)
+        px_pt = self._image_item.mapFromView(view_pt)
+        col, row = int(px_pt.x()), int(px_pt.y())
+
         if row < 0 or col < 0 or row >= image.shape[0] or col >= image.shape[1]:
             return ""
+
         intensity = image[row, col]
-        return f"x={x:.1f}  y={y:.1f}  I={intensity:.0f}"
+        return f"x={col}  y={row}  I={intensity:.0f}"
 
     def _update_progress(self) -> None:
         """Update the acquisition progress bar from device counters."""
