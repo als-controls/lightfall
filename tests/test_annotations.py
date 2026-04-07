@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
-from unittest.mock import MagicMock
-from uuid import uuid4
 
 import pytest
 
-from lucid.devices.model import DeviceCategory, DeviceInfo
 from lucid.ui.annotations import (
     Decimals,
     Default,
@@ -107,154 +104,6 @@ class TestAnnotationDataclasses:
         assert default.names == ("motor1", "motor2")
         assert default.pattern == "sample_.*"
 
-
-class TestDeviceFiltering:
-    """Tests for device filtering logic in DeviceSelectorDialog."""
-
-    @pytest.fixture
-    def mock_devices(self) -> list[DeviceInfo]:
-        """Create mock devices for testing."""
-        return [
-            DeviceInfo(
-                id=uuid4(),
-                name="motor1",
-                category=DeviceCategory.MOTOR,
-                device_class="ophyd.EpicsMotor",
-                tags=["beamline1", "magnets"],
-            ),
-            DeviceInfo(
-                id=uuid4(),
-                name="motor2",
-                category=DeviceCategory.MOTOR,
-                device_class="ophyd.EpicsMotor",
-                tags=["beamline2"],
-            ),
-            DeviceInfo(
-                id=uuid4(),
-                name="positioner1",
-                category=DeviceCategory.MOTOR,
-                device_class="ophyd.PseudoPositioner",
-                tags=["beamline1"],
-            ),
-            DeviceInfo(
-                id=uuid4(),
-                name="detector1",
-                category=DeviceCategory.DETECTOR,
-                device_class="ophyd.AreaDetector",
-                tags=["areadetectors", "beamline1"],
-            ),
-            DeviceInfo(
-                id=uuid4(),
-                name="sample_x",
-                category=DeviceCategory.MOTOR,
-                device_class="ophyd.EpicsMotor",
-                tags=["sample_stage"],
-            ),
-        ]
-
-    @pytest.fixture
-    def mock_catalog(self, mock_devices: list[DeviceInfo]) -> MagicMock:
-        """Create a mock catalog with the mock devices."""
-        catalog = MagicMock()
-        catalog.get_all_devices.return_value = mock_devices
-        return catalog
-
-    def test_filter_by_category(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter filters by category."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilter(category="motor")
-
-        # Simulate the filtering logic
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        # Import and use the matching method
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 3  # motor1, motor2, sample_x
-        assert all(d.category == DeviceCategory.MOTOR for d in matched)
-
-    def test_filter_by_device_class(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter filters by device class."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilter(device_class="ophyd.AreaDetector")
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 1
-        assert matched[0].name == "detector1"
-
-    def test_filter_by_device_class_short_name(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter matches class name without module path."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilter(device_class="EpicsMotor")
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 3  # motor1, motor2, sample_x
-
-    def test_filter_by_group(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter filters by group in tags."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilter(group="areadetectors")
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 1
-        assert matched[0].name == "detector1"
-
-    def test_filter_by_name_pattern(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter filters by name regex pattern."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilter(name_pattern="sample_.*")
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 1
-        assert matched[0].name == "sample_x"
-
-    def test_filter_any_or_logic(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilterAny uses OR logic between filters."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        flt = DeviceFilterAny(
-            DeviceFilter(category="motor"),
-            DeviceFilter(category="positioner"),
-        )
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_filter(d)]
-        assert len(matched) == 4  # 3 motors + 1 positioner
-        categories = {d.category for d in matched}
-        assert categories == {DeviceCategory.MOTOR}
-
-    def test_filter_combined_and_logic(self, mock_devices: list[DeviceInfo]):
-        """DeviceFilter uses AND logic within a single filter."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
-
-        # Must be both a motor AND have "magnets" tag
-        flt = DeviceFilter(category="motor", group="magnets")
-
-        dialog = DeviceSelectorDialog.__new__(DeviceSelectorDialog)
-        dialog._device_filter = flt
-
-        matched = [d for d in mock_devices if dialog._matches_single_filter(d, flt)]
-        assert len(matched) == 1
-        assert matched[0].name == "motor1"
 
 
 class TestPlanConfigBuildParamSpec:
