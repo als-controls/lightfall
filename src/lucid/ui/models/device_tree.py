@@ -931,6 +931,7 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
 
         # Kind filter: set of kinds to show (None means show all)
         self._visible_kinds: set[str] | None = None
+        self._show_inactive: bool = True
 
     def set_visible_kinds(self, kinds: set[str] | None) -> None:
         """Set which kinds should be visible.
@@ -946,6 +947,15 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
         """Get the currently visible kinds."""
         return self._visible_kinds
 
+    def set_show_inactive(self, show: bool) -> None:
+        """Toggle visibility of inactive (disabled) devices."""
+        self._show_inactive = show
+        self.invalidateFilter()
+
+    def get_show_inactive(self) -> bool:
+        """Whether inactive devices are currently shown."""
+        return self._show_inactive
+
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         """Check if row should be shown.
 
@@ -954,6 +964,13 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
         """
         source_model = self.sourceModel()
         index = source_model.index(source_row, 0, source_parent)
+
+        # Check active filter (top-level devices only)
+        if not self._show_inactive:
+            item = index.internalPointer()
+            if item is not None and item.device_info is not None:
+                if not item.device_info.active:
+                    return False
 
         # Check text filter
         pattern = self.filterRegularExpression().pattern()

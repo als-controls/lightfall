@@ -377,7 +377,27 @@ class DevicePanel(BasePanel):
         collapse_action.triggered.connect(lambda: self._tree_view.collapseAll())
         toolbar.addAction(collapse_action)
 
+        toolbar.addSeparator()
+
+        # Toggle inactive device visibility
+        self._show_inactive_action = QAction(
+            qta.icon("mdi6.eye"), "Show Disabled", self
+        )
+        self._show_inactive_action.setToolTip("Show or hide disabled devices")
+        self._show_inactive_action.setCheckable(True)
+        self._show_inactive_action.setChecked(True)
+        self._show_inactive_action.toggled.connect(self._on_toggle_inactive)
+        toolbar.addAction(self._show_inactive_action)
+
         return toolbar
+
+    def _on_toggle_inactive(self, checked: bool) -> None:
+        """Toggle visibility of inactive devices."""
+        import qtawesome as qta
+
+        self._proxy_model.set_show_inactive(checked)
+        icon_name = "mdi6.eye" if checked else "mdi6.eye-closed"
+        self._show_inactive_action.setIcon(qta.icon(icon_name))
 
     def _expand_to_depth(self, depth: int) -> None:
         """Expand tree to specified depth."""
