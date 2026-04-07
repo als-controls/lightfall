@@ -10,9 +10,42 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyModel, Qt
+from PySide6.QtGui import QIcon
 
 if TYPE_CHECKING:
     from lucid.devices.model import DeviceCategory, DeviceInfo
+
+
+# Category -> QtAwesome icon name (matches device_selector.py)
+_CATEGORY_ICON_MAP: dict[str, str] = {
+    "motor": "mdi6.engine",
+    "detector": "mdi6.camera",
+    "controller": "mdi6.tune-variant",
+}
+_SIGNAL_ICON = "mdi6.signal-variant"
+
+# Lazily populated icon cache
+_icon_cache: dict[str, QIcon] = {}
+
+
+def _get_category_icon(category_value: str | None, node_type: str) -> QIcon | None:
+    """Get a cached QtAwesome icon for a device category or signal."""
+    if node_type == "signal":
+        key = "_signal"
+        icon_name = _SIGNAL_ICON
+    elif category_value and category_value in _CATEGORY_ICON_MAP:
+        key = category_value
+        icon_name = _CATEGORY_ICON_MAP[category_value]
+    else:
+        return None
+
+    if key not in _icon_cache:
+        try:
+            import qtawesome as qta
+            _icon_cache[key] = qta.icon(icon_name)
+        except Exception:
+            _icon_cache[key] = QIcon()
+    return _icon_cache[key]
 
 
 class DeviceSelectionItem:
@@ -204,6 +237,9 @@ class DeviceSelectionModel(QAbstractItemModel):
 
         if role == Qt.ItemDataRole.DisplayRole:
             return item.name
+        elif role == Qt.ItemDataRole.DecorationRole:
+            cat_value = item.category.value if item.category else None
+            return _get_category_icon(cat_value, item.node_type)
         elif role == Qt.ItemDataRole.CheckStateRole:
             return item.check_state
         elif role == Qt.ItemDataRole.ToolTipRole:
