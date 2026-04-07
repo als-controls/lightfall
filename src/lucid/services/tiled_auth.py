@@ -7,15 +7,13 @@ requests using tokens from the SessionManager.
 from __future__ import annotations
 
 from collections.abc import Generator
-from typing import TYPE_CHECKING
+
+import httpx
 
 from lucid.utils.logging import logger
 
-if TYPE_CHECKING:
-    import httpx
 
-
-class KeycloakTiledAuth:
+class KeycloakTiledAuth(httpx.Auth):
     """httpx.Auth that uses Keycloak tokens from SessionManager.
 
     This auth class fetches fresh tokens from the SessionManager for each
