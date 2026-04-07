@@ -289,7 +289,7 @@ class TestMockBackendIntegration:
         backend = MockBackend()
         backend.connect()
 
-        devices = backend.list_devices(category=DeviceCategory.CAMERA)
+        devices = backend.list_devices(category=DeviceCategory.DETECTOR)
         names = [d.name for d in devices]
         assert "sim_det" in names
 

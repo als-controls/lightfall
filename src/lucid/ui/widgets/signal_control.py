@@ -50,7 +50,7 @@ def is_signal_item(item: DeviceTreeItem) -> bool:
 
     # Accept device nodes with signal category
     if item.node_type == NodeType.DEVICE:
-        if item.device_info and item.device_info.category == DeviceCategory.SIGNAL:
+        if item.device_info and item.device_info.category == DeviceCategory.DETECTOR:
             return True
 
         # Check ophyd object class name

@@ -82,7 +82,7 @@ def is_area_detector(item: DeviceTreeItem) -> bool:
 
     # Check device category from device_info - only CAMERA, not DETECTOR
     if item.device_info:
-        if item.device_info.category == DeviceCategory.CAMERA:
+        if item.device_info.category == DeviceCategory.DETECTOR:
             return True
 
     # Check ophyd object class name for area detector patterns

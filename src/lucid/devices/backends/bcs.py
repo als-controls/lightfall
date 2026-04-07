@@ -29,8 +29,8 @@ from lucid.devices.model import (
 # BCS itemType to NCS DeviceCategory mapping
 BCS_TYPE_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
-    "ai": DeviceCategory.SIGNAL,
     "detector": DeviceCategory.DETECTOR,
+    "ai": DeviceCategory.CONTROLLER,
 }
 
 
@@ -218,7 +218,7 @@ class BCSBackend(DeviceBackend):
 
         # Extract item type and map to category
         item_type = metadata.get("itemType") or metadata.get("item_type", "other")
-        category = BCS_TYPE_MAP.get(str(item_type).lower(), DeviceCategory.OTHER)
+        category = BCS_TYPE_MAP.get(str(item_type).lower(), DeviceCategory.CONTROLLER)
 
         # Get device name
         name = metadata.get("name", str(happi_item))

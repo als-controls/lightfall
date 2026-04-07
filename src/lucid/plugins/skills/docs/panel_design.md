@@ -521,12 +521,7 @@ device_info.ophyd_device # The actual ophyd device instance (may be None)
 
 ### DeviceCategory Enum
 
-Available categories:
-- `DeviceCategory.MOTOR` - Motion stages, motors
-- `DeviceCategory.DETECTOR` - Area detectors, counters
-- `DeviceCategory.SENSOR` - Temperature, pressure, etc.
-- `DeviceCategory.CONTROLLER` - IOCs, controllers
-- `DeviceCategory.SIGNAL` - EPICS signals, PVs
-- `DeviceCategory.POSITIONER` - Generic positioners
-- `DeviceCategory.CAMERA` - Cameras, imaging devices
-- `DeviceCategory.OTHER` - Uncategorized devices
+Available categories (independent vs dependent variable classification):
+- `DeviceCategory.MOTOR` - Physical read/write (motors, positioners, slits) — independent variable
+- `DeviceCategory.DETECTOR` - Measures something (detectors, cameras, sensors, diodes, signals) — dependent variable
+- `DeviceCategory.CONTROLLER` - Non-physical read/write (temperature controllers, delay generators, power supplies) — independent variable, catch-all default

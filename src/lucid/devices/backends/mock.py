@@ -251,7 +251,7 @@ class MockBackend(DeviceBackend):
         temp_info = DeviceInfo(
             name="temperature",
             description="Sample temperature sensor",
-            category=DeviceCategory.SENSOR,
+            category=DeviceCategory.DETECTOR,
             device_class="ophyd.sim.SynSignal",
             connection_type=ConnectionType.SIMULATED,
             prefix="temperature",
@@ -267,7 +267,7 @@ class MockBackend(DeviceBackend):
         pressure_info = DeviceInfo(
             name="pressure",
             description="Chamber pressure sensor",
-            category=DeviceCategory.SENSOR,
+            category=DeviceCategory.DETECTOR,
             device_class="ophyd.sim.SynSignal",
             connection_type=ConnectionType.SIMULATED,
             prefix="pressure",
@@ -284,7 +284,7 @@ class MockBackend(DeviceBackend):
         ring_info = DeviceInfo(
             name="ring_current",
             description="Storage ring current",
-            category=DeviceCategory.SENSOR,
+            category=DeviceCategory.DETECTOR,
             device_class="ophyd.sim.SynSignal",
             connection_type=ConnectionType.SIMULATED,
             prefix="ring_current",
@@ -313,7 +313,7 @@ class MockBackend(DeviceBackend):
             sim_det_info = DeviceInfo(
                 name="sim_det",
                 description="Simulated area detector for testing",
-                category=DeviceCategory.CAMERA,
+                category=DeviceCategory.DETECTOR,
                 device_class="lucid.devices.sim.areadetector.SimDetector",
                 connection_type=ConnectionType.SIMULATED,
                 prefix="sim_det",

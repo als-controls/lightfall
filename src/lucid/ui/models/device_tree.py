@@ -308,34 +308,39 @@ class DeviceTreeItem:
         return ""
 
     def get_device_category(self) -> str:
-        """Get device category for icon selection."""
+        """Get device category for icon selection.
+
+        Priority:
+        1. Explicit category from device metadata
+        2. ophyd base class introspection (Positioner → motor,
+           AreaDetector/Signal → detector)
+        3. Fallback: controller (catch-all)
+        """
         if self.device_info:
             return self.device_info.category.value
 
         if self.ophyd_obj is None:
-            return "other"
-
-        cls_name = type(self.ophyd_obj).__name__.lower()
-
-        if "motor" in cls_name or "axis" in cls_name or "positioner" in cls_name:
-            return "motor"
-        elif "detector" in cls_name or "gauss" in cls_name:
-            return "detector"
-        elif "camera" in cls_name or "img" in cls_name or "image" in cls_name:
-            return "camera"
-        elif "signal" in cls_name:
-            return "signal"
+            return "controller"
 
         # Check by ophyd base classes
         try:
-            from ophyd import Signal
+            from ophyd import PositionerBase
 
-            if isinstance(self.ophyd_obj, Signal):
-                return "signal"
+            if isinstance(self.ophyd_obj, PositionerBase):
+                return "motor"
         except ImportError:
             pass
 
-        return "device"
+        try:
+            from ophyd.areadetector.detectors import DetectorBase
+            from ophyd.signal import Signal
+
+            if isinstance(self.ophyd_obj, (DetectorBase, Signal)):
+                return "detector"
+        except ImportError:
+            pass
+
+        return "controller"
 
 
 class DeviceTreeModel(QAbstractItemModel):
@@ -398,13 +403,9 @@ class DeviceTreeModel(QAbstractItemModel):
         """Create icons for device types and connection states."""
         # Device type icons
         icon_specs = {
-            "motor": ("#4CAF50", "M"),  # Green
-            "detector": ("#2196F3", "D"),  # Blue
-            "camera": ("#9C27B0", "C"),  # Purple
-            "sensor": ("#FF9800", "S"),  # Orange
-            "signal": ("#607D8B", "s"),  # Gray
-            "device": ("#795548", "d"),  # Brown
-            "other": ("#9E9E9E", "?"),  # Gray
+            "motor": ("#4CAF50", "M"),  # Green - physical read/write
+            "detector": ("#2196F3", "D"),  # Blue - measures something
+            "controller": ("#FF9800", "C"),  # Orange - non-physical read/write
         }
 
         for name, (color, letter) in icon_specs.items():
@@ -719,7 +720,7 @@ class DeviceTreeModel(QAbstractItemModel):
 
     def get_icon(self, category: str) -> QIcon:
         """Get icon for a device category."""
-        return self._icons.get(category, self._icons["other"])
+        return self._icons.get(category, self._icons["controller"])
 
     @property
     def root_item(self) -> DeviceTreeItem:

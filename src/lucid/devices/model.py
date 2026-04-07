@@ -18,17 +18,16 @@ from pydantic import BaseModel, Field
 
 
 class DeviceCategory(str, Enum):
-    """Categories of devices."""
+    """Categories of devices.
+
+    Motor: physical read/write (independent variable)
+    Detector: measures something (dependent variable)
+    Controller: non-physical read/write (independent variable, catch-all default)
+    """
 
     MOTOR = "motor"
     DETECTOR = "detector"
-    SENSOR = "sensor"
     CONTROLLER = "controller"
-    SIGNAL = "signal"
-    POSITIONER = "positioner"
-    CAMERA = "camera"
-    OPTIC = "optic"
-    OTHER = "other"
 
 
 class DeviceStatus(str, Enum):
@@ -173,7 +172,7 @@ class DeviceInfo(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
     description: str = ""
-    category: DeviceCategory = DeviceCategory.OTHER
+    category: DeviceCategory = DeviceCategory.CONTROLLER
     device_class: str = ""  # e.g., "ophyd.EpicsMotor", "ophyd.sim.SynAxis"
     connection_type: ConnectionType = ConnectionType.SIMULATED
     prefix: str = ""  # EPICS PV prefix or other connection identifier

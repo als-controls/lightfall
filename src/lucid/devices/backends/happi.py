@@ -36,12 +36,15 @@ from lucid.devices.model import (
 # Order matters: first match wins (more specific classes should come first).
 _BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
     # (module, class_name, category)
-    ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
-    ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
-    ("ophyd.signal", "Signal", DeviceCategory.SIGNAL),
+    # Order matters: first match wins (more specific classes first).
+    # Positioner-based classes → Motor (physical read/write)
     ("ophyd", "MotorBundle", DeviceCategory.MOTOR),
     ("ophyd.epics_motor", "EpicsMotor", DeviceCategory.MOTOR),
     ("ophyd.positioner", "PositionerBase", DeviceCategory.MOTOR),
+    # Area detectors and signals → Detector (measures something)
+    ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
+    ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
+    ("ophyd.signal", "Signal", DeviceCategory.DETECTOR),
 ]
 
 # Fallback: happi functional_group / item type keywords
@@ -53,13 +56,12 @@ _HAPPI_NATIVE_KEYS = {
 _FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
+    "slit": DeviceCategory.MOTOR,
     "detector": DeviceCategory.DETECTOR,
     "areadetector": DeviceCategory.DETECTOR,
-    "signal": DeviceCategory.SIGNAL,
-    "slit": DeviceCategory.MOTOR,
-    "lens": DeviceCategory.OPTIC,
-    "mirror": DeviceCategory.OPTIC,
-    "attenuator": DeviceCategory.OPTIC,
+    "signal": DeviceCategory.DETECTOR,
+    "sensor": DeviceCategory.DETECTOR,
+    "diode": DeviceCategory.DETECTOR,
 }
 
 
@@ -124,7 +126,7 @@ def _guess_category(item: Any) -> DeviceCategory:
         if key in func_group:
             return cat
 
-    return DeviceCategory.OTHER
+    return DeviceCategory.CONTROLLER
 
 
 def _guess_connection_type(item: Any) -> ConnectionType:

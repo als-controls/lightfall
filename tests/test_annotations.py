@@ -131,7 +131,7 @@ class TestDeviceFiltering:
             DeviceInfo(
                 id=uuid4(),
                 name="positioner1",
-                category=DeviceCategory.POSITIONER,
+                category=DeviceCategory.MOTOR,
                 device_class="ophyd.PseudoPositioner",
                 tags=["beamline1"],
             ),
@@ -239,7 +239,7 @@ class TestDeviceFiltering:
         matched = [d for d in mock_devices if dialog._matches_filter(d)]
         assert len(matched) == 4  # 3 motors + 1 positioner
         categories = {d.category for d in matched}
-        assert categories == {DeviceCategory.MOTOR, DeviceCategory.POSITIONER}
+        assert categories == {DeviceCategory.MOTOR}
 
     def test_filter_combined_and_logic(self, mock_devices: list[DeviceInfo]):
         """DeviceFilter uses AND logic within a single filter."""

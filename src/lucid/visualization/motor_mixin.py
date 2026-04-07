@@ -284,7 +284,7 @@ class VisualizationMotorMixin:
             return None
 
         # Verify it's a motor or positioner
-        if device_info.category not in (DeviceCategory.MOTOR, DeviceCategory.POSITIONER):
+        if device_info.category != DeviceCategory.MOTOR:
             logger.debug(
                 "Device '{}' is not a motor (category: {})",
                 field_name,
