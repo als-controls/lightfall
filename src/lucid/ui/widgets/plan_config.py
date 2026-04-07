@@ -160,6 +160,7 @@ def resolve_string_annotation(annotation: Any, func: Callable | None = None) -> 
             DeviceDefault,
             DeviceFilter,
             DeviceFilterAny,
+            DeviceIcon,
             Range,
             Unit,
         )
@@ -171,6 +172,7 @@ def resolve_string_annotation(annotation: Any, func: Callable | None = None) -> 
             "DeviceFilter": DeviceFilter,
             "DeviceFilterAny": DeviceFilterAny,
             "DeviceDefault": DeviceDefault,
+            "DeviceIcon": DeviceIcon,
         })
     except ImportError:
         pass
@@ -481,21 +483,67 @@ class PlanConfigWidget(QWidget):
         spec: dict[str, Any] = {"name": name}
 
         if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
-            # Use custom DeviceParameter type
+            from lucid.devices.model import DeviceCategory as DC
+            from lucid.ui.annotations import DeviceDefault, DeviceIcon
+
             spec["type"] = "device"
             spec["value"] = []
             spec["catalog"] = self._catalog
             spec["multi_select"] = category == ParamCategory.DEVICES
 
-            # Process metadata for device parameters
             for meta in metadata:
-                if isinstance(meta, (DeviceFilter, DeviceFilterAny)):
-                    spec["device_filter"] = meta
+                if isinstance(meta, DeviceFilter):
+                    # Translate category to set[DeviceCategory]
+                    if meta.category is not None:
+                        if isinstance(meta.category, set):
+                            spec["categories"] = {DC(c) for c in meta.category}
+                        else:
+                            spec["categories"] = {DC(meta.category)}
+                    if meta.device_class is not None:
+                        spec.setdefault("filter_func_parts", []).append(
+                            lambda m, dc=meta.device_class: (
+                                m["device_info"] is not None
+                                and (
+                                    m["device_info"].device_class == dc
+                                    or m["device_info"].device_class.rsplit(".", 1)[-1] == dc
+                                )
+                            )
+                        )
+                    if meta.group is not None:
+                        spec.setdefault("filter_func_parts", []).append(
+                            lambda m, g=meta.group: (
+                                m["device_info"] is not None
+                                and g in m["device_info"].tags
+                            )
+                        )
+                    if meta.name_pattern is not None:
+                        import re as _re
+                        spec.setdefault("filter_func_parts", []).append(
+                            lambda m, p=meta.name_pattern: bool(
+                                _re.match(p, m["name"], _re.IGNORECASE)
+                            )
+                        )
+                elif isinstance(meta, DeviceFilterAny):
+                    # Collect all categories from sub-filters
+                    cats: set[DC] = set()
+                    for flt in meta.filters:
+                        if flt.category is not None:
+                            if isinstance(flt.category, set):
+                                cats.update(DC(c) for c in flt.category)
+                            else:
+                                cats.add(DC(flt.category))
+                    if cats:
+                        spec["categories"] = cats
                 elif isinstance(meta, DeviceDefault):
-                    spec["device_default"] = meta
-                    # Initialize value from DeviceDefault names for initial display
                     if meta.names:
                         spec["value"] = list(meta.names)
+                elif isinstance(meta, DeviceIcon):
+                    spec["icon"] = meta.name
+
+            # Combine filter_func_parts into a single filter_func
+            parts = spec.pop("filter_func_parts", [])
+            if parts:
+                spec["filter_func"] = lambda m, _parts=parts: all(f(m) for f in _parts)
         else:
             # Use standard parameter type
             param_type, extra_opts = annotation_to_param_type(base_type)

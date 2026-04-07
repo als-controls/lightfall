@@ -18,6 +18,7 @@ from lucid.ui.annotations import (
     Range,
     Unit,
 )
+from lucid.acquire.plans import PlanInfo
 from lucid.ui.widgets.plan_config import extract_annotated_metadata
 
 
@@ -357,69 +358,112 @@ class TestPlanConfigBuildParamSpec:
         assert spec["tip"] == "Position in mm"
 
     def test_device_param_with_filter(self, config_widget):
-        """Device parameter with DeviceFilter annotation."""
-        # Type hint for a motor device with filter
-        annotation = Annotated[Any, DeviceFilter(category="motor")]
+        """DeviceFilter annotation creates device parameter with categories."""
+        from lucid.devices.model import DeviceCategory
 
-        # We need to mock catalog
-        config_widget._catalog = MagicMock()
+        def plan(
+            motor: Annotated[Any, DeviceFilter(category="motor")],
+        ):
+            pass
 
-        spec = config_widget._build_param_spec(
-            name="motor",  # Name triggers device category
-            annotation=annotation,
-            default=None,
-            doc="Motor to move",
-        )
-        assert spec["type"] == "device"
-        assert spec["multi_select"] is False  # Single device for "motor" name
-        assert "device_filter" in spec
-        assert spec["device_filter"].category == "motor"
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
+
+        root = config_widget._root_param
+        motor_param = root.child("motor")
+        assert motor_param is not None
+        assert motor_param.opts["type"] == "device"
+        assert motor_param.opts["categories"] == {DeviceCategory.MOTOR}
+        assert motor_param.opts["multi_select"] is False
+
+    def test_device_param_with_multi_category(self, config_widget):
+        """DeviceFilter with set category creates multi-category filter."""
+        from lucid.devices.model import DeviceCategory
+
+        def plan(
+            devices: Annotated[list, DeviceFilter(category={"motor", "controller"})],
+        ):
+            pass
+
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
+
+        root = config_widget._root_param
+        param = root.child("devices")
+        assert param is not None
+        assert param.opts["categories"] == {
+            DeviceCategory.MOTOR, DeviceCategory.CONTROLLER
+        }
+
+    def test_device_param_with_icon(self, config_widget):
+        """DeviceIcon annotation sets icon on parameter spec."""
+        from lucid.ui.annotations import DeviceIcon
+
+        def plan(
+            motor: Annotated[Any, DeviceFilter(category="motor"), DeviceIcon("mdi6.engine")],
+        ):
+            pass
+
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
+
+        root = config_widget._root_param
+        motor_param = root.child("motor")
+        assert motor_param.opts.get("icon") == "mdi6.engine"
+
+    def test_device_default_becomes_initial_selection(self, config_widget):
+        """DeviceDefault translates to initial value on the parameter."""
+        def plan(
+            detectors: Annotated[list, DeviceFilter(category="detector"), DeviceDefault("det1")],
+        ):
+            pass
+
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
+
+        root = config_widget._root_param
+        param = root.child("detectors")
+        assert param is not None
+        assert param.value() == ["det1"]
 
     def test_device_param_with_filter_any(self, config_widget):
-        """Device parameter with DeviceFilterAny annotation."""
-        # Type hint for motor or positioner
-        annotation = Annotated[
-            Any,
-            DeviceFilterAny(
+        """DeviceFilterAny annotation extracts categories."""
+        from lucid.devices.model import DeviceCategory
+
+        def plan(
+            axis: Annotated[Any, DeviceFilterAny(
                 DeviceFilter(category="motor"),
-                DeviceFilter(category="positioner"),
-            ),
-        ]
+                DeviceFilter(category="controller"),
+            )],
+        ):
+            pass
 
-        config_widget._catalog = MagicMock()
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
 
-        spec = config_widget._build_param_spec(
-            name="motor",
-            annotation=annotation,
-            default=None,
-            doc="Motor or positioner",
-        )
-        assert spec["type"] == "device"
-        assert "device_filter" in spec
-        assert isinstance(spec["device_filter"], DeviceFilterAny)
-        assert len(spec["device_filter"].filters) == 2
+        root = config_widget._root_param
+        axis_param = root.child("axis")
+        assert axis_param is not None
+        assert axis_param.opts["type"] == "device"
+        assert axis_param.opts["categories"] == {DeviceCategory.MOTOR, DeviceCategory.CONTROLLER}
 
     def test_device_param_with_default(self, config_widget):
-        """Device parameter with DeviceDefault annotation."""
-        annotation = Annotated[
-            Any,
-            DeviceFilter(category="detector"),
-            DeviceDefault("det1", "det2"),
-        ]
+        """DeviceDefault annotation sets initial value."""
+        def plan(
+            detectors: Annotated[list, DeviceFilter(category="detector"),
+                                 DeviceDefault("det1", "det2")],
+        ):
+            pass
 
-        config_widget._catalog = MagicMock()
+        plan_info = PlanInfo.from_function("test", plan, "test")
+        config_widget.set_plan(plan_info)
 
-        spec = config_widget._build_param_spec(
-            name="detectors",  # Name triggers multi-select
-            annotation=annotation,
-            default=None,
-            doc="Detectors to read",
-        )
-        assert spec["type"] == "device"
-        assert spec["multi_select"] is True
-        assert "device_filter" in spec
-        assert "device_default" in spec
-        assert spec["device_default"].names == ("det1", "det2")
+        root = config_widget._root_param
+        param = root.child("detectors")
+        assert param is not None
+        assert param.opts["type"] == "device"
+        assert param.opts["multi_select"] is True
+        assert param.value() == ["det1", "det2"]
 
 
 class TestDeviceIcon:
