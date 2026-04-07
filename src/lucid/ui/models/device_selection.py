@@ -16,13 +16,13 @@ if TYPE_CHECKING:
     from lucid.devices.model import DeviceCategory, DeviceInfo
 
 
-# Category -> QtAwesome icon name (matches device_selector.py)
-_CATEGORY_ICON_MAP: dict[str, str] = {
-    "motor": "mdi6.engine",
-    "detector": "mdi6.camera",
-    "controller": "mdi6.tune-variant",
+# Category -> (QtAwesome icon name, color)
+_CATEGORY_ICON_SPECS: dict[str, tuple[str, str]] = {
+    "motor": ("mdi6.engine", "#4CAF50"),  # Green
+    "detector": ("mdi6.camera", "#2196F3"),  # Blue
+    "controller": ("mdi6.tune-variant", "#FF9800"),  # Orange
 }
-_SIGNAL_ICON = "mdi6.signal-variant"
+_SIGNAL_ICON_SPEC = ("mdi6.signal-variant", "#607D8B")  # Gray
 
 # Lazily populated icon cache
 _icon_cache: dict[str, QIcon] = {}
@@ -32,17 +32,17 @@ def _get_category_icon(category_value: str | None, node_type: str) -> QIcon | No
     """Get a cached QtAwesome icon for a device category or signal."""
     if node_type == "signal":
         key = "_signal"
-        icon_name = _SIGNAL_ICON
-    elif category_value and category_value in _CATEGORY_ICON_MAP:
+        icon_name, color = _SIGNAL_ICON_SPEC
+    elif category_value and category_value in _CATEGORY_ICON_SPECS:
         key = category_value
-        icon_name = _CATEGORY_ICON_MAP[category_value]
+        icon_name, color = _CATEGORY_ICON_SPECS[category_value]
     else:
         return None
 
     if key not in _icon_cache:
         try:
             import qtawesome as qta
-            _icon_cache[key] = qta.icon(icon_name)
+            _icon_cache[key] = qta.icon(icon_name, color=color)
         except Exception:
             _icon_cache[key] = QIcon()
     return _icon_cache[key]

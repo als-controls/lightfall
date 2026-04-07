@@ -401,15 +401,21 @@ class DeviceTreeModel(QAbstractItemModel):
 
     def _create_icons(self) -> None:
         """Create icons for device types and connection states."""
-        # Device type icons
-        icon_specs = {
-            "motor": ("#4CAF50", "M"),  # Green - physical read/write
-            "detector": ("#2196F3", "D"),  # Blue - measures something
-            "controller": ("#FF9800", "C"),  # Orange - non-physical read/write
+        # Device type icons — QtAwesome with category colors
+        _qta_specs = {
+            "motor": ("mdi6.engine", "#4CAF50"),  # Green
+            "detector": ("mdi6.camera", "#2196F3"),  # Blue
+            "controller": ("mdi6.tune-variant", "#FF9800"),  # Orange
         }
-
-        for name, (color, letter) in icon_specs.items():
-            self._icons[name] = self._create_letter_icon(color, letter)
+        try:
+            import qtawesome as qta
+            for name, (icon_name, color) in _qta_specs.items():
+                self._icons[name] = qta.icon(icon_name, color=color)
+        except Exception:
+            # Fallback to painted letter circles if qtawesome unavailable
+            _fallback = {"motor": ("#4CAF50", "M"), "detector": ("#2196F3", "D"), "controller": ("#FF9800", "C")}
+            for name, (color, letter) in _fallback.items():
+                self._icons[name] = self._create_letter_icon(color, letter)
 
         # Connection status icons (small dots for status column)
         status_specs = {
