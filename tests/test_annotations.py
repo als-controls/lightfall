@@ -420,3 +420,47 @@ class TestPlanConfigBuildParamSpec:
         assert "device_filter" in spec
         assert "device_default" in spec
         assert spec["device_default"].names == ("det1", "det2")
+
+
+class TestDeviceIcon:
+    """Tests for DeviceIcon annotation."""
+
+    def test_device_icon_stores_name(self):
+        """DeviceIcon stores the icon name."""
+        from lucid.ui.annotations import DeviceIcon
+
+        icon = DeviceIcon("mdi6.engine")
+        assert icon.name == "mdi6.engine"
+
+    def test_device_icon_is_frozen(self):
+        """DeviceIcon is immutable."""
+        from lucid.ui.annotations import DeviceIcon
+
+        icon = DeviceIcon("mdi6.engine")
+        with pytest.raises(AttributeError):
+            icon.name = "other"
+
+
+class TestDeviceFilterMultiCategory:
+    """Tests for DeviceFilter multi-category support."""
+
+    def test_category_as_string(self):
+        """DeviceFilter.category accepts a string (backwards compatible)."""
+        from lucid.ui.annotations import DeviceFilter
+
+        flt = DeviceFilter(category="motor")
+        assert flt.category == "motor"
+
+    def test_category_as_set(self):
+        """DeviceFilter.category accepts a set of strings."""
+        from lucid.ui.annotations import DeviceFilter
+
+        flt = DeviceFilter(category={"motor", "controller"})
+        assert flt.category == {"motor", "controller"}
+
+    def test_category_default_none(self):
+        """DeviceFilter.category defaults to None."""
+        from lucid.ui.annotations import DeviceFilter
+
+        flt = DeviceFilter()
+        assert flt.category is None

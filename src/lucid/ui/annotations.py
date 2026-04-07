@@ -109,7 +109,7 @@ class DeviceFilter:
     """
 
     device_class: str | None = None
-    category: str | None = None
+    category: str | set[str] | None = None
     group: str | None = None
     source: str | None = None
     name_pattern: str | None = None
@@ -177,6 +177,24 @@ class DeviceDefault:
         object.__setattr__(self, "pattern", pattern)
 
 
+@dataclass(frozen=True)
+class DeviceIcon:
+    """QtAwesome icon identifier for the device parameter button.
+
+    Specifies which icon to show on the device selector button in the
+    plan configuration UI. If the icon string has no dot prefix,
+    ``mdi6.`` is prepended automatically.
+
+    Args:
+        name: QtAwesome icon identifier (e.g., ``"mdi6.engine"``, ``"camera"``).
+
+    Example:
+        motor: Annotated[Device, DeviceFilter(category="motor"), DeviceIcon("engine")]
+    """
+
+    name: str
+
+
 # Type alias for convenience
 __all__ = [
     "Unit",
@@ -186,4 +204,5 @@ __all__ = [
     "DeviceFilter",
     "DeviceFilterAny",
     "DeviceDefault",
+    "DeviceIcon",
 ]
