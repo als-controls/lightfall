@@ -189,7 +189,9 @@ class TiledService(QObject):
             if self._config.auth_mode == TiledAuthMode.API_KEY and self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
             elif self._config.auth_mode == TiledAuthMode.KEYCLOAK:
-                kwargs["headers"] = self._get_keycloak_headers()
+                from lucid.services.tiled_auth import KeycloakTiledAuth
+
+                kwargs["auth"] = KeycloakTiledAuth()
                 logger.debug("Using Keycloak authentication for Tiled (sync)")
             elif self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
@@ -487,7 +489,9 @@ class TiledService(QObject):
         if auth_mode == TiledAuthMode.API_KEY and api_key:
             kwargs["api_key"] = api_key
         elif auth_mode == TiledAuthMode.KEYCLOAK:
-            kwargs["headers"] = self._get_keycloak_headers()
+            from lucid.services.tiled_auth import KeycloakTiledAuth
+
+            kwargs["auth"] = KeycloakTiledAuth()
             logger.debug("Using Keycloak authentication for Tiled")
 
         # Proxy setup
@@ -610,10 +614,13 @@ class TiledService(QObject):
 
             kwargs = {}
             if auth_mode == "keycloak":
+                from lucid.services.tiled_auth import KeycloakTiledAuth
+
+                # Check that we have a token before attempting
                 headers = self._get_keycloak_headers()
                 if not headers:
                     return False, "Not authenticated — log in to Keycloak first"
-                kwargs["headers"] = headers
+                kwargs["auth"] = KeycloakTiledAuth()
             elif api_key:
                 kwargs["api_key"] = api_key
 
