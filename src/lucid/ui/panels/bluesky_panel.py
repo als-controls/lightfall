@@ -373,6 +373,10 @@ class BlueskyPanel(BasePanel):
     ) -> dict:
         """Resolve device names to actual ophyd device objects.
 
+        Checks the pyqtgraph parameter type (``"device"``) to identify
+        device parameters, then resolves name strings via the catalog.
+        Multi-select parameters stay as lists; single-select are unwrapped.
+
         Args:
             plan_info: Plan info with parameter metadata.
             kwargs: Parameter values (device names as strings/lists).
@@ -380,58 +384,41 @@ class BlueskyPanel(BasePanel):
         Returns:
             kwargs with device names replaced by ophyd device objects.
         """
-        from lucid.ui.widgets.plan_config import ParamCategory, get_param_category
-
         catalog = DeviceCatalog.get_instance()
         resolved = {}
 
-        for key, value in kwargs.items():
-            # Find the parameter info to determine if it's a device param
-            param_info = next(
-                (p for p in plan_info.parameters if p.name == key), None
-            )
+        # Use the live pyqtgraph parameter tree to determine types
+        root_param = self._plan_config._root_param
 
-            if param_info is None:
+        for key, value in kwargs.items():
+            child = root_param.child(key) if root_param else None
+
+            is_device = child is not None and child.opts.get("type") == "device"
+            if not is_device:
                 resolved[key] = value
                 continue
 
-            category = get_param_category(param_info.name, param_info.annotation)
+            multi_select = child.opts.get("multi_select", True)
 
-            if category == ParamCategory.DEVICES:
-                # Multi-device parameter (e.g., detectors) - resolve list of names
-                if isinstance(value, list):
-                    devices = []
-                    for name in value:
-                        device = catalog.get_ophyd_device(name)
-                        if device is not None:
-                            devices.append(device)
-                        else:
-                            logger.warning(f"Device not found: {name}")
+            if isinstance(value, list):
+                devices = []
+                for name in value:
+                    device = catalog.get_ophyd_device(name)
+                    if device is not None:
+                        devices.append(device)
+                    else:
+                        logger.warning(f"Device not found: {name}")
+
+                if multi_select:
                     resolved[key] = devices
+                elif len(devices) == 1:
+                    resolved[key] = devices[0]
                 else:
-                    resolved[key] = value
-
-            elif category == ParamCategory.DEVICE:
-                # Single device parameter (e.g., motor) - resolve single name
-                if isinstance(value, list) and len(value) == 1:
-                    # Single-select returns list with one item
-                    device = catalog.get_ophyd_device(value[0])
-                    if device is not None:
-                        resolved[key] = device
-                    else:
-                        logger.warning(f"Device not found: {value[0]}")
-                        resolved[key] = value[0]
-                elif isinstance(value, str):
-                    device = catalog.get_ophyd_device(value)
-                    if device is not None:
-                        resolved[key] = device
-                    else:
-                        logger.warning(f"Device not found: {value}")
-                        resolved[key] = value
-                else:
-                    resolved[key] = value
+                    resolved[key] = devices
+            elif isinstance(value, str):
+                device = catalog.get_ophyd_device(value)
+                resolved[key] = device if device is not None else value
             else:
-                # Not a device parameter, pass through
                 resolved[key] = value
 
         return resolved
