@@ -263,7 +263,8 @@ class DeviceSelectionModel(QAbstractItemModel):
             return False
         if role == Qt.ItemDataRole.CheckStateRole:
             item: DeviceSelectionItem = index.internalPointer()
-            item.check_state = value
+            # Normalize to Qt.CheckState — QTreeView may pass raw int
+            item.check_state = Qt.CheckState(value) if not isinstance(value, Qt.CheckState) else value
             self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
             return True
         return False
