@@ -403,25 +403,63 @@ class BlueskyPanel(BasePanel):
             if isinstance(value, list):
                 devices = []
                 for name in value:
-                    device = catalog.get_ophyd_device(name)
+                    device = self._resolve_single_device(catalog, name)
                     if device is not None:
                         devices.append(device)
                     else:
-                        logger.warning(f"Device not found: {name}")
+                        logger.warning(
+                            f"Could not resolve device '{name}' for "
+                            f"parameter '{key}' — not connected?"
+                        )
 
                 if multi_select:
                     resolved[key] = devices
                 elif len(devices) == 1:
                     resolved[key] = devices[0]
+                elif not devices:
+                    raise ValueError(
+                        f"Device parameter '{key}': no devices could be "
+                        f"resolved from {value}"
+                    )
                 else:
                     resolved[key] = devices
             elif isinstance(value, str):
-                device = catalog.get_ophyd_device(value)
-                resolved[key] = device if device is not None else value
+                device = self._resolve_single_device(catalog, value)
+                if device is not None:
+                    resolved[key] = device
+                else:
+                    raise ValueError(
+                        f"Device parameter '{key}': could not resolve "
+                        f"'{value}' — not connected?"
+                    )
             else:
                 resolved[key] = value
 
         return resolved
+
+    @staticmethod
+    def _resolve_single_device(catalog: DeviceCatalog, name: str) -> Any:
+        """Resolve a device name to an ophyd object.
+
+        First checks if the device already has an ophyd instance.
+        If not, attempts to instantiate it via the backend.
+        """
+        device_info = catalog.get_device_by_name(name)
+        if device_info is None:
+            return None
+
+        # Already instantiated?
+        if device_info.ophyd_device is not None:
+            return device_info.ophyd_device
+
+        # Try to connect on demand
+        logger.info(f"Device '{name}' not connected — requesting connection")
+        try:
+            catalog.request_device_connection(device_info.id)
+        except Exception as e:
+            logger.warning(f"Failed to connect '{name}': {e}")
+
+        return device_info.ophyd_device
 
     @Slot()
     def _on_run_start(self) -> None:
