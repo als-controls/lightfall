@@ -6,9 +6,10 @@ with a filter proxy for category, writability, kind, and custom filters.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt
+from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyModel, Qt
 
 if TYPE_CHECKING:
     from lucid.devices.model import DeviceCategory, DeviceInfo
@@ -263,3 +264,81 @@ class DeviceSelectionModel(QAbstractItemModel):
                 idx = self.createIndex(i, 0, child)
                 self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.CheckStateRole])
             self._apply_checked(child, paths)
+
+
+class DeviceSelectionFilterProxy(QSortFilterProxyModel):
+    """Filter/sort proxy for the device selection model."""
+
+    def __init__(self, parent: Any = None) -> None:
+        super().__init__(parent)
+        self._categories = None  # set | None
+        self._writable_only = False
+        self._kinds = None  # set[str] | None
+        self._filter_func: Callable | None = None
+        self._search_text = ""
+        self._sort_key: Callable | None = None
+        self.setRecursiveFilteringEnabled(True)
+
+    def _apply_filter(self) -> None:
+        self.beginFilterChange()
+        self.endFilterChange()
+
+    def set_categories(self, categories: set | None) -> None:
+        self._categories = categories
+        self._apply_filter()
+
+    def set_writable_only(self, writable_only: bool) -> None:
+        self._writable_only = writable_only
+        self._apply_filter()
+
+    def set_kinds(self, kinds: set[str] | None) -> None:
+        self._kinds = kinds
+        self._apply_filter()
+
+    def set_filter_func(self, func: Callable | None) -> None:
+        self._filter_func = func
+        self._apply_filter()
+
+    def set_search_text(self, text: str) -> None:
+        self._search_text = text.lower()
+        self._apply_filter()
+
+    def set_sort_key(self, key: Callable | None) -> None:
+        self._sort_key = key
+        self.invalidate()
+
+    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+        idx = self.sourceModel().index(source_row, 0, source_parent)
+        if not idx.isValid():
+            return False
+        item: DeviceSelectionItem = idx.internalPointer()
+        return self._item_passes(item)
+
+    def _item_passes(self, item: DeviceSelectionItem) -> bool:
+        if self._categories is not None and item.category not in self._categories:
+            return False
+        if self._writable_only and not item.is_writable:
+            return False
+        if self._kinds is not None and item.kind not in self._kinds:
+            return False
+        if self._search_text:
+            haystack = item.dotted_path.lower()
+            desc = ""
+            if item.device_info and item.device_info.description:
+                desc = item.device_info.description.lower()
+            if self._search_text not in haystack and self._search_text not in desc:
+                return False
+        if self._filter_func is not None and not self._filter_func(item.metadata_dict()):
+            return False
+        return True
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        if self._sort_key is not None:
+            source = self.sourceModel()
+            left_meta = source.data(left, DeviceSelectionModel.MetadataDictRole)
+            right_meta = source.data(right, DeviceSelectionModel.MetadataDictRole)
+            if left_meta is not None and right_meta is not None:
+                return self._sort_key(left_meta) < self._sort_key(right_meta)
+        left_name = self.sourceModel().data(left, Qt.ItemDataRole.DisplayRole) or ""
+        right_name = self.sourceModel().data(right, Qt.ItemDataRole.DisplayRole) or ""
+        return left_name < right_name

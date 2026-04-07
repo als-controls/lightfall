@@ -191,3 +191,91 @@ class TestDeviceSelectionModel:
         assert writability.get("readback") is False
         # setpoint is writable
         assert writability.get("setpoint") is True
+
+
+from lucid.ui.models.device_selection import DeviceSelectionFilterProxy  # noqa: E402
+
+
+class TestDeviceSelectionFilterProxy:
+    @pytest.fixture
+    def motor_and_detector(self, qapp):
+        devices = [
+            _make_device_info("motor1", DeviceCategory.MOTOR),
+            _make_device_info("det1", DeviceCategory.DETECTOR),
+        ]
+        catalog = _make_catalog(devices)
+        model = DeviceSelectionModel(catalog, show_tree=True)
+        proxy = DeviceSelectionFilterProxy()
+        proxy.setSourceModel(model)
+        return model, proxy
+
+    def test_no_filter_shows_all(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        assert proxy.rowCount() == 2
+
+    def test_category_filter(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_categories({DeviceCategory.MOTOR})
+        assert proxy.rowCount() == 1
+        idx = proxy.index(0, 0)
+        assert proxy.data(idx, Qt.ItemDataRole.DisplayRole) == "motor1"
+
+    def test_category_filter_none_shows_all(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_categories({DeviceCategory.MOTOR})
+        assert proxy.rowCount() == 1
+        proxy.set_categories(None)
+        assert proxy.rowCount() == 2
+
+    def test_writable_only(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_categories({DeviceCategory.MOTOR})
+        proxy.set_writable_only(True)
+        assert proxy.rowCount() == 1
+        motor_idx = proxy.index(0, 0)
+        visible_names = []
+        for row in range(proxy.rowCount(motor_idx)):
+            child_idx = proxy.index(row, 0, motor_idx)
+            visible_names.append(proxy.data(child_idx, Qt.ItemDataRole.DisplayRole))
+        assert "readback" not in visible_names
+        assert "setpoint" in visible_names
+
+    def test_kind_filter(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_categories({DeviceCategory.MOTOR})
+        proxy.set_kinds({"config"})
+        motor_idx = proxy.index(0, 0)
+        visible_names = []
+        for row in range(proxy.rowCount(motor_idx)):
+            child_idx = proxy.index(row, 0, motor_idx)
+            visible_names.append(proxy.data(child_idx, Qt.ItemDataRole.DisplayRole))
+        assert "velocity" in visible_names
+        assert "unused" not in visible_names
+
+    def test_search_text(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_search_text("det")
+        assert proxy.rowCount() == 1
+        idx = proxy.index(0, 0)
+        assert proxy.data(idx, Qt.ItemDataRole.DisplayRole) == "det1"
+
+    def test_custom_filter_func(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_filter_func(lambda meta: meta["name"].startswith("motor"))
+        assert proxy.rowCount() == 1
+
+    def test_custom_sort_key(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_sort_key(lambda meta: meta["name"])
+        proxy.sort(0, Qt.SortOrder.DescendingOrder)
+        first = proxy.data(proxy.index(0, 0), Qt.ItemDataRole.DisplayRole)
+        second = proxy.data(proxy.index(1, 0), Qt.ItemDataRole.DisplayRole)
+        assert first == "motor1"
+        assert second == "det1"
+
+    def test_parent_visible_if_child_matches(self, motor_and_detector):
+        model, proxy = motor_and_detector
+        proxy.set_search_text("setpoint")
+        assert proxy.rowCount() == 1
+        idx = proxy.index(0, 0)
+        assert proxy.data(idx, Qt.ItemDataRole.DisplayRole) == "motor1"
