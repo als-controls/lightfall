@@ -399,6 +399,8 @@ class DeviceTreeModel(QAbstractItemModel):
         self._value_timer.start(2000)  # Every 2 seconds
         logger.info("DeviceTreeModel.__init__() END")
 
+    _INACTIVE_COLOR = "#9E9E9E"
+
     def _create_icons(self) -> None:
         """Create icons for device types and connection states."""
         # Device type icons — QtAwesome with category colors
@@ -411,11 +413,17 @@ class DeviceTreeModel(QAbstractItemModel):
             import qtawesome as qta
             for name, (icon_name, color) in _qta_specs.items():
                 self._icons[name] = qta.icon(icon_name, color=color)
+                self._icons[f"{name}_inactive"] = qta.icon(
+                    icon_name, color=self._INACTIVE_COLOR
+                )
         except Exception:
             # Fallback to painted letter circles if qtawesome unavailable
             _fallback = {"motor": ("#4CAF50", "M"), "detector": ("#2196F3", "D"), "controller": ("#FF9800", "C")}
             for name, (color, letter) in _fallback.items():
                 self._icons[name] = self._create_letter_icon(color, letter)
+                self._icons[f"{name}_inactive"] = self._create_letter_icon(
+                    self._INACTIVE_COLOR, letter
+                )
 
         # Connection status icons (small dots for status column)
         status_specs = {
@@ -820,6 +828,11 @@ class DeviceTreeModel(QAbstractItemModel):
         elif role == Qt.ItemDataRole.DecorationRole:
             if index.column() == 0:
                 category = item.get_device_category()
+                active = item.device_info.active if item.device_info else True
+                if not active:
+                    inactive = self._icons.get(f"{category}_inactive")
+                    if inactive is not None:
+                        return inactive
                 return self.get_icon(category)
             elif index.column() == 2:
                 # Status column icon

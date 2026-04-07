@@ -23,21 +23,28 @@ _CATEGORY_ICON_SPECS: dict[str, tuple[str, str]] = {
     "controller": ("mdi6.tune-variant", "#FF9800"),  # Orange
 }
 _SIGNAL_ICON_SPEC = ("mdi6.signal-variant", "#607D8B")  # Gray
+_INACTIVE_COLOR = "#9E9E9E"
 
 # Lazily populated icon cache
 _icon_cache: dict[str, QIcon] = {}
 
 
-def _get_category_icon(category_value: str | None, node_type: str) -> QIcon | None:
+def _get_category_icon(
+    category_value: str | None, node_type: str, *, active: bool = True
+) -> QIcon | None:
     """Get a cached QtAwesome icon for a device category or signal."""
     if node_type == "signal":
-        key = "_signal"
+        base_key = "_signal"
         icon_name, color = _SIGNAL_ICON_SPEC
     elif category_value and category_value in _CATEGORY_ICON_SPECS:
-        key = category_value
+        base_key = category_value
         icon_name, color = _CATEGORY_ICON_SPECS[category_value]
     else:
         return None
+
+    if not active:
+        color = _INACTIVE_COLOR
+    key = f"{base_key}_inactive" if not active else base_key
 
     if key not in _icon_cache:
         try:
@@ -239,7 +246,8 @@ class DeviceSelectionModel(QAbstractItemModel):
             return item.name
         elif role == Qt.ItemDataRole.DecorationRole:
             cat_value = item.category.value if item.category else None
-            return _get_category_icon(cat_value, item.node_type)
+            active = item.device_info.active if item.device_info else True
+            return _get_category_icon(cat_value, item.node_type, active=active)
         elif role == Qt.ItemDataRole.CheckStateRole:
             return item.check_state
         elif role == Qt.ItemDataRole.ToolTipRole:
