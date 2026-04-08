@@ -16,6 +16,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Callable
 
 from PySide6.QtCore import (
+    QEvent,
     Property,
     QEasingCurve,
     QObject,
@@ -324,6 +325,9 @@ class TutorialOverlay(QWidget):
         self._callout.skip_clicked.connect(self._on_skip)
         self._callout.hide()
 
+        # Watch parent for resize events so overlay stays full-window
+        parent.installEventFilter(self)
+
     def _get_spotlight_rect(self) -> QRectF:
         return self._spotlight_rect
 
@@ -358,6 +362,9 @@ class TutorialOverlay(QWidget):
 
     def stop(self) -> None:
         """Stop the current tutorial."""
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.removeEventFilter(self)
         self._callout.hide()
         self.hide()
         self._tutorial = None
@@ -602,15 +609,17 @@ class TutorialOverlay(QWidget):
         else:
             super().keyPressEvent(event)
 
-    def resizeEvent(self, event: Any) -> None:
-        """Handle parent resize."""
-        super().resizeEvent(event)
-        if self._tutorial is not None:
-            # Refresh spotlight position (widget may have moved)
-            step = self._tutorial.steps[self._current_step]
-            self._spotlight_rect = self._resolve_target_rect(step)
-            self.update()
-            self._position_callout()
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """Track parent resize so overlay stays full-window."""
+        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            self._resize_to_parent()
+            if self._tutorial is not None:
+                # Refresh spotlight position (widget may have moved)
+                step = self._tutorial.steps[self._current_step]
+                self._spotlight_rect = self._resolve_target_rect(step)
+                self.update()
+                self._position_callout()
+        return False
 
     def showEvent(self, event: Any) -> None:
         super().showEvent(event)
@@ -774,6 +783,20 @@ def _build_welcome_tutorial() -> Tutorial:
             return None
         return window._docking_manager.icon_sidebar
 
+    def _find_sidebar_button(panel_id: str) -> Callable[[], QWidget | None]:
+        """Return a callable that finds a specific sidebar icon button."""
+
+        def finder() -> QWidget | None:
+            window = _find_main_window()
+            if window is None or window._docking_manager is None:
+                return None
+            sidebar = window._docking_manager.icon_sidebar
+            if sidebar is None:
+                return None
+            return sidebar._buttons.get(panel_id)
+
+        return finder
+
     def _find_menubar() -> QWidget | None:
         window = _find_main_window()
         return window.menuBar() if window else None
@@ -802,6 +825,7 @@ def _build_welcome_tutorial() -> Tutorial:
         name="Welcome to LUCID",
         description="A quick tour of the LUCID interface.",
         steps=[
+            # ── Intro ──────────────────────────────────────────────
             TutorialStep(
                 target=None,
                 title="Welcome to LUCID",
@@ -813,17 +837,7 @@ def _build_welcome_tutorial() -> Tutorial:
                     "highlighted area to advance."
                 ),
             ),
-            TutorialStep(
-                target=_find_sidebar,
-                title="Sidebar",
-                message=(
-                    "The icon sidebar gives you quick access to all panels. "
-                    "Click an icon to open or close its panel. "
-                    "You can drag icons to reorder them."
-                ),
-                position=CalloutPosition.RIGHT,
-                target_description="Icon strip sidebar",
-            ),
+            # ── Top-level UI ───────────────────────────────────────
             TutorialStep(
                 target=_find_menubar,
                 title="Menu Bar",
@@ -843,7 +857,7 @@ def _build_welcome_tutorial() -> Tutorial:
                     "Bluesky Run Engine. It turns green when running a "
                     "scan and shows pause/stop controls."
                 ),
-                position=CalloutPosition.BELOW,
+                position=CalloutPosition.AUTO,
                 target_description="RunEngine control widget",
             ),
             TutorialStep(
@@ -857,13 +871,123 @@ def _build_welcome_tutorial() -> Tutorial:
                 position=CalloutPosition.ABOVE,
                 target_description="Status bar",
             ),
+            # ── Sidebar overview ───────────────────────────────────
+            TutorialStep(
+                target=_find_sidebar,
+                title="Sidebar",
+                message=(
+                    "The icon sidebar gives you quick access to all panels. "
+                    "Click an icon to toggle its panel. "
+                    "You can drag icons to reorder them.\n\n"
+                    "Let's walk through the key panels."
+                ),
+                position=CalloutPosition.RIGHT,
+                target_description="Icon strip sidebar",
+            ),
+            # ── Individual panel icons ─────────────────────────────
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.logbook_entries"),
+                title="Logbook Entries",
+                message=(
+                    "The logbook is where you record experiment notes, "
+                    "observations, and results. Entries are saved per-project "
+                    "and can include rich text and attachments."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Logbook Entries sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.bluesky"),
+                title="Bluesky Plans",
+                message=(
+                    "The Bluesky panel is your primary scan interface. "
+                    "Configure and launch scan plans, monitor progress "
+                    "in real time, and review results when complete."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Bluesky sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.tiled_browser"),
+                title="Data Browser (Tiled)",
+                message=(
+                    "Browse and search past experiment data stored in "
+                    "Tiled. Filter by date, plan type, or metadata. "
+                    "Open runs for visualization and analysis."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Tiled Browser sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.devices"),
+                title="Devices",
+                message=(
+                    "View and control all beamline devices: motors, "
+                    "detectors, signals, and more. Devices are organized "
+                    "in a tree you can search and filter."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Devices sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.claude"),
+                title="Claude Assistant",
+                message=(
+                    "An AI assistant that understands your beamline. "
+                    "Ask questions about devices, get help writing scan "
+                    "plans, or troubleshoot issues."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Claude sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.visualization"),
+                title="Visualization",
+                message=(
+                    "Live and post-hoc data visualization. Plots update "
+                    "in real time during scans and support 1D line plots, "
+                    "2D images, and more."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Visualization sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.synoptic"),
+                title="Synoptic",
+                message=(
+                    "A 2D schematic view of the beamline hardware layout. "
+                    "See device status at a glance and click components "
+                    "to open their controls."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Synoptic sidebar button",
+            ),
+            # ── Logbook panel ──────────────────────────────────────
+            TutorialStep(
+                target=_find_panel_dock("lucid.panels.logbook"),
+                title="Logbook Panel",
+                message=(
+                    "The Logbook panel shows your current project notebook. "
+                    "Write Markdown notes, tag entries, and keep a running "
+                    "record of your experiment session."
+                ),
+                position=CalloutPosition.AUTO,
+                target_description="Logbook dock widget",
+            ),
+            # ── Outro ─────────────────────────────────────────────
             TutorialStep(
                 target=None,
                 title="You're all set!",
                 message=(
-                    "That covers the basics. Open panels from the sidebar "
-                    "to explore Bluesky scans, device controls, the "
-                    "logbook, and more.\n\n"
+                    "That covers the basics. Click any sidebar icon to "
+                    "open its panel and start exploring.\n\n"
                     "You can restart this tour anytime from\n"
                     "Help > Welcome Tutorial."
                 ),
