@@ -175,7 +175,7 @@ class SessionManager(QObject):
         # Session expiry timer
         self._expiry_timer = QTimer(self)
         self._expiry_timer.timeout.connect(self._check_session_expiry)
-        self._expiry_timer.start(60000)  # Check every minute
+        self._expiry_timer.start(30000)  # Check every 30s (access tokens may be short-lived)
 
         # Reconnection timer for offline mode
         self._reconnect_timer = QTimer(self)
@@ -354,6 +354,14 @@ class SessionManager(QObject):
         expires_at = self._session.user.expires_at
         remaining = (expires_at - now).total_seconds()
 
+        # Calculate refresh threshold: half the token lifetime, min 120s, max 300s
+        authenticated_at = self._session.user.authenticated_at
+        if authenticated_at:
+            lifetime = (expires_at - authenticated_at).total_seconds()
+            refresh_threshold = max(120, min(300, lifetime / 2))
+        else:
+            refresh_threshold = 150  # ~2.5 min default
+
         if remaining <= 0:
             # Session expired — try to refresh before giving up
             if self._session.refresh_token:
@@ -364,8 +372,9 @@ class SessionManager(QObject):
             self._session = None
             self._set_state(AuthState.UNAUTHENTICATED)
             self.user_changed.emit(ANONYMOUS_USER)
-        elif remaining <= 300:  # 5 minutes — refresh proactively
-            self.session_expiring.emit(int(remaining))
+        elif remaining <= refresh_threshold:
+            if remaining <= 300:
+                self.session_expiring.emit(int(remaining))
             if self._session.refresh_token:
                 logger.info("Access token expiring in {}s, refreshing", int(remaining))
                 await self.refresh_session()
