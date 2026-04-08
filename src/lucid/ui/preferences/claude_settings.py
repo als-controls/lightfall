@@ -62,10 +62,9 @@ API_ENDPOINTS = {
 
 # Default model options
 MODEL_OPTIONS = [
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-5-haiku-20241022",
+    "claude-sonnet",
+    "claude-opus",
+    "claude-haiku",
 ]
 
 # Permission mode options
@@ -124,7 +123,7 @@ class ClaudeSettingsProvider:
             The model name string.
         """
         prefs = PreferencesManager.get_instance()
-        return prefs.get("claude_model", "claude-sonnet-4-20250514")
+        return prefs.get("claude_model", "claude-sonnet")
 
     @staticmethod
     def get_max_turns() -> int:
@@ -574,7 +573,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
             # Use the messages endpoint with a minimal request
             url = f"{base_url}/v1/messages"
-            model = self._model_combo.currentText() if self._model_combo else "claude-sonnet-4-20250514"
+            model = self._model_combo.currentText() if self._model_combo else "claude-sonnet"
             data = {
                 "model": model,
                 "max_tokens": 1,
@@ -676,7 +675,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Load model
         if self._model_combo:
-            model = prefs.get("claude_model", "claude-sonnet-4-20250514")
+            model = prefs.get("claude_model", "claude-sonnet")
             index = self._model_combo.findText(model)
             if index >= 0:
                 self._model_combo.setCurrentIndex(index)
