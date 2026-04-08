@@ -345,8 +345,8 @@ class SessionManager(QObject):
 
         return False
 
-    def _check_session_expiry(self) -> None:
-        """Check if session is expiring soon."""
+    async def _check_session_expiry(self) -> None:
+        """Check if session is expiring soon and auto-refresh if possible."""
         if self._session is None or self._session.user.expires_at is None:
             return
 
@@ -355,13 +355,20 @@ class SessionManager(QObject):
         remaining = (expires_at - now).total_seconds()
 
         if remaining <= 0:
-            # Session expired
+            # Session expired — try to refresh before giving up
+            if self._session.refresh_token:
+                logger.info("Access token expired, attempting refresh")
+                if await self.refresh_session():
+                    return
             logger.warning("Session expired")
             self._session = None
             self._set_state(AuthState.UNAUTHENTICATED)
             self.user_changed.emit(ANONYMOUS_USER)
-        elif remaining <= 300:  # 5 minutes warning
+        elif remaining <= 300:  # 5 minutes — refresh proactively
             self.session_expiring.emit(int(remaining))
+            if self._session.refresh_token:
+                logger.info("Access token expiring in {}s, refreshing", int(remaining))
+                await self.refresh_session()
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
