@@ -86,6 +86,7 @@ class LoginDialog(LucidDialog):
         self._login_thread: QThreadFuture | None = None
         self._current_provider: AuthProvider | None = None
         self._login_cancelled = False  # Track if user manually cancelled
+        self._pam_mode = False  # Whether the local form is in PAM mode
 
         self.setWindowTitle(title)
         self.setModal(True)
@@ -237,6 +238,33 @@ class LoginDialog(LucidDialog):
         self._error_label.setVisible(False)
         layout.addWidget(self._error_label)
 
+        # Linux User Login button (PAM auth)
+        self._pam_btn = QPushButton("Linux User Login")
+        self._pam_btn.setMinimumHeight(40)
+        self._pam_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #2e7d32;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #256428;
+            }
+            QPushButton:pressed {
+                background-color: #1b5e20;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+            """
+        )
+        self._pam_btn.clicked.connect(self._show_pam_page)
+        layout.addWidget(self._pam_btn)
+
         # Guest button
         if self._allow_guest:
             self._guest_btn = QPushButton("Continue as Guest")
@@ -349,27 +377,46 @@ class LoginDialog(LucidDialog):
         self._keycloak_link.clicked.connect(self._show_keycloak_page)
         layout.addWidget(self._keycloak_link, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Dev hint
-        hint = QLabel("Dev accounts: admin/admin, user/user, operator/operator")
-        hint.setStyleSheet("color: gray; font-size: 10px;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(hint)
+        # Hint label (changes based on local vs PAM mode)
+        self._form_hint = QLabel("Dev accounts: admin/admin, user/user, operator/operator")
+        self._form_hint.setStyleSheet("color: gray; font-size: 10px;")
+        self._form_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._form_hint)
 
         return form
 
     def _show_keycloak_page(self) -> None:
         """Switch to Keycloak login view."""
+        self._pam_mode = False
         self._keycloak_btn.setVisible(True)
+        self._pam_btn.setVisible(True)
         self._local_form.setVisible(False)
         self._local_link.setVisible(True)
         self._error_label.setVisible(False)
 
     def _show_local_page(self) -> None:
         """Switch to local login view."""
+        self._pam_mode = False
         self._keycloak_btn.setVisible(False)
+        self._pam_btn.setVisible(False)
         self._local_form.setVisible(True)
         self._local_link.setVisible(False)
         self._error_label.setVisible(False)
+        self._keycloak_link.setText("Back to Keycloak login")
+        self._form_hint.setText("Dev accounts: admin/admin, user/user, operator/operator")
+        self._form_hint.setVisible(True)
+        self._username_edit.setFocus()
+
+    def _show_pam_page(self) -> None:
+        """Switch to PAM (Linux User) login view."""
+        self._pam_mode = True
+        self._keycloak_btn.setVisible(False)
+        self._pam_btn.setVisible(False)
+        self._local_form.setVisible(True)
+        self._local_link.setVisible(False)
+        self._error_label.setVisible(False)
+        self._keycloak_link.setText("Back to main login")
+        self._form_hint.setText("Authenticate with your facility Linux account")
         self._username_edit.setFocus()
 
     @property
@@ -474,17 +521,27 @@ class LoginDialog(LucidDialog):
         self._error_label.setVisible(False)
 
         self.login_started.emit()
-        logger.info("Starting local login flow")
 
-        # Run local login in background thread
-        self._login_thread = QThreadFuture(
-            self._do_local_login,
-            username,
-            password,
-            callback_slot=self._on_login_complete,
-            except_slot=self._on_login_error,
-            name="local_login",
-        )
+        if self._pam_mode:
+            logger.info("Starting PAM login flow")
+            self._login_thread = QThreadFuture(
+                self._do_pam_login,
+                username,
+                password,
+                callback_slot=self._on_login_complete,
+                except_slot=self._on_login_error,
+                name="pam_login",
+            )
+        else:
+            logger.info("Starting local login flow")
+            self._login_thread = QThreadFuture(
+                self._do_local_login,
+                username,
+                password,
+                callback_slot=self._on_login_complete,
+                except_slot=self._on_login_error,
+                name="local_login",
+            )
         self._login_thread.start()
 
     def _do_local_login(self, username: str, password: str) -> bool:
@@ -513,6 +570,56 @@ class LoginDialog(LucidDialog):
 
         return False
 
+    def _do_pam_login(self, username: str, password: str) -> bool:
+        """Perform PAM login (runs in background thread)."""
+        from datetime import datetime
+
+        from lucid.auth.providers.pam import PamAuthProvider, PamConfig
+        from lucid.config import ConfigManager
+        from lucid.core import NCSApplication
+        from lucid.ui.preferences.login_settings import LoginSettingsProvider
+
+        duration = LoginSettingsProvider.get_session_duration()
+
+        # Build config from app settings if available
+        try:
+            app = NCSApplication.get_instance()
+            config: ConfigManager = app.services.get(ConfigManager)
+            auth_config = config.model.auth.provider
+
+            from lucid.auth.policy import Role as _Role
+
+            group_role_map = {}
+            for group_name, role_str in auth_config.pam_group_role_map.items():
+                try:
+                    group_role_map[group_name] = _Role(role_str)
+                except ValueError:
+                    pass
+
+            pam_config = PamConfig(
+                service=auth_config.pam_service,
+                session_duration=duration,
+            )
+            if group_role_map:
+                pam_config.group_role_map = group_role_map
+        except Exception:
+            pam_config = PamConfig(session_duration=duration)
+
+        provider = PamAuthProvider(pam_config)
+        self._current_provider = provider
+
+        session = asyncio.run(provider.authenticate(username=username, password=password))
+
+        if session:
+            session.user.expires_at = datetime.now(UTC) + duration
+
+            self._session_manager._session = session
+            self._session_manager._set_state(AuthState.AUTHENTICATED)
+            self._session_manager.user_changed.emit(session.user)
+            return True
+
+        return False
+
     def _on_login_complete(self, success: bool) -> None:
         """Handle login completion (called in main thread).
 
@@ -528,8 +635,11 @@ class LoginDialog(LucidDialog):
             self.accept()
         else:
             self._reset_ui()
-            if self._local_form.isVisible():  # Local page
-                self._show_error("Invalid username or password")
+            if self._local_form.isVisible():
+                if self._pam_mode:
+                    self._show_error("Linux authentication failed")
+                else:
+                    self._show_error("Invalid username or password")
             else:
                 self._show_error("Login failed or was cancelled")
 
@@ -551,6 +661,9 @@ class LoginDialog(LucidDialog):
         """Reset UI after failed login attempt."""
         # Keycloak
         self._keycloak_btn.setEnabled(True)
+
+        # PAM
+        self._pam_btn.setEnabled(True)
 
         # Local form
         self._local_login_btn.setEnabled(True)
