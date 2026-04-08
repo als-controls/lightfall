@@ -257,15 +257,146 @@ class TiledBrowserPanel(BasePanel):
 
     @Slot()
     def _on_table_double_clicked(self) -> None:
-        """Handle table row double-click."""
+        """Handle table row double-click - open run in Visualization panel."""
         selection = self._table_view.selectionModel().selectedRows()
-        if selection:
-            proxy_index = selection[0]
-            source_index = self._proxy_model.mapToSource(proxy_index)
-            record = self._model.get_record(source_index.row())
-            if record:
-                self.record_double_clicked.emit(record)
-                logger.debug("Record double-clicked: uid={}", record.uid)
+        if not selection:
+            return
+
+        proxy_index = selection[0]
+        source_index = self._proxy_model.mapToSource(proxy_index)
+        record = self._model.get_record(source_index.row())
+        if not record:
+            return
+
+        self.record_double_clicked.emit(record)
+        logger.info("Opening run {} in visualization", record.uid[:8])
+
+        # Fetch documents in background and replay in visualization
+        client = self._tiled_service._client
+        if client is None:
+            return
+
+        self._fetch_thread = QThreadFuture(
+            self._fetch_run_documents,
+            client,
+            record._client_key,
+            callback_slot=self._on_run_documents_fetched,
+            except_slot=self._on_replay_error,
+            name="tiled_replay",
+        )
+        self._fetch_thread.start()
+
+    def _fetch_run_documents(
+        self, client: Any, client_key: str
+    ) -> list[tuple[str, dict]]:
+        """Fetch all documents for a run from Tiled (background thread).
+
+        Reconstructs a bluesky document stream from the Tiled entry's
+        metadata and data tables.
+
+        Args:
+            client: Tiled client instance.
+            client_key: Key for the run in the catalog.
+
+        Returns:
+            List of (name, doc) pairs in chronological order.
+        """
+        import uuid
+
+        entry = client[client_key]
+        metadata = entry.metadata
+        documents: list[tuple[str, dict]] = []
+
+        # 1. Start document
+        start_doc = dict(metadata.get("start") or {})
+        documents.append(("start", start_doc))
+
+        # 2. Descriptor + Event documents for each stream
+        for stream_name in entry.keys():
+            stream = entry[stream_name]
+            stream_md = dict(stream.metadata)
+
+            # Build descriptor document
+            desc_uid = stream_md.get("uid", str(uuid.uuid4()))
+            descriptor = {
+                **stream_md,
+                "name": stream_name,
+                "run_start": start_doc.get("uid", client_key),
+            }
+            documents.append(("descriptor", descriptor))
+
+            # Read event data from the internal table
+            try:
+                internal = stream["internal"]
+                dataset = internal.read()
+
+                # Build event documents from the table rows
+                if hasattr(dataset, "to_dataframe"):
+                    df = dataset.to_dataframe()
+                elif hasattr(dataset, "to_pandas"):
+                    df = dataset.to_pandas()
+                else:
+                    df = dataset
+
+                data_key_names = [
+                    k for k in df.columns if k not in ("seq_num", "time") and not k.startswith("ts_")
+                ]
+
+                for _, row in df.iterrows():
+                    event_doc = {
+                        "uid": str(uuid.uuid4()),
+                        "descriptor": desc_uid,
+                        "seq_num": int(row.get("seq_num", 0)),
+                        "time": float(row.get("time", 0)),
+                        "data": {k: row[k] for k in data_key_names if k in row},
+                        "timestamps": {
+                            k: float(row.get(f"ts_{k}", row.get("time", 0)))
+                            for k in data_key_names
+                            if k in row
+                        },
+                        "filled": {k: True for k in data_key_names},
+                    }
+                    documents.append(("event", event_doc))
+
+            except Exception as e:
+                logger.warning("Could not read events from {}/{}: {}", client_key[:8], stream_name, e)
+
+        # 3. Stop document
+        stop_doc = metadata.get("stop")
+        if stop_doc:
+            documents.append(("stop", dict(stop_doc)))
+
+        logger.debug(
+            "Reconstructed {} documents for run {}",
+            len(documents),
+            client_key[:8],
+        )
+        return documents
+
+    @Slot(object)
+    def _on_run_documents_fetched(self, documents: list | None = None) -> None:
+        """Handle fetched documents - replay in visualization panel."""
+        if not documents:
+            logger.warning("No documents to replay")
+            return
+
+        # Find the visualization panel
+        from lucid.ui.panels.visualization_panel import VisualizationPanel
+
+        from PySide6.QtWidgets import QApplication
+
+        for widget in QApplication.allWidgets():
+            if isinstance(widget, VisualizationPanel):
+                widget.replay_documents(documents)
+                logger.info("Replaying {} documents in visualization", len(documents))
+                return
+
+        logger.warning("Visualization panel not found")
+
+    @Slot(Exception)
+    def _on_replay_error(self, error: Exception) -> None:
+        """Handle error fetching run documents."""
+        logger.error("Failed to fetch run documents: {}", error)
 
     def _load_data(self) -> None:
         """Load initial batch of data from Tiled server with current filters."""

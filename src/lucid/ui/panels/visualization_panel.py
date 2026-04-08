@@ -410,6 +410,26 @@ class VisualizationPanel(BasePanel):
         self._buffer = buffer
         logger.debug("VisualizationPanel buffer set manually")
 
+    def replay_documents(self, documents: list[tuple[str, dict]]) -> None:
+        """Replay a sequence of Bluesky documents to visualize historical data.
+
+        Creates a fresh buffer and feeds the document sequence through both
+        the processor (for characteristics) and the buffer (for data).
+
+        Args:
+            documents: List of (name, doc) tuples in chronological order.
+                       Expected: start, descriptor(s), event(s), stop.
+        """
+        # Create a fresh buffer for the replayed data
+        self._buffer = MultiStreamBuffer(parent=self)
+
+        for name, doc in documents:
+            # Feed to processor (for characteristics extraction)
+            if self._processor:
+                self._processor(name, doc)
+            # Feed to buffer (for data access by visualization widgets)
+            self._buffer(name, doc)
+
     def get_processor(self) -> DocumentProcessor:
         """Get the document processor for RunEngine subscription.
 
