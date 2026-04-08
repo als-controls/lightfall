@@ -44,10 +44,7 @@ class AuthProviderConfig(BaseModel):
         default="http://localhost:8089/callback",
         description="OAuth callback URI",
     )
-    # PAM-specific settings
-    pam_service: str = Field(
-        default="login", description="PAM service name (/etc/pam.d/<service>)"
-    )
+    # Linux system auth settings
     pam_group_role_map: dict[str, str] = Field(
         default_factory=dict,
         description="Unix group → LUCID role mapping (e.g. {'ncs-admin': 'admin'})",

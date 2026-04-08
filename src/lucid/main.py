@@ -149,14 +149,13 @@ def _setup_auth(config: ConfigManager) -> None:
                     logger.warning("Unknown role '{}' in pam_group_role_map", role_str)
 
             pam_config = PamConfig(
-                service=auth_config.provider.pam_service,
                 session_duration=timedelta(minutes=auth_config.session_timeout_minutes),
             )
             if group_role_map:
                 pam_config.group_role_map = group_role_map
 
             provider = PamAuthProvider(pam_config)
-            logger.info("Using PAM authentication provider (service={})", pam_config.service)
+            logger.info("Using Linux system authentication provider")
         except ImportError:
             logger.warning("python-pam not available, falling back to local auth")
             provider = LocalAuthProvider(

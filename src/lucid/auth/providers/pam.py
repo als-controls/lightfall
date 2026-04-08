@@ -1,16 +1,19 @@
-"""PAM authentication provider for Linux system accounts.
+"""Linux system account authentication provider.
 
-This provider authenticates users against the system's PAM stack,
-which works with any account backend (local, LDAP, SSSD, FreeIPA, etc.).
-Unix group membership is mapped to LUCID roles.
+This provider creates a session based on the current Linux user's
+identity — no password required. Unix group membership is mapped
+to LUCID roles.
 
 Intended for deployments like NSLS-II where facility-wide Linux accounts
-are synced across machines and Keycloak is not available.
+are synced across machines and the user is already authenticated at the
+OS level (via SSH, 2FA, etc.).
 """
 
 from __future__ import annotations
 
+import getpass
 import grp
+import os
 import pwd
 import secrets
 from dataclasses import dataclass, field
@@ -35,17 +38,15 @@ DEFAULT_GROUP_ROLE_MAP: dict[str, Role] = {
 
 @dataclass
 class PamConfig:
-    """Configuration for the PAM auth provider.
+    """Configuration for the system account auth provider.
 
     Attributes:
-        service: PAM service name (maps to /etc/pam.d/<service>).
         group_role_map: Unix group name → LUCID Role mapping.
-            Checked in order; all matching groups contribute roles.
+            All matching groups contribute roles.
         default_role: Role assigned when no group matches.
         session_duration: How long sessions remain valid.
     """
 
-    service: str = "login"
     group_role_map: dict[str, Role] = field(
         default_factory=lambda: dict(DEFAULT_GROUP_ROLE_MAP)
     )
@@ -53,21 +54,12 @@ class PamConfig:
     session_duration: timedelta = timedelta(hours=8)
 
 
-def _pam_authenticate(service: str, username: str, password: str) -> bool:
-    """Authenticate via PAM. Returns True on success."""
+def _get_current_username() -> str:
+    """Get the current OS username."""
     try:
-        import pam as pam_module
-
-        p = pam_module.pam()
-        return p.authenticate(username, password, service=service)
-    except ImportError:
-        logger.error(
-            "python-pam is not installed — install it with: pip install python-pam"
-        )
-        return False
-    except Exception as e:
-        logger.error("PAM authentication error: {}", e)
-        return False
+        return getpass.getuser()
+    except Exception:
+        return os.environ.get("USER", os.environ.get("USERNAME", "unknown"))
 
 
 def _get_user_groups(username: str) -> set[str]:
@@ -108,22 +100,15 @@ def _get_gecos_name(username: str) -> str:
 
 class PamAuthProvider(AuthProvider):
     """
-    Authentication provider using Linux PAM.
+    Authentication provider using the current Linux system identity.
 
-    Authenticates against the system PAM stack and maps Unix group
-    membership to LUCID roles. Works with any PAM backend (local
-    accounts, LDAP, SSSD, FreeIPA, Kerberos, etc.).
-
-    Requires the ``python-pam`` package and must run on a system
-    where the target users have accounts.
+    Trusts that the user is already authenticated at the OS level
+    (SSH, console login, 2FA, etc.) and creates a LUCID session from
+    their Unix username and group membership. No password is required.
 
     Example:
-        >>> config = PamConfig(
-        ...     service="login",
-        ...     group_role_map={"beamline-staff": Role.STAFF},
-        ... )
-        >>> provider = PamAuthProvider(config)
-        >>> session = await provider.authenticate(username="jdoe", password="secret")
+        >>> provider = PamAuthProvider()
+        >>> session = await provider.authenticate()  # uses current OS user
     """
 
     def __init__(self, config: PamConfig | None = None) -> None:
@@ -132,11 +117,11 @@ class PamAuthProvider(AuthProvider):
 
     @property
     def name(self) -> str:
-        return "PAM System Auth"
+        return "Linux System Auth"
 
     @property
     def supports_password_auth(self) -> bool:
-        return True
+        return False
 
     @property
     def supports_browser_auth(self) -> bool:
@@ -160,23 +145,19 @@ class PamAuthProvider(AuthProvider):
         password: str | None = None,
         **kwargs: Any,
     ) -> Session | None:
-        """Authenticate a user via PAM."""
-        if not username or not password:
-            logger.warning("PAM auth: missing username or password")
-            return None
+        """Create a session for the current Linux user.
 
-        if not _pam_authenticate(self._config.service, username, password):
-            logger.warning("PAM auth failed for user: {}", username)
-            return None
-
-        # Gather system info
-        unix_groups = _get_user_groups(username)
+        The username and password parameters are ignored — the
+        provider always uses the OS-level identity.
+        """
+        current_user = _get_current_username()
+        unix_groups = _get_user_groups(current_user)
         roles = self._resolve_roles(unix_groups)
-        display_name = _get_gecos_name(username)
+        display_name = _get_gecos_name(current_user)
 
         now = datetime.now(UTC)
         user = User(
-            username=username,
+            username=current_user,
             display_name=display_name,
             roles=roles,
             groups=unix_groups,
@@ -195,8 +176,8 @@ class PamAuthProvider(AuthProvider):
 
         self._sessions[token] = session
         logger.info(
-            "User '{}' authenticated via PAM (groups={}, roles={})",
-            username,
+            "User '{}' authenticated via Linux identity (groups={}, roles={})",
+            current_user,
             unix_groups,
             {r.value for r in roles},
         )
@@ -206,7 +187,7 @@ class PamAuthProvider(AuthProvider):
         """End a session."""
         if session.token and session.token in self._sessions:
             del self._sessions[session.token]
-            logger.debug("PAM session ended for user: {}", session.user.username)
+            logger.debug("Session ended for user: {}", session.user.username)
 
     async def refresh(self, session: Session) -> Session | None:
         """Refresh a session's expiry time."""
@@ -240,13 +221,8 @@ class PamAuthProvider(AuthProvider):
         return new_session
 
     async def check_connectivity(self) -> bool:
-        """PAM is always available if we're on the right host."""
-        try:
-            import pam as pam_module  # noqa: F401
-
-            return True
-        except ImportError:
-            return False
+        """System identity is always available."""
+        return True
 
     async def get_user_info(self, session: Session) -> dict[str, Any] | None:
         """Get user info from system databases."""
