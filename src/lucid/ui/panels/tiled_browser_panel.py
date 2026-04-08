@@ -139,16 +139,14 @@ class TiledBrowserPanel(BasePanel):
 
         # Configure header
         header = self._table_view.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Scan ID
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # Plan
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)           # Sample - stretch
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)       # Plan
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Timestamp
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Points
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Duration
-        # Sample column will stretch
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Scan ID
 
-        # Set default column widths
+        # Set default widths for interactive columns
         self._table_view.setColumnWidth(1, 120)  # Plan
 
         # Connect click signals

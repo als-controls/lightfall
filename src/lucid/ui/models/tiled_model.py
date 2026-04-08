@@ -54,7 +54,7 @@ class TiledRecordModel(QAbstractTableModel):
     """Qt table model for displaying TiledRecord objects.
 
     Provides a tabular view of Tiled records with columns for:
-    Scan ID, Plan, Timestamp, Status, Points, Duration, Sample.
+    Sample, Plan, Timestamp, Status, Scan ID.
 
     Example:
         model = TiledRecordModel()
@@ -62,7 +62,7 @@ class TiledRecordModel(QAbstractTableModel):
         table_view.setModel(model)
     """
 
-    COLUMNS = ["Scan ID", "Plan", "Timestamp", "Status", "Points", "Duration", "Sample"]
+    COLUMNS = ["Sample", "Plan", "Timestamp", "Status", "Scan ID"]
 
     # Custom roles
     RecordRole = Qt.ItemDataRole.UserRole + 1
@@ -113,8 +113,7 @@ class TiledRecordModel(QAbstractTableModel):
         elif role == Qt.ItemDataRole.ForegroundRole:
             return self._get_foreground_data(record, col)
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            # Right-align numeric columns
-            if col in (0, 4, 5):  # Scan ID, Points, Duration
+            if col == 4:  # Scan ID - right align
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         elif role == self.RecordRole:
@@ -126,39 +125,29 @@ class TiledRecordModel(QAbstractTableModel):
 
     def _get_display_data(self, record: TiledRecord, col: int) -> str:
         """Get display text for a column."""
-        if col == 0:  # Scan ID
-            return str(record.scan_id) if record.scan_id is not None else "-"
+        if col == 0:  # Sample
+            return record.sample_name or "-"
         elif col == 1:  # Plan
             return record.plan_name or "-"
         elif col == 2:  # Timestamp
             return record.timestamp.strftime("%Y-%m-%d %H:%M:%S")
         elif col == 3:  # Status
             return record.exit_status or "-"
-        elif col == 4:  # Points
-            return str(record.num_points)
-        elif col == 5:  # Duration
-            if record.duration is not None:
-                if record.duration < 1:
-                    return f"{record.duration * 1000:.0f}ms"
-                elif record.duration < 60:
-                    return f"{record.duration:.1f}s"
-                else:
-                    minutes = int(record.duration // 60)
-                    seconds = record.duration % 60
-                    return f"{minutes}m {seconds:.0f}s"
-            return "-"
-        elif col == 6:  # Sample
-            return record.sample_name or "-"
+        elif col == 4:  # Scan ID
+            return str(record.scan_id) if record.scan_id is not None else "-"
         return ""
 
     def _get_tooltip_data(self, record: TiledRecord, col: int) -> str | None:
         """Get tooltip text for a column."""
-        if col == 0:
+        if col == 2:  # Timestamp
+            parts = [record.timestamp.isoformat()]
+            if record.duration is not None:
+                parts.append(f"Duration: {record.duration:.1f}s")
+            if record.num_points:
+                parts.append(f"Points: {record.num_points}")
+            return "\n".join(parts)
+        elif col == 4:  # Scan ID
             return f"UID: {record.uid}"
-        elif col == 2:
-            return record.timestamp.isoformat()
-        elif col == 5 and record.duration is not None:
-            return f"{record.duration:.3f} seconds"
         return None
 
     def _get_foreground_data(self, record: TiledRecord, col: int) -> Any:
@@ -173,6 +162,8 @@ class TiledRecordModel(QAbstractTableModel):
                 return QColor(192, 0, 0)  # Red
             elif status == "abort":
                 return QColor(192, 128, 0)  # Orange
+            elif status == "running":
+                return QColor(0, 100, 200)  # Blue
         return None
 
     def headerData(
@@ -331,17 +322,11 @@ class TiledRecordFilterProxy(QSortFilterProxyModel):
         col = left.column()
 
         # Sort by appropriate field
-        if col == 0:  # Scan ID
+        if col == 2:  # Timestamp
+            return left_record.timestamp < right_record.timestamp
+        elif col == 4:  # Scan ID
             left_val = left_record.scan_id or 0
             right_val = right_record.scan_id or 0
-            return left_val < right_val
-        elif col == 2:  # Timestamp
-            return left_record.timestamp < right_record.timestamp
-        elif col == 4:  # Points
-            return left_record.num_points < right_record.num_points
-        elif col == 5:  # Duration
-            left_val = left_record.duration or 0
-            right_val = right_record.duration or 0
             return left_val < right_val
 
         # Default string comparison for other columns
