@@ -54,6 +54,7 @@ class FragmentType(str, Enum):
 
     TEXT = "text"
     READONLY = "readonly"
+    IMAGE = "image"
 
 
 @dataclass

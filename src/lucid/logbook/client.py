@@ -69,9 +69,25 @@ CREATE TABLE IF NOT EXISTS fragment (
     sync_status TEXT NOT NULL DEFAULT 'pending'
 );
 
+CREATE TABLE IF NOT EXISTS image_sync (
+    image_id    TEXT PRIMARY KEY,
+    local_path  TEXT NOT NULL,
+    sync_status TEXT NOT NULL DEFAULT 'pending_upload'
+);
+
 CREATE INDEX IF NOT EXISTS idx_entry_logbook ON entry(logbook_id);
 CREATE INDEX IF NOT EXISTS idx_fragment_entry ON fragment(entry_id);
 """
+
+
+def _mime_from_ext(ext: str) -> str:
+    """Map file extension to MIME type."""
+    return {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif"}.get(
+        ext.lower(), "image/png"
+    )
+
+
+_MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif"}
 
 
 def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None) -> tuple[int, int]:
@@ -106,6 +122,36 @@ def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user
 
     try:
         with httpx.Client(**client_kwargs) as client:
+            # ── Phase 1: Push images (before metadata so server has file before fragment references it)
+            try:
+                cursor = db.execute(
+                    "SELECT image_id, local_path FROM image_sync WHERE sync_status = 'pending_upload'"
+                )
+                for image_id, local_path in cursor.fetchall():
+                    path = Path(local_path)
+                    if not path.exists():
+                        db.execute(
+                            "UPDATE image_sync SET sync_status = 'synced' WHERE image_id = ?",
+                            (image_id,),
+                        )
+                        continue
+                    try:
+                        with open(path, "rb") as f:
+                            resp = client.post(
+                                "/logbook/images",
+                                files={"file": (path.name, f, _mime_from_ext(path.suffix))},
+                            )
+                        if resp.status_code == 201:
+                            db.execute(
+                                "UPDATE image_sync SET sync_status = 'synced' WHERE image_id = ?",
+                                (image_id,),
+                            )
+                            pushed += 1
+                    except Exception as exc:
+                        logger.debug("Image upload failed for {}: {}", image_id, exc)
+                db.commit()
+            except Exception as exc:
+                logger.debug("Image push phase failed: {}", exc)
             # Push pending entries (PUT to update, POST to create if 404)
             for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
                 r = dict(row)
@@ -214,6 +260,59 @@ def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user
                     db.commit()
             except Exception as exc:
                 logger.warning("Pull sync failed: {}", exc)
+
+            # ── Phase 4: Pull images (download missing image files after metadata pull)
+            try:
+                cursor = db.execute(
+                    "SELECT id, data FROM fragment WHERE kind = 'image'"
+                )
+                image_dir = Path.home() / ".lucid" / "logbook" / "images"
+                image_dir.mkdir(parents=True, exist_ok=True)
+
+                for frag_id, data_json in cursor.fetchall():
+                    frag_data = json.loads(data_json) if data_json else {}
+                    img_id = frag_data.get("image_id")
+                    if not img_id:
+                        continue
+
+                    # Check if already synced
+                    existing = db.execute(
+                        "SELECT sync_status FROM image_sync WHERE image_id = ?", (img_id,)
+                    ).fetchone()
+                    if existing and existing["sync_status"] == "synced":
+                        continue
+
+                    # Check if file exists on disk
+                    mime_type = frag_data.get("mime_type", "image/png")
+                    ext = _MIME_TO_EXT.get(mime_type, ".png")
+                    local_path = image_dir / f"{img_id}{ext}"
+
+                    if local_path.exists():
+                        db.execute(
+                            "INSERT OR REPLACE INTO image_sync (image_id, local_path, sync_status) VALUES (?, ?, 'synced')",
+                            (img_id, str(local_path)),
+                        )
+                        continue
+
+                    # Download from server
+                    try:
+                        resp = client.get(f"/logbook/images/{img_id}")
+                        if resp.status_code == 200:
+                            local_path.write_bytes(resp.content)
+                            db.execute(
+                                "INSERT OR REPLACE INTO image_sync (image_id, local_path, sync_status) VALUES (?, ?, 'synced')",
+                                (img_id, str(local_path)),
+                            )
+                            pulled += 1
+                    except Exception as exc:
+                        logger.debug("Image download failed for {}: {}", img_id, exc)
+                        db.execute(
+                            "INSERT OR IGNORE INTO image_sync (image_id, local_path, sync_status) VALUES (?, ?, 'pending_download')",
+                            (img_id, str(local_path)),
+                        )
+                db.commit()
+            except Exception as exc:
+                logger.debug("Image pull phase failed: {}", exc)
     finally:
         db.close()
 
@@ -480,6 +579,126 @@ class LogbookClient:
             (entry_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Images ───────────────────────────────────────────────────
+
+    _MIME_TO_EXT = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+    }
+    _EXT_TO_MIME = {v: k for k, v in _MIME_TO_EXT.items()}
+
+    @property
+    def _image_dir(self) -> Path:
+        """Local image storage directory."""
+        d = Path.home() / ".lucid" / "logbook" / "images"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _save_image_locally(self, image_id: str, data: bytes, mime_type: str) -> Path:
+        """Save image bytes to local storage, return the file path."""
+        ext = self._MIME_TO_EXT.get(mime_type, ".png")
+        path = self._image_dir / f"{image_id}{ext}"
+        path.write_bytes(data)
+        return path
+
+    def _get_local_image_path(self, image_id: str) -> Path | None:
+        """Find a locally stored image by ID, or None if not present."""
+        for ext in self._MIME_TO_EXT.values():
+            path = self._image_dir / f"{image_id}{ext}"
+            if path.exists():
+                return path
+        return None
+
+    def add_image(
+        self,
+        image: Any,
+        caption: str = "",
+        subtype: str = "clipboard",
+        entry_id: str | None = None,
+    ) -> str:
+        """Add an image fragment to the logbook.
+
+        Args:
+            image: Image as raw bytes, file path (str/Path), QImage, or QPixmap.
+            caption: Optional caption text.
+            subtype: Fragment subtype for styling.
+            entry_id: Target entry ID. None = current entry (caller must provide).
+
+        Returns:
+            The new fragment ID.
+        """
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtGui import QImage, QPixmap
+
+        # Normalize input to bytes + mime_type
+        if isinstance(image, QPixmap):
+            image = image.toImage()
+        if isinstance(image, QImage):
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            image.save(buf, "PNG")
+            data = bytes(buf.data())
+            mime_type = "image/png"
+        elif isinstance(image, (str, Path)):
+            path = Path(image)
+            data = path.read_bytes()
+            mime_type = self._EXT_TO_MIME.get(path.suffix.lower(), "image/png")
+        elif isinstance(image, bytes):
+            data = image
+            if data[:2] == b"\xff\xd8":
+                mime_type = "image/jpeg"
+            elif data[:4] == b"GIF8":
+                mime_type = "image/gif"
+            else:
+                mime_type = "image/png"
+        else:
+            raise TypeError(f"Unsupported image type: {type(image)}")
+
+        image_id = _uuid()
+
+        # Save to local disk
+        local_path = self._save_image_locally(image_id, data, mime_type)
+
+        # Get image dimensions
+        qimg = QImage()
+        qimg.loadFromData(data)
+        width = qimg.width() if not qimg.isNull() else 0
+        height = qimg.height() if not qimg.isNull() else 0
+
+        ext = self._MIME_TO_EXT.get(mime_type, ".png")
+        filename = f"{image_id}{ext}"
+
+        if entry_id is None:
+            raise ValueError("entry_id is required (no current entry tracking yet)")
+
+        # Create image fragment in local DB
+        fragment_id = self.add_fragment(
+            entry_id,
+            kind="image",
+            subtype=subtype,
+            content=caption,
+            data={
+                "image_id": image_id,
+                "filename": filename,
+                "mime_type": mime_type,
+                "width": width,
+                "height": height,
+                "size_bytes": len(data),
+            },
+        )
+
+        # Track for sync
+        db = self._ensure_db()
+        db.execute(
+            "INSERT OR REPLACE INTO image_sync (image_id, local_path, sync_status) VALUES (?, ?, ?)",
+            (image_id, str(local_path), "pending_upload"),
+        )
+        db.commit()
+
+        self.schedule_sync()
+        return fragment_id
 
     # ── Sync ──────────────────────────────────────────────────────
 
