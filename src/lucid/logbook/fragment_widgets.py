@@ -695,7 +695,7 @@ class ImageFragmentWidget(_HoverMixin, QFrame):
         layout.addWidget(self._caption)
 
         # Hover overlay
-        self._overlay = FragmentOverlay(self)
+        self._overlay = FragmentOverlay(self._data.id, self)
         self._overlay.delete_clicked.connect(lambda: self.delete_requested.emit(self._data.id))
         self._overlay.claude_clicked.connect(lambda: self.claude_requested.emit(self._data.id))
 
