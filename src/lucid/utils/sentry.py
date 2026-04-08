@@ -257,10 +257,12 @@ def _strip_loguru_formatting(event: Event) -> None:
     import re
 
     # Pattern matches loguru format with flexible whitespace:
-    # "2026-01-31 00:13:29.405 | ERROR    | module:func:line - message"
+    # "2026-01-31 00:13:29.405 | ERROR    | thread | module:func:line - message"
     # Made flexible to handle varying whitespace around pipes and dashes
     loguru_pattern = re.compile(
-        r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*\|\s*\w+\s*\|\s*\S+\s+-\s+"
+        r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*\|\s*\w+\s*\|"
+        r"(?:\s*\S+\s*\|)?"  # optional thread name field
+        r"\s*\S+\s+-\s+"
     )
 
     def strip_from_string(s: str) -> str:

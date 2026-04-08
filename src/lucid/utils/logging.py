@@ -64,6 +64,7 @@ def _default_format(record: Record) -> str:
     return (
         "<dim>{time:YYYY-MM-DD HH:mm:ss.SSS}</dim> | "
         f"<{color}>{{level: <8}}</{color}> | "
+        "<dim>{thread.name}</dim> | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
         "{message}\n{exception}"
     )
