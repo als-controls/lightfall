@@ -31,6 +31,9 @@ from lucid.utils.threads import QThreadFuture
 if TYPE_CHECKING:
     pass
 
+# Sentinel to distinguish "stop key absent" from "stop is None"
+_STOP_ABSENT = object()
+
 
 class TiledBrowserPanel(BasePanel):
     """Panel for browsing data stored in a Tiled server.
@@ -90,8 +93,10 @@ class TiledBrowserPanel(BasePanel):
         # Connect to TiledService signals
         self._tiled_service.connection_changed.connect(self._on_connection_changed)
 
-        # Initial status update
+        # Initial status update and data load
         self._update_status()
+        if self._tiled_service.is_connected:
+            self._load_data()
 
     def _setup_ui(self) -> None:
         """Setup the panel UI."""
@@ -235,10 +240,13 @@ class TiledBrowserPanel(BasePanel):
 
     @Slot(object)
     def _on_filters_changed(self, filters: TiledFilters) -> None:
-        """Handle filter changes from filter widget."""
+        """Handle filter changes from filter widget.
+
+        All filtering is done client-side via the proxy model.
+        """
         self._current_filters = filters
-        self._current_page = 0
-        self._load_data()
+        self._proxy_model.set_text_filter(filters.text_query)
+        self._proxy_model.set_status_filter(filters.exit_status)
 
     @Slot()
     def _on_refresh_clicked(self) -> None:
@@ -347,6 +355,10 @@ class TiledBrowserPanel(BasePanel):
         Returns:
             Tuple of (records, total_count, plan_names).
         """
+        # Refresh client to pick up new entries written since connection
+        if hasattr(client, "refresh"):
+            client.refresh()
+
         # Build query with filters
         result = self._build_query(client, filters)
 
@@ -398,56 +410,18 @@ class TiledBrowserPanel(BasePanel):
     def _build_query(self, client: Any, filters: TiledFilters) -> Any:
         """Build Tiled query from filters.
 
+        All filtering is done client-side via the proxy model because
+        Tiled Key/FullText queries are not supported by all catalog
+        backends (e.g. the writable catalog returns 0 for all Key queries).
+
         Args:
             client: Tiled client instance.
-            filters: Filter settings.
+            filters: Filter settings (unused - filtering is client-side).
 
         Returns:
-            Filtered Tiled container.
+            Unfiltered Tiled container.
         """
-        try:
-            from tiled.queries import FullText, Key
-        except ImportError:
-            logger.warning("tiled.queries not available, returning unfiltered results")
-            return client
-
-        result = client
-
-        # Apply time filters
-        if filters.start_date:
-            try:
-                result = result.search(Key("time") >= filters.start_date.timestamp())
-            except Exception as e:
-                logger.debug("Failed to apply start_date filter: {}", e)
-
-        if filters.end_date:
-            try:
-                result = result.search(Key("time") <= filters.end_date.timestamp())
-            except Exception as e:
-                logger.debug("Failed to apply end_date filter: {}", e)
-
-        # Apply text search
-        if filters.text_query:
-            try:
-                result = result.search(FullText(filters.text_query))
-            except Exception as e:
-                logger.debug("Failed to apply text search: {}", e)
-
-        # Apply plan name filter
-        if filters.plan_name:
-            try:
-                result = result.search(Key("plan_name") == filters.plan_name)
-            except Exception as e:
-                logger.debug("Failed to apply plan_name filter: {}", e)
-
-        # Apply exit status filter
-        if filters.exit_status:
-            try:
-                result = result.search(Key("exit_status") == filters.exit_status)
-            except Exception as e:
-                logger.debug("Failed to apply exit_status filter: {}", e)
-
-        return result
+        return client
 
     def _entry_to_record(self, key: str, entry: Any) -> TiledRecord:
         """Convert a Tiled entry to a TiledRecord.
@@ -462,8 +436,22 @@ class TiledBrowserPanel(BasePanel):
         metadata = entry.metadata
 
         # Get start document
-        start_doc = metadata.get("start", {})
-        stop_doc = metadata.get("stop", {})
+        start_doc = metadata.get("start") or {}
+
+        # Get stop document - distinguish None (running) from absent (unknown)
+        # from present (completed). metadata.get("stop", {}) returns {} for
+        # absent keys (falsy!) and None for explicitly-None values (also falsy!),
+        # so we use a sentinel to tell them apart.
+        _stop_raw = metadata.get("stop", _STOP_ABSENT)
+        if _stop_raw is _STOP_ABSENT:
+            stop_doc = None
+            exit_status = "unknown"
+        elif _stop_raw is None:
+            stop_doc = None
+            exit_status = "running"
+        else:
+            stop_doc = _stop_raw
+            exit_status = stop_doc.get("exit_status", "unknown")
 
         # Extract fields
         uid = start_doc.get("uid", key)
@@ -472,9 +460,6 @@ class TiledBrowserPanel(BasePanel):
         time_val = start_doc.get("time", 0)
         timestamp = datetime.fromtimestamp(time_val) if time_val else datetime.now()
 
-        # Exit status from stop document
-        exit_status = stop_doc.get("exit_status", "unknown") if stop_doc else "running"
-
         # Calculate duration
         duration = None
         if stop_doc and "time" in stop_doc:
@@ -482,7 +467,9 @@ class TiledBrowserPanel(BasePanel):
             duration = stop_time - time_val
 
         # Number of points from stop document
-        num_points = stop_doc.get("num_events", {}).get("primary", 0) if stop_doc else 0
+        num_points = 0
+        if stop_doc:
+            num_points = stop_doc.get("num_events", {}).get("primary", 0)
 
         # Sample name from start document
         sample_name = start_doc.get("sample", {}).get("name", "") if isinstance(
@@ -510,25 +497,30 @@ class TiledBrowserPanel(BasePanel):
             result: Tuple of (records, total_count, plan_names) from _do_fetch,
                     or None if no result.
         """
+        self._loading = False
+
         if result is None:
+            self._update_status()
+            self._refresh_btn.setEnabled(True)
             return
 
-        # Unpack the tuple from QThreadFuture
-        records, total_count, plan_names = result
+        try:
+            records, total_count, plan_names = result
+            self._total_records = total_count
+            self._model.set_records(records)
+            self._filter_widget.set_plan_names(plan_names or [])
+            self._update_pagination()
+        except Exception as e:
+            logger.error("Error processing loaded records: {}", e)
 
-        self._loading = False
-        self._total_records = total_count
-        self._model.set_records(records)
-        self._filter_widget.set_plan_names(plan_names or [])
-        self._update_pagination()
         self._update_status()
         self._refresh_btn.setEnabled(True)
 
         logger.debug(
             "Loaded {} records (page {} of {})",
-            len(records),
+            self._model.rowCount(),
             self._current_page + 1,
-            max(1, (total_count + self.PAGE_SIZE - 1) // self.PAGE_SIZE),
+            max(1, (self._total_records + self.PAGE_SIZE - 1) // self.PAGE_SIZE),
         )
 
     @Slot(Exception)

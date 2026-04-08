@@ -68,7 +68,11 @@ class ThreadedTiledWriter:
         self._start_thread()
 
     def _start_thread(self) -> None:
-        """Start the background processing thread."""
+        """Start the background processing thread.
+
+        Uses a non-daemon thread so that Python waits for queued documents
+        (especially stop docs) to be processed before exiting.
+        """
         if self._thread is not None and self._thread.is_alive():
             return
 
@@ -76,7 +80,7 @@ class ThreadedTiledWriter:
         self._thread = threading.Thread(
             target=self._process_queue,
             name="ThreadedTiledWriter",
-            daemon=True,
+            daemon=False,
         )
         self._thread.start()
         logger.debug("ThreadedTiledWriter background thread started")

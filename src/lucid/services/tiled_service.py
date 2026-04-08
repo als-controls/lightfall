@@ -658,7 +658,9 @@ class TiledService(QObject):
 
             engine = get_engine()
 
-            # Create the underlying TiledWriter
+            # Create the underlying TiledWriter. The default batch_size (10000)
+            # is fine since _unsubscribe_writer now flushes the writer, ensuring
+            # cached events and the stop document are always written.
             raw_writer = TiledWriter(self._client)
 
             # Wrap in ThreadedTiledWriter to prevent blocking
@@ -696,7 +698,7 @@ class TiledService(QObject):
                 )
 
     def _unsubscribe_writer(self) -> None:
-        """Unsubscribe TiledWriter from Engine."""
+        """Unsubscribe TiledWriter from Engine and flush pending documents."""
         if self._subscription_token is not None:
             try:
                 from lucid.acquire import get_engine
@@ -706,6 +708,16 @@ class TiledService(QObject):
                 logger.debug("TiledWriter unsubscribed from Engine")
             except Exception as e:
                 logger.warning("Failed to unsubscribe TiledWriter: {}", e)
+
+        # Flush and stop the threaded writer to ensure all documents
+        # (especially stop docs) are written before we discard it
+        if self._writer is not None:
+            try:
+                self._writer.flush(timeout=10.0)
+                self._writer.stop(timeout=5.0)
+                logger.debug("ThreadedTiledWriter flushed and stopped")
+            except Exception as e:
+                logger.warning("Failed to flush/stop ThreadedTiledWriter: {}", e)
 
         self._writer = None
         self._subscription_token = None
