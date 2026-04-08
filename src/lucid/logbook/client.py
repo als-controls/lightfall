@@ -90,6 +90,29 @@ def _mime_from_ext(ext: str) -> str:
 _MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif"}
 
 
+class _SessionAuth(httpx.Auth):
+    """httpx.Auth that reads the token fresh from SessionManager per request.
+
+    This ensures that refreshed tokens are automatically picked up,
+    even during long-running sync batches.
+    """
+
+    def __init__(self, user_id: str | None = None) -> None:
+        self._user_id = user_id
+
+    def sync_auth_flow(self, request):
+        try:
+            from lucid.auth.session import SessionManager
+            session = SessionManager.get_instance().session
+            if session and session.token:
+                request.headers["Authorization"] = f"Bearer {session.token}"
+        except Exception:
+            pass
+        if self._user_id:
+            request.headers["X-User-Id"] = self._user_id
+        yield request
+
+
 def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None) -> tuple[int, int]:
     """Run logbook sync (push pending → pull remote). Returns (pushed, pulled).
 
@@ -104,13 +127,8 @@ def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user
 
     # Use proxy settings if configured
     client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
-    headers: dict[str, str] = {}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-    if user_id:
-        headers["X-User-Id"] = user_id
-    if headers:
-        client_kwargs["headers"] = headers
+    # Use auth class that reads fresh token per request (same pattern as Tiled)
+    client_kwargs["auth"] = _SessionAuth(user_id=user_id)
     try:
         from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
