@@ -747,7 +747,32 @@ class LogbookClient:
         try:
             from lucid.auth.session import SessionManager
             sm = SessionManager.get_instance()
+
+            # Refresh token if expired or expiring within 60s
             session = sm.session
+            if session and session.user.expires_at:
+                from datetime import UTC, datetime as _dt, timedelta
+                if session.user.expires_at - _dt.now(UTC) < timedelta(seconds=60):
+                    logger.debug("Access token expiring soon, refreshing before sync")
+                    try:
+                        import asyncio, threading
+
+                        def _refresh():
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                return loop.run_until_complete(sm.refresh_session())
+                            finally:
+                                loop.close()
+
+                        t = threading.Thread(target=_refresh, daemon=True)
+                        t.start()
+                        t.join(timeout=5)
+                        # Re-read session after refresh
+                        session = sm.session
+                    except Exception as exc:
+                        logger.debug("Token refresh before sync failed: {}", exc)
+
             if session and session.token:
                 auth_token = session.token
             user = sm.current_user
