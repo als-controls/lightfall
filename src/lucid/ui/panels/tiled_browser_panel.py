@@ -77,7 +77,6 @@ class TiledBrowserPanel(BasePanel):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the Tiled browser panel."""
         self._tiled_service = TiledService.get_instance()
-        self._current_page = 0
         self._total_records = 0
         self._current_filters = TiledFilters()
         self._loading = False
@@ -85,6 +84,7 @@ class TiledBrowserPanel(BasePanel):
 
         # Create models
         self._model = TiledRecordModel()
+        self._model.set_fetch_callback(self._fetch_more)
         self._proxy_model = TiledRecordFilterProxy()
         self._proxy_model.setSourceModel(self._model)
 
@@ -155,28 +155,12 @@ class TiledBrowserPanel(BasePanel):
 
         main_layout.addWidget(self._table_view, stretch=1)
 
-        # Pagination bar at bottom
-        pagination_layout = QHBoxLayout()
-
-        self._prev_btn = QPushButton("< Prev")
-        self._prev_btn.clicked.connect(self._on_prev_page)
-        self._prev_btn.setEnabled(False)
-        pagination_layout.addWidget(self._prev_btn)
-
-        self._page_label = QLabel("Page 1 of 1")
-        pagination_layout.addWidget(self._page_label)
-
-        self._next_btn = QPushButton("Next >")
-        self._next_btn.clicked.connect(self._on_next_page)
-        self._next_btn.setEnabled(False)
-        pagination_layout.addWidget(self._next_btn)
-
-        pagination_layout.addStretch()
-
-        self._count_label = QLabel("Loaded 0 records")
-        pagination_layout.addWidget(self._count_label)
-
-        main_layout.addLayout(pagination_layout)
+        # Record count at bottom
+        count_layout = QHBoxLayout()
+        count_layout.addStretch()
+        self._count_label = QLabel("")
+        count_layout.addWidget(self._count_label)
+        main_layout.addLayout(count_layout)
 
         self._layout.addWidget(main_widget)
 
@@ -207,24 +191,15 @@ class TiledBrowserPanel(BasePanel):
             self._filter_widget.set_enabled(False)
             self._refresh_btn.setEnabled(False)
 
-    def _update_pagination(self) -> None:
-        """Update pagination controls based on current state."""
-        if self._total_records == 0:
-            self._page_label.setText("Page 0 of 0")
-            self._prev_btn.setEnabled(False)
-            self._next_btn.setEnabled(False)
-            self._count_label.setText("Loaded 0 records")
-            return
-
-        total_pages = max(1, (self._total_records + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
-        current_page_display = self._current_page + 1
-
-        self._page_label.setText(f"Page {current_page_display} of {total_pages}")
-        self._prev_btn.setEnabled(self._current_page > 0)
-        self._next_btn.setEnabled(current_page_display < total_pages)
-
+    def _update_count_label(self) -> None:
+        """Update the record count label."""
         loaded = self._model.rowCount()
-        self._count_label.setText(f"Loaded {loaded} of {self._total_records} records")
+        if self._total_records > loaded:
+            self._count_label.setText(f"{loaded} of {self._total_records} records")
+        elif self._total_records > 0:
+            self._count_label.setText(f"{self._total_records} records")
+        else:
+            self._count_label.setText("")
 
     @Slot(object, str)
     def _on_connection_changed(self, state: TiledConnectionState, message: str) -> None:
@@ -257,7 +232,6 @@ class TiledBrowserPanel(BasePanel):
         self._current_filters = filters
 
         if server_filters_changed:
-            self._current_page = 0
             self._load_data()
 
     @Slot()
@@ -267,21 +241,6 @@ class TiledBrowserPanel(BasePanel):
             # Try to reconnect asynchronously
             self._tiled_service.connect_async()
         else:
-            self._load_data()
-
-    @Slot()
-    def _on_prev_page(self) -> None:
-        """Handle previous page button click."""
-        if self._current_page > 0:
-            self._current_page -= 1
-            self._load_data()
-
-    @Slot()
-    def _on_next_page(self) -> None:
-        """Handle next page button click."""
-        total_pages = (self._total_records + self.PAGE_SIZE - 1) // self.PAGE_SIZE
-        if self._current_page + 1 < total_pages:
-            self._current_page += 1
             self._load_data()
 
     @Slot()
@@ -309,7 +268,7 @@ class TiledBrowserPanel(BasePanel):
                 logger.debug("Record double-clicked: uid={}", record.uid)
 
     def _load_data(self) -> None:
-        """Load data from Tiled server with current filters."""
+        """Load initial batch of data from Tiled server with current filters."""
         if not self._tiled_service.is_connected:
             logger.debug("Cannot load data: not connected to Tiled")
             return
@@ -318,31 +277,51 @@ class TiledBrowserPanel(BasePanel):
             logger.debug("Load already in progress, skipping")
             return
 
-        # Get client reference in main thread (TiledService is a QObject)
         client = self._tiled_service._client
         if client is None:
             logger.debug("Cannot load data: no Tiled client")
             return
 
         self._loading = True
+        self._model.clear()
         self._refresh_btn.setEnabled(False)
         self._status_label.setText("Loading...")
 
-        # Capture current filter state to avoid race conditions
-        filters = self._current_filters
-        page = self._current_page
-        page_size = self.PAGE_SIZE
-
-        # Create and start background thread using QThreadFuture directly
         self._fetch_thread = QThreadFuture(
             self._do_fetch,
             client,
-            filters,
-            page,
-            page_size,
-            callback_slot=self._on_records_loaded,
+            self._current_filters,
+            0,
+            self.PAGE_SIZE,
+            callback_slot=self._on_initial_load,
             except_slot=self._on_load_error,
             name="tiled_fetch",
+        )
+        self._fetch_thread.start()
+
+    def _fetch_more(self) -> None:
+        """Fetch next batch of records (called by model's fetchMore)."""
+        if not self._tiled_service.is_connected or self._loading:
+            self._model.set_fetching(False)
+            return
+
+        client = self._tiled_service._client
+        if client is None:
+            self._model.set_fetching(False)
+            return
+
+        self._loading = True
+        offset = self._model.rowCount()
+
+        self._fetch_thread = QThreadFuture(
+            self._do_fetch,
+            client,
+            self._current_filters,
+            offset // self.PAGE_SIZE,
+            self.PAGE_SIZE,
+            callback_slot=self._on_more_loaded,
+            except_slot=self._on_load_error,
+            name="tiled_fetch_more",
         )
         self._fetch_thread.start()
 
@@ -537,13 +516,8 @@ class TiledBrowserPanel(BasePanel):
         )
 
     @Slot(object)
-    def _on_records_loaded(self, result: tuple | None = None) -> None:
-        """Handle records loaded from background thread.
-
-        Args:
-            result: Tuple of (records, total_count, plan_names) from _do_fetch,
-                    or None if no result.
-        """
+    def _on_initial_load(self, result: tuple | None = None) -> None:
+        """Handle initial data load from background thread."""
         self._loading = False
 
         if result is None:
@@ -554,21 +528,34 @@ class TiledBrowserPanel(BasePanel):
         try:
             records, total_count, plan_names = result
             self._total_records = total_count
+            self._model.set_total_available(total_count)
             self._model.set_records(records)
             self._filter_widget.set_plan_names(plan_names or [])
-            self._update_pagination()
+            self._update_count_label()
         except Exception as e:
             logger.error("Error processing loaded records: {}", e)
 
         self._update_status()
         self._refresh_btn.setEnabled(True)
+        logger.debug("Loaded {} of {} records", self._model.rowCount(), self._total_records)
 
-        logger.debug(
-            "Loaded {} records (page {} of {})",
-            self._model.rowCount(),
-            self._current_page + 1,
-            max(1, (self._total_records + self.PAGE_SIZE - 1) // self.PAGE_SIZE),
-        )
+    @Slot(object)
+    def _on_more_loaded(self, result: tuple | None = None) -> None:
+        """Handle incremental data load (lazy loading)."""
+        self._loading = False
+        self._model.set_fetching(False)
+
+        if result is None:
+            return
+
+        try:
+            records, total_count, plan_names = result
+            self._total_records = total_count
+            self._model.set_total_available(total_count)
+            self._model.append_records(records)
+            self._update_count_label()
+        except Exception as e:
+            logger.error("Error appending records: {}", e)
 
     @Slot(Exception)
     def _on_load_error(self, error: Exception) -> None:
@@ -605,8 +592,6 @@ class TiledBrowserPanel(BasePanel):
             "connection_state": self._tiled_service.state.value,
             "loaded_records": self._model.rowCount(),
             "total_records": self._total_records,
-            "current_page": self._current_page,
-            "page_size": self.PAGE_SIZE,
             "filters": self._current_filters.to_dict(),
             "selected_record": selected_record,
         }
@@ -631,16 +616,6 @@ class TiledBrowserPanel(BasePanel):
                 "description": "Filter by exit status",
                 "method": "action_set_status_filter",
                 "parameters": {"status": "success|fail|abort|null"},
-            },
-            {
-                "name": "next_page",
-                "description": "Go to next page",
-                "method": "action_next_page",
-            },
-            {
-                "name": "prev_page",
-                "description": "Go to previous page",
-                "method": "action_prev_page",
             },
             {
                 "name": "select_record",
@@ -678,16 +653,6 @@ class TiledBrowserPanel(BasePanel):
             True if filter was applied.
         """
         self._proxy_model.set_status_filter(status)
-        return True
-
-    def action_next_page(self) -> bool:
-        """Action: Go to next page."""
-        self._on_next_page()
-        return True
-
-    def action_prev_page(self) -> bool:
-        """Action: Go to previous page."""
-        self._on_prev_page()
         return True
 
     def action_select_record(self, uid: str) -> bool:

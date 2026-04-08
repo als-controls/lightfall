@@ -76,6 +76,9 @@ class TiledRecordModel(QAbstractTableModel):
         """
         super().__init__(parent)
         self._records: list[TiledRecord] = []
+        self._total_available: int = 0
+        self._fetch_callback: Any = None
+        self._fetching: bool = False
 
     def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Return number of rows."""
@@ -233,7 +236,39 @@ class TiledRecordModel(QAbstractTableModel):
         """Clear all records from the model."""
         self.beginResetModel()
         self._records.clear()
+        self._total_available = 0
         self.endResetModel()
+
+    def set_total_available(self, total: int) -> None:
+        """Set the total number of records available on the server."""
+        self._total_available = total
+
+    def set_fetch_callback(self, callback: Any) -> None:
+        """Set the callback to invoke when more data is needed."""
+        self._fetch_callback = callback
+
+    def set_fetching(self, fetching: bool) -> None:
+        """Update the fetching state (called when background fetch completes)."""
+        self._fetching = fetching
+
+    def canFetchMore(self, parent: QModelIndex | None = None) -> bool:
+        """Return True if more records are available on the server."""
+        if parent is None:
+            parent = QModelIndex()
+        if parent.isValid():
+            return False
+        return len(self._records) < self._total_available and not self._fetching
+
+    def fetchMore(self, parent: QModelIndex | None = None) -> None:
+        """Fetch the next batch of records from the server."""
+        if parent is None:
+            parent = QModelIndex()
+        if parent.isValid():
+            return
+        if self._fetching or not self._fetch_callback:
+            return
+        self._fetching = True
+        self._fetch_callback()
 
     @property
     def records(self) -> list[TiledRecord]:
