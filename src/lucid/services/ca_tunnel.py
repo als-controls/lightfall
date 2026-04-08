@@ -192,7 +192,7 @@ class CATunnelService:
                 return sock
 
             except (OSError, ConnectionError) as e:
-                logger.debug("CA tunnel: TCP connect failed: {}", e)
+                # logger.debug("CA tunnel: TCP connect failed: {}", e)
                 try:
                     sock.close()
                 except Exception:
