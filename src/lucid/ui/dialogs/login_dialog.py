@@ -7,6 +7,7 @@ or a local development account.
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import UTC
 from enum import Enum, auto
 from typing import TYPE_CHECKING
@@ -262,6 +263,8 @@ class LoginDialog(LucidDialog):
             """
         )
         self._pam_btn.clicked.connect(self._on_pam_login)
+        if sys.platform == "win32":
+            self._pam_btn.setVisible(False)
         layout.addWidget(self._pam_btn)
 
         # Guest button
