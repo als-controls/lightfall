@@ -325,9 +325,11 @@ class TiledBrowserPanel(BasePanel):
             }
             documents.append(("descriptor", descriptor))
 
-            # Read event data from the internal table
+            # Read event data from the internal table.
+            # Streams use the "composite" spec, so access via .base
             try:
-                internal = stream["internal"]
+                base = stream.base if hasattr(stream, "base") else stream
+                internal = base["internal"]
                 dataset = internal.read()
 
                 # Build event documents from the table rows
