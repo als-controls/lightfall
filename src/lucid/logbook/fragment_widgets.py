@@ -25,12 +25,15 @@ from PySide6.QtCore import (
     Slot,
 )
 from PySide6.QtCore import QMimeData
-from PySide6.QtGui import QCursor, QDrag, QEnterEvent, QMouseEvent
+from PySide6.QtGui import QCursor, QDrag, QEnterEvent, QMouseEvent, QPixmap
 from PySide6.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTextEdit,
     QToolButton,
@@ -617,6 +620,147 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self.clicked.emit(self._fragment.id)
         super().mousePressEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# ImageFragmentWidget — thumbnail + caption + full-size viewer
+# ---------------------------------------------------------------------------
+
+
+class ImageFragmentWidget(_HoverMixin, QFrame):
+    """Displays an image fragment with thumbnail, caption, and click-to-expand.
+
+    Signals:
+        delete_requested(fragment_id): Delete button pressed.
+        caption_changed(fragment_id, new_caption): Caption edited.
+        claude_requested(fragment_id): Claude button pressed.
+    """
+
+    delete_requested = Signal(str)
+    caption_changed = Signal(str, str)
+    claude_requested = Signal(str)
+
+    THUMBNAIL_MAX_WIDTH = 400
+
+    def __init__(self, data: FragmentData, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._data = data
+        self._image_id = data.metadata.get("image_id", "")
+        self._full_pixmap: QPixmap | None = None
+        self._setup_ui()
+        self._load_image()
+
+    def _setup_ui(self) -> None:
+        self.setObjectName("imageFragment")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+
+        # Card styling with accent bar
+        accent = _accent_for(self._data.subtype)
+        bg = "#2a2a2a" if is_dark_theme() else "#f5f5f5"
+        text_color = "#cccccc" if is_dark_theme() else "#333333"
+        self.setStyleSheet(
+            f"ImageFragmentWidget {{ "
+            f"  background-color: {bg}; "
+            f"  border: 1px solid {bg}; "
+            f"  border-left: 4px solid {accent}; "
+            f"  border-radius: 4px; "
+            f"  padding: 8px 12px; "
+            f"  color: {text_color}; "
+            f"}}"
+        )
+
+        # Thumbnail label
+        self._thumbnail = QLabel()
+        self._thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._thumbnail.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._thumbnail.mousePressEvent = self._on_thumbnail_clicked
+        layout.addWidget(self._thumbnail)
+
+        # Placeholder for syncing state
+        self._placeholder = QLabel("Image syncing...")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setStyleSheet("color: #888; padding: 20px;")
+        self._placeholder.setVisible(False)
+        layout.addWidget(self._placeholder)
+
+        # Caption (editable)
+        self._caption = QLineEdit(self._data.content)
+        self._caption.setPlaceholderText("Add a caption...")
+        self._caption.setStyleSheet(
+            "QLineEdit { background: transparent; border: none; "
+            f"color: {text_color}; font-style: italic; }}"
+        )
+        self._caption.editingFinished.connect(self._on_caption_edited)
+        layout.addWidget(self._caption)
+
+        # Hover overlay
+        self._overlay = FragmentOverlay(self)
+        self._overlay.delete_clicked.connect(lambda: self.delete_requested.emit(self._data.id))
+        self._overlay.claude_clicked.connect(lambda: self.claude_requested.emit(self._data.id))
+
+    def _load_image(self) -> None:
+        """Load image from local storage."""
+        from lucid.logbook.client import LogbookClient
+
+        client = LogbookClient.get_instance()
+        path = client._get_local_image_path(self._image_id)
+
+        if path is None:
+            self._thumbnail.setVisible(False)
+            self._placeholder.setVisible(True)
+            return
+
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            self._thumbnail.setText("Failed to load image")
+            return
+
+        self._full_pixmap = pixmap
+        scaled = pixmap.scaledToWidth(
+            min(self.THUMBNAIL_MAX_WIDTH, pixmap.width()),
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._thumbnail.setPixmap(scaled)
+        self._thumbnail.setVisible(True)
+        self._placeholder.setVisible(False)
+
+    def _on_thumbnail_clicked(self, event) -> None:
+        """Open full-size image in a dialog."""
+        if self._full_pixmap is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self._data.content or "Image")
+        dialog.setMinimumSize(400, 300)
+        dlg_layout = QVBoxLayout(dialog)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        label = QLabel()
+        label.setPixmap(self._full_pixmap)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll.setWidget(label)
+        dlg_layout.addWidget(scroll)
+
+        dialog.resize(
+            min(self._full_pixmap.width() + 40, 1200),
+            min(self._full_pixmap.height() + 40, 800),
+        )
+        dialog.exec()
+
+    def _on_caption_edited(self) -> None:
+        new_caption = self._caption.text()
+        if new_caption != self._data.content:
+            self._data.content = new_caption
+            self.caption_changed.emit(self._data.id, new_caption)
+
+    def refresh_image(self) -> None:
+        """Reload the image (e.g., after sync downloads it)."""
+        self._load_image()
+
+    @property
+    def fragment_data(self) -> FragmentData:
+        return self._data
 
 
 # ---------------------------------------------------------------------------

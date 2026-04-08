@@ -63,6 +63,7 @@ from lucid.logbook.fragment_widgets import (
     CollapsibleGroup,
     FragmentData,
     FragmentType,
+    ImageFragmentWidget,
     ReadonlyFragmentWidget,
     TextFragmentWidget,
 )
@@ -409,6 +410,11 @@ class EntryWidget(QFrame):
                 widget = TextFragmentWidget(group[0])
                 widget.content_changed.connect(self._on_fragment_changed)
                 widget.delete_requested.connect(self._on_fragment_delete)
+                widget.claude_requested.connect(self._on_fragment_claude)
+            elif len(group) == 1 and group[0].fragment_type == FragmentType.IMAGE:
+                widget = ImageFragmentWidget(group[0])
+                widget.delete_requested.connect(self._on_fragment_delete)
+                widget.caption_changed.connect(self._on_fragment_changed)
                 widget.claude_requested.connect(self._on_fragment_claude)
             elif all(f.fragment_type == FragmentType.READONLY for f in group) and len(group) > 1:
                 widget = CollapsibleGroup(group)
@@ -1052,7 +1058,7 @@ def _group_fragments(
             current_run = []
 
     for frag in fragments:
-        if frag.fragment_type == FragmentType.TEXT:
+        if frag.fragment_type in (FragmentType.TEXT, FragmentType.IMAGE):
             flush()
             groups.append([frag])
         else:

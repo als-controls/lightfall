@@ -11,8 +11,9 @@ import json
 from datetime import datetime
 from typing import Any, ClassVar
 
-from PySide6.QtCore import QTimer, Signal, Slot
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
+from PySide6.QtCore import QEvent, QTimer, Signal, Slot
+from PySide6.QtGui import QKeyEvent, QKeySequence
+from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from lucid.logbook.client import LogbookClient
 from lucid.logbook.entry_widget import EntryData, EntryWidget
@@ -86,7 +87,22 @@ class LogbookPanel(BasePanel):
         self._is_guest = False
         self._is_disconnected = False
 
+        # Image button toolbar
+        try:
+            import qtawesome as qta
+            self._add_image_btn = QPushButton()
+            self._add_image_btn.setIcon(qta.icon("fa5s.image", color="#aaa"))
+            self._add_image_btn.setToolTip("Add image to entry")
+            self._add_image_btn.setFixedSize(28, 28)
+            self._add_image_btn.clicked.connect(self._on_add_image_clicked)
+            self._layout.addWidget(self._add_image_btn)
+        except ImportError:
+            logger.debug("qtawesome not available, skipping image button")
+
         self._layout.addWidget(self._entry_widget)
+
+        # Install event filter for clipboard paste
+        self._entry_widget.installEventFilter(self)
 
         # Entry widget signals
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
@@ -258,7 +274,9 @@ class LogbookPanel(BasePanel):
                     data_raw = json.loads(data_raw)
                 except (json.JSONDecodeError, TypeError):
                     data_raw = {}
-            ftype = FragmentType.READONLY if fr.get("kind") == "readonly" else FragmentType.TEXT
+            kind = fr.get("kind", "text")
+            ftype_map = {"text": FragmentType.TEXT, "readonly": FragmentType.READONLY, "image": FragmentType.IMAGE}
+            ftype = ftype_map.get(kind, FragmentType.TEXT)
             fragments.append(FragmentData(
                 id=fr["id"],
                 fragment_type=ftype,
@@ -487,6 +505,76 @@ class LogbookPanel(BasePanel):
         finally:
             self._pending_claude_entry = None
             self._pending_claude_messages = []
+
+    # ── Image support ──────────────────────────────────────────────
+
+    @Slot()
+    def _on_add_image_clicked(self) -> None:
+        """Open file dialog, add selected image as a fragment."""
+        if not self._current_entry_id or not self._client:
+            return
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Image",
+            "",
+            "Images (*.png *.jpg *.jpeg *.gif);;All Files (*)",
+        )
+        if not path:
+            return
+
+        from pathlib import Path as P
+        file_path = P(path)
+        if file_path.stat().st_size > 20 * 1024 * 1024:
+            logger.warning("Image too large: {}", file_path)
+            return
+
+        try:
+            self._client.add_image(
+                image=path,
+                caption="",
+                subtype="clipboard",
+                entry_id=self._current_entry_id,
+            )
+            self._select_entry(self._current_entry_id)
+        except Exception as e:
+            logger.error("Failed to add image: {}", e)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Intercept Ctrl+V when clipboard has an image."""
+        if (
+            obj is self._entry_widget
+            and isinstance(event, QKeyEvent)
+            and event.type() == QEvent.Type.KeyPress
+            and event.matches(QKeySequence.StandardKey.Paste)
+        ):
+            clipboard = QApplication.clipboard()
+            mime = clipboard.mimeData()
+            if mime and mime.hasImage():
+                self._paste_image_from_clipboard()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _paste_image_from_clipboard(self) -> None:
+        """Grab image from clipboard, add as fragment."""
+        if not self._current_entry_id or not self._client:
+            return
+
+        clipboard = QApplication.clipboard()
+        qimage = clipboard.image()
+        if qimage.isNull():
+            return
+
+        try:
+            self._client.add_image(
+                image=qimage,
+                caption="",
+                subtype="clipboard",
+                entry_id=self._current_entry_id,
+            )
+            self._select_entry(self._current_entry_id)
+        except Exception as e:
+            logger.error("Failed to paste image: {}", e)
 
     def _try_sync(self) -> None:
         if self._client:
