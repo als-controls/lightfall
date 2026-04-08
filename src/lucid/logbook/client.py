@@ -532,8 +532,8 @@ class LogbookClient:
             if session and session.token:
                 auth_token = session.token
             user = sm.current_user
-            if user and user.id:
-                user_id = user.id
+            if user and user.username:
+                user_id = user.username
         except Exception:
             pass
 
