@@ -380,22 +380,36 @@ class SessionManager(QObject):
                 self._sync_refresh_session()
 
     def _sync_refresh_session(self) -> None:
-        """Kick off an async token refresh in a background QThreadFuture.
+        """Kick off a token refresh in a background QThreadFuture.
 
-        PySide6 QTimer does not await async slots, so we run the
-        async refresh via QThreadFuture with its own event loop.
+        Uses the provider's synchronous refresh method (httpx) to avoid
+        reusing an aiohttp ClientSession across event loops, which fails
+        silently when called from a different thread.
         """
-        import asyncio
-
         from lucid.utils.threads import QThreadFuture
 
         def _refresh():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(self.refresh_session())
-            finally:
-                loop.close()
+            if self._session is None or self._provider is None:
+                return False
+            # Use sync refresh if available (Keycloak), fall back to async wrapper
+            if hasattr(self._provider, "refresh_sync"):
+                new_session = self._provider.refresh_sync(self._session)
+            else:
+                import asyncio
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    new_session = loop.run_until_complete(
+                        self._provider.refresh(self._session)
+                    )
+                finally:
+                    loop.close()
+            if new_session:
+                self._session = new_session
+                logger.debug("Session refreshed for '{}'", new_session.user.username)
+                return True
+            return False
 
         def _on_done(result):
             if result:

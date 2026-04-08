@@ -42,22 +42,31 @@ class KeycloakTiledAuth(httpx.Auth):
     def _refresh_token_sync(self) -> str | None:
         """Synchronously refresh the token and return the new one.
 
+        Uses the provider's sync refresh method (httpx) to avoid reusing
+        an aiohttp ClientSession across event loops.
+
         Returns:
             The new access token, or None if refresh failed.
         """
         from lucid.auth.session import SessionManager
 
         sm = SessionManager.get_instance()
-        if sm.session is None or not sm.session.refresh_token:
+        if sm.session is None or not sm.session.refresh_token or sm._provider is None:
             return None
 
-        loop = asyncio.new_event_loop()
-        try:
-            ok = loop.run_until_complete(sm.refresh_session())
-        finally:
-            loop.close()
+        if hasattr(sm._provider, "refresh_sync"):
+            new_session = sm._provider.refresh_sync(sm.session)
+        else:
+            loop = asyncio.new_event_loop()
+            try:
+                new_session = loop.run_until_complete(
+                    sm._provider.refresh(sm.session)
+                )
+            finally:
+                loop.close()
 
-        if ok:
+        if new_session:
+            sm._session = new_session
             new_token = self._get_token()
             logger.info("Token refreshed on 401 for Tiled request")
             return new_token

@@ -875,6 +875,71 @@ class KeycloakAuthProvider(AuthProvider):
             logger.error("Token refresh error: {}", e)
             return None
 
+    def refresh_sync(self, session: Session) -> Session | None:
+        """Synchronously refresh session tokens using httpx.
+
+        This avoids reusing the aiohttp ClientSession (which is bound to
+        the event loop where it was created) from a different thread/loop.
+        Called by SessionManager._sync_refresh_session via QThreadFuture.
+        """
+        if not session.refresh_token:
+            return None
+
+        import httpx
+
+        data = {
+            "grant_type": "refresh_token",
+            "client_id": self._config.client_id,
+            "refresh_token": session.refresh_token,
+        }
+        if self._config.client_secret:
+            data["client_secret"] = self._config.client_secret
+
+        try:
+            proxy_url = self._config.get_proxy_url()
+            transport = None
+            if proxy_url and proxy_url.startswith("socks"):
+                try:
+                    from httpx_socks import SyncProxyTransport
+
+                    transport = SyncProxyTransport.from_url(proxy_url)
+                except ImportError:
+                    logger.warning("httpx-socks not installed, skipping proxy for refresh")
+
+            client_kwargs: dict[str, Any] = {"timeout": 15.0}
+            if transport:
+                client_kwargs["transport"] = transport
+            elif proxy_url:
+                client_kwargs["proxy"] = proxy_url
+
+            with httpx.Client(**client_kwargs) as client:
+                resp = client.post(self._config.token_url, data=data)
+
+            if resp.status_code != 200:
+                logger.warning("Sync token refresh failed: HTTP {}", resp.status_code)
+                return None
+
+            tokens = resp.json()
+        except Exception as e:
+            logger.error("Sync token refresh error: {}", e)
+            return None
+
+        # _create_session_from_tokens is async but only does sync work
+        # (base64 decode + dict construction), so run it in a throwaway loop
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            new_session = loop.run_until_complete(
+                self._create_session_from_tokens(tokens)
+            )
+        finally:
+            loop.close()
+
+        if new_session:
+            new_session.created_at = session.created_at
+        return new_session
+
     async def check_connectivity(self) -> bool:
         """Check if Keycloak server is reachable."""
         http = await self._ensure_http()
