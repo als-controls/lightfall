@@ -433,26 +433,54 @@ class SessionManager(QObject):
             if not offline:
                 self._reconnect_timer.stop()
 
-    async def _attempt_reconnect(self) -> None:
-        """Attempt to reconnect to authentication service."""
+    def _attempt_reconnect(self) -> None:
+        """Attempt to reconnect to authentication service.
+
+        PySide6 QTimer cannot await async slots, so we run the async
+        reconnection logic via QThreadFuture with its own event loop.
+        """
         if self._provider is None:
             return
 
-        try:
-            if await self._provider.check_connectivity():
-                logger.info("Authentication service reconnected")
-                self._set_offline_mode(False)
+        import asyncio
 
-                # Try to restore session if we have one
-                if self._session and self._session.refresh_token:
-                    if await self.refresh_session():
-                        self._set_state(AuthState.AUTHENTICATED)
-                    else:
-                        self._set_state(AuthState.UNAUTHENTICATED)
-                else:
-                    self._set_state(AuthState.UNAUTHENTICATED)
-        except Exception:
+        from lucid.utils.threads import QThreadFuture
+
+        async def _reconnect():
+            if await self._provider.check_connectivity():
+                return True
+            return False
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(_reconnect())
+            finally:
+                loop.close()
+
+        def _on_done(connected):
+            if not connected:
+                return
+            logger.info("Authentication service reconnected")
+            self._set_offline_mode(False)
+
+            # Try to restore session if we have one
+            if self._session and self._session.refresh_token:
+                self._sync_refresh_session()
+            else:
+                self._set_state(AuthState.UNAUTHENTICATED)
+
+        def _on_error(exc):
             pass  # Still offline
+
+        QThreadFuture(
+            _run,
+            callback_slot=_on_done,
+            except_slot=_on_error,
+            key="session-reconnect",
+            name="session-reconnect",
+        ).start()
 
     # Permission checking shortcuts
 
