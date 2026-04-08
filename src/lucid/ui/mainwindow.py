@@ -622,6 +622,7 @@ class NCSMainWindow(QMainWindow):
         # Show login toast if user logged in (not anonymous)
         if hasattr(user, "username") and user.username != "anonymous":
             self._show_login_notification(user)
+            self._maybe_suggest_tutorial()
 
     def _show_login_notification(self, user: Any) -> None:
         """Show toast with session expiry info.
@@ -689,6 +690,22 @@ class NCSMainWindow(QMainWindow):
             return f"in {minutes} minute{'s' if minutes != 1 else ''}"
         hours = round(remaining / 3600)
         return f"in {hours} hour{'s' if hours != 1 else ''}"
+
+    def _maybe_suggest_tutorial(self) -> None:
+        """Show a tutorial suggestion toast on the user's first login."""
+        if self._prefs_manager.get("tutorial_welcome_suggested", False):
+            return
+
+        self._prefs_manager.set("tutorial_welcome_suggested", True)
+
+        from lucid.ui.toast import ToastManager
+
+        toast_manager = ToastManager.get_instance()
+        toast_manager.info(
+            "New to LUCID?",
+            "Take a quick tour of the interface via Help > Welcome Tutorial.",
+            duration=60000,
+        )
 
     @Slot(Theme)
     def _on_theme_changed(self, theme: Theme) -> None:

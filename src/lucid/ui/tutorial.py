@@ -295,7 +295,8 @@ class TutorialOverlay(QWidget):
     SPOTLIGHT_BORDER_COLOR = QColor(255, 255, 255, 60)
     SPOTLIGHT_BORDER_WIDTH = 2
     SPOTLIGHT_RADIUS = 6
-    CALLOUT_MARGIN = 12  # Gap between target and callout
+    CALLOUT_MARGIN = 12  # Gap between spotlight and callout
+    EDGE_PADDING = 24  # Inset from overlay edge (must exceed shadow blur radius)
 
     def __init__(self, parent: QWidget) -> None:
         """Initialize the overlay.
@@ -485,9 +486,10 @@ class TutorialOverlay(QWidget):
         # Calculate callout origin
         x, y = self._calculate_callout_xy(position, spot, callout_size, overlay_rect)
 
-        # Clamp to overlay bounds
-        x = max(self.CALLOUT_MARGIN, min(x, overlay_rect.width() - callout_size.width() - self.CALLOUT_MARGIN))
-        y = max(self.CALLOUT_MARGIN, min(y, overlay_rect.height() - callout_size.height() - self.CALLOUT_MARGIN))
+        # Clamp to overlay bounds (EDGE_PADDING accounts for drop shadow bleed)
+        pad = self.EDGE_PADDING
+        x = max(pad, min(x, overlay_rect.width() - callout_size.width() - pad))
+        y = max(pad, min(y, overlay_rect.height() - callout_size.height() - pad))
 
         self._callout.move(int(x), int(y))
 
