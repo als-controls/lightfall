@@ -475,7 +475,12 @@ class TutorialOverlay(QWidget):
 
         step = self._tutorial.steps[self._current_step]
         spot = self._spotlight_rect
-        callout_size = self._callout.sizeHint()
+        # Use actual widget size, not sizeHint — sizeHint ignores
+        # setFixedWidth and returns the layout's natural preferred width,
+        # which can be narrower than 380, making the clamp too loose.
+        cw = self._callout.width()
+        ch = self._callout.height()
+        callout_size = QSize(cw, ch)
         overlay_rect = self.rect()
 
         # Determine best position
@@ -488,8 +493,8 @@ class TutorialOverlay(QWidget):
 
         # Clamp to overlay bounds (EDGE_PADDING accounts for drop shadow bleed)
         pad = self.EDGE_PADDING
-        x = max(pad, min(x, overlay_rect.width() - callout_size.width() - pad))
-        y = max(pad, min(y, overlay_rect.height() - callout_size.height() - pad))
+        x = max(pad, min(x, overlay_rect.width() - cw - pad))
+        y = max(pad, min(y, overlay_rect.height() - ch - pad))
 
         self._callout.move(int(x), int(y))
 
