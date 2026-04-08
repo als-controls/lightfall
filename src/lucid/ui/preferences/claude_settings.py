@@ -574,8 +574,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
             # Use the messages endpoint with a minimal request
             url = f"{base_url}/v1/messages"
+            model = self._model_combo.currentText() if self._model_combo else "claude-sonnet-4-20250514"
             data = {
-                "model": "claude-3-5-haiku-20241022",
+                "model": model,
                 "max_tokens": 1,
                 "messages": [{"role": "user", "content": "Hi"}],
             }
