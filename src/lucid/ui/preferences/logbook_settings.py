@@ -191,9 +191,9 @@ class LogbookSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
 
         if self._enabled_check:
-            self._enabled_check.setChecked(prefs.get("logbook_enabled", False))
+            self._enabled_check.setChecked(prefs.get("logbook_enabled", True))
         if self._url_edit:
-            self._url_edit.setText(prefs.get("logbook_url", "http://bcglucidlogbook.dhcp.lbl.gov"))
+            self._url_edit.setText(prefs.get("logbook_url", "http://bcglucidlogbook.dhcp.lbl.gov:8000"))
         if self._offline_check:
             self._offline_check.setChecked(prefs.get("logbook_offline_only", False))
         if self._status_label:

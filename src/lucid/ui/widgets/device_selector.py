@@ -21,6 +21,7 @@ from loguru import logger
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -124,6 +125,15 @@ class DeviceSelectorDialog(QDialog):
         super().__init__(parent)
         self._multi_select = multi_select
 
+        # Store original filters for "Show all" toggle
+        self._orig_categories = categories
+        self._orig_writable_only = writable_only
+        self._orig_kinds = kinds
+        self._orig_filter_func = filter_func
+        self._has_filters = (
+            categories is not None or writable_only or kinds is not None or filter_func is not None
+        )
+
         # Build model + proxy
         self._model = DeviceSelectionModel(catalog, show_tree=show_tree)
         self._proxy = DeviceSelectionFilterProxy()
@@ -170,6 +180,15 @@ class DeviceSelectorDialog(QDialog):
         search_layout.addWidget(self._search_edit)
         layout.addLayout(search_layout)
 
+        # Show all devices checkbox (only when filters are active)
+        if self._has_filters:
+            self._show_all_check = QCheckBox("Show all devices")
+            self._show_all_check.setChecked(False)
+            self._show_all_check.stateChanged.connect(self._on_show_all_toggled)
+            layout.addWidget(self._show_all_check)
+        else:
+            self._show_all_check = None
+
         # Tree view
         self._tree_view = QTreeView()
         self._tree_view.setModel(self._proxy)
@@ -188,6 +207,25 @@ class DeviceSelectorDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+    @Slot(int)
+    def _on_show_all_toggled(self, state: int) -> None:
+        """Toggle between filtered and unfiltered device list."""
+        show_all = state == Qt.CheckState.Checked.value
+        if show_all:
+            self._proxy.set_categories(None)
+            self._proxy.set_writable_only(False)
+            self._proxy.set_kinds(None)
+            self._proxy.set_filter_func(None)
+        else:
+            if self._orig_categories is not None:
+                self._proxy.set_categories(self._orig_categories)
+            if self._orig_writable_only:
+                self._proxy.set_writable_only(True)
+            if self._orig_kinds is not None:
+                self._proxy.set_kinds(self._orig_kinds)
+            if self._orig_filter_func is not None:
+                self._proxy.set_filter_func(self._orig_filter_func)
 
     @Slot()
     def _on_data_changed(self) -> None:

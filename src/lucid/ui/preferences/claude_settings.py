@@ -580,7 +580,17 @@ class ClaudeSettingsPlugin(SettingsPlugin):
                 "messages": [{"role": "user", "content": "Hi"}],
             }
 
-            with httpx.Client(timeout=10.0) as client:
+            # Use proxy settings if configured
+            client_kwargs: dict = {"timeout": 10.0}
+            try:
+                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
+            except Exception:
+                pass
+
+            with httpx.Client(**client_kwargs) as client:
                 response = client.post(url, json=data, headers=headers)
 
                 if response.status_code == 200:

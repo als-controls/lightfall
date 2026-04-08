@@ -228,13 +228,13 @@ class TiledSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
 
         if self._enabled_check:
-            self._enabled_check.setChecked(prefs.get("tiled_enabled", False))
+            self._enabled_check.setChecked(prefs.get("tiled_enabled", True))
 
         if self._url_edit:
-            self._url_edit.setText(prefs.get("tiled_url", ""))
+            self._url_edit.setText(prefs.get("tiled_url", "http://bcgtiled.dhcp.lbl.gov:8000/"))
 
         if self._auth_mode_combo:
-            auth_mode = prefs.get("tiled_auth_mode", "none")
+            auth_mode = prefs.get("tiled_auth_mode", "keycloak")
             index = self._auth_mode_combo.findData(auth_mode)
             if index >= 0:
                 self._auth_mode_combo.setCurrentIndex(index)
