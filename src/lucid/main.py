@@ -869,6 +869,10 @@ def main() -> int:
     # Setup default panel layout
     window.setup_default_layout()
 
+    # Register built-in tutorials
+    from lucid.ui.tutorial import register_builtin_tutorials
+    register_builtin_tutorials()
+
     # Check editor protocol handler (shows warning if PyCharm selected but Toolbox missing)
     _check_editor_protocol(window)
 

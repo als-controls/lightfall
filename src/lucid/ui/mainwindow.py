@@ -170,6 +170,13 @@ class NCSMainWindow(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
+        # Welcome Tutorial action
+        tutorial_action = QAction("&Welcome Tutorial", self)
+        tutorial_action.triggered.connect(self._on_welcome_tutorial)
+        help_menu.addAction(tutorial_action)
+
+        help_menu.addSeparator()
+
         # Report Bug action
         report_bug_action = QAction("&Report Bug...", self)
         report_bug_action.triggered.connect(self._on_report_bug)
@@ -728,6 +735,13 @@ class NCSMainWindow(QMainWindow):
         """Open preferences dialog."""
         dialog = PreferencesDialog(self)
         dialog.exec()
+
+    def _on_welcome_tutorial(self) -> None:
+        """Start the welcome tutorial."""
+        from lucid.ui.tutorial import TutorialManager
+
+        manager = TutorialManager.get_instance()
+        manager.start("welcome", self)
 
     def _on_about(self) -> None:
         """Show about dialog."""
