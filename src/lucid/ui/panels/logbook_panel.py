@@ -101,8 +101,9 @@ class LogbookPanel(BasePanel):
 
         self._layout.addWidget(self._entry_widget)
 
-        # Install event filter for clipboard paste
-        self._entry_widget.installEventFilter(self)
+        # Install event filter on QApplication to catch Ctrl+V with image data
+        # (child widgets consume key events before parent event filters see them)
+        QApplication.instance().installEventFilter(self)
 
         # Entry widget signals
         self._entry_widget.fragment_added.connect(self._on_fragment_added)
@@ -541,18 +542,20 @@ class LogbookPanel(BasePanel):
             logger.error("Failed to add image: {}", e)
 
     def eventFilter(self, obj, event) -> bool:
-        """Intercept Ctrl+V when clipboard has an image."""
+        """Intercept Ctrl+V when clipboard has an image and focus is in the entry widget."""
         if (
-            obj is self._entry_widget
-            and isinstance(event, QKeyEvent)
+            isinstance(event, QKeyEvent)
             and event.type() == QEvent.Type.KeyPress
             and event.matches(QKeySequence.StandardKey.Paste)
         ):
-            clipboard = QApplication.clipboard()
-            mime = clipboard.mimeData()
-            if mime and mime.hasImage():
-                self._paste_image_from_clipboard()
-                return True
+            # Check if focused widget is inside our entry widget
+            focus = QApplication.focusWidget()
+            if focus is not None and self._entry_widget.isAncestorOf(focus):
+                clipboard = QApplication.clipboard()
+                mime = clipboard.mimeData()
+                if mime and mime.hasImage():
+                    self._paste_image_from_clipboard()
+                    return True
         return super().eventFilter(obj, event)
 
     def _paste_image_from_clipboard(self) -> None:
