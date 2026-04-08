@@ -312,7 +312,19 @@ class TiledBrowserPanel(BasePanel):
         documents.append(("start", start_doc))
 
         # 2. Descriptor + Event documents for each stream
-        for stream_name in entry.keys():
+        # Tiled may inline empty contents ({}) for run entries, causing
+        # keys() to return nothing. Clear inlined contents so _keys_slice
+        # falls through to the server fetch path.
+        stream_names = list(entry.keys())
+        if not stream_names:
+            logger.debug(
+                "No streams from inlined contents for run {}; fetching from server",
+                client_key[:8],
+            )
+            entry.item["attributes"]["structure"]["contents"] = None
+            stream_names = list(entry.keys())
+
+        for stream_name in stream_names:
             stream = entry[stream_name]
             stream_md = dict(stream.metadata)
 
