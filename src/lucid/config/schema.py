@@ -30,8 +30,8 @@ class AuthProviderConfig(BaseModel):
     For development, use type="local" (default).
     """
 
-    type: Literal["local", "keycloak"] = Field(
-        default="local", description="Auth provider type: local or keycloak"
+    type: Literal["local", "keycloak", "pam"] = Field(
+        default="local", description="Auth provider type: local, keycloak, or pam"
     )
     # Keycloak-specific settings
     server_url: str = Field(
@@ -43,6 +43,14 @@ class AuthProviderConfig(BaseModel):
     redirect_uri: str = Field(
         default="http://localhost:8089/callback",
         description="OAuth callback URI",
+    )
+    # PAM-specific settings
+    pam_service: str = Field(
+        default="login", description="PAM service name (/etc/pam.d/<service>)"
+    )
+    pam_group_role_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Unix group → LUCID role mapping (e.g. {'ncs-admin': 'admin'})",
     )
 
 

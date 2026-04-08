@@ -111,9 +111,9 @@ def _setup_auth(config: ConfigManager) -> None:
 
     # Allow environment variable override for development
     env_auth = os.environ.get("NCS_AUTH", "").lower()
-    if env_auth == "local":
-        provider_type = "local"
-        logger.info("Using local auth (NCS_AUTH=local)")
+    if env_auth in ("local", "pam", "keycloak"):
+        provider_type = env_auth
+        logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
 
     if provider_type == "keycloak" and auth_config.provider.server_url:
         # Use Keycloak if configured
@@ -131,6 +131,34 @@ def _setup_auth(config: ConfigManager) -> None:
             logger.info("Using Keycloak authentication provider")
         except ImportError:
             logger.warning("aiohttp not available, falling back to local auth")
+            provider = LocalAuthProvider(
+                session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
+            )
+    elif provider_type == "pam":
+        try:
+            from lucid.auth.providers.pam import PamAuthProvider, PamConfig
+
+            # Build group→role map from config if provided
+            from lucid.auth.policy import Role as _Role
+
+            group_role_map = {}
+            for group_name, role_str in auth_config.provider.pam_group_role_map.items():
+                try:
+                    group_role_map[group_name] = _Role(role_str)
+                except ValueError:
+                    logger.warning("Unknown role '{}' in pam_group_role_map", role_str)
+
+            pam_config = PamConfig(
+                service=auth_config.provider.pam_service,
+                session_duration=timedelta(minutes=auth_config.session_timeout_minutes),
+            )
+            if group_role_map:
+                pam_config.group_role_map = group_role_map
+
+            provider = PamAuthProvider(pam_config)
+            logger.info("Using PAM authentication provider (service={})", pam_config.service)
+        except ImportError:
+            logger.warning("python-pam not available, falling back to local auth")
             provider = LocalAuthProvider(
                 session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
             )

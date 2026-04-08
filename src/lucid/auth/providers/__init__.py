@@ -20,3 +20,11 @@ try:
     __all__.append("KeycloakAuthProvider")
 except ImportError:
     pass
+
+# PAM provider available on Linux with python-pam installed
+try:
+    from lucid.auth.providers.pam import PamAuthProvider  # noqa: F401
+
+    __all__.append("PamAuthProvider")
+except ImportError:
+    pass
