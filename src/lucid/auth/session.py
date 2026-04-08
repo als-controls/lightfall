@@ -366,9 +366,9 @@ class SessionManager(QObject):
             # Session expired — try to refresh before giving up
             if self._session.refresh_token:
                 logger.info("Access token expired, attempting refresh")
-                if self._sync_refresh_session():
-                    return
-            logger.warning("Session expired")
+                self._sync_refresh_session()
+                return  # Don't clear session yet — refresh may succeed
+            logger.warning("Session expired with no refresh token")
             self._session = None
             self._set_state(AuthState.UNAUTHENTICATED)
             self.user_changed.emit(ANONYMOUS_USER)
@@ -379,32 +379,38 @@ class SessionManager(QObject):
                 logger.info("Access token expiring in {}s, refreshing", int(remaining))
                 self._sync_refresh_session()
 
-    def _sync_refresh_session(self) -> bool:
-        """Run refresh_session synchronously from a QTimer callback.
+    def _sync_refresh_session(self) -> None:
+        """Kick off an async token refresh in a background QThreadFuture.
 
         PySide6 QTimer does not await async slots, so we run the
-        async refresh in a temporary thread with its own event loop.
+        async refresh via QThreadFuture with its own event loop.
         """
         import asyncio
-        import threading
 
-        result = False
+        from lucid.utils.threads import QThreadFuture
 
-        def _run():
-            nonlocal result
+        def _refresh():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                result = loop.run_until_complete(self.refresh_session())
-            except Exception as exc:
-                logger.warning("Sync token refresh failed: {}", exc)
+                return loop.run_until_complete(self.refresh_session())
             finally:
                 loop.close()
 
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-        t.join(timeout=10)
-        return result
+        def _on_done(result):
+            if result:
+                logger.info("Token refresh succeeded")
+
+        def _on_error(exc):
+            logger.warning("Token refresh failed: {}", exc)
+
+        QThreadFuture(
+            _refresh,
+            callback_slot=_on_done,
+            except_slot=_on_error,
+            key="session-token-refresh",
+            name="session-token-refresh",
+        ).start()
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
