@@ -242,11 +242,25 @@ class TiledBrowserPanel(BasePanel):
     def _on_filters_changed(self, filters: TiledFilters) -> None:
         """Handle filter changes from filter widget.
 
-        All filtering is done client-side via the proxy model.
+        Server-side filters (date range, plan name, exit status) trigger
+        a reload. Text search is applied client-side via the proxy model.
         """
-        self._current_filters = filters
+        # Text search is always client-side (fast, no round-trip)
         self._proxy_model.set_text_filter(filters.text_query)
-        self._proxy_model.set_status_filter(filters.exit_status)
+
+        # Check if server-side filters changed
+        server_filters_changed = (
+            filters.start_date != self._current_filters.start_date
+            or filters.end_date != self._current_filters.end_date
+            or filters.plan_name != self._current_filters.plan_name
+            or filters.exit_status != self._current_filters.exit_status
+        )
+
+        self._current_filters = filters
+
+        if server_filters_changed:
+            self._current_page = 0
+            self._load_data()
 
     @Slot()
     def _on_refresh_clicked(self) -> None:
@@ -410,18 +424,53 @@ class TiledBrowserPanel(BasePanel):
     def _build_query(self, client: Any, filters: TiledFilters) -> Any:
         """Build Tiled query from filters.
 
-        All filtering is done client-side via the proxy model because
-        Tiled Key/FullText queries are not supported by all catalog
-        backends (e.g. the writable catalog returns 0 for all Key queries).
+        Uses dot-separated key paths to traverse nested Bluesky metadata.
+        The catalog stores metadata as {"start": {...}, "stop": {...}},
+        so fields are accessed as e.g. "start.time", "start.plan_name".
 
         Args:
             client: Tiled client instance.
-            filters: Filter settings (unused - filtering is client-side).
+            filters: Filter settings.
 
         Returns:
-            Unfiltered Tiled container.
+            Filtered Tiled container.
         """
-        return client
+        try:
+            from tiled.queries import Key
+        except ImportError:
+            logger.warning("tiled.queries not available, returning unfiltered results")
+            return client
+
+        result = client
+
+        # Apply time filters (nested under start document)
+        if filters.start_date:
+            try:
+                result = result.search(Key("start.time") >= filters.start_date.timestamp())
+            except Exception as e:
+                logger.debug("Failed to apply start_date filter: {}", e)
+
+        if filters.end_date:
+            try:
+                result = result.search(Key("start.time") <= filters.end_date.timestamp())
+            except Exception as e:
+                logger.debug("Failed to apply end_date filter: {}", e)
+
+        # Apply plan name filter (nested under start document)
+        if filters.plan_name:
+            try:
+                result = result.search(Key("start.plan_name") == filters.plan_name)
+            except Exception as e:
+                logger.debug("Failed to apply plan_name filter: {}", e)
+
+        # Apply exit status filter (nested under stop document)
+        if filters.exit_status:
+            try:
+                result = result.search(Key("stop.exit_status") == filters.exit_status)
+            except Exception as e:
+                logger.debug("Failed to apply exit_status filter: {}", e)
+
+        return result
 
     def _entry_to_record(self, key: str, entry: Any) -> TiledRecord:
         """Convert a Tiled entry to a TiledRecord.
