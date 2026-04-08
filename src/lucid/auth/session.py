@@ -345,7 +345,7 @@ class SessionManager(QObject):
 
         return False
 
-    async def _check_session_expiry(self) -> None:
+    def _check_session_expiry(self) -> None:
         """Check if session is expiring soon and auto-refresh if possible."""
         if self._session is None or self._session.user.expires_at is None:
             return
@@ -366,7 +366,7 @@ class SessionManager(QObject):
             # Session expired — try to refresh before giving up
             if self._session.refresh_token:
                 logger.info("Access token expired, attempting refresh")
-                if await self.refresh_session():
+                if self._sync_refresh_session():
                     return
             logger.warning("Session expired")
             self._session = None
@@ -377,7 +377,34 @@ class SessionManager(QObject):
                 self.session_expiring.emit(int(remaining))
             if self._session.refresh_token:
                 logger.info("Access token expiring in {}s, refreshing", int(remaining))
-                await self.refresh_session()
+                self._sync_refresh_session()
+
+    def _sync_refresh_session(self) -> bool:
+        """Run refresh_session synchronously from a QTimer callback.
+
+        PySide6 QTimer does not await async slots, so we run the
+        async refresh in a temporary thread with its own event loop.
+        """
+        import asyncio
+        import threading
+
+        result = False
+
+        def _run():
+            nonlocal result
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.refresh_session())
+            except Exception as exc:
+                logger.warning("Sync token refresh failed: {}", exc)
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=10)
+        return result
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
