@@ -460,6 +460,12 @@ class SessionManager(QObject):
         provider = self._provider
 
         def _refresh():
+            has_refresh_token = bool(session.refresh_token)
+            logger.debug(
+                "Token refresh starting: has_refresh_token={}, provider={}",
+                has_refresh_token,
+                type(provider).__name__,
+            )
             if hasattr(provider, "refresh_sync"):
                 result = provider.refresh_sync(session)
             else:
@@ -472,7 +478,10 @@ class SessionManager(QObject):
                 finally:
                     loop.close()
             if result is None:
-                raise RuntimeError("Provider returned None from refresh")
+                raise RuntimeError(
+                    f"Provider returned None from refresh "
+                    f"(has_refresh_token={has_refresh_token})"
+                )
             return result
 
         QThreadFuture(

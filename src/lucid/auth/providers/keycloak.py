@@ -883,6 +883,7 @@ class KeycloakAuthProvider(AuthProvider):
         Called by SessionManager._do_scheduled_refresh via QThreadFuture.
         """
         if not session.refresh_token:
+            logger.warning("refresh_sync: no refresh_token on session")
             return None
 
         import httpx
@@ -916,9 +917,14 @@ class KeycloakAuthProvider(AuthProvider):
                 resp = client.post(self._config.token_url, data=data)
 
             if resp.status_code != 200:
-                logger.warning("Sync token refresh failed: HTTP {}", resp.status_code)
+                logger.warning(
+                    "Sync token refresh failed: HTTP {} — {}",
+                    resp.status_code,
+                    resp.text[:200],
+                )
                 return None
 
+            logger.debug("Sync token refresh HTTP 200 OK")
             tokens = resp.json()
         except Exception as e:
             logger.error("Sync token refresh error: {}", e)
@@ -938,6 +944,8 @@ class KeycloakAuthProvider(AuthProvider):
 
         if new_session:
             new_session.created_at = session.created_at
+        else:
+            logger.warning("refresh_sync: _create_session_from_tokens returned None")
         return new_session
 
     async def check_connectivity(self) -> bool:
