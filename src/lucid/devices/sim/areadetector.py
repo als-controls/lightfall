@@ -398,7 +398,7 @@ class SimDetector(Device):
                 "source": f"SIM:{self.name}",
                 "dtype": "array",
                 "shape": [self.cam.size_y.get(), self.cam.size_x.get()],
-                "dtype_str": self.cam.data_type.get(),
+                "dtype_str": np.dtype(self.cam.data_type.get()).str,
             }
         else:
             desc[image_key] = {
