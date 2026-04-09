@@ -477,7 +477,8 @@ class LoginDialog(LucidDialog):
             duration = LoginSettingsProvider.get_session_duration()
             session.user.expires_at = datetime.now(UTC) + duration
 
-            # Set session in SessionManager
+            # Set session and provider in SessionManager
+            self._session_manager.set_provider(provider)
             self._session_manager._session = session
             self._session_manager._set_state(AuthState.AUTHENTICATED)
             self._session_manager.user_changed.emit(session.user)
@@ -536,7 +537,8 @@ class LoginDialog(LucidDialog):
             # Apply app session duration (ensure it starts now)
             session.user.expires_at = datetime.now(UTC) + duration
 
-            # Set session in SessionManager
+            # Set session and provider in SessionManager
+            self._session_manager.set_provider(provider)
             self._session_manager._session = session
             self._session_manager._set_state(AuthState.AUTHENTICATED)
             self._session_manager.user_changed.emit(session.user)
@@ -612,6 +614,7 @@ class LoginDialog(LucidDialog):
         if session:
             session.user.expires_at = datetime.now(UTC) + duration
 
+            self._session_manager.set_provider(provider)
             self._session_manager._session = session
             self._session_manager._set_state(AuthState.AUTHENTICATED)
             self._session_manager.user_changed.emit(session.user)
