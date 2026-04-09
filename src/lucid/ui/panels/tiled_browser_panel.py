@@ -35,32 +35,6 @@ if TYPE_CHECKING:
 _STOP_ABSENT = object()
 
 
-def _read_arrow_table(df_client: Any) -> Any:
-    """Read a tiled DataFrameClient as a raw pyarrow Table.
-
-    Bypasses the pandas conversion that ``DataFrameClient.read()`` does,
-    which in pyarrow 23+ maps ``list<>`` columns to ``StringDtype``
-    (losing array data).  Instead, fetch the Arrow IPC bytes directly
-    from the partition endpoint and decode with ``pyarrow.ipc``.
-    """
-    import pyarrow as pa
-    from urllib.parse import parse_qs, urlparse
-
-    from tiled.client.utils import handle_error
-    from tiled.utils import APACHE_ARROW_FILE_MIME_TYPE
-
-    url = df_client.item["links"]["partition"]
-    params = {**parse_qs(urlparse(url).query), "partition": 0}
-    content = handle_error(
-        df_client.context.http_client.get(
-            url,
-            headers={"Accept": APACHE_ARROW_FILE_MIME_TYPE},
-            params=params,
-        )
-    ).read()
-    return pa.ipc.open_file(pa.BufferReader(content)).read_all()
-
-
 class TiledBrowserPanel(BasePanel):
     """Panel for browsing data stored in a Tiled server.
 
@@ -329,8 +303,6 @@ class TiledBrowserPanel(BasePanel):
         """
         import uuid
 
-        import numpy as np
-
         entry = client[client_key]
         metadata = entry.metadata
         documents: list[tuple[str, dict]] = []
@@ -380,41 +352,43 @@ class TiledBrowserPanel(BasePanel):
             }
             documents.append(("descriptor", descriptor))
 
-            # Read event data from the internal table.
-            # Streams use the "composite" spec, so access via .base
+            # Read event data via the composite client API.
+            # Each data key is accessible as an ArrayClient with proper
+            # numpy types — no pandas StringDtype coercion issues.
             try:
-                import pyarrow as pa
-
-                base = stream.base if hasattr(stream, "base") else stream
-                internal = base["internal"]
-
-                # Read as raw Arrow table to avoid pandas type coercion
-                # (pyarrow 23+ maps list<> columns to StringDtype).
-                table = _read_arrow_table(internal)
-
+                stream_keys = list(stream.keys())
                 data_key_names = [
-                    k for k in table.column_names
+                    k for k in stream_keys
                     if k not in ("seq_num", "time") and not k.startswith("ts_")
                 ]
 
-                for i in range(table.num_rows):
+                # Bulk-read columns as numpy arrays (one HTTP request each)
+                arrays = {}
+                for k in ["seq_num", "time"] + data_key_names:
+                    if k in stream_keys:
+                        arrays[k] = stream[k].read()
+                for k in data_key_names:
+                    ts_key = f"ts_{k}"
+                    if ts_key in stream_keys:
+                        arrays[ts_key] = stream[ts_key].read()
+
+                num_events = len(arrays.get("seq_num", []))
+                for i in range(num_events):
                     data = {}
                     for k in data_key_names:
-                        v = table.column(k)[i].as_py()
-                        if isinstance(v, list):
-                            v = np.asarray(v)
-                        data[k] = v
+                        if k in arrays:
+                            data[k] = arrays[k][i]
                     event_doc = {
                         "uid": str(uuid.uuid4()),
                         "descriptor": desc_uid,
-                        "seq_num": int(table.column("seq_num")[i].as_py()),
-                        "time": float(table.column("time")[i].as_py()),
+                        "seq_num": int(arrays["seq_num"][i]),
+                        "time": float(arrays["time"][i]),
                         "data": data,
                         "timestamps": {
                             k: float(
-                                table.column(f"ts_{k}")[i].as_py()
-                                if f"ts_{k}" in table.column_names
-                                else table.column("time")[i].as_py()
+                                arrays[f"ts_{k}"][i]
+                                if f"ts_{k}" in arrays
+                                else arrays["time"][i]
                             )
                             for k in data_key_names
                         },
