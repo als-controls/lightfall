@@ -35,6 +35,32 @@ if TYPE_CHECKING:
 _STOP_ABSENT = object()
 
 
+def _read_arrow_table(df_client: Any) -> Any:
+    """Read a tiled DataFrameClient as a raw pyarrow Table.
+
+    Bypasses the pandas conversion that ``DataFrameClient.read()`` does,
+    which in pyarrow 23+ maps ``list<>`` columns to ``StringDtype``
+    (losing array data).  Instead, fetch the Arrow IPC bytes directly
+    from the partition endpoint and decode with ``pyarrow.ipc``.
+    """
+    import pyarrow as pa
+    from urllib.parse import parse_qs, urlparse
+
+    from tiled.client.utils import handle_error
+    from tiled.utils import APACHE_ARROW_FILE_MIME_TYPE
+
+    url = df_client.item["links"]["partition"]
+    params = {**parse_qs(urlparse(url).query), "partition": 0}
+    content = handle_error(
+        df_client.context.http_client.get(
+            url,
+            headers={"Accept": APACHE_ARROW_FILE_MIME_TYPE},
+            params=params,
+        )
+    ).read()
+    return pa.ipc.open_file(pa.BufferReader(content)).read_all()
+
+
 class TiledBrowserPanel(BasePanel):
     """Panel for browsing data stored in a Tiled server.
 
@@ -357,52 +383,40 @@ class TiledBrowserPanel(BasePanel):
             # Read event data from the internal table.
             # Streams use the "composite" spec, so access via .base
             try:
+                import pyarrow as pa
+
                 base = stream.base if hasattr(stream, "base") else stream
                 internal = base["internal"]
-                dataset = internal.read()
 
-                # Build event documents from the table rows
-                if hasattr(dataset, "to_dataframe"):
-                    df = dataset.to_dataframe()
-                elif hasattr(dataset, "to_pandas"):
-                    df = dataset.to_pandas()
-                else:
-                    df = dataset
+                # Read as raw Arrow table to avoid pandas type coercion
+                # (pyarrow 23+ maps list<> columns to StringDtype).
+                table = _read_arrow_table(internal)
 
                 data_key_names = [
-                    k for k in df.columns if k not in ("seq_num", "time") and not k.startswith("ts_")
+                    k for k in table.column_names
+                    if k not in ("seq_num", "time") and not k.startswith("ts_")
                 ]
 
-                # Identify array columns: tiled's read_pandas() may
-                # stringify list-type pyarrow columns.  Convert them
-                # back to numpy arrays using the descriptor shape.
-                desc_data_keys = descriptor.get("data_keys", {})
-                array_cols = {
-                    k for k in data_key_names
-                    if len(desc_data_keys.get(k, {}).get("shape", [])) >= 1
-                }
-
-                for _, row in df.iterrows():
+                for i in range(table.num_rows):
                     data = {}
                     for k in data_key_names:
-                        if k not in row:
-                            continue
-                        v = row[k]
-                        if k in array_cols and isinstance(v, str):
-                            v = np.fromstring(
-                                v.replace("\n", " ").strip("[]"), sep=" "
-                            )
+                        v = table.column(k)[i].as_py()
+                        if isinstance(v, list):
+                            v = np.asarray(v)
                         data[k] = v
                     event_doc = {
                         "uid": str(uuid.uuid4()),
                         "descriptor": desc_uid,
-                        "seq_num": int(row.get("seq_num", 0)),
-                        "time": float(row.get("time", 0)),
+                        "seq_num": int(table.column("seq_num")[i].as_py()),
+                        "time": float(table.column("time")[i].as_py()),
                         "data": data,
                         "timestamps": {
-                            k: float(row.get(f"ts_{k}", row.get("time", 0)))
+                            k: float(
+                                table.column(f"ts_{k}")[i].as_py()
+                                if f"ts_{k}" in table.column_names
+                                else table.column("time")[i].as_py()
+                            )
                             for k in data_key_names
-                            if k in row
                         },
                         "filled": {k: True for k in data_key_names},
                     }
