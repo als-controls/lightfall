@@ -69,6 +69,7 @@ class HeatmapVisualization(
         self._data_grid: np.ndarray | None = None
         self._shape: tuple[int, int] = (0, 0)
         self._current_point = 0
+        self._field_arrays: dict[str, np.ndarray] | None = None
 
         super().__init__(spec, buffer, parent)
         self._setup_theme()
@@ -207,6 +208,59 @@ class HeatmapVisualization(
         if self._plot_widget:
             self._plot_widget.autoRange()
 
+    # === Tiled bulk-load path ===
+
+    def set_data(
+        self,
+        field_arrays: dict[str, np.ndarray],
+        field_names: list[str],
+    ) -> None:
+        """Bulk-load scalar data from tiled ArrayClients."""
+        self._field_arrays = field_arrays
+
+        # Populate z combo
+        self._z_combo.blockSignals(True)
+        self._z_combo.clear()
+        self._z_combo.addItems(field_names)
+        if self._spec.z_field in field_names:
+            self._z_combo.setCurrentText(self._spec.z_field)
+        self._z_combo.blockSignals(False)
+
+        self._load_from_field_arrays()
+
+    def _load_from_field_arrays(self) -> None:
+        """Reload heatmap from stored field_arrays."""
+        if self._field_arrays is None:
+            return
+
+        z_field = self._spec.z_field
+        if not z_field or z_field not in self._field_arrays:
+            return
+
+        z_arr = self._field_arrays[z_field]
+
+        # Get grid shape from characteristics
+        shape = self._spec.characteristics.shape
+        if len(shape) >= 2:
+            grid_shape = (shape[0], shape[1])
+        else:
+            side = int(np.sqrt(len(z_arr)))
+            grid_shape = (side, side)
+
+        self._initialize_grid(grid_shape)
+
+        # Fill grid row-major
+        n = min(len(z_arr), grid_shape[0] * grid_shape[1])
+        ny = grid_shape[1]
+        for i in range(n):
+            ix = i // ny
+            iy = i % ny
+            if ix < grid_shape[0] and iy < grid_shape[1]:
+                self._data_grid[ix, iy] = float(z_arr[i])
+        self._current_point = n
+
+        self._update_image()
+
     def _on_mouse_moved(self, pos) -> None:
         """Handle mouse movement for crosshairs."""
         if not self._plot_widget or not self._data_grid is not None:
@@ -310,7 +364,10 @@ class HeatmapVisualization(
         self._z_combo.blockSignals(False)
 
     def _refresh_from_buffer(self) -> None:
-        """Refresh display from buffer."""
+        """Refresh display from buffer (or field_arrays)."""
+        if self._field_arrays is not None:
+            self._load_from_field_arrays()
+            return
         # Would re-read all data from buffer and rebuild grid
         pass
 
@@ -318,6 +375,7 @@ class HeatmapVisualization(
         """Handle clear request."""
         self._data_grid = None
         self._current_point = 0
+        self._field_arrays = None
         if self._image_item:
             self._image_item.clear()
 

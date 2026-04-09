@@ -82,7 +82,10 @@ class VisualizationPanel(BasePanel):
         self._poll_timer: QTimer | None = None
         self._poll_image_client: Any | None = None
         self._poll_entry: Any | None = None
+        self._poll_stream: Any | None = None
+        self._poll_scalar_fields: list[str] = []
         self._last_frame_count = 0
+        self._last_scalar_count = 0
 
         super().__init__(parent)
 
@@ -417,68 +420,38 @@ class VisualizationPanel(BasePanel):
         self._buffer = buffer
         logger.debug("VisualizationPanel buffer set manually")
 
-    def replay_documents(self, documents: list[tuple[str, dict]]) -> None:
-        """Replay a sequence of Bluesky documents to visualize historical data.
-
-        Creates a fresh buffer and feeds the document sequence through both
-        the processor (for characteristics) and the buffer (for data).
-
-        Args:
-            documents: List of (name, doc) tuples in chronological order.
-                       Expected: start, descriptor(s), event(s), stop.
-        """
-        # Create a fresh buffer for the replayed data
-        self._buffer = MultiStreamBuffer(parent=self)
-
-        for name, doc in documents:
-            # Feed to processor (for characteristics extraction)
-            if self._processor:
-                self._processor(name, doc)
-            # Feed to buffer (for data access by visualization widgets)
-            self._buffer(name, doc)
-
-        # Re-create visualization with the fully populated buffer.
-        # characteristics_ready fires during descriptor processing (before
-        # events are buffered), so the widget created then has no data.
-        if self._characteristics:
-            plugin = self._current_plugin
-            if not plugin and self._viz_combo.currentData() is None:
-                # Auto mode — re-select based on characteristics
-                results = self._selection_engine.select_visualizations(
-                    self._characteristics, max_results=1
-                )
-                if results:
-                    plugin = results[0][0]
-            if plugin:
-                self._create_visualization(plugin, self._characteristics)
-
-    # === Tiled lazy path ===
+    # === Tiled visualization path ===
 
     def open_tiled_run(
         self,
         start_doc: dict,
         descriptor: dict,
-        image_client: Any,
+        image_client: Any | None,
         timestamps: np.ndarray,
         frame_shape: tuple[int, ...],
         is_live: bool,
         entry: Any | None = None,
+        scalar_data: dict[str, np.ndarray] | None = None,
+        scalar_fields: list[str] | None = None,
     ) -> None:
-        """Open a tiled run using lazy ArrayClient access.
+        """Open a tiled run — unified entry point for all run types.
 
         Feeds synthetic start + descriptor through the processor so
-        auto-selection picks the right widget, then hands the ArrayClient
-        directly to the widget instead of replaying event documents.
+        auto-selection picks the right widget, then hands data to the
+        widget via the appropriate method:
+        - Image runs: ``set_array_source`` (lazy, one frame at a time)
+        - Scalar runs: ``set_data`` (eager, all data bulk-loaded)
 
         Args:
             start_doc: Start document (or equivalent metadata dict).
             descriptor: Descriptor document for the primary stream.
-            image_client: Tiled ArrayClient for the image field (or None
-                for scalar-only runs).
+            image_client: Tiled ArrayClient for the image field, or None.
             timestamps: 1-D numpy array of epoch timestamps.
             frame_shape: (H, W) shape of each image frame.
             is_live: True if the run has no stop document yet.
             entry: Tiled entry (BlueskyRun) for polling metadata.
+            scalar_data: Dict mapping field name to 1-D numpy array.
+            scalar_fields: List of scalar field names (for combo boxes).
         """
         # Stop any prior poll
         self._stop_tiled_poll()
@@ -487,33 +460,53 @@ class VisualizationPanel(BasePanel):
         if self._processor:
             self._processor("start", start_doc)
             self._processor("descriptor", descriptor)
-        # _on_characteristics_ready fires → creates visualization widget
+        # _on_characteristics_ready fires -> creates visualization widget
 
-        # Hand the ArrayClient to the widget (lazy mode)
+        # Dispatch to widget based on type and available data
         from lucid.visualization.widgets.image_sequence import ImageStackVisualization
 
         if isinstance(self._current_widget, ImageStackVisualization) and image_client is not None:
             self._current_widget.set_array_source(
                 image_client, timestamps, frame_shape
             )
+        elif scalar_data is not None and hasattr(self._current_widget, "set_data"):
+            self._current_widget.set_data(
+                scalar_data, scalar_fields or list(scalar_data.keys())
+            )
 
-        # If live, start polling
-        if is_live and image_client is not None:
-            self._start_tiled_poll(image_client, timestamps, entry)
+        # Start polling if live
+        if is_live:
+            self._start_tiled_poll(
+                image_client=image_client,
+                entry=entry,
+                scalar_fields=scalar_fields or [],
+            )
 
         logger.info(
-            "Opened tiled run (lazy): {} frames, live={}",
-            image_client.shape[0] if image_client is not None else 0,
+            "Opened tiled run: image={}, scalars={}, live={}",
+            image_client is not None,
+            len(scalar_data) if scalar_data else 0,
             is_live,
         )
 
     def _start_tiled_poll(
-        self, image_client: Any, timestamps: np.ndarray, entry: Any | None
+        self,
+        image_client: Any | None,
+        entry: Any | None,
+        scalar_fields: list[str],
     ) -> None:
-        """Start polling tiled for new frames (live run)."""
+        """Start polling tiled for new data (live run)."""
         self._poll_image_client = image_client
         self._poll_entry = entry
-        self._last_frame_count = image_client.shape[0]
+        self._poll_scalar_fields = scalar_fields
+        self._last_frame_count = image_client.shape[0] if image_client else 0
+        self._last_scalar_count = 0
+
+        # Store stream ref for re-reading scalar data on poll
+        try:
+            self._poll_stream = entry["primary"] if entry is not None else None
+        except Exception:
+            self._poll_stream = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_tiled)
@@ -528,34 +521,46 @@ class VisualizationPanel(BasePanel):
             self._poll_timer = None
         self._poll_image_client = None
         self._poll_entry = None
+        self._poll_stream = None
+        self._poll_scalar_fields = []
 
     def _poll_tiled(self) -> None:
-        """Check for new frames from tiled (active path).
+        """Check for new data from tiled (live run).
 
-        Re-checks ``ArrayClient.shape`` without re-fetching the client
-        reference.  If the shape grew, update the view.  If a stop
-        document appears, stop polling.
+        Image path: re-checks ``ArrayClient.shape`` for new frames.
+        Scalar path: re-reads all scalar arrays if count grew.
+        Stops polling when a stop document appears.
         """
-        if self._poll_image_client is None:
-            self._stop_tiled_poll()
-            return
-
         try:
-            new_shape = self._poll_image_client.shape
-            new_count = new_shape[0]
+            # Image polling
+            if self._poll_image_client is not None:
+                new_count = self._poll_image_client.shape[0]
+                if new_count > self._last_frame_count:
+                    self._last_frame_count = new_count
+                    from lucid.visualization.widgets.image_sequence import ImageStackVisualization
+                    if isinstance(self._current_widget, ImageStackVisualization):
+                        self._current_widget.update_lazy_frame_count(
+                            new_count, np.arange(new_count, dtype=np.float64)
+                        )
 
-            if new_count > self._last_frame_count:
-                self._last_frame_count = new_count
-                # Re-read timestamps (small 1-D, cheap)
-                from lucid.visualization.widgets.image_sequence import ImageStackVisualization
-
-                if isinstance(self._current_widget, ImageStackVisualization):
-                    # Fetch updated timestamps from the stream's time column
-                    # The image_client's parent container has the time column
-                    # For now, generate sequential timestamps as fallback
-                    self._current_widget.update_lazy_frame_count(
-                        new_count, np.arange(new_count, dtype=np.float64)
-                    )
+            # Scalar polling
+            elif self._poll_stream is not None and self._poll_scalar_fields:
+                stream_keys = list(self._poll_stream.keys())
+                sample = self._poll_scalar_fields[0]
+                if sample in stream_keys:
+                    new_count = self._poll_stream[sample].shape[0]
+                    if new_count > self._last_scalar_count:
+                        self._last_scalar_count = new_count
+                        scalar_data = {}
+                        for f in self._poll_scalar_fields:
+                            if f in stream_keys:
+                                scalar_data[f] = np.asarray(
+                                    self._poll_stream[f].read()
+                                )
+                        if hasattr(self._current_widget, "set_data"):
+                            self._current_widget.set_data(
+                                scalar_data, self._poll_scalar_fields
+                            )
 
             # Check for stop doc
             if self._poll_entry is not None:

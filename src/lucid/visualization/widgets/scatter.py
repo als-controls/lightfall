@@ -66,6 +66,7 @@ class ScatterVisualization(
         self._x_data: list[float] = []
         self._y_data: list[float] = []
         self._z_data: list[float] = []
+        self._field_arrays: dict[str, np.ndarray] | None = None
 
         self._point_size = 10
 
@@ -191,6 +192,61 @@ class ScatterVisualization(
         if self._plot_widget:
             self._plot_widget.autoRange()
 
+    # === Tiled bulk-load path ===
+
+    def set_data(
+        self,
+        field_arrays: dict[str, np.ndarray],
+        field_names: list[str],
+    ) -> None:
+        """Bulk-load scalar data from tiled ArrayClients."""
+        self._field_arrays = field_arrays
+
+        for combo in [self._x_combo, self._y_combo, self._z_combo]:
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(field_names)
+
+        if self._spec.x_field in field_names:
+            self._x_combo.setCurrentText(self._spec.x_field)
+        if self._spec.y_field in field_names:
+            self._y_combo.setCurrentText(self._spec.y_field)
+        if self._spec.z_field in field_names:
+            self._z_combo.setCurrentText(self._spec.z_field)
+
+        for combo in [self._x_combo, self._y_combo, self._z_combo]:
+            combo.blockSignals(False)
+
+        self._load_from_field_arrays()
+
+    def _load_from_field_arrays(self) -> None:
+        """Reload scatter data from stored field_arrays."""
+        if self._field_arrays is None:
+            return
+
+        x_field = self._spec.x_field
+        y_field = self._spec.y_field
+        z_field = self._spec.z_field
+        if not x_field or not y_field:
+            return
+
+        x_arr = self._field_arrays.get(x_field)
+        y_arr = self._field_arrays.get(y_field)
+        if x_arr is None or y_arr is None:
+            return
+
+        n = min(len(x_arr), len(y_arr))
+        self._x_data = [float(v) for v in x_arr[:n]]
+        self._y_data = [float(v) for v in y_arr[:n]]
+
+        if z_field and z_field in self._field_arrays:
+            z_arr = self._field_arrays[z_field]
+            self._z_data = [float(v) for v in z_arr[:n]]
+        else:
+            self._z_data = [0.0] * n
+
+        self._update_scatter()
+
     def _on_new_point(self, seq_num: int, data: dict[str, Any]) -> None:
         """Handle new data point."""
         x_field = self._spec.x_field
@@ -315,7 +371,10 @@ class ScatterVisualization(
             combo.blockSignals(False)
 
     def _refresh_from_buffer(self) -> None:
-        """Refresh from buffer data."""
+        """Refresh from buffer data (or field_arrays)."""
+        if self._field_arrays is not None:
+            self._load_from_field_arrays()
+            return
         # Would rebuild scatter from buffer
         pass
 
@@ -324,6 +383,7 @@ class ScatterVisualization(
         self._x_data.clear()
         self._y_data.clear()
         self._z_data.clear()
+        self._field_arrays = None
         if self._scatter_item:
             self._scatter_item.clear()
 

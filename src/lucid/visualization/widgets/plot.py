@@ -72,6 +72,7 @@ class PlotVisualization(
         self._decimator: StreamingDecimator | None = None
         self._x_data: list[float] = []
         self._y_data: list[float] = []
+        self._field_arrays: dict[str, np.ndarray] | None = None
 
         # Multiple trace support
         self._traces: dict[str, pg.PlotDataItem] = {}
@@ -201,8 +202,78 @@ class PlotVisualization(
         if self._plot_widget:
             self._plot_widget.autoRange()
 
+    # === Tiled bulk-load path ===
+
+    def set_data(
+        self,
+        field_arrays: dict[str, np.ndarray],
+        field_names: list[str],
+    ) -> None:
+        """Bulk-load scalar data from tiled ArrayClients.
+
+        Args:
+            field_arrays: Mapping of field name to 1-D numpy array.
+            field_names: All available scalar field names (for combo boxes).
+        """
+        self._field_arrays = field_arrays
+
+        # Populate combo boxes
+        self._x_combo.blockSignals(True)
+        self._y_combo.blockSignals(True)
+        self._x_combo.clear()
+        self._y_combo.clear()
+        self._x_combo.addItems(field_names)
+        self._y_combo.addItems(field_names)
+        if self._spec.x_field in field_names:
+            self._x_combo.setCurrentText(self._spec.x_field)
+        if self._spec.y_field in field_names:
+            self._y_combo.setCurrentText(self._spec.y_field)
+        self._x_combo.blockSignals(False)
+        self._y_combo.blockSignals(False)
+
+        self._load_from_field_arrays()
+
+    def _load_from_field_arrays(self) -> None:
+        """Reload plot data from stored field_arrays."""
+        if self._field_arrays is None:
+            return
+
+        x_field = self._spec.x_field
+        y_field = self._spec.y_field
+        if not x_field or not y_field:
+            return
+
+        x_arr = self._field_arrays.get(x_field)
+        y_arr = self._field_arrays.get(y_field)
+        if x_arr is None or y_arr is None:
+            return
+
+        n = min(len(x_arr), len(y_arr))
+        self._x_data = [float(v) for v in x_arr[:n]]
+        self._y_data = [float(v) for v in y_arr[:n]]
+
+        if self._decimator:
+            self._decimator.clear()
+            if n > 0:
+                self._decimator.add_points(
+                    np.asarray(self._x_data), np.asarray(self._y_data)
+                )
+                display_x, display_y = self._decimator.get_display_data()
+                if self._plot_item:
+                    self._plot_item.setData(display_x, display_y)
+
+        # Update axis labels
+        plot_item = self._plot_widget.getPlotItem() if self._plot_widget else None
+        if plot_item:
+            plot_item.setLabel("bottom", x_field)
+            plot_item.setLabel("left", y_field)
+
     def _refresh_plot(self) -> None:
-        """Refresh plot with current data from buffer."""
+        """Refresh plot with current data from buffer (or field_arrays)."""
+        if self._field_arrays is not None:
+            self._load_from_field_arrays()
+            return
+
         stream = self.stream_buffer
         if not stream or not self._spec.x_field or not self._spec.y_field:
             return
@@ -289,6 +360,7 @@ class PlotVisualization(
         """Handle clear request."""
         self._x_data.clear()
         self._y_data.clear()
+        self._field_arrays = None
 
         if self._decimator:
             self._decimator.clear()

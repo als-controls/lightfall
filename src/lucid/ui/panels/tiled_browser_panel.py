@@ -287,19 +287,20 @@ class TiledBrowserPanel(BasePanel):
         self._fetch_thread.start()
 
     def _setup_visualization(self, client: Any, client_key: str) -> dict:
-        """Extract metadata and ArrayClient references for a run (background thread).
+        """Extract metadata, ArrayClient refs, and scalar data for a run.
 
-        Lightweight: reads only metadata and gets lazy client references.
-        No bulk data is fetched — that happens on-demand when the View
-        scrubs through frames.
+        For image fields: returns a lazy ArrayClient reference (no bulk fetch).
+        For scalar fields: reads all data eagerly (small, one HTTP request each).
+        Both paths return a unified dict consumed by ``open_tiled_run``.
 
         Args:
             client: Tiled client instance.
             client_key: Key for the run in the catalog.
 
         Returns:
-            Dict with keys: start_doc, descriptor, image_client,
-            timestamps, frame_shape, is_live, entry.
+            Unified dict with start_doc, descriptor, image_client,
+            timestamps, frame_shape, is_live, entry, scalar_data,
+            scalar_fields.
         """
         import uuid
 
@@ -344,111 +345,62 @@ class TiledBrowserPanel(BasePanel):
             "run_start": start_doc.get("uid", client_key),
         }
 
-        # Identify image field and its ArrayClient
+        # Classify fields by shape
         data_keys = stream_md.get("data_keys", {})
         image_field = None
-        frame_shape = ()
+        frame_shape: tuple[int, ...] = ()
+        scalar_field_names: list[str] = []
+
         for key, info in data_keys.items():
             shape = info.get("shape", [])
             if len(shape) >= 2:
-                image_field = key
-                frame_shape = tuple(shape)
-                break
+                if image_field is None:
+                    image_field = key
+                    frame_shape = tuple(shape)
+            else:
+                scalar_field_names.append(key)
 
-        # Get column names from stream
         stream_keys = list(stream.keys())
 
-        # For image runs: lazy ArrayClient path (no bulk data fetched)
+        # Image field: lazy ArrayClient reference (no data fetched)
+        image_client = None
         if image_field and image_field in stream_keys:
             image_client = stream[image_field]
 
-            timestamps = np.array([])
-            if "time" in stream_keys:
-                timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
+        # Scalar fields: read eagerly (small data, one HTTP request each)
+        scalar_data: dict[str, Any] = {}
+        for field_name in scalar_field_names:
+            if field_name in stream_keys:
+                try:
+                    scalar_data[field_name] = np.asarray(stream[field_name].read())
+                except Exception as e:
+                    logger.warning("Could not read scalar field '{}': {}", field_name, e)
 
-            is_live = metadata.get("stop") is None
+        # Timestamps (small 1-D array)
+        timestamps = np.array([])
+        if "time" in stream_keys:
+            timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
 
-            logger.debug(
-                "Setup viz for run {}: image_field={}, frames={}, live={}",
-                client_key[:8],
-                image_field,
-                image_client.shape[0],
-                is_live,
-            )
-
-            return {
-                "mode": "lazy",
-                "start_doc": start_doc,
-                "descriptor": descriptor,
-                "image_client": image_client,
-                "timestamps": timestamps,
-                "frame_shape": frame_shape,
-                "is_live": is_live,
-                "entry": entry,
-            }
-
-        # For scalar runs: read all data eagerly (small) and build documents
-        documents: list[tuple[str, dict]] = []
-        documents.append(("start", start_doc))
-        documents.append(("descriptor", descriptor))
-
-        data_key_names = [
-            k for k in stream_keys
-            if k not in ("seq_num", "time") and not k.startswith("ts_")
-        ]
-
-        try:
-            arrays = {}
-            for k in ["seq_num", "time"] + data_key_names:
-                if k in stream_keys:
-                    arrays[k] = stream[k].read()
-            for k in data_key_names:
-                ts_key = f"ts_{k}"
-                if ts_key in stream_keys:
-                    arrays[ts_key] = stream[ts_key].read()
-
-            num_events = len(arrays.get("seq_num", []))
-            for i in range(num_events):
-                data = {}
-                for k in data_key_names:
-                    if k in arrays:
-                        data[k] = arrays[k][i]
-                event_doc = {
-                    "uid": str(uuid.uuid4()),
-                    "descriptor": descriptor["uid"],
-                    "seq_num": int(arrays["seq_num"][i]),
-                    "time": float(arrays["time"][i]),
-                    "data": data,
-                    "timestamps": {
-                        k: float(
-                            arrays[f"ts_{k}"][i]
-                            if f"ts_{k}" in arrays
-                            else arrays["time"][i]
-                        )
-                        for k in data_key_names
-                    },
-                    "filled": {k: True for k in data_key_names},
-                }
-                documents.append(("event", event_doc))
-        except Exception as e:
-            logger.warning(
-                "Could not read events from {}/primary: {}",
-                client_key[:8], e,
-            )
-
-        stop_doc = metadata.get("stop")
-        if stop_doc:
-            documents.append(("stop", dict(stop_doc)))
+        is_live = metadata.get("stop") is None
 
         logger.debug(
-            "Setup viz for run {} (scalar): {} documents",
+            "Setup viz for run {}: image={}, scalars={}, live={}",
             client_key[:8],
-            len(documents),
+            image_field,
+            len(scalar_data),
+            is_live,
         )
 
         return {
-            "mode": "replay",
-            "documents": documents,
+            "start_doc": start_doc,
+            "descriptor": descriptor,
+            "image_client": image_client,
+            "timestamps": timestamps,
+            "frame_shape": frame_shape,
+            "is_live": is_live,
+            "entry": entry,
+            "scalar_data": scalar_data or None,
+            "scalar_fields": scalar_field_names,
         }
 
     @Slot(object)
@@ -464,24 +416,18 @@ class TiledBrowserPanel(BasePanel):
 
         for widget in QApplication.allWidgets():
             if isinstance(widget, VisualizationPanel):
-                mode = result.get("mode", "replay")
-                if mode == "lazy":
-                    widget.open_tiled_run(
-                        start_doc=result["start_doc"],
-                        descriptor=result["descriptor"],
-                        image_client=result["image_client"],
-                        timestamps=result["timestamps"],
-                        frame_shape=result["frame_shape"],
-                        is_live=result["is_live"],
-                        entry=result["entry"],
-                    )
-                    logger.info("Opened tiled run in visualization (lazy)")
-                else:
-                    widget.replay_documents(result["documents"])
-                    logger.info(
-                        "Replaying {} documents in visualization",
-                        len(result["documents"]),
-                    )
+                widget.open_tiled_run(
+                    start_doc=result["start_doc"],
+                    descriptor=result["descriptor"],
+                    image_client=result.get("image_client"),
+                    timestamps=result["timestamps"],
+                    frame_shape=result.get("frame_shape", ()),
+                    is_live=result.get("is_live", False),
+                    entry=result.get("entry"),
+                    scalar_data=result.get("scalar_data"),
+                    scalar_fields=result.get("scalar_fields", []),
+                )
+                logger.info("Opened tiled run in visualization")
                 return
 
         logger.warning("Visualization panel not found")
