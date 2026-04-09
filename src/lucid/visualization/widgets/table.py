@@ -192,6 +192,37 @@ class TableVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
 
         self._layout.addWidget(self._table)
 
+    # === Tiled bulk-load path ===
+
+    def set_data(
+        self,
+        field_arrays: dict[str, np.ndarray],
+        field_names: list[str],
+    ) -> None:
+        """Bulk-load tabular data from tiled ArrayClients."""
+        if not self._model:
+            return
+
+        self._model.beginResetModel()
+        self._model._columns = ["seq_num", "time"] + field_names
+        self._model._data.clear()
+
+        n_rows = max((len(arr) for arr in field_arrays.values()), default=0)
+        time_arr = field_arrays.get("time")
+
+        for i in range(n_rows):
+            row = {"seq_num": i + 1, "time": float(time_arr[i]) if time_arr is not None else 0.0}
+            for name in field_names:
+                if name in field_arrays and i < len(field_arrays[name]):
+                    row[name] = field_arrays[name][i]
+            self._model._data.append(row)
+
+        self._model.endResetModel()
+        self._columns_set = True
+
+        if self._table:
+            self._table.scrollToBottom()
+
     def _on_new_point(self, seq_num: int, data: dict[str, Any]) -> None:
         """Handle new data point."""
         if not self._model:

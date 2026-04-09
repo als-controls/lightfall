@@ -30,6 +30,7 @@ from lucid.visualization.spec import (
     VisualizationSpec,
 )
 from lucid.visualization.theme import ThemedVisualizationMixin, VisualizationColors
+from lucid.visualization.widgets.lazy_image_view import LazyImageView
 from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 if TYPE_CHECKING:
@@ -54,11 +55,16 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         parent: QWidget | None = None,
     ) -> None:
         """Initialize the image stack visualization."""
-        self._image_view: pg.ImageView | None = None
+        self._image_view: LazyImageView | None = None
         self._images: list[np.ndarray] = []
         self._time_values: list[float] = []
         self._start_time: float | None = None
         self._current_frame = 0
+        self._lazy_mode = False  # True when driven by ArrayClient
+
+        # Lazy-mode state (ArrayClient references)
+        self._image_client: Any | None = None
+        self._frame_shape: tuple[int, ...] = ()
 
         # ROI-related state
         self._roi: pg.RectROI | None = None
@@ -67,7 +73,7 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         super().__init__(spec, buffer, parent)
         self._setup_theme()
 
-        # Load any existing data from buffer
+        # Load any existing data from buffer (buffer path only)
         self._load_historical_data()
 
     def _setup_ui(self) -> None:
@@ -80,8 +86,8 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         toolbar = self._create_toolbar()
         main_layout.addLayout(toolbar)
 
-        # Create image view with timeline enabled
-        self._image_view = pg.ImageView()
+        # Create image view with timeline enabled (lazy-capable)
+        self._image_view = LazyImageView()
 
         # Show the ROI plot (contains the timeline)
         self._image_view.ui.roiPlot.show()
@@ -191,6 +197,65 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         if self._image_view:
             self._image_view.autoLevels()
 
+    # === Lazy ArrayClient path (tiled replay / live) ===
+
+    def set_array_source(
+        self,
+        image_client: Any,
+        timestamps: np.ndarray,
+        frame_shape: tuple[int, ...],
+        scalar_clients: dict[str, Any] | None = None,
+    ) -> None:
+        """Set the data source to a tiled ArrayClient (lazy mode).
+
+        In lazy mode the view fetches one frame at a time via HTTP
+        instead of holding the full stack in memory.
+
+        Args:
+            image_client: Tiled ``ArrayClient`` for the image field.
+            timestamps: 1-D numpy array of epoch timestamps.
+            frame_shape: ``(H, W)`` shape of each frame from descriptor.
+            scalar_clients: Optional dict of other ArrayClients (future use).
+        """
+        self._lazy_mode = True
+        self._image_client = image_client
+        self._frame_shape = frame_shape
+
+        # Populate the image field selector
+        self._img_combo.blockSignals(True)
+        self._img_combo.clear()
+        self._img_combo.addItem(self._spec.image_field or "image")
+        self._img_combo.blockSignals(False)
+
+        # Hand off to the LazyImageView
+        self._image_view.setArraySource(image_client, timestamps, frame_shape)
+
+        # Jump to the last frame
+        n_frames = image_client.shape[0]
+        if n_frames > 0:
+            self._image_view.setCurrentIndex(n_frames - 1)
+            self._current_frame = n_frames - 1
+
+        self._update_status()
+        logger.debug(
+            "ImageStackVisualization: lazy mode, {} frames, shape {}",
+            n_frames,
+            frame_shape,
+        )
+
+    def update_lazy_frame_count(
+        self, new_count: int, timestamps: np.ndarray
+    ) -> None:
+        """Update frame count during a live run (lazy mode).
+
+        Args:
+            new_count: New total number of frames.
+            timestamps: Updated timestamp array.
+        """
+        if not self._lazy_mode or self._image_view is None:
+            return
+        self._image_view.updateFrameCount(new_count, timestamps)
+
     def _on_time_changed(self, ind: int, time: float) -> None:
         """Handle timeline position change.
 
@@ -230,11 +295,16 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
     def _create_roi(self) -> None:
         """Create ROI if it doesn't exist."""
-        if self._roi is not None or not self._images:
+        if self._roi is not None:
             return
 
         # Get image dimensions
-        height, width = self._images[0].shape
+        if self._lazy_mode and self._frame_shape:
+            height, width = self._frame_shape
+        elif self._images:
+            height, width = self._images[0].shape
+        else:
+            return
 
         # Create ROI at center of image, 50% size
         roi_width = width // 2
@@ -265,53 +335,76 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         """Calculate and plot ROI statistics over all frames.
 
         Uses efficient numpy slicing instead of per-frame getArrayRegion calls.
+        In lazy mode, fetches a subsample from the ArrayClient.
         """
-        if not self._roi or not self._images or not self._image_view:
+        if not self._roi or not self._image_view:
             return
 
-        # Get ROI bounds in pixel coordinates (much faster than getArrayRegion per frame)
+        # Determine image dimensions and frame count
+        if self._lazy_mode:
+            if self._image_client is None:
+                return
+            img_h, img_w = self._frame_shape
+            n_frames = self._image_client.shape[0]
+        else:
+            if not self._images:
+                return
+            img_h, img_w = self._images[0].shape
+            n_frames = len(self._images)
+
+        # Get ROI bounds in pixel coordinates
         pos = self._roi.pos()
         size = self._roi.size()
 
-        # Convert to integer pixel indices, clamped to image bounds
-        img_h, img_w = self._images[0].shape
         x0 = max(0, int(pos.x()))
         y0 = max(0, int(pos.y()))
         x1 = min(img_w, int(pos.x() + size.x()))
         y1 = min(img_h, int(pos.y() + size.y()))
 
-        # Check for valid ROI region
         if x1 <= x0 or y1 <= y0:
             self._clear_roi_curves()
             return
 
-        # Stack all images and extract ROI region in one operation
-        # Shape: (n_frames, height, width) -> (n_frames, roi_h, roi_w)
-        stack = np.array(self._images)
-        roi_data = stack[:, y0:y1, x0:x1]
-
-        # Get selected statistic and compute over spatial axes (1, 2)
+        # Compute ROI statistic
         stat_name = self._roi_stat_combo.currentText()
-        if stat_name == "Mean":
-            roi_values = np.mean(roi_data, axis=(1, 2))
-        elif stat_name == "Sum":
-            roi_values = np.sum(roi_data, axis=(1, 2))
-        elif stat_name == "Max":
-            roi_values = np.max(roi_data, axis=(1, 2))
-        elif stat_name == "Min":
-            roi_values = np.min(roi_data, axis=(1, 2))
-        elif stat_name == "Std":
-            roi_values = np.std(roi_data, axis=(1, 2))
+        stat_func = {
+            "Mean": np.mean, "Sum": np.sum, "Max": np.max,
+            "Min": np.min, "Std": np.std,
+        }.get(stat_name, np.mean)
+
+        if self._lazy_mode:
+            # Subsample for large datasets (max 200 frames for ROI stats)
+            max_roi_frames = 200
+            if n_frames > max_roi_frames:
+                indices = np.linspace(0, n_frames - 1, max_roi_frames, dtype=int)
+            else:
+                indices = np.arange(n_frames)
+
+            roi_values = np.empty(len(indices))
+            for i, idx in enumerate(indices):
+                frame = self._image_view._fetch_frame(int(idx))
+                roi_crop = frame[y0:y1, x0:x1]
+                roi_values[i] = stat_func(roi_crop)
+
+            tvals = self._image_view.tVals
+            if tvals is not None and len(tvals) > 0:
+                time_vals = np.asarray(tvals)[indices]
+            else:
+                time_vals = indices.astype(float)
         else:
-            roi_values = np.mean(roi_data, axis=(1, 2))
+            # Eager path: stack all in-memory images
+            stack = np.array(self._images)
+            roi_data = stack[:, y0:y1, x0:x1]
+            roi_values = stat_func(roi_data, axis=(1, 2))
+            time_vals = np.array(self._time_values[:n_frames])
 
         # Clear existing curves and plot new
         self._clear_roi_curves()
 
-        if len(roi_values) > 0 and self._time_values:
-            n_points = min(len(roi_values), len(self._time_values))
+        n_points = min(len(roi_values), len(time_vals))
+        if n_points > 0:
             curve = self._image_view.ui.roiPlot.plot(
-                x=np.array(self._time_values[:n_points]),
+                x=time_vals[:n_points],
                 y=roi_values[:n_points],
                 pen=pg.mkPen("c", width=2),
                 name=f"ROI {stat_name}",
@@ -320,11 +413,20 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
     def _update_status(self) -> None:
         """Update the time axis label with current frame info."""
-        total = len(self._images)
+        if self._lazy_mode and self._image_client is not None:
+            total = self._image_client.shape[0]
+        else:
+            total = len(self._images)
         current = self._current_frame + 1 if total > 0 else 0
 
         # Show frame and time info in the axis label
-        if self._time_values and 0 <= self._current_frame < len(self._time_values):
+        if self._lazy_mode and self._image_view is not None:
+            tvals = self._image_view.tVals
+            if tvals is not None and 0 <= self._current_frame < len(tvals):
+                label = f"Frame {current}/{total} | Time: {tvals[self._current_frame]:.3f}s"
+            else:
+                label = f"Frame {current}/{total}"
+        elif self._time_values and 0 <= self._current_frame < len(self._time_values):
             time_val = self._time_values[self._current_frame]
             label = f"Frame {current}/{total} | Time: {time_val:.3f}s"
         else:
@@ -500,6 +602,8 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         self._time_values.clear()
         self._start_time = None
         self._current_frame = 0
+        self._lazy_mode = False
+        self._image_client = None
 
         if self._roi:
             self._roi.hide()
