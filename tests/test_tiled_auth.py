@@ -19,10 +19,7 @@ def mock_session_manager():
     sm = MagicMock()
     sm.session = MagicMock()
     sm.session.token = "token-v1"
-    with patch(
-        "lucid.services.tiled_auth.SessionManager",
-        **{"get_instance.return_value": sm},
-    ) as mock_cls:
+    with patch("lucid.services.tiled_auth.SessionManager") as mock_cls:
         mock_cls.get_instance.return_value = sm
         yield sm
 
