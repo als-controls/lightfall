@@ -139,6 +139,7 @@ disallow_untyped_defs = true
 testpaths = ["tests"]
 addopts = "-ra -q"
 qt_api = "pyside6"
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["src/lucid"]
@@ -228,3 +229,8 @@ requires = []
 [tool.briefcase.app.lucid.linux]
 requires = []
 system_requires = []
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.3.0",
+]
