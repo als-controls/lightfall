@@ -47,6 +47,30 @@ class TiledConfig:
     auth_mode: TiledAuthMode = TiledAuthMode.NONE
 
 
+def _normalize_descriptor_dtypes(doc: dict[str, Any]) -> dict[str, Any]:
+    """Normalize dtype_numpy values to numpy wire format.
+
+    Some ophyd devices report dtype_numpy as human-readable names like
+    ``'uint8'`` instead of the wire format ``'|u1'`` required by the
+    event_model schema.  ``np.dtype().str`` is idempotent for already-valid
+    values, so this is safe to apply unconditionally.
+    """
+    import numpy as np
+
+    def _fix(data_keys: dict) -> None:
+        for spec in data_keys.values():
+            if isinstance(val := spec.get("dtype_numpy"), str):
+                try:
+                    spec["dtype_numpy"] = np.dtype(val).str
+                except (TypeError, ValueError):
+                    pass
+
+    _fix(doc.get("data_keys", {}))
+    for conf in doc.get("configuration", {}).values():
+        _fix(conf.get("data_keys", {}))
+    return doc
+
+
 class TiledService(QObject):
     """Service managing Tiled connection and TiledWriter lifecycle.
 
@@ -661,7 +685,10 @@ class TiledService(QObject):
             # Create the underlying TiledWriter. The default batch_size (10000)
             # is fine since _unsubscribe_writer now flushes the writer, ensuring
             # cached events and the stop document are always written.
-            raw_writer = TiledWriter(self._client)
+            raw_writer = TiledWriter(
+                self._client,
+                patches={"descriptor": _normalize_descriptor_dtypes},
+            )
 
             # Wrap in ThreadedTiledWriter to prevent blocking
             self._writer = ThreadedTiledWriter(
