@@ -241,6 +241,34 @@ class TestDecorators:
         assert yielded == [0, 1, 2]
 
 
+class TestQThreadFutureSafeRepr:
+    """Tests for safe repr in error logging."""
+
+    def test_error_logging_survives_repr_failure(self, qapp, qtbot) -> None:
+        """QThreadFuture should not crash when args have broken repr."""
+
+        class BadRepr:
+            def __repr__(self):
+                raise RuntimeError("repr exploded")
+
+        def failing_task(arg):
+            raise ValueError("task failed")
+
+        errors = []
+        future = QThreadFuture(
+            failing_task,
+            BadRepr(),
+            except_slot=lambda ex: errors.append(ex),
+            name="test_bad_repr",
+        )
+        future.start()
+        qtbot.waitUntil(lambda: len(errors) == 1, timeout=3000)
+
+        # The original ValueError should be captured, not a RuntimeError from repr
+        assert isinstance(errors[0], ValueError)
+        assert "task failed" in str(errors[0])
+
+
 class TestUtilities:
     """Tests for utility functions."""
 

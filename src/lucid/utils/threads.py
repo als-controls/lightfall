@@ -552,11 +552,17 @@ class QThreadFuture(QThread):
 
         except Exception as ex:
             self._exception = ex
+            try:
+                args_repr = repr(self._args)
+                kwargs_repr = repr(self._kwargs)
+            except Exception:
+                args_repr = f"<{len(self._args)} args, repr failed>"
+                kwargs_repr = "<repr failed>"
             logger.error(
                 f"Error in thread '{self._name}': {ex}\n"
                 f"Method: {getattr(self._method, '__name__', 'UNKNOWN')}\n"
-                f"Args: {self._args}\n"
-                f"Kwargs: {self._kwargs}"
+                f"Args: {args_repr}\n"
+                f"Kwargs: {kwargs_repr}"
             )
             logger.exception(ex)
             if self._except_slot:
