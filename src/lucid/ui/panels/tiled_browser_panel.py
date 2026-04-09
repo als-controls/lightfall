@@ -271,52 +271,49 @@ class TiledBrowserPanel(BasePanel):
         self.record_double_clicked.emit(record)
         logger.info("Opening run {} in visualization", record.uid[:8])
 
-        # Fetch documents in background and replay in visualization
+        # Setup visualization using lazy ArrayClient access
         client = self._tiled_service._client
         if client is None:
             return
 
         self._fetch_thread = QThreadFuture(
-            self._fetch_run_documents,
+            self._setup_visualization,
             client,
             record._client_key,
-            callback_slot=self._on_run_documents_fetched,
+            callback_slot=self._on_visualization_ready,
             except_slot=self._on_replay_error,
-            name="tiled_replay",
+            name="tiled_setup_viz",
         )
         self._fetch_thread.start()
 
-    def _fetch_run_documents(
-        self, client: Any, client_key: str
-    ) -> list[tuple[str, dict]]:
-        """Fetch all documents for a run from Tiled (background thread).
+    def _setup_visualization(self, client: Any, client_key: str) -> dict:
+        """Extract metadata and ArrayClient references for a run (background thread).
 
-        Reconstructs a bluesky document stream from the Tiled entry's
-        metadata and data tables.
+        Lightweight: reads only metadata and gets lazy client references.
+        No bulk data is fetched — that happens on-demand when the View
+        scrubs through frames.
 
         Args:
             client: Tiled client instance.
             client_key: Key for the run in the catalog.
 
         Returns:
-            List of (name, doc) pairs in chronological order.
+            Dict with keys: start_doc, descriptor, image_client,
+            timestamps, frame_shape, is_live, entry.
         """
         import uuid
 
+        import numpy as np
+
         entry = client[client_key]
         metadata = entry.metadata
-        documents: list[tuple[str, dict]] = []
 
-        # 1. Start document
+        # Start document
         start_doc = dict(metadata.get("start") or {})
-        documents.append(("start", start_doc))
 
-        # 2. Descriptor + Event documents for each stream
+        # Access primary stream
         stream_names = list(entry.keys())
         if not stream_names:
-            # Tiled may inline empty contents ({}) causing keys() to return
-            # nothing. Clear inlined contents so _keys_slice falls through to
-            # the server search path.
             logger.debug(
                 "No streams from inlined contents for run {}; fetching from server",
                 client_key[:8],
@@ -325,13 +322,6 @@ class TiledBrowserPanel(BasePanel):
             stream_names = list(entry.keys())
 
         if not stream_names:
-            # The search endpoint may also return empty for BlueskyRun
-            # entries. Fall back to direct access of common stream names,
-            # which uses the entry's self link instead of the search link.
-            logger.debug(
-                "Search returned no streams for run {}; trying direct access",
-                client_key[:8],
-            )
             for candidate in ("primary", "baseline"):
                 try:
                     entry[candidate]
@@ -339,102 +329,93 @@ class TiledBrowserPanel(BasePanel):
                 except (KeyError, Exception):
                     pass
 
-        for stream_name in stream_names:
-            stream = entry[stream_name]
-            stream_md = dict(stream.metadata)
+        if "primary" not in stream_names:
+            logger.warning("No primary stream found for run {}", client_key[:8])
+            return {}
 
-            # Build descriptor document
-            desc_uid = stream_md.get("uid", str(uuid.uuid4()))
-            descriptor = {
-                **stream_md,
-                "name": stream_name,
-                "run_start": start_doc.get("uid", client_key),
-            }
-            documents.append(("descriptor", descriptor))
+        stream = entry["primary"]
+        stream_md = dict(stream.metadata)
 
-            # Read event data via the composite client API.
-            # Each data key is accessible as an ArrayClient with proper
-            # numpy types — no pandas StringDtype coercion issues.
-            try:
-                stream_keys = list(stream.keys())
-                data_key_names = [
-                    k for k in stream_keys
-                    if k not in ("seq_num", "time") and not k.startswith("ts_")
-                ]
+        # Build descriptor document (lightweight, from metadata only)
+        descriptor = {
+            **stream_md,
+            "uid": stream_md.get("uid", str(uuid.uuid4())),
+            "name": "primary",
+            "run_start": start_doc.get("uid", client_key),
+        }
 
-                # Bulk-read columns as numpy arrays (one HTTP request each)
-                arrays = {}
-                for k in ["seq_num", "time"] + data_key_names:
-                    if k in stream_keys:
-                        arrays[k] = stream[k].read()
-                for k in data_key_names:
-                    ts_key = f"ts_{k}"
-                    if ts_key in stream_keys:
-                        arrays[ts_key] = stream[ts_key].read()
+        # Identify image field and its ArrayClient
+        data_keys = stream_md.get("data_keys", {})
+        image_field = None
+        frame_shape = ()
+        for key, info in data_keys.items():
+            shape = info.get("shape", [])
+            if len(shape) >= 2:
+                image_field = key
+                frame_shape = tuple(shape)
+                break
 
-                num_events = len(arrays.get("seq_num", []))
-                for i in range(num_events):
-                    data = {}
-                    for k in data_key_names:
-                        if k in arrays:
-                            data[k] = arrays[k][i]
-                    event_doc = {
-                        "uid": str(uuid.uuid4()),
-                        "descriptor": desc_uid,
-                        "seq_num": int(arrays["seq_num"][i]),
-                        "time": float(arrays["time"][i]),
-                        "data": data,
-                        "timestamps": {
-                            k: float(
-                                arrays[f"ts_{k}"][i]
-                                if f"ts_{k}" in arrays
-                                else arrays["time"][i]
-                            )
-                            for k in data_key_names
-                        },
-                        "filled": {k: True for k in data_key_names},
-                    }
-                    documents.append(("event", event_doc))
+        # Get lazy ArrayClient references (no data fetched)
+        stream_keys = list(stream.keys())
+        image_client = stream[image_field] if image_field and image_field in stream_keys else None
 
-            except Exception as e:
-                logger.warning("Could not read events from {}/{}: {}", client_key[:8], stream_name, e)
+        # Read timestamps (small 1-D array, cheap)
+        timestamps = np.array([])
+        if "time" in stream_keys:
+            timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
 
-        # 3. Stop document
-        stop_doc = metadata.get("stop")
-        if stop_doc:
-            documents.append(("stop", dict(stop_doc)))
+        # Check if run is still in progress
+        is_live = metadata.get("stop") is None
 
         logger.debug(
-            "Reconstructed {} documents for run {}",
-            len(documents),
+            "Setup viz for run {}: image_field={}, frames={}, live={}",
             client_key[:8],
+            image_field,
+            image_client.shape[0] if image_client is not None else 0,
+            is_live,
         )
-        return documents
+
+        return {
+            "start_doc": start_doc,
+            "descriptor": descriptor,
+            "image_client": image_client,
+            "timestamps": timestamps,
+            "frame_shape": frame_shape,
+            "is_live": is_live,
+            "entry": entry,
+        }
 
     @Slot(object)
-    def _on_run_documents_fetched(self, documents: list | None = None) -> None:
-        """Handle fetched documents - replay in visualization panel."""
-        if not documents:
-            logger.warning("No documents to replay")
+    def _on_visualization_ready(self, result: dict | None = None) -> None:
+        """Handle visualization setup result — open in VisualizationPanel."""
+        if not result:
+            logger.warning("No visualization data to display")
             return
-
-        # Find the visualization panel
-        from lucid.ui.panels.visualization_panel import VisualizationPanel
 
         from PySide6.QtWidgets import QApplication
 
+        from lucid.ui.panels.visualization_panel import VisualizationPanel
+
         for widget in QApplication.allWidgets():
             if isinstance(widget, VisualizationPanel):
-                widget.replay_documents(documents)
-                logger.info("Replaying {} documents in visualization", len(documents))
+                widget.open_tiled_run(
+                    start_doc=result["start_doc"],
+                    descriptor=result["descriptor"],
+                    image_client=result["image_client"],
+                    timestamps=result["timestamps"],
+                    frame_shape=result["frame_shape"],
+                    is_live=result["is_live"],
+                    entry=result["entry"],
+                )
+                logger.info("Opened tiled run in visualization (lazy)")
                 return
 
         logger.warning("Visualization panel not found")
 
     @Slot(Exception)
     def _on_replay_error(self, error: Exception) -> None:
-        """Handle error fetching run documents."""
-        logger.error("Failed to fetch run documents: {}", error)
+        """Handle error setting up visualization."""
+        logger.error("Failed to setup visualization: {}", error)
 
     def _load_data(self) -> None:
         """Load initial batch of data from Tiled server with current filters."""

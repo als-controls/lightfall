@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import numpy as np
 from loguru import logger
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -76,6 +77,12 @@ class VisualizationPanel(BasePanel):
         self._current_widget: BaseVisualizationWidget | None = None
         self._current_plugin: VisualizationPlugin | None = None
         self._characteristics: DataCharacteristics | None = None
+
+        # Tiled live-run polling state
+        self._poll_timer: QTimer | None = None
+        self._poll_image_client: Any | None = None
+        self._poll_entry: Any | None = None
+        self._last_frame_count = 0
 
         super().__init__(parent)
 
@@ -363,8 +370,8 @@ class VisualizationPanel(BasePanel):
     ) -> None:
         """Create and display a visualization widget."""
         if not self._buffer:
-            logger.warning("No buffer connected, cannot create visualization")
-            return
+            # Create a dummy buffer for lazy-mode widgets (they won't use it)
+            self._buffer = MultiStreamBuffer(parent=self)
 
         # Get spec
         spec = self._selection_engine.get_spec_for_visualization(plugin, characteristics)
@@ -444,6 +451,121 @@ class VisualizationPanel(BasePanel):
                     plugin = results[0][0]
             if plugin:
                 self._create_visualization(plugin, self._characteristics)
+
+    # === Tiled lazy path ===
+
+    def open_tiled_run(
+        self,
+        start_doc: dict,
+        descriptor: dict,
+        image_client: Any,
+        timestamps: np.ndarray,
+        frame_shape: tuple[int, ...],
+        is_live: bool,
+        entry: Any | None = None,
+    ) -> None:
+        """Open a tiled run using lazy ArrayClient access.
+
+        Feeds synthetic start + descriptor through the processor so
+        auto-selection picks the right widget, then hands the ArrayClient
+        directly to the widget instead of replaying event documents.
+
+        Args:
+            start_doc: Start document (or equivalent metadata dict).
+            descriptor: Descriptor document for the primary stream.
+            image_client: Tiled ArrayClient for the image field (or None
+                for scalar-only runs).
+            timestamps: 1-D numpy array of epoch timestamps.
+            frame_shape: (H, W) shape of each image frame.
+            is_live: True if the run has no stop document yet.
+            entry: Tiled entry (BlueskyRun) for polling metadata.
+        """
+        # Stop any prior poll
+        self._stop_tiled_poll()
+
+        # Feed start + descriptor through processor for characteristics
+        if self._processor:
+            self._processor("start", start_doc)
+            self._processor("descriptor", descriptor)
+        # _on_characteristics_ready fires → creates visualization widget
+
+        # Hand the ArrayClient to the widget (lazy mode)
+        from lucid.visualization.widgets.image_sequence import ImageStackVisualization
+
+        if isinstance(self._current_widget, ImageStackVisualization) and image_client is not None:
+            self._current_widget.set_array_source(
+                image_client, timestamps, frame_shape
+            )
+
+        # If live, start polling
+        if is_live and image_client is not None:
+            self._start_tiled_poll(image_client, timestamps, entry)
+
+        logger.info(
+            "Opened tiled run (lazy): {} frames, live={}",
+            image_client.shape[0] if image_client is not None else 0,
+            is_live,
+        )
+
+    def _start_tiled_poll(
+        self, image_client: Any, timestamps: np.ndarray, entry: Any | None
+    ) -> None:
+        """Start polling tiled for new frames (live run)."""
+        self._poll_image_client = image_client
+        self._poll_entry = entry
+        self._last_frame_count = image_client.shape[0]
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._poll_tiled)
+        self._poll_timer.start(2000)
+        logger.debug("Started tiled poll timer (2s)")
+
+    def _stop_tiled_poll(self) -> None:
+        """Stop the tiled polling timer if active."""
+        if self._poll_timer is not None:
+            self._poll_timer.stop()
+            self._poll_timer.deleteLater()
+            self._poll_timer = None
+        self._poll_image_client = None
+        self._poll_entry = None
+
+    def _poll_tiled(self) -> None:
+        """Check for new frames from tiled (active path).
+
+        Re-checks ``ArrayClient.shape`` without re-fetching the client
+        reference.  If the shape grew, update the view.  If a stop
+        document appears, stop polling.
+        """
+        if self._poll_image_client is None:
+            self._stop_tiled_poll()
+            return
+
+        try:
+            new_shape = self._poll_image_client.shape
+            new_count = new_shape[0]
+
+            if new_count > self._last_frame_count:
+                self._last_frame_count = new_count
+                # Re-read timestamps (small 1-D, cheap)
+                from lucid.visualization.widgets.image_sequence import ImageStackVisualization
+
+                if isinstance(self._current_widget, ImageStackVisualization):
+                    # Fetch updated timestamps from the stream's time column
+                    # The image_client's parent container has the time column
+                    # For now, generate sequential timestamps as fallback
+                    self._current_widget.update_lazy_frame_count(
+                        new_count, np.arange(new_count, dtype=np.float64)
+                    )
+
+            # Check for stop doc
+            if self._poll_entry is not None:
+                stop = self._poll_entry.metadata.get("stop")
+                if stop is not None:
+                    logger.info("Live run completed, stopping poll")
+                    self._stop_tiled_poll()
+
+        except Exception as e:
+            logger.warning("Tiled poll error: {}", e)
 
     def get_processor(self) -> DocumentProcessor:
         """Get the document processor for RunEngine subscription.
