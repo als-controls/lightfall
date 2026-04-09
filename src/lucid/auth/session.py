@@ -461,16 +461,19 @@ class SessionManager(QObject):
 
         def _refresh():
             if hasattr(provider, "refresh_sync"):
-                return provider.refresh_sync(session)
+                result = provider.refresh_sync(session)
             else:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 try:
-                    return loop.run_until_complete(
+                    result = loop.run_until_complete(
                         provider.refresh(session)
                     )
                 finally:
                     loop.close()
+            if result is None:
+                raise RuntimeError("Provider returned None from refresh")
+            return result
 
         QThreadFuture(
             _refresh,
@@ -485,14 +488,16 @@ class SessionManager(QObject):
 
         Verifies the new session has a later expiry, updates state, and
         schedules the next refresh.
-        """
-        self._refresh_in_progress = False
 
+        Note: QThreadFuture's generator-based callback emits sigResult twice —
+        once with the real value and once with None when the generator ends.
+        The None call is ignored here; actual provider failures raise in
+        _refresh() and go to _on_refresh_failure via except_slot.
+        """
         if new_session is None:
-            self._on_refresh_failure(
-                RuntimeError("Provider returned None from refresh")
-            )
             return
+
+        self._refresh_in_progress = False
 
         # Verify the refresh actually advanced the JWT expiry
         old_expires = (
