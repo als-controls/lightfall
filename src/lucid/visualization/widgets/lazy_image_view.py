@@ -260,7 +260,7 @@ class LazyImageView(pg.ImageView):
         We reshape using ``self._frame_shape`` from the descriptor.
         """
         n_frames = self._client.shape[0]
-        index = max(0, min(index, n_frames - 1))
+        index = int(max(0, min(index, n_frames - 1)))
 
         raw = np.asarray(self._client[index])
 
