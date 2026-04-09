@@ -303,6 +303,8 @@ class TiledBrowserPanel(BasePanel):
         """
         import uuid
 
+        import numpy as np
+
         entry = client[client_key]
         metadata = entry.metadata
         documents: list[tuple[str, dict]] = []
@@ -371,13 +373,32 @@ class TiledBrowserPanel(BasePanel):
                     k for k in df.columns if k not in ("seq_num", "time") and not k.startswith("ts_")
                 ]
 
+                # Identify array columns: tiled's read_pandas() may
+                # stringify list-type pyarrow columns.  Convert them
+                # back to numpy arrays using the descriptor shape.
+                desc_data_keys = descriptor.get("data_keys", {})
+                array_cols = {
+                    k for k in data_key_names
+                    if len(desc_data_keys.get(k, {}).get("shape", [])) >= 1
+                }
+
                 for _, row in df.iterrows():
+                    data = {}
+                    for k in data_key_names:
+                        if k not in row:
+                            continue
+                        v = row[k]
+                        if k in array_cols and isinstance(v, str):
+                            v = np.fromstring(
+                                v.replace("\n", " ").strip("[]"), sep=" "
+                            )
+                        data[k] = v
                     event_doc = {
                         "uid": str(uuid.uuid4()),
                         "descriptor": desc_uid,
                         "seq_num": int(row.get("seq_num", 0)),
                         "time": float(row.get("time", 0)),
-                        "data": {k: row[k] for k in data_key_names if k in row},
+                        "data": data,
                         "timestamps": {
                             k: float(row.get(f"ts_{k}", row.get("time", 0)))
                             for k in data_key_names
