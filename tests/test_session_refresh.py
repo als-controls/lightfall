@@ -165,6 +165,32 @@ class TestDoScheduledRefresh:
         mock_fail.assert_called_once()
 
 
+class TestStateSignalDriven:
+    """Tests for signal-driven refresh scheduling."""
+
+    def test_schedule_on_authenticated(self, manager, qapp) -> None:
+        """Setting state to AUTHENTICATED should schedule refresh."""
+        manager._session = _make_session(expires_in=300.0)
+
+        with patch.object(manager, "_start_single_shot") as mock_timer:
+            manager._set_state(AuthState.AUTHENTICATED)
+
+        mock_timer.assert_called_once()
+
+    def test_cancel_on_unauthenticated(self, manager, qapp) -> None:
+        """Transitioning away from AUTHENTICATED should cancel and reset."""
+        manager._session = _make_session(expires_in=300.0)
+        manager._set_state(AuthState.AUTHENTICATED)
+        manager._refresh_in_progress = True
+        manager._fast_retry_count = 2
+
+        manager._session = None
+        manager._set_state(AuthState.UNAUTHENTICATED)
+
+        assert manager._refresh_in_progress is False
+        assert manager._fast_retry_count == 0
+
+
 class TestLogoutCleanup:
     """Tests for refresh cleanup on logout."""
 
@@ -175,7 +201,6 @@ class TestLogoutCleanup:
         manager._set_state(AuthState.AUTHENTICATED)
         manager._refresh_in_progress = True
         manager._fast_retry_count = 2
-        manager._schedule_refresh()
 
         await manager.logout()
 

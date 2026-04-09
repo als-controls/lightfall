@@ -175,6 +175,11 @@ class SessionManager(QObject):
         self._fast_retry_count = 0
         self._refresh_timer_id: int | None = None
 
+        # Schedule/cancel refresh when auth state changes — this works
+        # regardless of whether login() or direct _session assignment is used
+        # (LoginDialog sets _session directly without calling login()).
+        self.state_changed.connect(self._on_state_for_refresh)
+
         # Reconnection timer for offline mode
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.timeout.connect(self._attempt_reconnect)
@@ -282,7 +287,6 @@ class SessionManager(QObject):
                 self._set_state(AuthState.AUTHENTICATED)
                 self.user_changed.emit(session.user)
                 logger.info("User '{}' authenticated", session.user.username)
-                self._schedule_refresh()
 
                 # Exit offline mode if we were in it
                 if self._offline_mode:
@@ -302,10 +306,6 @@ class SessionManager(QObject):
         """End the current session."""
         if self._session is None:
             return
-
-        self._cancel_refresh_timer()
-        self._refresh_in_progress = False
-        self._fast_retry_count = 0
 
         if self._provider:
             try:
@@ -371,6 +371,15 @@ class SessionManager(QObject):
             expires_at.isoformat(),
         )
         self._start_single_shot(delay_ms)
+
+    def _on_state_for_refresh(self, new_state: AuthState, old_state: AuthState) -> None:
+        """Schedule or cancel token refresh when auth state changes."""
+        if new_state == AuthState.AUTHENTICATED:
+            self._schedule_refresh()
+        elif old_state == AuthState.AUTHENTICATED:
+            self._cancel_refresh_timer()
+            self._refresh_in_progress = False
+            self._fast_retry_count = 0
 
     def _start_single_shot(self, delay_ms: int) -> None:
         """Start a single-shot timer. Separated for testability."""
