@@ -348,25 +348,55 @@ class SessionManager(QObject):
 
         return False
 
+    @staticmethod
+    def _get_jwt_exp(token: str) -> datetime | None:
+        """Extract the expiry time from a JWT access token.
+
+        The LoginDialog overwrites user.expires_at with an app-level session
+        duration (default 2 hours), which is unrelated to the actual Keycloak
+        token lifetime (~5 minutes). This method reads the real ``exp`` claim
+        so the refresh timer fires before the token actually expires.
+        """
+        import base64
+        import json
+
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+            payload = parts[1]
+            payload += "=" * (4 - len(payload) % 4)
+            decoded = json.loads(base64.urlsafe_b64decode(payload))
+            exp = decoded.get("exp")
+            if exp:
+                return datetime.fromtimestamp(exp, tz=UTC)
+        except Exception:
+            pass
+        return None
+
     def _schedule_refresh(self) -> None:
         """Schedule a one-shot timer to refresh the token before it expires.
 
-        Calculates the delay from the current session's expires_at, targeting
-        60 seconds before expiry. Called after login and after each successful
-        refresh.
+        Uses the JWT ``exp`` claim from the access token rather than
+        ``user.expires_at``, which may be overwritten with an app-level
+        session duration.
         """
         self._cancel_refresh_timer()
 
-        if self._session is None or self._session.user.expires_at is None:
+        if self._session is None or not self._session.token:
+            return
+
+        expires_at = self._get_jwt_exp(self._session.token)
+        if expires_at is None:
+            logger.warning("Cannot read exp from access token, refresh not scheduled")
             return
 
         now = datetime.now(UTC)
-        expires_at = self._session.user.expires_at
         delay_s = max(0, (expires_at - now).total_seconds() - 60)
         delay_ms = int(delay_s * 1000)
 
-        logger.debug(
-            "Token refresh scheduled in {}s (expires_at={})",
+        logger.info(
+            "Token refresh scheduled in {}s (JWT exp={})",
             int(delay_s),
             expires_at.isoformat(),
         )
@@ -464,11 +494,17 @@ class SessionManager(QObject):
             )
             return
 
-        # Verify the refresh actually advanced the expiry
+        # Verify the refresh actually advanced the JWT expiry
         old_expires = (
-            self._session.user.expires_at if self._session else None
+            self._get_jwt_exp(self._session.token)
+            if self._session and self._session.token
+            else None
         )
-        new_expires = new_session.user.expires_at
+        new_expires = (
+            self._get_jwt_exp(new_session.token)
+            if new_session.token
+            else None
+        )
         if old_expires and new_expires and new_expires <= old_expires:
             self._on_refresh_failure(
                 RuntimeError(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -28,17 +30,29 @@ def manager(qapp) -> SessionManager:
     return sm
 
 
+def _make_jwt(exp_timestamp: float) -> str:
+    """Create a minimal JWT with the given exp claim."""
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"exp": exp_timestamp, "sub": "testuser"}).encode()
+    ).rstrip(b"=").decode()
+    return f"{header}.{payload}.sig"
+
+
 def _make_session(
     expires_in: float = 300.0,
-    token: str = "access-tok",
+    token: str | None = None,
     refresh_token: str = "refresh-tok",
 ) -> Session:
-    """Create a Session that expires `expires_in` seconds from now."""
+    """Create a Session with a JWT whose exp is `expires_in` seconds from now."""
     now = datetime.now(UTC)
+    exp_time = now + timedelta(seconds=expires_in)
+    if token is None:
+        token = _make_jwt(exp_time.timestamp())
     user = User(
         username="testuser",
         authenticated_at=now,
-        expires_at=now + timedelta(seconds=expires_in),
+        expires_at=exp_time,
     )
     return Session(user=user, token=token, refresh_token=refresh_token)
 
@@ -81,10 +95,9 @@ class TestScheduleRefresh:
 
         mock_timer.assert_not_called()
 
-    def test_no_schedule_without_expires_at(self, manager, qapp) -> None:
-        """No timer if session has no expires_at."""
-        session = _make_session(expires_in=300.0)
-        session.user.expires_at = None
+    def test_no_schedule_without_valid_jwt(self, manager, qapp) -> None:
+        """No timer if token is not a valid JWT with exp claim."""
+        session = _make_session(expires_in=300.0, token="not-a-jwt")
         manager._session = session
 
         with patch.object(manager, "_start_single_shot") as mock_timer:
@@ -98,17 +111,17 @@ class TestDoScheduledRefresh:
 
     def test_successful_refresh_updates_session(self, manager, qapp, qtbot) -> None:
         """After successful refresh, session should be updated."""
-        old_session = _make_session(expires_in=10.0, token="old-tok")
+        old_session = _make_session(expires_in=10.0)
         manager._session = old_session
         manager._set_state(AuthState.AUTHENTICATED)
 
-        new_session = _make_session(expires_in=300.0, token="new-tok")
+        new_session = _make_session(expires_in=300.0)
         manager._provider.refresh_sync.return_value = new_session
 
         with patch.object(manager, "_schedule_refresh") as mock_schedule:
             manager._on_refresh_success(new_session)
 
-        assert manager._session.token == "new-tok"
+        assert manager._session is new_session
         assert manager._refresh_in_progress is False
         assert manager._fast_retry_count == 0
         mock_schedule.assert_called_once()
@@ -152,12 +165,12 @@ class TestDoScheduledRefresh:
         assert delay_ms == 30_000
 
     def test_verification_rejects_stale_expiry(self, manager, qapp) -> None:
-        """Refresh that doesn't advance expires_at should be treated as failure."""
+        """Refresh that doesn't advance JWT exp should be treated as failure."""
         old_session = _make_session(expires_in=10.0)
         manager._session = old_session
 
-        # New session has same or earlier expiry — suspicious
-        stale_session = _make_session(expires_in=5.0, token="new-but-stale")
+        # New session has same or earlier JWT exp — suspicious
+        stale_session = _make_session(expires_in=5.0)
 
         with patch.object(manager, "_on_refresh_failure") as mock_fail:
             manager._on_refresh_success(stale_session)
