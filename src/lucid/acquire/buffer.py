@@ -194,14 +194,20 @@ class LiveDataBuffer(QObject):
         self._timestamps.append(timestamp)
         self._seq_nums.append(seq_num)
 
-        # Buffer each field's data
+        # Buffer each field's data, reshaping flat arrays using descriptor shape
+        reshaped = {}
         for field_name, value in data.items():
             if field_name not in self._buffers:
                 self._buffers[field_name] = deque(maxlen=self._max_points)
+            # Reshape flat arrays using shape from descriptor (like EPICS AreaDetectors)
+            shape = self._data_keys.get(field_name, {}).get("shape", [])
+            if shape and hasattr(value, "reshape") and value.ndim == 1 and len(shape) >= 2:
+                value = value.reshape(shape)
             self._buffers[field_name].append(value)
+            reshaped[field_name] = value
 
         # Emit signal for real-time updates
-        self.new_point.emit(seq_num, data)
+        self.new_point.emit(seq_num, reshaped)
 
     def _handle_stop(self, doc: dict[str, Any]) -> None:
         """Handle stop document.

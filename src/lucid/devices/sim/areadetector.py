@@ -360,11 +360,12 @@ class SimDetector(Device):
         timestamp = time.time()
         data = {}
 
-        # Image data
+        # Image data — flatten to 1D like real EPICS AreaDetectors.
+        # Consumers use shape from describe() to reconstruct dimensions.
         image_key = f"{self.name}_image"
         if self._data_mode == "embedded":
             data[image_key] = {
-                "value": self.image.array_data.get(),
+                "value": self.image.array_data.get().ravel(),
                 "timestamp": timestamp,
             }
         else:
