@@ -312,17 +312,32 @@ class TiledBrowserPanel(BasePanel):
         documents.append(("start", start_doc))
 
         # 2. Descriptor + Event documents for each stream
-        # Tiled may inline empty contents ({}) for run entries, causing
-        # keys() to return nothing. Clear inlined contents so _keys_slice
-        # falls through to the server fetch path.
         stream_names = list(entry.keys())
         if not stream_names:
+            # Tiled may inline empty contents ({}) causing keys() to return
+            # nothing. Clear inlined contents so _keys_slice falls through to
+            # the server search path.
             logger.debug(
                 "No streams from inlined contents for run {}; fetching from server",
                 client_key[:8],
             )
             entry.item["attributes"]["structure"]["contents"] = None
             stream_names = list(entry.keys())
+
+        if not stream_names:
+            # The search endpoint may also return empty for BlueskyRun
+            # entries. Fall back to direct access of common stream names,
+            # which uses the entry's self link instead of the search link.
+            logger.debug(
+                "Search returned no streams for run {}; trying direct access",
+                client_key[:8],
+            )
+            for candidate in ("primary", "baseline"):
+                try:
+                    entry[candidate]
+                    stream_names.append(candidate)
+                except (KeyError, Exception):
+                    pass
 
         for stream_name in stream_names:
             stream = entry[stream_name]
