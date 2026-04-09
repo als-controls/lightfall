@@ -176,10 +176,15 @@ class LazyImageView(pg.ImageView):
 
         frame = self._fetch_frame(self.currentIndex)
 
+        # Set _imageLevels so that autoLevels() (called by setImage after
+        # this method) finds valid level data instead of None.
+        lo, hi = float(np.nanmin(frame)), float(np.nanmax(frame))
+        self._imageLevels = [(lo, hi)]
+        self.levelMin = lo
+        self.levelMax = hi
+        self.imageDisp = frame
+
         if autoHistogramRange:
-            lo, hi = float(np.nanmin(frame)), float(np.nanmax(frame))
-            self.levelMin = lo
-            self.levelMax = hi
             self.ui.histogram.setHistogramRange(lo, hi)
 
         # ImageItem expects (row, col) for row-major axis order
