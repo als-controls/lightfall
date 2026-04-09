@@ -355,34 +355,100 @@ class TiledBrowserPanel(BasePanel):
                 frame_shape = tuple(shape)
                 break
 
-        # Get lazy ArrayClient references (no data fetched)
+        # Get column names from stream
         stream_keys = list(stream.keys())
-        image_client = stream[image_field] if image_field and image_field in stream_keys else None
 
-        # Read timestamps (small 1-D array, cheap)
-        timestamps = np.array([])
-        if "time" in stream_keys:
-            timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
+        # For image runs: lazy ArrayClient path (no bulk data fetched)
+        if image_field and image_field in stream_keys:
+            image_client = stream[image_field]
 
-        # Check if run is still in progress
-        is_live = metadata.get("stop") is None
+            timestamps = np.array([])
+            if "time" in stream_keys:
+                timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
+
+            is_live = metadata.get("stop") is None
+
+            logger.debug(
+                "Setup viz for run {}: image_field={}, frames={}, live={}",
+                client_key[:8],
+                image_field,
+                image_client.shape[0],
+                is_live,
+            )
+
+            return {
+                "mode": "lazy",
+                "start_doc": start_doc,
+                "descriptor": descriptor,
+                "image_client": image_client,
+                "timestamps": timestamps,
+                "frame_shape": frame_shape,
+                "is_live": is_live,
+                "entry": entry,
+            }
+
+        # For scalar runs: read all data eagerly (small) and build documents
+        documents: list[tuple[str, dict]] = []
+        documents.append(("start", start_doc))
+        documents.append(("descriptor", descriptor))
+
+        data_key_names = [
+            k for k in stream_keys
+            if k not in ("seq_num", "time") and not k.startswith("ts_")
+        ]
+
+        try:
+            arrays = {}
+            for k in ["seq_num", "time"] + data_key_names:
+                if k in stream_keys:
+                    arrays[k] = stream[k].read()
+            for k in data_key_names:
+                ts_key = f"ts_{k}"
+                if ts_key in stream_keys:
+                    arrays[ts_key] = stream[ts_key].read()
+
+            num_events = len(arrays.get("seq_num", []))
+            for i in range(num_events):
+                data = {}
+                for k in data_key_names:
+                    if k in arrays:
+                        data[k] = arrays[k][i]
+                event_doc = {
+                    "uid": str(uuid.uuid4()),
+                    "descriptor": descriptor["uid"],
+                    "seq_num": int(arrays["seq_num"][i]),
+                    "time": float(arrays["time"][i]),
+                    "data": data,
+                    "timestamps": {
+                        k: float(
+                            arrays[f"ts_{k}"][i]
+                            if f"ts_{k}" in arrays
+                            else arrays["time"][i]
+                        )
+                        for k in data_key_names
+                    },
+                    "filled": {k: True for k in data_key_names},
+                }
+                documents.append(("event", event_doc))
+        except Exception as e:
+            logger.warning(
+                "Could not read events from {}/primary: {}",
+                client_key[:8], e,
+            )
+
+        stop_doc = metadata.get("stop")
+        if stop_doc:
+            documents.append(("stop", dict(stop_doc)))
 
         logger.debug(
-            "Setup viz for run {}: image_field={}, frames={}, live={}",
+            "Setup viz for run {} (scalar): {} documents",
             client_key[:8],
-            image_field,
-            image_client.shape[0] if image_client is not None else 0,
-            is_live,
+            len(documents),
         )
 
         return {
-            "start_doc": start_doc,
-            "descriptor": descriptor,
-            "image_client": image_client,
-            "timestamps": timestamps,
-            "frame_shape": frame_shape,
-            "is_live": is_live,
-            "entry": entry,
+            "mode": "replay",
+            "documents": documents,
         }
 
     @Slot(object)
@@ -398,16 +464,24 @@ class TiledBrowserPanel(BasePanel):
 
         for widget in QApplication.allWidgets():
             if isinstance(widget, VisualizationPanel):
-                widget.open_tiled_run(
-                    start_doc=result["start_doc"],
-                    descriptor=result["descriptor"],
-                    image_client=result["image_client"],
-                    timestamps=result["timestamps"],
-                    frame_shape=result["frame_shape"],
-                    is_live=result["is_live"],
-                    entry=result["entry"],
-                )
-                logger.info("Opened tiled run in visualization (lazy)")
+                mode = result.get("mode", "replay")
+                if mode == "lazy":
+                    widget.open_tiled_run(
+                        start_doc=result["start_doc"],
+                        descriptor=result["descriptor"],
+                        image_client=result["image_client"],
+                        timestamps=result["timestamps"],
+                        frame_shape=result["frame_shape"],
+                        is_live=result["is_live"],
+                        entry=result["entry"],
+                    )
+                    logger.info("Opened tiled run in visualization (lazy)")
+                else:
+                    widget.replay_documents(result["documents"])
+                    logger.info(
+                        "Replaying {} documents in visualization",
+                        len(result["documents"]),
+                    )
                 return
 
         logger.warning("Visualization panel not found")
