@@ -430,6 +430,21 @@ class VisualizationPanel(BasePanel):
             # Feed to buffer (for data access by visualization widgets)
             self._buffer(name, doc)
 
+        # Re-create visualization with the fully populated buffer.
+        # characteristics_ready fires during descriptor processing (before
+        # events are buffered), so the widget created then has no data.
+        if self._characteristics:
+            plugin = self._current_plugin
+            if not plugin and self._viz_combo.currentData() is None:
+                # Auto mode — re-select based on characteristics
+                results = self._selection_engine.select_visualizations(
+                    self._characteristics, max_results=1
+                )
+                if results:
+                    plugin = results[0][0]
+            if plugin:
+                self._create_visualization(plugin, self._characteristics)
+
     def get_processor(self) -> DocumentProcessor:
         """Get the document processor for RunEngine subscription.
 

@@ -199,10 +199,15 @@ class LiveDataBuffer(QObject):
         for field_name, value in data.items():
             if field_name not in self._buffers:
                 self._buffers[field_name] = deque(maxlen=self._max_points)
-            # Reshape flat arrays using shape from descriptor (like EPICS AreaDetectors)
+            # Reshape flat arrays using shape from descriptor (like EPICS AreaDetectors).
+            # Data from Tiled/pyarrow may arrive as Python lists, so convert first.
             shape = self._data_keys.get(field_name, {}).get("shape", [])
-            if shape and hasattr(value, "reshape") and value.ndim == 1 and len(shape) >= 2:
-                value = value.reshape(shape)
+            if shape and len(shape) >= 2:
+                if isinstance(value, list):
+                    import numpy as np
+                    value = np.asarray(value)
+                if hasattr(value, "reshape") and value.ndim == 1:
+                    value = value.reshape(shape)
             self._buffers[field_name].append(value)
             reshaped[field_name] = value
 

@@ -284,15 +284,16 @@ class DocumentProcessor(QObject):
         Returns:
             List of dependent field names.
         """
-        # Get hinted fields from all devices
+        # Get hinted fields from all devices, excluding independent (dimension) fields
+        dim_fields = set(self._characteristics.dim_fields if self._characteristics else [])
         hinted_fields = []
         for _device_name, device_hints in hints.items():
             if isinstance(device_hints, dict):
                 fields = device_hints.get("fields", [])
                 hinted_fields.extend(fields)
 
-        # Filter to only include fields in data_keys
-        dep_fields = [f for f in hinted_fields if f in data_keys]
+        # Filter to fields in data_keys, excluding dimension (independent) variables
+        dep_fields = [f for f in hinted_fields if f in data_keys and f not in dim_fields]
 
         if dep_fields:
             return dep_fields
