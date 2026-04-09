@@ -126,3 +126,52 @@ class TestAsyncAuthFlow:
         response = httpx.Response(401, request=request)
         with pytest.raises(StopAsyncIteration):
             await flow.asend(response)
+
+
+class TestIntegrationWithSessionManager:
+    """Verify KeycloakTiledAuth reads tokens refreshed by SessionManager."""
+
+    def test_auth_picks_up_timer_refreshed_token(self, qapp) -> None:
+        """After SessionManager refreshes, the next tiled request uses the new token."""
+        from datetime import UTC, datetime, timedelta
+
+        from lucid.auth.session import Session, SessionManager, User
+
+        SessionManager.reset()
+        sm = SessionManager.get_instance()
+
+        # Set up an initial session
+        now = datetime.now(UTC)
+        user = User(
+            username="test",
+            authenticated_at=now,
+            expires_at=now + timedelta(seconds=300),
+        )
+        sm._session = Session(
+            user=user, token="original-token", refresh_token="rt"
+        )
+
+        auth = KeycloakTiledAuth()
+
+        # Verify auth reads the current token
+        request = httpx.Request("GET", "http://example.com/api")
+        flow = auth.sync_auth_flow(request)
+        outgoing = next(flow)
+        assert outgoing.headers["Authorization"] == "Bearer original-token"
+
+        # Simulate what SessionManager._on_refresh_success does
+        new_user = User(
+            username="test",
+            authenticated_at=now,
+            expires_at=now + timedelta(seconds=600),
+        )
+        sm._session = Session(
+            user=new_user, token="refreshed-token", refresh_token="rt2"
+        )
+
+        # On 401, auth should pick up the refreshed token
+        response = httpx.Response(401, request=request)
+        retry_request = flow.send(response)
+        assert retry_request.headers["Authorization"] == "Bearer refreshed-token"
+
+        SessionManager.reset()
