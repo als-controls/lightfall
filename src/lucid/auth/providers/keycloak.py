@@ -880,7 +880,7 @@ class KeycloakAuthProvider(AuthProvider):
 
         This avoids reusing the aiohttp ClientSession (which is bound to
         the event loop where it was created) from a different thread/loop.
-        Called by SessionManager._sync_refresh_session via QThreadFuture.
+        Called by SessionManager._do_scheduled_refresh via QThreadFuture.
         """
         if not session.refresh_token:
             return None

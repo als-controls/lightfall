@@ -144,7 +144,6 @@ class SessionManager(QObject):
     Signals:
         state_changed: Emitted when auth state changes (new_state, old_state).
         user_changed: Emitted when user changes (new_user).
-        session_expiring: Emitted when session is about to expire (seconds_remaining).
         offline_mode_changed: Emitted when offline mode changes (is_offline).
 
     Example:
@@ -157,7 +156,6 @@ class SessionManager(QObject):
 
     state_changed = Signal(AuthState, AuthState)  # new, old
     user_changed = Signal(User)
-    session_expiring = Signal(int)  # seconds remaining
     offline_mode_changed = Signal(bool)
 
     _instance: SessionManager | None = None
@@ -172,10 +170,10 @@ class SessionManager(QObject):
         self._policy_engine = PolicyEngine()
         self._offline_mode = False
 
-        # Session expiry timer
-        self._expiry_timer = QTimer(self)
-        self._expiry_timer.timeout.connect(self._check_session_expiry)
-        self._expiry_timer.start(30000)  # Check every 30s (access tokens may be short-lived)
+        # Token refresh state
+        self._refresh_in_progress = False
+        self._fast_retry_count = 0
+        self._refresh_timer_id: int | None = None
 
         # Reconnection timer for offline mode
         self._reconnect_timer = QTimer(self)
@@ -195,7 +193,7 @@ class SessionManager(QObject):
         """Reset the singleton instance (for testing)."""
         with cls._lock:
             if cls._instance is not None:
-                cls._instance._expiry_timer.stop()
+                cls._instance._cancel_refresh_timer()
                 cls._instance._reconnect_timer.stop()
                 cls._instance.deleteLater()
             cls._instance = None
@@ -284,6 +282,7 @@ class SessionManager(QObject):
                 self._set_state(AuthState.AUTHENTICATED)
                 self.user_changed.emit(session.user)
                 logger.info("User '{}' authenticated", session.user.username)
+                self._schedule_refresh()
 
                 # Exit offline mode if we were in it
                 if self._offline_mode:
@@ -303,6 +302,10 @@ class SessionManager(QObject):
         """End the current session."""
         if self._session is None:
             return
+
+        self._cancel_refresh_timer()
+        self._refresh_in_progress = False
+        self._fast_retry_count = 0
 
         if self._provider:
             try:
@@ -345,86 +348,154 @@ class SessionManager(QObject):
 
         return False
 
-    def _check_session_expiry(self) -> None:
-        """Check if session is expiring soon and auto-refresh if possible."""
+    def _schedule_refresh(self) -> None:
+        """Schedule a one-shot timer to refresh the token before it expires.
+
+        Calculates the delay from the current session's expires_at, targeting
+        60 seconds before expiry. Called after login and after each successful
+        refresh.
+        """
+        self._cancel_refresh_timer()
+
         if self._session is None or self._session.user.expires_at is None:
             return
 
         now = datetime.now(UTC)
         expires_at = self._session.user.expires_at
-        remaining = (expires_at - now).total_seconds()
+        delay_s = max(0, (expires_at - now).total_seconds() - 60)
+        delay_ms = int(delay_s * 1000)
 
-        # Calculate refresh threshold: half the token lifetime, min 120s, max 300s
-        authenticated_at = self._session.user.authenticated_at
-        if authenticated_at:
-            lifetime = (expires_at - authenticated_at).total_seconds()
-            refresh_threshold = max(120, min(300, lifetime / 2))
+        logger.debug(
+            "Token refresh scheduled in {}s (expires_at={})",
+            int(delay_s),
+            expires_at.isoformat(),
+        )
+        self._start_single_shot(delay_ms, self._do_scheduled_refresh)
+
+    def _start_single_shot(self, delay_ms: int, slot: object) -> None:
+        """Start a single-shot timer. Separated for testability."""
+        self._refresh_timer_id = self.startTimer(delay_ms)
+
+    def _cancel_refresh_timer(self) -> None:
+        """Cancel the pending refresh timer if any."""
+        if self._refresh_timer_id is not None:
+            self.killTimer(self._refresh_timer_id)
+            self._refresh_timer_id = None
+
+    def timerEvent(self, event) -> None:  # noqa: N802
+        """Handle QObject timer events (used for single-shot refresh)."""
+        if event.timerId() == self._refresh_timer_id:
+            self.killTimer(self._refresh_timer_id)
+            self._refresh_timer_id = None
+            self._do_scheduled_refresh()
         else:
-            refresh_threshold = 150  # ~2.5 min default
+            super().timerEvent(event)
 
-        if remaining <= 0:
-            # Session expired — try to refresh before giving up
-            if self._session.refresh_token:
-                logger.info("Access token expired, attempting refresh")
-                self._sync_refresh_session()
-                return  # Don't clear session yet — refresh may succeed
-            logger.warning("Session expired with no refresh token")
-            self._session = None
-            self._set_state(AuthState.UNAUTHENTICATED)
-            self.user_changed.emit(ANONYMOUS_USER)
-        elif remaining <= refresh_threshold:
-            if remaining <= 300:
-                self.session_expiring.emit(int(remaining))
-            if self._session.refresh_token:
-                logger.info("Access token expiring in {}s, refreshing", int(remaining))
-                self._sync_refresh_session()
+    def _do_scheduled_refresh(self) -> None:
+        """Execute the scheduled token refresh.
 
-    def _sync_refresh_session(self) -> None:
-        """Kick off a token refresh in a background QThreadFuture.
-
-        Uses the provider's synchronous refresh method (httpx) to avoid
-        reusing an aiohttp ClientSession across event loops, which fails
-        silently when called from a different thread.
+        Runs the actual Keycloak call in a background thread via QThreadFuture.
+        Guarded by _refresh_in_progress to prevent concurrent refresh attempts.
         """
+        if self._refresh_in_progress:
+            logger.debug("Token refresh already in progress, skipping")
+            return
+
+        if self._session is None or self._provider is None:
+            return
+
+        if not self._session.refresh_token:
+            logger.warning("No refresh token available, cannot refresh")
+            return
+
+        self._refresh_in_progress = True
+
         from lucid.utils.threads import QThreadFuture
 
+        # Capture session reference for the background thread
+        session = self._session
+
         def _refresh():
-            if self._session is None or self._provider is None:
-                return False
-            # Use sync refresh if available (Keycloak), fall back to async wrapper
             if hasattr(self._provider, "refresh_sync"):
-                new_session = self._provider.refresh_sync(self._session)
+                return self._provider.refresh_sync(session)
             else:
                 import asyncio
-
                 loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
                 try:
-                    new_session = loop.run_until_complete(
-                        self._provider.refresh(self._session)
+                    return loop.run_until_complete(
+                        self._provider.refresh(session)
                     )
                 finally:
                     loop.close()
-            if new_session:
-                self._session = new_session
-                logger.debug("Session refreshed for '{}'", new_session.user.username)
-                return True
-            return False
-
-        def _on_done(result):
-            if result:
-                logger.info("Token refresh succeeded")
-
-        def _on_error(exc):
-            logger.warning("Token refresh failed: {}", exc)
 
         QThreadFuture(
             _refresh,
-            callback_slot=_on_done,
-            except_slot=_on_error,
+            callback_slot=self._on_refresh_success,
+            except_slot=self._on_refresh_failure,
             key="session-token-refresh",
             name="session-token-refresh",
         ).start()
+
+    def _on_refresh_success(self, new_session: Session | None = None) -> None:
+        """Handle successful token refresh (called on main thread).
+
+        Verifies the new session has a later expiry, updates state, and
+        schedules the next refresh.
+        """
+        self._refresh_in_progress = False
+
+        if new_session is None:
+            self._on_refresh_failure(
+                RuntimeError("Provider returned None from refresh")
+            )
+            return
+
+        # Verify the refresh actually advanced the expiry
+        old_expires = (
+            self._session.user.expires_at if self._session else None
+        )
+        new_expires = new_session.user.expires_at
+        if old_expires and new_expires and new_expires <= old_expires:
+            self._on_refresh_failure(
+                RuntimeError(
+                    f"Refresh did not advance expiry: "
+                    f"{old_expires.isoformat()} -> {new_expires.isoformat()}"
+                )
+            )
+            return
+
+        self._session = new_session
+        self._fast_retry_count = 0
+
+        logger.info("Token refresh OK for '{}'", new_session.user.username)
+        self._schedule_refresh()
+
+    def _on_refresh_failure(self, exc: Exception) -> None:
+        """Handle failed token refresh (called on main thread).
+
+        Retries quickly up to 3 times, then falls back to 30s intervals.
+        """
+        self._refresh_in_progress = False
+        self._fast_retry_count += 1
+
+        if self._fast_retry_count <= 3:
+            delay_ms = 3000
+            logger.warning(
+                "Token refresh failed (attempt {}): {}, retrying in {}ms",
+                self._fast_retry_count,
+                exc,
+                delay_ms,
+            )
+        else:
+            delay_ms = 30_000
+            logger.warning(
+                "Token refresh failed (attempt {}): {}, backing off to {}s",
+                self._fast_retry_count,
+                exc,
+                delay_ms // 1000,
+            )
+
+        self._start_single_shot(delay_ms, self._do_scheduled_refresh)
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
@@ -481,7 +552,7 @@ class SessionManager(QObject):
 
             # Try to restore session if we have one
             if self._session and self._session.refresh_token:
-                self._sync_refresh_session()
+                self._do_scheduled_refresh()
             else:
                 self._set_state(AuthState.UNAUTHENTICATED)
 
