@@ -48,22 +48,24 @@ class TiledConfig:
 
 
 def _normalize_descriptor_dtypes(doc: dict[str, Any]) -> dict[str, Any]:
-    """Normalize dtype_numpy values to numpy wire format.
+    """Normalize dtype fields to numpy wire format.
 
-    Some ophyd devices report dtype_numpy as human-readable names like
-    ``'uint8'`` instead of the wire format ``'|u1'`` required by the
-    event_model schema.  ``np.dtype().str`` is idempotent for already-valid
-    values, so this is safe to apply unconditionally.
+    Some ophyd devices report dtype as human-readable names like ``'uint8'``
+    instead of the wire format ``'|u1'`` required by the event_model schema.
+    The RunNormalizer falls back to ``dtype_str`` when ``dtype_numpy`` is
+    absent, so both fields must be normalized.  ``np.dtype().str`` is
+    idempotent for already-valid values, so this is safe unconditionally.
     """
     import numpy as np
 
     def _fix(data_keys: dict) -> None:
         for spec in data_keys.values():
-            if isinstance(val := spec.get("dtype_numpy"), str):
-                try:
-                    spec["dtype_numpy"] = np.dtype(val).str
-                except (TypeError, ValueError):
-                    pass
+            for field in ("dtype_numpy", "dtype_str"):
+                if isinstance(val := spec.get(field), str):
+                    try:
+                        spec[field] = np.dtype(val).str
+                    except (TypeError, ValueError):
+                        pass
 
     _fix(doc.get("data_keys", {}))
     for conf in doc.get("configuration", {}).values():
