@@ -370,11 +370,15 @@ class SessionManager(QObject):
             int(delay_s),
             expires_at.isoformat(),
         )
-        self._start_single_shot(delay_ms, self._do_scheduled_refresh)
+        self._start_single_shot(delay_ms)
 
-    def _start_single_shot(self, delay_ms: int, slot: object) -> None:
+    def _start_single_shot(self, delay_ms: int) -> None:
         """Start a single-shot timer. Separated for testability."""
-        self._refresh_timer_id = self.startTimer(delay_ms)
+        timer_id = self.startTimer(delay_ms)
+        if timer_id == 0:
+            logger.error("startTimer failed (no event loop?), refresh will not be scheduled")
+            return
+        self._refresh_timer_id = timer_id
 
     def _cancel_refresh_timer(self) -> None:
         """Cancel the pending refresh timer if any."""
@@ -412,18 +416,19 @@ class SessionManager(QObject):
 
         from lucid.utils.threads import QThreadFuture
 
-        # Capture session reference for the background thread
+        # Capture references for the background thread
         session = self._session
+        provider = self._provider
 
         def _refresh():
-            if hasattr(self._provider, "refresh_sync"):
-                return self._provider.refresh_sync(session)
+            if hasattr(provider, "refresh_sync"):
+                return provider.refresh_sync(session)
             else:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 try:
                     return loop.run_until_complete(
-                        self._provider.refresh(session)
+                        provider.refresh(session)
                     )
                 finally:
                     loop.close()
@@ -495,7 +500,7 @@ class SessionManager(QObject):
                 delay_ms // 1000,
             )
 
-        self._start_single_shot(delay_ms, self._do_scheduled_refresh)
+        self._start_single_shot(delay_ms)
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
