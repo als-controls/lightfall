@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 import nats
@@ -18,7 +19,7 @@ from PySide6.QtCore import QObject, Signal
 
 from lucid.utils.threads import invoke_in_main_thread
 
-__all__ = ["IPCService", "ActionInfo", "EventInfo", "_Subscription"]
+__all__ = ["IPCService", "ActionInfo", "EventInfo"]
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,7 @@ class IPCService(QObject):
         self._nats_url = nats_url
         self._topic_prefix = topic_prefix
 
+        self._connected_lock = threading.Lock()
         self._connected: bool = False
         self._nc: nats.NATS | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -109,14 +111,17 @@ class IPCService(QObject):
     @property
     def is_connected(self) -> bool:
         """True when the NATS client is connected."""
-        return self._connected
+        with self._connected_lock:
+            return self._connected
 
     def start(self) -> None:
         """Connect to NATS on a background thread.
 
-        Does nothing when ``nats_url`` is empty.
+        Does nothing when ``nats_url`` is empty or already running.
         """
         if not self._nats_url:
+            return
+        if self._thread is not None:
             return
 
         self._shutdown_event.clear()
@@ -178,7 +183,7 @@ class IPCService(QObject):
         sub = _Subscription(subject=subject, callback=callback, main_thread=main_thread, nats_sub=None)
         self._subscriptions[subject] = sub
 
-        if self._connected and self._loop is not None and self._nc is not None:
+        if self.is_connected and self._loop is not None and self._nc is not None:
             asyncio.run_coroutine_threadsafe(
                 self._create_nats_sub(subject, sub), self._loop
             )
@@ -202,7 +207,7 @@ class IPCService(QObject):
 
         Dropped silently when not connected.
         """
-        if not self._connected or self._loop is None or self._nc is None:
+        if not self.is_connected or self._loop is None or self._nc is None:
             return
 
         payload = json.dumps(data).encode()
@@ -239,9 +244,10 @@ class IPCService(QObject):
     async def _connect_and_serve(self) -> None:
         """Open NATS connection, re-subscribe, then wait for shutdown."""
         try:
+            tls_ctx = ssl.create_default_context()
             self._nc = await nats.connect(
                 self._nats_url,
-                tls_required=True,
+                tls=tls_ctx,
                 error_cb=self._error_cb,
                 disconnected_cb=self._disconnected_cb,
                 reconnected_cb=self._reconnected_cb,
@@ -250,7 +256,8 @@ class IPCService(QObject):
             logger.error("IPCService: failed to connect to NATS at {}: {}", self._nats_url, exc)
             return
 
-        self._connected = True
+        with self._connected_lock:
+            self._connected = True
         invoke_in_main_thread(self.sigConnectionChanged.emit, True)
         logger.info("IPCService: connected to NATS at {}", self._nats_url)
 
@@ -270,7 +277,11 @@ class IPCService(QObject):
             await self._nc.drain()
         except Exception as exc:
             logger.debug("IPCService: drain error (may be normal during shutdown): {}", exc)
-        self._connected = False
+        with self._connected_lock:
+            was_connected = self._connected
+            self._connected = False
+        if was_connected:
+            invoke_in_main_thread(self.sigConnectionChanged.emit, False)
 
     async def _create_nats_sub(self, subject: str, sub: _Subscription) -> None:
         """Create a NATS subscription and store the handle in *sub*."""
@@ -348,10 +359,12 @@ class IPCService(QObject):
 
     async def _disconnected_cb(self) -> None:
         logger.warning("IPCService: disconnected from NATS")
-        self._connected = False
+        with self._connected_lock:
+            self._connected = False
         invoke_in_main_thread(self.sigConnectionChanged.emit, False)
 
     async def _reconnected_cb(self) -> None:
         logger.info("IPCService: reconnected to NATS")
-        self._connected = True
+        with self._connected_lock:
+            self._connected = True
         invoke_in_main_thread(self.sigConnectionChanged.emit, True)
