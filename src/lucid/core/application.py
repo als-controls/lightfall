@@ -17,6 +17,8 @@ from PySide6.QtCore import QCoreApplication, QEvent, QObject
 from PySide6.QtWidgets import QApplication
 
 from lucid.core.services import ServiceRegistry
+from lucid.ipc.service import IPCService
+from lucid.ipc.trust import TrustDialog, TrustManager, TrustState
 from lucid.utils.logging import configure_logging, logger
 
 if TYPE_CHECKING:
@@ -254,6 +256,13 @@ class NCSApplication(QObject):
             lambda: ConfigManager(extra_paths=config_paths),
         )
 
+        # Register IPC trust manager and service
+        trust_manager = TrustManager()
+        self._services.register(TrustManager, lambda: trust_manager)
+        self._services.register(
+            IPCService, lambda: self._create_ipc_service(trust_manager)
+        )
+
         logger.debug("Core services registered")
 
     def set_main_window(self, window: QMainWindow) -> None:
@@ -265,6 +274,108 @@ class NCSApplication(QObject):
         """
         self._main_window = window
         logger.debug("Main window set: {}", window.__class__.__name__)
+
+    # ------------------------------------------------------------------
+    # IPC helpers
+    # ------------------------------------------------------------------
+
+    def _create_ipc_service(self, trust_manager: TrustManager) -> IPCService:
+        """Factory that builds a configured :class:`IPCService`."""
+        from lucid.ui.preferences.manager import PreferencesManager
+
+        prefs = PreferencesManager.get_instance()
+        nats_url = prefs.get("ipc_nats_url", "")
+        topic_prefix = prefs.get("ipc_topic_prefix", "als.7011")
+        svc = IPCService(nats_url=nats_url, topic_prefix=topic_prefix)
+        svc.set_trust_manager(trust_manager)
+        svc.register_meta_endpoints()
+        return svc
+
+    def _start_ipc(self) -> None:
+        """Start the IPC service and register the auth handler."""
+        ipc = self._services.get(IPCService)
+        ipc.start()
+        ipc.register_action(
+            "auth.request",
+            self._handle_ipc_auth_request,
+            description="Trust handshake + token sharing",
+        )
+        logger.info("IPC service started")
+
+    def _handle_ipc_auth_request(
+        self, subject: str, data: dict, reply: str | None
+    ) -> None:
+        """Handle an incoming IPC auth handshake request."""
+        if not reply:
+            return
+
+        ipc = self._services.get(IPCService)
+        app_name = data.get("app_name", "unknown")
+        app_version = data.get("app_version", "")
+
+        state = ipc.evaluate_trust(app_name)
+
+        if state == TrustState.APPROVED:
+            session = self._get_current_session()
+            tiled_url = self._get_tiled_url()
+            ipc.reply(
+                reply,
+                ipc.build_auth_response(
+                    approved=True, session=session, tiled_url=tiled_url
+                ),
+            )
+            return
+
+        if state == TrustState.DENIED:
+            ipc.reply(reply, ipc.build_auth_response(approved=False))
+            return
+
+        # Unknown app — show dialog with 60 s timeout
+        trust = self._services.get(TrustManager)
+        dialog = TrustDialog(app_name, app_version, parent=self._main_window)
+        from PySide6.QtCore import QTimer
+
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(dialog.reject)
+        timer.start(60_000)
+
+        if dialog.exec() == TrustDialog.DialogCode.Accepted:
+            trust.approve(app_name)
+            session = self._get_current_session()
+            tiled_url = self._get_tiled_url()
+            ipc.reply(
+                reply,
+                ipc.build_auth_response(
+                    approved=True, session=session, tiled_url=tiled_url
+                ),
+            )
+        else:
+            trust.deny(app_name)
+            reason = "denied" if timer.isActive() else "timeout"
+            ipc.reply(
+                reply,
+                ipc.build_auth_response(approved=False, reason=reason),
+            )
+
+    def _get_current_session(self):
+        """Return the current :class:`Session` or ``None``."""
+        try:
+            from lucid.auth.session import SessionManager
+
+            sm = SessionManager.get_instance()
+            return sm.session
+        except Exception:
+            return None
+
+    def _get_tiled_url(self) -> str:
+        """Return the configured Tiled server URL."""
+        try:
+            from lucid.ui.preferences.manager import PreferencesManager
+
+            return PreferencesManager.get_instance().get("tiled_url", "")
+        except Exception:
+            return ""
 
     def run(self) -> int:
         """
@@ -285,6 +396,12 @@ class NCSApplication(QObject):
         if self._main_window:
             self._main_window.show()
 
+        # Start IPC service (after main window is visible)
+        try:
+            self._start_ipc()
+        except Exception:
+            logger.exception("Failed to start IPC service")
+
         logger.info("Starting application event loop")
         exit_code = self._qt_app.exec()
 
@@ -298,6 +415,14 @@ class NCSApplication(QObject):
 
         self._set_state(ApplicationState.SHUTTING_DOWN)
         logger.info("Shutting down LUCID application")
+
+        # Stop IPC service before clearing the registry
+        try:
+            ipc = self._services.get(IPCService, None)
+            if ipc:
+                ipc.stop()
+        except Exception:
+            logger.exception("Error stopping IPC service")
 
         # Clear services
         self._services.clear()
