@@ -309,6 +309,17 @@ class NCSApplication(QObject):
         except Exception:
             logger.exception("Failed to wire engine IPC (engine may not be initialized yet)")
 
+        # Wire logbook + agent IPC commands
+        try:
+            self._wire_logbook_ipc()
+        except Exception:
+            logger.exception("Failed to wire logbook IPC")
+
+        try:
+            self._wire_agent_ipc()
+        except Exception:
+            logger.exception("Failed to wire agent IPC")
+
     def _wire_engine_ipc(self) -> None:
         """Connect engine signals to IPC events.
 
@@ -449,6 +460,106 @@ class NCSApplication(QObject):
         )
 
         logger.debug("Plan IPC commands registered")
+
+    def _wire_logbook_ipc(self) -> None:
+        """Register IPC commands for logbook entry creation.
+
+        Registers ``commands.logbook.add`` so that external IPC clients
+        can create logbook entries and fragments via the local-first
+        :class:`LogbookClient`.
+        """
+        from lucid.logbook.client import LogbookClient
+
+        ipc = self._services.get(IPCService)
+
+        def handle_logbook_add(subject: str, data: dict, reply: str | None) -> None:
+            title = data.get("title")
+            content = data.get("content")
+            tags = data.get("tags", [])
+
+            client = LogbookClient.get_instance()
+
+            # Determine the active logbook ID from the current user
+            user_id: str | None = None
+            try:
+                from lucid.auth.session import SessionManager
+
+                sm = SessionManager.get_instance()
+                user = sm.current_user
+                if user and user.username:
+                    user_id = user.username
+            except Exception:
+                pass
+
+            if not user_id:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": "No active logbook (no user)"})
+                return
+
+            try:
+                logbook_id = client.get_or_create_logbook(user_id)
+            except Exception as exc:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": str(exc)})
+                return
+
+            entry_id = client.create_entry(logbook_id, title=title, tags=tags)
+            if content:
+                client.add_fragment(entry_id, content=content)
+
+            if reply:
+                ipc.reply(reply, {"status": "created", "entry_id": entry_id})
+
+        ipc.register_action(
+            "commands.logbook.add",
+            handle_logbook_add,
+            description="Create a logbook entry with optional content fragment",
+            schema={"title": "str", "content": "str (optional)", "tags": "list[str]"},
+        )
+
+        logger.debug("Logbook IPC commands registered")
+
+    def _wire_agent_ipc(self) -> None:
+        """Register IPC commands for the Claude agent.
+
+        Registers ``commands.agent.message`` so that external IPC clients
+        can send messages to the :class:`QtClaudeAgent`.
+        """
+        ipc = self._services.get(IPCService)
+
+        def handle_agent_message(subject: str, data: dict, reply: str | None) -> None:
+            message = data.get("message", "")
+            if not message:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": "message is required"})
+                return
+
+            # Find the agent via the main window widget tree
+            agent = None
+            if self._main_window:
+                from lucid.claude.widget import ClaudeAssistantWidget
+
+                widget = self._main_window.findChild(ClaudeAssistantWidget)
+                if widget and hasattr(widget, "agent"):
+                    agent = widget.agent
+
+            if agent is None:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": "Claude agent not available"})
+                return
+
+            agent.query_sync(message)
+            if reply:
+                ipc.reply(reply, {"status": "sent"})
+
+        ipc.register_action(
+            "commands.agent.message",
+            handle_agent_message,
+            description="Send a message to the Claude agent",
+            schema={"message": "str"},
+        )
+
+        logger.debug("Agent IPC commands registered")
 
     def _handle_ipc_auth_request(
         self, subject: str, data: dict, reply: str | None

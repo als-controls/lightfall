@@ -354,3 +354,167 @@ class TestPlanCommandWiring:
 
         assert "commands.plan.run" in ipc._action_catalog
         assert "commands.plan.abort" in ipc._action_catalog
+
+
+# ---------------------------------------------------------------------------
+# TestLogbookIPCIntegration
+# ---------------------------------------------------------------------------
+
+
+class _FakeUser:
+    """Minimal User stub with a username."""
+
+    def __init__(self, username: str | None = None):
+        self.username = username
+
+
+class _FakeSessionManager:
+    """Minimal SessionManager stub."""
+
+    def __init__(self, user: _FakeUser | None = None):
+        self._user = user or _FakeUser()
+
+    @property
+    def current_user(self):
+        return self._user
+
+    @classmethod
+    def get_instance(cls):
+        # Overridden via patch in each test
+        raise NotImplementedError
+
+
+class TestLogbookIPCIntegration:
+    """Tests for _wire_logbook_ipc: IPC commands -> LogbookClient."""
+
+    def test_logbook_add_creates_entry_and_fragment(self, app, ipc):
+        mock_client = MagicMock()
+        mock_client.get_or_create_logbook.return_value = "logbook-1"
+        mock_client.create_entry.return_value = "entry-1"
+
+        fake_sm = _FakeSessionManager(_FakeUser("testuser"))
+
+        with (
+            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=mock_client),
+            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+        ):
+            app._wire_logbook_ipc()
+
+            handler = ipc._subscriptions[ipc.topic("commands.logbook.add")].callback
+            handler(
+                "als.test.commands.logbook.add",
+                {"title": "Shift 1", "content": "Started alignment", "tags": ["shift"]},
+                "reply.inbox.10",
+            )
+
+        mock_client.get_or_create_logbook.assert_called_once_with("testuser")
+        mock_client.create_entry.assert_called_once_with(
+            "logbook-1", title="Shift 1", tags=["shift"]
+        )
+        mock_client.add_fragment.assert_called_once_with("entry-1", content="Started alignment")
+
+        ipc.reply.assert_called_once_with(
+            "reply.inbox.10",
+            {"status": "created", "entry_id": "entry-1"},
+        )
+
+    def test_logbook_add_no_active_logbook_returns_error(self, app, ipc):
+        """No authenticated user -> error response."""
+        fake_sm = _FakeSessionManager(_FakeUser(username=None))
+
+        with (
+            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=MagicMock()),
+            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+        ):
+            app._wire_logbook_ipc()
+
+            handler = ipc._subscriptions[ipc.topic("commands.logbook.add")].callback
+            handler(
+                "als.test.commands.logbook.add",
+                {"title": "Test"},
+                "reply.inbox.11",
+            )
+
+        ipc.reply.assert_called_once()
+        payload = ipc.reply.call_args[0][1]
+        assert payload["error"] is True
+        assert "No active logbook" in payload["message"]
+
+    def test_logbook_add_missing_content_skips_fragment(self, app, ipc):
+        """Only title, no content -> create_entry but NOT add_fragment."""
+        mock_client = MagicMock()
+        mock_client.get_or_create_logbook.return_value = "logbook-2"
+        mock_client.create_entry.return_value = "entry-2"
+
+        fake_sm = _FakeSessionManager(_FakeUser("testuser"))
+
+        with (
+            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=mock_client),
+            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+        ):
+            app._wire_logbook_ipc()
+
+            handler = ipc._subscriptions[ipc.topic("commands.logbook.add")].callback
+            handler(
+                "als.test.commands.logbook.add",
+                {"title": "Empty entry"},
+                "reply.inbox.12",
+            )
+
+        mock_client.create_entry.assert_called_once_with(
+            "logbook-2", title="Empty entry", tags=[]
+        )
+        mock_client.add_fragment.assert_not_called()
+
+        ipc.reply.assert_called_once_with(
+            "reply.inbox.12",
+            {"status": "created", "entry_id": "entry-2"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestAgentIPCIntegration
+# ---------------------------------------------------------------------------
+
+
+class TestAgentIPCIntegration:
+    """Tests for _wire_agent_ipc: IPC commands -> QtClaudeAgent."""
+
+    def test_agent_message_calls_query_sync(self, app, ipc):
+        mock_agent = MagicMock()
+        mock_widget = MagicMock()
+        mock_widget.agent = mock_agent
+
+        mock_main_window = MagicMock()
+        mock_main_window.findChild.return_value = mock_widget
+        app._main_window = mock_main_window
+
+        app._wire_agent_ipc()
+
+        handler = ipc._subscriptions[ipc.topic("commands.agent.message")].callback
+        handler(
+            "als.test.commands.agent.message",
+            {"message": "What is the beam energy?"},
+            "reply.inbox.20",
+        )
+
+        mock_agent.query_sync.assert_called_once_with("What is the beam energy?")
+        ipc.reply.assert_called_once_with(
+            "reply.inbox.20",
+            {"status": "sent"},
+        )
+
+    def test_agent_message_empty_returns_error(self, app, ipc):
+        app._wire_agent_ipc()
+
+        handler = ipc._subscriptions[ipc.topic("commands.agent.message")].callback
+        handler(
+            "als.test.commands.agent.message",
+            {"message": ""},
+            "reply.inbox.21",
+        )
+
+        ipc.reply.assert_called_once()
+        payload = ipc.reply.call_args[0][1]
+        assert payload["error"] is True
+        assert "message is required" in payload["message"]
