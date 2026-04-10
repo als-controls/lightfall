@@ -17,6 +17,7 @@ import nats
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
+from lucid.ipc.trust import TrustManager, TrustState
 from lucid.utils.threads import invoke_in_main_thread
 
 __all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle"]
@@ -115,6 +116,7 @@ class IPCService(QObject):
         self._subscriptions: dict[str, _Subscription] = {}
         self._action_catalog: dict[str, ActionInfo] = {}
         self._event_catalog: dict[str, EventInfo] = {}
+        self._trust: TrustManager | None = None
 
     # ------------------------------------------------------------------
     # Topic builder
@@ -230,6 +232,53 @@ class IPCService(QObject):
             self._handle_meta_events,
             description="List all registered events",
         )
+
+    # -- Trust & auth --
+
+    def set_trust_manager(self, trust: TrustManager) -> None:
+        """Store the trust manager to use for application trust evaluation."""
+        self._trust = trust
+
+    def evaluate_trust(self, app_name: str) -> TrustState:
+        """Evaluate the trust state for *app_name*.
+
+        Delegates to the configured :class:`TrustManager`.  Returns
+        :attr:`TrustState.DENIED` when no trust manager has been set.
+        """
+        if self._trust is None:
+            return TrustState.DENIED
+        return self._trust.check(app_name)
+
+    def build_auth_response(
+        self,
+        *,
+        approved: bool,
+        session=None,
+        tiled_url: str = "",
+        reason: str = "",
+    ) -> dict:
+        """Build a response dict for an auth handshake.
+
+        Args:
+            approved: Whether the connection was approved.
+            session: Session object with a ``token`` attribute (required when
+                *approved* is True).
+            tiled_url: Tiled server URL to include in an approved response.
+            reason: Optional denial reason; only included when non-empty.
+
+        Returns:
+            A plain dict ready to be JSON-serialised and sent over IPC.
+        """
+        if approved and session is not None:
+            return {
+                "status": "approved",
+                "tiled_token": session.token,
+                "tiled_url": tiled_url,
+            }
+        response: dict = {"status": "denied"}
+        if reason:
+            response["reason"] = reason
+        return response
 
     # ------------------------------------------------------------------
     # Connection lifecycle

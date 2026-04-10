@@ -203,3 +203,54 @@ class TestMakeHandler:
         # Must not raise even though callback raises
         asyncio.run(handler(msg))
         callback.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestAuthHandshake
+# ---------------------------------------------------------------------------
+
+
+from lucid.ipc.trust import TrustManager, TrustState
+
+
+class TestAuthHandshake:
+    def test_evaluate_trust_unknown_app(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        trust = TrustManager()
+        svc.set_trust_manager(trust)
+        assert svc.evaluate_trust("newapp") == TrustState.UNKNOWN
+
+    def test_evaluate_trust_approved_app(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        trust = TrustManager()
+        trust.approve("tsuchinoko")
+        svc.set_trust_manager(trust)
+        assert svc.evaluate_trust("tsuchinoko") == TrustState.APPROVED
+
+    def test_evaluate_trust_denied_app(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        trust = TrustManager()
+        trust.deny("badapp")
+        svc.set_trust_manager(trust)
+        assert svc.evaluate_trust("badapp") == TrustState.DENIED
+
+    def test_evaluate_trust_no_manager_returns_denied(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        assert svc.evaluate_trust("anyapp") == TrustState.DENIED
+
+    def test_build_auth_response_approved(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        mock_session = MagicMock()
+        mock_session.token = "test-token-123"
+        resp = svc.build_auth_response(approved=True, session=mock_session, tiled_url="https://tiled.example.com")
+        assert resp == {"status": "approved", "tiled_token": "test-token-123", "tiled_url": "https://tiled.example.com"}
+
+    def test_build_auth_response_denied(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        resp = svc.build_auth_response(approved=False)
+        assert resp == {"status": "denied"}
+
+    def test_build_auth_response_denied_with_reason(self):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        resp = svc.build_auth_response(approved=False, reason="timeout")
+        assert resp == {"status": "denied", "reason": "timeout"}
