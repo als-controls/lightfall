@@ -302,6 +302,154 @@ class NCSApplication(QObject):
         )
         logger.info("IPC service started")
 
+        # Wire engine signals → IPC events & plan commands
+        try:
+            self._wire_engine_ipc()
+            self._wire_plan_commands()
+        except Exception:
+            logger.exception("Failed to wire engine IPC (engine may not be initialized yet)")
+
+    def _wire_engine_ipc(self) -> None:
+        """Connect engine signals to IPC events.
+
+        Publishes ``runs.new``, ``runs.complete``, and ``state.engine``
+        events so that external IPC clients can track run lifecycle and
+        engine state changes.
+        """
+        from lucid.acquire.engine import get_engine
+
+        engine = get_engine()
+        ipc = self._services.get(IPCService)
+
+        current_run: dict[str, str] = {}
+
+        def on_output(name: str, doc: dict) -> None:
+            if name == "start":
+                run_id = doc.get("uid", "")
+                plan_name = doc.get("plan_name", "unknown")
+                current_run["uid"] = run_id
+                current_run["plan_name"] = plan_name
+                ipc.publish(
+                    ipc.topic("runs.new"),
+                    {"run_id": run_id, "plan_name": plan_name},
+                )
+
+        def on_finish() -> None:
+            run_id = current_run.get("uid", "")
+            ipc.publish(
+                ipc.topic("runs.complete"),
+                {"run_id": run_id, "exit_status": "success"},
+            )
+
+        def on_abort() -> None:
+            run_id = current_run.get("uid", "")
+            ipc.publish(
+                ipc.topic("runs.complete"),
+                {"run_id": run_id, "exit_status": "abort"},
+            )
+
+        def on_exception(exc: Exception) -> None:
+            run_id = current_run.get("uid", "")
+            ipc.publish(
+                ipc.topic("runs.complete"),
+                {"run_id": run_id, "exit_status": "error"},
+            )
+
+        def on_state_changed(state: str) -> None:
+            ipc.publish(ipc.topic("state.engine"), {"state": state})
+
+        engine.sigOutput.connect(on_output)
+        engine.sigFinish.connect(on_finish)
+        engine.sigAbort.connect(on_abort)
+        engine.sigException.connect(on_exception)
+        engine.sigStateChanged.connect(on_state_changed)
+
+        # Register outbound events in catalog
+        ipc.register_event(
+            "runs.new",
+            description="Fired when a new run starts",
+            schema={"run_id": "str", "plan_name": "str"},
+        )
+        ipc.register_event(
+            "runs.complete",
+            description="Fired when a run finishes",
+            schema={"run_id": "str", "exit_status": "str"},
+        )
+        ipc.register_event(
+            "state.engine",
+            description="Engine state change",
+            schema={"state": "str"},
+        )
+
+        logger.debug("Engine → IPC event wiring complete")
+
+    def _wire_plan_commands(self) -> None:
+        """Register IPC commands for plan execution.
+
+        Registers ``commands.plan.run`` and ``commands.plan.abort`` so that
+        external IPC clients can submit plans and abort the active run.
+        """
+        from lucid.acquire.engine import get_engine
+
+        engine = get_engine()
+        ipc = self._services.get(IPCService)
+
+        def handle_plan_run(subject: str, data: dict, reply: str | None) -> None:
+            from lucid.acquire.plans.registry import get_registry
+
+            plan_name = data.get("plan_name")
+            params = data.get("params", {})
+            if not plan_name:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": "plan_name is required"})
+                return
+
+            registry = get_registry()
+            plan_info = registry.get_plan(plan_name)
+            if plan_info is None:
+                if reply:
+                    ipc.reply(
+                        reply,
+                        {"error": True, "message": f"Plan '{plan_name}' not found"},
+                    )
+                return
+
+            try:
+                plan_generator = plan_info.func(**params)
+                proc_id = engine.submit(plan_generator, name=plan_name)
+                if reply:
+                    ipc.reply(
+                        reply,
+                        {"status": "submitted", "plan_name": plan_name, "procedure_id": proc_id},
+                    )
+            except Exception as exc:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": str(exc)})
+
+        def handle_plan_abort(subject: str, data: dict, reply: str | None) -> None:
+            reason = data.get("reason", "")
+            try:
+                engine.abort(reason=reason)
+                if reply:
+                    ipc.reply(reply, {"status": "abort_requested"})
+            except Exception as exc:
+                if reply:
+                    ipc.reply(reply, {"error": True, "message": str(exc)})
+
+        ipc.register_action(
+            "commands.plan.run",
+            handle_plan_run,
+            description="Submit a plan to the BlueskyEngine",
+            schema={"plan_name": "str", "params": "dict"},
+        )
+        ipc.register_action(
+            "commands.plan.abort",
+            handle_plan_abort,
+            description="Abort the active run",
+        )
+
+        logger.debug("Plan IPC commands registered")
+
     def _handle_ipc_auth_request(
         self, subject: str, data: dict, reply: str | None
     ) -> None:
