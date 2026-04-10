@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -106,20 +107,99 @@ class TestSubscribePublish:
 
 class TestDataClasses:
     def test_action_info_fields(self):
-        ai = ActionInfo(name="run", subject="als.cmd.run", description="Run a plan")
-        assert ai.name == "run"
+        ai = ActionInfo(subject="als.cmd.run", description="Run a plan")
         assert ai.subject == "als.cmd.run"
         assert ai.description == "Run a plan"
+        assert ai.schema is None
+
+    def test_action_info_with_schema(self):
+        schema = {"type": "object", "properties": {"plan": {"type": "string"}}}
+        ai = ActionInfo(subject="als.cmd.run", description="Run a plan", schema=schema)
+        assert ai.schema == schema
 
     def test_event_info_fields(self):
-        ei = EventInfo(name="started", subject="als.events.started", description="Plan started")
-        assert ei.name == "started"
+        ei = EventInfo(subject="als.events.started", description="Plan started")
         assert ei.subject == "als.events.started"
         assert ei.description == "Plan started"
+        assert ei.schema is None
+
+    def test_event_info_with_schema(self):
+        schema = {"type": "object", "properties": {"status": {"type": "string"}}}
+        ei = EventInfo(subject="als.events.started", description="Plan started", schema=schema)
+        assert ei.schema == schema
 
     def test_subscription_fields(self):
         cb = MagicMock()
-        sub = _Subscription(callback=cb, main_thread=True, nats_sub=None)
+        sub = _Subscription(subject="als.test.foo", callback=cb, main_thread=True, nats_sub=None)
+        assert sub.subject == "als.test.foo"
         assert sub.callback is cb
         assert sub.main_thread is True
         assert sub.nats_sub is None
+
+
+# ---------------------------------------------------------------------------
+# TestMakeHandler
+# ---------------------------------------------------------------------------
+
+
+class TestMakeHandler:
+    def _make_svc(self):
+        return IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+
+    @patch("lucid.ipc.service.invoke_in_main_thread")
+    def test_handler_dispatches_to_main_thread(self, mock_invoke, qapp):
+        svc = self._make_svc()
+        callback = MagicMock()
+        sub = _Subscription(subject="test.foo", callback=callback, main_thread=True, nats_sub=None)
+        handler = svc._make_handler(sub)
+
+        msg = MagicMock()
+        msg.subject = "test.foo"
+        msg.data = b'{"key": "value"}'
+        msg.reply = ""
+
+        asyncio.run(handler(msg))
+        mock_invoke.assert_called_once_with(callback, "test.foo", {"key": "value"}, "")
+
+    def test_handler_calls_callback_directly_off_main_thread(self, qapp):
+        svc = self._make_svc()
+        callback = MagicMock()
+        sub = _Subscription(subject="test.foo", callback=callback, main_thread=False, nats_sub=None)
+        handler = svc._make_handler(sub)
+
+        msg = MagicMock()
+        msg.subject = "test.foo"
+        msg.data = b'{"x": 42}'
+        msg.reply = "test._INBOX.reply"
+
+        asyncio.run(handler(msg))
+        callback.assert_called_once_with("test.foo", {"x": 42}, "test._INBOX.reply")
+
+    def test_handler_ignores_malformed_json(self, qapp):
+        svc = self._make_svc()
+        callback = MagicMock()
+        sub = _Subscription(subject="test.foo", callback=callback, main_thread=False, nats_sub=None)
+        handler = svc._make_handler(sub)
+
+        msg = MagicMock()
+        msg.subject = "test.foo"
+        msg.data = b"not valid json {"
+        msg.reply = ""
+
+        asyncio.run(handler(msg))
+        callback.assert_not_called()
+
+    def test_handler_catches_callback_exception(self, qapp):
+        svc = self._make_svc()
+        callback = MagicMock(side_effect=RuntimeError("boom"))
+        sub = _Subscription(subject="test.foo", callback=callback, main_thread=False, nats_sub=None)
+        handler = svc._make_handler(sub)
+
+        msg = MagicMock()
+        msg.subject = "test.foo"
+        msg.data = b'{"ok": true}'
+        msg.reply = ""
+
+        # Must not raise even though callback raises
+        asyncio.run(handler(msg))
+        callback.assert_called_once()

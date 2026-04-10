@@ -30,24 +30,25 @@ __all__ = ["IPCService", "ActionInfo", "EventInfo", "_Subscription"]
 class ActionInfo:
     """Metadata for an IPC action (request/reply subject)."""
 
-    name: str
     subject: str
     description: str = ""
+    schema: dict[str, Any] | None = None
 
 
 @dataclass
 class EventInfo:
     """Metadata for an IPC event (publish/subscribe subject)."""
 
-    name: str
     subject: str
     description: str = ""
+    schema: dict[str, Any] | None = None
 
 
 @dataclass
 class _Subscription:
     """Internal subscription record."""
 
+    subject: str
     callback: Callable[[str, dict, str | None], Any]
     main_thread: bool
     nats_sub: Any  # nats.aio.subscription.Subscription | None
@@ -174,7 +175,7 @@ class IPCService(QObject):
             main_thread: If True (default) the callback is dispatched to the Qt
                 main thread via ``invoke_in_main_thread``.
         """
-        sub = _Subscription(callback=callback, main_thread=main_thread, nats_sub=None)
+        sub = _Subscription(subject=subject, callback=callback, main_thread=main_thread, nats_sub=None)
         self._subscriptions[subject] = sub
 
         if self._connected and self._loop is not None and self._nc is not None:
@@ -275,7 +276,7 @@ class IPCService(QObject):
         """Create a NATS subscription and store the handle in *sub*."""
         if self._nc is None:
             return
-        handler = self._make_handler(subject, sub)
+        handler = self._make_handler(sub)
         try:
             nats_sub = await self._nc.subscribe(subject, cb=handler)
             sub.nats_sub = nats_sub
@@ -294,13 +295,12 @@ class IPCService(QObject):
     # Internal: message handler factory
     # ------------------------------------------------------------------
 
-    def _make_handler(
-        self, subject: str, sub: _Subscription
-    ) -> Callable:
+    def _make_handler(self, sub: _Subscription) -> Callable:
         """Return an async NATS message handler for *sub*."""
+        subject = sub.subject
 
         async def handler(msg: Any) -> None:
-            reply_subject: str | None = msg.reply if msg.reply else None
+            reply: str = msg.reply if msg.reply else ""
 
             # Decode JSON payload
             try:
@@ -309,36 +309,33 @@ class IPCService(QObject):
                 logger.warning(
                     "IPCService: malformed JSON on subject '{}': {}", subject, exc
                 )
-                if reply_subject:
+                if reply:
                     error_payload = json.dumps({"error": "malformed JSON"}).encode()
                     try:
-                        await self._nc.publish(reply_subject, error_payload)
+                        await self._nc.publish(reply, error_payload)
                     except Exception:
                         pass
                 return
 
-            def dispatch() -> None:
-                try:
-                    sub.callback(subject, data, reply_subject)
-                except Exception as exc:
-                    logger.error(
-                        "IPCService: unhandled exception in callback for '{}': {}",
-                        subject,
-                        exc,
-                    )
-                    logger.exception(exc)
-                    if reply_subject:
-                        error_payload = json.dumps({"error": str(exc)}).encode()
-                        if self._loop is not None and self._nc is not None:
-                            asyncio.run_coroutine_threadsafe(
-                                self._nc.publish(reply_subject, error_payload),
-                                self._loop,
-                            )
-
-            if sub.main_thread:
-                invoke_in_main_thread(dispatch)
-            else:
-                dispatch()
+            try:
+                if sub.main_thread:
+                    invoke_in_main_thread(sub.callback, subject, data, reply)
+                else:
+                    sub.callback(subject, data, reply)
+            except Exception as exc:
+                logger.error(
+                    "IPCService: unhandled exception in callback for '{}': {}",
+                    subject,
+                    exc,
+                )
+                logger.exception(exc)
+                if reply:
+                    error_payload = json.dumps({"error": str(exc)}).encode()
+                    if self._loop is not None and self._nc is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            self._nc.publish(reply, error_payload),
+                            self._loop,
+                        )
 
         return handler
 
