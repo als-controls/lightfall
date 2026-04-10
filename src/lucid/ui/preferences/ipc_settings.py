@@ -25,6 +25,8 @@ from lucid.ui.preferences.manager import PreferencesManager
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
+    from lucid.ipc.trust import TrustManager
+
 
 class IPCSettingsPlugin(SettingsPlugin):
     """Settings plugin for IPC/NATS configuration.
@@ -46,6 +48,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._status_label: QLabel | None = None
         self._trusted_list: QListWidget | None = None
         self._revoke_btn: QPushButton | None = None
+        self._trust_manager: TrustManager | None = None
 
     @property
     def name(self) -> str:
@@ -106,13 +109,20 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._widget = widget
         return widget
 
+    def set_trust_manager(self, trust_manager: TrustManager) -> None:
+        """Set the TrustManager reference so revoke() can be called."""
+        self._trust_manager = trust_manager
+
     def _on_revoke(self) -> None:
         if not self._trusted_list:
             return
         selected = self._trusted_list.currentItem()
         if selected is not None:
+            app_name = selected.text()
             row = self._trusted_list.row(selected)
             self._trusted_list.takeItem(row)
+            if self._trust_manager:
+                self._trust_manager.revoke(app_name)
 
     def load_settings(self) -> None:
         prefs = PreferencesManager.get_instance()

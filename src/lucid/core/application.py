@@ -111,6 +111,7 @@ class NCSApplication(QObject):
         self._main_window: QMainWindow | None = None
         self._services = ServiceRegistry.get_instance()
         self._argv = argv if argv is not None else sys.argv
+        self._auth_dialog_active: bool = False
 
     @classmethod
     def get_instance(cls, argv: list[str] | None = None) -> NCSApplication:
@@ -590,32 +591,40 @@ class NCSApplication(QObject):
             return
 
         # Unknown app — show dialog with 60 s timeout
+        if self._auth_dialog_active:
+            ipc.reply(reply, ipc.build_auth_response(approved=False, reason="busy"))
+            return
+
         trust = self._services.get(TrustManager)
-        dialog = TrustDialog(app_name, app_version, parent=self._main_window)
-        from PySide6.QtCore import QTimer
+        self._auth_dialog_active = True
+        try:
+            dialog = TrustDialog(app_name, app_version, parent=self._main_window)
+            from PySide6.QtCore import QTimer
 
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.timeout.connect(dialog.reject)
-        timer.start(60_000)
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(dialog.reject)
+            timer.start(60_000)
 
-        if dialog.exec() == TrustDialog.DialogCode.Accepted:
-            trust.approve(app_name)
-            session = self._get_current_session()
-            tiled_url = self._get_tiled_url()
-            ipc.reply(
-                reply,
-                ipc.build_auth_response(
-                    approved=True, session=session, tiled_url=tiled_url
-                ),
-            )
-        else:
-            trust.deny(app_name)
-            reason = "denied" if timer.isActive() else "timeout"
-            ipc.reply(
-                reply,
-                ipc.build_auth_response(approved=False, reason=reason),
-            )
+            if dialog.exec() == TrustDialog.DialogCode.Accepted:
+                trust.approve(app_name)
+                session = self._get_current_session()
+                tiled_url = self._get_tiled_url()
+                ipc.reply(
+                    reply,
+                    ipc.build_auth_response(
+                        approved=True, session=session, tiled_url=tiled_url
+                    ),
+                )
+            else:
+                trust.deny(app_name)
+                reason = "denied" if timer.isActive() else "timeout"
+                ipc.reply(
+                    reply,
+                    ipc.build_auth_response(approved=False, reason=reason),
+                )
+        finally:
+            self._auth_dialog_active = False
 
     def _get_current_session(self):
         """Return the current :class:`Session` or ``None``."""
