@@ -82,6 +82,12 @@ builtin_manifest = PluginManifest(
             name="logbook",
             import_path="lucid.ui.preferences.logbook_settings:LogbookSettingsPlugin",
         ),
+        # IPC settings
+        PluginEntry(
+            type_name="settings",
+            name="ipc",
+            import_path="lucid.ui.preferences.ipc_settings:IPCSettingsPlugin",
+        ),
         # Claude settings
         PluginEntry(
             type_name="settings",
