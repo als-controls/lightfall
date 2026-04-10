@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, Signal
 
 from lucid.utils.threads import invoke_in_main_thread
 
-__all__ = ["IPCService", "ActionInfo", "EventInfo"]
+__all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle"]
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +53,29 @@ class _Subscription:
     callback: Callable[[str, dict, str | None], Any]
     main_thread: bool
     nats_sub: Any  # nats.aio.subscription.Subscription | None
+
+
+# ---------------------------------------------------------------------------
+# _ActionHandle
+# ---------------------------------------------------------------------------
+
+
+class _ActionHandle:
+    """Handle returned by :meth:`IPCService.register_action`.
+
+    Calling :meth:`unregister` removes the action from the catalog and
+    cancels its NATS subscription.
+    """
+
+    def __init__(self, service: "IPCService", suffix: str, subject: str) -> None:
+        self._service = service
+        self._suffix = suffix
+        self._subject = subject
+
+    def unregister(self) -> None:
+        """Remove this action from the catalog and unsubscribe."""
+        self._service._action_catalog.pop(self._suffix, None)
+        self._service.unsubscribe(self._subject)
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +113,8 @@ class IPCService(QObject):
         self._thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._subscriptions: dict[str, _Subscription] = {}
+        self._action_catalog: dict[str, ActionInfo] = {}
+        self._event_catalog: dict[str, EventInfo] = {}
 
     # ------------------------------------------------------------------
     # Topic builder
@@ -103,6 +128,108 @@ class IPCService(QObject):
         if self._topic_prefix:
             return f"{self._topic_prefix}.{suffix}"
         return suffix
+
+    # ------------------------------------------------------------------
+    # Action & event catalog
+    # ------------------------------------------------------------------
+
+    def register_action(
+        self,
+        suffix: str,
+        callback: Callable[[str, dict, str | None], Any],
+        *,
+        description: str = "",
+        schema: dict[str, Any] | None = None,
+        main_thread: bool = True,
+    ) -> _ActionHandle:
+        """Register a request/reply action handler.
+
+        Args:
+            suffix: Subject suffix (appended to the topic prefix).
+            callback: Called as ``callback(subject, data, reply)`` for each
+                incoming request.
+            description: Human-readable description for meta-discovery.
+            schema: Optional JSON Schema describing the request payload.
+            main_thread: If True (default) the callback runs on the Qt main
+                thread.
+
+        Returns:
+            An :class:`_ActionHandle` whose :meth:`~_ActionHandle.unregister`
+            method removes both the catalog entry and the subscription.
+        """
+        full_subject = self.topic(suffix)
+        self._action_catalog[suffix] = ActionInfo(
+            subject=suffix, description=description, schema=schema
+        )
+        self.subscribe(full_subject, callback, main_thread=main_thread)
+        return _ActionHandle(self, suffix, full_subject)
+
+    def register_event(
+        self,
+        suffix: str,
+        *,
+        description: str = "",
+        schema: dict[str, Any] | None = None,
+    ) -> None:
+        """Register an event in the event catalog (no subscription created).
+
+        This is catalog-only — it exists so that remote clients can discover
+        which events this service may publish via ``list_events()`` / the
+        ``meta.events`` endpoint.
+
+        Args:
+            suffix: Subject suffix used when publishing the event.
+            description: Human-readable description for meta-discovery.
+            schema: Optional JSON Schema describing the event payload.
+        """
+        self._event_catalog[suffix] = EventInfo(
+            subject=suffix, description=description, schema=schema
+        )
+
+    def list_actions(self) -> list[dict[str, Any]]:
+        """Return catalog metadata for all registered actions."""
+        return [
+            {"subject": info.subject, "description": info.description, "schema": info.schema}
+            for info in self._action_catalog.values()
+        ]
+
+    def list_events(self) -> list[dict[str, Any]]:
+        """Return catalog metadata for all registered events."""
+        return [
+            {"subject": info.subject, "description": info.description, "schema": info.schema}
+            for info in self._event_catalog.values()
+        ]
+
+    # ------------------------------------------------------------------
+    # Meta-discovery endpoints
+    # ------------------------------------------------------------------
+
+    def _handle_meta_actions(
+        self, subject: str, data: dict, reply: str | None
+    ) -> None:
+        """Respond to a ``meta.actions`` request with the action catalog."""
+        if reply:
+            self.reply(reply, {"actions": self.list_actions()})
+
+    def _handle_meta_events(
+        self, subject: str, data: dict, reply: str | None
+    ) -> None:
+        """Respond to a ``meta.events`` request with the event catalog."""
+        if reply:
+            self.reply(reply, {"events": self.list_events()})
+
+    def register_meta_endpoints(self) -> None:
+        """Register ``meta.actions`` and ``meta.events`` discovery endpoints."""
+        self.register_action(
+            "meta.actions",
+            self._handle_meta_actions,
+            description="List all registered actions",
+        )
+        self.register_action(
+            "meta.events",
+            self._handle_meta_events,
+            description="List all registered events",
+        )
 
     # ------------------------------------------------------------------
     # Connection lifecycle
