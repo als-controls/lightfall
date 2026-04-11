@@ -254,3 +254,25 @@ class TestAuthHandshake:
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         resp = svc.build_auth_response(approved=False, reason="timeout")
         assert resp == {"status": "denied", "reason": "timeout"}
+
+
+# ---------------------------------------------------------------------------
+# TestRequest
+# ---------------------------------------------------------------------------
+
+
+class TestRequest:
+    def test_request_returns_none_when_not_connected(self, qapp):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        # Never started, so not connected
+        result = svc.request("test.ping", {})
+        assert result is None
+
+    def test_request_returns_none_when_no_loop(self, qapp):
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        # Manually set connected but no loop
+        with svc._connected_lock:
+            svc._connected = True
+        svc._loop = None
+        result = svc.request("test.ping", {})
+        assert result is None

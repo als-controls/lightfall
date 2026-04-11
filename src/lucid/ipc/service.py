@@ -391,6 +391,55 @@ class IPCService(QObject):
             self._nc.publish(subject, payload), self._loop
         )
 
+    def request(
+        self, subject: str, data: dict, timeout_ms: int = 1000
+    ) -> dict | None:
+        """Send a request and wait for a reply.
+
+        Thread-safe — can be called from any thread including the Qt main
+        thread.  Blocks the *calling* thread for up to *timeout_ms*.
+
+        Args:
+            subject: NATS subject to send the request to.
+            data: JSON-serialisable request payload.
+            timeout_ms: Maximum time to wait for a reply in milliseconds.
+
+        Returns:
+            Decoded JSON reply dict, or ``None`` on timeout / error /
+            not connected.
+        """
+        if not self.is_connected or self._loop is None or self._nc is None:
+            return None
+
+        payload = json.dumps(data).encode()
+        timeout = timeout_ms / 1000.0
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._do_request(payload, subject, timeout), self._loop
+        )
+        try:
+            result = future.result(timeout=timeout + 1.0)
+            return result
+        except Exception as exc:
+            logger.warning("IPCService: request to '{}' failed: {}", subject, exc)
+            return None
+
+    async def _do_request(
+        self, payload: bytes, subject: str, timeout: float
+    ) -> dict | None:
+        """Async helper — execute NATS request/reply."""
+        if self._nc is None:
+            return None
+        try:
+            msg = await self._nc.request(subject, payload, timeout=timeout)
+            return json.loads(msg.data.decode())
+        except asyncio.TimeoutError:
+            logger.debug("IPCService: request to '{}' timed out", subject)
+            return None
+        except Exception as exc:
+            logger.warning("IPCService: request error on '{}': {}", subject, exc)
+            return None
+
     def reply(self, reply_subject: str | None, data: dict) -> None:
         """Send a reply to *reply_subject*.
 
