@@ -33,6 +33,24 @@ from lucid.acquire.plans import PlanRegistry, get_registry
 from lucid.devices import DeviceCatalog
 
 
+def _sample_metadata_pre_submit(plan_name: str, kwargs: dict) -> dict | None:
+    """Pre-submit callable that shows the SampleMetadataDialog.
+
+    Args:
+        plan_name: Name of the plan being submitted.
+        kwargs: Current kwargs for the plan.
+
+    Returns:
+        Metadata dict to merge, or None if cancelled.
+    """
+    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+
+    dialog = SampleMetadataDialog()
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        return dialog.get_metadata()
+    return None
+
+
 class BlueskyPanel(BasePanel):
     """Panel for Bluesky plan selection and execution.
 
@@ -205,6 +223,8 @@ class BlueskyPanel(BasePanel):
         try:
             engine = get_engine()
             self.set_engine(engine)
+            # Register sample metadata dialog as pre-submit hook
+            engine.register_pre_submit(_sample_metadata_pre_submit)
         except Exception as e:
             logger.debug("Could not auto-configure Engine: {}", e)
 

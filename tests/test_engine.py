@@ -634,3 +634,44 @@ class TestPreSubmitHooks:
         mock_engine.register_pre_submit(crashing_hook)
         result = mock_engine.submit("test_procedure")
         assert result is None
+
+
+class TestPreSubmitIntegration:
+    """Integration tests for pre-submit with SampleMetadataDialog."""
+
+    def test_sample_metadata_callable_returns_metadata(self, qapp) -> None:
+        """Test the callable that wraps SampleMetadataDialog."""
+        from unittest.mock import patch, MagicMock
+
+        from PySide6.QtWidgets import QDialog
+
+        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+
+        with patch(
+            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+        ) as MockDialog:
+            mock_dialog = MagicMock()
+            mock_dialog.exec.return_value = QDialog.DialogCode.Accepted
+            mock_dialog.get_metadata.return_value = {"sample_name": "test"}
+            MockDialog.return_value = mock_dialog
+
+            result = _sample_metadata_pre_submit("scan", {})
+            assert result == {"sample_name": "test"}
+
+    def test_sample_metadata_callable_returns_none_on_cancel(self, qapp) -> None:
+        """Test the callable returns None when dialog is cancelled."""
+        from unittest.mock import patch, MagicMock
+
+        from PySide6.QtWidgets import QDialog
+
+        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+
+        with patch(
+            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+        ) as MockDialog:
+            mock_dialog = MagicMock()
+            mock_dialog.exec.return_value = QDialog.DialogCode.Rejected
+            MockDialog.return_value = mock_dialog
+
+            result = _sample_metadata_pre_submit("scan", {})
+            assert result is None
