@@ -625,3 +625,12 @@ class TestPreSubmitHooks:
         mock_engine("test_procedure", skip_pre_submit=True)
 
         assert len(hook_called) == 0
+
+    def test_pre_submit_exception_cancels(self, mock_engine) -> None:
+        """Test that an exception in a hook cancels submission."""
+        def crashing_hook(plan_name: str, kwargs: dict) -> dict:
+            raise RuntimeError("hook error")
+
+        mock_engine.register_pre_submit(crashing_hook)
+        result = mock_engine.submit("test_procedure")
+        assert result is None

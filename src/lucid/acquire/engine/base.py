@@ -191,16 +191,8 @@ class BaseEngine(QObject):
 
         # Run pre-submit callables
         if not skip_pre_submit:
-            for callable_ in self._pre_submit_callables:
-                try:
-                    result = callable_(name, kwargs)
-                    if result is None:
-                        logger.info(f"[{self._name}] Submission cancelled by pre-submit hook")
-                        return None
-                    kwargs.update(result)
-                except Exception as ex:
-                    logger.warning(f"[{self._name}] Error in pre-submit callable: {ex}")
-                    return None
+            if self._run_pre_submit_hooks(name, kwargs) is None:
+                return None
 
         item = PrioritizedProcedure(priority, procedure, kwargs, name=name)
         self._queue.put(item)
@@ -426,6 +418,28 @@ class BaseEngine(QObject):
             logger.debug(f"[{self._name}] Removed subscriber with token {token}")
 
     # === Pre-Submit Hooks ===
+
+    def _run_pre_submit_hooks(self, name: str, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+        """Run pre-submit callables, merging results into kwargs.
+
+        Args:
+            name: Plan name.
+            kwargs: Current kwargs dict (mutated in place).
+
+        Returns:
+            The updated kwargs dict, or None if a hook cancelled submission.
+        """
+        for callable_ in self._pre_submit_callables:
+            try:
+                result = callable_(name, kwargs)
+                if result is None:
+                    logger.info(f"[{self._name}] Submission cancelled by pre-submit hook")
+                    return None
+                kwargs.update(result)
+            except Exception as ex:
+                logger.warning(f"[{self._name}] Error in pre-submit callable: {ex}")
+                return None
+        return kwargs
 
     def register_pre_submit(
         self, callable_: Callable[[str, dict[str, Any]], dict[str, Any] | None]

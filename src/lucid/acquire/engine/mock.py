@@ -81,16 +81,8 @@ class MockEngine(BaseEngine):
 
         # Run pre-submit callables
         if not skip_pre_submit:
-            for callable_ in self._pre_submit_callables:
-                try:
-                    result = callable_(name, kwargs)
-                    if result is None:
-                        logger.info("[mock] Submission cancelled by pre-submit hook")
-                        return None
-                    kwargs.update(result)
-                except Exception as ex:
-                    logger.warning(f"[mock] Error in pre-submit callable: {ex}")
-                    return None
+            if self._run_pre_submit_hooks(name, kwargs) is None:
+                return None
 
         # Generate a unique ID for this "run"
         self._current_uid = str(uuid.uuid4())
