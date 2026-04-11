@@ -36,7 +36,13 @@ class OphydLabel(OphydWidget):
     def _format_value(self, value: Any) -> str:
         if isinstance(value, float):
             return f"{value:.{self._precision}f}"
-        return str(value)
+        if isinstance(value, int):
+            return str(value)
+        # Fallback: try numeric conversion (catches residual numpy types)
+        try:
+            return f"{float(value):.{self._precision}f}"
+        except (ValueError, TypeError):
+            return str(value)
 
     def _get_widget_value(self) -> Any:
         return self._value

@@ -134,15 +134,44 @@ class OphydWidget(QWidget):
 
     # -- Value updates --------------------------------------------------------
 
+    @staticmethod
+    def _coerce_scalar(value: Any) -> Any:
+        """Extract a Python scalar from numpy/array-like values.
+
+        Ophyd subscriptions often deliver numpy scalars or single-element
+        arrays.  Coerce them to plain Python types so that ``isinstance``
+        checks and ``str()`` behave predictably in downstream formatting.
+        """
+        if value is None:
+            return None
+
+        # bytes from EPICS string PVs → decode
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+
+        # Single-element sequences → extract scalar
+        if hasattr(value, "__len__") and not isinstance(value, str):
+            try:
+                if len(value) == 1:
+                    value = value[0]
+            except TypeError:
+                # 0-d numpy array: ndim == 0, has __len__ but len() raises
+                pass
+
+        # numpy scalar → native Python type
+        if hasattr(value, "item"):
+            try:
+                value = value.item()
+            except (ValueError, AttributeError):
+                pass
+
+        return value
+
     def _on_signal_value(self, value: Any = None, **kwargs: Any) -> None:
         """Ophyd subscription callback -- runs on a background thread."""
         from lucid.utils.threads import invoke_in_main_thread
 
-        if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
-            if len(value) == 1:
-                value = value[0]
-
-        self._value = value
+        self._value = self._coerce_scalar(value)
         invoke_in_main_thread(self._apply_value_update)
 
     @Slot()
@@ -159,10 +188,7 @@ class OphydWidget(QWidget):
             val = self._signal.get()
             if inspect.isawaitable(val):
                 return  # async signals are not read synchronously
-            if hasattr(val, "__len__") and not isinstance(val, (str, bytes)):
-                if len(val) == 1:
-                    val = val[0]
-            self._value = val
+            self._value = self._coerce_scalar(val)
             self._update_display()
             self.value_changed.emit(self._value)
         except Exception:

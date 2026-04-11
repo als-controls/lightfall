@@ -69,11 +69,17 @@ class OphydLineEdit(OphydWidget):
         text = self._line_edit.text().strip()
         if self._value is not None:
             try:
-                if isinstance(self._value, int):
+                # Check int before float (int is a subclass of numbers but
+                # we want to preserve the distinction)
+                if isinstance(self._value, int) and not isinstance(self._value, bool):
                     return int(text)
                 elif isinstance(self._value, float):
                     return float(text)
-            except ValueError:
+                else:
+                    # Try numeric conversion for numpy-like types
+                    float(self._value)  # test if original was numeric
+                    return float(text)
+            except (ValueError, TypeError):
                 pass
         return text
 
@@ -85,7 +91,13 @@ class OphydLineEdit(OphydWidget):
     def _format_value(self, value: Any) -> str:
         if isinstance(value, float):
             return f"{value:.{self._precision}f}"
-        return str(value)
+        if isinstance(value, int):
+            return str(value)
+        # Fallback: try numeric conversion (catches residual numpy types)
+        try:
+            return f"{float(value):.{self._precision}f}"
+        except (ValueError, TypeError):
+            return str(value)
 
     def _update_readonly_state(self) -> None:
         self._line_edit.setReadOnly(self._readonly or not self._connected)
