@@ -99,3 +99,62 @@ class TestPingOrSpawnExporter:
             nats_url="nats://localhost:4222",
         )
         assert result is False
+
+
+import numpy as np
+
+from lucid.ui.dialogs.export_dialog import load_sample_frame
+
+
+class TestLoadSampleFrame:
+    def _make_mock_client(self, image_data: np.ndarray | None = None, scalar_only: bool = False):
+        """Create a mock Tiled client with a run containing image or scalar data."""
+        client = MagicMock()
+        run = MagicMock()
+        stream = MagicMock()
+
+        if scalar_only:
+            data_keys = {"motor": {"shape": []}, "detector_stats": {"shape": [1]}}
+            stream.metadata = {"data_keys": data_keys}
+            stream.keys.return_value = ["motor", "detector_stats"]
+        else:
+            shape = list(image_data.shape) if image_data is not None else [10, 100, 100]
+            data_keys = {"detector": {"shape": shape}}
+            stream.metadata = {"data_keys": data_keys}
+            stream.keys.return_value = ["detector"]
+            col = MagicMock()
+            if image_data is not None:
+                col.read.return_value = image_data
+            else:
+                col.read.return_value = np.zeros((10, 100, 100))
+            stream.__getitem__ = lambda _self, key: col
+
+        run.keys.return_value = ["primary"]
+        run.__getitem__ = lambda _self, key: stream
+        run.metadata = {"start": {"uid": "test-uid"}}
+        client.__getitem__ = lambda _self, key: run
+
+        return client
+
+    def test_loads_middle_frame_from_3d(self):
+        image_data = np.arange(30).reshape(3, 2, 5).astype(np.float32)
+        client = self._make_mock_client(image_data)
+
+        frame = load_sample_frame(client, "run-key")
+        assert frame.ndim == 2
+        assert frame.shape == (2, 5)
+        # Middle frame of 3 is index 1
+        np.testing.assert_array_equal(frame, image_data[1])
+
+    def test_loads_2d_directly(self):
+        image_data = np.ones((50, 60), dtype=np.float32)
+        client = self._make_mock_client(image_data)
+
+        frame = load_sample_frame(client, "run-key")
+        assert frame.shape == (50, 60)
+
+    def test_raises_on_scalar_only(self):
+        client = self._make_mock_client(scalar_only=True)
+
+        with pytest.raises(ValueError, match="No image field"):
+            load_sample_frame(client, "run-key")

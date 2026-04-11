@@ -115,6 +115,49 @@ def ping_or_spawn_exporter(
     return False
 
 
+def load_sample_frame(client: Any, run_key: str) -> Any:
+    """Load a single 2D sample frame from a Tiled run.
+
+    Finds the first image field (ndim >= 2) in the primary stream and
+    returns frame 0 (2D data) or the middle frame (3D data).
+
+    Args:
+        client: Tiled catalog client.
+        run_key: Key for the run in the catalog.
+
+    Returns:
+        2D numpy array (single frame).
+
+    Raises:
+        ValueError: If no image field found in primary stream.
+    """
+    import numpy as np
+
+    run = client[run_key]
+    stream = run["primary"]
+    data_keys = stream.metadata.get("data_keys", {})
+
+    # Find first field with ndim >= 2
+    image_field = None
+    for key, info in data_keys.items():
+        if len(info.get("shape", [])) >= 2:
+            image_field = key
+            break
+
+    if image_field is None:
+        raise ValueError("No image field found in primary stream")
+
+    data = np.asarray(stream[image_field].read())
+
+    if data.ndim == 2:
+        return data
+    elif data.ndim >= 3:
+        mid = data.shape[0] // 2
+        return data[mid]
+    else:
+        raise ValueError(f"Unexpected data dimensions: {data.ndim}")
+
+
 class ExportDialog(LucidDialog):
     """Dialog for configuring and launching a data export."""
 
