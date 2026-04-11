@@ -84,6 +84,7 @@ docs = [
 
 [project.scripts]
 lucid = "lucid.main:cli"
+lucid-exporter = "lucid.exporter.cli:main"
 
 [project.gui-scripts]
 lucid-gui = "lucid.main:cli"
