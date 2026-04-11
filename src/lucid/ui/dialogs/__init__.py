@@ -10,6 +10,7 @@ from lucid.ui.dialogs.create_plan_dialog import CreatePlanDialog
 from lucid.ui.dialogs.go_to_position_dialog import GoToPositionDialog
 from lucid.ui.dialogs.login_dialog import LoginDialog
 from lucid.ui.dialogs.oauth_browser_dialog import OAuthBrowserDialog
+from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 
 __all__ = [
     "AboutDialog",
@@ -19,6 +20,7 @@ __all__ = [
     "LoginDialog",
     "LucidDialog",
     "OAuthBrowserDialog",
+    "SampleMetadataDialog",
     "report_bug",
     "show_about_dialog",
 ]
