@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.devices.model import DeviceCategory
+from lucid.epics.widgets.ophyd_label import OphydLabel
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.logbook import DeviceActionLogger
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
@@ -176,6 +178,8 @@ class MotorControlWidget(BaseControlWidget):
                     return
 
             self._is_connecting = False
+            # Bind ophyd widgets to motor signals
+            self._bind_motor_signals()
             self._update_display()
             self._start_updates()
         else:
@@ -183,6 +187,7 @@ class MotorControlWidget(BaseControlWidget):
             self._motor_name = ""
             self._device_info = None
             self._is_connecting = False
+            self._unbind_motor_signals()
             self._stop_updates()
             self._clear_display()
 
@@ -228,6 +233,28 @@ class MotorControlWidget(BaseControlWidget):
             logger.warning("Failed to request device connection: {}", e)
             self._show_no_connection()
 
+    def _bind_motor_signals(self) -> None:
+        """Bind OphydLabel/OphydLineEdit widgets to motor signals."""
+        if self._motor is None:
+            return
+
+        # Readback: prefer user_readback, fall back to readback
+        if hasattr(self._motor, "user_readback"):
+            self._rbv_display.signal = self._motor.user_readback
+        elif hasattr(self._motor, "readback"):
+            self._rbv_display.signal = self._motor.readback
+
+        # Setpoint: prefer user_setpoint, fall back to setpoint
+        if hasattr(self._motor, "user_setpoint"):
+            self._setpoint_edit.signal = self._motor.user_setpoint
+        elif hasattr(self._motor, "setpoint"):
+            self._setpoint_edit.signal = self._motor.setpoint
+
+    def _unbind_motor_signals(self) -> None:
+        """Disconnect OphydLabel/OphydLineEdit widgets from motor signals."""
+        self._rbv_display.signal = None
+        self._setpoint_edit.signal = None
+
     @Slot(str)
     def _on_device_connected(self, device_id_str: str) -> None:
         """Handle device connected signal."""
@@ -240,6 +267,7 @@ class MotorControlWidget(BaseControlWidget):
         self._motor = self._device_info._ophyd_device
         self._is_connecting = False
         self._disconnect_connection_signals()
+        self._bind_motor_signals()
         self._update_display()
         self._start_updates()
         logger.debug("Motor '{}' connected, controls enabled", self._motor_name)
@@ -259,7 +287,7 @@ class MotorControlWidget(BaseControlWidget):
     def _show_connecting_state(self) -> None:
         """Show UI state while device is connecting."""
         self._name_label.setText(f"{self._motor_name} (Connecting...)")
-        self._rbv_display.setText("...")
+        self._rbv_display._value_label.setText("...")
         self._moving_indicator.set_state("warning")
         self._moving_label.setText("Connecting")
         self._set_controls_enabled(False)
@@ -267,7 +295,7 @@ class MotorControlWidget(BaseControlWidget):
     def _show_no_connection(self) -> None:
         """Show UI state when device cannot be connected."""
         self._name_label.setText(f"{self._motor_name} (Not Connected)")
-        self._rbv_display.setText("---")
+        self._rbv_display._value_label.setText("---")
         self._moving_indicator.set_state("off")
         self._moving_label.setText("Unavailable")
         self._set_controls_enabled(False)
@@ -275,7 +303,7 @@ class MotorControlWidget(BaseControlWidget):
     def _show_connection_failed(self, error: str) -> None:
         """Show UI state when connection failed."""
         self._name_label.setText(f"{self._motor_name} (Connection Failed)")
-        self._rbv_display.setText("---")
+        self._rbv_display._value_label.setText("---")
         self._moving_indicator.set_state("error")
         self._moving_label.setText("Failed")
         self._set_controls_enabled(False)
@@ -304,10 +332,10 @@ class MotorControlWidget(BaseControlWidget):
         pos_group = QGroupBox("Position")
         pos_layout = QGridLayout(pos_group)
 
-        # Readback display
+        # Readback display (OphydLabel handles subscription to user_readback)
         pos_layout.addWidget(QLabel("Current:"), 0, 0)
-        self._rbv_display = QLabel("---")
-        self._rbv_display.setStyleSheet("""
+        self._rbv_display = OphydLabel(precision=self._precision)
+        self._rbv_display._value_label.setStyleSheet("""
             QLabel {
                 font-size: 16pt;
                 font-weight: bold;
@@ -319,12 +347,17 @@ class MotorControlWidget(BaseControlWidget):
         self._units_label = QLabel("")
         pos_layout.addWidget(self._units_label, 0, 2)
 
-        # Setpoint entry
+        # Setpoint entry (OphydLineEdit displays current setpoint from signal;
+        # writes are handled by _on_go_clicked via motor.set(), not signal put)
         pos_layout.addWidget(QLabel("Setpoint:"), 1, 0)
-        self._setpoint_edit = QLineEdit()
-        self._setpoint_edit.setValidator(QDoubleValidator())
-        self._setpoint_edit.setPlaceholderText("Enter position")
-        self._setpoint_edit.returnPressed.connect(self._on_go_clicked)
+        self._setpoint_edit = OphydLineEdit(
+            precision=self._precision,
+            write_on_enter=False,
+            write_on_focus_out=False,
+        )
+        self._setpoint_edit._line_edit.setValidator(QDoubleValidator())
+        self._setpoint_edit._line_edit.setPlaceholderText("Enter position")
+        self._setpoint_edit._line_edit.returnPressed.connect(self._on_go_clicked)
         pos_layout.addWidget(self._setpoint_edit, 1, 1)
 
         self._go_btn = QPushButton("Go")
@@ -449,7 +482,12 @@ class MotorControlWidget(BaseControlWidget):
             self._update_timer.stop()
 
     def _update_display(self) -> None:
-        """Update the position and status display."""
+        """Update the status display.
+
+        Position readback is handled automatically by OphydLabel subscription.
+        This method polls motor status (moving, limits) that may not have
+        ophyd subscriptions.
+        """
         if self._motor is None:
             return
 
@@ -458,16 +496,6 @@ class MotorControlWidget(BaseControlWidget):
         self._set_controls_enabled(True)
 
         try:
-            # Get current position
-            pos = None
-            if hasattr(self._motor, "position"):
-                pos = self._motor.position
-            elif hasattr(self._motor, "readback") and hasattr(self._motor.readback, "get"):
-                pos = self._motor.readback.get()
-
-            if pos is not None:
-                self._rbv_display.setText(f"{pos:.{self._precision}f}")
-
             # Update moving status
             is_moving = False
             if hasattr(self._motor, "moving"):
@@ -479,7 +507,7 @@ class MotorControlWidget(BaseControlWidget):
             else:
                 self._moving_indicator.set_state("off")
                 self._moving_label.setText("Idle")
-            
+
             # Update status flags
             self._update_status_flags()
 
@@ -558,7 +586,7 @@ class MotorControlWidget(BaseControlWidget):
     def _clear_display(self) -> None:
         """Clear the display when no motor is selected."""
         self._name_label.setText("No Motor Selected")
-        self._rbv_display.setText("---")
+        self._rbv_display._value_label.setText("---")
         self._units_label.setText("")
         self._moving_indicator.set_state("off")
         self._moving_label.setText("Idle")
@@ -578,7 +606,7 @@ class MotorControlWidget(BaseControlWidget):
             return
 
         try:
-            target = float(self._setpoint_edit.text())
+            target = float(self._setpoint_edit._line_edit.text())
             current = self._get_current_position()
             self._start_move(target, current)
         except ValueError:
@@ -696,6 +724,7 @@ class MotorControlWidget(BaseControlWidget):
 
     def closeEvent(self, event) -> None:
         """Clean up on close."""
+        self._unbind_motor_signals()
         self._stop_updates()
         super().closeEvent(event)
 
@@ -722,6 +751,16 @@ class MotorRowWidget(QWidget):
             self._precision = item.device_info.metadata.get("precision", 4)
 
         self._setup_ui()
+        self._bind_readback_signal()
+
+    def _bind_readback_signal(self) -> None:
+        """Bind OphydLabel to the motor readback signal."""
+        if self.motor is None:
+            return
+        if hasattr(self.motor, "user_readback"):
+            self._pos_label.signal = self.motor.user_readback
+        elif hasattr(self.motor, "readback"):
+            self._pos_label.signal = self.motor.readback
 
     def _setup_ui(self) -> None:
         layout = QHBoxLayout(self)
@@ -734,11 +773,13 @@ class MotorRowWidget(QWidget):
         self._name_label.setMinimumWidth(80)
         layout.addWidget(self._name_label)
 
-        # Position display
-        self._pos_label = QLabel("---")
-        self._pos_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
+        # Position display (OphydLabel handles subscription to readback)
+        self._pos_label = OphydLabel(precision=self._precision)
+        self._pos_label._value_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
+        self._pos_label._value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self._pos_label.setMinimumWidth(90)
-        self._pos_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._pos_label)
 
         # Status indicator
@@ -798,17 +839,12 @@ class MotorRowWidget(QWidget):
             self._twf_btn.setVisible(False)
 
     def update_display(self) -> None:
-        """Update position and status display."""
+        """Update status display.
+
+        Position readback is handled automatically by OphydLabel subscription.
+        This method polls motor moving status.
+        """
         try:
-            pos = None
-            if hasattr(self.motor, "position"):
-                pos = self.motor.position
-            elif hasattr(self.motor, "readback") and hasattr(self.motor.readback, "get"):
-                pos = self.motor.readback.get()
-
-            if pos is not None:
-                self._pos_label.setText(f"{pos:.{self._precision}f}")
-
             is_moving = False
             if hasattr(self.motor, "moving"):
                 is_moving = bool(self.motor.moving)
