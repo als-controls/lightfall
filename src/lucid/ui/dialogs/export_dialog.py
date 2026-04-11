@@ -171,8 +171,10 @@ class ExportDialog(LucidDialog):
         self._records = records
         self._tiled_service = tiled_service
         self.setWindowTitle(f"Export {len(records)} Run(s)")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(600)
         self._setup_ui()
+        self._load_thread = None
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -225,26 +227,32 @@ class ExportDialog(LucidDialog):
         layout.addWidget(buttons)
 
     def _create_nxsas_params(self) -> QWidget:
-        """Create the NXsas parameter widget with ROI selection."""
+        """Create the NXsas parameter widget with ImageView + RectROI."""
+        import pyqtgraph as pg
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
 
-        layout.addWidget(QLabel("ROI Selection (optional):"))
+        # Status label
+        self._roi_status = QLabel("")
+        layout.addWidget(self._roi_status)
 
-        roi_layout = QHBoxLayout()
-        self._roi_x = QLineEdit("0")
-        self._roi_y = QLineEdit("0")
-        self._roi_w = QLineEdit("")
-        self._roi_h = QLineEdit("")
-        for label, edit in [("X:", self._roi_x), ("Y:", self._roi_y),
-                            ("W:", self._roi_w), ("H:", self._roi_h)]:
-            roi_layout.addWidget(QLabel(label))
-            edit.setMaximumWidth(80)
-            edit.setPlaceholderText("auto")
-            roi_layout.addWidget(edit)
-        roi_layout.addStretch()
-        layout.addLayout(roi_layout)
+        # ImageView for sample frame
+        self._image_view = pg.ImageView()
+        self._image_view.setMinimumSize(400, 400)
+        self._image_view.ui.roiBtn.hide()
+        self._image_view.ui.menuBtn.hide()
+        layout.addWidget(self._image_view, stretch=1)
+
+        # ROI coordinate readout
+        self._roi_label = QLabel("ROI: full frame")
+        layout.addWidget(self._roi_label)
+
+        # RectROI (created but not added until image loads)
+        self._rect_roi = None
+        self._frame_shape = None
+        self._image_loaded = False
 
         return widget
 
@@ -254,8 +262,111 @@ class ExportDialog(LucidDialog):
         type_id = self._type_combo.currentData()
         if type_id == "nxsas":
             self._params_stack.setCurrentIndex(1)
+            self._load_preview_image()
         else:
             self._params_stack.setCurrentIndex(0)
+            self._clear_preview()
+            self._ok_btn.setEnabled(True)
+
+    def _load_preview_image(self) -> None:
+        """Load a sample frame from the first selected run in a background thread."""
+        from lucid.utils.threads import QThreadFuture
+
+        self._ok_btn.setEnabled(False)
+        self._roi_status.setText("Loading preview...")
+        self._image_loaded = False
+
+        client = self._tiled_service._client
+        if client is None:
+            self._roi_status.setText("Not connected to Tiled")
+            return
+
+        run_key = self._records[0]._client_key
+
+        self._load_thread = QThreadFuture(
+            load_sample_frame,
+            client,
+            run_key,
+            callback_slot=self._on_preview_loaded,
+            except_slot=self._on_preview_error,
+            name="export_load_preview",
+        )
+        self._load_thread.start()
+
+    @Slot(object)
+    def _on_preview_loaded(self, frame) -> None:
+        """Handle successful image load — display and add ROI."""
+        import numpy as np
+        import pyqtgraph as pg
+
+        self._image_view.setImage(frame.T)  # transpose for pyqtgraph (col-major)
+        self._frame_shape = frame.shape  # (rows, cols) = (h, w)
+
+        # Add RectROI covering full frame
+        h, w = frame.shape
+        if self._rect_roi is not None:
+            self._image_view.getView().removeItem(self._rect_roi)
+
+        self._rect_roi = pg.RectROI(
+            [0, 0], [w, h],
+            pen=pg.mkPen("r", width=2),
+            hoverPen=pg.mkPen("y", width=2),
+            scaleSnap=True,
+            translateSnap=True,
+        )
+        self._rect_roi.setZValue(10)
+        self._image_view.getView().addItem(self._rect_roi)
+        self._rect_roi.sigRegionChanged.connect(self._on_roi_changed)
+
+        self._image_loaded = True
+        self._ok_btn.setEnabled(True)
+        self._roi_status.setText("Drag to select ROI")
+        self._update_roi_label()
+
+    @Slot(Exception)
+    def _on_preview_error(self, error: Exception) -> None:
+        """Handle image load failure."""
+        self._roi_status.setText(
+            "No image data found in selected run — NXsas requires image data"
+            if "No image field" in str(error)
+            else f"Failed to load preview: {error}"
+        )
+        self._ok_btn.setEnabled(False)
+        self._image_loaded = False
+        logger.warning("Preview load failed: {}", error)
+
+    def _clear_preview(self) -> None:
+        """Clear the image view and ROI."""
+        self._image_view.clear()
+        if self._rect_roi is not None:
+            self._image_view.getView().removeItem(self._rect_roi)
+            self._rect_roi = None
+        self._frame_shape = None
+        self._image_loaded = False
+        self._roi_status.setText("")
+        self._roi_label.setText("ROI: full frame")
+
+    @Slot()
+    def _on_roi_changed(self) -> None:
+        """Update the ROI coordinate readout when the user drags the ROI."""
+        self._update_roi_label()
+
+    def _update_roi_label(self) -> None:
+        """Update the ROI coordinate label from current RectROI state."""
+        if self._rect_roi is None or self._frame_shape is None:
+            self._roi_label.setText("ROI: full frame")
+            return
+
+        pos = self._rect_roi.pos()
+        size = self._rect_roi.size()
+        x, y = int(pos[0]), int(pos[1])
+        w, h = int(size[0]), int(size[1])
+        fh, fw = self._frame_shape
+
+        if x == 0 and y == 0 and w == fw and h == fh:
+            self._roi_label.setText("ROI: full frame")
+        else:
+            self._roi_label.setText(f"ROI: X={x}, Y={y}, W={w}, H={h}")
 
     @Slot()
     def _on_browse(self) -> None:
@@ -265,25 +376,24 @@ class ExportDialog(LucidDialog):
             self._dir_edit.setText(path)
 
     def _get_roi_params(self) -> dict[str, Any] | None:
-        """Parse ROI fields. Returns None if all fields are empty."""
-        x_text = self._roi_x.text().strip()
-        y_text = self._roi_y.text().strip()
-        w_text = self._roi_w.text().strip()
-        h_text = self._roi_h.text().strip()
+        """Extract ROI parameters from the RectROI widget.
 
-        if not w_text and not h_text:
+        Returns None if ROI covers the full frame (no cropping needed).
+        """
+        if self._rect_roi is None or self._frame_shape is None:
             return None
 
-        try:
-            return {
-                "x": int(x_text) if x_text else 0,
-                "y": int(y_text) if y_text else 0,
-                "width": int(w_text),
-                "height": int(h_text),
-            }
-        except ValueError:
-            logger.warning("Invalid ROI values, ignoring ROI")
+        pos = self._rect_roi.pos()
+        size = self._rect_roi.size()
+        x, y = int(pos[0]), int(pos[1])
+        w, h = int(size[0]), int(size[1])
+        fh, fw = self._frame_shape
+
+        # Full frame — no cropping
+        if x == 0 and y == 0 and w == fw and h == fh:
             return None
+
+        return {"x": x, "y": y, "width": w, "height": h}
 
     @Slot()
     def _on_export(self) -> None:
