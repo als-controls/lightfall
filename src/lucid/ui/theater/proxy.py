@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QLabel, QStackedWidget, QToolButton, QWidget
 
 try:
@@ -78,6 +79,16 @@ class TheaterProxy(QStackedWidget):
         """Return the target widget and show it."""
         self.insertWidget(0, widget)
         self.setCurrentIndex(0)
+        # Qt won't fire enterEvent if the mouse was already over us when
+        # the overlay hid.  Defer a cursor check to the next event-loop
+        # tick (after the overlay has finished hiding).
+        QTimer.singleShot(0, self._recheck_hover)
+
+    def _recheck_hover(self) -> None:
+        """Show expand button if the cursor is already over us."""
+        pos = self.mapFromGlobal(QCursor.pos())
+        if self.rect().contains(pos) and self.currentWidget() is self._target:
+            self._expand_btn.setVisible(True)
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
