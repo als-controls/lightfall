@@ -79,6 +79,9 @@ class TheaterProxy(QStackedWidget):
         """Return the target widget and show it."""
         self.insertWidget(0, widget)
         self.setCurrentIndex(0)
+        # insertWidget reparents the widget, pushing it to the top of the
+        # child z-order — raise the button back above it.
+        self._expand_btn.raise_()
         # Qt won't fire enterEvent if the mouse was already over us when
         # the overlay hid.  Defer a cursor check to the next event-loop
         # tick (after the overlay has finished hiding).
