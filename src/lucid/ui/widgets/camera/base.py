@@ -16,15 +16,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
-    QComboBox,
     QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -35,6 +32,8 @@ from lucid.devices.model import DeviceCategory
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lucid.utils.logging import logger
+from lucid.epics.widgets.ophyd_combobox import OphydComboBox
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.ui.widgets.camera.image_view import OphydImageView
 from lucid.utils.threads import QThreadFuture
 
@@ -361,36 +360,28 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
         # Shutter mode
         acq_layout.addWidget(QLabel("Shutter:"), row, 2)
-        self._shutter_combo = QComboBox()
-        self._shutter_combo.addItems(SHUTTER_MODES)
-        self._shutter_combo.currentIndexChanged.connect(self._on_shutter_mode_changed)
+        self._shutter_combo = OphydComboBox(write_on_change=True)
+        self._shutter_combo.set_items(SHUTTER_MODES)
         acq_layout.addWidget(self._shutter_combo, row, 3)
 
         row += 1
 
         # Acquire time
         acq_layout.addWidget(QLabel("Acquire Time:"), row, 0)
-        self._acquire_time_edit = QLineEdit()
-        self._acquire_time_edit.setValidator(QDoubleValidator(0, 10000, 6))
-        self._acquire_time_edit.setPlaceholderText("seconds")
-        self._acquire_time_edit.editingFinished.connect(self._on_acquire_time_changed)
+        self._acquire_time_edit = OphydLineEdit(precision=6, write_on_enter=True)
         acq_layout.addWidget(self._acquire_time_edit, row, 1)
 
         # Image mode
         acq_layout.addWidget(QLabel("Image Mode:"), row, 2)
-        self._image_mode_combo = QComboBox()
-        self._image_mode_combo.addItems(IMAGE_MODES)
-        self._image_mode_combo.currentIndexChanged.connect(self._on_image_mode_changed)
+        self._image_mode_combo = OphydComboBox(write_on_change=True)
+        self._image_mode_combo.set_items(IMAGE_MODES)
         acq_layout.addWidget(self._image_mode_combo, row, 3)
 
         row += 1
 
         # Num images
         acq_layout.addWidget(QLabel("Num Images:"), row, 0)
-        self._num_images_edit = QLineEdit()
-        self._num_images_edit.setValidator(QIntValidator(1, 1000000))
-        self._num_images_edit.setPlaceholderText("count")
-        self._num_images_edit.editingFinished.connect(self._on_num_images_changed)
+        self._num_images_edit = OphydLineEdit(precision=0, write_on_enter=True)
         acq_layout.addWidget(self._num_images_edit, row, 1)
 
         row += 1
@@ -527,10 +518,8 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
         def _background_connect():
             """Run on background thread — collect signal info."""
+            # Only manually subscribe to signals not handled by ophyd widgets
             signal_map = {
-                "acquire_time": ("acquire_time", "acquire_time_rbv"),
-                "num_images": ("num_images", "num_images_rbv"),
-                "image_mode": ("image_mode", "image_mode_rbv"),
                 "acquire": ("acquire",),
                 "detector_state": ("detector_state",),
             }
@@ -577,9 +566,16 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             self._status_label.setText("Connected")
             self._set_controls_enabled(True)
 
-            self._update_acquire_time_display()
-            self._update_num_images_display()
-            self._update_image_mode_display()
+            # Bind ophyd widgets to cam signals
+            cam = self._device.cam
+            if hasattr(cam, "acquire_time"):
+                self._acquire_time_edit.signal = cam.acquire_time
+            if hasattr(cam, "num_images"):
+                self._num_images_edit.signal = cam.num_images
+            if hasattr(cam, "image_mode"):
+                self._image_mode_combo.signal = cam.image_mode
+            if hasattr(cam, "shutter_mode"):
+                self._shutter_combo.signal = cam.shutter_mode
 
             self._connect_thread = None
 
@@ -615,6 +611,12 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._subscriptions.clear()
         self._values.clear()
 
+        # Clear ophyd widget signal bindings
+        self._acquire_time_edit.signal = None
+        self._num_images_edit.signal = None
+        self._image_mode_combo.signal = None
+        self._shutter_combo.signal = None
+
     def _on_value_changed(self, name: str, value: Any) -> None:
         """Handle ophyd signal value updates.
 
@@ -640,23 +642,17 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
     def _apply_value_update(self, name: str) -> None:
         """Apply a cached value update to the UI (main thread only)."""
-        if name == "acquire_time_rbv":
-            self._update_acquire_time_display()
-        elif name == "num_images_rbv":
-            self._update_num_images_display()
-        elif name == "image_mode_rbv":
-            self._update_image_mode_display()
-        elif name == "acquire":
+        if name == "acquire":
             self._update_acquire_state()
         elif name == "detector_state":
             self._update_detector_state()
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable control widgets."""
-        self._acquire_time_edit.setEnabled(enabled)
-        self._num_images_edit.setEnabled(enabled)
-        self._image_mode_combo.setEnabled(enabled)
-        self._shutter_combo.setEnabled(enabled)
+        self._acquire_time_edit.readonly = not enabled
+        self._num_images_edit.readonly = not enabled
+        self._image_mode_combo.readonly = not enabled
+        self._shutter_combo.readonly = not enabled
         self._acquire_btn.setEnabled(enabled)
         self._abort_btn.setEnabled(enabled)
         self._tv_mode_btn.setEnabled(enabled)
@@ -687,40 +683,6 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._set_controls_enabled(False)
 
     # === Display Updates ===
-
-    def _update_acquire_time_display(self) -> None:
-        """Update acquire time display."""
-        if not self._acquire_time_edit.hasFocus():
-            value = self._values.get("acquire_time_rbv")
-            if value is not None:
-                self._acquire_time_edit.setText(f"{float(value):.6g}")
-
-    def _update_num_images_display(self) -> None:
-        """Update num images display."""
-        if not self._num_images_edit.hasFocus():
-            value = self._values.get("num_images_rbv")
-            if value is not None:
-                self._num_images_edit.setText(str(int(value)))
-
-    def _update_image_mode_display(self) -> None:
-        """Update image mode display."""
-        value = self._values.get("image_mode_rbv")
-        if value is not None:
-            idx = int(value)
-            if 0 <= idx < len(IMAGE_MODES):
-                self._image_mode_combo.blockSignals(True)
-                self._image_mode_combo.setCurrentIndex(idx)
-                self._image_mode_combo.blockSignals(False)
-
-    def _update_shutter_mode_display(self) -> None:
-        """Update shutter mode display."""
-        value = self._values.get("shutter_mode_rbv")
-        if value is not None:
-            idx = int(value)
-            if 0 <= idx < len(SHUTTER_MODES):
-                self._shutter_combo.blockSignals(True)
-                self._shutter_combo.setCurrentIndex(idx)
-                self._shutter_combo.blockSignals(False)
 
     def _update_acquire_state(self) -> None:
         """Update acquire state and sync TV mode button."""
@@ -785,30 +747,6 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             logger.debug(f"Set {name} = {value} completed")
         except Exception as e:
             logger.warning(f"Failed to set {name}: {e}")
-
-    def _on_acquire_time_changed(self) -> None:
-        """Handle acquire time entry."""
-        try:
-            value = float(self._acquire_time_edit.text())
-            self._put_value("acquire_time", value)
-        except ValueError:
-            pass
-
-    def _on_num_images_changed(self) -> None:
-        """Handle num images entry."""
-        try:
-            value = int(self._num_images_edit.text())
-            self._put_value("num_images", value)
-        except ValueError:
-            pass
-
-    def _on_image_mode_changed(self, index: int) -> None:
-        """Handle image mode selection."""
-        self._put_value("image_mode", index)
-
-    def _on_shutter_mode_changed(self, index: int) -> None:
-        """Handle shutter mode selection."""
-        self._put_value("shutter_mode", index)
 
     def _on_acquire_clicked(self) -> None:
         """Start acquisition.
