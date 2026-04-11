@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import subprocess
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -57,6 +58,61 @@ def build_job_message(
         "export_type": export_type,
         "params": params,
     }
+
+
+MAX_PING_RETRIES = 4
+PING_TIMEOUT_MS = 1000
+
+
+def ping_or_spawn_exporter(
+    ipc: Any,
+    ping_subject: str,
+    nats_url: str,
+) -> bool:
+    """Ping the local exporter; spawn one if not running.
+
+    Callable from any thread (uses IPCService.request which is thread-safe).
+
+    Args:
+        ipc: IPCService instance.
+        ping_subject: NATS subject for the exporter's ping endpoint.
+        nats_url: NATS URL to pass to the spawned exporter.
+
+    Returns:
+        True if the exporter is reachable, False if all retries failed.
+    """
+    # Try initial ping
+    reply = ipc.request(ping_subject, {}, timeout_ms=PING_TIMEOUT_MS)
+    if reply is not None:
+        return True
+
+    # No response — spawn a local exporter
+    logger.info("No exporter running, spawning lucid-exporter")
+    try:
+        proc = subprocess.Popen(
+            ["lucid-exporter", "--nats", nats_url],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        logger.error("lucid-exporter not found on PATH")
+        return False
+
+    # Retry pings
+    for i in range(MAX_PING_RETRIES):
+        reply = ipc.request(ping_subject, {}, timeout_ms=PING_TIMEOUT_MS)
+        if reply is not None:
+            logger.info("Exporter responded after spawn (attempt %d)", i + 1)
+            return True
+
+        # Check if process died
+        if proc.poll() is not None:
+            stderr_text = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            logger.error("Exporter process exited (code %d): %s", proc.returncode, stderr_text)
+            return False
+
+    logger.error("Exporter did not respond after %d retries", MAX_PING_RETRIES)
+    return False
 
 
 class ExportDialog(LucidDialog):
@@ -229,9 +285,14 @@ class ExportDialog(LucidDialog):
         return None
 
     def _send_to_exporter(self, message: dict[str, Any]) -> None:
-        """Send the export job to the local exporter via NATS IPC."""
+        """Send the export job to the local exporter via NATS IPC.
+
+        Pings the exporter first. If no response, spawns a local instance.
+        The ping/spawn/send flow runs in a background thread.
+        """
         from lucid.core.services import NCSApplication
         from lucid.ui.toast import ToastManager
+        from lucid.utils.threads import QThreadFuture
 
         toast = ToastManager.get_instance()
         app = NCSApplication.get_instance()
@@ -244,6 +305,8 @@ class ExportDialog(LucidDialog):
         hostname = platform.node()
         job_subject = f"lucid.export.{hostname}"
         progress_subject = f"lucid.export.{hostname}.progress"
+        ping_subject = f"lucid.export.{hostname}.ping"
+        nats_url = ipc._nats_url
 
         job_id = message["job_id"]
 
@@ -264,8 +327,29 @@ class ExportDialog(LucidDialog):
                 toast.error("Export Failed", detail)
                 ipc.unsubscribe(progress_subject)
 
-        ipc.subscribe(progress_subject, _on_progress)
+        def _ping_and_send() -> bool:
+            """Background thread: ping/spawn exporter, then send job."""
+            if not ping_or_spawn_exporter(ipc, ping_subject, nats_url):
+                return False
+            ipc.subscribe(progress_subject, _on_progress)
+            ipc.publish(job_subject, message)
+            return True
 
-        ipc.publish(job_subject, message)
-        toast.info("Export Queued", f"{len(message['run_uids'])} run(s) queued for export")
-        logger.info("Export job {} sent to {}", job_id, job_subject)
+        def _on_send_result(success: bool) -> None:
+            if success:
+                toast.info("Export Queued", f"{len(message['run_uids'])} run(s) queued for export")
+                logger.info("Export job {} sent to {}", job_id, job_subject)
+            else:
+                toast.error("Export Error", "Could not start exporter")
+
+        def _on_send_error(exc: Exception) -> None:
+            toast.error("Export Error", str(exc))
+            logger.error("Export send failed: {}", exc)
+
+        thread = QThreadFuture(
+            _ping_and_send,
+            callback_slot=_on_send_result,
+            except_slot=_on_send_error,
+            name="export_ping_send",
+        )
+        thread.start()
