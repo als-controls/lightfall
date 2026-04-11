@@ -8,6 +8,8 @@ import pytest
 from lucid.epics.widgets.ophyd_base import OphydWidget
 from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.epics.widgets.ophyd_label import OphydLabel
+from lucid.epics.widgets.ophyd_combobox import OphydComboBox
+from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
 
 
 class ConcreteOphydWidget(OphydWidget):
@@ -232,3 +234,68 @@ class TestOphydLabel:
         w._value = 42
         w._update_display()
         assert w._value_label.text() == "42"
+
+
+class TestOphydComboBox:
+    def test_set_items(self, qtbot):
+        w = OphydComboBox()
+        qtbot.addWidget(w)
+        w.set_items(["Single", "Multiple", "Continuous"])
+        assert w._combo.count() == 3
+        assert w._combo.itemText(1) == "Multiple"
+
+    def test_displays_value_as_index(self, qtbot):
+        w = OphydComboBox()
+        qtbot.addWidget(w)
+        w.set_items(["Off", "On"])
+        w._value = 1
+        w._update_display()
+        assert w._combo.currentIndex() == 1
+
+    def test_write_on_change(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 0
+        w = OphydComboBox(write_on_change=True)
+        qtbot.addWidget(w)
+        w.set_items(["Off", "On"])
+        w.signal = sig
+        w._connected = True
+        w._combo.setCurrentIndex(1)
+        sig.put.assert_called_with(1)
+
+    def test_readonly_disables(self, qtbot):
+        w = OphydComboBox(readonly=True)
+        qtbot.addWidget(w)
+        assert not w._combo.isEnabled()
+
+
+class TestOphydSpinBox:
+    def test_displays_value(self, qtbot):
+        w = OphydSpinBox(minimum=-100.0, maximum=50.0)
+        qtbot.addWidget(w)
+        w._value = -20.5
+        w._update_display()
+        assert w._spinbox.value() == -20.5
+
+    def test_range(self, qtbot):
+        w = OphydSpinBox(minimum=0.0, maximum=100.0)
+        qtbot.addWidget(w)
+        assert w._spinbox.minimum() == 0.0
+        assert w._spinbox.maximum() == 100.0
+
+    def test_write_on_change(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 0.0
+        w = OphydSpinBox(write_on_change=True)
+        qtbot.addWidget(w)
+        w.signal = sig
+        w._connected = True
+        w._spinbox.setValue(42.0)
+        sig.put.assert_called_with(42.0)
+
+    def test_readonly(self, qtbot):
+        w = OphydSpinBox(readonly=True)
+        qtbot.addWidget(w)
+        assert w._spinbox.isReadOnly()
