@@ -84,3 +84,9 @@ class TestNoOpConverter:
         ))
 
         cb.assert_called()
+
+
+def test_noop_registered_in_converter_registry():
+    from lucid.exporter.converters import get_converter
+    from lucid.exporter.converters.noop import NoOpConverter
+    assert get_converter("noop") is NoOpConverter

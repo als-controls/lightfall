@@ -7,9 +7,11 @@ from typing import Any, Callable
 
 import numpy as np
 
+from lucid.exporter.converters import register_converter
 from lucid.exporter.converters.base import Converter
 
 
+@register_converter
 class NoOpConverter(Converter):
     """Export run data as raw numpy arrays, one .npy file per field."""
 
