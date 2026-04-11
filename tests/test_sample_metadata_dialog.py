@@ -87,9 +87,16 @@ class TestDuplicateCheck:
         mock_tiled_cls.get_instance.return_value = mock_service
 
         dialog._sample_name_edit.setText("existing_sample")
-        dialog._on_accept_clicked()  # First click triggers warning
+
+        # First click triggers warning
+        dialog._on_accept_clicked()
         assert dialog._force_mode is True
         assert dialog._accept_btn.text() == "Force"
+
+        # Second click should accept despite duplicate
+        with patch.object(dialog, "accept") as mock_accept:
+            dialog._on_accept_clicked()
+            mock_accept.assert_called_once()
 
     @patch("lucid.services.tiled_service.TiledService")
     def test_tiled_not_connected_skips_check(self, mock_tiled_cls, dialog) -> None:
