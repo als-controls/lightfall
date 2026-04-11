@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lucid.epics.widgets.ophyd_base import OphydWidget
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.ophyd_label import OphydLabel
 
 
 class ConcreteOphydWidget(OphydWidget):
@@ -151,3 +153,82 @@ class TestOphydWidgetBase:
         # Simulate callback with single-element list
         widget._on_signal_value(value=[42.0])
         assert widget._value == 42.0
+
+
+class TestOphydLineEdit:
+    def test_displays_value(self, qtbot):
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w._value = 3.14159
+        w._update_display()
+        assert w._line_edit.text() == "3.1416"
+
+    def test_write_on_enter(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 0.0
+        w = OphydLineEdit(write_on_enter=True)
+        qtbot.addWidget(w)
+        w.signal = sig
+        w._connected = True
+        w._line_edit.setText("42.0")
+        w._on_return_pressed()
+        sig.put.assert_called_once_with(42.0)
+
+    def test_modified_style(self, qtbot):
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w._value = 1.0
+        w._update_display()
+        w._line_edit.setText("2.0")
+        assert w._modified is True
+
+    def test_readonly_disables_editing(self, qtbot):
+        w = OphydLineEdit(readonly=True)
+        qtbot.addWidget(w)
+        assert w._line_edit.isReadOnly()
+
+    def test_precision(self, qtbot):
+        w = OphydLineEdit(precision=2)
+        qtbot.addWidget(w)
+        w._value = 3.14159
+        w._update_display()
+        assert w._line_edit.text() == "3.14"
+
+    def test_int_coercion(self, qtbot):
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w._value = 10
+        w._line_edit.setText("42")
+        assert w._get_widget_value() == 42
+        assert isinstance(w._get_widget_value(), int)
+
+
+class TestOphydLabel:
+    def test_displays_value(self, qtbot):
+        w = OphydLabel()
+        qtbot.addWidget(w)
+        w._value = 25.678
+        w._update_display()
+        assert w._value_label.text() == "25.6780"
+
+    def test_displays_none_as_dashes(self, qtbot):
+        w = OphydLabel()
+        qtbot.addWidget(w)
+        w._value = None
+        w._update_display()
+        assert w._value_label.text() == "---"
+
+    def test_custom_precision(self, qtbot):
+        w = OphydLabel(precision=2)
+        qtbot.addWidget(w)
+        w._value = 3.14159
+        w._update_display()
+        assert w._value_label.text() == "3.14"
+
+    def test_int_display(self, qtbot):
+        w = OphydLabel()
+        qtbot.addWidget(w)
+        w._value = 42
+        w._update_display()
+        assert w._value_label.text() == "42"
