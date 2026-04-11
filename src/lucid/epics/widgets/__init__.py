@@ -1,7 +1,7 @@
 """
 EPICS PySide6 Widgets.
 
-Provides Qt widgets that display and edit EPICS PV values.
+Provides Qt widgets that display and edit EPICS PV values and ophyd signals.
 """
 
 from lucid.epics.widgets.base import EpicsWidget
@@ -18,6 +18,13 @@ from lucid.epics.widgets.areadetector import (
     PVAreaDetector,
 )
 
+# Ophyd signal widgets
+from lucid.epics.widgets.ophyd_base import OphydWidget
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.ophyd_label import OphydLabel
+from lucid.epics.widgets.ophyd_combobox import OphydComboBox
+from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
+
 __all__ = [
     "EpicsWidget",
     "PVLabel",
@@ -31,4 +38,10 @@ __all__ = [
     "PVImageView",
     "PVAreaDetectorControls",
     "PVAreaDetector",
+    # Ophyd signal widgets
+    "OphydWidget",
+    "OphydLineEdit",
+    "OphydLabel",
+    "OphydComboBox",
+    "OphydSpinBox",
 ]
