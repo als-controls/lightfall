@@ -212,7 +212,7 @@ class PVAreaDetectorControls(QWidget):
 
         settings_layout.addWidget(QLabel("Num Images:"), row, 0)
         self._num_images_edit = PVLineEdit(
-            show_units=False, write_on_enter=True, parent=self,
+            show_units=False, write_on_enter=True, precision=0, parent=self,
         )
         settings_layout.addWidget(self._num_images_edit, row, 1)
 
