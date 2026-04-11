@@ -12,13 +12,12 @@ import inspect
 import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -26,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.devices.model import DeviceCategory
+from lucid.epics.widgets.ophyd_label import OphydLabel
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.logbook import DeviceActionLogger
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
@@ -237,7 +238,6 @@ class SignalControlWidget(BaseControlWidget):
         self._units: str = ""
         self._precision: int = 4
         self._writable: bool = False
-        self._update_timer: QTimer | None = None
         self._device_info: Any = None  # DeviceInfo for connection tracking
         self._is_connecting: bool = False
         super().__init__(parent)
@@ -282,16 +282,19 @@ class SignalControlWidget(BaseControlWidget):
                     return
 
             self._is_connecting = False
+            # Bind ophyd widgets to the signal
+            self._value_display.signal = self._signal
+            self._set_edit.signal = self._signal if self._writable else None
             self._update_display()
             self._update_writable_ui()
-            self._start_updates()
         else:
             self._signal = None
             self._signal_name = ""
             self._device_info = None
             self._writable = False
             self._is_connecting = False
-            self._stop_updates()
+            self._value_display.signal = None
+            self._set_edit.signal = None
             self._clear_display()
 
     def _connect_connection_signals(self) -> None:
@@ -349,9 +352,11 @@ class SignalControlWidget(BaseControlWidget):
         self._writable = _is_writable(self._signal)
         self._is_connecting = False
         self._disconnect_connection_signals()
+        # Bind ophyd widgets to the signal
+        self._value_display.signal = self._signal
+        self._set_edit.signal = self._signal if self._writable else None
         self._update_display()
         self._update_writable_ui()
-        self._start_updates()
         logger.debug("Signal '{}' connected, controls enabled", self._signal_name)
 
     @Slot(str, str)
@@ -369,7 +374,7 @@ class SignalControlWidget(BaseControlWidget):
     def _show_connecting_state(self) -> None:
         """Show UI state while device is connecting."""
         self._name_label.setText(f"{self._signal_name} (Connecting...)")
-        self._value_display.setText("...")
+        self._value_display._value_label.setText("...")
         self._status_dot.set_color("#FFC107")  # Yellow/warning
         self._status_label.setText("Connecting")
         self._set_controls_enabled(False)
@@ -377,7 +382,7 @@ class SignalControlWidget(BaseControlWidget):
     def _show_no_connection(self) -> None:
         """Show UI state when device cannot be connected."""
         self._name_label.setText(f"{self._signal_name} (Not Connected)")
-        self._value_display.setText("---")
+        self._value_display._value_label.setText("---")
         self._status_dot.set_connected(False)
         self._status_label.setText("Unavailable")
         self._set_controls_enabled(False)
@@ -385,7 +390,7 @@ class SignalControlWidget(BaseControlWidget):
     def _show_connection_failed(self, error: str) -> None:
         """Show UI state when connection failed."""
         self._name_label.setText(f"{self._signal_name} (Connection Failed)")
-        self._value_display.setText("---")
+        self._value_display._value_label.setText("---")
         self._status_dot.set_connected(False)
         self._status_label.setText("Failed")
         self._set_controls_enabled(False)
@@ -435,8 +440,8 @@ class SignalControlWidget(BaseControlWidget):
 
         # Current value display
         val_layout.addWidget(QLabel("Current:"), 0, 0)
-        self._value_display = QLabel("---")
-        self._value_display.setStyleSheet("""
+        self._value_display = OphydLabel(precision=self._precision)
+        self._value_display._value_label.setStyleSheet("""
             QLabel {
                 font-size: 16pt;
                 font-weight: bold;
@@ -451,9 +456,9 @@ class SignalControlWidget(BaseControlWidget):
         # Set value entry (shown only for writable signals)
         self._set_label = QLabel("Set:")
         val_layout.addWidget(self._set_label, 1, 0)
-        self._set_edit = QLineEdit()
-        self._set_edit.setPlaceholderText("Enter value")
-        self._set_edit.returnPressed.connect(self._on_set_clicked)
+        self._set_edit = OphydLineEdit(precision=self._precision, write_on_enter=True)
+        self._set_edit._line_edit.setPlaceholderText("Enter value")
+        self._set_edit.value_written.connect(self._on_value_written)
         val_layout.addWidget(self._set_edit, 1, 1)
 
         self._set_btn = QPushButton("Set")
@@ -498,20 +503,11 @@ class SignalControlWidget(BaseControlWidget):
         self._set_btn.setVisible(self._writable)
         self._access_label.setText("Read/Write" if self._writable else "Read Only")
 
-    def _start_updates(self) -> None:
-        """Start periodic value updates."""
-        if self._update_timer is None:
-            self._update_timer = QTimer(self)
-            self._update_timer.timeout.connect(self._update_display)
-        self._update_timer.start(500)  # 2 Hz updates (signals change less often)
-
-    def _stop_updates(self) -> None:
-        """Stop periodic value updates."""
-        if self._update_timer is not None:
-            self._update_timer.stop()
-
     def _update_display(self) -> None:
-        """Update the value and status display."""
+        """Update metadata labels and status display.
+
+        Value display is handled automatically by OphydLabel subscription.
+        """
         if self._signal is None:
             return
 
@@ -520,15 +516,8 @@ class SignalControlWidget(BaseControlWidget):
         self._set_controls_enabled(True)
 
         try:
-            # Get current value
-            value = _get_signal_value(self._signal)
-            self._value_display.setText(_format_value(value, self._precision))
-
-            # Update connection status
-            connected = True
-            if hasattr(self._signal, "connected"):
-                connected = bool(self._signal.connected)
-
+            # Update connection status from OphydLabel's state
+            connected = self._value_display._connected
             self._status_dot.set_connected(connected)
             self._status_label.setText("Connected" if connected else "Disconnected")
 
@@ -540,7 +529,8 @@ class SignalControlWidget(BaseControlWidget):
             if hasattr(self._signal, "kind"):
                 self._kind_label.setText(self._signal.kind.name)
 
-            # Update dtype
+            # Update dtype from current value
+            value = self._value_display._value
             if value is not None:
                 self._dtype_label.setText(type(value).__name__)
 
@@ -550,7 +540,7 @@ class SignalControlWidget(BaseControlWidget):
     def _clear_display(self) -> None:
         """Clear the display when no signal is selected."""
         self._name_label.setText("No Signal Selected")
-        self._value_display.setText("---")
+        self._value_display._value_label.setText("---")
         self._units_label.setText("")
         self._status_dot.set_color("#666666")
         self._status_label.setText("Disconnected")
@@ -562,27 +552,16 @@ class SignalControlWidget(BaseControlWidget):
 
     @Slot()
     def _on_set_clicked(self) -> None:
-        """Set the signal value."""
+        """Trigger value write via OphydLineEdit."""
         if self._signal is None or not self._writable:
             return
+        self._set_edit._write_current_value()
 
-        text = self._set_edit.text().strip()
-        if not text:
-            return
-
+    @Slot(object)
+    def _on_value_written(self, new_value: Any) -> None:
+        """Handle value_written from OphydLineEdit for action logging."""
         try:
-            # Try to coerce value to the appropriate type
-            current = _get_signal_value(self._signal)
-            if isinstance(current, float):
-                new_value = float(text)
-            elif isinstance(current, int):
-                new_value = int(text)
-            else:
-                new_value = text
-
-            old_value = current
-
-            # Record action
+            old_value = _get_signal_value(self._signal)
             action_logger = DeviceActionLogger.get_instance()
             action_logger.record_action(
                 device_name=self._signal_name,
@@ -591,21 +570,14 @@ class SignalControlWidget(BaseControlWidget):
                 new_value=new_value,
                 unit=self._units,
             )
-
-            # Perform the set (handle async put/set)
-            _put_signal_value(self._signal, new_value)
-
             logger.info("Set {} to {}", self._signal_name, new_value)
-
-        except ValueError:
-            self.control_error.emit(f"Invalid value: {text}")
         except Exception as e:
-            self.control_error.emit(f"Set failed: {e}")
-            logger.error("Signal set failed: {}", e)
+            logger.warning("Error logging signal set action: {}", e)
 
     def closeEvent(self, event) -> None:
         """Clean up on close."""
-        self._stop_updates()
+        self._value_display.signal = None
+        self._set_edit.signal = None
         super().closeEvent(event)
 
 
@@ -633,6 +605,11 @@ class SignalRowWidget(QWidget):
 
         self._setup_ui()
 
+        # Bind ophyd widgets to the signal
+        self._value_label.signal = signal_obj
+        if self._writable:
+            self._set_edit.signal = signal_obj
+
     def _setup_ui(self) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -648,12 +625,14 @@ class SignalRowWidget(QWidget):
         self._name_label.setMinimumWidth(100)
         layout.addWidget(self._name_label)
 
-        # Value display
-        self._value_label = QLabel("---")
-        self._value_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
+        # Value display (OphydLabel handles subscription)
+        self._value_label = OphydLabel(precision=self._precision)
+        self._value_label._value_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
         self._value_label.setMinimumWidth(100)
-        self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._value_label)
+
+        # Update status dot when connection changes
+        self._value_label.connection_changed.connect(self._status_dot.set_connected)
 
         # Units
         units = ""
@@ -667,10 +646,9 @@ class SignalRowWidget(QWidget):
         layout.addSpacing(16)
 
         # Set value entry (only for writable signals)
-        self._set_edit = QLineEdit()
+        self._set_edit = OphydLineEdit(precision=self._precision, write_on_enter=True)
         self._set_edit.setMaximumWidth(100)
-        self._set_edit.setPlaceholderText("Value")
-        self._set_edit.returnPressed.connect(self._on_set)
+        self._set_edit._line_edit.setPlaceholderText("Value")
         self._set_edit.setVisible(self._writable)
         layout.addWidget(self._set_edit)
 
@@ -688,23 +666,10 @@ class SignalRowWidget(QWidget):
 
         layout.addStretch()
 
-    def update_display(self) -> None:
-        """Update value and status display."""
-        try:
-            value = _get_signal_value(self.signal_obj)
-            self._value_label.setText(_format_value(value, self._precision))
-
-            connected = True
-            if hasattr(self.signal_obj, "connected"):
-                connected = bool(self.signal_obj.connected)
-            self._status_dot.set_connected(connected)
-        except Exception:
-            pass
-
     @Slot()
     def _on_set(self) -> None:
         """Handle Set button."""
-        text = self._set_edit.text().strip()
+        text = self._set_edit._line_edit.text().strip()
         if text:
             self.set_requested.emit(self.name, text)
 
@@ -725,7 +690,6 @@ class MultiSignalControlWidget(BaseControlWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         self._signals: list[tuple[str, Any, DeviceTreeItem]] = []
         self._signal_rows: list[SignalRowWidget] = []
-        self._update_timer: QTimer | None = None
         super().__init__(parent)
 
     @classmethod
@@ -745,10 +709,6 @@ class MultiSignalControlWidget(BaseControlWidget):
                 self._signals.append((item.name, item.ophyd_obj, item))
 
         self._rebuild_signal_list()
-        if self._signals:
-            self._start_updates()
-        else:
-            self._stop_updates()
 
     def _setup_ui(self) -> None:
         """Setup the multi-signal control UI."""
@@ -806,23 +766,6 @@ class MultiSignalControlWidget(BaseControlWidget):
         writable_count = sum(1 for _, s, _ in self._signals if _is_writable(s))
         self._count_label.setText(f"{len(self._signals)} signals ({writable_count} writable)")
 
-    def _start_updates(self) -> None:
-        """Start periodic updates."""
-        if self._update_timer is None:
-            self._update_timer = QTimer(self)
-            self._update_timer.timeout.connect(self._update_display)
-        self._update_timer.start(500)
-
-    def _stop_updates(self) -> None:
-        """Stop periodic updates."""
-        if self._update_timer is not None:
-            self._update_timer.stop()
-
-    def _update_display(self) -> None:
-        """Update all signal row displays."""
-        for row in self._signal_rows:
-            row.update_display()
-
     @Slot(str, str)
     def _on_set_requested(self, name: str, value_text: str) -> None:
         """Handle set request from a signal row."""
@@ -875,5 +818,4 @@ class MultiSignalControlWidget(BaseControlWidget):
 
     def closeEvent(self, event) -> None:
         """Clean up on close."""
-        self._stop_updates()
         super().closeEvent(event)
