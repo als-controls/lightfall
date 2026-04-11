@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, Qt, QTimer
+from PySide6.QtCore import Property, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -21,19 +21,16 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QLabel,
-    QLineEdit,
     QPushButton,
     QFrame,
-    QSizePolicy,
 )
-from PySide6.QtGui import QDoubleValidator
 
+from lucid.epics.widgets.label import PVLabel
+from lucid.epics.widgets.lineedit import PVLineEdit
 from lucid.epics.widgets.style import (
-    is_dark_theme,
     get_success_color,
     get_error_color,
     get_warning_color,
-    get_disconnected_color,
 )
 
 
@@ -126,8 +123,6 @@ class PVMotor(QWidget):
         self._pvs: dict[str, Any] = {}
         self._values: dict[str, Any] = {}
         self._connected_pvs: set[str] = set()
-        self._units = ""
-        self._precision = 3
         self._was_moving = False
 
         self._setup_ui()
@@ -186,7 +181,7 @@ class PVMotor(QWidget):
 
         # Readback (RBV) - prominent display
         pos_layout.addWidget(QLabel("Readback:"), 0, 0)
-        self._rbv_display = QLabel("---")
+        self._rbv_display = PVLabel(show_units=True)
         self._rbv_display.setStyleSheet("""
             QLabel {
                 font-size: 18pt;
@@ -195,18 +190,15 @@ class PVMotor(QWidget):
                 padding: 4px 8px;
             }
         """)
-        pos_layout.addWidget(self._rbv_display, 0, 1)
-
-        # Units
-        self._units_label = QLabel("")
-        pos_layout.addWidget(self._units_label, 0, 2)
+        pos_layout.addWidget(self._rbv_display, 0, 1, 1, 2)
 
         # Setpoint (VAL) - editable
         pos_layout.addWidget(QLabel("Setpoint:"), 1, 0)
-        self._setpoint_edit = QLineEdit()
-        self._setpoint_edit.setPlaceholderText("Enter position")
-        self._setpoint_edit.setValidator(QDoubleValidator())
-        self._setpoint_edit.returnPressed.connect(self._on_setpoint_enter)
+        self._setpoint_edit = PVLineEdit(
+            show_units=False, write_on_enter=True,
+        )
+        self._setpoint_edit._line_edit.setPlaceholderText("Enter position")
+        self._setpoint_edit._line_edit.returnPressed.connect(self._on_setpoint_enter)
         pos_layout.addWidget(self._setpoint_edit, 1, 1)
 
         # Go button
@@ -230,11 +222,11 @@ class PVMotor(QWidget):
         tweak_layout.addWidget(self._twr_btn)
 
         # Tweak step size
-        self._tweak_edit = QLineEdit("1.0")
-        self._tweak_edit.setValidator(QDoubleValidator(0.0001, 1000000, 6))
+        self._tweak_edit = PVLineEdit(
+            show_units=False, write_on_enter=True, write_on_focus_out=True,
+        )
         self._tweak_edit.setToolTip("Tweak step size (TWV)")
         self._tweak_edit.setMaximumWidth(80)
-        self._tweak_edit.editingFinished.connect(self._on_tweak_value_changed)
         tweak_layout.addWidget(self._tweak_edit)
 
         # Tweak forward button
@@ -317,18 +309,18 @@ class PVMotor(QWidget):
 
         # Velocity
         advanced_layout.addWidget(QLabel("Velocity:"), 0, 0)
-        self._velo_edit = QLineEdit()
-        self._velo_edit.setValidator(QDoubleValidator(0, 1000000, 3))
-        self._velo_edit.editingFinished.connect(self._on_velo_changed)
+        self._velo_edit = PVLineEdit(
+            show_units=False, write_on_enter=True, write_on_focus_out=True,
+        )
         advanced_layout.addWidget(self._velo_edit, 0, 1)
         self._velo_units = QLabel("units/s")
         advanced_layout.addWidget(self._velo_units, 0, 2)
 
         # Acceleration
         advanced_layout.addWidget(QLabel("Accel Time:"), 1, 0)
-        self._accl_edit = QLineEdit()
-        self._accl_edit.setValidator(QDoubleValidator(0, 1000, 3))
-        self._accl_edit.editingFinished.connect(self._on_accl_changed)
+        self._accl_edit = PVLineEdit(
+            show_units=False, write_on_enter=True, write_on_focus_out=True,
+        )
         advanced_layout.addWidget(self._accl_edit, 1, 1)
         advanced_layout.addWidget(QLabel("sec"), 1, 2)
 
@@ -368,11 +360,19 @@ class PVMotor(QWidget):
 
         from lucid.epics.ca.pv import PV
 
-        # Essential PVs for basic operation
+        # PV widgets handle their own connections
+        self._rbv_display.pv_name = f"{self._prefix}.RBV"
+        self._setpoint_edit.pv_name = f"{self._prefix}.VAL"
+        self._tweak_edit.pv_name = f"{self._prefix}.TWV"
+        self._velo_edit.pv_name = f"{self._prefix}.VELO"
+        self._accl_edit.pv_name = f"{self._prefix}.ACCL"
+
+        # Listen for widget connection changes to update overall status
+        self._rbv_display.connection_changed.connect(self._on_widget_connection_changed)
+        self._setpoint_edit.connection_changed.connect(self._on_widget_connection_changed)
+
+        # Manually managed PVs for status, limits, and control
         pv_fields = {
-            "VAL": "setpoint",      # Desired position
-            "RBV": "readback",      # Current position
-            "TWV": "tweak_val",     # Tweak step size
             "TWF": "tweak_fwd",     # Tweak forward
             "TWR": "tweak_rev",     # Tweak reverse
             "MOVN": "moving",       # Motor is moving
@@ -382,11 +382,7 @@ class PVMotor(QWidget):
             "TDIR": "direction",    # Direction of travel
             "STOP": "stop",         # Stop motor
             "SPMG": "spmg",         # Stop/Pause/Move/Go
-            "EGU": "units",         # Engineering units
-            "PREC": "precision",    # Display precision
             # Advanced
-            "VELO": "velocity",     # Velocity
-            "ACCL": "acceleration", # Acceleration time
             "HLM": "high_lim_val",  # High soft limit
             "LLM": "low_lim_val",   # Low soft limit
             "MSTA": "msta",         # Motor status word
@@ -402,6 +398,21 @@ class PVMotor(QWidget):
 
     def _disconnect_pvs(self) -> None:
         """Disconnect all PVs."""
+        # Disconnect widget connection signals
+        try:
+            self._rbv_display.connection_changed.disconnect(self._on_widget_connection_changed)
+            self._setpoint_edit.connection_changed.disconnect(self._on_widget_connection_changed)
+        except RuntimeError:
+            pass  # Already disconnected
+
+        # Disconnect PV widgets
+        self._rbv_display.pv_name = ""
+        self._setpoint_edit.pv_name = ""
+        self._tweak_edit.pv_name = ""
+        self._velo_edit.pv_name = ""
+        self._accl_edit.pv_name = ""
+
+        # Disconnect manually managed PVs
         for pv in self._pvs.values():
             pv.disconnect_pv()
             pv.deleteLater()
@@ -412,20 +423,14 @@ class PVMotor(QWidget):
 
     @Slot(str, object)
     def _on_pv_value(self, name: str, value: Any) -> None:
-        """Handle PV value updates."""
+        """Handle PV value updates for manually managed PVs."""
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
                 value = value[0]
 
         self._values[name] = value
 
-        if name == "readback":
-            self._update_readback()
-        elif name == "setpoint":
-            self._update_setpoint_display()
-        elif name == "tweak_val":
-            self._update_tweak_display()
-        elif name == "moving":
+        if name == "moving":
             self._update_moving_status()
         elif name == "done_moving":
             self._update_done_moving()
@@ -435,34 +440,38 @@ class PVMotor(QWidget):
             self._update_limit_indicators()
         elif name == "direction":
             self._update_direction()
-        elif name == "units":
-            self._update_units()
-        elif name == "precision":
-            self._precision = int(value) if value else 3
-            self._update_readback()
-        elif name == "velocity":
-            self._update_velocity_display()
-        elif name == "acceleration":
-            self._update_accel_display()
         elif name == "high_lim_val":
-            self._hlm_display.setText(f"{value:.{self._precision}f}")
+            self._hlm_display.setText(f"{value:.3f}")
         elif name == "low_lim_val":
-            self._llm_display.setText(f"{value:.{self._precision}f}")
+            self._llm_display.setText(f"{value:.3f}")
         elif name == "msta":
             self._update_msta_display()
         elif name == "spmg":
             self._update_enable_button()
 
+    @Slot(bool)
+    def _on_widget_connection_changed(self, _connected: bool) -> None:
+        """Handle connection changes from PV widgets."""
+        self._check_overall_connection()
+
     @Slot(str, bool)
     def _on_pv_connection(self, name: str, connected: bool) -> None:
-        """Handle PV connection state changes."""
+        """Handle PV connection state changes for manually managed PVs."""
         if connected:
             self._connected_pvs.add(name)
         else:
             self._connected_pvs.discard(name)
 
-        essential = {"readback", "setpoint", "moving"}
-        is_connected = essential.issubset(self._connected_pvs)
+        self._check_overall_connection()
+
+    def _check_overall_connection(self) -> None:
+        """Check that essential PVs are connected (both widget-managed and manual)."""
+        widgets_connected = (
+            self._rbv_display.connected
+            and self._setpoint_edit.connected
+        )
+        manual_connected = "moving" in self._connected_pvs
+        is_connected = widgets_connected and manual_connected
         self._update_connection_display(is_connected)
         self._set_controls_enabled(is_connected)
 
@@ -478,35 +487,18 @@ class PVMotor(QWidget):
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         """Enable/disable control widgets."""
-        self._setpoint_edit.setEnabled(enabled)
+        # PV widgets use readonly property
+        self._setpoint_edit.readonly = not enabled
+        self._tweak_edit.readonly = not enabled
+        self._velo_edit.readonly = not enabled
+        self._accl_edit.readonly = not enabled
+
+        # Regular Qt widgets use setEnabled
         self._go_btn.setEnabled(enabled)
         self._twf_btn.setEnabled(enabled)
         self._twr_btn.setEnabled(enabled)
-        self._tweak_edit.setEnabled(enabled)
         self._stop_btn.setEnabled(enabled)
         self._enable_btn.setEnabled(enabled)
-        self._velo_edit.setEnabled(enabled)
-        self._accl_edit.setEnabled(enabled)
-
-    def _update_readback(self) -> None:
-        value = self._values.get("readback")
-        if value is not None:
-            text = f"{value:.{self._precision}f}"
-            self._rbv_display.setText(text)
-        else:
-            self._rbv_display.setText("---")
-
-    def _update_setpoint_display(self) -> None:
-        if not self._setpoint_edit.hasFocus():
-            value = self._values.get("setpoint")
-            if value is not None:
-                self._setpoint_edit.setText(f"{value:.{self._precision}f}")
-
-    def _update_tweak_display(self) -> None:
-        if not self._tweak_edit.hasFocus():
-            value = self._values.get("tweak_val")
-            if value is not None:
-                self._tweak_edit.setText(f"{value:.{self._precision}f}")
 
     def _update_moving_status(self) -> None:
         moving = bool(self._values.get("moving", 0))
@@ -548,26 +540,6 @@ class PVMotor(QWidget):
         else:
             self._dir_label.setText("\u25bc")
             self._dir_label.setStyleSheet(f"color: {get_warning_color()};")
-
-    def _update_units(self) -> None:
-        units = self._values.get("units", "")
-        if isinstance(units, bytes):
-            units = units.decode("utf-8", errors="replace")
-        self._units = str(units)
-        self._units_label.setText(self._units)
-        self._velo_units.setText(f"{self._units}/s")
-
-    def _update_velocity_display(self) -> None:
-        if not self._velo_edit.hasFocus():
-            value = self._values.get("velocity")
-            if value is not None:
-                self._velo_edit.setText(f"{value:.3f}")
-
-    def _update_accel_display(self) -> None:
-        if not self._accl_edit.hasFocus():
-            value = self._values.get("acceleration")
-            if value is not None:
-                self._accl_edit.setText(f"{value:.3f}")
 
     def _update_msta_display(self) -> None:
         msta = self._values.get("msta", 0)
@@ -619,10 +591,9 @@ class PVMotor(QWidget):
 
     def _on_go_clicked(self) -> None:
         try:
-            value = float(self._setpoint_edit.text())
-            if "setpoint" in self._pvs:
-                self._pvs["setpoint"].put(value)
-        except ValueError:
+            value = float(self._setpoint_edit._line_edit.text())
+            self._setpoint_edit.write_value(value)
+        except (ValueError, RuntimeError):
             pass
 
     def _on_tweak_forward(self) -> None:
@@ -637,22 +608,16 @@ class PVMotor(QWidget):
 
     def _do_relative_move(self, direction: int) -> None:
         try:
-            tweak_val = float(self._tweak_edit.text())
+            tweak_val = float(self._tweak_edit._line_edit.text())
         except ValueError:
-            tweak_val = self._values.get("tweak_val", 1.0)
-        current = self._values.get("readback", 0.0)
+            tweak_val = 1.0
+        current = self._rbv_display._value
         if current is None:
             current = 0.0
         new_pos = current + (direction * tweak_val)
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(new_pos)
-
-    def _on_tweak_value_changed(self) -> None:
         try:
-            value = float(self._tweak_edit.text())
-            if "tweak_val" in self._pvs:
-                self._pvs["tweak_val"].put(value)
-        except ValueError:
+            self._setpoint_edit.write_value(new_pos)
+        except RuntimeError:
             pass
 
     def _on_stop_clicked(self) -> None:
@@ -663,30 +628,18 @@ class PVMotor(QWidget):
         if "spmg" in self._pvs:
             self._pvs["spmg"].put(3 if checked else 0)
 
-    def _on_velo_changed(self) -> None:
-        try:
-            value = float(self._velo_edit.text())
-            if "velocity" in self._pvs:
-                self._pvs["velocity"].put(value)
-        except ValueError:
-            pass
-
-    def _on_accl_changed(self) -> None:
-        try:
-            value = float(self._accl_edit.text())
-            if "acceleration" in self._pvs:
-                self._pvs["acceleration"].put(value)
-        except ValueError:
-            pass
-
     # === Public API ===
 
     def move_to(self, position: float) -> None:
-        if "setpoint" in self._pvs:
-            self._pvs["setpoint"].put(position)
+        try:
+            self._setpoint_edit.write_value(position)
+        except RuntimeError:
+            pass
 
     def move_relative(self, distance: float) -> None:
-        current = self._values.get("readback", 0)
+        current = self._rbv_display._value
+        if current is None:
+            current = 0.0
         self.move_to(current + distance)
 
     def stop(self) -> None:
@@ -700,11 +653,11 @@ class PVMotor(QWidget):
 
     @property
     def position(self) -> float | None:
-        return self._values.get("readback")
+        return self._rbv_display._value
 
     @property
     def setpoint(self) -> float | None:
-        return self._values.get("setpoint")
+        return self._setpoint_edit._value
 
     @property
     def is_moving(self) -> bool:
@@ -729,8 +682,7 @@ class PVMotor(QWidget):
             "is_moving": self.is_moving,
             "at_high_limit": self.at_high_limit,
             "at_low_limit": self.at_low_limit,
-            "units": self._units,
-            "precision": self._precision,
+            "units": self._rbv_display._units,
             "values": dict(self._values),
         }
 
