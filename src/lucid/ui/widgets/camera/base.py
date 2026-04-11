@@ -502,6 +502,8 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         if self._device is not None:
             self._image_view = OphydImageView(self._device)
             self._image_layout.addWidget(self._image_view)
+            from lucid.ui.theater import theater_manager
+            theater_manager.install(self._image_view)
 
     def _connect_signals(self) -> None:
         """Subscribe to ophyd device signals in the background.
