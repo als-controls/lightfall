@@ -136,14 +136,20 @@ class OphydWidget(QWidget):
 
     @staticmethod
     def _coerce_scalar(value: Any) -> Any:
-        """Extract a Python scalar from numpy/array-like values.
+        """Extract a Python scalar from numpy/array-like/namedtuple values.
 
-        Ophyd subscriptions often deliver numpy scalars or single-element
-        arrays.  Coerce them to plain Python types so that ``isinstance``
-        checks and ``str()`` behave predictably in downstream formatting.
+        Ophyd callbacks and ``.get()`` can deliver numpy scalars,
+        single-element arrays, or named tuples (e.g. SynGaussTuple).
+        Coerce them to plain Python types so that ``isinstance`` checks
+        and ``str()`` behave predictably in downstream formatting.
         """
         if value is None:
             return None
+
+        # Named tuples from simulated devices (e.g. SynGaussTuple) —
+        # extract the first field which holds the actual value.
+        if hasattr(value, "_fields") and value._fields:
+            value = getattr(value, value._fields[0])
 
         # bytes from EPICS string PVs → decode
         if isinstance(value, bytes):
