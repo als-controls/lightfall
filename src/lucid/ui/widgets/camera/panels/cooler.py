@@ -16,7 +16,6 @@ from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QGroupBox,
     QLabel,
@@ -26,6 +25,7 @@ from PySide6.QtWidgets import (
 from lucid.epics.widgets.ophyd_combobox import OphydComboBox
 from lucid.epics.widgets.ophyd_label import OphydLabel
 from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.utils.logging import logger
 
 # Andor cooler status values
@@ -38,37 +38,6 @@ COOLER_STATUS = {
     5: "Fault",
     6: "Sensor Over Temp",
 }
-
-
-class StatusIndicator(QFrame):
-    """Small circular status indicator."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(12, 12)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": "#4CAF50",
-            "warning": "#FFC107",
-            "error": "#F44336",
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 6px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 class CoolerPanel(QGroupBox):
@@ -162,7 +131,7 @@ class CoolerPanel(QGroupBox):
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(4)
 
-        self._status_indicator = StatusIndicator()
+        self._status_indicator = StatusIndicator(size=12)
         status_layout.addWidget(self._status_indicator, 0, 0)
 
         self._status_label = QLabel("---")

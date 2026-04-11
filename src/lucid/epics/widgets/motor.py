@@ -22,47 +22,16 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QPushButton,
-    QFrame,
 )
 
 from lucid.epics.widgets.label import PVLabel
 from lucid.epics.widgets.lineedit import PVLineEdit
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.epics.widgets.style import (
     get_success_color,
     get_error_color,
     get_warning_color,
 )
-
-
-class StatusIndicator(QFrame):
-    """A small circular status indicator."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(16, 16)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": get_success_color(),
-            "warning": get_warning_color(),
-            "error": get_error_color(),
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 8px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 class PVMotor(QWidget):
@@ -155,7 +124,7 @@ class PVMotor(QWidget):
         status_bar.setSpacing(12)
 
         # Connection indicator
-        self._conn_indicator = StatusIndicator()
+        self._conn_indicator = StatusIndicator(size=16)
         self._conn_label = QLabel("Disconnected")
         status_bar.addWidget(self._conn_indicator)
         status_bar.addWidget(self._conn_label)
@@ -167,7 +136,7 @@ class PVMotor(QWidget):
         status_bar.addWidget(self._dir_label)
 
         # Moving indicator
-        self._moving_indicator = StatusIndicator()
+        self._moving_indicator = StatusIndicator(size=16)
         self._moving_label = QLabel("Idle")
         status_bar.addWidget(self._moving_indicator)
         status_bar.addWidget(self._moving_label)
@@ -245,7 +214,7 @@ class PVMotor(QWidget):
         limit_layout.setSpacing(16)
 
         # Low limit
-        self._lls_indicator = StatusIndicator()
+        self._lls_indicator = StatusIndicator(size=16)
         lls_label = QLabel("Low Limit")
         limit_layout.addWidget(self._lls_indicator)
         limit_layout.addWidget(lls_label)
@@ -253,7 +222,7 @@ class PVMotor(QWidget):
         limit_layout.addStretch()
 
         # High limit
-        self._hls_indicator = StatusIndicator()
+        self._hls_indicator = StatusIndicator(size=16)
         hls_label = QLabel("High Limit")
         limit_layout.addWidget(self._hls_indicator)
         limit_layout.addWidget(hls_label)

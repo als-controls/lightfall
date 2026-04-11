@@ -22,11 +22,11 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QPushButton,
-    QFrame,
 )
 
 from lucid.epics.widgets.lineedit import PVLineEdit
 from lucid.epics.widgets.combobox import PVComboBox
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.epics.widgets.style import (
     get_success_color,
     get_error_color,
@@ -52,38 +52,6 @@ DETECTOR_STATES = {
     9: "Disconnected",
     10: "Aborted",
 }
-
-
-class StatusIndicator(QFrame):
-    """A small circular status indicator."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(14, 14)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error', 'disconnected'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": get_success_color(),
-            "warning": get_warning_color(),
-            "error": get_error_color(),
-            "disconnected": get_disconnected_color(),
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 7px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 class PVAreaDetectorControls(QWidget):

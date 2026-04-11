@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -34,6 +33,7 @@ from lucid.ui.widgets.base_control import BaseControlWidget, register_control_wi
 from lucid.utils.logging import logger
 from lucid.epics.widgets.ophyd_combobox import OphydComboBox
 from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.ui.widgets.camera.image_view import OphydImageView
 from lucid.utils.threads import QThreadFuture
 
@@ -92,38 +92,6 @@ def is_area_detector(item: DeviceTreeItem) -> bool:
             return True
 
     return False
-
-
-class StatusIndicator(QFrame):
-    """Small circular status indicator."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(14, 14)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error', 'disconnected'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": "#4CAF50",
-            "warning": "#FFC107",
-            "error": "#F44336",
-            "disconnected": "#9E9E9E",
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 7px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 class TVModeMixin:

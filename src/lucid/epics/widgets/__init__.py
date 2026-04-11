@@ -12,6 +12,7 @@ from lucid.epics.widgets.checkbox import PVCheckBox
 from lucid.epics.widgets.slider import PVSlider
 from lucid.epics.widgets.auto import PVAutoWidget
 from lucid.epics.widgets.motor import PVMotor
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.epics.widgets.areadetector import (
     PVImageView,
     PVAreaDetectorControls,
@@ -34,6 +35,7 @@ __all__ = [
     "PVSlider",
     "PVAutoWidget",
     "PVMotor",
+    "StatusIndicator",
     # AreaDetector widgets
     "PVImageView",
     "PVAreaDetectorControls",

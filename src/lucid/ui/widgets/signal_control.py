@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from lucid.devices.model import DeviceCategory
 from lucid.epics.widgets.ophyd_label import OphydLabel
 from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.logbook import DeviceActionLogger
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
@@ -184,35 +185,6 @@ def _format_value(value: Any, precision: int = 4) -> str:
     if isinstance(value, int):
         return str(value)
     return str(value)
-
-
-class StatusDot(QWidget):
-    """Small colored dot for connection/alarm status."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(12, 12)
-        self._color = "#666666"
-        self._update_style()
-
-    def set_color(self, color: str) -> None:
-        """Set dot color."""
-        self._color = color
-        self._update_style()
-
-    def set_connected(self, connected: bool) -> None:
-        """Set connected/disconnected state."""
-        self._color = "#4CAF50" if connected else "#F44336"
-        self._update_style()
-
-    def _update_style(self) -> None:
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {self._color};
-                border-radius: 6px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 @register_control_widget
@@ -424,7 +396,7 @@ class SignalControlWidget(BaseControlWidget):
 
         # Status bar
         status_layout = QHBoxLayout()
-        self._status_dot = StatusDot()
+        self._status_dot = StatusIndicator(size=12)
         self._status_label = QLabel("Disconnected")
         self._type_label = QLabel("")
         self._type_label.setStyleSheet("color: #888; font-style: italic;")
@@ -616,7 +588,7 @@ class SignalRowWidget(QWidget):
         layout.setSpacing(8)
 
         # Status dot
-        self._status_dot = StatusDot()
+        self._status_dot = StatusIndicator(size=12)
         layout.addWidget(self._status_dot)
 
         # Signal name

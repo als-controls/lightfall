@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from lucid.devices.model import DeviceCategory
 from lucid.epics.widgets.ophyd_label import OphydLabel
 from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.logbook import DeviceActionLogger
 from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
 from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
@@ -58,37 +59,6 @@ def is_motor_item(item: DeviceTreeItem) -> bool:
             return True
 
     return False
-
-
-class StatusIndicator(QWidget):
-    """Small colored indicator for status display."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(12, 12)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": "#4CAF50",
-            "warning": "#FFC107",
-            "error": "#F44336",
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {color};
-                border-radius: 6px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 @register_control_widget
@@ -320,7 +290,7 @@ class MotorControlWidget(BaseControlWidget):
         status_layout = QHBoxLayout()
 
         # Moving indicator
-        self._moving_indicator = StatusIndicator()
+        self._moving_indicator = StatusIndicator(size=12)
         self._moving_label = QLabel("Idle")
         status_layout.addWidget(self._moving_indicator)
         status_layout.addWidget(self._moving_label)
@@ -421,7 +391,7 @@ class MotorControlWidget(BaseControlWidget):
         flags_layout.setSpacing(12)
         
         # DMOV indicator (Done Move)
-        self._dmov_indicator = StatusIndicator()
+        self._dmov_indicator = StatusIndicator(size=12)
         self._dmov_label = QLabel("Done")
         dmov_box = QHBoxLayout()
         dmov_box.addWidget(self._dmov_indicator)
@@ -429,7 +399,7 @@ class MotorControlWidget(BaseControlWidget):
         flags_layout.addLayout(dmov_box)
         
         # High limit indicator
-        self._hlm_indicator = StatusIndicator()
+        self._hlm_indicator = StatusIndicator(size=12)
         self._hlm_label = QLabel("Hi Lim")
         hlm_box = QHBoxLayout()
         hlm_box.addWidget(self._hlm_indicator)
@@ -437,7 +407,7 @@ class MotorControlWidget(BaseControlWidget):
         flags_layout.addLayout(hlm_box)
         
         # Low limit indicator
-        self._llm_indicator = StatusIndicator()
+        self._llm_indicator = StatusIndicator(size=12)
         self._llm_label = QLabel("Lo Lim")
         llm_box = QHBoxLayout()
         llm_box.addWidget(self._llm_indicator)
@@ -445,7 +415,7 @@ class MotorControlWidget(BaseControlWidget):
         flags_layout.addLayout(llm_box)
         
         # Home switch indicator
-        self._home_indicator = StatusIndicator()
+        self._home_indicator = StatusIndicator(size=12)
         self._home_label = QLabel("Home")
         home_box = QHBoxLayout()
         home_box.addWidget(self._home_indicator)
@@ -783,7 +753,7 @@ class MotorRowWidget(QWidget):
         layout.addWidget(self._pos_label)
 
         # Status indicator
-        self._status_indicator = StatusIndicator()
+        self._status_indicator = StatusIndicator(size=12)
         layout.addWidget(self._status_indicator)
 
         # Spacer
