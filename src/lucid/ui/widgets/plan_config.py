@@ -838,7 +838,9 @@ class PlanConfigWidget(QWidget):
         is_valid, errors = self.validate()
         if not is_valid:
             logger.warning(f"Validation failed: {errors}")
-            # Could show error dialog here
+            from lucid.ui.toast import ToastManager
+            toast = ToastManager.get_instance()
+            toast.warning("Missing Parameters", "\n".join(errors))
             return
 
         kwargs = self.get_kwargs()
