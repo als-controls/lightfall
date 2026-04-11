@@ -150,9 +150,21 @@ class TheaterOverlay(QWidget):
 
     # -- animation --------------------------------------------------------
 
+    def _cleanup_animation(self) -> None:
+        """Stop and clean up any running animation group."""
+        if self._anim_group is not None:
+            self._anim_group.stop()
+            try:
+                self._anim_group.finished.disconnect()
+            except RuntimeError:
+                pass
+            self._anim_group.deleteLater()
+            self._anim_group = None
+
     def _animate_open(
         self, origin: QRect, target: QRect, widget: QWidget
     ) -> None:
+        self._cleanup_animation()
         backdrop_anim = QPropertyAnimation(self, b"backdrop_opacity")
         backdrop_anim.setDuration(self._ANIM_DURATION_BACKDROP)
         backdrop_anim.setStartValue(0)
@@ -174,6 +186,7 @@ class TheaterOverlay(QWidget):
     def _animate_close(
         self, current: QRect, target: QRect, widget: QWidget
     ) -> None:
+        self._cleanup_animation()
         backdrop_anim = QPropertyAnimation(self, b"backdrop_opacity")
         backdrop_anim.setDuration(self._ANIM_DURATION_BACKDROP)
         backdrop_anim.setStartValue(self._backdrop_opacity_value)

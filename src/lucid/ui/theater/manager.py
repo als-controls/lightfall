@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QWidget
@@ -16,22 +17,33 @@ class TheaterManager:
 
     def __init__(self) -> None:
         self._proxies: dict[int, TheaterProxy] = {}
+        self._slots: dict[int, partial] = {}
         self._overlay: TheaterOverlay | None = None
 
     def register(self, proxy: TheaterProxy) -> None:
         """Register a proxy and connect its expand signal."""
         widget_id = id(proxy.target_widget)
         self._proxies[widget_id] = proxy
-        proxy.expand_requested.connect(lambda: self.activate(proxy))
+        slot = partial(self.activate, proxy)
+        self._slots[widget_id] = slot
+        proxy.expand_requested.connect(slot)
+        proxy.destroyed.connect(lambda: self._on_proxy_destroyed(widget_id))
 
     def unregister(self, proxy: TheaterProxy) -> None:
         """Unregister a proxy."""
         widget_id = id(proxy.target_widget)
         self._proxies.pop(widget_id, None)
-        try:
-            proxy.expand_requested.disconnect()
-        except RuntimeError:
-            pass
+        slot = self._slots.pop(widget_id, None)
+        if slot is not None:
+            try:
+                proxy.expand_requested.disconnect(slot)
+            except RuntimeError:
+                pass
+
+    def _on_proxy_destroyed(self, widget_id: int) -> None:
+        """Auto-cleanup when a proxy is destroyed without unregister."""
+        self._proxies.pop(widget_id, None)
+        self._slots.pop(widget_id, None)
 
     def install(self, widget: QWidget) -> TheaterProxy:
         """Wrap an already-laid-out widget in a TheaterProxy.

@@ -36,7 +36,7 @@ class TheaterProxy(QStackedWidget):
 
         self.setCurrentIndex(0)
 
-        # Hover expand button (hidden by default, configured in Task 2)
+        # Hover expand button
         self._expand_btn = QToolButton(self)
         self._expand_btn.setFixedSize(24, 24)
         self._expand_btn.setCursor(Qt.CursorShape.ArrowCursor)
