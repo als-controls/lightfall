@@ -1,5 +1,7 @@
 """Tests for TheaterProxy page switching and widget handoff."""
 
+from PySide6.QtCore import QEvent, QPointF
+from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.ui.theater.proxy import TheaterProxy
@@ -72,3 +74,79 @@ class TestTheaterProxyCore:
 
         assert id(target) in theater_manager._proxies
         assert theater_manager._proxies[id(target)] is proxy
+
+
+class TestTheaterProxyHoverButton:
+    """Hover expand button visibility and signal."""
+
+    def test_button_hidden_by_default(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+
+        assert not proxy._expand_btn.isVisible()
+
+    def test_button_visible_on_enter(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+
+        event = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
+        proxy.enterEvent(event)
+
+        assert proxy._expand_btn.isVisible()
+
+    def test_button_hidden_on_leave(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+
+        # Enter then leave
+        enter = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
+        proxy.enterEvent(enter)
+        leave = QEvent(QEvent.Type.Leave)
+        proxy.leaveEvent(leave)
+
+        assert not proxy._expand_btn.isVisible()
+
+    def test_button_hidden_when_widget_taken(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+
+        proxy.take_widget()
+        enter = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
+        proxy.enterEvent(enter)
+
+        assert not proxy._expand_btn.isVisible()
+
+    def test_button_click_emits_expand_requested(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+
+        with qtbot.waitSignal(proxy.expand_requested, timeout=1000):
+            proxy._expand_btn.click()
+
+    def test_button_positioned_top_right_on_resize(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.resize(400, 300)
+        proxy.show()
+
+        btn = proxy._expand_btn
+        margin = 4
+        assert btn.x() == 400 - btn.width() - margin
+        assert btn.y() == margin

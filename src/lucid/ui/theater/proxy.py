@@ -43,6 +43,20 @@ class TheaterProxy(QStackedWidget):
         self._expand_btn.setObjectName("TheaterExpandButton")
         self._expand_btn.setVisible(False)
         self._expand_btn.clicked.connect(self.expand_requested.emit)
+        self._expand_btn.setStyleSheet(
+            "QToolButton { background: rgba(0,0,0,120); border: none; "
+            "border-radius: 4px; padding: 2px; }"
+            "QToolButton:hover { background: rgba(0,0,0,180); }"
+        )
+        if qta is not None:
+            try:
+                self._expand_btn.setIcon(
+                    qta.icon("mdi6.arrow-expand-all", color="#e0e0e0")
+                )
+            except Exception:
+                self._expand_btn.setText("\u26f6")
+        else:
+            self._expand_btn.setText("\u26f6")
 
         # Register with theater manager
         from lucid.ui.theater.manager import theater_manager
@@ -64,3 +78,20 @@ class TheaterProxy(QStackedWidget):
         """Return the target widget and show it."""
         self.insertWidget(0, widget)
         self.setCurrentIndex(0)
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        if self.currentWidget() is self._target:
+            self._expand_btn.setVisible(True)
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self._expand_btn.setVisible(False)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        margin = 4
+        self._expand_btn.move(
+            self.width() - self._expand_btn.width() - margin,
+            margin,
+        )
