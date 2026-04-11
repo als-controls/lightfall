@@ -90,6 +90,9 @@ class TiledBrowserPanel(BasePanel):
 
         super().__init__(parent)
 
+        # Update export button when selection changes
+        self._table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+
         # Connect to TiledService signals
         self._tiled_service.connection_changed.connect(self._on_connection_changed)
 
@@ -119,6 +122,11 @@ class TiledBrowserPanel(BasePanel):
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         status_layout.addWidget(self._refresh_btn)
 
+        self._export_btn = QPushButton("Export")
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self._on_export_clicked)
+        status_layout.addWidget(self._export_btn)
+
         main_layout.addLayout(status_layout)
 
         # Filter widget
@@ -130,7 +138,7 @@ class TiledBrowserPanel(BasePanel):
         self._table_view = QTableView()
         self._table_view.setModel(self._proxy_model)
         self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table_view.setAlternatingRowColors(True)
         self._table_view.setSortingEnabled(True)
         self._table_view.sortByColumn(2, Qt.SortOrder.DescendingOrder)  # Sort by timestamp desc
@@ -285,6 +293,39 @@ class TiledBrowserPanel(BasePanel):
             name="tiled_setup_viz",
         )
         self._fetch_thread.start()
+
+    def _get_selected_records(self) -> list[TiledRecord]:
+        """Get all currently selected TiledRecord objects."""
+        records = []
+        selection = self._table_view.selectionModel().selectedRows()
+        for proxy_index in selection:
+            source_index = self._proxy_model.mapToSource(proxy_index)
+            record = self._model.get_record(source_index.row())
+            if record:
+                records.append(record)
+        return records
+
+    @Slot()
+    def _on_selection_changed(self) -> None:
+        """Enable/disable export button based on selection."""
+        has_selection = bool(self._table_view.selectionModel().selectedRows())
+        self._export_btn.setEnabled(has_selection)
+
+    @Slot()
+    def _on_export_clicked(self) -> None:
+        """Handle export button click — open export dialog."""
+        records = self._get_selected_records()
+        if not records:
+            return
+
+        from lucid.ui.dialogs.export_dialog import ExportDialog
+
+        dialog = ExportDialog(
+            records=records,
+            tiled_service=self._tiled_service,
+            parent=self,
+        )
+        dialog.exec()
 
     def _setup_visualization(self, client: Any, client_key: str) -> dict:
         """Extract metadata, ArrayClient refs, and scalar data for a run.
