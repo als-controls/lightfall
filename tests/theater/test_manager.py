@@ -162,3 +162,60 @@ class TestTheaterManagerActivate:
         qtbot.waitUntil(lambda: not overlay._is_animating, timeout=2000)
 
         assert not theater_manager.is_active
+
+
+class TestTheaterIntegration:
+    """Full round-trip: install → expand → dismiss → verify."""
+
+    def test_full_cycle_via_install(self, parent_widget, qtbot):
+        """Simulates the intended usage: install, click expand, press Escape."""
+        target = QLabel("My Plot")
+        parent_widget.layout().addWidget(target)
+
+        # Install theater mode
+        proxy = theater_manager.install(target)
+        proxy.show()
+        parent_widget.show()
+
+        # Verify proxy is in layout
+        assert parent_widget.layout().indexOf(proxy) >= 0
+
+        # Simulate expand button click
+        theater_manager.activate(proxy)
+        overlay = theater_manager._overlay
+        assert overlay is not None
+        qtbot.waitUntil(lambda: not overlay._is_animating, timeout=2000)
+
+        # Widget is on overlay
+        assert target.parentWidget() is overlay
+        assert theater_manager.is_active
+
+        # Dismiss
+        theater_manager.deactivate()
+        qtbot.waitUntil(lambda: not overlay._is_animating, timeout=2000)
+
+        # Widget is back in proxy
+        assert proxy.currentWidget() is target
+        assert not theater_manager.is_active
+        assert not overlay.isVisible()
+
+    def test_full_cycle_via_direct_proxy(self, parent_widget, qtbot):
+        """Direct TheaterProxy construction (no install)."""
+        target = QLabel("My Image")
+        proxy = TheaterProxy(target)
+        parent_widget.layout().addWidget(proxy)
+        proxy.show()
+        parent_widget.show()
+
+        # Activate via manager (proxy auto-registered)
+        theater_manager.activate(proxy)
+        overlay = theater_manager._overlay
+        qtbot.waitUntil(lambda: not overlay._is_animating, timeout=2000)
+
+        assert target.parentWidget() is overlay
+
+        # Deactivate
+        theater_manager.deactivate()
+        qtbot.waitUntil(lambda: not overlay._is_animating, timeout=2000)
+
+        assert proxy.currentWidget() is target
