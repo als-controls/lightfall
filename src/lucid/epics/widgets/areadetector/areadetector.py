@@ -142,7 +142,9 @@ class PVAreaDetector(QWidget):
             image_suffix=self._image_suffix,
             max_fps=self._max_fps,
         )
-        splitter.addWidget(self._image_view)
+        from lucid.ui.theater import TheaterProxy
+        self._image_proxy = TheaterProxy(self._image_view)
+        splitter.addWidget(self._image_proxy)
 
         self._controls = PVAreaDetectorControls(
             prefix=self._prefix,

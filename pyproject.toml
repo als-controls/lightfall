@@ -42,6 +42,7 @@ dependencies = [
     "pyqtgraph>=0.13",
     "qtawesome>=1.3",
     "scipy>=1.11",
+    "h5py>=3.0",
     # epics
     "caproto>=1.1",
     # acquire
@@ -83,6 +84,7 @@ docs = [
 
 [project.scripts]
 lucid = "lucid.main:cli"
+lucid-exporter = "lucid.exporter.cli:main"
 
 [project.gui-scripts]
 lucid-gui = "lucid.main:cli"
