@@ -781,14 +781,13 @@ class TiledBrowserPanel(BasePanel):
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
         """Get panel-specific introspection data for MCP tools."""
-        selected_record = None
+        selected_records = []
         selection = self._table_view.selectionModel().selectedRows()
-        if selection:
-            proxy_index = selection[0]
+        for proxy_index in selection:
             source_index = self._proxy_model.mapToSource(proxy_index)
             record = self._model.get_record(source_index.row())
             if record:
-                selected_record = {
+                selected_records.append({
                     "uid": record.uid,
                     "scan_id": record.scan_id,
                     "plan_name": record.plan_name,
@@ -796,7 +795,7 @@ class TiledBrowserPanel(BasePanel):
                     "exit_status": record.exit_status,
                     "num_points": record.num_points,
                     "sample_name": record.sample_name,
-                }
+                })
 
         return {
             "connected": self._tiled_service.is_connected,
@@ -804,7 +803,8 @@ class TiledBrowserPanel(BasePanel):
             "loaded_records": self._model.rowCount(),
             "total_records": self._total_records,
             "filters": self._current_filters.to_dict(),
-            "selected_record": selected_record,
+            "selected_records": selected_records,
+            "selected_count": len(selected_records),
         }
 
     def _get_available_actions(self) -> list[dict[str, Any]]:
@@ -833,6 +833,11 @@ class TiledBrowserPanel(BasePanel):
                 "description": "Select a record by UID",
                 "method": "action_select_record",
                 "parameters": {"uid": "string"},
+            },
+            {
+                "name": "export",
+                "description": "Export selected runs",
+                "method": "action_export",
             },
         ])
         return actions
@@ -864,6 +869,11 @@ class TiledBrowserPanel(BasePanel):
             True if filter was applied.
         """
         self._proxy_model.set_status_filter(status)
+        return True
+
+    def action_export(self) -> bool:
+        """Action: Open export dialog for selected runs."""
+        self._on_export_clicked()
         return True
 
     def action_select_record(self, uid: str) -> bool:
