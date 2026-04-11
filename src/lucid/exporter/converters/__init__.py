@@ -23,3 +23,4 @@ def get_converter(name: str) -> type[Converter]:
 
 # Import converters to trigger registration (nxsas added in Task 2)
 from lucid.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
+from lucid.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401
