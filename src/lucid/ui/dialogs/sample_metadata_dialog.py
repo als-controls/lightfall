@@ -173,6 +173,7 @@ class SampleMetadataDialog(LucidDialog):
 
         self._accept_btn = QPushButton("Run")
         self._accept_btn.clicked.connect(self._on_accept_clicked)
+        self._accept_btn.setDefault(True)
         btn_layout.addWidget(self._accept_btn)
 
         layout.addLayout(btn_layout)
@@ -236,6 +237,7 @@ class SampleMetadataDialog(LucidDialog):
         """Reset force mode whenever the sample name changes."""
         self._force_mode = False
         self._accept_btn.setText("Run")
+        self._warning_label.setText("")
         self._warning_label.hide()
 
     # ------------------------------------------------------------------
