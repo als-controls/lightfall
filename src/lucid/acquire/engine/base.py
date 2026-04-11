@@ -101,6 +101,7 @@ class BaseEngine(QObject):
         self._current_procedure: PrioritizedProcedure | None = None  # Currently running
         self._subscribers: dict[int, Callable[[str, dict], Any]] = {}
         self._next_token = 0
+        self._pre_submit_callables: list[Callable[[str, dict[str, Any]], dict[str, Any] | None]] = []
         self._toast_notifications = toast_notifications
         self._toast_manager: ToastManager | None = None
 
@@ -167,8 +168,9 @@ class BaseEngine(QObject):
         *,
         priority: int = 1,
         name: str = "",
+        skip_pre_submit: bool = False,
         **kwargs: Any,
-    ) -> str:
+    ) -> str | None:
         """Submit a procedure for execution.
 
         Args:
@@ -176,14 +178,29 @@ class BaseEngine(QObject):
             priority: Queue priority (lower = higher priority). Default is 1.
             name: Human-readable name for the procedure. If not provided,
                 attempts to detect from generator function name.
+            skip_pre_submit: If True, bypass pre-submit hooks.
             **kwargs: Additional procedure parameters.
 
         Returns:
-            The unique ID of the submitted procedure.
+            The unique ID of the submitted procedure, or None if cancelled
+            by a pre-submit hook.
         """
         # Auto-detect name from generator if not provided
         if not name:
             name = self._get_procedure_name(procedure)
+
+        # Run pre-submit callables
+        if not skip_pre_submit:
+            for callable_ in self._pre_submit_callables:
+                try:
+                    result = callable_(name, kwargs)
+                    if result is None:
+                        logger.info(f"[{self._name}] Submission cancelled by pre-submit hook")
+                        return None
+                    kwargs.update(result)
+                except Exception as ex:
+                    logger.warning(f"[{self._name}] Error in pre-submit callable: {ex}")
+                    return None
 
         item = PrioritizedProcedure(priority, procedure, kwargs, name=name)
         self._queue.put(item)
@@ -219,9 +236,10 @@ class BaseEngine(QObject):
         If a single positional argument is provided, it's used as the procedure.
         Otherwise, all args are bundled as the procedure.
         """
+        skip_pre_submit = kwargs.pop("skip_pre_submit", False)
         if args:
             procedure = args[0] if len(args) == 1 else args
-            self.submit(procedure, **kwargs)
+            self.submit(procedure, skip_pre_submit=skip_pre_submit, **kwargs)
         else:
             raise ValueError("No procedure provided")
 
@@ -406,6 +424,37 @@ class BaseEngine(QObject):
         """
         if self._subscribers.pop(token, None) is not None:
             logger.debug(f"[{self._name}] Removed subscriber with token {token}")
+
+    # === Pre-Submit Hooks ===
+
+    def register_pre_submit(
+        self, callable_: Callable[[str, dict[str, Any]], dict[str, Any] | None]
+    ) -> None:
+        """Register a callable invoked before each plan submission.
+
+        The callable receives (plan_name, kwargs) and must return:
+        - dict: additional kwargs to merge into the submission
+        - None: cancel the submission
+
+        Callables run on the calling thread in registration order.
+
+        Args:
+            callable_: Function with signature (str, dict) -> dict | None.
+        """
+        self._pre_submit_callables.append(callable_)
+
+    def unregister_pre_submit(
+        self, callable_: Callable[[str, dict[str, Any]], dict[str, Any] | None]
+    ) -> None:
+        """Remove a pre-submit callable.
+
+        Args:
+            callable_: The callable to remove.
+        """
+        try:
+            self._pre_submit_callables.remove(callable_)
+        except ValueError:
+            pass
 
     def _emit_output(self, name: str, doc: dict[str, Any]) -> None:
         """Emit output to signal and subscribers.

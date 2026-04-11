@@ -57,8 +57,9 @@ class MockEngine(BaseEngine):
         *,
         priority: int = 1,
         name: str = "",
+        skip_pre_submit: bool = False,
         **kwargs: Any,
-    ) -> str:
+    ) -> str | None:
         """Submit a procedure for execution.
 
         The mock engine executes immediately and synchronously.
@@ -67,11 +68,30 @@ class MockEngine(BaseEngine):
             procedure: The procedure to execute (ignored in mock).
             priority: Queue priority (ignored in mock).
             name: Human-readable name for the procedure.
+            skip_pre_submit: If True, bypass pre-submit hooks.
             **kwargs: Additional parameters (included in start document).
 
         Returns:
-            The unique ID of the submitted procedure.
+            The unique ID of the submitted procedure, or None if cancelled
+            by a pre-submit hook.
         """
+        # Auto-detect name from generator if not provided
+        if not name:
+            name = self._get_procedure_name(procedure)
+
+        # Run pre-submit callables
+        if not skip_pre_submit:
+            for callable_ in self._pre_submit_callables:
+                try:
+                    result = callable_(name, kwargs)
+                    if result is None:
+                        logger.info("[mock] Submission cancelled by pre-submit hook")
+                        return None
+                    kwargs.update(result)
+                except Exception as ex:
+                    logger.warning(f"[mock] Error in pre-submit callable: {ex}")
+                    return None
+
         # Generate a unique ID for this "run"
         self._current_uid = str(uuid.uuid4())
         uid = self._current_uid
