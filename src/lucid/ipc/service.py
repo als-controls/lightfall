@@ -252,6 +252,16 @@ class IPCService(QObject):
                 "events": self.list_events(),
             })
 
+    def _handle_discover(self, subject: str, data: dict, reply: str | None) -> None:
+        """Respond to ``_lucid.discover`` with instance identity and actions."""
+        if reply:
+            self.reply(reply, {
+                "instance_id": self._instance_id,
+                "display_name": self._display_name,
+                "prefix": self._topic_prefix,
+                "actions": self.list_actions(),
+            })
+
     def register_meta_endpoints(self) -> None:
         """Register ``meta.actions`` and ``meta.events`` discovery endpoints."""
         self.register_action(
@@ -264,6 +274,8 @@ class IPCService(QObject):
             self._handle_meta_events,
             description="List all registered events",
         )
+        # Well-known discovery subject (not prefixed)
+        self.subscribe("_lucid.discover", self._handle_discover, main_thread=False)
 
     # -- Trust & auth --
 
