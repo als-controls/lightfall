@@ -6,11 +6,17 @@ communication, including topic prefix and trusted application management.
 
 from __future__ import annotations
 
+import json
+import logging
+import socket
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -18,6 +24,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+logger = logging.getLogger(__name__)
 
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager
@@ -45,6 +53,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._widget: QWidget | None = None
         self._url_edit: QLineEdit | None = None
         self._prefix_edit: QLineEdit | None = None
+        self._test_btn: QPushButton | None = None
         self._status_label: QLabel | None = None
         self._trusted_list: QListWidget | None = None
         self._revoke_btn: QPushButton | None = None
@@ -87,8 +96,14 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._prefix_edit.setPlaceholderText("als.7011")
         connection_layout.addRow("Topic Prefix:", self._prefix_edit)
 
-        self._status_label = QLabel("Disconnected")
-        connection_layout.addRow("Status:", self._status_label)
+        test_layout = QHBoxLayout()
+        self._test_btn = QPushButton("Test Connection")
+        self._test_btn.clicked.connect(self._on_test_connection)
+        test_layout.addWidget(self._test_btn)
+        self._status_label = QLabel()
+        test_layout.addWidget(self._status_label)
+        test_layout.addStretch()
+        connection_layout.addRow("", test_layout)
 
         layout.addWidget(connection_group)
 
@@ -112,6 +127,56 @@ class IPCSettingsPlugin(SettingsPlugin):
     def set_trust_manager(self, trust_manager: TrustManager) -> None:
         """Set the TrustManager reference so revoke() can be called."""
         self._trust_manager = trust_manager
+
+    def _on_test_connection(self) -> None:
+        """Test TCP connectivity to the configured NATS server."""
+        if not self._status_label:
+            return
+
+        url = self._url_edit.text().strip() if self._url_edit else ""
+        if not url:
+            self._status_label.setText("No URL configured")
+            self._status_label.setStyleSheet("color: orange;")
+            return
+
+        parsed = urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 4222
+
+        self._status_label.setText("Testing...")
+        self._status_label.setStyleSheet("color: gray;")
+        QCoreApplication.processEvents()
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5.0)
+            sock.connect((host, port))
+
+            # NATS servers send "INFO {...}\r\n" immediately on connect
+            data = sock.recv(4096).decode("utf-8", errors="replace")
+            sock.close()
+
+            if data.startswith("INFO "):
+                info = json.loads(data[5:].strip())
+                self._status_label.setText(f"Connected — NATS v{info.get('version', '?')}")
+                self._status_label.setStyleSheet("color: green;")
+            else:
+                self._status_label.setText("Connected, but not a NATS server")
+                self._status_label.setStyleSheet("color: orange;")
+
+        except TimeoutError:
+            self._status_label.setText("Connection timeout")
+            self._status_label.setStyleSheet("color: red;")
+        except ConnectionRefusedError:
+            self._status_label.setText("Connection refused")
+            self._status_label.setStyleSheet("color: red;")
+        except socket.gaierror as e:
+            self._status_label.setText(f"DNS error: {e}")
+            self._status_label.setStyleSheet("color: red;")
+        except Exception as e:
+            self._status_label.setText(f"Error: {e}")
+            self._status_label.setStyleSheet("color: red;")
+            logger.error("NATS test connection error: %s", e)
 
     def _on_revoke(self) -> None:
         if not self._trusted_list:
