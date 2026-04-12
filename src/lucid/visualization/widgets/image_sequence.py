@@ -258,15 +258,19 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
             self._image_view.getView().autoRange()
 
     def _on_log_intensity_toggled(self, checked: bool) -> None:
-        """Toggle log intensity transform on the displayed image."""
+        """Toggle log intensity display.
+
+        The histogram stays in real units — only the displayed image
+        and the level mapping change, matching Camera Control behavior.
+        Log display is handled entirely by LazyImageView for both the
+        lazy (tiled) and eager (in-memory stack) paths.
+        """
         self._log_mode = checked
         self._log_intensity_btn.setIcon(
             self._log_icon_on if checked else self._log_icon_off
         )
-        if self._lazy_mode and self._image_view:
+        if self._image_view:
             self._image_view.set_log_mode(checked)
-        elif self._images and self._image_view:
-            self._update_image_stack(jump_to_latest=False)
 
     def _on_bg_correct_toggled(self, checked: bool) -> None:
         """Toggle background correction using dark frame from Tiled."""
@@ -611,16 +615,15 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
         stack = np.array(self._images, dtype=np.float64)
 
-        # Apply background correction
+        # Apply background correction to the stack data.
+        # Log display is NOT applied here — it is handled by
+        # LazyImageView.updateImage() which keeps the histogram
+        # in real units and only transforms the displayed image.
         if self._bg_correct and self._dark_manager and self._dark_manager.has_dark:
             dark = self._dark_manager.dark_frame
             if dark.shape == stack.shape[1:]:
                 stack = stack - dark[np.newaxis, ...]
                 np.clip(stack, 0, None, out=stack)
-
-        # Apply log transform
-        if self._log_mode:
-            stack = np.log1p(stack)
 
         # Use time values if we have them
         if self._time_values:

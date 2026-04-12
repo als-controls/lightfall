@@ -3,6 +3,14 @@
 Subclasses pyqtgraph's ImageView to fetch frames on demand via
 ``ArrayClient[i]`` instead of holding the full stack in memory.
 Follows the Xi-CAM XArrayView pattern (imageviewmixins.py:172).
+
+Log intensity display follows the same design as
+:class:`~lucid.ui.widgets.camera.image_view.OphydImageView`:
+
+- The histogram always operates in **real (linear) intensity units**.
+- When log mode is on, ``log1p(frame)`` is displayed on the ImageItem.
+- Histogram levels are mapped through ``log1p`` before being applied
+  to the ImageItem, so the user adjusts contrast in real units.
 """
 
 from __future__ import annotations
@@ -75,6 +83,12 @@ class LazyImageView(pg.ImageView):
         self._minmax_cache: list[tuple[float, float]] | None = None
         self._log_mode: bool = False
         self._dark_frame: np.ndarray | None = None
+        self._last_real_frame: np.ndarray | None = None
+        self._applying_log_levels: bool = False
+
+        # Intercept histogram level changes so we can map through log1p
+        # when log mode is active.
+        self.ui.histogram.sigLevelsChanged.connect(self._on_hist_levels_changed)
 
     # ------------------------------------------------------------------
     # Public API
@@ -163,12 +177,19 @@ class LazyImageView(pg.ImageView):
         # Invalidate min/max cache since new data may extend range
         self._minmax_cache = None
 
+    # ------------------------------------------------------------------
+    # Log / BG-correct controls
+    # ------------------------------------------------------------------
+
     def set_log_mode(self, enabled: bool) -> None:
-        """Toggle log intensity mode for lazy-fetched frames."""
+        """Toggle log intensity mode.
+
+        The histogram stays in real units; only the displayed image
+        and the level mapping change.
+        """
         self._log_mode = enabled
         self._minmax_cache = None
-        if self._client is not None and self._proxy is not None:
-            self.updateImage()
+        self.updateImage()
 
     def set_dark_frame(self, dark: np.ndarray | None) -> None:
         """Set or clear the dark frame for background correction."""
@@ -177,14 +198,84 @@ class LazyImageView(pg.ImageView):
         if self._client is not None and self._proxy is not None:
             self.updateImage()
 
-    def _transform_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Apply background correction and log transform to a frame."""
+    def _bg_correct_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Apply background correction (dark subtraction) only."""
         if self._dark_frame is not None and self._dark_frame.shape == frame.shape:
             frame = frame - self._dark_frame
             np.clip(frame, 0, None, out=frame)
-        if self._log_mode:
-            frame = np.log1p(frame)
         return frame
+
+    # ------------------------------------------------------------------
+    # Histogram / level helpers (log-aware)
+    # ------------------------------------------------------------------
+
+    def _set_hist_from_real(
+        self, real_frame: np.ndarray, auto_range: bool = True
+    ) -> None:
+        """Set histogram bins and range from real-unit frame data.
+
+        This ensures the histogram always shows the distribution in
+        linear intensity units, regardless of log display mode.
+        """
+        lo = float(np.nanmin(real_frame))
+        hi = float(np.nanmax(real_frame))
+        self._imageLevels = [(lo, hi)]
+        self.levelMin = lo
+        self.levelMax = hi
+
+        if auto_range:
+            self.ui.histogram.setHistogramRange(lo, hi)
+
+        # Manually set histogram bins from real data
+        step = max(1, real_frame.size // 500_000)
+        vals = real_frame.ravel()[::step].astype(np.float64)
+        hist_counts, hist_edges = np.histogram(vals, bins=256)
+        hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
+        self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
+
+    def _set_hist_bins(self, real_frame: np.ndarray) -> None:
+        """Set only the histogram bins (not range/levels) from real data."""
+        step = max(1, real_frame.size // 500_000)
+        vals = real_frame.ravel()[::step].astype(np.float64)
+        hist_counts, hist_edges = np.histogram(vals, bins=256)
+        hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
+        self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
+
+    def _apply_log_levels(self) -> None:
+        """Map histogram levels through log1p and apply to the ImageItem.
+
+        Uses ``setLevels(update=False)`` so that no ``sigImageChanged``
+        is emitted and the histogram bins are not recomputed from log data.
+        """
+        if not self._log_mode or self._applying_log_levels:
+            return
+        self._applying_log_levels = True
+        try:
+            lo, hi = self.ui.histogram.getLevels()
+            mapped_lo = np.log1p(max(float(lo), 0.0))
+            mapped_hi = np.log1p(max(float(hi), 0.0))
+            self.imageItem.setLevels([mapped_lo, mapped_hi], update=False)
+            self.imageItem.qimage = None  # force re-render with new levels
+            self.imageItem.update()
+        finally:
+            self._applying_log_levels = False
+
+    def _on_hist_levels_changed(self) -> None:
+        """Intercept histogram level changes for log-mode level mapping.
+
+        When the user drags the histogram sliders, pyqtgraph applies the
+        real-unit levels directly to the ImageItem (wrong for log data).
+        We correct the histogram bins (which pyqtgraph auto-recomputed
+        from the log-data ImageItem) and re-apply log-mapped levels.
+        """
+        if not self._log_mode or self._applying_log_levels:
+            return
+        # pyqtgraph's regionChanged already called imageItem.setLevels
+        # with real-unit levels AND triggered imageChanged which
+        # recomputed histogram bins from log data.  Fix both:
+        if self._last_real_frame is not None:
+            self._set_hist_bins(self._last_real_frame)
+        self._apply_log_levels()
 
     # ------------------------------------------------------------------
     # Overrides
@@ -193,39 +284,74 @@ class LazyImageView(pg.ImageView):
     def updateImage(self, autoHistogramRange: bool = True) -> None:
         """Fetch and display the single frame at ``self.currentIndex``.
 
-        Overrides the base ``ImageView.updateImage`` to avoid
-        ``getProcessedImage`` which would try to normalize the full stack.
+        Overrides the base ``ImageView.updateImage`` to:
+        - Avoid ``getProcessedImage`` which would normalize the full stack.
+        - Keep the histogram in real units when log mode is active.
+        - Apply log display + level mapping when needed.
         """
-        if self._client is None or self._proxy is None:
-            return
+        if self._client is not None and self._proxy is not None:
+            # === Lazy path ===
+            raw_frame = self._fetch_frame(self.currentIndex)
+            real_frame = self._bg_correct_frame(raw_frame)
+            self._last_real_frame = real_frame
 
-        frame = self._transform_frame(self._fetch_frame(self.currentIndex))
+            if self._log_mode:
+                display_frame = np.log1p(real_frame)
+            else:
+                display_frame = real_frame
 
-        # Set _imageLevels so that autoLevels() (called by setImage after
-        # this method) finds valid level data instead of None.
-        lo, hi = float(np.nanmin(frame)), float(np.nanmax(frame))
-        self._imageLevels = [(lo, hi)]
-        self.levelMin = lo
-        self.levelMax = hi
-        self.imageDisp = frame
+            self.imageDisp = display_frame
 
-        if autoHistogramRange:
-            self.ui.histogram.setHistogramRange(lo, hi)
+            # Display frame on ImageItem (may trigger histogram auto-update
+            # with wrong bins if log is on — corrected immediately below).
+            self.imageItem.updateImage(display_frame)
 
-        # ImageItem expects (row, col) for row-major axis order
-        self.imageItem.updateImage(frame)
+            # Always set histogram from real data (overwrites any auto-update)
+            self._set_hist_from_real(real_frame, auto_range=autoHistogramRange)
+
+            # Apply log-mapped levels
+            self._apply_log_levels()
+
+        elif self.image is not None:
+            # === Eager path (in-memory stack via setImage) ===
+            # Let base class select the frame and display it.
+            super().updateImage(autoHistogramRange)
+
+            if self._log_mode:
+                # The ImageItem now has a real-unit frame from the stack.
+                real_img = self.imageItem.image
+                if real_img is not None:
+                    self._last_real_frame = real_img.copy()
+
+                    # Override display with log-transformed frame
+                    self.imageItem.updateImage(
+                        np.log1p(real_img.astype(np.float64))
+                    )
+                    # Correct histogram bins (auto-update set them from log data)
+                    self._set_hist_from_real(
+                        self._last_real_frame,
+                        auto_range=autoHistogramRange,
+                    )
+                    # Apply log-mapped levels
+                    self._apply_log_levels()
 
     def getProcessedImage(self) -> np.ndarray:
-        """Return the current single frame (skip normalisation)."""
-        if self._client is None:
-            return np.zeros((1, 1), dtype=np.float32)
-        frame = self._transform_frame(self._fetch_frame(self.currentIndex))
-        # Cache levels for autoLevels
-        self._imageLevels = self.quickMinMax(frame)
-        self.levelMin = min(lv[0] for lv in self._imageLevels)
-        self.levelMax = max(lv[1] for lv in self._imageLevels)
-        self.imageDisp = frame
-        return frame
+        """Return the current single frame (skip normalisation).
+
+        Lazy path: returns the BG-corrected (real-unit) frame.
+        Eager path: delegates to base class for normal stack processing.
+        """
+        if self._client is not None:
+            raw_frame = self._fetch_frame(self.currentIndex)
+            real_frame = self._bg_correct_frame(raw_frame)
+            # Cache levels from real data
+            self._imageLevels = self.quickMinMax(real_frame)
+            self.levelMin = min(lv[0] for lv in self._imageLevels)
+            self.levelMax = max(lv[1] for lv in self._imageLevels)
+            self.imageDisp = real_frame
+            return real_frame
+        else:
+            return super().getProcessedImage()
 
     def quickMinMax(self, data: Any) -> list[tuple[float, float]]:
         """Estimate min/max by subsampling ~10 evenly-spaced frames.
@@ -233,6 +359,8 @@ class LazyImageView(pg.ImageView):
         Follows the Xi-CAM pattern (imageviewmixins.py:265).  If *data*
         is a plain ndarray (single frame passed by getProcessedImage),
         just compute directly.
+
+        Always returns real-unit (not log-transformed) extremes.
         """
         # If called with a real numpy array (single frame), compute directly
         if isinstance(data, np.ndarray):
@@ -257,7 +385,7 @@ class LazyImageView(pg.ImageView):
         global_max = -np.inf
 
         for idx in indices:
-            frame = self._transform_frame(self._fetch_frame(int(idx)))
+            frame = self._bg_correct_frame(self._fetch_frame(int(idx)))
             lo = float(np.nanmin(frame))
             hi = float(np.nanmax(frame))
             if lo < global_min:
