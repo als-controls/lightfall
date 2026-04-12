@@ -27,6 +27,8 @@ def _make_svc(prefix: str = "als.test") -> IPCService:
     svc._connected_lock = threading.Lock()
     svc._loop = None
     svc._nc = None
+    svc._instance_id = "testhost-0"
+    svc._display_name = None
     return svc
 
 
@@ -166,3 +168,71 @@ class TestMetaDiscovery:
 
         assert "meta.actions" in svc._action_catalog
         assert "meta.events" in svc._action_catalog
+
+
+# ---------------------------------------------------------------------------
+# TestMetaResponseIdentity
+# ---------------------------------------------------------------------------
+
+
+class TestMetaResponseIdentity:
+    def test_meta_actions_includes_identity(self):
+        svc = _make_svc(prefix="als.test")
+        svc._instance_id = "testhost-999"
+        svc._display_name = "Test Hutch"
+        svc.register_meta_endpoints()
+        svc.reply = MagicMock()
+
+        svc._handle_meta_actions("als.test.meta.actions", {}, "reply.inbox")
+
+        svc.reply.assert_called_once()
+        response = svc.reply.call_args[0][1]
+        assert response["instance_id"] == "testhost-999"
+        assert response["display_name"] == "Test Hutch"
+        assert response["prefix"] == "als.test"
+        assert "actions" in response
+
+    def test_meta_events_includes_identity(self):
+        svc = _make_svc(prefix="als.test")
+        svc._instance_id = "testhost-999"
+        svc._display_name = None
+        svc.register_meta_endpoints()
+        svc.reply = MagicMock()
+
+        svc._handle_meta_events("als.test.meta.events", {}, "reply.inbox")
+
+        svc.reply.assert_called_once()
+        response = svc.reply.call_args[0][1]
+        assert response["instance_id"] == "testhost-999"
+        assert response["display_name"] is None
+        assert response["prefix"] == "als.test"
+        assert "events" in response
+
+
+# ---------------------------------------------------------------------------
+# TestDiscoverEndpoint
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverEndpoint:
+    def test_discover_handler_registered(self):
+        svc = _make_svc(prefix="als.test")
+        svc.subscribe = MagicMock()
+        svc.register_meta_endpoints()
+        subjects = [call[0][0] for call in svc.subscribe.call_args_list]
+        assert "_lucid.discover" in subjects
+
+    def test_discover_response_matches_meta_actions(self):
+        svc = _make_svc(prefix="als.test")
+        svc._instance_id = "testhost-999"
+        svc._display_name = "Test Hutch"
+        svc.register_meta_endpoints()
+        svc.register_action("commands.echo", lambda s, d, r: None, description="Echo back", schema={"msg": "str"})
+        svc.reply = MagicMock()
+        svc._handle_discover("_lucid.discover", {}, "reply.inbox")
+        svc.reply.assert_called_once()
+        response = svc.reply.call_args[0][1]
+        assert response["instance_id"] == "testhost-999"
+        assert response["display_name"] == "Test Hutch"
+        assert response["prefix"] == "als.test"
+        assert isinstance(response["actions"], list)

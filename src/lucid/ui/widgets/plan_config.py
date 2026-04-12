@@ -366,6 +366,7 @@ class PlanConfigWidget(QWidget):
         self._plan: PlanInfo | None = None
         self._root_param: Parameter | None = None
         self._catalog: DeviceCatalog | None = None
+        self._values_cache: dict[str, dict[str, Any]] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -612,6 +613,10 @@ class PlanConfigWidget(QWidget):
         Args:
             plan_info: Plan to configure.
         """
+        # Cache current values before switching
+        if self._plan is not None and self._root_param is not None:
+            self._values_cache[self._plan.name] = self.get_kwargs()
+
         self._plan = plan_info
         # Use display name for header
         self._header_label.setText(plan_info.get_display_name())
@@ -655,6 +660,11 @@ class PlanConfigWidget(QWidget):
 
         # Set in tree
         self._param_tree.setParameters(self._root_param, showTop=False)
+
+        # Restore cached values if we've seen this plan before
+        cached = self._values_cache.get(plan_info.name)
+        if cached:
+            self.set_values(cached)
 
         self._reset_btn.setEnabled(True)
         self._edit_btn.setEnabled(True)
@@ -760,7 +770,8 @@ class PlanConfigWidget(QWidget):
     def _on_reset_clicked(self) -> None:
         """Handle reset button click."""
         if self._plan is not None:
-            # Re-set the plan to reset all values
+            # Clear cached values so set_plan restores defaults
+            self._values_cache.pop(self._plan.name, None)
             self.set_plan(self._plan)
 
     def _get_plan_file_path(self) -> Path | None:
@@ -827,7 +838,9 @@ class PlanConfigWidget(QWidget):
         is_valid, errors = self.validate()
         if not is_valid:
             logger.warning(f"Validation failed: {errors}")
-            # Could show error dialog here
+            from lucid.ui.toast import ToastManager
+            toast = ToastManager.get_instance()
+            toast.warning("Missing Parameters", "\n".join(errors))
             return
 
         kwargs = self.get_kwargs()

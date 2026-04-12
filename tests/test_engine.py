@@ -519,3 +519,159 @@ class TestQueueManagement:
         # An object without __name__ or gi_code
         name = engine._get_procedure_name({"some": "dict"})
         assert name == "procedure"
+
+
+class TestPreSubmitHooks:
+    """Tests for pre-submit callable system."""
+
+    def test_register_pre_submit(self, mock_engine) -> None:
+        """Test registering a pre-submit callable."""
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            return {"extra": "metadata"}
+
+        mock_engine.register_pre_submit(hook)
+        assert hook in mock_engine._pre_submit_callables
+
+    def test_unregister_pre_submit(self, mock_engine) -> None:
+        """Test unregistering a pre-submit callable."""
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            return {}
+
+        mock_engine.register_pre_submit(hook)
+        mock_engine.unregister_pre_submit(hook)
+        assert hook not in mock_engine._pre_submit_callables
+
+    def test_pre_submit_merges_kwargs(self, mock_engine) -> None:
+        """Test that pre-submit callable's returned dict is merged into kwargs."""
+        outputs = []
+        mock_engine.subscribe(lambda name, doc: outputs.append((name, doc)))
+
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            return {"sample_name": "my_sample"}
+
+        mock_engine.register_pre_submit(hook)
+        mock_engine.submit("test_procedure")
+
+        start_doc = outputs[0][1]
+        assert start_doc["sample_name"] == "my_sample"
+
+    def test_pre_submit_cancel_returns_none(self, mock_engine) -> None:
+        """Test that returning None from pre-submit cancels submission."""
+        outputs = []
+        mock_engine.subscribe(lambda name, doc: outputs.append((name, doc)))
+
+        def hook(plan_name: str, kwargs: dict) -> None:
+            return None
+
+        mock_engine.register_pre_submit(hook)
+        result = mock_engine.submit("test_procedure")
+
+        assert result is None
+        assert len(outputs) == 0
+
+    def test_skip_pre_submit(self, mock_engine) -> None:
+        """Test that skip_pre_submit=True bypasses hooks."""
+        hook_called = []
+
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            hook_called.append(True)
+            return {}
+
+        mock_engine.register_pre_submit(hook)
+        mock_engine.submit("test_procedure", skip_pre_submit=True)
+
+        assert len(hook_called) == 0
+
+    def test_pre_submit_ordering(self, mock_engine) -> None:
+        """Test that pre-submit callables run in registration order."""
+        call_order = []
+
+        def hook_a(plan_name: str, kwargs: dict) -> dict:
+            call_order.append("a")
+            return {"order": "a"}
+
+        def hook_b(plan_name: str, kwargs: dict) -> dict:
+            call_order.append("b")
+            return {"order": "b"}
+
+        mock_engine.register_pre_submit(hook_a)
+        mock_engine.register_pre_submit(hook_b)
+        mock_engine.submit("test_procedure")
+
+        assert call_order == ["a", "b"]
+
+    def test_pre_submit_receives_plan_name(self, mock_engine) -> None:
+        """Test that pre-submit callable receives the plan name."""
+        received_names = []
+
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            received_names.append(plan_name)
+            return {}
+
+        mock_engine.register_pre_submit(hook)
+        mock_engine.submit("test_procedure", name="my_scan")
+
+        assert received_names == ["my_scan"]
+
+    def test_call_passes_skip_pre_submit(self, mock_engine) -> None:
+        """Test that __call__ passes skip_pre_submit through."""
+        hook_called = []
+
+        def hook(plan_name: str, kwargs: dict) -> dict:
+            hook_called.append(True)
+            return {}
+
+        mock_engine.register_pre_submit(hook)
+        mock_engine("test_procedure", skip_pre_submit=True)
+
+        assert len(hook_called) == 0
+
+    def test_pre_submit_exception_cancels(self, mock_engine) -> None:
+        """Test that an exception in a hook cancels submission."""
+        def crashing_hook(plan_name: str, kwargs: dict) -> dict:
+            raise RuntimeError("hook error")
+
+        mock_engine.register_pre_submit(crashing_hook)
+        result = mock_engine.submit("test_procedure")
+        assert result is None
+
+
+class TestPreSubmitIntegration:
+    """Integration tests for pre-submit with SampleMetadataDialog."""
+
+    def test_sample_metadata_callable_returns_metadata(self, qapp) -> None:
+        """Test the callable that wraps SampleMetadataDialog."""
+        from unittest.mock import patch, MagicMock
+
+        from PySide6.QtWidgets import QDialog
+
+        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+
+        with patch(
+            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+        ) as MockDialog:
+            mock_dialog = MagicMock()
+            mock_dialog.exec.return_value = QDialog.DialogCode.Accepted
+            mock_dialog.get_metadata.return_value = {"sample_name": "test"}
+            MockDialog.return_value = mock_dialog
+
+            result = _sample_metadata_pre_submit("scan", {})
+            assert result == {"sample_name": "test"}
+
+    def test_sample_metadata_callable_returns_none_on_cancel(self, qapp) -> None:
+        """Test the callable returns None when dialog is cancelled."""
+        from unittest.mock import patch, MagicMock
+
+        from PySide6.QtWidgets import QDialog
+
+        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+
+        with patch(
+            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+        ) as MockDialog:
+            mock_dialog = MagicMock()
+            mock_dialog.exec.return_value = QDialog.DialogCode.Rejected
+            MockDialog.return_value = mock_dialog
+
+            result = _sample_metadata_pre_submit("scan", {})
+            assert result is None

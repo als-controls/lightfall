@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, Qt, QTimer
+from PySide6.QtCore import Property, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -21,13 +21,12 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QLabel,
-    QLineEdit,
     QPushButton,
-    QComboBox,
-    QFrame,
 )
-from PySide6.QtGui import QDoubleValidator, QIntValidator
 
+from lucid.epics.widgets.lineedit import PVLineEdit
+from lucid.epics.widgets.combobox import PVComboBox
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.epics.widgets.style import (
     get_success_color,
     get_error_color,
@@ -53,38 +52,6 @@ DETECTOR_STATES = {
     9: "Disconnected",
     10: "Aborted",
 }
-
-
-class StatusIndicator(QFrame):
-    """A small circular status indicator."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(14, 14)
-        self._state = "off"
-        self._update_style()
-
-    def set_state(self, state: str) -> None:
-        """Set indicator state: 'off', 'on', 'warning', 'error', 'disconnected'."""
-        self._state = state
-        self._update_style()
-
-    def _update_style(self) -> None:
-        colors = {
-            "off": "#666666",
-            "on": get_success_color(),
-            "warning": get_warning_color(),
-            "error": get_error_color(),
-            "disconnected": get_disconnected_color(),
-        }
-        color = colors.get(self._state, colors["off"])
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 7px;
-                border: 1px solid #333;
-            }}
-        """)
 
 
 class PVAreaDetectorControls(QWidget):
@@ -194,38 +161,34 @@ class PVAreaDetectorControls(QWidget):
         row = 0
 
         settings_layout.addWidget(QLabel("Acquire Time:"), row, 0)
-        self._acquire_time_edit = QLineEdit()
-        self._acquire_time_edit.setValidator(QDoubleValidator(0, 10000, 6))
-        self._acquire_time_edit.setPlaceholderText("seconds")
-        self._acquire_time_edit.editingFinished.connect(self._on_acquire_time_changed)
+        self._acquire_time_edit = PVLineEdit(
+            show_units=False, precision=6, write_on_enter=True, parent=self,
+        )
         settings_layout.addWidget(self._acquire_time_edit, row, 1)
         settings_layout.addWidget(QLabel("s"), row, 2)
 
         row += 1
 
         settings_layout.addWidget(QLabel("Acquire Period:"), row, 0)
-        self._acquire_period_edit = QLineEdit()
-        self._acquire_period_edit.setValidator(QDoubleValidator(0, 10000, 6))
-        self._acquire_period_edit.setPlaceholderText("seconds")
-        self._acquire_period_edit.editingFinished.connect(self._on_acquire_period_changed)
+        self._acquire_period_edit = PVLineEdit(
+            show_units=False, precision=6, write_on_enter=True, parent=self,
+        )
         settings_layout.addWidget(self._acquire_period_edit, row, 1)
         settings_layout.addWidget(QLabel("s"), row, 2)
 
         row += 1
 
         settings_layout.addWidget(QLabel("Num Images:"), row, 0)
-        self._num_images_edit = QLineEdit()
-        self._num_images_edit.setValidator(QIntValidator(1, 1000000))
-        self._num_images_edit.setPlaceholderText("count")
-        self._num_images_edit.editingFinished.connect(self._on_num_images_changed)
+        self._num_images_edit = PVLineEdit(
+            show_units=False, write_on_enter=True, precision=0, parent=self,
+        )
         settings_layout.addWidget(self._num_images_edit, row, 1)
 
         row += 1
 
         settings_layout.addWidget(QLabel("Image Mode:"), row, 0)
-        self._image_mode_combo = QComboBox()
-        self._image_mode_combo.addItems(IMAGE_MODES)
-        self._image_mode_combo.currentIndexChanged.connect(self._on_image_mode_changed)
+        self._image_mode_combo = PVComboBox(write_on_change=True, parent=self)
+        self._image_mode_combo.set_items(IMAGE_MODES)
         settings_layout.addWidget(self._image_mode_combo, row, 1)
 
         main_layout.addWidget(settings_group)
@@ -318,17 +281,16 @@ class PVAreaDetectorControls(QWidget):
         if not self._cam_prefix:
             return
 
+        # Delegate acquisition settings to PV widgets
+        self._acquire_time_edit.pv_name = f"{self._cam_prefix}AcquireTime"
+        self._acquire_period_edit.pv_name = f"{self._cam_prefix}AcquirePeriod"
+        self._num_images_edit.pv_name = f"{self._cam_prefix}NumImages"
+        self._image_mode_combo.pv_name = f"{self._cam_prefix}ImageMode"
+
+        # Manual PVs only for acquire control and detector state
         from lucid.epics.ca.pv import PV
 
         pv_fields = {
-            "AcquireTime": "acquire_time",
-            "AcquireTime_RBV": "acquire_time_rbv",
-            "AcquirePeriod": "acquire_period",
-            "AcquirePeriod_RBV": "acquire_period_rbv",
-            "NumImages": "num_images",
-            "NumImages_RBV": "num_images_rbv",
-            "ImageMode": "image_mode",
-            "ImageMode_RBV": "image_mode_rbv",
             "Acquire": "acquire",
             "DetectorState_RBV": "detector_state",
         }
@@ -342,6 +304,13 @@ class PVAreaDetectorControls(QWidget):
             self._pvs[name] = pv
 
     def _disconnect_pvs(self) -> None:
+        # Disconnect PV widgets
+        self._acquire_time_edit.pv_name = ""
+        self._acquire_period_edit.pv_name = ""
+        self._num_images_edit.pv_name = ""
+        self._image_mode_combo.pv_name = ""
+
+        # Disconnect manual PVs
         for pv in self._pvs.values():
             pv.disconnect_pv()
             pv.deleteLater()
@@ -357,15 +326,7 @@ class PVAreaDetectorControls(QWidget):
                 value = value[0]
         self._values[name] = value
 
-        if name == "acquire_time_rbv":
-            self._update_acquire_time_display()
-        elif name == "acquire_period_rbv":
-            self._update_acquire_period_display()
-        elif name == "num_images_rbv":
-            self._update_num_images_display()
-        elif name == "image_mode_rbv":
-            self._update_image_mode_display()
-        elif name == "acquire":
+        if name == "acquire":
             self._update_acquire_state()
         elif name == "detector_state":
             self._update_detector_state()
@@ -389,39 +350,12 @@ class PVAreaDetectorControls(QWidget):
         self.connection_changed.emit(is_connected)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
-        self._acquire_time_edit.setEnabled(enabled)
-        self._acquire_period_edit.setEnabled(enabled)
-        self._num_images_edit.setEnabled(enabled)
-        self._image_mode_combo.setEnabled(enabled)
+        self._acquire_time_edit.readonly = not enabled
+        self._acquire_period_edit.readonly = not enabled
+        self._num_images_edit.readonly = not enabled
+        self._image_mode_combo.readonly = not enabled
         self._acquire_btn.setEnabled(enabled)
         self._abort_btn.setEnabled(enabled)
-
-    def _update_acquire_time_display(self) -> None:
-        if not self._acquire_time_edit.hasFocus():
-            value = self._values.get("acquire_time_rbv")
-            if value is not None:
-                self._acquire_time_edit.setText(f"{float(value):.6g}")
-
-    def _update_acquire_period_display(self) -> None:
-        if not self._acquire_period_edit.hasFocus():
-            value = self._values.get("acquire_period_rbv")
-            if value is not None:
-                self._acquire_period_edit.setText(f"{float(value):.6g}")
-
-    def _update_num_images_display(self) -> None:
-        if not self._num_images_edit.hasFocus():
-            value = self._values.get("num_images_rbv")
-            if value is not None:
-                self._num_images_edit.setText(str(int(value)))
-
-    def _update_image_mode_display(self) -> None:
-        value = self._values.get("image_mode_rbv")
-        if value is not None:
-            idx = int(value)
-            if 0 <= idx < len(IMAGE_MODES):
-                self._image_mode_combo.blockSignals(True)
-                self._image_mode_combo.setCurrentIndex(idx)
-                self._image_mode_combo.blockSignals(False)
 
     def _update_acquire_state(self) -> None:
         acquiring = bool(self._values.get("acquire", 0))
@@ -446,34 +380,6 @@ class PVAreaDetectorControls(QWidget):
         else:
             self._conn_indicator.set_state("disconnected")
 
-    def _on_acquire_time_changed(self) -> None:
-        try:
-            value = float(self._acquire_time_edit.text())
-            if "acquire_time" in self._pvs:
-                self._pvs["acquire_time"].put(value)
-        except ValueError:
-            pass
-
-    def _on_acquire_period_changed(self) -> None:
-        try:
-            value = float(self._acquire_period_edit.text())
-            if "acquire_period" in self._pvs:
-                self._pvs["acquire_period"].put(value)
-        except ValueError:
-            pass
-
-    def _on_num_images_changed(self) -> None:
-        try:
-            value = int(self._num_images_edit.text())
-            if "num_images" in self._pvs:
-                self._pvs["num_images"].put(value)
-        except ValueError:
-            pass
-
-    def _on_image_mode_changed(self, index: int) -> None:
-        if "image_mode" in self._pvs:
-            self._pvs["image_mode"].put(index)
-
     def _on_acquire_clicked(self) -> None:
         if "acquire" in self._pvs:
             self._pvs["acquire"].put(1)
@@ -489,22 +395,22 @@ class PVAreaDetectorControls(QWidget):
         self._on_abort_clicked()
 
     def set_acquire_time(self, seconds: float) -> None:
-        if "acquire_time" in self._pvs:
-            self._pvs["acquire_time"].put(seconds)
+        if self._acquire_time_edit.connected:
+            self._acquire_time_edit.write_value(seconds)
 
     def set_acquire_period(self, seconds: float) -> None:
-        if "acquire_period" in self._pvs:
-            self._pvs["acquire_period"].put(seconds)
+        if self._acquire_period_edit.connected:
+            self._acquire_period_edit.write_value(seconds)
 
     def set_num_images(self, count: int) -> None:
-        if "num_images" in self._pvs:
-            self._pvs["num_images"].put(count)
+        if self._num_images_edit.connected:
+            self._num_images_edit.write_value(count)
 
     def set_image_mode(self, mode: str) -> None:
         if mode in IMAGE_MODES:
             idx = IMAGE_MODES.index(mode)
-            if "image_mode" in self._pvs:
-                self._pvs["image_mode"].put(idx)
+            if self._image_mode_combo.connected:
+                self._image_mode_combo.write_value(idx)
 
     @property
     def is_connected(self) -> bool:
@@ -524,22 +430,22 @@ class PVAreaDetectorControls(QWidget):
 
     @property
     def acquire_time(self) -> float | None:
-        val = self._values.get("acquire_time_rbv")
+        val = self._acquire_time_edit._value
         return float(val) if val is not None else None
 
     @property
     def acquire_period(self) -> float | None:
-        val = self._values.get("acquire_period_rbv")
+        val = self._acquire_period_edit._value
         return float(val) if val is not None else None
 
     @property
     def num_images(self) -> int | None:
-        val = self._values.get("num_images_rbv")
+        val = self._num_images_edit._value
         return int(val) if val is not None else None
 
     @property
     def image_mode(self) -> str | None:
-        val = self._values.get("image_mode_rbv")
+        val = self._image_mode_combo._value
         if val is not None:
             idx = int(val)
             if 0 <= idx < len(IMAGE_MODES):

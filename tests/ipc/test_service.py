@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -276,3 +278,27 @@ class TestRequest:
         svc._loop = None
         result = svc.request("test.ping", {})
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestInstanceIdentity
+# ---------------------------------------------------------------------------
+
+
+class TestInstanceIdentity:
+    @pytest.fixture
+    def svc(self, qapp):
+        return IPCService(nats_url="nats://localhost:4222", topic_prefix="als.test")
+
+    def test_instance_id_contains_hostname(self, svc):
+        assert platform.node() in svc.instance_id
+
+    def test_instance_id_contains_pid(self, svc):
+        assert str(os.getpid()) in svc.instance_id
+
+    def test_display_name_defaults_to_none(self, svc):
+        assert svc.display_name is None
+
+    def test_display_name_settable(self, svc):
+        svc.display_name = "CMS Hutch"
+        assert svc.display_name == "CMS Hutch"
