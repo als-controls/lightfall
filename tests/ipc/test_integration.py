@@ -555,7 +555,7 @@ class TestLogbookIPCRefresh:
         client._initialized = True
         return client, db
 
-    def test_create_entry_fires_callback(self):
+    def test_create_entry_fires_callback(self, qapp):
         client, db = self._make_client()
 
         captured = []
@@ -569,6 +569,9 @@ class TestLogbookIPCRefresh:
         db.commit()
 
         entry_id = client.create_entry(logbook_id, title="IPC Test")
+
+        # Callback is deferred via QTimer.singleShot(0, ...) — process events
+        qapp.processEvents()
 
         assert len(captured) == 1
         assert captured[0] == (entry_id, logbook_id)

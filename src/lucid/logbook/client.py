@@ -478,7 +478,8 @@ class LogbookClient:
         )
         db.commit()
         if self._on_entry_created_callback:
-            self._on_entry_created_callback(eid, logbook_id)
+            cb = self._on_entry_created_callback
+            QTimer.singleShot(0, lambda: cb(eid, logbook_id))
         self.schedule_sync()
         return eid
 
