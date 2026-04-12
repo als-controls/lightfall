@@ -315,8 +315,6 @@ class LogbookPanel(BasePanel):
 
     def _on_ipc_entry_created(self, entry_id: str, logbook_id: str) -> None:
         """Handle an entry created outside the panel (e.g. via IPC)."""
-        if logbook_id != self._logbook_id:
-            return
         if entry_id in self._entries:
             return  # Already known (manual creation path)
         row = self._client.get_entry(entry_id) if self._client else None
