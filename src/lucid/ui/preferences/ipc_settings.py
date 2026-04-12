@@ -47,12 +47,14 @@ class IPCSettingsPlugin(SettingsPlugin):
     Preferences keys:
     - ``ipc_nats_url``: str — NATS broker URL
     - ``ipc_topic_prefix``: str — topic prefix for all published messages
+    - ``ipc_display_name``: str — human-readable name for this LUCID instance
     """
 
     def __init__(self) -> None:
         self._widget: QWidget | None = None
         self._url_edit: QLineEdit | None = None
         self._prefix_edit: QLineEdit | None = None
+        self._display_name_edit: QLineEdit | None = None
         self._test_btn: QPushButton | None = None
         self._status_label: QLabel | None = None
         self._trusted_list: QListWidget | None = None
@@ -95,6 +97,10 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._prefix_edit = QLineEdit()
         self._prefix_edit.setPlaceholderText("als.7011")
         connection_layout.addRow("Topic Prefix:", self._prefix_edit)
+
+        self._display_name_edit = QLineEdit()
+        self._display_name_edit.setPlaceholderText("e.g. CMS Hutch")
+        connection_layout.addRow("Display Name:", self._display_name_edit)
 
         test_layout = QHBoxLayout()
         self._test_btn = QPushButton("Test Connection")
@@ -196,15 +202,19 @@ class IPCSettingsPlugin(SettingsPlugin):
             self._url_edit.setText(prefs.get("ipc_nats_url", ""))
         if self._prefix_edit:
             self._prefix_edit.setText(prefs.get("ipc_topic_prefix", "als.7011"))
+        if self._display_name_edit:
+            self._display_name_edit.setText(prefs.get("ipc_display_name", ""))
 
     def save_settings(self) -> None:
         prefs = PreferencesManager.get_instance()
 
         url = self._url_edit.text().strip() if self._url_edit else ""
         prefix = self._prefix_edit.text().strip() if self._prefix_edit else ""
+        display_name = self._display_name_edit.text().strip() if self._display_name_edit else ""
 
         prefs.set("ipc_nats_url", url)
         prefs.set("ipc_topic_prefix", prefix)
+        prefs.set("ipc_display_name", display_name)
 
     def validate(self) -> list[str]:
         errors: list[str] = []
