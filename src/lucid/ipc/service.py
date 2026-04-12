@@ -128,10 +128,12 @@ class IPCService(QObject):
 
     @property
     def instance_id(self) -> str:
+        """Unique identity for this IPCService instance (``{hostname}-{pid}``)."""
         return self._instance_id
 
     @property
     def display_name(self) -> str | None:
+        """Optional human-readable name for this instance."""
         return self._display_name
 
     @display_name.setter
