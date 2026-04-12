@@ -29,6 +29,8 @@ from lucid.visualization import (
     SelectionEngine,
     VisualizationRegistry,
 )
+from lucid.ui.theater.manager import theater_manager
+from lucid.ui.theater.proxy import TheaterProxy
 from lucid.visualization.fitting.panel import FitPanel
 
 if TYPE_CHECKING:
@@ -75,6 +77,7 @@ class VisualizationPanel(BasePanel):
         self._acquire_engine: BaseEngine | None = None
 
         self._current_widget: BaseVisualizationWidget | None = None
+        self._current_proxy: TheaterProxy | None = None
         self._current_plugin: VisualizationPlugin | None = None
         self._characteristics: DataCharacteristics | None = None
 
@@ -386,16 +389,28 @@ class VisualizationPanel(BasePanel):
             logger.error("Failed to create visualization: {}", e)
             return
 
-        # Remove old widget
-        if self._current_widget:
+        # Remove old widget/proxy
+        if self._current_proxy is not None:
+            # Force-close theater mode if this widget is currently expanded
+            if (
+                theater_manager._overlay is not None
+                and theater_manager._overlay._active_proxy is self._current_proxy
+            ):
+                theater_manager._overlay._finish_deactivate()
+            theater_manager.unregister(self._current_proxy)
+            self._viz_stack.removeWidget(self._current_proxy)
+            self._current_proxy.deleteLater()
+        elif self._current_widget is not None:
             self._viz_stack.removeWidget(self._current_widget)
             self._current_widget.deleteLater()
 
-        # Add new widget
-        self._viz_stack.addWidget(widget)
-        self._viz_stack.setCurrentWidget(widget)
+        # Wrap in theater proxy and add to stack
+        proxy = TheaterProxy(widget)
+        self._viz_stack.addWidget(proxy)
+        self._viz_stack.setCurrentWidget(proxy)
 
         self._current_widget = widget
+        self._current_proxy = proxy
         self._current_plugin = plugin
 
         # Connect fit panel if plot
