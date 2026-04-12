@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import platform
 import ssl
 import threading
 from dataclasses import dataclass
@@ -117,6 +119,24 @@ class IPCService(QObject):
         self._action_catalog: dict[str, ActionInfo] = {}
         self._event_catalog: dict[str, EventInfo] = {}
         self._trust: TrustManager | None = None
+        self._instance_id = f"{platform.node()}-{os.getpid()}"
+        self._display_name: str | None = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def instance_id(self) -> str:
+        return self._instance_id
+
+    @property
+    def display_name(self) -> str | None:
+        return self._display_name
+
+    @display_name.setter
+    def display_name(self, value: str | None) -> None:
+        self._display_name = value
 
     # ------------------------------------------------------------------
     # Topic builder
@@ -211,14 +231,24 @@ class IPCService(QObject):
     ) -> None:
         """Respond to a ``meta.actions`` request with the action catalog."""
         if reply:
-            self.reply(reply, {"actions": self.list_actions()})
+            self.reply(reply, {
+                "instance_id": self._instance_id,
+                "display_name": self._display_name,
+                "prefix": self._topic_prefix,
+                "actions": self.list_actions(),
+            })
 
     def _handle_meta_events(
         self, subject: str, data: dict, reply: str | None
     ) -> None:
         """Respond to a ``meta.events`` request with the event catalog."""
         if reply:
-            self.reply(reply, {"events": self.list_events()})
+            self.reply(reply, {
+                "instance_id": self._instance_id,
+                "display_name": self._display_name,
+                "prefix": self._topic_prefix,
+                "events": self.list_events(),
+            })
 
     def register_meta_endpoints(self) -> None:
         """Register ``meta.actions`` and ``meta.events`` discovery endpoints."""
