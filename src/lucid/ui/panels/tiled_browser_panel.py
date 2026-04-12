@@ -451,35 +451,33 @@ class TiledBrowserPanel(BasePanel):
             logger.warning("No visualization data to display")
             return
 
-        from PySide6.QtWidgets import QApplication
-
+        from lucid.core.services import ServiceRegistry
+        from lucid.ui.docking import DockingManager
         from lucid.ui.panels.visualization_panel import VisualizationPanel
 
-        # Find the main window and ensure the visualization panel is visible
-        viz_panel_id = "lucid.panels.visualization"
-        for widget in QApplication.topLevelWidgets():
-            if widget.__class__.__name__ == "NCSMainWindow":
-                dm = getattr(widget, "_docking_manager", None)
-                if dm:
-                    dm.show_panel(viz_panel_id)
-                    panel = dm.get_panel(viz_panel_id)
-                    if isinstance(panel, VisualizationPanel):
-                        panel.open_tiled_run(
-                            start_doc=result["start_doc"],
-                            descriptor=result["descriptor"],
-                            image_client=result.get("image_client"),
-                            timestamps=result["timestamps"],
-                            frame_shape=result.get("frame_shape", ()),
-                            is_live=result.get("is_live", False),
-                            entry=result.get("entry"),
-                            scalar_data=result.get("scalar_data"),
-                            scalar_fields=result.get("scalar_fields", []),
-                        )
-                        logger.info("Opened tiled run in visualization")
-                        return
-                break
+        dm = ServiceRegistry.get_instance().get(DockingManager, None)
+        if dm is None:
+            logger.warning("DockingManager not available")
+            return
 
-        logger.warning("Visualization panel not found")
+        viz_panel_id = "lucid.panels.visualization"
+        dm.show_panel(viz_panel_id)
+        panel = dm.get_panel(viz_panel_id)
+        if isinstance(panel, VisualizationPanel):
+            panel.open_tiled_run(
+                start_doc=result["start_doc"],
+                descriptor=result["descriptor"],
+                image_client=result.get("image_client"),
+                timestamps=result["timestamps"],
+                frame_shape=result.get("frame_shape", ()),
+                is_live=result.get("is_live", False),
+                entry=result.get("entry"),
+                scalar_data=result.get("scalar_data"),
+                scalar_fields=result.get("scalar_fields", []),
+            )
+            logger.info("Opened tiled run in visualization")
+        else:
+            logger.warning("Visualization panel not found")
 
     @Slot(Exception)
     def _on_replay_error(self, error: Exception) -> None:

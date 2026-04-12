@@ -230,6 +230,12 @@ class NCSMainWindow(QMainWindow):
         self._docking_manager = DockingManager(self)
         self._docking_manager.initialize()
 
+        # Register with service registry so other components can access it
+        from lucid.core.services import ServiceRegistry
+        ServiceRegistry.get_instance().register_instance(
+            DockingManager, self._docking_manager, replace=True,
+        )
+
         # Connect docking signals
         self._docking_manager.panel_focused.connect(self._on_panel_focused)
 
