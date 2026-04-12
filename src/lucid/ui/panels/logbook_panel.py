@@ -139,6 +139,7 @@ class LogbookPanel(BasePanel):
             # Monitor sync connection status
             self._client._on_sync_error_callback = lambda: self._set_disconnected(True)
             self._client._on_sync_restored_callback = lambda: self._set_disconnected(False)
+            self._client.set_on_entry_created_callback(self._on_ipc_entry_created)
 
             self._load_entries()
             self._start_event_listener()
@@ -311,6 +312,20 @@ class LogbookPanel(BasePanel):
             logger.info("Created new entry {}", entry_id)
         except Exception as e:
             logger.error("Failed to create entry: {}", e)
+
+    def _on_ipc_entry_created(self, entry_id: str, logbook_id: str) -> None:
+        """Handle an entry created outside the panel (e.g. via IPC)."""
+        if logbook_id != self._logbook_id:
+            return
+        if entry_id in self._entries:
+            return  # Already known (manual creation path)
+        row = self._client.get_entry(entry_id) if self._client else None
+        if not row:
+            return
+        ed = self._row_to_entry_data(row)
+        self._entries[entry_id] = ed
+        if self._entries_panel:
+            self._entries_panel.add_entry(ed)
 
     @Slot(str, str)
     def _on_fragment_added(self, entry_id: str, fragment_id: str) -> None:

@@ -364,6 +364,7 @@ class LogbookClient:
         self._on_pull_callback: callable | None = None
         self._on_sync_error_callback: callable | None = None
         self._on_sync_restored_callback: callable | None = None
+        self._on_entry_created_callback: callable | None = None
         self._sync_failed = False
 
     @classmethod
@@ -476,6 +477,8 @@ class LogbookClient:
             (eid, logbook_id, title, json.dumps(tags or []), now, now),
         )
         db.commit()
+        if self._on_entry_created_callback:
+            self._on_entry_created_callback(eid, logbook_id)
         self.schedule_sync()
         return eid
 
@@ -723,6 +726,13 @@ class LogbookClient:
     def set_on_pull_callback(self, callback: callable) -> None:
         """Register a callback to be invoked when data is pulled from the server."""
         self._on_pull_callback = callback
+
+    def set_on_entry_created_callback(self, callback: callable) -> None:
+        """Register a callback invoked when an entry is created locally.
+
+        The callback receives ``(entry_id, logbook_id)``.
+        """
+        self._on_entry_created_callback = callback
 
     def schedule_sync(self) -> None:
         """Debounce sync — waits 2s after last mutation before starting."""

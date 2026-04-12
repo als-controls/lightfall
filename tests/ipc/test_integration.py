@@ -518,3 +518,70 @@ class TestAgentIPCIntegration:
         payload = ipc.reply.call_args[0][1]
         assert payload["error"] is True
         assert "message is required" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# TestLogbookIPCRefresh
+# ---------------------------------------------------------------------------
+
+
+class TestLogbookIPCRefresh:
+    """Verify LogbookClient fires entry-created callback."""
+
+    def _make_client(self):
+        import sqlite3
+
+        from lucid.logbook.client import LogbookClient
+
+        client = LogbookClient.__new__(LogbookClient)
+        client._db = None
+        client._sync_timer = None
+        client._on_pull_callback = None
+        client._on_sync_error_callback = None
+        client._on_sync_restored_callback = None
+        client._on_entry_created_callback = None
+        client._sync_failed = False
+        client._offline_only = True
+        client._server_url = None
+
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS logbook (id TEXT PRIMARY KEY, user_id TEXT, created_at TEXT);
+            CREATE TABLE IF NOT EXISTS entry (id TEXT PRIMARY KEY, logbook_id TEXT, title TEXT, tags TEXT, created_at TEXT, updated_at TEXT, sync_status TEXT);
+            CREATE TABLE IF NOT EXISTS fragment (id TEXT PRIMARY KEY, entry_id TEXT, kind TEXT, subtype TEXT, content TEXT, data TEXT, position INTEGER, created_at TEXT, updated_at TEXT, sync_status TEXT);
+        """)
+        client._db = db
+        client._initialized = True
+        return client, db
+
+    def test_create_entry_fires_callback(self):
+        client, db = self._make_client()
+
+        captured = []
+        client.set_on_entry_created_callback(lambda eid, lid: captured.append((eid, lid)))
+
+        logbook_id = "test-logbook"
+        db.execute(
+            "INSERT INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+            (logbook_id, "testuser", "2026-01-01"),
+        )
+        db.commit()
+
+        entry_id = client.create_entry(logbook_id, title="IPC Test")
+
+        assert len(captured) == 1
+        assert captured[0] == (entry_id, logbook_id)
+
+    def test_no_callback_no_error(self):
+        """create_entry doesn't crash when no callback is registered."""
+        client, db = self._make_client()
+
+        db.execute(
+            "INSERT INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+            ("lb", "testuser", "2026-01-01"),
+        )
+        db.commit()
+
+        entry_id = client.create_entry("lb", title="No callback")
+        assert entry_id
