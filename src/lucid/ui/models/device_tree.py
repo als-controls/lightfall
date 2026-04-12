@@ -931,7 +931,7 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
 
         # Kind filter: set of kinds to show (None means show all)
         self._visible_kinds: set[str] | None = None
-        self._show_inactive: bool = True
+        self._show_inactive: bool = False
 
     def set_visible_kinds(self, kinds: set[str] | None) -> None:
         """Set which kinds should be visible.

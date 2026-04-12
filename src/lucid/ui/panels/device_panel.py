@@ -381,11 +381,11 @@ class DevicePanel(BasePanel):
 
         # Toggle inactive device visibility
         self._show_inactive_action = QAction(
-            qta.icon("mdi6.eye"), "Show Disabled", self
+            qta.icon("mdi6.eye-closed"), "Show Disabled", self
         )
         self._show_inactive_action.setToolTip("Show or hide disabled devices")
         self._show_inactive_action.setCheckable(True)
-        self._show_inactive_action.setChecked(True)
+        self._show_inactive_action.setChecked(False)
         self._show_inactive_action.toggled.connect(self._on_toggle_inactive)
         toolbar.addAction(self._show_inactive_action)
 
