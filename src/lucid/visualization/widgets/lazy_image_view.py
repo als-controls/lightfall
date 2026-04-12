@@ -73,6 +73,8 @@ class LazyImageView(pg.ImageView):
         self._frame_shape: tuple[int, ...] = ()
         self._proxy: _ArrayProxy | None = None
         self._minmax_cache: list[tuple[float, float]] | None = None
+        self._log_mode: bool = False
+        self._dark_frame: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -161,6 +163,29 @@ class LazyImageView(pg.ImageView):
         # Invalidate min/max cache since new data may extend range
         self._minmax_cache = None
 
+    def set_log_mode(self, enabled: bool) -> None:
+        """Toggle log intensity mode for lazy-fetched frames."""
+        self._log_mode = enabled
+        self._minmax_cache = None
+        if self._client is not None and self._proxy is not None:
+            self.updateImage()
+
+    def set_dark_frame(self, dark: np.ndarray | None) -> None:
+        """Set or clear the dark frame for background correction."""
+        self._dark_frame = dark
+        self._minmax_cache = None
+        if self._client is not None and self._proxy is not None:
+            self.updateImage()
+
+    def _transform_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Apply background correction and log transform to a frame."""
+        if self._dark_frame is not None and self._dark_frame.shape == frame.shape:
+            frame = frame - self._dark_frame
+            np.clip(frame, 0, None, out=frame)
+        if self._log_mode:
+            frame = np.log1p(frame)
+        return frame
+
     # ------------------------------------------------------------------
     # Overrides
     # ------------------------------------------------------------------
@@ -174,7 +199,7 @@ class LazyImageView(pg.ImageView):
         if self._client is None or self._proxy is None:
             return
 
-        frame = self._fetch_frame(self.currentIndex)
+        frame = self._transform_frame(self._fetch_frame(self.currentIndex))
 
         # Set _imageLevels so that autoLevels() (called by setImage after
         # this method) finds valid level data instead of None.
@@ -194,7 +219,7 @@ class LazyImageView(pg.ImageView):
         """Return the current single frame (skip normalisation)."""
         if self._client is None:
             return np.zeros((1, 1), dtype=np.float32)
-        frame = self._fetch_frame(self.currentIndex)
+        frame = self._transform_frame(self._fetch_frame(self.currentIndex))
         # Cache levels for autoLevels
         self._imageLevels = self.quickMinMax(frame)
         self.levelMin = min(lv[0] for lv in self._imageLevels)
@@ -232,7 +257,7 @@ class LazyImageView(pg.ImageView):
         global_max = -np.inf
 
         for idx in indices:
-            frame = self._fetch_frame(int(idx))
+            frame = self._transform_frame(self._fetch_frame(int(idx)))
             lo = float(np.nanmin(frame))
             hi = float(np.nanmax(frame))
             if lo < global_min:

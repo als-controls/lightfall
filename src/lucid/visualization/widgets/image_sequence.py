@@ -8,6 +8,7 @@ pyqtgraph's built-in timeline navigation, ROI selection, and
 from __future__ import annotations
 
 import json
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -30,6 +31,7 @@ from lucid.visualization.spec import (
     VisualizationSpec,
 )
 from lucid.visualization.theme import ThemedVisualizationMixin, VisualizationColors
+from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
 from lucid.visualization.widgets.lazy_image_view import LazyImageView
 from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
 
@@ -65,6 +67,11 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         # Lazy-mode state (ArrayClient references)
         self._image_client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
+
+        # Image processing state
+        self._log_mode: bool = False
+        self._bg_correct: bool = False
+        self._dark_manager: DarkFrameManager | None = None
 
         # ROI-related state
         self._roi: pg.RectROI | None = None
@@ -127,6 +134,8 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
     def _create_toolbar(self) -> QHBoxLayout:
         """Create the toolbar."""
+        import qtawesome as qta
+
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
@@ -151,6 +160,36 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
 
         toolbar.addStretch()
 
+        # Reset LUT (percentile-based auto-levels)
+        self._reset_lut_btn = QPushButton(qta.icon("mdi6.chart-histogram"), "Reset LUT")
+        self._reset_lut_btn.setFixedHeight(24)
+        self._reset_lut_btn.clicked.connect(self._on_reset_lut)
+        toolbar.addWidget(self._reset_lut_btn)
+
+        # Reset Axes
+        self._reset_axes_btn = QPushButton(qta.icon("mdi6.magnify"), "Reset Axes")
+        self._reset_axes_btn.setFixedHeight(24)
+        self._reset_axes_btn.clicked.connect(self._on_reset_axes)
+        toolbar.addWidget(self._reset_axes_btn)
+
+        # Log Intensity (toggle)
+        self._log_icon_off = qta.icon("mdi6.lightbulb")
+        self._log_icon_on = qta.icon("mdi6.lightbulb-on-outline")
+        self._log_intensity_btn = QPushButton(self._log_icon_off, "Log Intensity")
+        self._log_intensity_btn.setFixedHeight(24)
+        self._log_intensity_btn.setCheckable(True)
+        self._log_intensity_btn.toggled.connect(self._on_log_intensity_toggled)
+        toolbar.addWidget(self._log_intensity_btn)
+
+        # BG Correct (toggle)
+        self._bg_icon_off = qta.icon("mdi6.lightbulb-night")
+        self._bg_icon_on = qta.icon("mdi6.lightbulb-night-outline")
+        self._bg_correct_btn = QPushButton(self._bg_icon_off, "BG Correct")
+        self._bg_correct_btn.setFixedHeight(24)
+        self._bg_correct_btn.setCheckable(True)
+        self._bg_correct_btn.toggled.connect(self._on_bg_correct_toggled)
+        toolbar.addWidget(self._bg_correct_btn)
+
         # ROI toggle button
         self._roi_btn = QPushButton("ROI")
         self._roi_btn.setCheckable(True)
@@ -165,11 +204,6 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         self._roi_stat_combo.currentTextChanged.connect(self._on_roi_stat_changed)
         self._roi_stat_combo.hide()
         toolbar.addWidget(self._roi_stat_combo)
-
-        # Auto-levels button
-        auto_btn = QPushButton("Auto Levels")
-        auto_btn.clicked.connect(self._on_auto_levels)
-        toolbar.addWidget(auto_btn)
 
         return toolbar
 
@@ -192,10 +226,86 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         except Exception as e:
             logger.debug("Could not apply colormap: {}", e)
 
-    def _on_auto_levels(self) -> None:
-        """Auto-adjust contrast levels."""
+    def _on_reset_lut(self) -> None:
+        """Reset LUT using percentile-based bounds (1st/99th percentile).
+
+        Matches the Camera Control's Reset LUT behavior — excludes hot
+        pixels and dead pixels from dominating the color scale.
+        """
+        if not self._image_view:
+            return
+        img = self._image_view.imageItem.image
+        if img is None:
+            return
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            step = max(1, img.size // 1_000_000)
+            data = img.ravel()[::step].astype(np.float64)
+            if data.size == 0:
+                return
+            lo = float(np.nanpercentile(data, 1))
+            hi = float(np.nanpercentile(data, 99))
+            if lo >= hi:
+                lo = float(np.nanmin(data))
+                hi = float(np.nanmax(data))
+            if lo == hi:
+                hi = lo + 1.0
+        self._image_view.setLevels(lo, hi)
+
+    def _on_reset_axes(self) -> None:
+        """Reset view to fit the image bounds."""
         if self._image_view:
-            self._image_view.autoLevels()
+            self._image_view.getView().autoRange()
+
+    def _on_log_intensity_toggled(self, checked: bool) -> None:
+        """Toggle log intensity transform on the displayed image."""
+        self._log_mode = checked
+        self._log_intensity_btn.setIcon(
+            self._log_icon_on if checked else self._log_icon_off
+        )
+        if self._lazy_mode and self._image_view:
+            self._image_view.set_log_mode(checked)
+        elif self._images and self._image_view:
+            self._update_image_stack(jump_to_latest=False)
+
+    def _on_bg_correct_toggled(self, checked: bool) -> None:
+        """Toggle background correction using dark frame from Tiled."""
+        self._bg_correct = checked
+        self._bg_correct_btn.setIcon(
+            self._bg_icon_on if checked else self._bg_icon_off
+        )
+        if checked and self._dark_manager is None:
+            self._init_dark_manager()
+
+        if self._lazy_mode and self._image_view:
+            dark = (
+                self._dark_manager.dark_frame
+                if self._dark_manager and checked
+                else None
+            )
+            self._image_view.set_dark_frame(dark)
+        elif self._images and self._image_view:
+            self._update_image_stack(jump_to_latest=False)
+
+    def _init_dark_manager(self) -> None:
+        """Create a DarkFrameManager and load the most recent dark from Tiled."""
+        image_field = self._spec.image_field or self._img_combo.currentText()
+        if not image_field:
+            return
+        # Derive device name from image field (e.g. "pimte3_image" -> "pimte3")
+        device_name = (
+            image_field.rsplit("_image", 1)[0]
+            if "_image" in image_field
+            else image_field
+        )
+        self._dark_manager = DarkFrameManager(device_name)
+        self._dark_manager.load_dark_from_tiled(image_field=image_field)
+        if not self._dark_manager.has_dark:
+            logger.debug(
+                "No dark frame found for device '{}' (field '{}')",
+                device_name,
+                image_field,
+            )
 
     # === Lazy ArrayClient path (tiled replay / live) ===
 
@@ -488,12 +598,29 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
                 return timestamps[-1]
         return 0.0
 
-    def _update_image_stack(self) -> None:
-        """Update ImageView with current image stack and time values."""
+    def _update_image_stack(self, jump_to_latest: bool = True) -> None:
+        """Update ImageView with current image stack and time values.
+
+        Args:
+            jump_to_latest: If True, jump to the last frame. If False,
+                preserve the current frame position (used when toggling
+                transforms).
+        """
         if not self._images or not self._image_view:
             return
 
-        stack = np.array(self._images)
+        stack = np.array(self._images, dtype=np.float64)
+
+        # Apply background correction
+        if self._bg_correct and self._dark_manager and self._dark_manager.has_dark:
+            dark = self._dark_manager.dark_frame
+            if dark.shape == stack.shape[1:]:
+                stack = stack - dark[np.newaxis, ...]
+                np.clip(stack, 0, None, out=stack)
+
+        # Apply log transform
+        if self._log_mode:
+            stack = np.log1p(stack)
 
         # Use time values if we have them
         if self._time_values:
@@ -510,9 +637,12 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
                 autoLevels=len(self._images) == 1,
             )
 
-        # Jump to latest frame
-        self._image_view.setCurrentIndex(len(self._images) - 1)
-        self._current_frame = len(self._images) - 1
+        if jump_to_latest:
+            self._image_view.setCurrentIndex(len(self._images) - 1)
+            self._current_frame = len(self._images) - 1
+        else:
+            self._image_view.setCurrentIndex(self._current_frame)
+
         self._update_status()
 
         # Update ROI plot if enabled
