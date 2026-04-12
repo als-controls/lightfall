@@ -108,6 +108,7 @@ class OphydWidget(QWidget):
         else:
             self._connected = True
         self._update_connection_style()
+        self._update_readonly_state()
         self.connection_changed.emit(self._connected)
 
         # Subscribe for value updates
@@ -131,6 +132,7 @@ class OphydWidget(QWidget):
         self._signal = None
         self._connected = False
         self._update_connection_style()
+        self._update_readonly_state()
 
     # -- Value updates --------------------------------------------------------
 

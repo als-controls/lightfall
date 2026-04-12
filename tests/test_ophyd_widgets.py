@@ -205,6 +205,95 @@ class TestOphydLineEdit:
         assert w._get_widget_value() == 42
         assert isinstance(w._get_widget_value(), int)
 
+    def test_units_from_metadata(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 3.14
+        sig.metadata = {"units": "mm"}
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "mm"
+        assert w._units_label.text() == "mm"
+        assert w._units_label.isVisibleTo(w)
+
+    def test_units_from_describe(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 1.0
+        sig.metadata = "not a dict"
+        sig.describe.return_value = {"motor_x": {"units": "deg", "dtype": "number"}}
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "deg"
+        assert w._units_label.text() == "deg"
+
+    def test_units_hidden_when_empty(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 0.0
+        sig.metadata = {"units": ""}
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert not w._units_label.isVisibleTo(w)
+
+    def test_show_units_false_hides_label(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 5.0
+        sig.metadata = {"units": "eV"}
+        w = OphydLineEdit(show_units=False)
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "eV"
+        assert not w._units_label.isVisibleTo(w)
+
+    def test_modified_clears_on_matching_readback(self, qtbot):
+        """Yellow modified style should clear when readback matches typed value."""
+        w = OphydLineEdit(write_on_enter=False)
+        qtbot.addWidget(w)
+        w._value = 10.0
+        w._update_display()
+        # User types a new value
+        w._line_edit.setText("42.0000")
+        assert w._modified is True
+        # Simulate readback arriving with matching value
+        w._value = 42.0
+        w._apply_value_update()
+        assert w._modified is False
+        assert w._line_edit.text() == "42.0000"
+
+    def test_modified_persists_on_mismatched_readback(self, qtbot):
+        """Yellow style stays if readback doesn't match typed value."""
+        w = OphydLineEdit(write_on_enter=False)
+        qtbot.addWidget(w)
+        w._value = 10.0
+        w._update_display()
+        w._line_edit.setText("42.0000")
+        assert w._modified is True
+        # Readback arrives with different value (still moving)
+        w._value = 25.0
+        w._apply_value_update()
+        assert w._modified is True
+        # Text preserved — not overwritten by readback
+        assert w._line_edit.text() == "42.0000"
+
+    def test_show_units_toggle(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 5.0
+        sig.metadata = {"units": "eV"}
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units_label.isVisibleTo(w)
+        w.show_units = False
+        assert not w._units_label.isVisibleTo(w)
+        w.show_units = True
+        assert w._units_label.isVisibleTo(w)
+
 
 class TestOphydLabel:
     def test_displays_value(self, qtbot):

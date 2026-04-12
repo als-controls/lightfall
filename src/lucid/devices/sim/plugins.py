@@ -2,8 +2,30 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ophyd import Component, Device, Signal
 from ophyd.signal import SignalRO
+
+
+class UnitSignal(Signal):
+    """Signal subclass that carries engineering units."""
+
+    def __init__(self, *args: Any, units: str = "", **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._units = units
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        md = super().metadata
+        md["units"] = self._units
+        return md
+
+    def describe(self) -> dict[str, dict[str, Any]]:
+        desc = super().describe()
+        for info in desc.values():
+            info["units"] = self._units
+        return desc
 
 
 class SimCam(Device):
@@ -23,8 +45,8 @@ class SimCam(Device):
 
     # Acquisition control
     acquire = Component(Signal, value=0, kind="config")
-    acquire_time = Component(Signal, value=0.1, kind="config")
-    acquire_period = Component(Signal, value=0.2, kind="config")
+    acquire_time = Component(UnitSignal, value=0.1, units="s", kind="config")
+    acquire_period = Component(UnitSignal, value=0.2, units="s", kind="config")
     num_images = Component(Signal, value=1, kind="config")
     image_mode = Component(Signal, value=0, kind="config")  # 0=Single, 1=Multiple, 2=Continuous
 
