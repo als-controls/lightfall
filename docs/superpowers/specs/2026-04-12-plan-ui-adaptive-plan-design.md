@@ -29,9 +29,10 @@ GP visualization plugins are a separate spec, planned next.
    sets a flag the plan polls. Tsuchinoko learns the run ended via the existing
    `{prefix}.runs.complete` event.
 
-3. **Plan signatures stay clean.** The UI-state injection uses `contextvars`
-   so user-visible plan parameters aren't polluted with framework plumbing.
-   LUCID's introspection/UI-generation systems work unchanged.
+3. **Module-scoped state.** Plan and its UI share state via a module-level
+   instance in their common module. No framework plumbing (ContextVar,
+   injection, parameter filtering) — just Python scope. Plan is responsible
+   for resetting state at the start of each run.
 
 4. **Poll-based NATS bridging.** Bluesky plans are generator-based, not async.
    Rather than bolt an async primitive onto bluesky, the plan polls a
@@ -109,13 +110,20 @@ def plan_with_ui(ui_class):
 ### The state object
 
 `PlanState` is a `QObject` subclass (for Qt signals) with simple attributes
-for flags. Plans subclass it to add plan-specific state.
+for flags. Plans subclass it to add plan-specific state, and the plan
+module keeps a module-level instance that the UI class can reference.
 
 ```python
 from PySide6.QtCore import QObject, Signal
 
 class PlanState(QObject):
-    """Base class for shared state between a plan and its UI."""
+    """Base class for shared state between a plan and its UI.
+
+    Plans use this by:
+      1. Subclassing to add plan-specific signals and attributes.
+      2. Creating a module-level instance in the plan module.
+      3. Resetting it at the start of each plan execution.
+    """
 
     # Signals (plan → UI, thread-safe)
     status_changed = Signal(str)
@@ -128,52 +136,59 @@ class PlanState(QObject):
         super().__init__()
 
 
+# In adaptive.py:
 class AdaptivePlanState(PlanState):
     """State specific to the adaptive experiment plan."""
 
-    # Additional signals
     iteration_changed = Signal(int)
-    targets_received = Signal(int)  # n_targets
+    targets_received = Signal(int)
 
     current_iteration: int = 0
+
+
+_state = AdaptivePlanState()  # module-level — plan and UI share this
 ```
 
-### State injection via ContextVar
+### State sharing via module scope
+
+Both the plan function and its UI class live in the same module. They
+share state by referencing a module-level instance. No framework plumbing
+is needed.
 
 ```python
-from contextvars import ContextVar
+# adaptive.py
 
-_current_plan_state: ContextVar[PlanState] = ContextVar("plan_state")
-
-
-def get_plan_state() -> PlanState:
-    """Get the plan state for the currently-running plan.
-
-    Must be called from within a plan being executed by LUCID's
-    plan runner. Raises LookupError if no plan is active.
-    """
-    return _current_plan_state.get()
+class AdaptiveExperimentPanel(PlanUI):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # UI reads signals and sets flags on _state
+        _state.iteration_changed.connect(self._update_label)
+        self._stop_btn.clicked.connect(
+            lambda: setattr(_state, "stop_requested", True)
+        )
 
 
-def set_plan_state(state: PlanState) -> object:
-    """Set the plan state. Called by LUCID's plan runner before invoking
-    the plan generator. Returns a token for reset()."""
-    return _current_plan_state.set(state)
+@plan_with_ui(AdaptiveExperimentPanel)
+def adaptive_experiment(detectors, motors, experiment_id):
+    # Plan resets state at start of each run
+    _state.stop_requested = False
+    _state.pause_requested = False
+    _state.current_iteration = 0
+
+    while not _state.stop_requested:
+        ...
+        _state.current_iteration += 1
+        _state.iteration_changed.emit(_state.current_iteration)
 ```
 
-LUCID's plan runner does something like:
-
-```python
-def _run_plan_with_state(plan_func, state, args, kwargs):
-    token = set_plan_state(state)
-    try:
-        yield from plan_func(*args, **kwargs)
-    finally:
-        _current_plan_state.reset(token)
-```
-
-This wraps plan execution so the state is accessible via `get_plan_state()`
-anywhere inside the plan.
+**Why this works:**
+- Bluesky executes one plan at a time, so a module-level instance is safe.
+- PySide6 signals are thread-safe; plain attribute reads/writes on Python
+  primitives are GIL-safe.
+- The plan function stays clean — no extra parameters, no introspection
+  filtering needed for UI generation.
+- The framework is ignorant of state: it just instantiates the UI and
+  runs the plan.
 
 ### Plans panel integration
 
@@ -333,16 +348,21 @@ def adaptive_experiment(
 ### Behavior
 
 ```python
+# In adaptive.py (same module as _state and AdaptiveExperimentPanel above)
+
 def adaptive_experiment(detectors, motors, experiment_id,
                         lucid_prefix="als.7011", exhaust_first=False,
                         timeout=300.0, poll_interval=0.1):
-    from lucid.acquire.plan_ui import get_plan_state
     from lucid.acquire.nats_bridge import NATSPlanBridge
     from lucid.ipc.service import get_ipc_service
     from bluesky import plan_stubs as bps
     import time
 
-    state = get_plan_state()  # injected by plan runner
+    # Reset module-level state for this run
+    _state.stop_requested = False
+    _state.pause_requested = False
+    _state.current_iteration = 0
+
     ipc = get_ipc_service()
     if ipc is None:
         raise RuntimeError("NATS not available — adaptive plan requires IPC")
@@ -356,26 +376,26 @@ def adaptive_experiment(detectors, motors, experiment_id,
 
         deadline = time.monotonic() + timeout
 
-        while not state.stop_requested:
-            while state.pause_requested and not state.stop_requested:
+        while not _state.stop_requested:
+            while _state.pause_requested and not _state.stop_requested:
                 yield from bps.sleep(poll_interval)
 
             msg = bridge.try_get("tsuchinoko.targets")
             if msg is None:
                 if time.monotonic() > deadline:
-                    state.status_changed.emit("Timeout waiting for targets")
+                    _state.status_changed.emit("Timeout waiting for targets")
                     break
                 yield from bps.sleep(poll_interval)
                 continue
 
             targets = msg.get("targets", [])
-            iteration = msg.get("iteration", state.current_iteration + 1)
-            state.current_iteration = iteration
-            state.iteration_changed.emit(iteration)
-            state.targets_received.emit(len(targets))
+            iteration = msg.get("iteration", _state.current_iteration + 1)
+            _state.current_iteration = iteration
+            _state.iteration_changed.emit(iteration)
+            _state.targets_received.emit(len(targets))
 
             for target in targets:
-                if state.stop_requested:
+                if _state.stop_requested:
                     break
 
                 # Interleave motors and target values for mv
@@ -389,7 +409,7 @@ def adaptive_experiment(detectors, motors, experiment_id,
                         "n_new_points": 1,
                     })
 
-            if exhaust_first and not state.stop_requested:
+            if exhaust_first and not _state.stop_requested:
                 bridge.publish(f"{lucid_prefix}.adaptive.measured", {
                     "iteration": iteration,
                     "n_new_points": len(targets),
@@ -400,16 +420,6 @@ def adaptive_experiment(detectors, motors, experiment_id,
         yield from bps.close_run()
     finally:
         bridge.cleanup()
-```
-
-### State
-
-```python
-class AdaptivePlanState(PlanState):
-    iteration_changed = Signal(int)
-    targets_received = Signal(int)
-
-    current_iteration: int = 0
 ```
 
 ### UI
@@ -440,9 +450,8 @@ transitions to Inactive. No new `adaptive.done` subject is needed.
 
 **`tests/test_plan_ui_framework.py`**
 - `plan_with_ui` decorator attaches `_plan_ui_class`
-- `PlanState` signals work
-- `get_plan_state()` / `set_plan_state()` roundtrip via ContextVar
-- State is scoped per plan execution (doesn't leak between plans)
+- `PlanState` signals work (emit reaches connected slots)
+- `PlanState` flag attributes are read/writable
 
 **`tests/test_nats_plan_bridge.py`**
 - `subscribe()` creates queue and subscription
@@ -492,14 +501,11 @@ transitions to Inactive. No new `adaptive.done` subject is needed.
 
 ## Open Design Questions
 
-1. **Where does the plan runner set the ContextVar?** It needs to happen
-   *before* the plan generator is created (since `get_plan_state()` is
-   called at the top of the plan). Likely in `BlueskyEngine` or the plan
-   submission path.
-
-2. **What if a plan aborts mid-execution?** The `finally: bridge.cleanup()`
+1. **What if a plan aborts mid-execution?** The `finally: bridge.cleanup()`
    handles subscription cleanup. The UI tab is removed when the engine
    transitions to idle. Need to verify this edge case in tests.
 
-3. **Can plan UI be reused across runs?** No — each plan execution creates
-   a fresh state and UI. Prevents stale state leaking between runs.
+2. **Can plan UI be reused across runs?** No — each plan execution creates
+   a fresh UI widget (connected to the same module-level state, which is
+   reset at the start of each run). Prevents stale UI state from leaking
+   between runs.
