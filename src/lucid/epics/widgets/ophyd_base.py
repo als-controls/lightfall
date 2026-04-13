@@ -94,6 +94,8 @@ class OphydWidget(QWidget):
     def signal(self, sig: Any) -> None:
         self._disconnect_signal()
         self._signal = sig
+        name = getattr(sig, "name", "") if sig is not None else ""
+        self.setToolTip(str(name) if isinstance(name, str) else "")
         if sig is not None:
             self._connect_signal()
 

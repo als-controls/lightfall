@@ -84,6 +84,7 @@ class EpicsWidget(QWidget):
         # Set object name for easier identification in widget tree
         if pv_name:
             self.setObjectName(f"{self.widget_type}_{pv_name}")
+        self.setToolTip(pv_name)
 
         # Apply base styling
         self._update_connection_style()
@@ -101,6 +102,7 @@ class EpicsWidget(QWidget):
             self._disconnect_pv()
             self._pv_name = name
             self.setObjectName(f"{self.widget_type}_{name}")
+            self.setToolTip(name)
             self.pv_name_changed.emit(name)
             if name:
                 self._connect_pv()
