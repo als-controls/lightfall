@@ -95,6 +95,7 @@ class PVMotor(QWidget):
         self._was_moving = False
 
         self._setup_ui()
+        self.setToolTip(prefix)
 
         # Defer PV connection to allow GUI to show first
         if prefix:
@@ -110,6 +111,7 @@ class PVMotor(QWidget):
         if value != self._prefix:
             self._disconnect_pvs()
             self._prefix = value
+            self.setToolTip(value)
             if value:
                 self._connect_pvs()
 
