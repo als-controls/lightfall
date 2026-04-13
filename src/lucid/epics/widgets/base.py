@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot
+from PySide6.QtCore import Property, Signal, Slot, QEvent
 from PySide6.QtWidgets import QWidget
 
 from lucid.epics.widgets.style import WidgetStyles
@@ -351,6 +351,40 @@ class EpicsWidget(QWidget):
             "class_name": cls.__name__,
             "module": cls.__module__,
         }
+
+    # Tooltip forwarding from children
+    #
+    # Qt shows a tooltip only on the hovered widget. Inner children
+    # (QLabel, QLineEdit, ...) sit on top of us and do not always
+    # propagate their (empty) ToolTip events back to us, so we install
+    # ourselves as an event filter on every child and answer with the
+    # PV-name tooltip when the child has none of its own.
+
+    def childEvent(self, event) -> None:
+        super().childEvent(event)
+        if event.type() == QEvent.Type.ChildAdded:
+            child = event.child()
+            if isinstance(child, QWidget):
+                child.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if (
+            event.type() == QEvent.Type.ToolTip
+            and isinstance(obj, QWidget)
+            and obj is not self
+            and not obj.toolTip()
+        ):
+            tip = self.toolTip()
+            if tip:
+                from PySide6.QtWidgets import QToolTip
+
+                try:
+                    pos = event.globalPos()
+                except AttributeError:
+                    pos = event.globalPosition().toPoint()
+                QToolTip.showText(pos, tip, obj)
+                return True
+        return super().eventFilter(obj, event)
 
     # Lifecycle
 

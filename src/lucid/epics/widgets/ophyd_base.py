@@ -10,7 +10,7 @@ import inspect
 from abc import abstractmethod
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, QTimer
+from PySide6.QtCore import Property, Signal, Slot, QTimer, QEvent
 from PySide6.QtWidgets import QWidget
 
 from lucid.epics.widgets.style import WidgetStyles
@@ -94,10 +94,61 @@ class OphydWidget(QWidget):
     def signal(self, sig: Any) -> None:
         self._disconnect_signal()
         self._signal = sig
-        name = getattr(sig, "name", "") if sig is not None else ""
-        self.setToolTip(str(name) if isinstance(name, str) else "")
+        self.setToolTip(self._signal_display_name(sig))
         if sig is not None:
             self._connect_signal()
+
+    @staticmethod
+    def _signal_display_name(sig: Any) -> str:
+        """Return the PV name for an EPICS-backed signal, falling back to the
+        ophyd dotted name for simulated/soft signals that have no PV.
+        """
+        if sig is None:
+            return ""
+        pvname = getattr(sig, "pvname", None)
+        if isinstance(pvname, str) and pvname:
+            return pvname
+        # ``source`` is defined on every ophyd Signal — for EPICS it is
+        # ``PV:<pvname>``; for sim signals it is ``SIM:<name>`` etc.
+        source = getattr(sig, "source", None)
+        if isinstance(source, str) and source:
+            return source[3:] if source.startswith("PV:") else source
+        name = getattr(sig, "name", "")
+        return name if isinstance(name, str) else ""
+
+    # -- Tooltip forwarding ---------------------------------------------------
+    #
+    # Qt shows a widget's tooltip only when that specific widget is hovered;
+    # children (the inner QLabel, QLineEdit, QDoubleSpinBox...) sit on top
+    # and do NOT reliably propagate ToolTip events up to us. We install
+    # ourselves as an event filter on every child so that any ToolTip event
+    # on a child whose own tooltip is empty is answered with our PV tooltip.
+
+    def childEvent(self, event: Any) -> None:
+        super().childEvent(event)
+        if event.type() == QEvent.Type.ChildAdded:
+            child = event.child()
+            if isinstance(child, QWidget):
+                child.installEventFilter(self)
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:
+        if (
+            event.type() == QEvent.Type.ToolTip
+            and isinstance(obj, QWidget)
+            and obj is not self
+            and not obj.toolTip()
+        ):
+            tip = self.toolTip()
+            if tip:
+                from PySide6.QtWidgets import QToolTip
+
+                try:
+                    pos = event.globalPos()
+                except AttributeError:
+                    pos = event.globalPosition().toPoint()
+                QToolTip.showText(pos, tip, obj)
+                return True
+        return super().eventFilter(obj, event)
 
     def _connect_signal(self) -> None:
         """Subscribe to the ophyd signal and read the initial value."""

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, QTimer
+from PySide6.QtCore import Property, Signal, Slot, QTimer, QEvent
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -660,3 +660,35 @@ class PVMotor(QWidget):
     def closeEvent(self, event) -> None:
         self._disconnect_pvs()
         super().closeEvent(event)
+
+    # -- Tooltip forwarding ---------------------------------------------------
+    # Forward ToolTip events from child widgets (which have no tooltip of
+    # their own) so hovering any part of the motor widget shows the motor
+    # prefix. Child widgets with their own tooltip (e.g. "Tweak Forward")
+    # take precedence.
+
+    def childEvent(self, event) -> None:
+        super().childEvent(event)
+        if event.type() == QEvent.Type.ChildAdded:
+            child = event.child()
+            if isinstance(child, QWidget):
+                child.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if (
+            event.type() == QEvent.Type.ToolTip
+            and isinstance(obj, QWidget)
+            and obj is not self
+            and not obj.toolTip()
+        ):
+            tip = self.toolTip()
+            if tip:
+                from PySide6.QtWidgets import QToolTip
+
+                try:
+                    pos = event.globalPos()
+                except AttributeError:
+                    pos = event.globalPosition().toPoint()
+                QToolTip.showText(pos, tip, obj)
+                return True
+        return super().eventFilter(obj, event)
