@@ -60,10 +60,19 @@ def _coverage_resolve_trace(fn: Callable[..., T]) -> Callable[..., T]:
 # -----------------------------------------------------------------------------
 # Thread Manager (Singleton)
 # -----------------------------------------------------------------------------
+class _ThreadManagerSignals(QObject):
+    """Helper QObject to hold signals for ThreadManager (which is not a QObject)."""
+
+    sigProgress = Signal(object, object, object, object)  # (thread, current, minimum, maximum)
+
+
 class ThreadManager:
     """Global registry for tracking and managing QThreadFuture instances.
 
     Access via get_thread_manager() or the module-level thread_manager variable.
+
+    Signals (via .signals attribute):
+        sigProgress: Relayed from all registered threads.
     """
 
     _instance: ThreadManager | None = None
@@ -81,6 +90,7 @@ class ThreadManager:
         if self._initialized:
             return
         self._initialized = True
+        self._signals = _ThreadManagerSignals()
         # Strong references to prevent GC before thread completion.
         # Threads unregister themselves in finally block when done.
         self._threads: dict[int, QThreadFuture] = {}
@@ -88,6 +98,11 @@ class ThreadManager:
         self._registry_lock = threading.Lock()
         self._shutdown_connected = False
         self._connect_app_shutdown()
+
+    @property
+    def sigProgress(self) -> Signal:
+        """Progress signal relayed from all registered threads."""
+        return self._signals.sigProgress
 
     def _connect_app_shutdown(self) -> None:
         """Connect to application shutdown signal if app exists."""
@@ -129,6 +144,9 @@ class ThreadManager:
                 self._keys[key] = thread_id
                 thread._manager_key = key
 
+        # Relay thread progress through the manager's signal
+        thread.sigProgress.connect(self._signals.sigProgress)
+
         logger.trace(f"Registered thread {thread_id}" + (f" with key '{key}'" if key else ""))
 
     def unregister(self, thread: QThreadFuture) -> None:
@@ -139,6 +157,13 @@ class ThreadManager:
             key = getattr(thread, "_manager_key", None)
             if key and key in self._keys:
                 del self._keys[key]
+
+        # Disconnect progress relay
+        try:
+            thread.sigProgress.disconnect(self._signals.sigProgress)
+        except RuntimeError:
+            pass  # Already disconnected
+
         logger.trace(f"Unregistered thread {thread_id}")
 
     def get_active(self) -> list[QThreadFuture]:
@@ -415,6 +440,7 @@ class QThreadFuture(QThread):
     sigResult = Signal(object)  # Emitted with return value
     sigError = Signal(object)   # Emitted with exception
     sigDone = Signal()          # Emitted when finished successfully
+    sigProgress = Signal(object, object, object, object)  # (thread, current, minimum, maximum)
 
     def __init__(
         self,
@@ -423,6 +449,7 @@ class QThreadFuture(QThread):
         callback_slot: Callable[..., Any] | None = None,
         finished_slot: Callable[[], None] | None = None,
         except_slot: Callable[[Exception], None] | None = None,
+        progress_slot: Callable[..., Any] | None = None,
         interrupt_callable: Callable[[], None] | None = None,
         priority: QThread.Priority = QThread.Priority.InheritPriority,
         timeout: int = 0,
@@ -439,6 +466,7 @@ class QThreadFuture(QThread):
             callback_slot: Called with the return value(s) when method completes.
             finished_slot: Called (no args) when thread finishes successfully.
             except_slot: Called with exception if an error occurs.
+            progress_slot: Called with (thread, current, minimum, maximum) on progress.
             interrupt_callable: Called when interrupt is requested (for custom cleanup).
             priority: Thread priority.
             timeout: Auto-cancel after this many milliseconds (0 = no timeout).
@@ -456,6 +484,7 @@ class QThreadFuture(QThread):
         self._callback_slot = callback_slot
         self._finished_slot = finished_slot
         self._except_slot = except_slot
+        self._progress_slot = progress_slot
         self._interrupt_callable = interrupt_callable
         self._priority = priority
         self._timeout = timeout
@@ -476,6 +505,8 @@ class QThreadFuture(QThread):
             self.sigError.connect(except_slot)
         if finished_slot:
             self.sigDone.connect(finished_slot)
+        if progress_slot:
+            self.sigProgress.connect(progress_slot)
 
     @property
     def cancelled(self) -> bool:
@@ -639,6 +670,19 @@ class QThreadFuture(QThread):
         self.terminate()
         self.wait(1000)  # Brief wait after terminate
         return False
+
+    def report_progress(self, current: float, minimum: float = 0, maximum: float = 100) -> None:
+        """Report progress from within the running thread.
+
+        Can be called from the thread's method via
+        ``QThread.currentThread().report_progress(current, minimum, maximum)``.
+
+        Args:
+            current: Current progress value.
+            minimum: Minimum progress value.
+            maximum: Maximum progress value.
+        """
+        self.sigProgress.emit(self, current, minimum, maximum)
 
     def interrupt(self) -> None:
         """Request interruption without waiting."""

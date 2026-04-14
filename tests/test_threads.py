@@ -241,6 +241,83 @@ class TestDecorators:
         assert yielded == [0, 1, 2]
 
 
+class TestProgress:
+    """Tests for progress signals."""
+
+    def test_report_progress_emits_signal(self, qapp) -> None:
+        """QThreadFuture.report_progress should emit sigProgress."""
+        progress_updates = []
+
+        def progress_handler(thread, current, minimum, maximum):
+            progress_updates.append((thread, current, minimum, maximum))
+
+        def task_with_progress():
+            thread = QThreadFuture.currentThread()
+            thread.report_progress(0, 0, 10)
+            thread.report_progress(5, 0, 10)
+            thread.report_progress(10, 0, 10)
+            return "done"
+
+        future = QThreadFuture(task_with_progress, progress_slot=progress_handler)
+        future.start()
+        future.wait(2000)
+        qapp.processEvents()
+        time.sleep(0.1)
+        qapp.processEvents()
+
+        assert len(progress_updates) == 3
+        assert progress_updates[0] == (future, 0, 0, 10)
+        assert progress_updates[1] == (future, 5, 0, 10)
+        assert progress_updates[2] == (future, 10, 0, 10)
+
+    def test_thread_manager_relays_progress(self, qapp) -> None:
+        """ThreadManager.sigProgress should relay progress from registered threads."""
+        manager_updates = []
+
+        def manager_handler(thread, current, minimum, maximum):
+            manager_updates.append((thread, current, minimum, maximum))
+
+        thread_manager.sigProgress.connect(manager_handler)
+
+        def task_with_progress():
+            thread = QThreadFuture.currentThread()
+            thread.report_progress(50, 0, 100)
+            return "done"
+
+        try:
+            future = QThreadFuture(task_with_progress)
+            future.start()
+            future.wait(2000)
+            qapp.processEvents()
+            time.sleep(0.1)
+            qapp.processEvents()
+
+            assert len(manager_updates) == 1
+            assert manager_updates[0] == (future, 50, 0, 100)
+        finally:
+            thread_manager.sigProgress.disconnect(manager_handler)
+
+    def test_progress_default_min_max(self, qapp) -> None:
+        """report_progress should default to min=0, max=100."""
+        progress_updates = []
+
+        def progress_handler(thread, current, minimum, maximum):
+            progress_updates.append((current, minimum, maximum))
+
+        def task():
+            QThreadFuture.currentThread().report_progress(42)
+            return "done"
+
+        future = QThreadFuture(task, progress_slot=progress_handler)
+        future.start()
+        future.wait(2000)
+        qapp.processEvents()
+        time.sleep(0.1)
+        qapp.processEvents()
+
+        assert progress_updates == [(42, 0, 100)]
+
+
 class TestQThreadFutureSafeRepr:
     """Tests for safe repr in error logging."""
 
