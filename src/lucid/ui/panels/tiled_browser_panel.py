@@ -404,22 +404,43 @@ class TiledBrowserPanel(BasePanel):
         stream_keys = list(stream.keys())
 
         # Image field: lazy ArrayClient reference (no data fetched)
+        # bluesky_tiled_plugins nests external data under primary/external/
         image_client = None
-        if image_field and image_field in stream_keys:
-            image_client = stream[image_field]
+        if image_field:
+            if image_field in stream_keys:
+                image_client = stream[image_field]
+            elif "external" in stream_keys and image_field in stream["external"]:
+                image_client = stream["external"][image_field]
 
         # Scalar fields: read eagerly (small data, one HTTP request each)
+        # bluesky_tiled_plugins stores scalars in internal/events as a table
         scalar_data: dict[str, Any] = {}
-        for field_name in scalar_field_names:
-            if field_name in stream_keys:
+        events_table = None
+        if "internal" in stream_keys:
+            internal = stream["internal"]
+            if "events" in internal:
                 try:
-                    scalar_data[field_name] = np.asarray(stream[field_name].read())
+                    events_table = internal["events"].read()
                 except Exception as e:
-                    logger.warning("Could not read scalar field '{}': {}", field_name, e)
+                    logger.warning("Could not read internal/events table: {}", e)
+
+        if events_table is not None:
+            for field_name in scalar_field_names:
+                if field_name in events_table.columns:
+                    scalar_data[field_name] = np.asarray(events_table[field_name])
+        else:
+            for field_name in scalar_field_names:
+                if field_name in stream_keys:
+                    try:
+                        scalar_data[field_name] = np.asarray(stream[field_name].read())
+                    except Exception as e:
+                        logger.warning("Could not read scalar field '{}': {}", field_name, e)
 
         # Timestamps (small 1-D array)
         timestamps = np.array([])
-        if "time" in stream_keys:
+        if events_table is not None and "time" in events_table.columns:
+            timestamps = np.asarray(events_table["time"], dtype=np.float64)
+        elif "time" in stream_keys:
             timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
 
         is_live = metadata.get("stop") is None
