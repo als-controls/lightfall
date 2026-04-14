@@ -230,7 +230,7 @@ class VisualizationPanel(BasePanel):
         entry: Any,
     ) -> None:
         """Create widget, wire combos, start refresh if needed."""
-        widget = cls(parent=self)
+        widget = cls()
         self._set_current_widget(widget)
         widget.set_run(entry)
 
@@ -264,7 +264,7 @@ class VisualizationPanel(BasePanel):
 
     def _set_current_widget(self, widget: BaseVisualization) -> None:
         """Swap the active visualization widget."""
-        # Remove old widget and proxy
+        # Remove old widget and proxy (hide, don't delete — avoids pyqtgraph segfaults)
         if self._current_proxy is not None:
             if (
                 theater_manager._overlay is not None
@@ -273,10 +273,12 @@ class VisualizationPanel(BasePanel):
                 theater_manager._overlay._finish_deactivate()
             theater_manager.unregister(self._current_proxy)
             self._viz_stack.removeWidget(self._current_proxy)
-            self._current_proxy.deleteLater()
+            self._current_proxy.setParent(None)
+            self._current_proxy = None
         elif self._current_widget is not None:
             self._viz_stack.removeWidget(self._current_widget)
-            self._current_widget.deleteLater()
+            self._current_widget.setParent(None)
+            self._current_widget = None
 
         # Wrap in theater proxy and display
         proxy = TheaterProxy(widget)
