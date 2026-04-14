@@ -93,6 +93,10 @@ class OphydLineEdit(OphydWidget):
         self._line_edit.setText(text)
         self._line_edit.blockSignals(False)
 
+    def text(self) -> str:
+        """Return the current text from the inner QLineEdit."""
+        return self._line_edit.text()
+
     def _get_widget_value(self) -> Any:
         text = self._line_edit.text().strip()
         if self._value is not None:
