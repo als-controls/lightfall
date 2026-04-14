@@ -250,8 +250,10 @@ class ImageStackVisualization(BaseVisualization):
         # 2. Frame shape from the last two dims
         self._frame_shape = tuple(image_client.shape[-2:])
 
-        # 3. Timestamps
-        timestamps = self._read_timestamps()
+        # 3. Use synthetic timestamps for fast initial display;
+        #    reading the events table is expensive over HTTP.
+        n_frames = image_client.shape[0]
+        timestamps = np.arange(n_frames, dtype=np.float64)
         self._timestamps = timestamps
 
         # 4. Hand off to LazyImageView
@@ -282,8 +284,8 @@ class ImageStackVisualization(BaseVisualization):
         if current_count <= known_count:
             return
 
-        # Re-read timestamps for the grown dataset
-        timestamps = self._read_timestamps()
+        # Extend synthetic timestamps (reading events table is too expensive)
+        timestamps = np.arange(current_count, dtype=np.float64)
         self._timestamps = timestamps
 
         self._image_view.updateFrameCount(current_count, timestamps)
@@ -295,23 +297,6 @@ class ImageStackVisualization(BaseVisualization):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _read_timestamps(self) -> np.ndarray:
-        """Read timestamps from the current stream, with fallbacks."""
-        try:
-            events = self._stream["internal"]["events"].read()
-            return np.asarray(events["time"], dtype=np.float64)
-        except Exception:
-            pass
-
-        try:
-            return np.asarray(self._stream["time"].read(), dtype=np.float64)
-        except Exception:
-            pass
-
-        # Last resort: synthesise from frame count
-        n = self._image_client.shape[0] if self._image_client is not None else 0
-        return np.arange(n, dtype=np.float64)
 
     def _apply_colormap(self, cmap_name: str) -> None:
         try:
