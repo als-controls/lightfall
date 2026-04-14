@@ -64,6 +64,7 @@ class _ThreadManagerSignals(QObject):
     """Helper QObject to hold signals for ThreadManager (which is not a QObject)."""
 
     sigProgress = Signal(object, object, object, object)  # (thread, current, minimum, maximum)
+    sigFinished = Signal(object)  # (thread,)
 
 
 class ThreadManager:
@@ -103,6 +104,11 @@ class ThreadManager:
     def sigProgress(self) -> Signal:
         """Progress signal relayed from all registered threads."""
         return self._signals.sigProgress
+
+    @property
+    def sigFinished(self) -> Signal:
+        """Emitted with the thread object when a registered thread finishes."""
+        return self._signals.sigFinished
 
     def _connect_app_shutdown(self) -> None:
         """Connect to application shutdown signal if app exists."""
@@ -164,6 +170,7 @@ class ThreadManager:
         except RuntimeError:
             pass  # Already disconnected
 
+        self._signals.sigFinished.emit(thread)
         logger.trace(f"Unregistered thread {thread_id}")
 
     def get_active(self) -> list[QThreadFuture]:

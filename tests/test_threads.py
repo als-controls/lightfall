@@ -317,6 +317,30 @@ class TestProgress:
 
         assert progress_updates == [(42, 0, 100)]
 
+    def test_thread_manager_sigFinished(self, qapp) -> None:
+        """ThreadManager.sigFinished should emit when a registered thread finishes."""
+        finished_threads = []
+
+        def finished_handler(thread):
+            finished_threads.append(thread)
+
+        thread_manager.sigFinished.connect(finished_handler)
+
+        def task():
+            return "done"
+
+        try:
+            future = QThreadFuture(task)
+            future.start()
+            future.wait(2000)
+            qapp.processEvents()
+            time.sleep(0.1)
+            qapp.processEvents()
+
+            assert future in finished_threads
+        finally:
+            thread_manager.sigFinished.disconnect(finished_handler)
+
 
 class TestQThreadFutureSafeRepr:
     """Tests for safe repr in error logging."""

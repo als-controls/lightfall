@@ -150,6 +150,11 @@ builtin_manifest = PluginManifest(
             name="als_beam_status",
             import_path="lucid.ui.statusbar.plugins.als_beam_status:ALSBeamStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="thread_status",
+            import_path="lucid.ui.statusbar.plugins.thread_status:ThreadStatusPlugin",
+        ),
         # MCP Tool plugins - loaded during background loading
         # Claude panel collects tools when opened (also not preloaded)
         PluginEntry(
