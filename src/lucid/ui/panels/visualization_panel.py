@@ -289,7 +289,11 @@ class VisualizationPanel(BasePanel):
     # ---- Combo handlers --------------------------------------------------
 
     def _populate_field_combo(self) -> None:
-        """Fill the field combo from the current widget's get_fields()."""
+        """Fill the field combo from the current widget's get_fields().
+
+        Does NOT call set_field — set_stream already picked the best field.
+        This just syncs the combo UI.
+        """
         if self._current_widget is None:
             return
 
@@ -302,9 +306,6 @@ class VisualizationPanel(BasePanel):
         visible = len(fields) > 1
         self._field_label.setVisible(visible)
         self._field_combo.setVisible(visible)
-
-        if fields:
-            self._current_widget.set_field(fields[0])
 
     def _on_stream_changed(self, stream_name: str) -> None:
         """User changed the stream combo."""

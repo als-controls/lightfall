@@ -91,23 +91,15 @@ class Plot1DVisualization(BaseVisualization):
         if len(dims) > 1:
             return 0
 
-        # Check that at least one stream has scalar data_keys
+        # Check primary stream for scalar data_keys
         try:
-            stream_names = list(run.keys())
+            data_keys = run["primary"].metadata.get("data_keys", {})
         except Exception:
             return 0
-
-        for name in stream_names:
-            try:
-                stream = run[name]
-                data_keys = stream.metadata.get("data_keys", {})
-                for dk in data_keys.values():
-                    shape = dk.get("shape", [])
-                    if shape == [] or shape == ():
-                        return 80
-            except Exception:
-                continue
-
+        for dk in data_keys.values():
+            shape = dk.get("shape", [])
+            if shape == [] or shape == ():
+                return 80
         return 0
 
     def set_run(self, run: Any) -> None:

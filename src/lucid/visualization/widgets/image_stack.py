@@ -152,24 +152,14 @@ class ImageStackVisualization(BaseVisualization):
 
     @staticmethod
     def can_handle(run: Any) -> int:
-        """Score 75 if any stream has a field with shape >= 2D."""
+        """Score 75 if primary stream has a field with shape >= 2D."""
         try:
-            stream_names = list(run.keys())
+            data_keys = run["primary"].metadata.get("data_keys", {})
         except Exception:
             return 0
-
-        for name in stream_names:
-            try:
-                stream = run[name]
-                data_keys = stream.metadata.get("data_keys", {})
-                for dk in data_keys.values():
-                    shape = dk.get("shape", [])
-                    if len(shape) >= 2:
-                        return 75
-            except Exception:
-                # Stream access can 500 for broken streams
-                continue
-
+        for dk in data_keys.values():
+            if len(dk.get("shape", [])) >= 2:
+                return 75
         return 0
 
     def set_run(self, run: Any) -> None:
