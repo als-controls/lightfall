@@ -344,11 +344,12 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         # Hand off to the LazyImageView
         self._image_view.setArraySource(image_client, timestamps, frame_shape)
 
-        # Jump to the last frame
+        # Jump to the last frame and auto-level
         n_frames = image_client.shape[0]
         if n_frames > 0:
             self._image_view.setCurrentIndex(n_frames - 1)
             self._current_frame = n_frames - 1
+            self._on_reset_lut()
 
         self._update_status()
         logger.debug(
@@ -626,18 +627,19 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
                 np.clip(stack, 0, None, out=stack)
 
         # Use time values if we have them
+        is_first = len(self._images) == 1
         if self._time_values:
             self._image_view.setImage(
                 stack,
                 xvals=np.array(self._time_values),
                 axes={"t": 0, "y": 1, "x": 2},
-                autoLevels=len(self._images) == 1,  # Only auto on first frame
+                autoLevels=False,
             )
         else:
             self._image_view.setImage(
                 stack,
                 axes={"t": 0, "y": 1, "x": 2},
-                autoLevels=len(self._images) == 1,
+                autoLevels=False,
             )
 
         if jump_to_latest:
@@ -645,6 +647,9 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
             self._current_frame = len(self._images) - 1
         else:
             self._image_view.setCurrentIndex(self._current_frame)
+
+        if is_first:
+            self._on_reset_lut()
 
         self._update_status()
 
@@ -728,6 +733,7 @@ class ImageStackVisualization(ThemedVisualizationMixin, BaseVisualizationWidget)
         if self._images:
             # Update image stack
             self._update_image_stack()
+            self._on_reset_lut()
 
     def _on_clear(self) -> None:
         """Handle clear request."""

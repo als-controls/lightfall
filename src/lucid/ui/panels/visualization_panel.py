@@ -81,6 +81,11 @@ class VisualizationPanel(BasePanel):
         self._current_plugin: VisualizationPlugin | None = None
         self._characteristics: DataCharacteristics | None = None
 
+        # Tiled stream switching state
+        self._tiled_client_key: str = ""
+        self._tiled_stream_names: list[str] = []
+        self._stream_fetch: Any | None = None
+
         # Tiled live-run polling state
         self._poll_timer: QTimer | None = None
         self._poll_image_client: Any | None = None
@@ -213,6 +218,16 @@ class VisualizationPanel(BasePanel):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
+        # Stream selector (visible only for tiled runs with multiple streams)
+        self._stream_label = QLabel("Stream:")
+        self._stream_combo = QComboBox()
+        self._stream_combo.setMinimumWidth(100)
+        self._stream_combo.currentTextChanged.connect(self._on_stream_changed)
+        toolbar.addWidget(self._stream_label)
+        toolbar.addWidget(self._stream_combo)
+        self._stream_label.hide()
+        self._stream_combo.hide()
+
         # Visualization type selector
         viz_label = QLabel("Visualization:")
         self._viz_combo = QComboBox()
@@ -265,6 +280,73 @@ class VisualizationPanel(BasePanel):
                 self._viz_combo.setCurrentIndex(index)
 
         self._viz_combo.blockSignals(False)
+
+    def _update_stream_combo(
+        self, stream_names: list[str], active: str,
+    ) -> None:
+        """Update the stream selector combo box.
+
+        Shows the combo only when there are multiple streams.
+        """
+        self._stream_combo.blockSignals(True)
+        self._stream_combo.clear()
+        self._stream_combo.addItems(stream_names)
+        idx = self._stream_combo.findText(active)
+        if idx >= 0:
+            self._stream_combo.setCurrentIndex(idx)
+        self._stream_combo.blockSignals(False)
+
+        visible = len(stream_names) > 1
+        self._stream_label.setVisible(visible)
+        self._stream_combo.setVisible(visible)
+
+    def _on_stream_changed(self, stream_name: str) -> None:
+        """Handle stream selector change — re-fetch data for the new stream."""
+        if not stream_name or not self._tiled_client_key:
+            return
+
+        from lucid.services.tiled_service import TiledService
+        from lucid.ui.panels.tiled_browser_panel import TiledBrowserPanel
+        from lucid.utils.threads import QThreadFuture
+
+        tiled = TiledService.get_instance()
+        client = tiled._client
+        if client is None:
+            return
+
+        self._stream_fetch = QThreadFuture(
+            TiledBrowserPanel._setup_visualization,
+            client,
+            self._tiled_client_key,
+            stream_name,
+            callback_slot=self._on_stream_fetch_ready,
+            except_slot=self._on_stream_fetch_error,
+            name="tiled_stream_switch",
+        )
+        self._stream_fetch.start()
+
+    def _on_stream_fetch_ready(self, result: dict | None = None) -> None:
+        """Handle stream switch result."""
+        if not result:
+            return
+        self.open_tiled_run(
+            start_doc=result["start_doc"],
+            descriptor=result["descriptor"],
+            image_client=result.get("image_client"),
+            timestamps=result["timestamps"],
+            frame_shape=result.get("frame_shape", ()),
+            is_live=result.get("is_live", False),
+            entry=result.get("entry"),
+            scalar_data=result.get("scalar_data"),
+            scalar_fields=result.get("scalar_fields", []),
+            stream_names=result.get("stream_names", []),
+            active_stream=result.get("active_stream", "primary"),
+            client_key=result.get("client_key", ""),
+        )
+
+    def _on_stream_fetch_error(self, error: Exception) -> None:
+        """Handle stream switch error."""
+        logger.error("Failed to switch stream: {}", error)
 
     def _on_viz_selection_changed(self, index: int) -> None:
         """Handle visualization type selection change."""
@@ -335,6 +417,9 @@ class VisualizationPanel(BasePanel):
         # Clear current visualization
         if self._current_widget:
             self._current_widget.clear()
+        # Hide stream selector for live scans (only used for tiled replay)
+        self._stream_label.hide()
+        self._stream_combo.hide()
 
     def _on_run_stopped(self, doc: dict) -> None:
         """Handle run stop."""
@@ -448,6 +533,9 @@ class VisualizationPanel(BasePanel):
         entry: Any | None = None,
         scalar_data: dict[str, np.ndarray] | None = None,
         scalar_fields: list[str] | None = None,
+        stream_names: list[str] | None = None,
+        active_stream: str = "primary",
+        client_key: str = "",
     ) -> None:
         """Open a tiled run — unified entry point for all run types.
 
@@ -467,9 +555,17 @@ class VisualizationPanel(BasePanel):
             entry: Tiled entry (BlueskyRun) for polling metadata.
             scalar_data: Dict mapping field name to 1-D numpy array.
             scalar_fields: List of scalar field names (for combo boxes).
+            stream_names: All available stream names for the run.
+            active_stream: Currently selected stream name.
+            client_key: Tiled catalog key for the run (for stream switching).
         """
         # Stop any prior poll
         self._stop_tiled_poll()
+
+        # Update stream selector
+        self._tiled_client_key = client_key
+        self._tiled_stream_names = stream_names or []
+        self._update_stream_combo(self._tiled_stream_names, active_stream)
 
         # Feed start + descriptor through processor for characteristics
         if self._processor:
@@ -498,7 +594,8 @@ class VisualizationPanel(BasePanel):
             )
 
         logger.info(
-            "Opened tiled run: image={}, scalars={}, live={}",
+            "Opened tiled run: stream={}, image={}, scalars={}, live={}",
+            active_stream,
             image_client is not None,
             len(scalar_data) if scalar_data else 0,
             is_live,

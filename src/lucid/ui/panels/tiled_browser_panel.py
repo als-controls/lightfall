@@ -327,7 +327,10 @@ class TiledBrowserPanel(BasePanel):
         )
         dialog.exec()
 
-    def _setup_visualization(self, client: Any, client_key: str) -> dict:
+    @staticmethod
+    def _setup_visualization(
+        client: Any, client_key: str, stream_name: str | None = None,
+    ) -> dict:
         """Extract metadata, ArrayClient refs, and scalar data for a run.
 
         For image fields: returns a lazy ArrayClient reference (no bulk fetch).
@@ -337,11 +340,12 @@ class TiledBrowserPanel(BasePanel):
         Args:
             client: Tiled client instance.
             client_key: Key for the run in the catalog.
+            stream_name: Stream to visualize (default: "primary").
 
         Returns:
             Unified dict with start_doc, descriptor, image_client,
             timestamps, frame_shape, is_live, entry, scalar_data,
-            scalar_fields.
+            scalar_fields, stream_names, active_stream, client_key.
         """
         import uuid
 
@@ -353,7 +357,7 @@ class TiledBrowserPanel(BasePanel):
         # Start document
         start_doc = dict(metadata.get("start") or {})
 
-        # Access primary stream
+        # Discover available streams
         stream_names = list(entry.keys())
         if not stream_names:
             logger.debug(
@@ -371,23 +375,27 @@ class TiledBrowserPanel(BasePanel):
                 except (KeyError, Exception):
                     pass
 
-        if "primary" not in stream_names:
-            logger.warning("No primary stream found for run {}", client_key[:8])
-            return {}
+        # Pick stream: explicit choice, or default to primary
+        active_stream = stream_name or "primary"
+        if active_stream not in stream_names:
+            if not stream_names:
+                logger.warning("No streams found for run {}", client_key[:8])
+                return {}
+            active_stream = stream_names[0]
 
-        stream = entry["primary"]
+        stream = entry[active_stream]
         stream_md = dict(stream.metadata)
 
         # Build descriptor document (lightweight, from metadata only)
         descriptor = {
             **stream_md,
             "uid": stream_md.get("uid", str(uuid.uuid4())),
-            "name": "primary",
+            "name": active_stream,
             "run_start": start_doc.get("uid", client_key),
         }
 
-        # Classify fields by shape
-        data_keys = stream_md.get("data_keys", {})
+        # Classify fields by shape (use a copy so we can fix shapes for viz)
+        data_keys = {k: dict(v) for k, v in stream_md.get("data_keys", {}).items()}
         image_field = None
         frame_shape: tuple[int, ...] = ()
         scalar_field_names: list[str] = []
@@ -397,9 +405,14 @@ class TiledBrowserPanel(BasePanel):
             if len(shape) >= 2:
                 if image_field is None:
                     image_field = key
-                    frame_shape = tuple(shape)
+                    # Shape from descriptor is [N, H, W]; extract per-frame [H, W]
+                    frame_shape = tuple(shape[-2:])
+                    info["shape"] = list(frame_shape)
             else:
                 scalar_field_names.append(key)
+
+        # Update descriptor with corrected per-frame shapes for viz selection
+        descriptor["data_keys"] = data_keys
 
         stream_keys = list(stream.keys())
 
@@ -463,6 +476,9 @@ class TiledBrowserPanel(BasePanel):
             "entry": entry,
             "scalar_data": scalar_data or None,
             "scalar_fields": scalar_field_names,
+            "stream_names": stream_names,
+            "active_stream": active_stream,
+            "client_key": client_key,
         }
 
     @Slot(object)
@@ -495,6 +511,9 @@ class TiledBrowserPanel(BasePanel):
                 entry=result.get("entry"),
                 scalar_data=result.get("scalar_data"),
                 scalar_fields=result.get("scalar_fields", []),
+                stream_names=result.get("stream_names", []),
+                active_stream=result.get("active_stream", "primary"),
+                client_key=result.get("client_key", ""),
             )
             logger.info("Opened tiled run in visualization")
         else:
