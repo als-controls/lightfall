@@ -47,8 +47,9 @@ class CoolerPanel(QGroupBox):
     directly to cam signals for automatic subscription and display.
     Works with any ophyd device that has cam signals for:
     - andor_cooler: Cooler enable (0=Off, 1=On)
-    - andor_temp_setpoint: Temperature setpoint (C)
-    - temperature: Actual temperature (C)
+    - temperature: Temperature setpoint (EpicsSignalWithRBV --
+      ``put()`` writes the setpoint, ``get()`` reads the setpoint RBV)
+    - temperature_actual: Actual sensor temperature (C)
     - temperature_status: Cooler status
 
     Signals:
@@ -151,9 +152,26 @@ class CoolerPanel(QGroupBox):
 
         if hasattr(cam, "andor_cooler"):
             self._cooler_combo.signal = cam.andor_cooler
-        if hasattr(cam, "andor_temp_setpoint"):
-            self._setpoint_spin.signal = cam.andor_temp_setpoint
-        if hasattr(cam, "temperature"):
+
+        # Setpoint: AreaDetectorCam.temperature is EpicsSignalWithRBV
+        # (put -> *Temperature*, get -> *Temperature_RBV*). Fall back to
+        # andor_temp_setpoint or temperature_setpoint for devices that
+        # split the setpoint out into its own attribute.
+        setpoint_sig = None
+        for attr in ("andor_temp_setpoint", "temperature_setpoint"):
+            if hasattr(cam, attr):
+                setpoint_sig = getattr(cam, attr)
+                break
+        if setpoint_sig is None and hasattr(cam, "temperature"):
+            setpoint_sig = cam.temperature
+        if setpoint_sig is not None:
+            self._setpoint_spin.signal = setpoint_sig
+
+        # Actual sensor temperature: use temperature_actual when available
+        # (standard AreaDetectorCam); otherwise fall back to temperature.
+        if hasattr(cam, "temperature_actual"):
+            self._temp_label.signal = cam.temperature_actual
+        elif hasattr(cam, "temperature") and setpoint_sig is not cam.temperature:
             self._temp_label.signal = cam.temperature
 
         # temperature_status still needs manual subscription for the

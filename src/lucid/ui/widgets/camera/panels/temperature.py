@@ -29,9 +29,11 @@ class TemperaturePanel(QGroupBox):
 
     Uses ophyd widgets (OphydSpinBox, OphydLabel) bound directly to cam
     signals for automatic subscription and display.
-    Works with any ophyd device that has cam signals for:
-    - temperature: Sensor temperature (C)
-    - temperature_setpoint: Temperature setpoint (C)
+
+    Works with the standard ophyd AreaDetectorCam interface:
+    - ``temperature_actual`` (EpicsSignal): the sensor reading
+    - ``temperature`` (EpicsSignalWithRBV): the setpoint, where ``put()``
+      writes the setpoint PV and ``get()`` returns the setpoint readback.
 
     Signals:
         setpoint_changed: Emitted when setpoint is changed.
@@ -111,14 +113,30 @@ class TemperaturePanel(QGroupBox):
 
         cam = self._device.cam
 
-        if hasattr(cam, "temperature"):
-            self._sensor_label.signal = cam.temperature
-        if hasattr(cam, "temperature_setpoint"):
-            self._setpoint_spin.signal = cam.temperature_setpoint
-            # Also bind the readback label to the same signal
-            self._actual_sp_label.signal = cam.temperature_setpoint
+        # Sensor reading (AreaDetectorCam.temperature_actual -> *TemperatureActual*).
+        # Fall back to 'temperature' on non-AreaDetector devices that expose
+        # the sensor under that name.
+        sensor_sig = getattr(cam, "temperature_actual", None) or getattr(cam, "temperature", None)
+        if sensor_sig is not None and hasattr(cam, "temperature_actual"):
+            self._sensor_label.signal = cam.temperature_actual
+        elif sensor_sig is not None:
+            self._sensor_label.signal = sensor_sig
 
-        self._setpoint_spin.readonly = False
+        # Setpoint (AreaDetectorCam.temperature is EpicsSignalWithRBV:
+        # .put() -> *Temperature*, .get() -> *Temperature_RBV*).
+        # When temperature_actual exists, 'temperature' is the setpoint.
+        setpoint_sig = None
+        if hasattr(cam, "temperature_setpoint"):
+            setpoint_sig = cam.temperature_setpoint
+        elif hasattr(cam, "temperature_actual") and hasattr(cam, "temperature"):
+            setpoint_sig = cam.temperature
+
+        if setpoint_sig is not None:
+            self._setpoint_spin.signal = setpoint_sig
+            self._actual_sp_label.signal = setpoint_sig
+            self._setpoint_spin.readonly = False
+        else:
+            self._setpoint_spin.readonly = True
 
     def _unbind_signals(self) -> None:
         """Unbind all ophyd widget signals."""
