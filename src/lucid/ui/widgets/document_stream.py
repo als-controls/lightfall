@@ -148,31 +148,80 @@ class DocumentTreeItem:
 class DocumentStreamModel(QAbstractItemModel):
     """Qt model for hierarchical document display.
 
-    Groups documents by type (start, descriptor, event, stop).
+    Groups documents by type. Groups are created on demand as new
+    document types arrive — no hardcoded list of expected types.
     """
+
+    # Display names for known group types (pluralized).
+    _GROUP_LABELS: dict[str, str] = {
+        "start": "Start",
+        "descriptor": "Descriptors",
+        "event": "Events",
+        "stop": "Stop",
+        "resource": "Resources",
+        "datum": "Datums",
+        "stream_resource": "Stream Resources",
+        "stream_datum": "Stream Datums",
+        "event_page": "Event Pages",
+        "datum_page": "Datum Pages",
+    }
 
     def __init__(self, parent=None) -> None:
         """Initialize the model."""
         super().__init__(parent)
         self._root = DocumentTreeItem(name="Documents")
+        self._groups: dict[str, DocumentTreeItem] = {}
+        self._group_order: list[str] = []
 
-        # Create group items
-        self._groups = {
-            "start": DocumentTreeItem(name="Start"),
-            "descriptor": DocumentTreeItem(name="Descriptors"),
-            "event": DocumentTreeItem(name="Events"),
-            "stop": DocumentTreeItem(name="Stop"),
-        }
+    def _get_or_create_group(self, name: str) -> tuple[DocumentTreeItem, QModelIndex]:
+        """Get existing group or create a new one for *name*.
 
-        for group in self._groups.values():
+        Returns:
+            Tuple of (group item, parent QModelIndex for the group).
+        """
+        if name not in self._groups:
+            label = self._GROUP_LABELS.get(name, name.replace("_", " ").title())
+            group = DocumentTreeItem(name=label)
+            row = self._root.child_count()
+            self.beginInsertRows(QModelIndex(), row, row)
             self._root.append_child(group)
+            self._groups[name] = group
+            self._group_order.append(name)
+            self.endInsertRows()
+        group = self._groups[name]
+        row = self._group_order.index(name)
+        return group, self.index(row, 0, QModelIndex())
 
     def clear(self) -> None:
-        """Clear all documents."""
+        """Clear all documents and groups."""
         self.beginResetModel()
-        for group in self._groups.values():
-            group._children.clear()
+        self._root._children.clear()
+        self._groups.clear()
+        self._group_order.clear()
         self.endResetModel()
+
+    @staticmethod
+    def _display_name(name: str, doc: dict[str, Any]) -> str:
+        """Build a short display label for a document."""
+        if name == "start":
+            return doc.get("plan_name", "run")
+        if name == "descriptor":
+            return f"stream: {doc.get('name', 'primary')}"
+        if name == "event":
+            return f"event {doc.get('seq_num', 0)}"
+        if name == "stop":
+            return f"status: {doc.get('exit_status', 'unknown')}"
+        if name == "resource":
+            return doc.get("spec", doc.get("mimetype", "resource"))
+        if name == "datum":
+            return str(doc.get("datum_id", "datum"))
+        if name == "stream_resource":
+            return doc.get("data_key", doc.get("mimetype", "stream_resource"))
+        if name == "stream_datum":
+            indices = doc.get("indices", {})
+            return f"[{indices.get('start', '?')}:{indices.get('stop', '?')}]"
+        # Fallback for any unknown document type
+        return doc.get("uid", name)[:12] if "uid" in doc else name
 
     def doc_consumer(self, name: str, doc: dict[str, Any]) -> None:
         """Callback for Engine document stream.
@@ -181,32 +230,12 @@ class DocumentStreamModel(QAbstractItemModel):
             name: Document type.
             doc: Document data.
         """
-        group = self._groups.get(name)
-        if group is None:
-            return
+        group, parent_index = self._get_or_create_group(name)
+        item = DocumentTreeItem(
+            data=doc, name=self._display_name(name, doc)
+        )
 
-        # Create display name for the document
-        if name == "start":
-            plan_name = doc.get("plan_name", "run")
-            display_name = f"{plan_name}"
-        elif name == "descriptor":
-            stream = doc.get("name", "primary")
-            display_name = f"stream: {stream}"
-        elif name == "event":
-            seq_num = doc.get("seq_num", 0)
-            display_name = f"event {seq_num}"
-        elif name == "stop":
-            status = doc.get("exit_status", "unknown")
-            display_name = f"status: {status}"
-        else:
-            display_name = name
-
-        item = DocumentTreeItem(data=doc, name=display_name)
-
-        # Insert the new item
-        parent_index = self.index(list(self._groups.keys()).index(name), 0, QModelIndex())
         row = group.child_count()
-
         self.beginInsertRows(parent_index, row, row)
         group.append_child(item)
         self.endInsertRows()
@@ -446,15 +475,7 @@ class SequentialDocumentModel(QAbstractTableModel):
             elif col == 1:  # Type
                 return doc_type.capitalize()
             elif col == 2:  # Name
-                if doc_type == "start":
-                    return doc.get("plan_name", "")
-                elif doc_type == "descriptor":
-                    return doc.get("name", "primary")
-                elif doc_type == "event":
-                    return f"seq #{doc.get('seq_num', 0)}"
-                elif doc_type == "stop":
-                    return doc.get("exit_status", "")
-                return ""
+                return DocumentStreamModel._display_name(doc_type, doc)
             elif col == 3:  # UID
                 uid = doc.get("uid", "")
                 return uid[:8] if uid else ""
@@ -896,14 +917,18 @@ class DocumentStreamWidget(QWidget):
         # Update status once per batch (not per document)
         if to_process:
             last_name, last_doc = to_process[-1]
+            total = len(self._sequential_model._documents)
             if last_name == "start":
                 self._status_label.setText(
                     f"Running: {last_doc.get('plan_name', 'unknown')}"
                 )
             elif last_name == "event":
-                total = len(self._sequential_model._documents)
                 self._status_label.setText(
-                    f"Event {last_doc.get('seq_num', 0)} ({total} total)"
+                    f"Event {last_doc.get('seq_num', 0)} ({total} total docs)"
+                )
+            else:
+                self._status_label.setText(
+                    f"{last_name} ({total} total docs)"
                 )
 
         # Auto-scroll once per batch (not per document)
@@ -924,8 +949,10 @@ class DocumentStreamWidget(QWidget):
 
         More efficient than expandAll() which traverses the entire tree.
         """
-        # Events is index 2 in the group order (start=0, descriptor=1, event=2, stop=3)
-        events_index = self._tree_model.index(2, 0, QModelIndex())
+        if "event" not in self._tree_model._group_order:
+            return
+        row = self._tree_model._group_order.index("event")
+        events_index = self._tree_model.index(row, 0, QModelIndex())
         if events_index.isValid():
             self._tree_view.expand(events_index)
             last_row = self._tree_model.rowCount(events_index) - 1
@@ -960,19 +987,15 @@ class DocumentStreamWidget(QWidget):
         """
         doc = index.data(Qt.ItemDataRole.UserRole)
         if doc:
-            # Determine doc type from parent
             parent = index.parent()
-            if parent.isValid():
-                parent_item: DocumentTreeItem = parent.internalPointer()
-                doc_type = parent_item.name.lower()
-                # Remove trailing 's' from plural group names
-                if doc_type.endswith("s"):
-                    doc_type = doc_type[:-1]
-                if doc_type == "descriptor":
-                    doc_type = "descriptor"
-            else:
+            if not parent.isValid():
                 # Clicked on group header, not a document
                 return
+
+            # Look up doc type from group order by parent row
+            parent_row = parent.row()
+            order = self._tree_model._group_order
+            doc_type = order[parent_row] if parent_row < len(order) else "unknown"
 
             self.document_selected.emit(doc_type, doc)
             self._show_document_dialog(doc_type, doc)
