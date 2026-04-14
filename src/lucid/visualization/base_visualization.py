@@ -7,13 +7,13 @@ orchestrates the selection flow; subclasses handle display logic.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any
 
 from PySide6.QtWidgets import QWidget
 
 
-class BaseVisualization(QWidget, ABC):
+class BaseVisualization(QWidget):
     """Abstract base for visualization widgets that read from tiled.
 
     Every visualization receives a BlueskyRun tiled entry via set_run(),
