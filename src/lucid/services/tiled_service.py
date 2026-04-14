@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from bluesky_tiled_plugins import TiledWriter
+
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
@@ -651,8 +653,6 @@ class TiledService(QObject):
             return
 
         try:
-            from bluesky_tiled_plugins import TiledWriter
-
             from lucid.acquire import get_engine
             from lucid.services.threaded_tiled_writer import ThreadedTiledWriter
 
@@ -668,8 +668,6 @@ class TiledService(QObject):
             self._subscription_token = engine.subscribe(self._writer)
             logger.debug("ThreadedTiledWriter subscribed to Engine")
 
-        except ImportError as e:
-            logger.warning("Could not import TiledWriter: {}", e)
         except Exception as e:
             logger.error("Failed to subscribe TiledWriter: {}", e)
 
