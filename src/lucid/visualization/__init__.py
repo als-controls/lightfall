@@ -3,7 +3,7 @@
 Main Components:
     - BaseVisualization: ABC for all tiled-backed visualization widgets
     - FieldType / FieldInfo: Data field classification
-    - VisualizationRegistry: Registry for visualization and heuristic plugins
+    - VisualizationRegistry: Registry for visualization plugins
 """
 
 from __future__ import annotations

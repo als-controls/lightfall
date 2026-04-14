@@ -85,7 +85,6 @@ from lucid.plugins.errors import (
     PluginStatus,
     PluginTypeNotFoundError,
 )
-from lucid.plugins.heuristic_plugin import HeuristicPlugin
 from lucid.plugins.info import PluginInfo
 from lucid.plugins.loader import PluginLoader
 from lucid.plugins.manifest import PluginEntry, PluginManifest
@@ -106,7 +105,6 @@ __all__ = [
     "PluginLoader",
     # Plugin types
     "ControllerPlugin",
-    "HeuristicPlugin",
     "PanelPlugin",
     "PlanPlugin",
     "SettingsPlugin",

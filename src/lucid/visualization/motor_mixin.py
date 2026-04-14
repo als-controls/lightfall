@@ -18,7 +18,11 @@ if TYPE_CHECKING:
     import pyqtgraph as pg
 
     from lucid.devices.model import DeviceInfo
-    from lucid.visualization.spec import VisualizationSpec
+
+# TODO: VisualizationMotorMixin currently accesses self._spec (VisualizationSpec)
+# to determine motor fields via dim_fields. VisualizationSpec has been removed as
+# part of the new widget architecture. This mixin needs to be updated to work with
+# the new BaseVisualization-based widgets (which don't have _spec).
 
 
 class VisualizationMotorMixin:

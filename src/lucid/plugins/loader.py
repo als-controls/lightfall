@@ -725,23 +725,6 @@ class PluginLoader(QObject):
                     "VisualizationRegistry not available, skipping visualization registration"
                 )
 
-        elif plugin_info.type_name == "heuristic":
-            try:
-                from lucid.visualization.registry import VisualizationRegistry
-
-                viz_registry = VisualizationRegistry.get_instance()
-                heuristic_plugin = plugin_info.instance
-
-                viz_registry.register_heuristic(heuristic_plugin, replace=True)
-                logger.debug(
-                    "Registered heuristic '{}' with VisualizationRegistry",
-                    heuristic_plugin.name,
-                )
-            except ImportError:
-                logger.debug(
-                    "VisualizationRegistry not available, skipping heuristic registration"
-                )
-
     def get_plugin_by_name(
         self,
         name: str,
