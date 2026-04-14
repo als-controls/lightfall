@@ -47,9 +47,6 @@ class TiledConfig:
     auth_mode: TiledAuthMode = TiledAuthMode.NONE
 
 
-    return doc
-
-
 class TiledService(QObject):
     """Service managing Tiled connection and TiledWriter lifecycle.
 
