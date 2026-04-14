@@ -69,9 +69,16 @@ class ThreadedTiledWriter:
         self._thread = QThreadFuture(
             self._process_queue,
             name="TiledWriter",
-            key="tiled_writer",
+            interrupt_callable=self._unblock_queue,
         )
         self._thread.start()
+
+    def _unblock_queue(self) -> None:
+        """Send stop sentinel so the queue loop exits promptly on cancel."""
+        try:
+            self._queue.put_nowait(_STOP)
+        except queue.Full:
+            pass
 
     def _process_queue(self) -> None:
         """Background thread: process documents from the queue."""
@@ -133,10 +140,6 @@ class ThreadedTiledWriter:
         Args:
             timeout: Seconds to wait for thread to finish.
         """
-        try:
-            self._queue.put_nowait(_STOP)
-        except queue.Full:
-            pass
         self._thread.cancel(timeout_ms=int(timeout * 1000))
 
     def flush(self, timeout: float = 10.0) -> bool:
