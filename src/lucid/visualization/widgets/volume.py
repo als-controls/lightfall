@@ -368,7 +368,9 @@ class VolumeVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
         """Apply theme colors."""
         for view in [self._xy_view, self._xz_view, self._yz_view]:
             if view:
-                view.setBackground(colors.background)
+                vb = view.getView()
+                if vb:
+                    vb.setBackgroundColor(colors.background)
 
     def _export_data(self, format: str) -> bytes:
         """Export volume data."""
