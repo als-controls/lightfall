@@ -96,8 +96,6 @@ from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.plugins.skill_plugin import SkillPlugin
 from lucid.plugins.types import PluginType
-from lucid.plugins.visualization_plugin import VisualizationPlugin
-
 __all__ = [
     # Core classes
     "PluginType",
@@ -114,7 +112,6 @@ __all__ = [
     "SettingsPlugin",
     "MCPToolPlugin",
     "SkillPlugin",
-    "VisualizationPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",

@@ -509,9 +509,7 @@ def _setup_plugins(app: NCSApplication) -> None:
 
     # Visualization plugin types
     from lucid.plugins.heuristic_plugin import HeuristicPlugin
-    from lucid.plugins.visualization_plugin import VisualizationPlugin
 
-    loader.register_plugin_type("visualization", VisualizationPlugin)
     loader.register_plugin_type("heuristic", HeuristicPlugin)
 
     # Load built-in manifest first

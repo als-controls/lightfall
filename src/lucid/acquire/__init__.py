@@ -15,7 +15,7 @@ Components:
 - PlanRegistry: Central registry of available plans
 """
 
-from lucid.acquire.buffer import LiveDataBuffer, MultiStreamBuffer
+from lucid.acquire.buffer import LiveDataBuffer
 from lucid.acquire.device_wrapper import NCSDevice, wrap_device
 from lucid.acquire.engine import (
     BaseEngine,
@@ -71,5 +71,4 @@ __all__ = [
     "SignalPreset",
     # Buffer
     "LiveDataBuffer",
-    "MultiStreamBuffer",
 ]

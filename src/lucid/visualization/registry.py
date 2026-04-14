@@ -1,7 +1,7 @@
-"""Registry for visualization plugins.
+"""Registry for heuristic plugins.
 
-VisualizationRegistry is a thread-safe singleton that manages all
-registered VisualizationPlugin and HeuristicPlugin instances.
+VisualizationRegistry is a thread-safe singleton that manages
+HeuristicPlugin instances used by the visualization system.
 """
 
 from __future__ import annotations
@@ -13,25 +13,19 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from lucid.plugins.heuristic_plugin import HeuristicPlugin
-    from lucid.plugins.visualization_plugin import VisualizationPlugin
 
 
 class VisualizationRegistry:
-    """Thread-safe singleton registry for visualization plugins.
+    """Thread-safe singleton registry for heuristic plugins.
 
-    Provides centralized access to all registered VisualizationPlugin and
-    HeuristicPlugin instances. Used by SelectionEngine to query available
-    visualizations and heuristics.
+    Provides centralized access to all registered HeuristicPlugin instances.
 
     Thread Safety:
         All methods are protected by an RLock for thread-safe access.
 
     Example:
         >>> registry = VisualizationRegistry.get_instance()
-        >>> registry.register_visualization(PlotVisualizationPlugin())
         >>> registry.register_heuristic(XASHeuristicPlugin())
-        >>> viz = registry.get_visualization("plot_1d")
-        >>> all_viz = registry.get_all_visualizations()
     """
 
     _instance: VisualizationRegistry | None = None
@@ -39,7 +33,7 @@ class VisualizationRegistry:
 
     def __init__(self) -> None:
         """Initialize the registry."""
-        self._visualizations: dict[str, VisualizationPlugin] = {}
+        self._visualizations: dict[str, Any] = {}
         self._heuristics: dict[str, HeuristicPlugin] = {}
         self._viz_lock = threading.RLock()
 
@@ -65,12 +59,12 @@ class VisualizationRegistry:
     # === Visualization Registration ===
 
     def register_visualization(
-        self, plugin: VisualizationPlugin, replace: bool = False
+        self, plugin: Any, replace: bool = False
     ) -> None:
         """Register a visualization plugin.
 
         Args:
-            plugin: The VisualizationPlugin instance to register.
+            plugin: The plugin instance to register (must have a .name attribute).
             replace: If True, replace existing plugin with same name.
 
         Raises:
@@ -103,7 +97,7 @@ class VisualizationRegistry:
                 return True
             return False
 
-    def get_visualization(self, name: str) -> VisualizationPlugin | None:
+    def get_visualization(self, name: str) -> Any | None:
         """Get a visualization plugin by name.
 
         Args:
@@ -115,11 +109,11 @@ class VisualizationRegistry:
         with self._viz_lock:
             return self._visualizations.get(name)
 
-    def get_all_visualizations(self) -> list[VisualizationPlugin]:
+    def get_all_visualizations(self) -> list[Any]:
         """Get all registered visualization plugins.
 
         Returns:
-            List of all registered VisualizationPlugin instances.
+            List of all registered plugin instances.
         """
         with self._viz_lock:
             return list(self._visualizations.values())
