@@ -28,7 +28,7 @@ from lucid.visualization.fitting.base import FitResult
 from lucid.visualization.fitting.fitters import get_fitter, list_fitters
 
 if TYPE_CHECKING:
-    from lucid.visualization.widgets.plot import PlotVisualization
+    from lucid.visualization.widgets.plot_1d import Plot1DVisualization
 
 
 class FitPanel(QWidget):
@@ -48,13 +48,13 @@ class FitPanel(QWidget):
 
     def __init__(
         self,
-        plot: PlotVisualization | None = None,
+        plot: Plot1DVisualization | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Initialize the fit panel.
 
         Args:
-            plot: PlotVisualization to fit (optional, can set later).
+            plot: Plot1DVisualization to fit (optional, can set later).
             parent: Parent widget.
         """
         super().__init__(parent)
@@ -248,11 +248,11 @@ class FitPanel(QWidget):
         """
         self._results_text.setPlainText(f"Error: {message}")
 
-    def set_plot(self, plot: PlotVisualization) -> None:
+    def set_plot(self, plot: Plot1DVisualization) -> None:
         """Set the plot widget to fit.
 
         Args:
-            plot: PlotVisualization instance.
+            plot: Plot1DVisualization instance.
         """
         self._plot = plot
 

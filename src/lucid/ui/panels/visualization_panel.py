@@ -30,11 +30,11 @@ from lucid.visualization.fitting.panel import FitPanel
 
 def _widget_classes() -> list[type[BaseVisualization]]:
     """Import and return all available visualization widget classes."""
-    from lucid.visualization.widgets.heatmap_new import HeatmapVisualization
+    from lucid.visualization.widgets.heatmap import HeatmapVisualization
     from lucid.visualization.widgets.image_stack import ImageStackVisualization
     from lucid.visualization.widgets.plot_1d import Plot1DVisualization
-    from lucid.visualization.widgets.scatter_new import ScatterVisualization
-    from lucid.visualization.widgets.table_new import TableVisualization
+    from lucid.visualization.widgets.scatter import ScatterVisualization
+    from lucid.visualization.widgets.table import TableVisualization
 
     return [
         ImageStackVisualization,

@@ -1,14 +1,15 @@
-"""Heatmap visualization for 2D rectilinear data.
+"""2D heatmap visualization on the new BaseVisualization ABC.
 
-Provides a color-coded 2D image view with colorbar and crosshairs.
+Reads scalar data from a tiled BlueskyRun's internal/events table
+and reshapes it into a grid using the scan shape from start metadata.
 """
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
+import pyqtgraph as pg
 from loguru import logger
 from PySide6.QtWidgets import (
     QComboBox,
@@ -19,468 +20,257 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.visualization_plugin import VisualizationPlugin
-from lucid.visualization.base import BaseVisualizationWidget
-from lucid.visualization.motor_mixin import VisualizationMotorMixin
-from lucid.visualization.spec import (
-    DataCharacteristics,
-    FieldType,
-    VisualizationSpec,
-)
-from lucid.visualization.theme import (
-    ThemedVisualizationMixin,
-    VisualizationColors,
-)
-
-if TYPE_CHECKING:
-    import pyqtgraph as pg
-
-    from lucid.acquire.buffer import MultiStreamBuffer
+from lucid.visualization.base_visualization import BaseVisualization
 
 
-class HeatmapVisualization(
-    VisualizationMotorMixin, ThemedVisualizationMixin, BaseVisualizationWidget
-):
-    """Heatmap visualization for 2D grid data.
+class HeatmapVisualization(BaseVisualization):
+    """Tiled-backed 2D heatmap.
 
-    Displays scalar data on a 2D rectilinear grid as a color map.
-    Features:
-    - Colorbar with adjustable range
-    - Multiple colormap options
-    - Crosshair showing position and value
-    - Auto or manual color scaling
-    - Right-click context menu for motor movement (Go to X, Y, or X,Y)
+    Reshapes a scalar field from the events table into a 2D grid using
+    the scan shape recorded in run.metadata["start"]["shape"].
     """
 
-    def __init__(
-        self,
-        spec: VisualizationSpec,
-        buffer: MultiStreamBuffer,
-        parent: QWidget | None = None,
-    ) -> None:
-        """Initialize the heatmap visualization."""
-        self._plot_widget: pg.PlotWidget | None = None
-        self._image_item: pg.ImageItem | None = None
-        self._colorbar: pg.ColorBarItem | None = None
-        self._crosshair_v: pg.InfiniteLine | None = None
-        self._crosshair_h: pg.InfiniteLine | None = None
+    viz_name = "heatmap"
+    viz_display_name = "Heatmap"
+    viz_icon = "grid"
 
-        # Data storage
-        self._data_grid: np.ndarray | None = None
-        self._shape: tuple[int, int] = (0, 0)
-        self._current_point = 0
-        self._field_arrays: dict[str, np.ndarray] | None = None
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
 
-        super().__init__(spec, buffer, parent)
-        self._setup_theme()
+        # Tiled state
+        self._stream: Any | None = None
+        self._data_keys: dict[str, Any] = {}
+        self._motors: list[str] = []
+        self._scan_shape: tuple[int, ...] = ()
 
-    def _setup_ui(self) -> None:
-        """Setup the heatmap UI."""
-        import pyqtgraph as pg
+        self._build_ui()
 
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(4, 4, 4, 4)
-        main_layout.setSpacing(4)
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
-        # Toolbar
-        toolbar = self._create_toolbar()
-        main_layout.addLayout(toolbar)
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
 
-        # Create plot widget
+        layout.addLayout(self._build_toolbar())
+
         self._plot_widget = pg.PlotWidget()
-        self._plot_widget.setBackground(None)
-
-        # Configure axes
         plot_item = self._plot_widget.getPlotItem()
         if plot_item:
-            x_label = self._spec.x_field or "x"
-            y_label = self._spec.y_field or "y"
-            plot_item.setLabel("bottom", x_label)
-            plot_item.setLabel("left", y_label)
-
-            if self._spec.title:
-                plot_item.setTitle(self._spec.title)
-
-            # Lock aspect ratio for image data
             plot_item.setAspectLocked(True)
 
-        # Create image item
         self._image_item = pg.ImageItem()
         self._plot_widget.addItem(self._image_item)
 
-        # Apply colormap
-        self._apply_colormap(self._spec.colormap)
+        # Apply default colormap
+        self._apply_colormap("viridis")
 
-        # Create colorbar
-        try:
-            self._colorbar = pg.ColorBarItem(
-                values=(0, 1),
-                colorMap=pg.colormap.get(self._spec.colormap),
-            )
-            self._colorbar.setImageItem(self._image_item)
-        except Exception as e:
-            logger.debug("Could not create colorbar: {}", e)
+        layout.addWidget(self._plot_widget)
 
-        # Create crosshairs
-        self._crosshair_v = pg.InfiniteLine(angle=90, movable=False)
-        self._crosshair_h = pg.InfiniteLine(angle=0, movable=False)
-        self._plot_widget.addItem(self._crosshair_v, ignoreBounds=True)
-        self._plot_widget.addItem(self._crosshair_h, ignoreBounds=True)
-        self._crosshair_v.hide()
-        self._crosshair_h.hide()
-
-        # Connect mouse movement
-        self._plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
-
-        # Setup motor movement context menu (from VisualizationMotorMixin)
-        self._setup_motor_context_menu()
-
-        main_layout.addWidget(self._plot_widget)
-
-        # Status bar
-        self._status_label = QLabel("")
-        main_layout.addWidget(self._status_label)
-
-        # Add to parent layout
-        container = QWidget()
-        container.setLayout(main_layout)
-        self._layout.addWidget(container)
-
-    def _create_toolbar(self) -> QHBoxLayout:
-        """Create the toolbar."""
+    def _build_toolbar(self) -> QHBoxLayout:
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
-        # Z-field selector
-        z_label = QLabel("Data:")
-        self._z_combo = QComboBox()
-        self._z_combo.setMinimumWidth(100)
-        self._z_combo.currentTextChanged.connect(self._on_z_field_changed)
-        toolbar.addWidget(z_label)
-        toolbar.addWidget(self._z_combo)
-
-        # Colormap selector
-        cmap_label = QLabel("Colormap:")
+        toolbar.addWidget(QLabel("Colormap:"))
         self._cmap_combo = QComboBox()
         self._cmap_combo.addItems([
             "viridis", "plasma", "inferno", "magma", "cividis",
-            "gray", "hot", "cool", "jet"
+            "gray", "hot", "cool",
         ])
-        self._cmap_combo.setCurrentText(self._spec.colormap)
-        self._cmap_combo.currentTextChanged.connect(self._on_colormap_changed)
-        toolbar.addWidget(cmap_label)
+        self._cmap_combo.currentTextChanged.connect(self._apply_colormap)
         toolbar.addWidget(self._cmap_combo)
 
         toolbar.addStretch()
 
-        # Auto-range button
         auto_btn = QPushButton("Auto Range")
         auto_btn.clicked.connect(self._on_auto_range)
         toolbar.addWidget(auto_btn)
 
         return toolbar
 
-    def _on_z_field_changed(self, field: str) -> None:
-        """Handle Z field change."""
-        if field:
-            self._spec.z_field = field
-            self._refresh_from_buffer()
+    # ------------------------------------------------------------------
+    # BaseVisualization interface
+    # ------------------------------------------------------------------
 
-    def _on_colormap_changed(self, cmap_name: str) -> None:
-        """Handle colormap change."""
-        self._spec.colormap = cmap_name
-        self._apply_colormap(cmap_name)
+    @staticmethod
+    def can_handle(run: Any) -> int:
+        """Return 85 for 2D rectilinear, 30 for 2D non-rectilinear, 0 otherwise."""
+        try:
+            start = run.metadata.get("start", {})
+            hints = start.get("hints", {})
+            dims = hints.get("dimensions", [])
+        except Exception:
+            return 0
+
+        if len(dims) != 2:
+            return 0
+
+        # Rectilinear: shape exists and has two positive integers
+        try:
+            shape = start.get("shape", [])
+            if len(shape) >= 2 and shape[0] > 0 and shape[1] > 0:
+                return 85
+        except Exception:
+            pass
+
+        return 30
+
+    def set_run(self, run: Any) -> None:
+        self._run = run
+
+    def get_streams(self) -> list[str]:
+        if self._run is None:
+            return []
+        names = list(self._run.keys())
+        if "primary" in names:
+            names.remove("primary")
+            names.insert(0, "primary")
+        return names
+
+    def set_stream(self, stream_name: str) -> None:
+        self._stream_name = stream_name
+        try:
+            self._stream = self._run[stream_name]
+            self._data_keys = self._stream.metadata.get("data_keys", {})
+        except Exception as e:
+            logger.debug("Heatmap: could not open stream '{}': {}", stream_name, e)
+            self._data_keys = {}
+
+        self._motors = self._detect_motors()
+
+        # Cache scan shape
+        try:
+            shape = self._run.metadata.get("start", {}).get("shape", [])
+            self._scan_shape = tuple(int(s) for s in shape)
+        except Exception:
+            self._scan_shape = ()
+
+        fields = self.get_fields()
+        if fields:
+            self.set_field(fields[0])
+
+    def get_fields(self) -> list[str]:
+        """Return scalar fields, hinted first, motors excluded."""
+        if not self._data_keys:
+            return []
+
+        try:
+            hints = self._stream.metadata.get("hints", {}).get("fields", [])
+            hinted = set(hints)
+        except Exception:
+            hinted = set()
+
+        motor_set = set(self._motors)
+        hinted_scalars: list[str] = []
+        other_scalars: list[str] = []
+
+        for name, dk in self._data_keys.items():
+            if name in motor_set:
+                continue
+            shape = dk.get("shape", [])
+            dtype = dk.get("dtype", "")
+            is_scalar = shape == [] or shape == ()
+            is_numeric = dtype in ("number", "integer", "float", "int", "")
+            if is_scalar and is_numeric:
+                if name in hinted:
+                    hinted_scalars.append(name)
+                else:
+                    other_scalars.append(name)
+
+        return hinted_scalars + other_scalars
+
+    def set_field(self, field_name: str) -> None:
+        self._field_name = field_name
+        self._replot()
+
+    def refresh(self) -> None:
+        self._replot()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _detect_motors(self) -> list[str]:
+        motors: list[str] = []
+        try:
+            start = self._run.metadata.get("start", {})
+            dims = start.get("hints", {}).get("dimensions", [])
+            for fields, _stream in dims:
+                motors.extend(fields)
+        except Exception:
+            pass
+        return motors
+
+    def _read_events_table(self):
+        if not self._stream:
+            return None
+        try:
+            stream_keys = list(self._stream.keys())
+        except Exception:
+            return None
+        if "internal" in stream_keys:
+            try:
+                internal = self._stream["internal"]
+                if "events" in internal:
+                    return internal["events"].read()
+            except Exception as e:
+                logger.debug("Heatmap: could not read events table: {}", e)
+        return None
 
     def _apply_colormap(self, cmap_name: str) -> None:
-        """Apply colormap to image item."""
         try:
-            import pyqtgraph as pg
-
             cmap = pg.colormap.get(cmap_name)
             if cmap and self._image_item:
                 lut = cmap.getLookupTable(nPts=256)
                 self._image_item.setLookupTable(lut)
         except Exception as e:
-            logger.debug("Could not apply colormap '{}': {}", cmap_name, e)
+            logger.debug("Heatmap: could not apply colormap '{}': {}", cmap_name, e)
 
     def _on_auto_range(self) -> None:
-        """Reset to auto range."""
         if self._plot_widget:
             self._plot_widget.autoRange()
 
-    # === Tiled bulk-load path ===
-
-    def set_data(
-        self,
-        field_arrays: dict[str, np.ndarray],
-        field_names: list[str],
-    ) -> None:
-        """Bulk-load scalar data from tiled ArrayClients."""
-        self._field_arrays = field_arrays
-
-        # Populate z combo
-        self._z_combo.blockSignals(True)
-        self._z_combo.clear()
-        self._z_combo.addItems(field_names)
-        if self._spec.z_field in field_names:
-            self._z_combo.setCurrentText(self._spec.z_field)
-        self._z_combo.blockSignals(False)
-
-        self._load_from_field_arrays()
-
-    def _load_from_field_arrays(self) -> None:
-        """Reload heatmap from stored field_arrays."""
-        if self._field_arrays is None:
+    def _replot(self) -> None:
+        if not self._field_name:
             return
 
-        z_field = self._spec.z_field
-        if not z_field or z_field not in self._field_arrays:
+        events = self._read_events_table()
+        if events is None:
             return
 
-        z_arr = self._field_arrays[z_field]
+        try:
+            z_arr = np.asarray(events[self._field_name], dtype=np.float64)
+        except Exception as e:
+            logger.debug("Heatmap: field '{}' not in events: {}", self._field_name, e)
+            return
 
-        # Get grid shape from characteristics
-        shape = self._spec.characteristics.shape
-        if len(shape) >= 2:
-            grid_shape = (shape[0], shape[1])
+        # Determine grid shape
+        if len(self._scan_shape) >= 2:
+            grid_shape = (self._scan_shape[0], self._scan_shape[1])
         else:
-            side = int(np.sqrt(len(z_arr)))
+            side = max(1, int(np.sqrt(len(z_arr))))
             grid_shape = (side, side)
 
-        self._initialize_grid(grid_shape)
-
-        # Fill grid row-major
+        grid = np.full(grid_shape, np.nan, dtype=np.float64)
         n = min(len(z_arr), grid_shape[0] * grid_shape[1])
         ny = grid_shape[1]
         for i in range(n):
             ix = i // ny
             iy = i % ny
             if ix < grid_shape[0] and iy < grid_shape[1]:
-                self._data_grid[ix, iy] = float(z_arr[i])
-        self._current_point = n
+                grid[ix, iy] = z_arr[i]
 
-        self._update_image()
+        # ImageItem expects (cols, rows) for display — transpose for row-major
+        self._image_item.setImage(grid.T)
 
-    def _on_mouse_moved(self, pos) -> None:
-        """Handle mouse movement for crosshairs."""
-        if not self._plot_widget or not self._data_grid is not None:
-            return
+        plot_item = self._plot_widget.getPlotItem()
+        if plot_item and len(self._motors) >= 2:
+            plot_item.setLabel("bottom", self._motors[1])
+            plot_item.setLabel("left", self._motors[0])
 
-        if self._plot_widget.sceneBoundingRect().contains(pos):
-            mouse_point = self._plot_widget.getPlotItem().vb.mapSceneToView(pos)
-            x, y = mouse_point.x(), mouse_point.y()
-
-            # Update crosshairs
-            self._crosshair_v.setPos(x)
-            self._crosshair_h.setPos(y)
-            self._crosshair_v.show()
-            self._crosshair_h.show()
-
-            # Update status with value
-            if self._data_grid is not None:
-                ix = int(x)
-                iy = int(y)
-                if 0 <= ix < self._data_grid.shape[0] and 0 <= iy < self._data_grid.shape[1]:
-                    val = self._data_grid[ix, iy]
-                    self._status_label.setText(f"x={x:.2f}, y={y:.2f}, value={val:.4g}")
-
-    def _initialize_grid(self, shape: tuple[int, int]) -> None:
-        """Initialize the data grid.
-
-        Args:
-            shape: (nx, ny) shape of the grid.
-        """
-        self._shape = shape
-        self._data_grid = np.full(shape, np.nan, dtype=np.float64)
-        self._current_point = 0
-        logger.debug("Initialized heatmap grid: {}", shape)
-
-    def _on_new_point(self, seq_num: int, data: dict[str, Any]) -> None:
-        """Handle new data point."""
-        z_field = self._spec.z_field
-
-        if not z_field:
-            # Try to find z_field from data
-            scalar_fields = [k for k, v in data.items()
-                           if not hasattr(v, "shape") or not v.shape]
-            if scalar_fields:
-                z_field = scalar_fields[0]
-                self._spec.z_field = z_field
-
-        if not z_field or z_field not in data:
-            return
-
-        # Initialize grid if needed
-        if self._data_grid is None:
-            # Try to get shape from characteristics
-            shape = self._spec.characteristics.shape
-            if len(shape) >= 2:
-                self._initialize_grid((shape[0], shape[1]))
-            else:
-                # Default to reasonable size
-                num_points = self._spec.characteristics.num_points or 100
-                side = int(np.sqrt(num_points))
-                self._initialize_grid((side, side))
-
-        # Get the value
-        value = data[z_field]
-        if hasattr(value, "shape") and value.shape:
-            # Array data - take mean or first value
-            value = float(np.mean(value))
-        else:
-            value = float(value)
-
-        # Place in grid (row-major order)
-        ny = self._shape[1]
-        ix = self._current_point // ny
-        iy = self._current_point % ny
-
-        if ix < self._shape[0] and iy < self._shape[1]:
-            self._data_grid[ix, iy] = value
-            self._current_point += 1
-
-        # Update display
-        self._update_image()
-
-        # Update field selectors on first point
-        if seq_num == 1:
-            self._update_field_selectors(data)
-
-    def _update_image(self) -> None:
-        """Update the image display."""
-        if self._image_item and self._data_grid is not None:
-            self._image_item.setImage(self._data_grid.T)  # Transpose for display
-
-    def _update_field_selectors(self, data: dict[str, Any]) -> None:
-        """Update field combo boxes."""
-        scalar_fields = [k for k, v in data.items()
-                        if not hasattr(v, "shape") or not v.shape]
-
-        self._z_combo.blockSignals(True)
-        self._z_combo.clear()
-        self._z_combo.addItems(scalar_fields)
-        if self._spec.z_field in scalar_fields:
-            self._z_combo.setCurrentText(self._spec.z_field)
-        self._z_combo.blockSignals(False)
-
-    def _refresh_from_buffer(self) -> None:
-        """Refresh display from buffer (or field_arrays)."""
-        if self._field_arrays is not None:
-            self._load_from_field_arrays()
-            return
-        # Would re-read all data from buffer and rebuild grid
-        pass
-
-    def _on_clear(self) -> None:
-        """Handle clear request."""
-        self._data_grid = None
-        self._current_point = 0
-        self._field_arrays = None
-        if self._image_item:
-            self._image_item.clear()
-
-    def _apply_viz_colors(self, colors: VisualizationColors) -> None:
-        """Apply theme colors."""
-        import pyqtgraph as pg
-
-        if self._plot_widget:
-            self._plot_widget.setBackground(colors.background)
-
-            plot_item = self._plot_widget.getPlotItem()
-            if plot_item:
-                for axis_name in ["bottom", "left", "top", "right"]:
-                    axis = plot_item.getAxis(axis_name)
-                    if axis:
-                        axis.setPen(pg.mkPen(color=colors.foreground))
-                        axis.setTextPen(pg.mkPen(color=colors.foreground))
-
-        if self._crosshair_v:
-            self._crosshair_v.setPen(pg.mkPen(color=colors.highlight, width=1))
-        if self._crosshair_h:
-            self._crosshair_h.setPen(pg.mkPen(color=colors.highlight, width=1))
-
-    def _export_data(self, format: str) -> bytes:
-        """Export heatmap data."""
-        if self._data_grid is None:
-            return b""
-
-        if format == "csv":
-            import csv
-            import io
-            output = io.StringIO()
-            writer = csv.writer(output)
-            for row in self._data_grid:
-                writer.writerow(row)
-            return output.getvalue().encode("utf-8")
-
-        elif format == "json":
-            data = {
-                "z_field": self._spec.z_field,
-                "shape": self._shape,
-                "data": self._data_grid.tolist(),
-            }
-            return json.dumps(data, indent=2).encode("utf-8")
-
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
-
-    def get_supported_export_formats(self) -> list[str]:
-        return ["csv", "json"]
-
-
-class HeatmapVisualizationPlugin(VisualizationPlugin):
-    """Plugin for heatmap visualization."""
-
-    @property
-    def name(self) -> str:
-        return "heatmap"
-
-    @property
-    def display_name(self) -> str:
-        return "Heatmap"
-
-    @property
-    def icon(self) -> str:
-        return "grid"
-
-    @property
-    def description(self) -> str:
-        return "2D color map for rectilinear grid data"
-
-    def can_handle(self, characteristics: DataCharacteristics) -> int:
-        """Check if data is suitable for heatmap.
-
-        Best for:
-        - 2D scans (two independent variables)
-        - Rectilinear grid
-        - Scalar dependent variable
-        """
-        # Must be 2D
-        if characteristics.ndim != 2:
-            return 0
-
-        # Check for rectilinear gridding
-        if not characteristics.is_rectilinear:
-            return 30  # Can still show, but not ideal
-
-        # Check for scalar dependent variable
-        dep_type = characteristics.get_dep_field_type()
-        if dep_type == FieldType.SCALAR:
-            return 85  # Excellent match
-        elif dep_type == FieldType.UNKNOWN:
-            return 60  # May work
-        else:
-            return 20  # Array data not ideal
-
-    def create_widget(
-        self,
-        spec: VisualizationSpec,
-        buffer: MultiStreamBuffer,
-        parent: QWidget | None = None,
-    ) -> HeatmapVisualization:
-        return HeatmapVisualization(spec, buffer, parent)
-
-    def get_default_spec(
-        self, characteristics: DataCharacteristics
-    ) -> VisualizationSpec:
-        return VisualizationSpec.for_heatmap(characteristics)
+        logger.debug(
+            "Heatmap: plotted '{}', shape {}, {} points filled",
+            self._field_name, grid_shape, n,
+        )

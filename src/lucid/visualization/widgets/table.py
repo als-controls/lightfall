@@ -1,359 +1,233 @@
-"""Table visualization for Bluesky data.
+"""Data table visualization on the new BaseVisualization ABC.
 
-Provides a tabular view of all data fields with real-time updates.
+Reads the internal/events table from a tiled BlueskyRun stream and
+displays all scalar columns in a scrollable QTableView.
 """
 
 from __future__ import annotations
 
-import csv
-import io
-import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import numpy as np
+from loguru import logger
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtWidgets import (
     QHeaderView,
     QTableView,
+    QVBoxLayout,
     QWidget,
 )
 
-from lucid.plugins.visualization_plugin import VisualizationPlugin
-from lucid.visualization.base import BaseVisualizationWidget
-from lucid.visualization.spec import DataCharacteristics, VisualizationSpec
-from lucid.visualization.theme import ThemedVisualizationMixin, VisualizationColors
-
-if TYPE_CHECKING:
-    from lucid.acquire.buffer import MultiStreamBuffer
+from lucid.visualization.base_visualization import BaseVisualization
 
 
-class DataTableModel(QAbstractTableModel):
-    """Qt model for tabular visualization data.
+class TableVisualization(BaseVisualization):
+    """Tiled-backed data table.
 
-    Provides a model that displays sequence number, timestamp, and
-    all data fields in columns.
+    Displays every column from the stream's internal/events table
+    (except ts_* timestamp columns) in an alternating-row QTableView.
+    Always returns can_handle=40 as a universal fallback visualization.
     """
+
+    viz_name = "table"
+    viz_display_name = "Data Table"
+    viz_icon = "table"
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialize the table model."""
         super().__init__(parent)
-        self._columns: list[str] = ["seq_num", "time"]
-        self._data: list[dict[str, Any]] = []
 
-    def set_columns(self, columns: list[str]) -> None:
-        """Set the data columns.
+        # Tiled state
+        self._stream: Any | None = None
+        self._data_keys: dict[str, Any] = {}
 
-        Args:
-            columns: List of column names.
-        """
-        self.beginResetModel()
-        self._columns = ["seq_num", "time"] + columns
-        self.endResetModel()
+        self._build_ui()
 
-    def add_row(self, seq_num: int, timestamp: float, data: dict[str, Any]) -> None:
-        """Add a new data row.
+    # ------------------------------------------------------------------
+    # Inner model
+    # ------------------------------------------------------------------
 
-        Args:
-            seq_num: Sequence number.
-            timestamp: Event timestamp.
-            data: Field values.
-        """
-        row_idx = len(self._data)
-        self.beginInsertRows(QModelIndex(), row_idx, row_idx)
+    class _TableModel(QAbstractTableModel):
+        """Simple table model backed by column arrays."""
 
-        row_data = {"seq_num": seq_num, "time": timestamp}
-        row_data.update(data)
-        self._data.append(row_data)
+        def __init__(self, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            self._columns: list[str] = []
+            self._data: dict[str, np.ndarray] = {}
+            self._n_rows: int = 0
 
-        self.endInsertRows()
+        def set_data(self, columns: list[str], data_dict: dict[str, Any]) -> None:
+            self.beginResetModel()
+            self._columns = list(columns)
+            self._data = {}
+            self._n_rows = 0
+            for col in columns:
+                arr = data_dict.get(col)
+                if arr is not None:
+                    self._data[col] = np.asarray(arr)
+                    self._n_rows = max(self._n_rows, len(self._data[col]))
+            self.endResetModel()
 
-    def clear(self) -> None:
-        """Clear all data."""
-        self.beginResetModel()
-        self._data.clear()
-        self.endResetModel()
+        def rowCount(self, parent: QModelIndex | None = None) -> int:
+            return self._n_rows
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
-        """Get number of rows."""
-        return len(self._data)
+        def columnCount(self, parent: QModelIndex | None = None) -> int:
+            return len(self._columns)
 
-    def columnCount(self, parent: QModelIndex | None = None) -> int:
-        """Get number of columns."""
-        return len(self._columns)
-
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        """Get data for a cell."""
-        if not index.isValid():
+        def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+            if not index.isValid():
+                return None
+            if role == Qt.ItemDataRole.DisplayRole:
+                row, col = index.row(), index.column()
+                col_name = self._columns[col]
+                arr = self._data.get(col_name)
+                if arr is None or row >= len(arr):
+                    return ""
+                val = arr[row]
+                return self._fmt(val)
             return None
 
-        if role == Qt.ItemDataRole.DisplayRole:
-            row = index.row()
-            col = index.column()
+        def headerData(
+            self,
+            section: int,
+            orientation: Qt.Orientation,
+            role: int = Qt.ItemDataRole.DisplayRole,
+        ) -> Any:
+            if role == Qt.ItemDataRole.DisplayRole:
+                if orientation == Qt.Orientation.Horizontal:
+                    if section < len(self._columns):
+                        return self._columns[section]
+                else:
+                    return str(section + 1)
+            return None
 
-            if row < len(self._data) and col < len(self._columns):
-                col_name = self._columns[col]
-                value = self._data[row].get(col_name)
-                return self._format_value(value)
+        @staticmethod
+        def _fmt(val: Any) -> str:
+            if val is None:
+                return ""
+            if isinstance(val, float) or (
+                hasattr(val, "dtype") and np.issubdtype(type(val), np.floating)
+            ):
+                fval = float(val)
+                if abs(fval) < 0.001 or abs(fval) >= 10000:
+                    return f"{fval:.4e}"
+                return f"{fval:.6g}"
+            if hasattr(val, "shape") and val.shape:
+                return f"array{val.shape}"
+            return str(val)
 
-        return None
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
-    def headerData(
-        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
-    ) -> Any:
-        """Get header data."""
-        if role == Qt.ItemDataRole.DisplayRole:
-            if orientation == Qt.Orientation.Horizontal:
-                if section < len(self._columns):
-                    return self._columns[section]
-            else:
-                return str(section + 1)
-        return None
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
 
-    def _format_value(self, value: Any) -> str:
-        """Format a value for display.
+        self._model = self._TableModel(self)
 
-        Args:
-            value: The value to format.
-
-        Returns:
-            Formatted string.
-        """
-        if value is None:
-            return ""
-        elif isinstance(value, float):
-            # Format floats with reasonable precision
-            if abs(value) < 0.001 or abs(value) >= 10000:
-                return f"{value:.4e}"
-            return f"{value:.6g}"
-        elif isinstance(value, (list, tuple)):
-            # Array data - show shape
-            if hasattr(value, "shape"):
-                return f"array{value.shape}"
-            return f"[{len(value)} items]"
-        elif hasattr(value, "shape"):
-            # Numpy array
-            return f"array{value.shape}"
-        else:
-            return str(value)
-
-    def get_all_data(self) -> list[dict[str, Any]]:
-        """Get all data as list of dicts."""
-        return self._data.copy()
-
-    def get_columns(self) -> list[str]:
-        """Get column names."""
-        return self._columns.copy()
-
-
-class TableVisualization(ThemedVisualizationMixin, BaseVisualizationWidget):
-    """Table visualization widget for Bluesky data.
-
-    Displays all data fields in a scrollable table with automatic
-    column sizing and real-time updates.
-    """
-
-    def __init__(
-        self,
-        spec: VisualizationSpec,
-        buffer: MultiStreamBuffer,
-        parent: QWidget | None = None,
-    ) -> None:
-        """Initialize the table visualization.
-
-        Args:
-            spec: Visualization specification.
-            buffer: Data buffer.
-            parent: Parent widget.
-        """
-        self._model: DataTableModel | None = None
-        self._table: QTableView | None = None
-        self._columns_set = False
-        super().__init__(spec, buffer, parent)
-        self._setup_theme()
-
-    def _setup_ui(self) -> None:
-        """Setup the table UI."""
-        # Create model
-        self._model = DataTableModel(self)
-
-        # Create table view
         self._table = QTableView()
         self._table.setModel(self._model)
         self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
 
-        # Configure header
         header = self._table.horizontalHeader()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
-        # Enable sorting
-        self._table.setSortingEnabled(False)  # Disable for live data
+        layout.addWidget(self._table)
 
-        self._layout.addWidget(self._table)
+    # ------------------------------------------------------------------
+    # BaseVisualization interface
+    # ------------------------------------------------------------------
 
-    # === Tiled bulk-load path ===
-
-    def set_data(
-        self,
-        field_arrays: dict[str, np.ndarray],
-        field_names: list[str],
-    ) -> None:
-        """Bulk-load tabular data from tiled ArrayClients."""
-        if not self._model:
-            return
-
-        self._model.beginResetModel()
-        self._model._columns = ["seq_num", "time"] + field_names
-        self._model._data.clear()
-
-        n_rows = max((len(arr) for arr in field_arrays.values()), default=0)
-        time_arr = field_arrays.get("time")
-
-        for i in range(n_rows):
-            row = {"seq_num": i + 1, "time": float(time_arr[i]) if time_arr is not None else 0.0}
-            for name in field_names:
-                if name in field_arrays and i < len(field_arrays[name]):
-                    row[name] = field_arrays[name][i]
-            self._model._data.append(row)
-
-        self._model.endResetModel()
-        self._columns_set = True
-
-        if self._table:
-            self._table.scrollToBottom()
-
-    def _on_new_point(self, seq_num: int, data: dict[str, Any]) -> None:
-        """Handle new data point."""
-        if not self._model:
-            return
-
-        # Set columns on first data
-        if not self._columns_set:
-            columns = list(data.keys())
-            self._model.set_columns(columns)
-            self._columns_set = True
-
-        # Get timestamp from buffer
-        stream = self.stream_buffer
-        timestamp = 0.0
-        if stream:
-            timestamps = stream.get_timestamps()
-            if timestamps:
-                timestamp = timestamps[-1]
-
-        # Add row
-        self._model.add_row(seq_num, timestamp, data)
-
-        # Auto-scroll to bottom
-        if self._table:
-            self._table.scrollToBottom()
-
-    def _on_clear(self) -> None:
-        """Handle clear request."""
-        if self._model:
-            self._model.clear()
-        self._columns_set = False
-
-    def _apply_viz_colors(self, colors: VisualizationColors) -> None:
-        """Apply visualization colors."""
-        if self._table:
-            self._table.setStyleSheet(
-                f"""
-                QTableView {{
-                    background-color: {colors.background};
-                    color: {colors.foreground};
-                    gridline-color: {colors.grid};
-                    border: 1px solid {colors.border};
-                }}
-                QTableView::item:alternate {{
-                    background-color: {colors.grid};
-                }}
-                QTableView::item:selected {{
-                    background-color: {colors.highlight};
-                }}
-                QHeaderView::section {{
-                    background-color: {colors.grid};
-                    color: {colors.foreground};
-                    border: 1px solid {colors.border};
-                    padding: 4px;
-                }}
-                """
-            )
-
-    def _export_data(self, format: str) -> bytes:
-        """Export table data."""
-        if not self._model:
-            return b""
-
-        data = self._model.get_all_data()
-        columns = self._model.get_columns()
-
-        if format == "csv":
-            output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=columns)
-            writer.writeheader()
-            for row in data:
-                # Convert non-string values
-                clean_row = {}
-                for col in columns:
-                    val = row.get(col)
-                    if hasattr(val, "tolist"):
-                        val = val.tolist()
-                    clean_row[col] = val
-                writer.writerow(clean_row)
-            return output.getvalue().encode("utf-8")
-
-        elif format == "json":
-            return json.dumps(data, indent=2, default=str).encode("utf-8")
-
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
-
-    def get_supported_export_formats(self) -> list[str]:
-        """Get supported export formats."""
-        return ["csv", "json"]
-
-
-class TableVisualizationPlugin(VisualizationPlugin):
-    """Plugin for table visualization."""
-
-    @property
-    def name(self) -> str:
-        return "table"
-
-    @property
-    def display_name(self) -> str:
-        return "Data Table"
-
-    @property
-    def icon(self) -> str:
-        return "table"
-
-    @property
-    def description(self) -> str:
-        return "Tabular view of all data fields with real-time updates"
-
-    def can_handle(self, characteristics: DataCharacteristics) -> int:
-        """Table can always handle data (baseline visualization).
-
-        Returns a moderate score (40) as tables work for any data
-        but aren't optimal for most visualization needs.
-        """
-        # Table is always a valid fallback
+    @staticmethod
+    def can_handle(run: Any) -> int:
+        """Always 40 — universal fallback."""
         return 40
 
-    def create_widget(
-        self,
-        spec: VisualizationSpec,
-        buffer: MultiStreamBuffer,
-        parent: QWidget | None = None,
-    ) -> TableVisualization:
-        """Create the table widget."""
-        return TableVisualization(spec, buffer, parent)
+    def set_run(self, run: Any) -> None:
+        self._run = run
 
-    def get_default_spec(
-        self, characteristics: DataCharacteristics
-    ) -> VisualizationSpec:
-        """Get default spec for table."""
-        return VisualizationSpec.for_table(characteristics)
+    def get_streams(self) -> list[str]:
+        if self._run is None:
+            return []
+        names = list(self._run.keys())
+        if "primary" in names:
+            names.remove("primary")
+            names.insert(0, "primary")
+        return names
+
+    def set_stream(self, stream_name: str) -> None:
+        self._stream_name = stream_name
+        try:
+            self._stream = self._run[stream_name]
+            self._data_keys = self._stream.metadata.get("data_keys", {})
+        except Exception as e:
+            logger.debug("Table: could not open stream '{}': {}", stream_name, e)
+            self._data_keys = {}
+
+        self.set_field("(all)")
+
+    def get_fields(self) -> list[str]:
+        """Always returns ['(all)'] — table shows everything."""
+        return ["(all)"]
+
+    def set_field(self, field_name: str) -> None:
+        self._field_name = field_name
+        self._reload()
+
+    def refresh(self) -> None:
+        self._reload()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _read_events_table(self):
+        if not self._stream:
+            return None
+        try:
+            stream_keys = list(self._stream.keys())
+        except Exception:
+            return None
+        if "internal" in stream_keys:
+            try:
+                internal = self._stream["internal"]
+                if "events" in internal:
+                    return internal["events"].read()
+            except Exception as e:
+                logger.debug("Table: could not read events table: {}", e)
+        return None
+
+    def _reload(self) -> None:
+        events = self._read_events_table()
+        if events is None:
+            return
+
+        # events is a pandas DataFrame or similar mapping; get column names
+        try:
+            all_cols = list(events.keys())
+        except Exception:
+            return
+
+        # Filter out ts_* columns
+        columns = [c for c in all_cols if not c.startswith("ts_")]
+
+        data_dict: dict[str, Any] = {}
+        for col in columns:
+            try:
+                data_dict[col] = np.asarray(events[col])
+            except Exception:
+                pass
+
+        self._model.set_data(columns, data_dict)
+        self._table.scrollToBottom()
+
+        logger.debug(
+            "Table: loaded {} columns, {} rows",
+            len(columns),
+            self._model.rowCount(),
+        )
