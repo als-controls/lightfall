@@ -50,6 +50,7 @@ dependencies = [
     "ophyd>=1.7",
     # tiled
     "tiled[client]>=0.2.5",
+    "bluesky-tiled-plugins>=2.0",
     # networking / proxy support
     "httpx[socks]>=0.27",
     "aiohttp>=3.8",
@@ -203,6 +204,7 @@ requires = [
     "bluesky>=1.10",
     "ophyd>=1.7",
     "tiled[client]>=0.2.5",
+    "bluesky-tiled-plugins>=2.0",
 
     # IPython integration
     "qtconsole>=5.5",
