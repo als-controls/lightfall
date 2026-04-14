@@ -279,20 +279,29 @@ class TiledBrowserPanel(BasePanel):
         self.record_double_clicked.emit(record)
         logger.info("Opening run {} in visualization", record.uid[:8])
 
-        # Setup visualization using lazy ArrayClient access
         client = self._tiled_service._client
         if client is None:
             return
 
-        self._fetch_thread = QThreadFuture(
-            self._setup_visualization,
-            client,
-            record._client_key,
-            callback_slot=self._on_visualization_ready,
-            except_slot=self._on_replay_error,
-            name="tiled_setup_viz",
-        )
-        self._fetch_thread.start()
+        try:
+            entry = client[record._client_key]
+        except Exception as e:
+            logger.error("Failed to access run {}: {}", record.uid[:8], e)
+            return
+
+        from lucid.core.services import ServiceRegistry
+        from lucid.ui.docking import DockingManager
+        from lucid.ui.panels.visualization_panel import VisualizationPanel
+
+        dm = ServiceRegistry.get_instance().get(DockingManager, None)
+        if dm is None:
+            return
+
+        viz_panel_id = "lucid.panels.visualization"
+        dm.show_panel(viz_panel_id)
+        panel = dm.get_panel(viz_panel_id)
+        if isinstance(panel, VisualizationPanel):
+            panel.open_run(entry)
 
     def _get_selected_records(self) -> list[TiledRecord]:
         """Get all currently selected TiledRecord objects."""
@@ -326,203 +335,6 @@ class TiledBrowserPanel(BasePanel):
             parent=self,
         )
         dialog.exec()
-
-    @staticmethod
-    def _setup_visualization(
-        client: Any, client_key: str, stream_name: str | None = None,
-    ) -> dict:
-        """Extract metadata, ArrayClient refs, and scalar data for a run.
-
-        For image fields: returns a lazy ArrayClient reference (no bulk fetch).
-        For scalar fields: reads all data eagerly (small, one HTTP request each).
-        Both paths return a unified dict consumed by ``open_tiled_run``.
-
-        Args:
-            client: Tiled client instance.
-            client_key: Key for the run in the catalog.
-            stream_name: Stream to visualize (default: "primary").
-
-        Returns:
-            Unified dict with start_doc, descriptor, image_client,
-            timestamps, frame_shape, is_live, entry, scalar_data,
-            scalar_fields, stream_names, active_stream, client_key.
-        """
-        import uuid
-
-        import numpy as np
-
-        entry = client[client_key]
-        metadata = entry.metadata
-
-        # Start document
-        start_doc = dict(metadata.get("start") or {})
-
-        # Discover available streams
-        stream_names = list(entry.keys())
-        if not stream_names:
-            logger.debug(
-                "No streams from inlined contents for run {}; fetching from server",
-                client_key[:8],
-            )
-            entry.item["attributes"]["structure"]["contents"] = None
-            stream_names = list(entry.keys())
-
-        if not stream_names:
-            for candidate in ("primary", "baseline"):
-                try:
-                    entry[candidate]
-                    stream_names.append(candidate)
-                except (KeyError, Exception):
-                    pass
-
-        # Pick stream: explicit choice, or default to primary
-        active_stream = stream_name or "primary"
-        if active_stream not in stream_names:
-            if not stream_names:
-                logger.warning("No streams found for run {}", client_key[:8])
-                return {}
-            active_stream = stream_names[0]
-
-        stream = entry[active_stream]
-        stream_md = dict(stream.metadata)
-
-        # Build descriptor document (lightweight, from metadata only)
-        descriptor = {
-            **stream_md,
-            "uid": stream_md.get("uid", str(uuid.uuid4())),
-            "name": active_stream,
-            "run_start": start_doc.get("uid", client_key),
-        }
-
-        # Classify fields by shape (use a copy so we can fix shapes for viz)
-        data_keys = {k: dict(v) for k, v in stream_md.get("data_keys", {}).items()}
-        image_field = None
-        frame_shape: tuple[int, ...] = ()
-        scalar_field_names: list[str] = []
-
-        for key, info in data_keys.items():
-            shape = info.get("shape", [])
-            if len(shape) >= 2:
-                if image_field is None:
-                    image_field = key
-                    # Shape from descriptor is [N, H, W]; extract per-frame [H, W]
-                    frame_shape = tuple(shape[-2:])
-                    info["shape"] = list(frame_shape)
-            else:
-                scalar_field_names.append(key)
-
-        # Update descriptor with corrected per-frame shapes for viz selection
-        descriptor["data_keys"] = data_keys
-
-        stream_keys = list(stream.keys())
-
-        # Image field: lazy ArrayClient reference (no data fetched)
-        # bluesky_tiled_plugins nests external data under primary/external/
-        image_client = None
-        if image_field:
-            if image_field in stream_keys:
-                image_client = stream[image_field]
-            elif "external" in stream_keys and image_field in stream["external"]:
-                image_client = stream["external"][image_field]
-
-        # Scalar fields: read eagerly (small data, one HTTP request each)
-        # bluesky_tiled_plugins stores scalars in internal/events as a table
-        scalar_data: dict[str, Any] = {}
-        events_table = None
-        if "internal" in stream_keys:
-            internal = stream["internal"]
-            if "events" in internal:
-                try:
-                    events_table = internal["events"].read()
-                except Exception as e:
-                    logger.warning("Could not read internal/events table: {}", e)
-
-        if events_table is not None:
-            for field_name in scalar_field_names:
-                if field_name in events_table.columns:
-                    scalar_data[field_name] = np.asarray(events_table[field_name])
-        else:
-            for field_name in scalar_field_names:
-                if field_name in stream_keys:
-                    try:
-                        scalar_data[field_name] = np.asarray(stream[field_name].read())
-                    except Exception as e:
-                        logger.warning("Could not read scalar field '{}': {}", field_name, e)
-
-        # Timestamps (small 1-D array)
-        timestamps = np.array([])
-        if events_table is not None and "time" in events_table.columns:
-            timestamps = np.asarray(events_table["time"], dtype=np.float64)
-        elif "time" in stream_keys:
-            timestamps = np.asarray(stream["time"].read(), dtype=np.float64)
-
-        is_live = metadata.get("stop") is None
-
-        logger.debug(
-            "Setup viz for run {}: image={}, scalars={}, live={}",
-            client_key[:8],
-            image_field,
-            len(scalar_data),
-            is_live,
-        )
-
-        return {
-            "start_doc": start_doc,
-            "descriptor": descriptor,
-            "image_client": image_client,
-            "timestamps": timestamps,
-            "frame_shape": frame_shape,
-            "is_live": is_live,
-            "entry": entry,
-            "scalar_data": scalar_data or None,
-            "scalar_fields": scalar_field_names,
-            "stream_names": stream_names,
-            "active_stream": active_stream,
-            "client_key": client_key,
-        }
-
-    @Slot(object)
-    def _on_visualization_ready(self, result: dict | None = None) -> None:
-        """Handle visualization setup result — open in VisualizationPanel."""
-        if not result:
-            logger.warning("No visualization data to display")
-            return
-
-        from lucid.core.services import ServiceRegistry
-        from lucid.ui.docking import DockingManager
-        from lucid.ui.panels.visualization_panel import VisualizationPanel
-
-        dm = ServiceRegistry.get_instance().get(DockingManager, None)
-        if dm is None:
-            logger.warning("DockingManager not available")
-            return
-
-        viz_panel_id = "lucid.panels.visualization"
-        dm.show_panel(viz_panel_id)
-        panel = dm.get_panel(viz_panel_id)
-        if isinstance(panel, VisualizationPanel):
-            panel.open_tiled_run(
-                start_doc=result["start_doc"],
-                descriptor=result["descriptor"],
-                image_client=result.get("image_client"),
-                timestamps=result["timestamps"],
-                frame_shape=result.get("frame_shape", ()),
-                is_live=result.get("is_live", False),
-                entry=result.get("entry"),
-                scalar_data=result.get("scalar_data"),
-                scalar_fields=result.get("scalar_fields", []),
-                stream_names=result.get("stream_names", []),
-                active_stream=result.get("active_stream", "primary"),
-                client_key=result.get("client_key", ""),
-            )
-            logger.info("Opened tiled run in visualization")
-        else:
-            logger.warning("Visualization panel not found")
-
-    @Slot(Exception)
-    def _on_replay_error(self, error: Exception) -> None:
-        """Handle error setting up visualization."""
-        logger.error("Failed to setup visualization: {}", error)
 
     def _load_data(self) -> None:
         """Load initial batch of data from Tiled server with current filters."""
