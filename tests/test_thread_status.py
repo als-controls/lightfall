@@ -304,8 +304,8 @@ class TestPluginDocumentCallback:
         plugin._on_document("start", doc)
 
         assert plugin._scanning is True
-        assert plugin._overlay._scan_uid == "abc-123"
-        assert plugin._overlay._scan_num_points == 10
+        assert plugin._scan_uid == "abc-123"
+        assert plugin._scan_num_points == 10
         assert plugin._overlay.has_scan is True
 
     def test_start_document_no_num_points(self, qapp):
@@ -314,7 +314,7 @@ class TestPluginDocumentCallback:
         plugin._on_document("start", doc)
 
         assert plugin._scanning is True
-        assert plugin._overlay._scan_num_points is None
+        assert plugin._scan_num_points is None
 
     def test_event_document_increments(self, qapp):
         plugin = self._make_plugin()
@@ -322,7 +322,7 @@ class TestPluginDocumentCallback:
         plugin._on_document("event", {"uid": "abc-123", "seq_num": 1})
         plugin._on_document("event", {"uid": "abc-123", "seq_num": 2})
 
-        assert plugin._overlay._scan_event_count == 2
+        assert plugin._scan_event_count == 2
 
     def test_stop_document_ends_scan(self, qapp):
         plugin = self._make_plugin()
@@ -332,8 +332,30 @@ class TestPluginDocumentCallback:
         plugin._on_document("stop", {"uid": "abc-123"})
 
         assert plugin._scanning is False
-        assert plugin._overlay._scan_uid is None
-        assert plugin._overlay._scan_event_count == 0
+        assert plugin._scan_uid is None
+        assert plugin._scan_event_count == 0
+
+    def test_new_scan_cancels_pending_removal(self, qapp):
+        """If Scan A stops and Scan B starts within 1s, the removal timer
+        should be cancelled so Scan B's row is not destroyed."""
+        plugin = self._make_plugin()
+        # Scan A
+        plugin._on_document("start", {"uid": "scan-a", "num_points": 5})
+        plugin._on_document("stop", {"uid": "scan-a"})
+        # Removal timer is now pending
+        assert plugin._overlay._scan_removal_timer is not None
+
+        # Scan B starts before the timer fires
+        plugin._on_document("start", {"uid": "scan-b", "num_points": 10})
+        # Timer should have been cancelled
+        assert plugin._overlay._scan_removal_timer is None
+        # Scan B row should be present
+        assert plugin._overlay.has_scan is True
+        assert plugin._scan_uid == "scan-b"
+
+        # Wait past the original timer — row should still exist
+        process_events_for(qapp, 1200)
+        assert plugin._overlay.has_scan is True
 
 
 # ======================================================================

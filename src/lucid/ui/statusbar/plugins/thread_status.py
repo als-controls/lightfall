@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -80,9 +82,6 @@ class _ProgressOverlay(QFrame):
         self._scan_row: QWidget | None = None
         self._scan_bar: QProgressBar | None = None
         self._scan_label: QLabel | None = None
-        self._scan_uid: str | None = None
-        self._scan_event_count: int = 0
-        self._scan_num_points: int | None = None
         self._scan_removal_timer: QTimer | None = None
 
     # ------------------------------------------------------------------
@@ -194,7 +193,8 @@ class _ProgressOverlay(QFrame):
         row_layout.setSpacing(2)
 
         label = QLabel(name)
-        label.setStyleSheet("font-size: 11px; color: #888;")
+        subdued = self._subdued_text_color()
+        label.setStyleSheet(f"font-size: 11px; color: {subdued};")
         row_layout.addWidget(label)
 
         bar = QProgressBar()
@@ -224,13 +224,19 @@ class _ProgressOverlay(QFrame):
     # Scan row
     # ------------------------------------------------------------------
 
+    def cancel_scan_removal(self) -> None:
+        """Cancel any pending scan removal timer."""
+        if self._scan_removal_timer is not None:
+            self._scan_removal_timer.stop()
+            self._scan_removal_timer = None
+
     def upsert_scan(self, event_count: int, num_points: int | None) -> None:
         """Create or update the scan progress row at the top of the overlay."""
         if self._scan_row is None:
             self._add_scan_row()
 
-        assert self._scan_bar is not None
-        assert self._scan_label is not None
+        if self._scan_bar is None or self._scan_label is None:
+            return
 
         if num_points is not None and num_points > 0:
             self._scan_bar.setMinimum(0)
@@ -294,6 +300,19 @@ class _ProgressOverlay(QFrame):
         self._scan_removal_timer = None
 
     # ------------------------------------------------------------------
+    # Theming helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _subdued_text_color() -> str:
+        """Return a palette-derived subdued text color string for stylesheets."""
+        app = QApplication.instance()
+        if app is not None:
+            palette = app.palette()
+            return palette.color(QPalette.ColorRole.PlaceholderText).name()
+        return "#888"
+
+    # ------------------------------------------------------------------
     # Separator management
     # ------------------------------------------------------------------
 
@@ -307,7 +326,8 @@ class _ProgressOverlay(QFrame):
             self._separator = QFrame()
             self._separator.setFrameShape(QFrame.Shape.HLine)
             self._separator.setFixedHeight(1)
-            self._separator.setStyleSheet("color: #555;")
+            mid_color = self._subdued_text_color()
+            self._separator.setStyleSheet(f"color: {mid_color};")
             # Insert after the last thread row
             # Thread rows are at the start (after scan), devices after them
             insert_idx = len(self._rows)
@@ -377,8 +397,11 @@ class ThreadStatusPlugin(StatusBarPlugin):
         self._theme_manager: ThemeManager | None = None
         # Track threads that have reported progress (even if overlay not open)
         self._tracked: set[int] = set()
-        # Scan tracking state
+        # Scan tracking state (owned by plugin, overlay is display-only)
         self._scanning: bool = False
+        self._scan_uid: str | None = None
+        self._scan_event_count: int = 0
+        self._scan_num_points: int | None = None
 
     @property
     def name(self) -> str:
@@ -522,30 +545,30 @@ class ThreadStatusPlugin(StatusBarPlugin):
 
         if name == "start":
             self._scanning = True
-            self._overlay._scan_uid = doc.get("uid")
-            self._overlay._scan_event_count = 0
+            self._scan_uid = doc.get("uid")
+            self._scan_event_count = 0
             num_points = doc.get("num_points")
             if num_points is not None:
                 try:
                     num_points = int(num_points)
                 except (ValueError, TypeError):
                     num_points = None
-            self._overlay._scan_num_points = num_points
+            self._scan_num_points = num_points
+            # Cancel any pending removal timer from a previous scan
+            self._overlay.cancel_scan_removal()
             self._overlay.upsert_scan(0, num_points)
             self.update()
 
         elif name == "event":
-            self._overlay._scan_event_count += 1
-            self._overlay.upsert_scan(
-                self._overlay._scan_event_count, self._overlay._scan_num_points
-            )
+            self._scan_event_count += 1
+            self._overlay.upsert_scan(self._scan_event_count, self._scan_num_points)
 
         elif name == "stop":
             self._scanning = False
             self._overlay.mark_scan_done()
-            self._overlay._scan_uid = None
-            self._overlay._scan_event_count = 0
-            self._overlay._scan_num_points = None
+            self._scan_uid = None
+            self._scan_event_count = 0
+            self._scan_num_points = None
             self.update()
 
     # ------------------------------------------------------------------
