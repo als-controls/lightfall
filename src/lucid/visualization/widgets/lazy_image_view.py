@@ -300,6 +300,14 @@ class LazyImageView(pg.ImageView):
             else:
                 display_frame = real_frame
 
+            # Guard: pyqtgraph requires a 2D array
+            if display_frame.ndim != 2:
+                logger.warning(
+                    "LazyImageView: frame {} has unexpected shape {}, skipping",
+                    self.currentIndex, display_frame.shape,
+                )
+                return
+
             self.imageDisp = display_frame
 
             # Display frame on ImageItem (may trigger histogram auto-update
@@ -407,15 +415,20 @@ class LazyImageView(pg.ImageView):
     # ------------------------------------------------------------------
 
     def _fetch_frame(self, index: int) -> np.ndarray:
-        """Fetch a single frame from the ArrayClient, reshaping if flat.
+        """Fetch a single frame from the ArrayClient, reshaping if needed.
 
-        Tiled may store images flattened (e.g. shape (65536,) for 256x256).
-        We reshape using ``self._frame_shape`` from the descriptor.
+        Tiled may store images flattened (e.g. shape (65536,) for 256x256)
+        or with a leading singleton dim (1, H, W).  We reshape using
+        ``self._frame_shape`` from the descriptor to always return (H, W).
         """
-        n_frames = self._client.shape[0]
+        n_frames = self._proxy.shape[0] if self._proxy else 1
         index = int(max(0, min(index, n_frames - 1)))
 
         raw = np.asarray(self._client[index])
+
+        # Squeeze leading singleton dims: (1, H, W) → (H, W)
+        while raw.ndim > 2 and raw.shape[0] == 1:
+            raw = raw[0]
 
         # Reshape flat arrays using the descriptor's declared shape
         if raw.ndim == 1 and len(self._frame_shape) == 2:
@@ -423,7 +436,6 @@ class LazyImageView(pg.ImageView):
             if raw.size == expected_size:
                 raw = raw.reshape(self._frame_shape)
             else:
-                # Best-effort square reshape
                 side = int(np.sqrt(raw.size))
                 if side * side == raw.size:
                     raw = raw.reshape(side, side)
