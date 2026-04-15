@@ -29,6 +29,7 @@ BEAMLINE_SPECIFIC_PREFS = {
     "panel_layout",
     "plot_defaults",
     "acquisition_defaults",
+    "device_favorites",
 }
 
 # Preferences that are always global (never beamline-specific)
