@@ -6,11 +6,12 @@ including status display, control buttons, and queue information.
 
 from __future__ import annotations
 
+from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QImage, QPainter, QPixmap, qAlpha, qRed, qGreen, qBlue, qRgba
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -25,56 +26,168 @@ if TYPE_CHECKING:
     from lucid.acquire.engine import Engine
 
 
-class StatusIndicator(QWidget):
-    """A colored dot indicating RunEngine status.
+SPINNING_STATES = frozenset({"running", "stopping"})
+PAUSED_STATES = frozenset({"paused", "pausing"})
+ERROR_STATES = frozenset({"aborting", "panicked"})
 
-    Colors:
-    - Gray: Idle
-    - Green: Running
-    - Yellow: Paused
-    - Red: Error/Aborting
+_LOGO_SIZE = 24
+_FLASH_DURATION_MS = 1500
+_SPIN_INTERVAL_MS = 33  # ~30 fps
+_SPIN_DEGREES_PER_TICK = 12  # 30 fps * 12 deg = 360 deg/sec
+
+
+def _bake_gray_pixmap(source: QImage) -> QPixmap:
+    """Build a grayscale variant of source, preserving alpha.
+
+    Pure Format_Grayscale8 conversion zeroes alpha. Doing it manually keeps
+    soft edges anti-aliased against any background.
+    """
+    out = QImage(source.size(), QImage.Format.Format_ARGB32)
+    out.fill(0)
+    for y in range(source.height()):
+        for x in range(source.width()):
+            px = source.pixel(x, y)
+            a = qAlpha(px)
+            if a == 0:
+                continue
+            r, g, b = qRed(px), qGreen(px), qBlue(px)
+            lum = (r * 299 + g * 587 + b * 114) // 1000
+            out.setPixel(x, y, qRgba(lum, lum, lum, a))
+    return QPixmap.fromImage(out)
+
+
+def _bake_red_pixmap(source: QImage) -> QPixmap:
+    """Build a red-tinted variant: red channel = source luminance, G=B=0.
+
+    Preserves the logo's internal contrast (bright parts stay bright red,
+    dark parts stay dark red). Alpha is preserved for soft edges.
+    """
+    out = QImage(source.size(), QImage.Format.Format_ARGB32)
+    out.fill(0)
+    for y in range(source.height()):
+        for x in range(source.width()):
+            px = source.pixel(x, y)
+            a = qAlpha(px)
+            if a == 0:
+                continue
+            r, g, b = qRed(px), qGreen(px), qBlue(px)
+            lum = (r * 299 + g * 587 + b * 114) // 1000
+            out.setPixel(x, y, qRgba(lum, 0, 0, a))
+    return QPixmap.fromImage(out)
+
+
+def _load_logo_pixmaps() -> tuple[QPixmap, QPixmap, QPixmap]:
+    """Load logo.png and bake (color, gray, red) 24x24 pixmaps.
+
+    Returns:
+        Tuple of (color, gray, red) QPixmaps, all 24x24.
+    """
+    resource = files("lucid.ui.resources") / "logo.png"
+    data = resource.read_bytes()
+    raw = QImage.fromData(data, "PNG")
+    if raw.isNull():
+        raise RuntimeError("Failed to decode logo.png from lucid.ui.resources")
+    scaled = raw.scaled(
+        _LOGO_SIZE,
+        _LOGO_SIZE,
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    ).convertToFormat(QImage.Format.Format_ARGB32)
+    color = QPixmap.fromImage(scaled)
+    gray = _bake_gray_pixmap(scaled)
+    red = _bake_red_pixmap(scaled)
+    return color, gray, red
+
+
+class SpinnerIndicator(QWidget):
+    """Spinning ALS logo indicating RunEngine status.
+
+    States:
+    - idle / no engine: gray, static
+    - running / stopping: color, spinning at 360 deg/sec
+    - paused / pausing: color at 50% opacity, static
+    - aborting / panicked: red, static (also triggers a 1500 ms flash)
+    - error flash (transient): red, static, overrides state for 1500 ms
+
+    The three color variants are pre-baked once at construction. A 30 fps
+    timer drives rotation; it only runs while in a spinning state to avoid
+    redraw churn when idle.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialize the status indicator.
-
-        Args:
-            parent: Optional parent widget.
-        """
+        """Initialize the spinner indicator."""
         super().__init__(parent)
-        self.setFixedSize(16, 16)
-        self._color = QColor("#888888")  # Default gray
+        self.setFixedSize(_LOGO_SIZE, _LOGO_SIZE)
+
+        self._color_pixmap, self._gray_pixmap, self._red_pixmap = _load_logo_pixmaps()
         self._status = "idle"
+        self._rotation = 0.0
+        self._flash_active = False
+
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(_SPIN_INTERVAL_MS)
+        self._spin_timer.timeout.connect(self._on_spin_tick)
+
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setSingleShot(True)
+        self._flash_timer.setInterval(_FLASH_DURATION_MS)
+        self._flash_timer.timeout.connect(self._on_flash_timeout)
 
     def set_status(self, status: str) -> None:
-        """Set the status and update color.
+        """Update the displayed status.
 
-        Args:
-            status: Status string (idle, running, paused, aborting).
+        Starts/stops the spin timer based on whether the new status spins.
         """
         self._status = status.lower()
-
-        color_map = {
-            "idle": "#888888",  # Gray
-            "running": "#4CAF50",  # Green
-            "paused": "#FFC107",  # Yellow/Amber
-            "aborting": "#F44336",  # Red
-            "stopping": "#FF9800",  # Orange
-            "panicked": "#F44336",  # Red
-        }
-
-        self._color = QColor(color_map.get(self._status, "#888888"))
+        if self._status in SPINNING_STATES:
+            if not self._spin_timer.isActive():
+                self._spin_timer.start()
+        else:
+            if self._spin_timer.isActive():
+                self._spin_timer.stop()
         self.update()
 
+    def flash_error(self) -> None:
+        """Flash red for 1500 ms. Re-entrant: restarts the timer if called again."""
+        self._flash_active = True
+        self._flash_timer.start()  # restarts if already running
+        self.update()
+
+    @Slot()
+    def _on_spin_tick(self) -> None:
+        self._rotation = (self._rotation + _SPIN_DEGREES_PER_TICK) % 360
+        self.update()
+
+    @Slot()
+    def _on_flash_timeout(self) -> None:
+        self._flash_active = False
+        self.update()
+
+    def _pixmap_for_state(self) -> QPixmap:
+        if self._status in ERROR_STATES:
+            return self._red_pixmap
+        if self._status in (PAUSED_STATES | SPINNING_STATES):
+            return self._color_pixmap
+        return self._gray_pixmap
+
     def paintEvent(self, event) -> None:
-        """Paint the status indicator."""
+        """Render the (possibly rotated, possibly dimmed) pixmap."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # Draw filled circle
-        painter.setBrush(self._color)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(2, 2, 12, 12)
+        if self._flash_active:
+            pixmap = self._red_pixmap
+            opacity = 1.0
+        else:
+            pixmap = self._pixmap_for_state()
+            opacity = 0.5 if self._status in PAUSED_STATES else 1.0
+
+        painter.setOpacity(opacity)
+        painter.translate(_LOGO_SIZE / 2, _LOGO_SIZE / 2)
+        painter.rotate(self._rotation)
+        painter.translate(-_LOGO_SIZE / 2, -_LOGO_SIZE / 2)
+        painter.drawPixmap(0, 0, pixmap)
 
 
 class RunEngineControlWidget(QWidget):

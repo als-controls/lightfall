@@ -64,7 +64,7 @@ from lucid.ui.widgets.plan_selector import (
 from lucid.ui.widgets.runengine_control import (
     RunEngineControlWidget,
     RunEngineStatusBar,
-    StatusIndicator,
+    SpinnerIndicator,
 )
 from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
 from lucid.ui.widgets.tiled_status import TiledStatusWidget
@@ -92,7 +92,7 @@ __all__ = [
     # RunEngine control
     "RunEngineControlWidget",
     "RunEngineStatusBar",
-    "StatusIndicator",
+    "SpinnerIndicator",
     # Plan widgets
     "PlanSelectorWidget",
     "PlanListModel",
