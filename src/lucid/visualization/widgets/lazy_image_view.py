@@ -85,6 +85,7 @@ class LazyImageView(pg.ImageView):
         self._dark_frame: np.ndarray | None = None
         self._last_real_frame: np.ndarray | None = None
         self._applying_log_levels: bool = False
+        self._suppress_update: bool = False  # Skip frame fetch during setImage setup
 
         # Intercept histogram level changes so we can map through log1p
         # when log mode is active.
@@ -123,10 +124,11 @@ class LazyImageView(pg.ImageView):
         t0 = timestamps[0] if len(timestamps) > 0 else 0.0
         self.tVals = np.asarray(timestamps[:n_frames], dtype=np.float64) - t0
 
-        # Feed the proxy as the "image". autoRange=False and
-        # autoLevels=False prevent pyqtgraph from calling updateImage
-        # during setImage — the caller controls when to display the
-        # first frame via setCurrentIndex.
+        # Feed the proxy as the "image". Suppress the updateImage call
+        # that pyqtgraph triggers internally — we don't want to fetch a
+        # frame yet.  The caller will call setCurrentIndex to display
+        # the desired frame (single HTTP fetch).
+        self._suppress_update = True
         self.setImage(
             self._proxy,
             xvals=self.tVals,
@@ -134,6 +136,7 @@ class LazyImageView(pg.ImageView):
             autoLevels=False,
             autoRange=False,
         )
+        self._suppress_update = False
 
         logger.debug(
             "LazyImageView: {} frames, shape {}",
@@ -286,6 +289,9 @@ class LazyImageView(pg.ImageView):
         - Keep the histogram in real units when log mode is active.
         - Apply log display + level mapping when needed.
         """
+        if self._suppress_update:
+            return
+
         if self._client is not None and self._proxy is not None:
             # === Lazy path ===
             raw_frame = self._fetch_frame(self.currentIndex)
