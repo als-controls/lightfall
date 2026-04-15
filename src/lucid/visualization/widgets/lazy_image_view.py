@@ -427,7 +427,9 @@ class LazyImageView(pg.ImageView):
         n_frames = self._proxy.shape[0] if self._proxy else 1
         index = int(max(0, min(index, n_frames - 1)))
 
+        import time as _t; _t0 = _t.monotonic()
         raw = np.asarray(self._client[index])
+        logger.debug("_fetch_frame: index={}, HTTP took {:.1f}s, shape={}", index, _t.monotonic() - _t0, raw.shape)
 
         # Squeeze leading singleton dims: (1, H, W) → (H, W)
         while raw.ndim > 2 and raw.shape[0] == 1:
