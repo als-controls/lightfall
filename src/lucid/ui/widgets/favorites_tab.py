@@ -72,6 +72,11 @@ class FavoritesTab(QWidget):
         return list(self._favorite_ids)
 
     def set_favorites(self, device_ids: list[str]) -> None:
+        """Set the full favorites list (for loading from prefs).
+
+        Does NOT emit favorites_changed to avoid re-saving what was just
+        loaded. Use add_favorite/remove_favorite for user-initiated changes.
+        """
         for did in list(self._favorite_ids):
             self._remove_widget(did)
         self._favorite_ids.clear()
@@ -140,7 +145,6 @@ class FavoritesTab(QWidget):
             widget.set_motor(ophyd_obj)
 
     def closeEvent(self, event) -> None:
-        for widget in self._widgets.values():
-            widget.close()
-        self._widgets.clear()
+        for did in list(self._widgets.keys()):
+            self._remove_widget(did)
         super().closeEvent(event)
