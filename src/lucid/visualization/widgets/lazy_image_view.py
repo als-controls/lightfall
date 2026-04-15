@@ -112,36 +112,33 @@ class LazyImageView(pg.ImageView):
         """
         self._client = client
         self._frame_shape = frame_shape
-        n_frames = client.shape[0]
+        n_frames = len(timestamps) if len(timestamps) > 0 else client.shape[0]
 
-        # Infer dtype from the first frame (cheap — one HTTP request)
-        sample = self._fetch_frame(0)
-        dtype = sample.dtype
-
-        # Build proxy and seed min/max from the sample frame
-        self._proxy = _ArrayProxy(n_frames, frame_shape, dtype)
-        self._minmax_cache = None  # will be computed lazily
+        # Assume float64 — _fetch_frame converts anyway. Avoids an HTTP
+        # round-trip just to discover dtype.
+        self._proxy = _ArrayProxy(n_frames, frame_shape, np.dtype("float64"))
+        self._minmax_cache = None
 
         # Relative timestamps (start at 0)
         t0 = timestamps[0] if len(timestamps) > 0 else 0.0
         self.tVals = np.asarray(timestamps[:n_frames], dtype=np.float64) - t0
 
-        # Feed the proxy as the "image" — pyqtgraph stores it as
-        # self.image but never indexes into it because we override
-        # updateImage / getProcessedImage / quickMinMax.
+        # Feed the proxy as the "image". autoRange=False and
+        # autoLevels=False prevent pyqtgraph from calling updateImage
+        # during setImage — the caller controls when to display the
+        # first frame via setCurrentIndex.
         self.setImage(
             self._proxy,
             xvals=self.tVals,
             axes={"t": 0, "y": 1, "x": 2},
             autoLevels=False,
-            autoRange=True,
+            autoRange=False,
         )
 
         logger.debug(
-            "LazyImageView: {} frames, shape {}, dtype {}",
+            "LazyImageView: {} frames, shape {}",
             n_frames,
             frame_shape,
-            dtype,
         )
 
     def updateFrameCount(self, new_count: int, timestamps: np.ndarray) -> None:
