@@ -264,12 +264,16 @@ class ImageStackVisualization(BaseVisualization):
 
         if n_frames > 0:
             self._image_view.setCurrentIndex(n_frames - 1)
+            t3b = _time.monotonic()
             self._on_reset_lut()
+        else:
+            t3b = t3
         t4 = _time.monotonic()
 
         logger.debug(
-            "set_field timings: resolve={:.1f}s shape={:.1f}s setSource={:.1f}s display={:.1f}s",
-            t1 - t0, t2 - t1, t3 - t2, t4 - t3,
+            "set_field timings: resolve={:.1f}s shape={:.1f}s setSource={:.1f}s "
+            "setIndex={:.1f}s resetLUT={:.1f}s",
+            t1 - t0, t2 - t1, t3 - t2, t3b - t3, t4 - t3b,
         )
 
         self._update_status()
