@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QPoint, Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QWidget,
 )
@@ -172,8 +173,11 @@ class CompactMotorWidget(QWidget):
     def _on_go_clicked(self) -> None:
         if self._motor is None:
             return
+        text = self._setpoint_edit.text().strip()
+        if not text:
+            return
         try:
-            value = float(self._setpoint_edit.text())
+            value = float(text)
             if self._is_jog_mode:
                 current = self._get_current_position()
                 if current is None:
@@ -208,10 +212,8 @@ class CompactMotorWidget(QWidget):
             self.control_error.emit(f"Stop failed: {e}")
             logger.error("CompactMotor stop failed: {}", e)
 
-    @Slot()
-    def _on_context_menu(self, pos) -> None:
-        from PySide6.QtWidgets import QMenu
-
+    @Slot(QPoint)
+    def _on_context_menu(self, pos: QPoint) -> None:
         menu = QMenu(self)
         open_action = menu.addAction("Open Controller")
         open_action.triggered.connect(
