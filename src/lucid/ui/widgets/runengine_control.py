@@ -244,7 +244,7 @@ class RunEngineControlWidget(QWidget):
         status_layout.setContentsMargins(6, 2, 6, 2)
         status_layout.setSpacing(4)
 
-        self._status_indicator = StatusIndicator()
+        self._status_indicator = SpinnerIndicator()
         status_layout.addWidget(self._status_indicator)
 
         self._status_label = QLabel("Idle")
@@ -315,6 +315,7 @@ class RunEngineControlWidget(QWidget):
         self._engine.sigPause.connect(self._on_pause)
         self._engine.sigResume.connect(self._on_resume)
         self._engine.sigQueueChanged.connect(self._on_queue_changed)
+        self._engine.sigException.connect(self._on_exception)
 
     def _disconnect_signals(self) -> None:
         """Disconnect from engine signals."""
@@ -328,6 +329,7 @@ class RunEngineControlWidget(QWidget):
             self._engine.sigPause.disconnect(self._on_pause)
             self._engine.sigResume.disconnect(self._on_resume)
             self._engine.sigQueueChanged.disconnect(self._on_queue_changed)
+            self._engine.sigException.disconnect(self._on_exception)
         except RuntimeError:
             pass  # Already disconnected
 
@@ -384,6 +386,8 @@ class RunEngineControlWidget(QWidget):
             state: New state string.
         """
         self._update_state()
+        if state.lower() in ERROR_STATES:
+            self._status_indicator.flash_error()
         logger.debug(f"RunEngine state changed: {state}")
 
     @Slot()
@@ -410,6 +414,11 @@ class RunEngineControlWidget(QWidget):
     def _on_queue_changed(self) -> None:
         """Handle queue change (plan submitted or dequeued)."""
         self._update_state()
+
+    @Slot(Exception)
+    def _on_exception(self, ex: Exception) -> None:
+        """Flash the indicator red when the engine raises an exception."""
+        self._status_indicator.flash_error()
 
     @Slot()
     def _on_pause_resume_clicked(self) -> None:
