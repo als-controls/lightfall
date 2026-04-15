@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import QCoreApplication, Signal, Slot
+from PySide6.QtCore import QCoreApplication, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QScrollArea,
     QTabBar,
     QTabWidget,
     QWidget,
@@ -77,12 +78,26 @@ class DevicePanel(BasePanel):
         logger.info("DevicePanel.__init__() END")
 
     def _setup_ui(self) -> None:
-        """Setup the tabbed panel UI."""
-        # Main tab widget
+        """Setup the tabbed panel UI.
+
+        The tab widget sits inside a vertical-only QScrollArea so that when
+        the panel is docked narrow (or the device controller tab's content
+        grows taller than the viewport) the user can scroll instead of
+        having content clipped. Horizontal scrolling is disabled and the
+        vertical scroll bar auto-hides when not needed.
+        """
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._layout.addWidget(self._scroll_area)
+
+        # Main tab widget (lives inside the scroll area)
         self._tabs = QTabWidget()
         self._tabs.setTabsClosable(True)
         self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
-        self._layout.addWidget(self._tabs)
+        self._scroll_area.setWidget(self._tabs)
 
         # Tab 0: Favorites
         self._favorites_tab = FavoritesTab(catalog=self._catalog)
