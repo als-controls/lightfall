@@ -15,6 +15,7 @@ from PySide6.QtCore import QThread, Signal
 
 from lucid.acquire.engine.base import BaseEngine, PrioritizedProcedure
 from lucid.acquire.engine.state import EngineState
+from lucid.acquire.engine.waiting_hook import WaitingHookBridge
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
@@ -82,6 +83,7 @@ class BlueskyEngine(BaseEngine):
         self._kwargs_callables: set[Callable[[], dict[str, Any]]] = set()
         self._resume_future: QThreadFuture | None = None
         self._queue_future: QThreadFuture | None = None
+        self._waiting_bridge = WaitingHookBridge()
 
         # Connect sigOutput to sigDocumentYield for backward compatibility
         self.sigOutput.connect(self.sigDocumentYield.emit)
@@ -93,6 +95,11 @@ class BlueskyEngine(BaseEngine):
     def RE(self) -> RunEngine | None:
         """Access the underlying Bluesky RunEngine."""
         return self._RE
+
+    @property
+    def waiting_bridge(self) -> WaitingHookBridge:
+        """Access the waiting hook bridge for connecting progress UI."""
+        return self._waiting_bridge
 
     @property
     def state(self) -> EngineState:
@@ -151,6 +158,9 @@ class BlueskyEngine(BaseEngine):
             loop=self._loop,
             **self._re_kwargs,
         )
+
+        # Wire up waiting hook for device progress tracking
+        self._RE.waiting_hook = self._waiting_bridge
 
         # Subscribe to document stream
         self._RE.subscribe(lambda name, doc: self._emit_output(name, doc))
