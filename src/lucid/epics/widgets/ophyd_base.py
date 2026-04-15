@@ -11,7 +11,7 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Property, Signal, Slot, QTimer, QEvent
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.epics.widgets.style import WidgetStyles
 
@@ -51,6 +51,7 @@ class OphydWidget(QWidget):
         signal: Any = None,
         parent: QWidget | None = None,
         readonly: bool = False,
+        show_units: bool = True,
     ) -> None:
         super().__init__(parent)
         self._signal: Any = None
@@ -59,6 +60,13 @@ class OphydWidget(QWidget):
         self._value: Any = None
         self._connected = False
         self._poll_timer: QTimer | None = None
+
+        # Units display — the QLabel is lazily created; subclasses call
+        # ``_ensure_units_label()`` and add the returned widget to their
+        # own layout if they want units shown alongside the value.
+        self._show_units = show_units
+        self._units: str = ""
+        self._units_label: QLabel | None = None
 
         # Apply base styling
         self._update_connection_style()
@@ -82,6 +90,30 @@ class OphydWidget(QWidget):
     def connected(self) -> bool:
         """Whether the signal is currently connected."""
         return self._connected
+
+    @Property(bool)
+    def show_units(self) -> bool:
+        """Whether to display units next to the value."""
+        return self._show_units
+
+    @show_units.setter
+    def show_units(self, value: bool) -> None:
+        self._show_units = value
+        if self._units_label is not None:
+            self._units_label.setVisible(value and bool(self._units))
+
+    def _ensure_units_label(self) -> QLabel:
+        """Return the units QLabel, creating it on first access.
+
+        Subclasses call this during layout construction and add the
+        returned label to their own layout. The label is created hidden
+        and becomes visible once a non-empty units string is fetched.
+        """
+        if self._units_label is None:
+            self._units_label = QLabel()
+            self._units_label.setObjectName("units_label")
+            self._units_label.setVisible(False)
+        return self._units_label
 
     # -- Signal binding -------------------------------------------------------
 
@@ -173,6 +205,41 @@ class OphydWidget(QWidget):
         # Read current value
         self._read_initial_value()
 
+        # Pull engineering units from the signal (best-effort)
+        self._fetch_units()
+
+    def _fetch_units(self) -> None:
+        """Extract engineering units from the ophyd signal.
+
+        Checks ``signal.metadata["units"]`` first, then falls back to
+        ``signal.describe()`` which some signal types populate lazily.
+        The result is stored in ``self._units`` and applied to
+        ``self._units_label`` if a subclass has created one.
+        """
+        if self._signal is None:
+            return
+        units = ""
+        try:
+            meta = getattr(self._signal, "metadata", None)
+            if isinstance(meta, dict):
+                units = meta.get("units", "") or ""
+            if not units and hasattr(self._signal, "describe"):
+                desc = self._signal.describe()
+                if inspect.isawaitable(desc):
+                    desc = None
+                if desc:
+                    for _key, info in desc.items():
+                        if isinstance(info, dict):
+                            units = info.get("units", "") or ""
+                            if units:
+                                break
+        except Exception:
+            units = ""
+        self._units = units
+        if self._units_label is not None:
+            self._units_label.setText(units)
+            self._units_label.setVisible(self._show_units and bool(units))
+
     def _disconnect_signal(self) -> None:
         """Unsubscribe and release the ophyd signal."""
         self._stop_polling()
@@ -186,6 +253,12 @@ class OphydWidget(QWidget):
         self._connected = False
         self._update_connection_style()
         self._update_readonly_state()
+
+        # Clear units display so it doesn't stick around after rebinding.
+        self._units = ""
+        if self._units_label is not None:
+            self._units_label.setText("")
+            self._units_label.setVisible(False)
 
     # -- Value updates --------------------------------------------------------
 
@@ -353,6 +426,8 @@ class OphydWidget(QWidget):
             "connected": self._connected,
             "current_value": self._value,
             "value_type": type(self._value).__name__ if self._value is not None else None,
+            "units": self._units,
+            "show_units": self._show_units,
             "readonly": self._readonly,
             "enabled": self.isEnabled(),
             "visible": self.isVisible(),

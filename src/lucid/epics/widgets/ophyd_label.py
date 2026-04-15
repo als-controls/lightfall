@@ -17,15 +17,17 @@ class OphydLabel(OphydWidget):
         signal: Any = None,
         parent: QWidget | None = None,
         precision: int = 4,
+        show_units: bool = True,
     ) -> None:
         self._precision = precision
-        super().__init__(signal, parent, readonly=True)
+        super().__init__(signal, parent, readonly=True, show_units=show_units)
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
         self._value_label = QLabel("---")
         self._layout.addWidget(self._value_label)
+        self._layout.addWidget(self._ensure_units_label())
 
     def _update_display(self) -> None:
         if self._value is None:

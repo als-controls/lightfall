@@ -324,6 +324,29 @@ class TestOphydLabel:
         w._update_display()
         assert w._value_label.text() == "42"
 
+    def test_units_from_metadata(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 25.0
+        sig.metadata = {"units": "C"}
+        w = OphydLabel()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "C"
+        assert w._units_label.text() == "C"
+        assert w._units_label.isVisibleTo(w)
+
+    def test_show_units_false(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 25.0
+        sig.metadata = {"units": "C"}
+        w = OphydLabel(show_units=False)
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "C"
+        assert not w._units_label.isVisibleTo(w)
+
 
 class TestOphydComboBox:
     def test_set_items(self, qtbot):
@@ -388,3 +411,15 @@ class TestOphydSpinBox:
         w = OphydSpinBox(readonly=True)
         qtbot.addWidget(w)
         assert w._spinbox.isReadOnly()
+
+    def test_units_from_metadata(self, qtbot):
+        sig = MagicMock()
+        sig.connected = True
+        sig.get.return_value = 0.0
+        sig.metadata = {"units": "mm"}
+        w = OphydSpinBox()
+        qtbot.addWidget(w)
+        w.signal = sig
+        assert w._units == "mm"
+        assert w._units_label.text() == "mm"
+        assert w._units_label.isVisibleTo(w)

@@ -23,17 +23,19 @@ class OphydComboBox(OphydWidget):
         parent: QWidget | None = None,
         write_on_change: bool = True,
         readonly: bool = False,
+        show_units: bool = True,
     ) -> None:
         self._write_on_change = write_on_change
         self._updating_from_signal = False
 
-        super().__init__(signal, parent, readonly=readonly)
+        super().__init__(signal, parent, readonly=readonly, show_units=show_units)
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
         self._combo = QComboBox()
         self._layout.addWidget(self._combo)
+        self._layout.addWidget(self._ensure_units_label())
 
         self._combo.currentIndexChanged.connect(self._on_index_changed)
 

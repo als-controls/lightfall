@@ -25,11 +25,12 @@ class OphydSpinBox(OphydWidget):
         decimals: int = 1,
         write_on_change: bool = True,
         readonly: bool = False,
+        show_units: bool = True,
     ) -> None:
         self._write_on_change = write_on_change
         self._updating_from_signal = False
 
-        super().__init__(signal, parent, readonly=readonly)
+        super().__init__(signal, parent, readonly=readonly, show_units=show_units)
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -39,6 +40,7 @@ class OphydSpinBox(OphydWidget):
         self._spinbox.setMaximum(maximum)
         self._spinbox.setDecimals(decimals)
         self._layout.addWidget(self._spinbox)
+        self._layout.addWidget(self._ensure_units_label())
 
         self._spinbox.valueChanged.connect(self._on_value_changed)
 

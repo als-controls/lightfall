@@ -1,11 +1,10 @@
 """OphydLineEdit — text input for ophyd signal values."""
 from __future__ import annotations
 
-import inspect
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Property, Signal, Slot
-from PySide6.QtWidgets import QLineEdit, QWidget, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QLineEdit, QWidget, QHBoxLayout
 
 from lucid.epics.widgets.ophyd_base import OphydWidget
 from lucid.epics.widgets.style import WidgetStyles
@@ -29,38 +28,24 @@ class OphydLineEdit(OphydWidget):
         readonly: bool = False,
     ) -> None:
         self._precision = precision
-        self._show_units = show_units
-        self._units: str = ""
         self._write_on_enter = write_on_enter
         self._write_on_focus_out = write_on_focus_out
         self._modified = False
 
-        super().__init__(signal, parent, readonly=readonly)
+        super().__init__(signal, parent, readonly=readonly, show_units=show_units)
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
         self._line_edit = QLineEdit()
         self._layout.addWidget(self._line_edit)
-
-        self._units_label = QLabel()
-        self._layout.addWidget(self._units_label)
-        self._units_label.setVisible(False)
+        self._layout.addWidget(self._ensure_units_label())
 
         self._line_edit.textChanged.connect(self._on_text_changed)
         self._line_edit.returnPressed.connect(self._on_return_pressed)
         self._line_edit.editingFinished.connect(self._on_editing_finished)
 
         self._update_readonly_state()
-
-    @Property(bool)
-    def show_units(self) -> bool:
-        return self._show_units
-
-    @show_units.setter
-    def show_units(self, value: bool) -> None:
-        self._show_units = value
-        self._units_label.setVisible(value and bool(self._units))
 
     @Property(int)
     def precision(self) -> int:
@@ -163,33 +148,6 @@ class OphydLineEdit(OphydWidget):
             self._modified = False
             self._update_display()
 
-    def _connect_signal(self) -> None:
-        super()._connect_signal()
-        self._fetch_units()
-
-    def _fetch_units(self) -> None:
-        """Extract units from the ophyd signal metadata."""
-        if self._signal is None:
-            return
-        try:
-            if hasattr(self._signal, "metadata") and isinstance(
-                self._signal.metadata, dict
-            ):
-                self._units = self._signal.metadata.get("units", "")
-            elif hasattr(self._signal, "describe"):
-                desc = self._signal.describe()
-                if inspect.isawaitable(desc):
-                    return
-                if desc:
-                    for _key, info in desc.items():
-                        if isinstance(info, dict):
-                            self._units = info.get("units", "")
-                            break
-        except Exception:
-            pass
-        self._units_label.setText(self._units)
-        self._units_label.setVisible(self._show_units and bool(self._units))
-
     def _update_modified_style(self) -> None:
         if self._modified:
             self._line_edit.setStyleSheet(WidgetStyles.modified())
@@ -198,8 +156,6 @@ class OphydLineEdit(OphydWidget):
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
         return {
-            "show_units": self._show_units,
-            "units": self._units,
             "precision": self._precision,
             "write_on_enter": self._write_on_enter,
             "write_on_focus_out": self._write_on_focus_out,
