@@ -176,9 +176,16 @@ class ImageStackVisualization(BaseVisualization):
         return names
 
     def set_stream(self, stream_name: str) -> None:
+        import time as _time
+        t0 = _time.monotonic()
+
         self._stream_name = stream_name
         self._stream = self._run[stream_name]
+        t1 = _time.monotonic()
+
         self._data_keys = self._stream.metadata.get("data_keys", {})
+        t2 = _time.monotonic()
+        logger.debug("set_stream: access={:.1f}s metadata={:.1f}s", t1 - t0, t2 - t1)
 
         fields = self.get_fields()
         if fields:
@@ -214,6 +221,9 @@ class ImageStackVisualization(BaseVisualization):
         return hinted_2d + other_2d + rest
 
     def set_field(self, field_name: str) -> None:
+        import time as _time
+        t0 = _time.monotonic()
+
         self._field_name = field_name
 
         # 1. Resolve the ArrayClient
@@ -235,12 +245,14 @@ class ImageStackVisualization(BaseVisualization):
                 )
                 return
 
+        t1 = _time.monotonic()
         self._image_client = image_client
 
         # 2. Cache shape (single HTTP call) to avoid repeated round-trips
         full_shape = image_client.shape  # e.g. (21, 1024, 1024)
         n_frames = full_shape[0]
         self._frame_shape = tuple(full_shape[-2:])
+        t2 = _time.monotonic()
 
         # 3. Synthetic timestamps (reading events table is too expensive)
         timestamps = np.arange(n_frames, dtype=np.float64)
@@ -248,9 +260,17 @@ class ImageStackVisualization(BaseVisualization):
 
         # 4. Hand off to LazyImageView
         self._image_view.setArraySource(image_client, timestamps, self._frame_shape)
+        t3 = _time.monotonic()
+
         if n_frames > 0:
             self._image_view.setCurrentIndex(n_frames - 1)
             self._on_reset_lut()
+        t4 = _time.monotonic()
+
+        logger.debug(
+            "set_field timings: resolve={:.1f}s shape={:.1f}s setSource={:.1f}s display={:.1f}s",
+            t1 - t0, t2 - t1, t3 - t2, t4 - t3,
+        )
 
         self._update_status()
         logger.debug(

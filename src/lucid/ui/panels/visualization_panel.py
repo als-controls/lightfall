@@ -237,12 +237,19 @@ class VisualizationPanel(BasePanel):
         entry: Any,
     ) -> None:
         """Create widget, wire combos, start refresh if needed."""
+        import time as _time
+        t0 = _time.monotonic()
+
         widget = cls()
         self._set_current_widget(widget)
         widget.set_run(entry)
+        t1 = _time.monotonic()
 
         # Populate stream combo
         streams = widget.get_streams()
+        t2 = _time.monotonic()
+        logger.debug("_activate: create={:.1f}s get_streams={:.1f}s", t1 - t0, t2 - t1)
+
         self._stream_combo.blockSignals(True)
         self._stream_combo.clear()
         self._stream_combo.addItems(streams)
