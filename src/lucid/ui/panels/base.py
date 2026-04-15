@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
 from lucid.auth.policy import Permission
 from lucid.utils.logging import logger
@@ -108,6 +108,12 @@ class BasePanel(QWidget):
         state_changed: Emitted when panel state changes.
         closing: Emitted when panel is about to close.
 
+    Content is placed inside a built-in vertical QScrollArea, so when a
+    panel's widgets don't fit the available area the user can scroll
+    instead of having them clipped. Subclasses add widgets to
+    ``self._layout`` (the inner container's layout) exactly as before --
+    the scroll area is transparent to the subclass API.
+
     Example:
         >>> class MyPanel(BasePanel):
         ...     panel_metadata = PanelMetadata(
@@ -118,7 +124,7 @@ class BasePanel(QWidget):
         ...
         ...     def _setup_ui(self):
         ...         label = QLabel("Hello!")
-        ...         self.layout().addWidget(label)
+        ...         self._layout.addWidget(label)
     """
 
     # Class-level metadata - must be defined in subclasses
@@ -155,10 +161,35 @@ class BasePanel(QWidget):
         # ignoring border-radius), this respects the full stylesheet.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        # Setup layout — top margin gives space below the PanelTitleBar
-        # which overlaps the content area slightly in QDockWidget
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, 4, 0, 0)
+        # The panel itself carries the QSS background + PanelTitleBar top
+        # margin. Inside, a vertical-only QScrollArea wraps the actual
+        # content so that if a panel's contents exceed its area the user
+        # can scroll instead of having widgets clipped. The scroll bar
+        # auto-hides when not needed (AsNeeded) and horizontal scrolling
+        # is disabled -- panels should size their content to fit width.
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 4, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        outer_layout.addWidget(self._scroll_area)
+
+        # Inner container holds subclass content. `self._layout` points at
+        # this container's layout so existing subclasses that call
+        # `self._layout.addWidget/insertWidget/removeWidget` keep working
+        # unchanged -- they transparently add to the scrollable content.
+        self._content = QWidget()
+        self._scroll_area.setWidget(self._content)
+        self._layout = QVBoxLayout(self._content)
+        self._layout.setContentsMargins(0, 0, 0, 0)
 
         # Allow subclasses to setup UI
         self._setup_ui()
