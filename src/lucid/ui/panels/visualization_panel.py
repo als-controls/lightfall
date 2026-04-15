@@ -183,6 +183,9 @@ class VisualizationPanel(BasePanel):
         Args:
             entry: A tiled BlueskyRun (or compatible mapping).
         """
+        import time as _time
+        t0 = _time.monotonic()
+
         self._stop_refresh()
         self._entry = entry
 
@@ -190,11 +193,15 @@ class VisualizationPanel(BasePanel):
 
         # Score and pick winner (or honour manual override)
         best_cls = self._pick_widget_class(classes, entry)
+        t1 = _time.monotonic()
+        logger.debug("open_run: scoring took {:.1f}s → {}", t1 - t0, best_cls.viz_name if best_cls else None)
+
         if best_cls is None:
             logger.warning("No visualization can handle this run")
             return
 
         self._activate_widget(best_cls, entry)
+        logger.debug("open_run: total {:.1f}s", _time.monotonic() - t0)
 
     # ---- Widget lifecycle ------------------------------------------------
 

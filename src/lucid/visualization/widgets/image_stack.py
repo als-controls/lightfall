@@ -237,20 +237,17 @@ class ImageStackVisualization(BaseVisualization):
 
         self._image_client = image_client
 
-        # 2. Frame shape from the last two dims
-        self._frame_shape = tuple(image_client.shape[-2:])
+        # 2. Cache shape (single HTTP call) to avoid repeated round-trips
+        full_shape = image_client.shape  # e.g. (21, 1024, 1024)
+        n_frames = full_shape[0]
+        self._frame_shape = tuple(full_shape[-2:])
 
-        # 3. Use synthetic timestamps for fast initial display;
-        #    reading the events table is expensive over HTTP.
-        n_frames = image_client.shape[0]
+        # 3. Synthetic timestamps (reading events table is too expensive)
         timestamps = np.arange(n_frames, dtype=np.float64)
         self._timestamps = timestamps
 
         # 4. Hand off to LazyImageView
         self._image_view.setArraySource(image_client, timestamps, self._frame_shape)
-
-        # 5. Jump to last frame + reset LUT
-        n_frames = image_client.shape[0]
         if n_frames > 0:
             self._image_view.setCurrentIndex(n_frames - 1)
             self._on_reset_lut()

@@ -133,7 +133,7 @@ class LazyImageView(pg.ImageView):
             self._proxy,
             xvals=self.tVals,
             axes={"t": 0, "y": 1, "x": 2},
-            autoLevels=True,
+            autoLevels=False,
             autoRange=True,
         )
 
