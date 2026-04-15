@@ -1,7 +1,9 @@
 """Device management panel for NCS.
 
-Provides a panel for viewing and managing devices in the
-device catalog, showing the actual ophyd device hierarchy.
+Provides a tabbed panel for viewing and managing devices:
+- Favorites tab: compact motor control widgets for favorited devices
+- All tab: full device tree with search and filtering
+- Device tabs: individual device controller widgets opened on demand
 """
 
 from __future__ import annotations
@@ -9,197 +11,34 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QCoreApplication, Qt, Signal, Slot
-from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QScrollArea,
-    QSplitter,
+    QTabBar,
     QTabWidget,
-    QToolBar,
-    QToolButton,
-    QTreeView,
-    QVBoxLayout,
     QWidget,
 )
 
 from lucid.devices import DeviceCatalog
 from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
-from lucid.ui.models.device_tree import (
-    DeviceFilterProxyModel,
-    DeviceTreeItem,
-    DeviceTreeModel,
-)
+from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.widgets import DeviceControlWidget
+from lucid.ui.preferences.manager import PreferencesManager
+from lucid.ui.widgets.device_control import DeviceControlWidget
+from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+from lucid.ui.widgets.favorites_tab import FavoritesTab
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
 
 
-class DeviceOverviewWidget(QWidget):
-    """Widget showing device/signal details and current status."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialize the overview widget."""
-        super().__init__(parent)
-        self._current_item: DeviceTreeItem | None = None
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        """Setup the UI."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        # Device/Signal info group
-        info_group = QGroupBox("Information")
-        info_layout = QFormLayout(info_group)
-
-        self._name_label = QLabel("-")
-        self._name_label.setStyleSheet("font-weight: bold;")
-        info_layout.addRow("Name:", self._name_label)
-
-        self._type_label = QLabel("-")
-        info_layout.addRow("Type:", self._type_label)
-
-        self._class_label = QLabel("-")
-        self._class_label.setWordWrap(True)
-        info_layout.addRow("Class:", self._class_label)
-
-        self._description_label = QLabel("-")
-        self._description_label.setWordWrap(True)
-        info_layout.addRow("Description:", self._description_label)
-
-        layout.addWidget(info_group)
-
-        # Status group
-        status_group = QGroupBox("Current State")
-        status_layout = QFormLayout(status_group)
-
-        self._value_label = QLabel("-")
-        status_layout.addRow("Value:", self._value_label)
-
-        self._status_label = QLabel("-")
-        status_layout.addRow("Status:", self._status_label)
-
-        self._children_label = QLabel("-")
-        status_layout.addRow("Components:", self._children_label)
-
-        layout.addWidget(status_group)
-
-        # Metadata group (for top-level devices)
-        self._meta_group = QGroupBox("Device Metadata")
-        meta_layout = QFormLayout(self._meta_group)
-
-        self._category_label = QLabel("-")
-        meta_layout.addRow("Category:", self._category_label)
-
-        self._prefix_label = QLabel("-")
-        meta_layout.addRow("Prefix:", self._prefix_label)
-
-        self._location_label = QLabel("-")
-        meta_layout.addRow("Location:", self._location_label)
-
-        self._tags_label = QLabel("-")
-        self._tags_label.setWordWrap(True)
-        meta_layout.addRow("Tags:", self._tags_label)
-
-        layout.addWidget(self._meta_group)
-
-        layout.addStretch()
-
-    def set_item(self, item: DeviceTreeItem | None) -> None:
-        """Set the item to display.
-
-        Args:
-            item: Tree item to display or None to clear.
-        """
-        self._current_item = item
-
-        if item is None:
-            self._clear()
-            return
-
-        # Basic info
-        self._name_label.setText(item.name)
-        self._type_label.setText(item.node_type.value.title())
-
-        # Class info
-        if item.ophyd_obj is not None:
-            cls_name = type(item.ophyd_obj).__name__
-            module = type(item.ophyd_obj).__module__
-            self._class_label.setText(f"{module}.{cls_name}")
-        else:
-            self._class_label.setText("-")
-
-        # Description from device_info
-        if item.device_info:
-            self._description_label.setText(item.device_info.description or "-")
-        else:
-            self._description_label.setText("-")
-
-        # Current value
-        value = item._get_value()
-        self._value_label.setText(value if value else "-")
-
-        # Status
-        status = item._get_status()
-        self._status_label.setText(status if status else "-")
-        if status in ("online", "connected"):
-            self._status_label.setStyleSheet("color: green;")
-        elif status == "error":
-            self._status_label.setStyleSheet("color: red;")
-        else:
-            self._status_label.setStyleSheet("")
-
-        # Components count
-        self._children_label.setText(str(item.child_count()))
-
-        # Show/hide metadata group based on whether we have device_info
-        if item.device_info:
-            self._meta_group.setVisible(True)
-            self._category_label.setText(item.device_info.category.value.title())
-            self._prefix_label.setText(item.device_info.prefix or "-")
-            self._location_label.setText(item.device_info.location or "-")
-            if item.device_info.tags:
-                self._tags_label.setText(", ".join(item.device_info.tags))
-            else:
-                self._tags_label.setText("-")
-        else:
-            self._meta_group.setVisible(False)
-
-    def _clear(self) -> None:
-        """Clear all fields."""
-        self._name_label.setText("-")
-        self._type_label.setText("-")
-        self._class_label.setText("-")
-        self._description_label.setText("-")
-        self._value_label.setText("-")
-        self._status_label.setText("-")
-        self._status_label.setStyleSheet("")
-        self._children_label.setText("-")
-        self._meta_group.setVisible(False)
-
-
 class DevicePanel(BasePanel):
-    """Panel for device management showing ophyd device hierarchy.
+    """Tabbed panel for device management.
 
-    DevicePanel provides:
-    - Tree view of actual ophyd device structure (not categories)
-    - Device/signal details and status
-    - Search and filtering
-    - Device value monitoring
-
-    This panel uses Qt Model/View architecture with DeviceTreeModel.
+    Tab layout:
+    - Tab 0: Favorites (unclosable) — compact motor widgets
+    - Tab 1: All (unclosable) — device tree with search/filter
+    - Tab 2+: Device controllers (closable) — opened on demand
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
@@ -212,470 +51,184 @@ class DevicePanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["device", "motor", "detector", "hardware", "equipment", "signal"],
-        # Docking preferences - primary tool in left sidebar
         default_area="left",
         sidebar_group="top",
         auto_hide=True,
         sidebar_order=1,
     )
 
-    # Signals
-    item_selected = Signal(object)  # DeviceTreeItem (single, for backwards compat)
-    items_selected = Signal(list)  # list[DeviceTreeItem] (multi-selection)
+    # Signals (preserved for backward compat)
+    item_selected = Signal(object)  # DeviceTreeItem
+    items_selected = Signal(list)  # list[DeviceTreeItem]
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialize the device panel."""
         logger.info("DevicePanel.__init__() START")
         self._catalog = DeviceCatalog.get_instance()
+        self._prefs = PreferencesManager.get_instance()
 
-        # Create model before calling super().__init__ which calls _setup_ui
-        self._model = DeviceTreeModel(self._catalog)
-        self._proxy_model = DeviceFilterProxyModel()
-        self._proxy_model.setSourceModel(self._model)
+        # Track open device controller tabs: device_id -> widget
+        self._device_tabs: dict[str, QWidget] = {}
 
         super().__init__(parent)
 
-        # Connect catalog signals
-        self._catalog.device_added.connect(self._on_device_changed)
-        self._catalog.device_removed.connect(self._on_device_changed)
+        # Load saved favorites
+        self._load_favorites()
+
+        # Connect catalog signals for favorites updates
+        self._catalog.device_connected.connect(self._favorites_tab.on_device_connected)
+
         logger.info("DevicePanel.__init__() END")
 
     def _setup_ui(self) -> None:
-        """Setup the panel UI with device tree above, control/info tabs below."""
-        # Toolbar at top
-        toolbar = self._create_toolbar()
-        self._layout.addWidget(toolbar)
+        """Setup the tabbed panel UI."""
+        # Main tab widget
+        self._tabs = QTabWidget()
+        self._tabs.setTabsClosable(True)
+        self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._layout.addWidget(self._tabs)
 
-        # Search and filter row
-        filter_layout = QHBoxLayout()
-
-        # Search box
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Search devices and signals...")
-        self._search_input.setClearButtonEnabled(True)
-        filter_layout.addWidget(self._search_input, stretch=1)
-
-        # Kind filter dropdown menu (hinted and normal shown by default)
-        self._kind_actions: dict[str, QAction] = {}
-        default_visible = {"hinted", "normal"}
-
-        kind_menu = QMenu(self)
-        for kind in ["hinted", "normal", "config", "omitted"]:
-            action = QAction(kind.title(), self)
-            action.setCheckable(True)
-            action.setChecked(kind in default_visible)
-            action.setData(kind)
-            action.triggered.connect(self._on_kind_filter_changed)
-            self._kind_actions[kind] = action
-            kind_menu.addAction(action)
-
-        self._kind_button = QToolButton()
-        self._kind_button.setText("Kind")
-        self._kind_button.setToolTip("Filter by signal/device kind")
-        self._kind_button.setMenu(kind_menu)
-        self._kind_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        filter_layout.addWidget(self._kind_button)
-
-        # Apply default filter
-        self._proxy_model.set_visible_kinds(default_visible)
-
-        self._layout.addLayout(filter_layout)
-
-        # Vertical splitter: tree on top, tabs on bottom
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        self._layout.addWidget(splitter)
-
-        # Top: Tree view with multi-selection support
-        self._tree_view = QTreeView()
-        self._tree_view.setModel(self._proxy_model)
-        self._tree_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._tree_view.setAlternatingRowColors(True)
-        self._tree_view.setAnimated(True)
-        self._tree_view.setExpandsOnDoubleClick(True)
-        self._tree_view.setSortingEnabled(True)
-        self._tree_view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
-
-        # Configure header (5 columns: Name, Value, Type, Kind, Status)
-        header = self._tree_view.header()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-
-        # Set reasonable default column widths
-        self._tree_view.setColumnWidth(0, 200)
-
-        # Context menu
-        self._tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._tree_view.customContextMenuRequested.connect(self._on_context_menu)
-
-        splitter.addWidget(self._tree_view)
-
-        # Bottom: tabs with Control and Info
-        self._detail_tabs = QTabWidget()
-
-        # Control tab (dynamic device control UI) - first tab
-        # Wrap in scroll area for tall layouts
-        self._control_widget = DeviceControlWidget()
-        self._control_widget.control_error.connect(self._on_control_error)
-        control_scroll = QScrollArea()
-        control_scroll.setWidget(self._control_widget)
-        control_scroll.setWidgetResizable(True)
-        control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._detail_tabs.addTab(control_scroll, "Control")
-
-        # Info tab (device details)
-        # Wrap in scroll area for tall layouts
-        self._overview_widget = DeviceOverviewWidget()
-        info_scroll = QScrollArea()
-        info_scroll.setWidget(self._overview_widget)
-        info_scroll.setWidgetResizable(True)
-        info_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        info_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._detail_tabs.addTab(info_scroll, "Info")
-
-        splitter.addWidget(self._detail_tabs)
-
-        # Set initial splitter sizes (tree gets more space)
-        splitter.setSizes([250, 150])
-
-        # Connect signals after UI is set up
-        self._search_input.textChanged.connect(self._on_search_changed)
-        self._tree_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
-
-        # Tree starts collapsed
-        self._tree_view.collapseAll()
-
-    def _create_toolbar(self) -> QToolBar:
-        """Create the panel toolbar."""
-        import qtawesome as qta
-
-        toolbar = QToolBar()
-        toolbar.setMovable(False)
-        toolbar.setFloatable(False)
-
-        # Sync: reconnect failed devices + refresh tree
-        sync_action = QAction(qta.icon("mdi6.sync"), "Sync", self)
-        sync_action.setToolTip(
-            "Retry failed device connections and refresh the tree"
+        # Tab 0: Favorites
+        self._favorites_tab = FavoritesTab(catalog=self._catalog)
+        self._favorites_tab.open_controller_requested.connect(
+            self._open_device_tab_by_id
         )
-        sync_action.triggered.connect(self._sync_devices)
-        toolbar.addAction(sync_action)
+        self._favorites_tab.favorites_changed.connect(self._save_favorites)
+        self._tabs.addTab(self._favorites_tab, "Favorites")
 
-        toolbar.addSeparator()
+        # Tab 1: All (device tree)
+        self._tree_tab = DeviceTreeTab(catalog=self._catalog)
+        self._tree_tab.set_is_favorite_fn(self._favorites_tab.is_favorite)
+        self._tree_tab.device_open_requested.connect(self._open_device_tab)
+        self._tree_tab.favorite_toggled.connect(self._on_favorite_toggled)
+        self._tree_tab.item_selected.connect(self._on_item_selected)
+        self._tree_tab.items_selected.connect(self.items_selected)
+        self._tabs.addTab(self._tree_tab, "All")
 
-        # Expand all
-        expand_action = QAction(qta.icon("mdi6.arrow-expand-vertical"), "Expand All", self)
-        expand_action.triggered.connect(lambda: self._tree_view.expandAll())
-        toolbar.addAction(expand_action)
+        # Hide close buttons on first two tabs
+        tab_bar = self._tabs.tabBar()
+        tab_bar.setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
+        tab_bar.setTabButton(1, QTabBar.ButtonPosition.RightSide, None)
 
-        # Collapse all
-        collapse_action = QAction(qta.icon("mdi6.arrow-collapse-vertical"), "Collapse", self)
-        collapse_action.triggered.connect(lambda: self._tree_view.collapseAll())
-        toolbar.addAction(collapse_action)
+    # === Selection & Cross-Panel Events ===
 
-        toolbar.addSeparator()
-
-        # Toggle inactive device visibility
-        self._show_inactive_action = QAction(
-            qta.icon("mdi6.eye-closed"), "Show Disabled", self
-        )
-        self._show_inactive_action.setToolTip("Show or hide disabled devices")
-        self._show_inactive_action.setCheckable(True)
-        self._show_inactive_action.setChecked(False)
-        self._show_inactive_action.toggled.connect(self._on_toggle_inactive)
-        toolbar.addAction(self._show_inactive_action)
-
-        return toolbar
-
-    def _on_toggle_inactive(self, checked: bool) -> None:
-        """Toggle visibility of inactive devices."""
-        import qtawesome as qta
-
-        self._proxy_model.set_show_inactive(checked)
-        icon_name = "mdi6.eye" if checked else "mdi6.eye-closed"
-        self._show_inactive_action.setIcon(qta.icon(icon_name))
-
-    def _expand_to_depth(self, depth: int) -> None:
-        """Expand tree to specified depth."""
-        self._tree_view.collapseAll()
-        self._tree_view.expandToDepth(depth)
-
-    def _sync_devices(self) -> None:
-        """Retry failed connections and refresh the device tree."""
-        from lucid.devices import DeviceCatalog
-        from lucid.utils.threads import QThreadFuture
-
-        catalog = DeviceCatalog.get_instance()
-
-        # Reset permanently failed tracking so we retry everything
-        for backend in catalog.backends.values():
-            if hasattr(backend, "reset_failed_devices"):
-                backend.reset_failed_devices()
-
-        def _do_reconnect():
-            return catalog.reconnect_failed_devices(timeout=5.0)
-
-        def _on_done(result):
-            connected, failed = result
-            self._model.refresh()
-            logger.info(
-                "Sync: {} devices connected, {} still offline",
-                connected,
-                failed,
-            )
-
-        thread = QThreadFuture(
-            _do_reconnect,
-            callback_slot=_on_done,
-            name="sync-devices",
-        )
-        thread.start()
-        logger.info("Syncing devices...")
-
-    # === Signal Handlers ===
-
-    @Slot(str)
-    def _on_search_changed(self, text: str) -> None:
-        """Handle search text change."""
-        self._proxy_model.setFilterRegularExpression(text)
-
-        # Expand all when searching to show results, collapse when cleared
-        if text:
-            self._tree_view.expandAll()
-        else:
-            self._tree_view.collapseAll()
-
-    @Slot()
-    def _on_kind_filter_changed(self) -> None:
-        """Handle kind filter menu action change."""
-        # Collect checked kinds from menu actions
-        visible_kinds = {
-            kind for kind, action in self._kind_actions.items() if action.isChecked()
-        }
-
-        # If all are checked, use None (no filtering)
-        if len(visible_kinds) == len(self._kind_actions):
-            self._proxy_model.set_visible_kinds(None)
-        else:
-            self._proxy_model.set_visible_kinds(visible_kinds)
-
-        # Expand tree to show filtered results
-        if visible_kinds and len(visible_kinds) < len(self._kind_actions):
-            self._tree_view.expandAll()
-        else:
-            self._tree_view.collapseAll()
-
-    @Slot()
-    def _on_selection_changed(self) -> None:
-        """Handle tree selection change (supports multi-selection)."""
-        # Get all selected indices
-        selection = self._tree_view.selectionModel().selectedIndexes()
-
-        # Filter to only column 0 (name column) to avoid duplicates
-        selected_items: list[DeviceTreeItem] = []
-        seen_items: set[int] = set()
-
-        for proxy_index in selection:
-            if proxy_index.column() != 0:
-                continue
-
-            source_index = self._proxy_model.mapToSource(proxy_index)
-            item = source_index.internalPointer()
-
-            if isinstance(item, DeviceTreeItem):
-                item_id = id(item)
-                if item_id not in seen_items:
-                    seen_items.add(item_id)
-                    selected_items.append(item)
-
-        # Update overview with first selected item (or clear)
-        if selected_items:
-            self._overview_widget.set_item(selected_items[0])
-            # Emit both signals for compatibility
-            self.item_selected.emit(selected_items[0])
-            self.items_selected.emit(selected_items)
-
-            # Post focus event to Synoptic panel if device has device_info
-            first_item = selected_items[0]
-            if first_item.device_info is not None:
-                self._post_device_focus_event(first_item)
-        else:
-            self._overview_widget.set_item(None)
-            self.items_selected.emit([])
-
-        # Update control widget — skip for inactive devices
-        active_items = [
-            item for item in selected_items
-            if item.device_info is None or item.device_info.active
-        ]
-
-        if selected_items and not active_items:
-            # All selected items are inactive — show "Device Inactive" label
-            self._control_widget.show_inactive_message()
-        else:
-            self._control_widget.set_items(active_items)
+    @Slot(object)
+    def _on_item_selected(self, item: DeviceTreeItem) -> None:
+        """Handle item selection — forward signal and post focus event."""
+        self.item_selected.emit(item)
+        self._post_device_focus_event(item)
 
     def _post_device_focus_event(self, item: DeviceTreeItem) -> None:
-        """Post a device focus event to the Synoptic panel.
-
-        Args:
-            item: The selected device tree item.
-        """
+        """Post a DeviceFocusEvent to the Synoptic panel."""
         if item.device_info is None:
             return
-
         device_id = str(item.device_info.id)
         device_name = item.device_info.name
-
-        # Find the Synoptic panel and post event to it
         registry = PanelRegistry.get_instance()
         synoptic_panel = registry.get_singleton("lucid.panels.synoptic")
-
         if synoptic_panel is not None:
             event = DeviceFocusEvent(device_id, device_name)
             QCoreApplication.postEvent(synoptic_panel, event)
             logger.debug("Posted DeviceFocusEvent for device: {}", device_name)
 
-    @Slot(str)
-    def _on_control_error(self, message: str) -> None:
-        """Handle control error from device control widget."""
-        logger.warning("Device control error: {}", message)
+    # === Favorites ===
+
+    def _load_favorites(self) -> None:
+        """Load favorites from preferences."""
+        saved = self._prefs.get("device_favorites", [])
+        if saved:
+            self._favorites_tab.set_favorites(saved)
+
+    @Slot(list)
+    def _save_favorites(self, favorite_ids: list[str]) -> None:
+        """Save favorites to preferences."""
+        self._prefs.set("device_favorites", favorite_ids)
+
+    @Slot(str, bool)
+    def _on_favorite_toggled(self, device_id: str, is_favorite: bool) -> None:
+        """Handle favorite toggle from tree context menu."""
+        if is_favorite:
+            self._favorites_tab.add_favorite(device_id)
+        else:
+            self._favorites_tab.remove_favorite(device_id)
+
+    # === Device Controller Tabs ===
 
     @Slot(object)
-    def _on_device_changed(self, _: Any) -> None:
-        """Handle device added/removed from catalog."""
-        self._refresh()
-
-    # === Context Menu ===
-
-    def _get_backend_editable(self) -> bool:
-        """Check if the current backend supports editing."""
-        from lucid.devices import DeviceCatalog
-        catalog = DeviceCatalog.get_instance()
-        backend = catalog.backend
-        return backend is not None and backend.is_editable
-
-    def _build_context_menu(self, device_info, is_editable: bool):
-        """Build context menu for a device or empty space."""
-        from PySide6.QtWidgets import QApplication
-        menu = QMenu(self._tree_view)
-
-        if device_info is not None:
-            if is_editable:
-                edit_action = menu.addAction("Edit...")
-                edit_action.triggered.connect(lambda: self._edit_device(device_info))
-                if device_info.active:
-                    toggle_action = menu.addAction("Disable")
-                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, False))
-                else:
-                    toggle_action = menu.addAction("Enable")
-                    toggle_action.triggered.connect(lambda: self._toggle_device_active(device_info, True))
-                menu.addSeparator()
-
-            copy_name_action = menu.addAction("Copy Name")
-            copy_name_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.name))
-            copy_prefix_action = menu.addAction("Copy Prefix")
-            copy_prefix_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.prefix or ""))
-
-            if is_editable:
-                menu.addSeparator()
-                delete_action = menu.addAction("Delete")
-                delete_action.triggered.connect(lambda: self._delete_device(device_info))
-                menu.addSeparator()
-
-        if is_editable:
-            add_action = menu.addAction("Add New Device...")
-            add_action.triggered.connect(self._add_new_device)
-
-        return menu
-
-    def _on_context_menu(self, pos) -> None:
-        """Handle right-click on tree view."""
-        from lucid.ui.models.device_tree import NodeType
-        index = self._tree_view.indexAt(pos)
-        device_info = None
-        if index.isValid():
-            source_index = self._proxy_model.mapToSource(index)
-            if source_index.isValid():
-                item = source_index.internalPointer()
-                if item is not None and item.node_type == NodeType.DEVICE:
-                    device_info = item.device_info
-        is_editable = self._get_backend_editable()
-        menu = self._build_context_menu(device_info, is_editable)
-        if not menu.actions():
+    def _open_device_tab(self, item: DeviceTreeItem) -> None:
+        """Open a device controller in a new tab (or focus existing)."""
+        if item.device_info is None:
             return
-        menu.exec(self._tree_view.viewport().mapToGlobal(pos))
 
-    def _edit_device(self, device_info) -> None:
-        """Open edit dialog for a device."""
-        from lucid.devices import DeviceCatalog
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
-        dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
-        if dialog.exec():
-            values = dialog.get_values()
-            device_info.display_name = values["display_name"]
-            device_info.prefix = values["prefix"]
-            device_info.beamline = values["beamline"]
-            device_info.group = values["group"]
-            device_info.icon_override = values["icon_override"]
-            device_info.active = values["active"]
-            device_info.metadata.update(values.get("extra_fields", {}))
-            catalog = DeviceCatalog.get_instance()
-            catalog.update_device(device_info)
+        device_id = str(item.device_info.id)
 
-    def _add_new_device(self) -> None:
-        """Open edit dialog in create mode."""
-        from lucid.devices import DeviceCatalog
-        from lucid.devices.model import DeviceInfo
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
-        dialog = DeviceEditDialog(mode="create", parent=self)
-        if dialog.exec():
-            values = dialog.get_values()
-            device = DeviceInfo(
-                name=values["name"], device_class=values["device_class"],
-                prefix=values["prefix"], beamline=values["beamline"],
-                display_name=values["display_name"], group=values["group"],
-                icon_override=values["icon_override"], active=values["active"],
-                metadata=values.get("extra_fields", {}),
-            )
-            catalog = DeviceCatalog.get_instance()
-            if not catalog.add_device(device):
-                QMessageBox.warning(self, "Add Failed",
-                    f"Failed to add device '{values['name']}'. It may already exist.")
+        # If already open, focus it
+        if device_id in self._device_tabs:
+            widget = self._device_tabs[device_id]
+            idx = self._tabs.indexOf(widget)
+            if idx >= 0:
+                self._tabs.setCurrentIndex(idx)
+            return
 
-    def _delete_device(self, device_info) -> None:
-        """Delete device after confirmation."""
-        from lucid.devices import DeviceCatalog
-        reply = QMessageBox.question(self, "Delete Device",
-            f"Delete device '{device_info.name}'? This cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            catalog = DeviceCatalog.get_instance()
-            catalog.remove_device(device_info.id)
+        # Create a new DeviceControlWidget for this device
+        control = DeviceControlWidget()
+        control.set_items([item])
+        control.control_error.connect(self._on_control_error)
 
-    def _toggle_device_active(self, device_info, active: bool) -> None:
-        """Enable or disable a device."""
-        from lucid.devices import DeviceCatalog
-        device_info.active = active
-        catalog = DeviceCatalog.get_instance()
-        catalog.update_device(device_info)
+        # Add the tab
+        self._tabs.addTab(control, item.name)
+        self._device_tabs[device_id] = control
 
-    # === Event Handling ===
+        # Focus the new tab
+        self._tabs.setCurrentWidget(control)
+
+    def _open_device_tab_by_id(self, device_id: str) -> None:
+        """Open a device controller tab by device ID."""
+        # If already open, focus
+        if device_id in self._device_tabs:
+            widget = self._device_tabs[device_id]
+            idx = self._tabs.indexOf(widget)
+            if idx >= 0:
+                self._tabs.setCurrentIndex(idx)
+            return
+
+        # Find the device in the tree model and open
+        root = self._tree_tab.model.root_item
+        item = self._tree_tab._find_device_item(root, device_id)
+        if item is not None:
+            self._open_device_tab(item)
+
+    @Slot(int)
+    def _on_tab_close_requested(self, index: int) -> None:
+        """Handle tab close — ignore for tabs 0 and 1."""
+        if index < 2:
+            return
+
+        widget = self._tabs.widget(index)
+
+        # Find and remove from tracking dict
+        device_id_to_remove = None
+        for device_id, w in self._device_tabs.items():
+            if w is widget:
+                device_id_to_remove = device_id
+                break
+
+        if device_id_to_remove is not None:
+            del self._device_tabs[device_id_to_remove]
+
+        # Remove and destroy
+        self._tabs.removeTab(index)
+        if widget is not None:
+            widget.close()
+            widget.deleteLater()
+
+    @Slot(str)
+    def _on_control_error(self, message: str) -> None:
+        """Handle control error from a device controller tab."""
+        logger.warning("Device control error: {}", message)
+
+    # === Event Handling (preserved) ===
 
     def event(self, event) -> bool:
-        """Handle custom events including DeviceSelectEvent.
-
-        Args:
-            event: The event to handle.
-
-        Returns:
-            True if event was handled, False otherwise.
-        """
         if event.type() == DeviceSelectEvent.EventType:
             self._handle_device_select_event(event)
             return True
@@ -685,156 +238,30 @@ class DevicePanel(BasePanel):
         return super().event(event)
 
     def _handle_device_select_event(self, event: DeviceSelectEvent) -> None:
-        """Handle a device select event from another panel.
-
-        Args:
-            event: The device select event.
-        """
-        device_id = event.device_id
-        self._select_device_by_id(device_id)
+        self._tree_tab.select_device_by_id(event.device_id)
 
     def _handle_device_focus_event(self, event: DeviceFocusEvent) -> None:
-        """Handle a device focus event from another panel.
+        self._tree_tab.select_device_by_id(event.device_id)
 
-        Args:
-            event: The device focus event.
-        """
-        device_id = event.device_id
-        self._select_device_by_id(device_id)
-
-    def _select_device_by_id(self, device_id: str) -> None:
-        """Select a device in the tree by its device_id.
-
-        Args:
-            device_id: The device ID to select.
-        """
-        # Find the device in the model by matching device_info.id
-        root_item = self._model.root_item
-        target_item = self._find_device_item(root_item, device_id)
-
-        if target_item is None:
-            logger.debug("Device {} not found in tree", device_id)
-            return
-
-        # Get the source model index for this item
-        source_index = self._model.index_for_item(target_item)
-        if not source_index.isValid():
-            return
-
-        # Map to proxy model index
-        proxy_index = self._proxy_model.mapFromSource(source_index)
-        if not proxy_index.isValid():
-            return
-
-        # Block signals temporarily to prevent recursive events
-        self._tree_view.selectionModel().blockSignals(True)
-        try:
-            # Clear current selection and select the new item
-            self._tree_view.selectionModel().clearSelection()
-            self._tree_view.selectionModel().select(
-                proxy_index,
-                self._tree_view.selectionModel().SelectionFlag.Select
-                | self._tree_view.selectionModel().SelectionFlag.Rows,
-            )
-            # Ensure the item is visible
-            self._tree_view.scrollTo(proxy_index)
-            # Expand parent items
-            self._tree_view.expand(proxy_index.parent())
-        finally:
-            self._tree_view.selectionModel().blockSignals(False)
-
-        # Force immediate visual update of the tree view
-        self._tree_view.viewport().update()
-
-        # Manually update the overview widget
-        self._overview_widget.set_item(target_item)
-
-        # Show inactive message if device is inactive, else show controls
-        if target_item.device_info is not None and not target_item.device_info.active:
-            self._control_widget.show_inactive_message()
-        else:
-            self._control_widget.set_items([target_item])
-
-        logger.debug("Selected device in tree: {}", device_id)
-
-    def _find_device_item(
-        self,
-        item: DeviceTreeItem,
-        device_id: str,
-    ) -> DeviceTreeItem | None:
-        """Recursively find a device item by device_id.
-
-        Args:
-            item: Item to search from.
-            device_id: Device ID to find.
-
-        Returns:
-            The matching DeviceTreeItem or None.
-        """
-        # Check if this item matches
-        if item.device_info is not None and str(item.device_info.id) == device_id:
-            return item
-
-        # Search children
-        for i in range(item.child_count()):
-            child = item.child(i)
-            if child:
-                result = self._find_device_item(child, device_id)
-                if result:
-                    return result
-
-        return None
-
-    # === Introspection ===
+    # === Introspection (preserved) ===
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
-        """Get device panel-specific introspection data."""
-        # Get all selected items
-        selected_items = self._get_selected_items()
-        selected_items_data = [
-            {
-                "name": item.name,
-                "type": item.node_type.value,
-                "value": item._get_value(),
-                "has_device_info": item.device_info is not None,
-            }
-            for item in selected_items
-        ]
-
-        # Get visible kinds
-        visible_kinds = self._proxy_model.get_visible_kinds()
-        kind_filter = list(visible_kinds) if visible_kinds else None
-
         return {
-            "selected_items": selected_items_data,
-            "selected_count": len(selected_items),
-            "search_text": self._search_input.text(),
-            "kind_filter": kind_filter,
-            "device_count": self._model.rowCount(),
+            "active_tab": self._tabs.tabText(self._tabs.currentIndex()),
+            "tab_count": self._tabs.count(),
+            "open_device_tabs": list(self._device_tabs.keys()),
+            "favorites_count": len(self._favorites_tab.get_favorite_ids()),
+            "search_text": self._tree_tab.get_search_text(),
+            "kind_filter": (
+                list(self._tree_tab.get_visible_kinds())
+                if self._tree_tab.get_visible_kinds()
+                else None
+            ),
+            "device_count": self._tree_tab.model.rowCount(),
             "catalog_connected": self._catalog.is_connected,
-            "control_widget": self._control_widget.get_introspection_data(),
         }
 
-    def _get_selected_items(self) -> list[DeviceTreeItem]:
-        """Get all currently selected DeviceTreeItems."""
-        selection = self._tree_view.selectionModel().selectedIndexes()
-        items: list[DeviceTreeItem] = []
-        seen: set[int] = set()
-
-        for proxy_index in selection:
-            if proxy_index.column() != 0:
-                continue
-            source_index = self._proxy_model.mapToSource(proxy_index)
-            item = source_index.internalPointer()
-            if isinstance(item, DeviceTreeItem):
-                item_id = id(item)
-                if item_id not in seen:
-                    seen.add(item_id)
-                    items.append(item)
-        return items
-
     def _get_available_actions(self) -> list[dict[str, Any]]:
-        """Get available actions for this panel."""
         actions = super()._get_available_actions()
         actions.extend([
             {
@@ -868,51 +295,32 @@ class DevicePanel(BasePanel):
         return actions
 
     def action_refresh(self) -> bool:
-        """Action: Refresh the device tree."""
-        self._refresh()
+        self._tree_tab.model.refresh()
         return True
 
     def action_search(self, query: str) -> bool:
-        """Action: Search for devices/signals.
-
-        Args:
-            query: Search query string.
-
-        Returns:
-            True if search was performed.
-        """
-        self._search_input.setText(query)
+        self._tree_tab._search_input.setText(query)
         return True
 
     def action_expand_all(self) -> bool:
-        """Action: Expand all tree nodes."""
-        self._tree_view.expandAll()
+        self._tree_tab.tree_view.expandAll()
         return True
 
     def action_collapse_all(self) -> bool:
-        """Action: Collapse all tree nodes."""
-        self._tree_view.collapseAll()
+        self._tree_tab.tree_view.collapseAll()
         return True
 
     def action_filter_by_kind(self, kinds: list[str] | None) -> bool:
-        """Action: Filter by signal/device kind.
+        """Filter the tree by signal/device kind.
 
         Args:
-            kinds: List of kind names to show (hinted, normal, config, omitted),
-                   or None to show all.
-
-        Returns:
-            True if filter was applied.
+            kinds: List of kind names to show, or None to show all.
         """
         if kinds is None:
-            # Show all - check all actions
-            for action in self._kind_actions.values():
+            for action in self._tree_tab._kind_actions.values():
                 action.setChecked(True)
         else:
-            # Filter to specified kinds
-            for kind, action in self._kind_actions.items():
+            for kind, action in self._tree_tab._kind_actions.items():
                 action.setChecked(kind in kinds)
-
-        # Trigger the filter update
-        self._on_kind_filter_changed()
+        self._tree_tab._on_kind_filter_changed()
         return True
