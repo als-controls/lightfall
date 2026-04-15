@@ -418,31 +418,32 @@ class LazyImageView(pg.ImageView):
     # ------------------------------------------------------------------
 
     def _fetch_frame(self, index: int) -> np.ndarray:
-        """Fetch a single frame from the ArrayClient, reshaping if needed.
+        """Fetch a single frame via server-side slicing.
 
-        Tiled may store images flattened (e.g. shape (65536,) for 256x256)
-        or with a leading singleton dim (1, H, W).  We reshape using
-        ``self._frame_shape`` from the descriptor to always return (H, W).
+        Uses tiled's ``/array/full/`` endpoint with a ``slice`` parameter
+        so the server returns only the requested frame.  This avoids the
+        dask/chunk path which downloads the entire chunk (potentially
+        all frames) just to extract one.
         """
         n_frames = self._proxy.shape[0] if self._proxy else 1
         index = int(max(0, min(index, n_frames - 1)))
 
-        import time as _t; _t0 = _t.monotonic()
-        raw = np.asarray(self._client[index])
-        logger.debug("_fetch_frame: index={}, HTTP took {:.1f}s, shape={}", index, _t.monotonic() - _t0, raw.shape)
+        # Server-side slice: fetch only frame[index]
+        url_path = self._client.uri.replace("/metadata/", "/array/full/", 1)
+        response = self._client.context.http_client.get(
+            url_path,
+            headers={"Accept": "application/octet-stream"},
+            params={"slice": f"{index},::,::"},
+        )
+        response.raise_for_status()
 
-        # Squeeze leading singleton dims: (1, H, W) → (H, W)
-        while raw.ndim > 2 and raw.shape[0] == 1:
-            raw = raw[0]
+        dtype = self._client.structure().data_type.to_numpy_dtype()
+        raw = np.frombuffer(response.content, dtype=dtype)
 
-        # Reshape flat arrays using the descriptor's declared shape
-        if raw.ndim == 1 and len(self._frame_shape) == 2:
-            expected_size = self._frame_shape[0] * self._frame_shape[1]
-            if raw.size == expected_size:
+        # Reshape to frame dimensions
+        if len(self._frame_shape) == 2:
+            expected = self._frame_shape[0] * self._frame_shape[1]
+            if raw.size == expected:
                 raw = raw.reshape(self._frame_shape)
-            else:
-                side = int(np.sqrt(raw.size))
-                if side * side == raw.size:
-                    raw = raw.reshape(side, side)
 
         return raw.astype(np.float64)
