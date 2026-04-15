@@ -123,7 +123,7 @@ class TestWaitingHookBridge:
         assert len(st._done_cbs) == 1
         st._done_cbs[0]()
 
-        process_events_for(qapp, 100)
+        process_events_for(qapp, 350)
 
         assert "motor1" in finished
 
@@ -138,17 +138,23 @@ class TestWaitingHookBridge:
 
         # Then clear
         bridge(None)
-        process_events_for(qapp, 100)
+        process_events_for(qapp, 350)
 
         assert len(cleared) == 1
 
-    def test_timer_stops_on_none(self, bridge, qapp):
-        """Timer stops when called with None."""
+    def test_timer_stops_after_flush_on_none(self, bridge, qapp):
+        """Timer stops after flush processes the group-cleared flag."""
         st = make_watchable_status("motor1")
         bridge({st})
+
+        # Let the timer start (queued connection, needs event processing)
+        process_events_for(qapp, 50)
         assert bridge._timer.isActive()
 
         bridge(None)
+
+        # Timer stop is deferred to the next _flush on the main thread
+        process_events_for(qapp, 250)
         assert not bridge._timer.isActive()
 
     def test_coalesces_rapid_updates(self, bridge, qapp):
@@ -224,7 +230,7 @@ class TestWaitingHookBridge:
 
         # Trigger completion
         st._done_cbs[0]()
-        process_events_for(qapp, 100)
+        process_events_for(qapp, 350)
 
         assert "fallback_name" in finished
 
@@ -234,6 +240,58 @@ class TestWaitingHookBridge:
         bridge.sigWaitGroupCleared.connect(lambda: cleared.append(True))
 
         bridge(None)
-        process_events_for(qapp, 100)
+        process_events_for(qapp, 350)
 
         assert len(cleared) == 1
+
+    def test_cross_thread_done_callback(self, bridge, qapp):
+        """Done callback fired from a background thread delivers via buffer."""
+        import threading
+
+        finished = []
+        bridge.sigDeviceFinished.connect(lambda name: finished.append(name))
+
+        st = make_watchable_status("motor_bg")
+        bridge({st})
+
+        # Process events so the timer starts
+        process_events_for(qapp, 50)
+
+        # Fire the done callback from a real background thread
+        assert len(st._done_cbs) == 1
+        bg = threading.Thread(target=st._done_cbs[0])
+        bg.start()
+        bg.join(timeout=2.0)
+
+        # Let the flush timer pick up the buffered done event
+        process_events_for(qapp, 250)
+
+        assert "motor_bg" in finished
+
+    def test_cross_thread_watch_callback(self, bridge, qapp):
+        """Watch callback fired from a background thread is buffered safely."""
+        import threading
+
+        received = []
+        bridge.sigDeviceProgress.connect(lambda *args: received.append(args))
+
+        st = make_watchable_status("motor_bg2")
+        bridge({st})
+
+        process_events_for(qapp, 50)
+
+        # Fire watch callback from a background thread
+        def fire_watch():
+            st._watch_cbs[0](
+                name="motor_bg2", current=5.0, initial=0.0, target=10.0, fraction=0.5
+            )
+
+        bg = threading.Thread(target=fire_watch)
+        bg.start()
+        bg.join(timeout=2.0)
+
+        process_events_for(qapp, 250)
+
+        assert len(received) >= 1
+        assert received[-1][0] == "motor_bg2"
+        assert received[-1][1] == 5.0

@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QMetaObject, QObject, Qt, QTimer, Signal
 
 from lucid.utils.logging import logger
 
@@ -27,6 +27,12 @@ class WaitingHookBridge(QObject):
     Assigned to ``RE.waiting_hook``, this object is called from the
     RunEngine thread. It buffers progress updates and flushes them to
     Qt signals on the main thread via a QTimer.
+
+    All mutable state shared between threads is protected by ``_lock``.
+    The ``_done_buffer`` and ``_group_cleared`` flag allow the flush timer
+    (running on the main/Qt thread) to emit ``sigDeviceFinished`` and
+    ``sigWaitGroupCleared`` safely, rather than emitting from the RE or
+    device threads directly.
 
     Signals:
         sigDeviceProgress(str, float, float, float, float):
@@ -46,9 +52,17 @@ class WaitingHookBridge(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
 
+        # Lock protects _buffer, _done_buffer, _group_cleared, _active_statuses
+        self._lock = threading.Lock()
+
         # Buffer: device_name -> (current, initial, target, fraction)
         self._buffer: dict[str, tuple[float, float, float, float]] = {}
-        self._lock = threading.Lock()
+
+        # Buffer for finished device names (drained on main thread by _flush)
+        self._done_buffer: list[str] = []
+
+        # Flag: set True when _on_all_resolved is called, cleared by _flush
+        self._group_cleared: bool = False
 
         # Active status objects we're tracking (prevent GC issues)
         self._active_statuses: set[Any] = set()
@@ -73,16 +87,24 @@ class WaitingHookBridge(QObject):
             self._on_all_resolved()
             return
 
-        for st in status_objs:
-            # Skip if we're already tracking this status
-            if st in self._active_statuses:
-                continue
-            self._active_statuses.add(st)
+        new_statuses: list[Any] = []
+        with self._lock:
+            for st in status_objs:
+                # Skip if we're already tracking this status
+                if st in self._active_statuses:
+                    continue
+                self._active_statuses.add(st)
+                new_statuses.append(st)
+
+        # Subscribe outside the lock — watch()/add_callback() may call back
+        # into our buffer methods which also acquire _lock.
+        for st in new_statuses:
             self._subscribe_status(st)
 
-        # Ensure the flush timer is running
-        if not self._timer.isActive():
-            self._timer.start()
+        # Ensure the flush timer is running (must be started from main thread)
+        QMetaObject.invokeMethod(
+            self._timer, "start", Qt.ConnectionType.QueuedConnection
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -96,7 +118,9 @@ class WaitingHookBridge(QObject):
             try:
                 st.watch(self._make_watch_callback(name))
             except Exception:
-                logger.debug(f"[waiting_hook] watch() failed for {name}, treating as indeterminate")
+                logger.warning(
+                    f"[waiting_hook] watch() failed for {name}, treating as indeterminate"
+                )
                 self._buffer_update(name, 0.0, 0.0, 0.0, -1.0)
         else:
             # Non-watchable: indeterminate progress
@@ -121,37 +145,58 @@ class WaitingHookBridge(QObject):
         """Return a closure for ``st.add_callback(cb)``."""
 
         def _on_done(status: Any = None) -> None:
-            self._active_statuses.discard(st)
-            # Emit finished signal (will be cross-thread → queued connection)
-            self.sigDeviceFinished.emit(name)
+            with self._lock:
+                self._active_statuses.discard(st)
+                self._done_buffer.append(name)
             logger.debug(f"[waiting_hook] {name} finished")
+            # Ensure the timer is running so the done event gets flushed
+            QMetaObject.invokeMethod(
+                self._timer, "start", Qt.ConnectionType.QueuedConnection
+            )
 
         return _on_done
 
     def _buffer_update(
         self, name: str, current: float, initial: float, target: float, fraction: float
     ) -> None:
-        """Thread-safe buffer write (called from RE thread)."""
+        """Thread-safe buffer write (called from RE/device thread)."""
         with self._lock:
             self._buffer[name] = (current, initial, target, fraction)
 
     def _flush(self) -> None:
-        """Timer slot — emit buffered progress updates on the main thread."""
+        """Timer slot — emit buffered signals on the main thread."""
         with self._lock:
-            snapshot = dict(self._buffer)
+            progress_snapshot = dict(self._buffer)
             self._buffer.clear()
+            done_snapshot = list(self._done_buffer)
+            self._done_buffer.clear()
+            group_cleared = self._group_cleared
+            self._group_cleared = False
 
-        for name, (current, initial, target, fraction) in snapshot.items():
+        for name, (current, initial, target, fraction) in progress_snapshot.items():
             self.sigDeviceProgress.emit(name, current, initial, target, fraction)
 
+        for name in done_snapshot:
+            self.sigDeviceFinished.emit(name)
+
+        if group_cleared:
+            self.sigWaitGroupCleared.emit()
+            self._timer.stop()
+
     def _on_all_resolved(self) -> None:
-        """Handle ``waiting_hook(None)`` — all waits cleared."""
-        self._timer.stop()
-        # Flush any remaining buffered updates
-        self._flush()
-        self._active_statuses.clear()
-        self.sigWaitGroupCleared.emit()
+        """Handle ``waiting_hook(None)`` — all waits cleared.
+
+        Called from the RE thread.  Buffers the cleared flag so that
+        ``_flush`` (main thread) emits ``sigWaitGroupCleared``.
+        """
+        with self._lock:
+            self._group_cleared = True
+            self._active_statuses.clear()
         logger.debug("[waiting_hook] all waits resolved")
+        # Ensure the timer is running so _flush can emit the cleared signal
+        QMetaObject.invokeMethod(
+            self._timer, "start", Qt.ConnectionType.QueuedConnection
+        )
 
     @staticmethod
     def _status_name(st: Any) -> str:
