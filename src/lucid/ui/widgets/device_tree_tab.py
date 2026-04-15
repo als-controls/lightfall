@@ -361,14 +361,22 @@ class DeviceTreeTab(QWidget):
         proxy_index = self._proxy_model.mapFromSource(source_index)
         if not proxy_index.isValid():
             return
-        self._tree_view.selectionModel().clearSelection()
-        self._tree_view.selectionModel().select(
-            proxy_index,
-            self._tree_view.selectionModel().SelectionFlag.Select
-            | self._tree_view.selectionModel().SelectionFlag.Rows,
-        )
-        self._tree_view.scrollTo(proxy_index)
-        self._tree_view.expand(proxy_index.parent())
+        # Block signals to prevent recursive events during programmatic selection
+        self._tree_view.selectionModel().blockSignals(True)
+        try:
+            self._tree_view.selectionModel().clearSelection()
+            self._tree_view.selectionModel().select(
+                proxy_index,
+                self._tree_view.selectionModel().SelectionFlag.Select
+                | self._tree_view.selectionModel().SelectionFlag.Rows,
+            )
+            self._tree_view.scrollTo(proxy_index)
+            self._tree_view.expand(proxy_index.parent())
+        finally:
+            self._tree_view.selectionModel().blockSignals(False)
+
+        # Force immediate visual update
+        self._tree_view.viewport().update()
 
     def _find_device_item(self, item: DeviceTreeItem, device_id: str) -> DeviceTreeItem | None:
         if item.device_info is not None and str(item.device_info.id) == device_id:
