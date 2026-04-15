@@ -385,7 +385,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
         id="lucid.statusbar.threads",
         name="Thread Status",
         description="Shows background task progress",
-        priority=90,
+        priority=5,
         position="permanent",
         tooltip="Click to see background task progress",
     )
