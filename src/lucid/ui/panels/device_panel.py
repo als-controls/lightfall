@@ -8,9 +8,9 @@ Provides a tabbed panel for viewing and managing devices:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
-from PySide6.QtCore import QCoreApplication, Qt, Signal, Slot
+from PySide6.QtCore import QCoreApplication, Signal, Slot
 from PySide6.QtWidgets import (
     QTabBar,
     QTabWidget,
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from lucid.devices import DeviceCatalog
 from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lucid.ui.models.device_tree import DeviceTreeItem
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.preferences.manager import PreferencesManager
@@ -27,9 +27,6 @@ from lucid.ui.widgets.device_control import DeviceControlWidget
 from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
 from lucid.ui.widgets.favorites_tab import FavoritesTab
 from lucid.utils.logging import logger
-
-if TYPE_CHECKING:
-    pass
 
 
 class DevicePanel(BasePanel):
@@ -192,8 +189,7 @@ class DevicePanel(BasePanel):
             return
 
         # Find the device in the tree model and open
-        root = self._tree_tab.model.root_item
-        item = self._tree_tab._find_device_item(root, device_id)
+        item = self._tree_tab.find_item_by_id(device_id)
         if item is not None:
             self._open_device_tab(item)
 
@@ -299,7 +295,7 @@ class DevicePanel(BasePanel):
         return True
 
     def action_search(self, query: str) -> bool:
-        self._tree_tab._search_input.setText(query)
+        self._tree_tab.set_search_text(query)
         return True
 
     def action_expand_all(self) -> bool:
@@ -316,11 +312,5 @@ class DevicePanel(BasePanel):
         Args:
             kinds: List of kind names to show, or None to show all.
         """
-        if kinds is None:
-            for action in self._tree_tab._kind_actions.values():
-                action.setChecked(True)
-        else:
-            for kind, action in self._tree_tab._kind_actions.items():
-                action.setChecked(kind in kinds)
-        self._tree_tab._on_kind_filter_changed()
+        self._tree_tab.set_visible_kinds(kinds)
         return True

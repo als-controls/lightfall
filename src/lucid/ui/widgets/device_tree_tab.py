@@ -392,5 +392,38 @@ class DeviceTreeTab(QWidget):
     def get_visible_kinds(self) -> set[str] | None:
         return self._proxy_model.get_visible_kinds()
 
+    def set_visible_kinds(self, kinds: list[str] | None) -> None:
+        """Set the visible kinds filter.
+
+        Args:
+            kinds: List of kind names to show, or None to show all.
+        """
+        if kinds is None:
+            for action in self._kind_actions.values():
+                action.setChecked(True)
+        else:
+            for kind, action in self._kind_actions.items():
+                action.setChecked(kind in kinds)
+        self._on_kind_filter_changed()
+
     def get_search_text(self) -> str:
         return self._search_input.text()
+
+    def set_search_text(self, query: str) -> None:
+        """Set the search query text.
+
+        Args:
+            query: Search query string.
+        """
+        self._search_input.setText(query)
+
+    def find_item_by_id(self, device_id: str) -> DeviceTreeItem | None:
+        """Find a device tree item by device ID.
+
+        Args:
+            device_id: The device ID string.
+
+        Returns:
+            The matching DeviceTreeItem, or None if not found.
+        """
+        return self._find_device_item(self._model.root_item, device_id)
