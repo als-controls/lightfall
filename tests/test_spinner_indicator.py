@@ -78,3 +78,44 @@ class TestPixmapBaking:
                 a_color = color_img.pixelColor(x, y).alpha()
                 assert gray_img.pixelColor(x, y).alpha() == a_color
                 assert red_img.pixelColor(x, y).alpha() == a_color
+
+
+class TestSpinTimer:
+    """Spin timer should run only while in a spinning state."""
+
+    def test_spin_timer_inactive_at_construction(self, indicator):
+        assert not indicator._spin_timer.isActive()
+
+    def test_spin_timer_starts_when_running(self, indicator):
+        indicator.set_status("running")
+        assert indicator._spin_timer.isActive()
+
+    def test_spin_timer_starts_when_stopping(self, indicator):
+        indicator.set_status("stopping")
+        assert indicator._spin_timer.isActive()
+
+    def test_spin_timer_stops_when_idle(self, indicator):
+        indicator.set_status("running")
+        assert indicator._spin_timer.isActive()
+        indicator.set_status("idle")
+        assert not indicator._spin_timer.isActive()
+
+    def test_spin_timer_stops_when_paused(self, indicator):
+        indicator.set_status("running")
+        indicator.set_status("paused")
+        assert not indicator._spin_timer.isActive()
+
+    def test_rotation_advances_on_tick(self, indicator, qtbot):
+        indicator.set_status("running")
+        start_rotation = indicator._rotation
+        # Wait for at least 2 ticks (~66 ms); use 200 ms for safety margin
+        qtbot.wait(200)
+        assert indicator._rotation != start_rotation
+
+    def test_rotation_preserved_across_pause(self, indicator, qtbot):
+        """Pausing stops the timer but should not reset the angle."""
+        indicator.set_status("running")
+        qtbot.wait(150)
+        rotation_at_pause = indicator._rotation
+        indicator.set_status("paused")
+        assert indicator._rotation == rotation_at_pause
