@@ -119,3 +119,39 @@ class TestSpinTimer:
         rotation_at_pause = indicator._rotation
         indicator.set_status("paused")
         assert indicator._rotation == rotation_at_pause
+
+
+class TestErrorFlash:
+    """flash_error must set the flag, auto-clear after 1500 ms, and be re-entrant."""
+
+    def test_flash_inactive_at_construction(self, indicator):
+        assert indicator._flash_active is False
+
+    def test_flash_error_sets_flag_and_starts_timer(self, indicator):
+        indicator.flash_error()
+        assert indicator._flash_active is True
+        assert indicator._flash_timer.isActive()
+
+    def test_flash_clears_after_timeout(self, indicator, qtbot):
+        indicator.flash_error()
+        # Wait slightly longer than the 1500 ms flash duration
+        qtbot.wait(1700)
+        assert indicator._flash_active is False
+        assert not indicator._flash_timer.isActive()
+
+    def test_flash_is_reentrant(self, indicator, qtbot):
+        """Calling flash_error during an active flash should restart the timer.
+
+        First call at t=0; second call at t=500. Without re-entrancy the flash
+        would clear at t=1500 (1000 ms after second call). With re-entrancy it
+        clears at t=500+1500=2000 ms. We check at t=1700.
+        """
+        indicator.flash_error()
+        qtbot.wait(500)
+        indicator.flash_error()
+        qtbot.wait(1200)  # total elapsed: 1700 ms
+        # Should still be active because second call restarted the 1500 ms timer
+        assert indicator._flash_active is True
+        # And clear after another ~400 ms (at total ~2100 ms)
+        qtbot.wait(500)
+        assert indicator._flash_active is False
