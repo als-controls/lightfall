@@ -335,8 +335,10 @@ class TestDevicePanelContextMenu:
         from lucid.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
-        catalog.backend = MagicMock()
-        catalog.backend.is_editable = True
+        editable_backend = MagicMock()
+        editable_backend.is_editable = True
+        catalog.backend = editable_backend
+        catalog.backends = {"happi": editable_backend}
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
             tab = DeviceTreeTab(catalog=catalog)
             tab._model._value_timer.stop()
@@ -349,12 +351,32 @@ class TestDevicePanelContextMenu:
         from lucid.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
-        catalog.backend = MagicMock()
-        catalog.backend.is_editable = False
+        readonly_backend = MagicMock()
+        readonly_backend.is_editable = False
+        catalog.backend = readonly_backend
+        catalog.backends = {"mock": readonly_backend}
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
             tab = DeviceTreeTab(catalog=catalog)
             tab._model._value_timer.stop()
         assert tab._get_backend_editable() is False
+        tab.close()
+
+    def test_backend_editable_multi_backend_with_one_editable(self, qapp):
+        """With mock (read-only) + happi (editable), _get_backend_editable is True."""
+        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lucid.ui.models.device_tree import DeviceTreeModel
+        catalog = MagicMock()
+        catalog.get_all_devices.return_value = []
+        mock_be = MagicMock(); mock_be.is_editable = False
+        happi_be = MagicMock(); happi_be.is_editable = True
+        catalog.backend = mock_be  # primary = mock (read-only)
+        catalog.backends = {"mock": mock_be, "happi": happi_be}
+        with patch.object(DeviceTreeModel, "_poll_value_refresh"):
+            tab = DeviceTreeTab(catalog=catalog)
+            tab._model._value_timer.stop()
+        # Regression: was False with primary-only check; now True because
+        # the secondary happi backend is editable.
+        assert tab._get_backend_editable() is True
         tab.close()
 
     def test_device_panel_delegates_to_tree_tab(self, qapp):

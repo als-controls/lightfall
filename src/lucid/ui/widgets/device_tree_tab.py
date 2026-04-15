@@ -225,7 +225,8 @@ class DeviceTreeTab(QWidget):
                 if item is not None and item.node_type == NodeType.DEVICE:
                     device_info = item.device_info
 
-        is_editable = self._get_backend_editable()
+        any_editable = self._get_backend_editable()
+        device_editable = self._is_device_editable(device_info) if device_info is not None else False
         menu = QMenu(self._tree_view)
 
         if device_info is not None:
@@ -239,7 +240,7 @@ class DeviceTreeTab(QWidget):
                 fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_id_str, True))
             menu.addSeparator()
 
-            if is_editable:
+            if device_editable:
                 edit_action = menu.addAction("Edit...")
                 edit_action.triggered.connect(lambda: self._edit_device(device_info))
                 if device_info.active:
@@ -255,13 +256,13 @@ class DeviceTreeTab(QWidget):
             copy_prefix_action = menu.addAction("Copy Prefix")
             copy_prefix_action.triggered.connect(lambda: QApplication.clipboard().setText(device_info.prefix or ""))
 
-            if is_editable:
+            if device_editable:
                 menu.addSeparator()
                 delete_action = menu.addAction("Delete")
                 delete_action.triggered.connect(lambda: self._delete_device(device_info))
                 menu.addSeparator()
 
-        if is_editable:
+        if any_editable:
             add_action = menu.addAction("Add New Device...")
             add_action.triggered.connect(self._add_new_device)
 
@@ -270,7 +271,23 @@ class DeviceTreeTab(QWidget):
         menu.exec(self._tree_view.viewport().mapToGlobal(pos))
 
     def _get_backend_editable(self) -> bool:
-        backend = self._catalog.backend
+        """True if any registered backend supports editing.
+
+        Under a multi-backend configuration (e.g. mock + happi) the primary
+        backend may be read-only while a secondary backend is editable. The
+        edit actions only need *some* editable backend to be useful.
+        """
+        return any(b.is_editable for b in self._catalog.backends.values())
+
+    def _is_device_editable(self, device_info) -> bool:
+        """True if the backend that owns this specific device is editable.
+
+        Edits route through the owning backend; a device held by a read-only
+        backend (e.g. mock) can't be edited even if another backend is.
+        """
+        if device_info is None:
+            return False
+        backend = self._catalog._backend_for_device(device_info.id)
         return backend is not None and backend.is_editable
 
     def _edit_device(self, device_info) -> None:
@@ -300,7 +317,13 @@ class DeviceTreeTab(QWidget):
                 icon_override=values["icon_override"], active=values["active"],
                 metadata=values.get("extra_fields", {}),
             )
-            if not self._catalog.add_device(device):
+            # Route to the first editable backend rather than the primary, which
+            # may be read-only (e.g. mock) in a multi-backend configuration.
+            target_backend = next(
+                (name for name, b in self._catalog.backends.items() if b.is_editable),
+                None,
+            )
+            if not self._catalog.add_device(device, backend_name=target_backend):
                 QMessageBox.warning(self, "Add Failed",
                     f"Failed to add device '{values['name']}'. It may already exist.")
 
