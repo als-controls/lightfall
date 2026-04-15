@@ -155,3 +155,44 @@ class TestErrorFlash:
         # And clear after another ~400 ms (at total ~2100 ms)
         qtbot.wait(500)
         assert indicator._flash_active is False
+
+
+class TestStateMapping:
+    """_pixmap_for_state must map each engine state to the correct pixmap."""
+
+    def test_idle_state_uses_gray_pixmap(self, indicator):
+        indicator.set_status("idle")
+        assert indicator._pixmap_for_state() is indicator._gray_pixmap
+
+    def test_running_state_uses_color_pixmap(self, indicator):
+        indicator.set_status("running")
+        assert indicator._pixmap_for_state() is indicator._color_pixmap
+
+    def test_stopping_state_uses_color_pixmap(self, indicator):
+        indicator.set_status("stopping")
+        assert indicator._pixmap_for_state() is indicator._color_pixmap
+
+    def test_paused_state_uses_color_pixmap(self, indicator):
+        indicator.set_status("paused")
+        assert indicator._pixmap_for_state() is indicator._color_pixmap
+
+    def test_pausing_state_uses_color_pixmap(self, indicator):
+        indicator.set_status("pausing")
+        assert indicator._pixmap_for_state() is indicator._color_pixmap
+
+    def test_aborting_state_uses_red_pixmap(self, indicator):
+        indicator.set_status("aborting")
+        assert indicator._pixmap_for_state() is indicator._red_pixmap
+
+    def test_panicked_state_uses_red_pixmap(self, indicator):
+        indicator.set_status("panicked")
+        assert indicator._pixmap_for_state() is indicator._red_pixmap
+
+    def test_unknown_state_falls_back_to_gray(self, indicator):
+        indicator.set_status("some_unknown_state")
+        assert indicator._pixmap_for_state() is indicator._gray_pixmap
+
+    def test_status_is_case_insensitive(self, indicator):
+        """set_status lower-cases its input."""
+        indicator.set_status("RUNNING")
+        assert indicator._pixmap_for_state() is indicator._color_pixmap

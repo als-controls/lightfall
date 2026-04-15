@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 SPINNING_STATES = frozenset({"running", "stopping"})
 PAUSED_STATES = frozenset({"paused", "pausing"})
 ERROR_STATES = frozenset({"aborting", "panicked"})
+_COLOR_PIXMAP_STATES = SPINNING_STATES | PAUSED_STATES
 
 _LOGO_SIZE = 24
 _FLASH_DURATION_MS = 1500
@@ -166,7 +167,7 @@ class SpinnerIndicator(QWidget):
     def _pixmap_for_state(self) -> QPixmap:
         if self._status in ERROR_STATES:
             return self._red_pixmap
-        if self._status in (PAUSED_STATES | SPINNING_STATES):
+        if self._status in _COLOR_PIXMAP_STATES:
             return self._color_pixmap
         return self._gray_pixmap
 
@@ -197,7 +198,7 @@ class RunEngineControlWidget(QWidget):
     pausing, resuming, aborting, and stopping the engine.
 
     Features:
-    - Status indicator (colored dot + text)
+    - Spinning logo indicator (spins while running, dims when paused, flashes red on error) + text
     - Control buttons: Pause, Resume, Abort, Stop
     - Queue count display
     - Compact horizontal layout for toolbar embedding
