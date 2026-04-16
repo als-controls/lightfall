@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 from typing import Any
 
+import httpx
 from tiled.client import from_uri
 
 logger = logging.getLogger(__name__)
+
+
+class BearerAuth(httpx.Auth):
+    """Simple httpx.Auth that adds a static Bearer token."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def sync_auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        yield request
 
 
 def connect_tiled(
@@ -27,7 +42,7 @@ def connect_tiled(
     """
     kwargs: dict[str, Any] = {}
     if token:
-        kwargs["api_key"] = token
+        kwargs["auth"] = BearerAuth(token)
 
     if not proxy_url:
         return from_uri(url, **kwargs)
