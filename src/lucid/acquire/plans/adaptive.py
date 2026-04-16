@@ -93,12 +93,48 @@ class AdaptiveExperimentPanel(PlanUI):
 
 
 @plan_with_ui(AdaptiveExperimentPanel)
+def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
+    """Pull Tiled URL, auth token, and proxy URL from LUCID services.
+
+    Returns:
+        (tiled_url, auth_token, proxy_url) — any may be empty/None.
+    """
+    tiled_url = ""
+    auth_token = None
+    proxy_url = None
+
+    try:
+        from lucid.services.tiled_service import TiledService
+        from lucid.core.services import ServiceRegistry
+        registry = ServiceRegistry.get_instance()
+        ts = registry.get(TiledService, None)
+        if ts and ts.config:
+            tiled_url = ts.config.url or ""
+    except Exception:
+        pass
+
+    try:
+        from lucid.auth.session import SessionManager
+        session_mgr = SessionManager.get_instance()
+        session = session_mgr.session
+        if session and session.token:
+            auth_token = session.token
+    except Exception:
+        pass
+
+    # Check if URL needs proxy (*.lbl.gov → SOCKS proxy)
+    if tiled_url and ".lbl.gov" in tiled_url:
+        proxy_url = "socks5://localhost:1080"
+
+    return tiled_url, auth_token, proxy_url
+
+
+@plan_with_ui(AdaptiveExperimentPanel)
 def adaptive_experiment(
     detectors: list,
     motors: list,
     experiment_id: str,
     lucid_prefix: str = "als.7011",
-    tiled_url: str = "",
     exhaust_first: bool = False,
     timeout: float = 300.0,
     poll_interval: float = 0.1,
@@ -109,12 +145,15 @@ def adaptive_experiment(
     and signals back when each point is measured. Opens a single bluesky
     Run for the entire experiment.
 
+    Tiled credentials (URL + Keycloak token) are pulled automatically from
+    LUCID's TiledService and SessionManager and forwarded to Tsuchinoko
+    via the ``bind_run`` NATS handshake.
+
     Args:
         detectors: Detectors to read at each target.
         motors: Motors to move. Target tuples align with motor order.
         experiment_id: Tsuchinoko experiment UUID (embedded in start doc).
         lucid_prefix: NATS topic prefix for this LUCID instance.
-        tiled_url: Tiled server URL for Tsuchinoko to read/write results.
         exhaust_first: If True, measure all targets in a batch before
             publishing adaptive.measured. If False (default), publish after
             each measurement so Tsuchinoko can update its GP per-point.
@@ -143,10 +182,13 @@ def adaptive_experiment(
         md = {"tsuchinoko": {"experiment_id": experiment_id}}
         run_uid = yield from bps.open_run(md=md)
 
-        # Bind the run to Tsuchinoko so it can set up Tiled I/O
+        # Pull Tiled credentials from LUCID and forward to Tsuchinoko
+        tiled_url, auth_token, proxy_url = _get_tiled_credentials()
         bridge.publish("tsuchinoko.experiment.bind_run", {
             "run_uid": run_uid,
             "tiled_url": tiled_url,
+            "auth_token": auth_token,
+            "proxy_url": proxy_url,
             "lucid_prefix": lucid_prefix,
             "motor_names": [m.name for m in motors],
             "detector_name": detectors[0].name if detectors else "det",
