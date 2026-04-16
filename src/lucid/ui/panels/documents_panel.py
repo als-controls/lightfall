@@ -92,15 +92,15 @@ class DocumentsPanel(BasePanel):
     def open_run(self, entry: Any) -> None:
         """Load documents from a Tiled run entry.
 
-        Extracts all available documents (start, descriptors, events, stop)
-        from the entry and feeds them into the document stream widget.
+        Uses entry.documents() to get all documents (start, descriptors,
+        events, stream_resource, stream_datum, stop). Falls back to
+        showing start/stop from metadata if documents() is unavailable.
 
         Args:
             entry: Tiled BlueskyRun entry.
         """
         metadata = entry.metadata
         start_doc = metadata.get("start") or {}
-        stop_doc = metadata.get("stop")
 
         uid = start_doc.get("uid", "")
         plan = start_doc.get("plan_name", "unknown")
@@ -118,68 +118,20 @@ class DocumentsPanel(BasePanel):
             self._doc_stream._tree_model.doc_consumer(name, doc)
             self._doc_stream._sequential_model.add_document(name, doc)
 
-        # Feed start document
-        if start_doc:
-            _emit("start", start_doc)
+        # Try the proper documents() API first
+        try:
+            for name, doc in entry.documents():
+                _emit(name, dict(doc))
+        except Exception as e:
+            logger.warning("entry.documents() failed, falling back to metadata: {}", e)
+            # Fallback: show what we can from metadata
+            if start_doc:
+                _emit("start", start_doc)
+            stop_doc = metadata.get("stop")
+            if stop_doc:
+                _emit("stop", stop_doc)
 
-        # Feed descriptor + events for each stream
-        for stream_name in entry:
-            try:
-                stream = entry[stream_name]
-            except Exception as e:
-                logger.debug("Could not access stream {}: {}", stream_name, e)
-                continue
-
-            # Descriptor
-            try:
-                desc = dict(stream.metadata)
-                desc.setdefault("name", stream_name)
-                _emit("descriptor", desc)
-            except Exception as e:
-                logger.debug("Could not read descriptor for stream {}: {}", stream_name, e)
-
-            # Events from internal events table
-            try:
-                stream_keys = list(stream.keys())
-            except Exception:
-                stream_keys = []
-
-            if "internal" in stream_keys:
-                try:
-                    internal = stream["internal"]
-                    if "events" in internal:
-                        events_df = internal["events"].read()
-                        data_keys = set(stream.metadata.get("data_keys", {}))
-                        for _, row in events_df.iterrows():
-                            row_dict = row.to_dict()
-                            event_doc: dict[str, Any] = {
-                                "seq_num": row_dict.pop("seq_num", None),
-                                "time": row_dict.pop("time", None),
-                                "uid": row_dict.pop("uid", None),
-                            }
-                            # Split into data and timestamps
-                            data = {}
-                            timestamps = {}
-                            for key, val in row_dict.items():
-                                if key.startswith("ts_"):
-                                    timestamps[key[3:]] = val
-                                elif key in data_keys:
-                                    data[key] = val
-                            if data:
-                                event_doc["data"] = data
-                            if timestamps:
-                                event_doc["timestamps"] = timestamps
-                            _emit("event", event_doc)
-                except Exception as e:
-                    logger.debug("Could not read events for stream {}: {}", stream_name, e)
-
-        # Feed stop document
-        if stop_doc:
-            _emit("stop", stop_doc)
-
-        total = (
-            self._doc_stream._sequential_model.rowCount()
-        )
+        total = self._doc_stream._sequential_model.rowCount()
         self._doc_stream._status_label.setText(
             f"Loaded {total} documents from run {uid[:8]}"
         )
