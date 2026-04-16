@@ -10,13 +10,6 @@ from tiled.client import from_uri
 logger = logging.getLogger(__name__)
 
 
-def _make_socks_transport(proxy_url: str) -> Any:
-    """Create a SOCKS proxy transport for httpx."""
-    from httpx_socks import SyncProxyTransport
-
-    return SyncProxyTransport.from_url(proxy_url)
-
-
 def connect_tiled(
     url: str,
     token: str | None = None,
@@ -27,7 +20,7 @@ def connect_tiled(
     Args:
         url: Tiled server URL.
         token: Optional auth token (Bearer token for Keycloak).
-        proxy_url: Optional SOCKS/HTTP proxy URL.
+        proxy_url: Optional SOCKS/HTTP proxy URL (e.g. ``socks5://localhost:1080``).
 
     Returns:
         Tiled client instance.
@@ -46,13 +39,12 @@ def connect_tiled(
     import tiled.client.context as context_mod
     from tiled.client.transport import Transport as OriginalTransport
 
-    proxy_transport = _make_socks_transport(proxy_url)
+    proxy_transport = httpx.HTTPTransport(proxy=proxy_url)
 
     original_httpx_get = context_mod.httpx.get
 
     def proxy_httpx_get(u, **kw):
-        t = _make_socks_transport(proxy_url)
-        with httpx.Client(transport=t, timeout=15.0) as client:
+        with httpx.Client(proxy=proxy_url, timeout=15.0) as client:
             return client.get(u, **kw)
 
     context_mod.httpx.get = proxy_httpx_get  # type: ignore[attr-defined]
