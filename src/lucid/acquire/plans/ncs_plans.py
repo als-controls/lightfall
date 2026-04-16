@@ -474,3 +474,14 @@ def register_ncs_plans(registry) -> None:
     # Camera Acquisition
     _register(registry, "simple_acquire", simple_acquire, "acquire",
               "Simple Acquire", ("#2196F3", "A"))
+
+    # Adaptive experiment (Tsuchinoko coordination)
+    try:
+        from lucid.acquire.plans.adaptive import adaptive_experiment
+
+        registry.register(
+            "adaptive_experiment", adaptive_experiment, category="scan"
+        )
+    except ImportError as e:
+        from lucid.utils.logging import logger
+        logger.debug(f"Could not register adaptive_experiment: {e}")

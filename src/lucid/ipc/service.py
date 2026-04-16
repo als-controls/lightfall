@@ -22,7 +22,7 @@ from PySide6.QtCore import QObject, Signal
 from lucid.ipc.trust import TrustManager, TrustState
 from lucid.utils.threads import invoke_in_main_thread
 
-__all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle"]
+__all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle", "get_ipc_service"]
 
 
 # ---------------------------------------------------------------------------
@@ -637,3 +637,20 @@ class IPCService(QObject):
         with self._connected_lock:
             self._connected = True
         invoke_in_main_thread(self.sigConnectionChanged.emit, True)
+
+
+# ---------------------------------------------------------------------------
+# Module-level convenience accessor
+# ---------------------------------------------------------------------------
+
+
+def get_ipc_service() -> IPCService | None:
+    """Return the application's IPCService instance, or None if unavailable.
+
+    Uses the :class:`~lucid.core.services.ServiceRegistry` singleton to look
+    up the registered :class:`IPCService`.
+    """
+    from lucid.core.services import ServiceRegistry
+
+    registry = ServiceRegistry.get_instance()
+    return registry.get(IPCService, None)

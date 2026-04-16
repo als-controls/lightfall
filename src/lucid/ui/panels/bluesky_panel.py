@@ -16,10 +16,13 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDialog,
     QSplitter,
+    QTabWidget,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
+from lucid.acquire.plan_ui import PlanUI, get_plan_ui_class
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.widgets.plan_config import PlanConfigWidget
 from lucid.ui.widgets.plan_selector import PlanSelectorWidget
@@ -113,21 +116,34 @@ class BlueskyPanel(BasePanel):
         self._setup_toolbar()
         self._layout.addWidget(self._toolbar)
 
-        # Plan selector at top
+        # QTabWidget for plan selector + running plan UIs
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setTabBarAutoHide(True)
+
+        # Tab 1: plan selector + config (existing content)
+        selector_container = QWidget()
+        selector_layout = QVBoxLayout(selector_container)
+        selector_layout.setContentsMargins(0, 0, 0, 0)
+
         self._plan_selector = PlanSelectorWidget()
         self._plan_selector.plan_selected.connect(self._on_plan_selected)
 
-        # Plan configuration below
         self._plan_config = PlanConfigWidget()
         self._plan_config.run_requested.connect(self._on_run_requested)
 
-        # Vertical splitter for selector and config
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self._plan_selector)
         splitter.addWidget(self._plan_config)
         splitter.setSizes([300, 200])
 
-        self._layout.addWidget(splitter)
+        selector_layout.addWidget(splitter)
+        self._tab_widget.addTab(selector_container, "Plans")
+
+        self._layout.addWidget(self._tab_widget)
+
+        # Running plan UI state
+        self._running_plan_ui: PlanUI | None = None
+        self._running_plan_tab_index: int = -1
 
         # Auto-configure with RunEngine and PlanRegistry singletons
         self._auto_configure()
@@ -261,6 +277,9 @@ class BlueskyPanel(BasePanel):
         engine.sigStart.connect(self._on_run_start)
         engine.sigFinish.connect(self._on_run_finish)
         engine.sigOutput.connect(self._on_document)
+        engine.sigFinish.connect(self._on_plan_ui_finished)
+        engine.sigAbort.connect(self._on_plan_ui_finished)
+        engine.sigException.connect(lambda _exc: self._on_plan_ui_finished())
 
         logger.info("BlueskyPanel connected to Engine")
 
@@ -375,18 +394,46 @@ class BlueskyPanel(BasePanel):
             return
 
         try:
-            # Resolve device names to actual ophyd devices
             resolved_kwargs = self._resolve_device_kwargs(plan_info, kwargs)
 
-            plan = plan_info.func(**resolved_kwargs)
+            # Create plan UI tab BEFORE submitting (so tab is visible on start)
+            self._maybe_create_plan_ui(plan_info)
 
-            # Submit to Engine
+            plan = plan_info.func(**resolved_kwargs)
             self._engine(plan)
             self._current_plan_name = plan_info.name
 
             logger.info(f"Submitted plan: {plan_info.name}")
         except Exception as e:
             logger.error(f"Failed to run plan {plan_info.name}: {e}")
+            self._on_plan_ui_finished()  # cleanup on error
+
+    def _maybe_create_plan_ui(self, plan_info: PlanInfo) -> None:
+        """If the plan has a _plan_ui_class, create a tab for it."""
+        ui_class = get_plan_ui_class(plan_info.func)
+        if ui_class is None:
+            return
+
+        # One plan UI at a time — remove any existing one
+        if self._running_plan_ui is not None:
+            self._on_plan_ui_finished()
+
+        ui = ui_class()
+        self._running_plan_ui = ui
+        self._running_plan_tab_index = self._tab_widget.addTab(
+            ui, f"Running: {plan_info.name}"
+        )
+        self._tab_widget.setCurrentIndex(self._running_plan_tab_index)
+
+    def _on_plan_ui_finished(self) -> None:
+        """Remove the running plan UI tab, if any."""
+        if self._running_plan_ui is None:
+            return
+        if self._running_plan_tab_index >= 0:
+            self._tab_widget.removeTab(self._running_plan_tab_index)
+        self._running_plan_ui.deleteLater()
+        self._running_plan_ui = None
+        self._running_plan_tab_index = -1
 
     def _resolve_device_kwargs(
         self, plan_info: PlanInfo, kwargs: dict
