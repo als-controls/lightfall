@@ -6,6 +6,7 @@
 stages:
   - test
   - build
+  - sonar
   - package
   - deploy
 
@@ -46,6 +47,30 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   allow_failure: true  # Remove once tests are stable
+
+# ------------------------------------------------------------------------------
+# SonarQube Analysis
+# ------------------------------------------------------------------------------
+
+sonarqube:
+  stage: sonar
+  image:
+    name: sonarsource/sonar-scanner-cli:11
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    policy: pull-push
+    key: "sonar-cache-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - "${SONAR_USER_HOME}/cache"
+  script:
+    - sonar-scanner -Dsonar.host.url="${SONAR_HOST_URL}" -Dsonar.token="${SONAR_TOKEN}"
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # ------------------------------------------------------------------------------
 # Build Stage
