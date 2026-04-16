@@ -45,13 +45,14 @@ def build_job_message(
     tiled_url: str,
     auth_token: str | None,
     extra_params: dict[str, Any],
+    proxy_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a job message for the exporter service.
 
     This is a pure function, testable without Qt.
     """
     params = {"output_dir": output_dir, **extra_params}
-    return {
+    msg: dict[str, Any] = {
         "job_id": str(uuid.uuid4()),
         "tiled_url": tiled_url,
         "auth_token": auth_token,
@@ -59,6 +60,9 @@ def build_job_message(
         "export_type": export_type,
         "params": params,
     }
+    if proxy_url:
+        msg["proxy_url"] = proxy_url
+    return msg
 
 
 MAX_PING_RETRIES = 4
@@ -414,6 +418,7 @@ class ExportDialog(LucidDialog):
 
         tiled_url = self._tiled_service.config.url
         auth_token = self._get_auth_token()
+        proxy_url = self._get_proxy_url(tiled_url)
 
         message = build_job_message(
             records=self._records,
@@ -421,6 +426,7 @@ class ExportDialog(LucidDialog):
             output_dir=output_dir,
             tiled_url=tiled_url,
             auth_token=auth_token,
+            proxy_url=proxy_url,
             extra_params=extra_params,
         )
 
@@ -438,6 +444,15 @@ class ExportDialog(LucidDialog):
         except Exception as e:
             logger.debug("Could not get auth token: {}", e)
         return None
+
+    @staticmethod
+    def _get_proxy_url(tiled_url: str) -> str | None:
+        """Get proxy URL for the Tiled server, if configured."""
+        try:
+            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            return ProxySettingsProvider.should_use_proxy_for_url(tiled_url)
+        except Exception:
+            return None
 
     def _send_to_exporter(self, message: dict[str, Any]) -> None:
         """Send the export job to the local exporter via NATS IPC.

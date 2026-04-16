@@ -27,6 +27,7 @@ class ExportJob:
     run_uids: list[str]
     export_type: str
     params: dict[str, Any]
+    proxy_url: str | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -72,6 +73,7 @@ class ExporterService:
             run_uids=data["run_uids"],
             export_type=data["export_type"],
             params=data["params"],
+            proxy_url=data.get("proxy_url"),
         )
         if job.export_type not in CONVERTERS:
             raise ValueError(
@@ -144,7 +146,7 @@ class ExporterService:
 
             logger.info("Processing job %s", job.job_id)
             try:
-                client = await asyncio.to_thread(connect_tiled, job.tiled_url, job.auth_token)
+                client = await asyncio.to_thread(connect_tiled, job.tiled_url, job.auth_token, job.proxy_url)
                 converter_cls = get_converter(job.export_type)
                 converter = converter_cls()
 

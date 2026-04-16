@@ -2,17 +2,32 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from tiled.client import from_uri
 
+logger = logging.getLogger(__name__)
 
-def connect_tiled(url: str, token: str | None = None) -> Any:
+
+def _make_socks_transport(proxy_url: str) -> Any:
+    """Create a SOCKS proxy transport for httpx."""
+    from httpx_socks import SyncProxyTransport
+
+    return SyncProxyTransport.from_url(proxy_url)
+
+
+def connect_tiled(
+    url: str,
+    token: str | None = None,
+    proxy_url: str | None = None,
+) -> Any:
     """Connect to a Tiled server and return the client.
 
     Args:
         url: Tiled server URL.
         token: Optional auth token (Bearer token for Keycloak).
+        proxy_url: Optional SOCKS/HTTP proxy URL.
 
     Returns:
         Tiled client instance.
@@ -20,7 +35,41 @@ def connect_tiled(url: str, token: str | None = None) -> Any:
     kwargs: dict[str, Any] = {}
     if token:
         kwargs["api_key"] = token
-    return from_uri(url, **kwargs)
+
+    if not proxy_url:
+        return from_uri(url, **kwargs)
+
+    # Tiled's from_uri calls httpx.get() for a redirect check and then
+    # creates a Transport for the real connection.  Both need to go
+    # through the proxy.
+    import httpx
+    import tiled.client.context as context_mod
+    from tiled.client.transport import Transport as OriginalTransport
+
+    proxy_transport = _make_socks_transport(proxy_url)
+
+    original_httpx_get = context_mod.httpx.get
+
+    def proxy_httpx_get(u, **kw):
+        t = _make_socks_transport(proxy_url)
+        with httpx.Client(transport=t, timeout=15.0) as client:
+            return client.get(u, **kw)
+
+    context_mod.httpx.get = proxy_httpx_get  # type: ignore[attr-defined]
+
+    class ProxyTransport(OriginalTransport):
+        def __init__(self, *, transport=None, **kw):
+            super().__init__(transport=proxy_transport, **kw)
+
+    original_transport_cls = context_mod.Transport
+    context_mod.Transport = ProxyTransport
+
+    try:
+        logger.info("Connecting to Tiled at %s via proxy %s", url, proxy_url)
+        return from_uri(url, **kwargs)
+    finally:
+        context_mod.Transport = original_transport_cls
+        context_mod.httpx.get = original_httpx_get
 
 
 def get_run(client: Any, uid: str) -> Any:
