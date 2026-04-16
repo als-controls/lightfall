@@ -10,15 +10,24 @@ See: docs/superpowers/specs/2026-04-12-plan-ui-adaptive-plan-design.md
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Generator
-from typing import Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from bluesky import plan_stubs as bps
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton
 
 from lucid.acquire.plan_ui import PlanState, PlanUI, plan_with_ui
+from lucid.ui.annotations import DeviceFilter
 from lucid.utils.logging import logger
+
+if TYPE_CHECKING:
+    Motor = Any
+    Detector = Any
+else:
+    Motor = Any
+    Detector = Any
 
 
 class AdaptivePlanState(PlanState):
@@ -92,7 +101,6 @@ class AdaptiveExperimentPanel(PlanUI):
         self._pause_btn.setText("Resume" if checked else "Pause")
 
 
-@plan_with_ui(AdaptiveExperimentPanel)
 def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     """Pull Tiled URL, auth token, and proxy URL from LUCID services.
 
@@ -129,12 +137,22 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     return tiled_url, auth_token, proxy_url
 
 
+def _get_lucid_prefix() -> str:
+    """Pull the NATS topic prefix from LUCID's IPCService."""
+    try:
+        from lucid.ipc.service import get_ipc_service
+        ipc = get_ipc_service()
+        if ipc and ipc._topic_prefix:
+            return ipc._topic_prefix
+    except Exception:
+        pass
+    return ""
+
+
 @plan_with_ui(AdaptiveExperimentPanel)
 def adaptive_experiment(
-    detectors: list,
-    motors: list,
-    experiment_id: str,
-    lucid_prefix: str = "als.7011",
+    detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
+    motors: Annotated[list[Motor], DeviceFilter(category="motor")],
     exhaust_first: bool = False,
     timeout: float = 300.0,
     poll_interval: float = 0.1,
@@ -145,15 +163,13 @@ def adaptive_experiment(
     and signals back when each point is measured. Opens a single bluesky
     Run for the entire experiment.
 
-    Tiled credentials (URL + Keycloak token) are pulled automatically from
-    LUCID's TiledService and SessionManager and forwarded to Tsuchinoko
-    via the ``bind_run`` NATS handshake.
+    Tiled credentials and LUCID's NATS prefix are pulled automatically
+    from LUCID's services and forwarded to Tsuchinoko via the
+    ``bind_run`` NATS handshake.
 
     Args:
         detectors: Detectors to read at each target.
         motors: Motors to move. Target tuples align with motor order.
-        experiment_id: Tsuchinoko experiment UUID (embedded in start doc).
-        lucid_prefix: NATS topic prefix for this LUCID instance.
         exhaust_first: If True, measure all targets in a batch before
             publishing adaptive.measured. If False (default), publish after
             each measurement so Tsuchinoko can update its GP per-point.
@@ -174,6 +190,9 @@ def adaptive_experiment(
     ipc = get_ipc_service()
     if ipc is None:
         raise RuntimeError("NATS not available \u2014 adaptive plan requires IPC")
+
+    lucid_prefix = _get_lucid_prefix()
+    experiment_id = str(uuid.uuid4())
 
     bridge = NATSPlanBridge(ipc)
     bridge.subscribe("tsuchinoko.targets")
