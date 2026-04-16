@@ -164,7 +164,7 @@ class ToastManager(QObject):
                 logger.warning("Could not show toast: {}", title)
                 return toast
 
-        logger.debug("Showing toast: {}", title)
+        logger.debug("Showing toast: {}{}", title, f" — {text}" if text else "")
 
         return toast
 
