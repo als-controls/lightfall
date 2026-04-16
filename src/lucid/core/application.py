@@ -301,6 +301,11 @@ class NCSApplication(QObject):
             self._handle_ipc_auth_request,
             description="Trust handshake + token sharing",
         )
+        ipc.register_action(
+            "auth.token",
+            self._handle_ipc_token_request,
+            description="Return current Keycloak Bearer token",
+        )
         logger.info("IPC service started")
 
         # Wire engine signals → IPC events & plan commands
@@ -625,6 +630,22 @@ class NCSApplication(QObject):
                 )
         finally:
             self._auth_dialog_active = False
+
+    def _handle_ipc_token_request(
+        self, subject: str, data: dict, reply: str | None
+    ) -> None:
+        """Return the current Keycloak Bearer token for Tiled access.
+
+        Called by headless services (e.g. Tsuchinoko) when their cached
+        token expires. LUCID is the sole token authority — services never
+        refresh against Keycloak directly.
+        """
+        if not reply:
+            return
+        ipc = self._services.get(IPCService)
+        session = self._get_current_session()
+        token = session.token if session else None
+        ipc.reply(reply, {"token": token})
 
     def _get_current_session(self):
         """Return the current :class:`Session` or ``None``."""
