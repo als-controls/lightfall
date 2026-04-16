@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -98,8 +99,9 @@ def ping_or_spawn_exporter(
         logger.error("lucid-exporter not found on PATH")
         return False
 
-    # Retry pings
+    # Retry pings — give the spawned process time to connect to NATS
     for i in range(MAX_PING_RETRIES):
+        time.sleep(1)
         reply = ipc.request(ping_subject, {}, timeout_ms=PING_TIMEOUT_MS)
         if reply is not None:
             logger.info("Exporter responded after spawn (attempt %d)", i + 1)
