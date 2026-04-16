@@ -98,6 +98,7 @@ def adaptive_experiment(
     motors: list,
     experiment_id: str,
     lucid_prefix: str = "als.7011",
+    tiled_url: str = "",
     exhaust_first: bool = False,
     timeout: float = 300.0,
     poll_interval: float = 0.1,
@@ -113,6 +114,7 @@ def adaptive_experiment(
         motors: Motors to move. Target tuples align with motor order.
         experiment_id: Tsuchinoko experiment UUID (embedded in start doc).
         lucid_prefix: NATS topic prefix for this LUCID instance.
+        tiled_url: Tiled server URL for Tsuchinoko to read/write results.
         exhaust_first: If True, measure all targets in a batch before
             publishing adaptive.measured. If False (default), publish after
             each measurement so Tsuchinoko can update its GP per-point.
@@ -139,7 +141,18 @@ def adaptive_experiment(
 
     try:
         md = {"tsuchinoko": {"experiment_id": experiment_id}}
-        yield from bps.open_run(md=md)
+        run_uid = yield from bps.open_run(md=md)
+
+        # Bind the run to Tsuchinoko so it can set up Tiled I/O
+        bridge.publish("tsuchinoko.experiment.bind_run", {
+            "run_uid": run_uid,
+            "tiled_url": tiled_url,
+            "lucid_prefix": lucid_prefix,
+            "motor_names": [m.name for m in motors],
+            "detector_name": detectors[0].name if detectors else "det",
+        })
+        # Brief pause for Tsuchinoko to process bind_run before we proceed
+        yield from bps.sleep(0.5)
 
         deadline = time.monotonic() + timeout
 
