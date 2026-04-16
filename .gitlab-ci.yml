@@ -4,9 +4,9 @@
 # Documentation is deployed to GitLab Pages on the default branch.
 
 stages:
+  - sonar
   - test
   - build
-  - sonar
   - package
   - deploy
 
