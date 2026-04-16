@@ -153,15 +153,16 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
     if image_field is None:
         raise ValueError("No image field found in primary stream")
 
-    data = np.asarray(stream[image_field].read())
+    dataset = stream[image_field]
+    ndim = len(dataset.shape)
 
-    if data.ndim == 2:
-        return data
-    elif data.ndim >= 3:
-        mid = data.shape[0] // 2
-        return data[mid]
+    if ndim == 2:
+        return np.asarray(dataset.read())
+    elif ndim >= 3:
+        mid = dataset.shape[0] // 2
+        return np.asarray(dataset[mid].read())
     else:
-        raise ValueError(f"Unexpected data dimensions: {data.ndim}")
+        raise ValueError(f"Unexpected data dimensions: {ndim}")
 
 
 class ExportDialog(LucidDialog):
