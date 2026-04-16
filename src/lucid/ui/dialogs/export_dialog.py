@@ -238,6 +238,7 @@ class ExportDialog(LucidDialog):
     def _create_nxsas_params(self) -> QWidget:
         """Create the NXsas parameter widget with ImageView + RectROI."""
         import pyqtgraph as pg
+        from pyqtgraph.parametertree import Parameter, ParameterTree
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -254,9 +255,22 @@ class ExportDialog(LucidDialog):
         self._image_view.ui.menuBtn.hide()
         layout.addWidget(self._image_view, stretch=1)
 
-        # ROI coordinate readout
-        self._roi_label = QLabel("ROI: full frame")
-        layout.addWidget(self._roi_label)
+        # ROI parameter tree for manual coordinate entry
+        self._roi_params = Parameter.create(
+            name="ROI", type="group", children=[
+                {"name": "X", "type": "int", "value": 0, "limits": [0, 0]},
+                {"name": "Y", "type": "int", "value": 0, "limits": [0, 0]},
+                {"name": "Width", "type": "int", "value": 0, "limits": [1, 1]},
+                {"name": "Height", "type": "int", "value": 0, "limits": [1, 1]},
+            ],
+        )
+        self._roi_tree = ParameterTree(showHeader=False)
+        self._roi_tree.setParameters(self._roi_params, showTop=True)
+        self._roi_tree.setMaximumHeight(140)
+        layout.addWidget(self._roi_tree)
+
+        self._updating_roi = False  # guard against feedback loops
+        self._roi_params.sigTreeStateChanged.connect(self._on_roi_params_changed)
 
         # RectROI (created but not added until image loads)
         self._rect_roi = None
@@ -327,10 +341,16 @@ class ExportDialog(LucidDialog):
         self._image_view.getView().addItem(self._rect_roi)
         self._rect_roi.sigRegionChanged.connect(self._on_roi_changed)
 
+        # Set parameter limits and initial values from frame shape
+        self._roi_params.child("X").setLimits([0, w - 1])
+        self._roi_params.child("Y").setLimits([0, h - 1])
+        self._roi_params.child("Width").setLimits([1, w])
+        self._roi_params.child("Height").setLimits([1, h])
+        self._sync_params_from_roi()
+
         self._image_loaded = True
         self._ok_btn.setEnabled(True)
-        self._roi_status.setText("Drag to select ROI")
-        self._update_roi_label()
+        self._roi_status.setText("Drag to select ROI or enter values below")
 
     @Slot(Exception)
     def _on_preview_error(self, error: Exception) -> None:
@@ -353,29 +373,43 @@ class ExportDialog(LucidDialog):
         self._frame_shape = None
         self._image_loaded = False
         self._roi_status.setText("")
-        self._roi_label.setText("ROI: full frame")
 
     @Slot()
     def _on_roi_changed(self) -> None:
-        """Update the ROI coordinate readout when the user drags the ROI."""
-        self._update_roi_label()
+        """Sync parameter tree when the user drags the ROI."""
+        if not self._updating_roi:
+            self._sync_params_from_roi()
 
-    def _update_roi_label(self) -> None:
-        """Update the ROI coordinate label from current RectROI state."""
-        if self._rect_roi is None or self._frame_shape is None:
-            self._roi_label.setText("ROI: full frame")
+    def _sync_params_from_roi(self) -> None:
+        """Push RectROI position/size into the parameter tree."""
+        if self._rect_roi is None:
             return
+        self._updating_roi = True
+        try:
+            pos = self._rect_roi.pos()
+            size = self._rect_roi.size()
+            self._roi_params.child("X").setValue(int(pos[0]))
+            self._roi_params.child("Y").setValue(int(pos[1]))
+            self._roi_params.child("Width").setValue(int(size[0]))
+            self._roi_params.child("Height").setValue(int(size[1]))
+        finally:
+            self._updating_roi = False
 
-        pos = self._rect_roi.pos()
-        size = self._rect_roi.size()
-        x, y = int(pos[0]), int(pos[1])
-        w, h = int(size[0]), int(size[1])
-        fh, fw = self._frame_shape
-
-        if x == 0 and y == 0 and w == fw and h == fh:
-            self._roi_label.setText("ROI: full frame")
-        else:
-            self._roi_label.setText(f"ROI: X={x}, Y={y}, W={w}, H={h}")
+    @Slot(object, object)
+    def _on_roi_params_changed(self, _param, _changes) -> None:
+        """Sync RectROI when the user edits a parameter value."""
+        if self._updating_roi or self._rect_roi is None:
+            return
+        self._updating_roi = True
+        try:
+            x = self._roi_params.child("X").value()
+            y = self._roi_params.child("Y").value()
+            w = self._roi_params.child("Width").value()
+            h = self._roi_params.child("Height").value()
+            self._rect_roi.setPos([x, y], update=False)
+            self._rect_roi.setSize([w, h])
+        finally:
+            self._updating_roi = False
 
     @Slot()
     def _on_browse(self) -> None:
@@ -385,17 +419,17 @@ class ExportDialog(LucidDialog):
             self._dir_edit.setText(path)
 
     def _get_roi_params(self) -> dict[str, Any] | None:
-        """Extract ROI parameters from the RectROI widget.
+        """Extract ROI parameters from the parameter tree.
 
         Returns None if ROI covers the full frame (no cropping needed).
         """
-        if self._rect_roi is None or self._frame_shape is None:
+        if self._frame_shape is None:
             return None
 
-        pos = self._rect_roi.pos()
-        size = self._rect_roi.size()
-        x, y = int(pos[0]), int(pos[1])
-        w, h = int(size[0]), int(size[1])
+        x = self._roi_params.child("X").value()
+        y = self._roi_params.child("Y").value()
+        w = self._roi_params.child("Width").value()
+        h = self._roi_params.child("Height").value()
         fh, fw = self._frame_shape
 
         # Full frame — no cropping
