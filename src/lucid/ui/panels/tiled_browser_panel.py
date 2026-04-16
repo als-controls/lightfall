@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QTableView,
     QVBoxLayout,
@@ -161,6 +163,10 @@ class TiledBrowserPanel(BasePanel):
         self._table_view.clicked.connect(self._on_table_clicked)
         self._table_view.doubleClicked.connect(self._on_table_double_clicked)
 
+        # Context menu
+        self._table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table_view.customContextMenuRequested.connect(self._show_context_menu)
+
         main_layout.addWidget(self._table_view, stretch=1)
 
         # Record count at bottom
@@ -277,17 +283,60 @@ class TiledBrowserPanel(BasePanel):
             return
 
         self.record_double_clicked.emit(record)
-        logger.info("Opening run {} in visualization", record.uid[:8])
+        self._open_run_in_visualization(record)
 
+    @Slot("QPoint")
+    def _show_context_menu(self, pos) -> None:
+        """Show context menu for the table view."""
+        index = self._table_view.indexAt(pos)
+        if not index.isValid():
+            return
+
+        source_index = self._proxy_model.mapToSource(index)
+        record = self._model.get_record(source_index.row())
+        if not record:
+            return
+
+        menu = QMenu(self._table_view)
+
+        copy_uid_action = menu.addAction("Copy UUID")
+        copy_scan_id_action = menu.addAction("Copy Scan ID")
+        copy_scan_id_action.setEnabled(record.scan_id is not None)
+        menu.addSeparator()
+        show_viz_action = menu.addAction("Show Visualization")
+        show_docs_action = menu.addAction("Show Documents")
+
+        action = menu.exec(self._table_view.viewport().mapToGlobal(pos))
+        if action is None:
+            return
+
+        if action is copy_uid_action:
+            QApplication.clipboard().setText(record.uid)
+        elif action is copy_scan_id_action:
+            QApplication.clipboard().setText(str(record.scan_id))
+        elif action is show_viz_action:
+            self._open_run_in_visualization(record)
+        elif action is show_docs_action:
+            self._open_run_in_documents(record)
+
+    def _get_tiled_entry(self, record: TiledRecord):
+        """Get the Tiled entry for a record, or None on failure."""
         client = self._tiled_service._client
         if client is None:
-            return
-
+            return None
         try:
-            entry = client[record._client_key]
+            return client[record._client_key]
         except Exception as e:
             logger.error("Failed to access run {}: {}", record.uid[:8], e)
+            return None
+
+    def _open_run_in_visualization(self, record: TiledRecord) -> None:
+        """Open a run in the Visualization panel."""
+        entry = self._get_tiled_entry(record)
+        if entry is None:
             return
+
+        logger.info("Opening run {} in visualization", record.uid[:8])
 
         from lucid.core.services import ServiceRegistry
         from lucid.ui.docking import DockingManager
@@ -301,6 +350,28 @@ class TiledBrowserPanel(BasePanel):
         dm.show_panel(viz_panel_id)
         panel = dm.get_panel(viz_panel_id)
         if isinstance(panel, VisualizationPanel):
+            panel.open_run(entry)
+
+    def _open_run_in_documents(self, record: TiledRecord) -> None:
+        """Open a run in the Documents panel."""
+        entry = self._get_tiled_entry(record)
+        if entry is None:
+            return
+
+        logger.info("Opening run {} in documents", record.uid[:8])
+
+        from lucid.core.services import ServiceRegistry
+        from lucid.ui.docking import DockingManager
+        from lucid.ui.panels.documents_panel import DocumentsPanel
+
+        dm = ServiceRegistry.get_instance().get(DockingManager, None)
+        if dm is None:
+            return
+
+        docs_panel_id = "lucid.panels.documents"
+        dm.show_panel(docs_panel_id)
+        panel = dm.get_panel(docs_panel_id)
+        if isinstance(panel, DocumentsPanel):
             panel.open_run(entry)
 
     def _get_selected_records(self) -> list[TiledRecord]:

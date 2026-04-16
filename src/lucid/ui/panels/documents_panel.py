@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.widgets.document_stream import DocumentStreamWidget
@@ -57,6 +57,12 @@ class DocumentsPanel(BasePanel):
 
     def _setup_ui(self) -> None:
         """Set up the panel UI."""
+        # Header label showing the source of the current documents
+        self._source_label = QLabel("")
+        self._source_label.setStyleSheet("font-weight: bold;")
+        self._source_label.setVisible(False)
+        self._layout.addWidget(self._source_label)
+
         # Document stream widget fills the panel
         self._doc_stream = DocumentStreamWidget()
         self._layout.addWidget(self._doc_stream)
@@ -82,6 +88,55 @@ class DocumentsPanel(BasePanel):
         self._re = re
         self._doc_stream.set_run_engine(re)
         logger.info("DocumentsPanel connected to RunEngine")
+
+    def open_run(self, entry: Any) -> None:
+        """Load documents from a Tiled run entry.
+
+        Extracts start, descriptor, and stop documents from the entry
+        metadata and feeds them into the document stream widget.
+
+        Args:
+            entry: Tiled BlueskyRun entry.
+        """
+        metadata = entry.metadata
+        start_doc = metadata.get("start") or {}
+        stop_doc = metadata.get("stop")
+
+        uid = start_doc.get("uid", "")
+        plan = start_doc.get("plan_name", "unknown")
+        scan_id = start_doc.get("scan_id")
+        label = f"Run: {plan}"
+        if scan_id is not None:
+            label += f" (scan {scan_id})"
+        label += f" — {uid[:8]}"
+        self._source_label.setText(label)
+        self._source_label.setVisible(True)
+
+        self._doc_stream.clear()
+
+        # Feed start document
+        if start_doc:
+            self._doc_stream._tree_model.doc_consumer("start", start_doc)
+            self._doc_stream._sequential_model.add_document("start", start_doc)
+
+        # Feed descriptor documents from each stream
+        for stream_name in entry:
+            try:
+                stream = entry[stream_name]
+                desc = dict(stream.metadata)
+                desc.setdefault("name", stream_name)
+                self._doc_stream._tree_model.doc_consumer("descriptor", desc)
+                self._doc_stream._sequential_model.add_document("descriptor", desc)
+            except Exception as e:
+                logger.debug("Could not read descriptor for stream {}: {}", stream_name, e)
+
+        # Feed stop document
+        if stop_doc:
+            self._doc_stream._tree_model.doc_consumer("stop", stop_doc)
+            self._doc_stream._sequential_model.add_document("stop", stop_doc)
+
+        self._doc_stream._status_label.setText(f"Loaded historical run {uid[:8]}")
+        logger.info("Loaded documents for run {}", uid[:8])
 
     # === Introspection API for MCP tools ===
 
