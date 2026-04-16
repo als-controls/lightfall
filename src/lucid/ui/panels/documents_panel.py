@@ -92,8 +92,8 @@ class DocumentsPanel(BasePanel):
     def open_run(self, entry: Any) -> None:
         """Load documents from a Tiled run entry.
 
-        Extracts start, descriptor, and stop documents from the entry
-        metadata and feeds them into the document stream widget.
+        Extracts all available documents (start, descriptors, events, stop)
+        from the entry and feeds them into the document stream widget.
 
         Args:
             entry: Tiled BlueskyRun entry.
@@ -114,29 +114,76 @@ class DocumentsPanel(BasePanel):
 
         self._doc_stream.clear()
 
+        def _emit(name: str, doc: dict) -> None:
+            self._doc_stream._tree_model.doc_consumer(name, doc)
+            self._doc_stream._sequential_model.add_document(name, doc)
+
         # Feed start document
         if start_doc:
-            self._doc_stream._tree_model.doc_consumer("start", start_doc)
-            self._doc_stream._sequential_model.add_document("start", start_doc)
+            _emit("start", start_doc)
 
-        # Feed descriptor documents from each stream
+        # Feed descriptor + events for each stream
         for stream_name in entry:
             try:
                 stream = entry[stream_name]
+            except Exception as e:
+                logger.debug("Could not access stream {}: {}", stream_name, e)
+                continue
+
+            # Descriptor
+            try:
                 desc = dict(stream.metadata)
                 desc.setdefault("name", stream_name)
-                self._doc_stream._tree_model.doc_consumer("descriptor", desc)
-                self._doc_stream._sequential_model.add_document("descriptor", desc)
+                _emit("descriptor", desc)
             except Exception as e:
                 logger.debug("Could not read descriptor for stream {}: {}", stream_name, e)
 
+            # Events from internal events table
+            try:
+                stream_keys = list(stream.keys())
+            except Exception:
+                stream_keys = []
+
+            if "internal" in stream_keys:
+                try:
+                    internal = stream["internal"]
+                    if "events" in internal:
+                        events_df = internal["events"].read()
+                        data_keys = set(stream.metadata.get("data_keys", {}))
+                        for _, row in events_df.iterrows():
+                            row_dict = row.to_dict()
+                            event_doc: dict[str, Any] = {
+                                "seq_num": row_dict.pop("seq_num", None),
+                                "time": row_dict.pop("time", None),
+                                "uid": row_dict.pop("uid", None),
+                            }
+                            # Split into data and timestamps
+                            data = {}
+                            timestamps = {}
+                            for key, val in row_dict.items():
+                                if key.startswith("ts_"):
+                                    timestamps[key[3:]] = val
+                                elif key in data_keys:
+                                    data[key] = val
+                            if data:
+                                event_doc["data"] = data
+                            if timestamps:
+                                event_doc["timestamps"] = timestamps
+                            _emit("event", event_doc)
+                except Exception as e:
+                    logger.debug("Could not read events for stream {}: {}", stream_name, e)
+
         # Feed stop document
         if stop_doc:
-            self._doc_stream._tree_model.doc_consumer("stop", stop_doc)
-            self._doc_stream._sequential_model.add_document("stop", stop_doc)
+            _emit("stop", stop_doc)
 
-        self._doc_stream._status_label.setText(f"Loaded historical run {uid[:8]}")
-        logger.info("Loaded documents for run {}", uid[:8])
+        total = (
+            self._doc_stream._sequential_model.rowCount()
+        )
+        self._doc_stream._status_label.setText(
+            f"Loaded {total} documents from run {uid[:8]}"
+        )
+        logger.info("Loaded {} documents for run {}", total, uid[:8])
 
     # === Introspection API for MCP tools ===
 
