@@ -76,7 +76,21 @@ class LazyImageView(pg.ImageView):
     """
 
     def __init__(self, parent: Any | None = None, **kwargs: Any) -> None:
-        super().__init__(parent=parent, **kwargs)
+        # PlotItem provides axes (ticks + labels) around the image,
+        # matching the Camera Control OphydImageView pattern.
+        view = pg.PlotItem()
+        view.setDefaultPadding(0)
+        view.hideButtons()
+        view.setMenuEnabled(False)
+        view.getViewBox().setAspectLocked(True)
+        view.setLabel("bottom", "x (px)")
+        view.setLabel("left", "y (px)")
+
+        super().__init__(parent=parent, view=view, **kwargs)
+
+        # Col-major axis order (Xi-CAM convention), matching OphydImageView.
+        self.imageItem.setOpts(axisOrder="col-major")
+
         self._client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
         self._proxy: _ArrayProxy | None = None
@@ -132,7 +146,8 @@ class LazyImageView(pg.ImageView):
         self.setImage(
             self._proxy,
             xvals=self.tVals,
-            axes={"t": 0, "y": 1, "x": 2},
+            # Col-major: frame axes are (x, y), not (y, x).
+            axes={"t": 0, "x": 1, "y": 2},
             autoLevels=False,
             autoRange=False,
         )
@@ -418,32 +433,7 @@ class LazyImageView(pg.ImageView):
     # ------------------------------------------------------------------
 
     def _fetch_frame(self, index: int) -> np.ndarray:
-        """Fetch a single frame via server-side slicing.
+        """Fetch a single frame via server-side slicing."""
+        from lucid.utils.tiled_helpers import fetch_frame
 
-        Uses tiled's ``/array/full/`` endpoint with a ``slice`` parameter
-        so the server returns only the requested frame.  This avoids the
-        dask/chunk path which downloads the entire chunk (potentially
-        all frames) just to extract one.
-        """
-        n_frames = self._proxy.shape[0] if self._proxy else 1
-        index = int(max(0, min(index, n_frames - 1)))
-
-        # Server-side slice: fetch only frame[index]
-        url_path = self._client.uri.replace("/metadata/", "/array/full/", 1)
-        response = self._client.context.http_client.get(
-            url_path,
-            headers={"Accept": "application/octet-stream"},
-            params={"slice": f"{index},::,::"},
-        )
-        response.raise_for_status()
-
-        dtype = self._client.structure().data_type.to_numpy_dtype()
-        raw = np.frombuffer(response.content, dtype=dtype)
-
-        # Reshape to frame dimensions
-        if len(self._frame_shape) == 2:
-            expected = self._frame_shape[0] * self._frame_shape[1]
-            if raw.size == expected:
-                raw = raw.reshape(self._frame_shape)
-
-        return raw.astype(np.float64)
+        return fetch_frame(self._client, index).astype(np.float64)

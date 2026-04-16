@@ -159,20 +159,10 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
     if ndim == 2:
         return np.asarray(dataset.read())
     elif ndim >= 3:
-        # Use server-side slicing via the /array/full/ endpoint to fetch
-        # only a single frame.  The normal client indexing (dataset[i])
-        # goes through the dask/chunk path and downloads the entire chunk.
+        from lucid.utils.tiled_helpers import fetch_frame
+
         mid = dataset.shape[0] // 2
-        frame_shape = dataset.shape[-2:]
-        url_path = dataset.uri.replace("/metadata/", "/array/full/", 1)
-        response = dataset.context.http_client.get(
-            url_path,
-            headers={"Accept": "application/octet-stream"},
-            params={"slice": f"{mid},::,::"},
-        )
-        response.raise_for_status()
-        dtype = dataset.structure().data_type.to_numpy_dtype()
-        return np.frombuffer(response.content, dtype=dtype).reshape(frame_shape)
+        return fetch_frame(dataset, mid)
     else:
         raise ValueError(f"Unexpected data dimensions: {ndim}")
 
