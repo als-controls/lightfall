@@ -443,13 +443,14 @@ class ExportDialog(LucidDialog):
         Pings the exporter first. If no response, spawns a local instance.
         The ping/spawn/send flow runs in a background thread.
         """
-        from lucid.core.services import NCSApplication
+        from lucid.ipc.service import IPCService
+        from lucid.core.services import ServiceRegistry
         from lucid.ui.toast import ToastManager
         from lucid.utils.threads import QThreadFuture
 
         toast = ToastManager.get_instance()
-        app = NCSApplication.get_instance()
-        ipc = getattr(app, "_ipc_service", None)
+        registry = ServiceRegistry.get_instance()
+        ipc = registry.get(IPCService, None)
 
         if ipc is None:
             toast.error("Export Error", "IPC service not available")
