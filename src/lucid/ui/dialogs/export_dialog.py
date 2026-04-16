@@ -160,7 +160,7 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
         return np.asarray(dataset.read())
     elif ndim >= 3:
         mid = dataset.shape[0] // 2
-        return np.asarray(dataset[mid].read())
+        return np.asarray(dataset[mid])
     else:
         raise ValueError(f"Unexpected data dimensions: {ndim}")
 
