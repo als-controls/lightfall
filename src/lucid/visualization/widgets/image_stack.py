@@ -144,6 +144,14 @@ class ImageStackVisualization(BaseVisualization):
         self._roi_btn.toggled.connect(self._on_roi_toggled)
         toolbar.addWidget(self._roi_btn)
 
+        # ROI statistic selector (visible only when ROI enabled)
+        self._roi_stat_combo = QComboBox()
+        self._roi_stat_combo.addItems(["Mean", "Sum", "Max", "Min", "Std"])
+        self._roi_stat_combo.setToolTip("Statistic to plot over the ROI")
+        self._roi_stat_combo.currentTextChanged.connect(self._on_roi_stat_changed)
+        self._roi_stat_combo.hide()
+        toolbar.addWidget(self._roi_stat_combo)
+
         return toolbar
 
     # ------------------------------------------------------------------
@@ -356,14 +364,20 @@ class ImageStackVisualization(BaseVisualization):
             self._image_view.set_log_mode(checked)
 
     def _on_roi_toggled(self, enabled: bool) -> None:
+        self._roi_stat_combo.setVisible(enabled)
         if enabled:
             self._create_roi()
             if self._roi:
                 self._roi.show()
+            self._update_roi_plot()
         else:
             if self._roi:
                 self._roi.hide()
             self._clear_roi_curves()
+
+    def _on_roi_stat_changed(self, stat: str) -> None:
+        if self._roi_btn.isChecked():
+            self._update_roi_plot()
 
     def _on_time_changed(self, ind: int, time: float) -> None:
         self._update_status()
@@ -395,11 +409,71 @@ class ImageStackVisualization(BaseVisualization):
         self._roi.addScaleHandle([0, 1], [1, 0])
 
         self._image_view.addItem(self._roi)
+        self._roi.sigRegionChanged.connect(self._update_roi_plot)
 
     def _clear_roi_curves(self) -> None:
         for curve in self._roi_curves:
             self._image_view.ui.roiPlot.removeItem(curve)
         self._roi_curves.clear()
+
+    def _update_roi_plot(self) -> None:
+        """Compute the selected ROI statistic over all frames and plot it.
+
+        Fetches a subsample (up to 200 frames) from the ArrayClient so
+        scrubbing stays responsive on long runs.
+        """
+        if not self._roi or self._image_view is None or self._image_client is None:
+            return
+        if not self._frame_shape or len(self._frame_shape) < 2:
+            return
+
+        img_h, img_w = self._frame_shape
+        n_frames = self._image_client.shape[0]
+
+        # Clamp ROI bounds to image extent
+        pos = self._roi.pos()
+        size = self._roi.size()
+        x0 = max(0, int(pos.x()))
+        y0 = max(0, int(pos.y()))
+        x1 = min(img_w, int(pos.x() + size.x()))
+        y1 = min(img_h, int(pos.y() + size.y()))
+        if x1 <= x0 or y1 <= y0:
+            self._clear_roi_curves()
+            return
+
+        stat_func = {
+            "Mean": np.mean, "Sum": np.sum, "Max": np.max,
+            "Min": np.min, "Std": np.std,
+        }.get(self._roi_stat_combo.currentText(), np.mean)
+
+        # Subsample if there are lots of frames
+        max_roi_frames = 200
+        if n_frames > max_roi_frames:
+            indices = np.linspace(0, n_frames - 1, max_roi_frames, dtype=int)
+        else:
+            indices = np.arange(n_frames)
+
+        roi_values = np.empty(len(indices))
+        for i, idx in enumerate(indices):
+            frame = self._image_view._fetch_frame(int(idx))
+            roi_values[i] = stat_func(frame[y0:y1, x0:x1])
+
+        tvals = getattr(self._image_view, "tVals", None)
+        if tvals is not None and len(tvals) > 0:
+            time_vals = np.asarray(tvals)[indices]
+        else:
+            time_vals = indices.astype(float)
+
+        self._clear_roi_curves()
+        n_points = min(len(roi_values), len(time_vals))
+        if n_points > 0:
+            curve = self._image_view.ui.roiPlot.plot(
+                x=time_vals[:n_points],
+                y=roi_values[:n_points],
+                pen=pg.mkPen("c", width=2),
+                name=f"ROI {self._roi_stat_combo.currentText()}",
+            )
+            self._roi_curves.append(curve)
 
     # ------------------------------------------------------------------
     # Status
