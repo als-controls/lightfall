@@ -342,11 +342,18 @@ class ExportDialog(LucidDialog):
         self._rect_roi.sigRegionChanged.connect(self._on_roi_changed)
 
         # Set parameter limits and initial values from frame shape
-        self._roi_params.child("X").setLimits([0, w - 1])
-        self._roi_params.child("Y").setLimits([0, h - 1])
-        self._roi_params.child("Width").setLimits([1, w])
-        self._roi_params.child("Height").setLimits([1, h])
-        self._sync_params_from_roi()
+        self._updating_roi = True
+        try:
+            self._roi_params.child("X").setLimits([0, w - 1])
+            self._roi_params.child("Y").setLimits([0, h - 1])
+            self._roi_params.child("Width").setLimits([1, w])
+            self._roi_params.child("Height").setLimits([1, h])
+            self._roi_params.child("X").setValue(0)
+            self._roi_params.child("Y").setValue(0)
+            self._roi_params.child("Width").setValue(w)
+            self._roi_params.child("Height").setValue(h)
+        finally:
+            self._updating_roi = False
 
         self._image_loaded = True
         self._ok_btn.setEnabled(True)
