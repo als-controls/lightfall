@@ -362,7 +362,7 @@ class TestNewIterationDetection:
         w.set_stream("adaptive")
 
         old_index = w._current_index
-        w._check_for_new_iterations()
+        w._apply_new_iterations({"n": w._adaptive._children["posterior_mean"].shape[0], "meas_x": None, "meas_y": None})
         assert w._current_index == old_index  # unchanged
 
     def test_detects_new_iterations(self, qtbot):
@@ -386,7 +386,7 @@ class TestNewIterationDetection:
         adaptive._children["posterior_mean"] = FakeArray(
             np.vstack([old_data, new_row])
         )
-        w._check_for_new_iterations()
+        w._apply_new_iterations({"n": w._adaptive._children["posterior_mean"].shape[0], "meas_x": None, "meas_y": None})
         assert w._n_iterations == 3
 
 
@@ -429,7 +429,7 @@ class TestTimelineScrubbing:
         adaptive._children["posterior_mean"] = FakeArray(
             np.vstack([old_data, new_row])
         )
-        w._check_for_new_iterations()
+        w._apply_new_iterations({"n": w._adaptive._children["posterior_mean"].shape[0], "meas_x": None, "meas_y": None})
 
         assert w._current_index == 2  # advanced to new end
 

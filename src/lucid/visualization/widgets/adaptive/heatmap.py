@@ -293,8 +293,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
     def refresh(self) -> None:
         """Manual refresh — called by the panel's refresh timer for live runs."""
-        with log_time("refresh: _check_for_new_iterations", level="DEBUG"):
-            self._check_for_new_iterations()
+        self._check_for_new_iterations_async()
 
     # ------------------------------------------------------------------
     # Live subscription (replaces polling)
@@ -312,13 +311,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             return
 
         try:
-            from lucid.utils.threads import invoke_in_main_thread
-
             self._subscription = self._run.subscribe()
 
             def on_update(update: Any) -> None:
                 logger.debug("AdaptiveHeatmap: subscription update: {}", update.type)
-                invoke_in_main_thread(self._check_for_new_iterations)
+                self._check_for_new_iterations_async()
 
             self._subscription.child_created.add_callback(on_update)
             self._subscription.child_metadata_updated.add_callback(on_update)
@@ -341,14 +338,78 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
                 pass
             self._subscription = None
 
-    def _check_for_new_iterations(self) -> None:
-        """Check for new iterations and update the display.
+    def _check_for_new_iterations_async(self) -> None:
+        """Kick off a background check for new iterations.
 
-        Called from the subscription callback (via invoke_in_main_thread)
-        or from the panel's refresh() timer.
+        The HTTP-heavy work (reading .shape, refreshing measurement
+        cache) runs on a worker thread.  Only the UI update is
+        delivered to the main thread via the callback.
         """
         if self._adaptive is None or not self._field_name:
             return
+
+        from lucid.utils.threads import QThreadFuture, invoke_in_main_thread
+
+        adaptive = self._adaptive
+        field_name = self._field_name
+        old_count = self._n_iterations
+
+        def do_check() -> dict | None:
+            """Worker thread: read iteration count + measurement data."""
+            with log_time("_check (worker): read .shape", level="DEBUG"):
+                n = 0
+                for field in _HEATMAP_FIELDS:
+                    if field in adaptive:
+                        n = adaptive[field].shape[0]
+                        break
+
+            if n == old_count:
+                return None  # No change
+
+            # Also refresh measurement data while we're off the main thread
+            meas_x = meas_y = None
+            try:
+                start = self._run.metadata.get("start", {})
+                dims = start.get("hints", {}).get("dimensions", [])
+                x_field = dims[0][0][0]
+                y_field = dims[1][0][0]
+                primary = self._run["primary"]
+                with log_time("_check (worker): read measurements", level="DEBUG"):
+                    meas_x = np.asarray(primary[x_field].read())
+                    meas_y = np.asarray(primary[y_field].read())
+            except Exception:
+                pass
+
+            return {"n": n, "meas_x": meas_x, "meas_y": meas_y}
+
+        def on_result(result: dict | None) -> None:
+            if result is None:
+                return  # No new iterations
+            try:
+                self._apply_new_iterations(result)
+            except RuntimeError:
+                pass  # Widget destroyed
+
+        future = QThreadFuture(
+            do_check,
+            callback_slot=on_result,
+            except_slot=lambda e: logger.debug(
+                "AdaptiveHeatmap: iteration check failed: {}", e,
+            ),
+            register=False,
+            name="check-iterations",
+        )
+        self._image_view._in_flight.add(future)
+        future.finished.connect(lambda f=future: self._image_view._in_flight.discard(f))
+        future.start()
+
+    def _apply_new_iterations(self, result: dict) -> None:
+        """Main-thread callback: update the display with new iteration data."""
+        n = result["n"]
+        old_count = self._n_iterations
+
+        if n == old_count:
+            return  # Stale by the time we got here
 
         was_at_end = (
             self._current_index == self._n_iterations - 1
@@ -356,33 +417,19 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             else True
         )
 
-        old_count = self._n_iterations
+        self._n_iterations = n
+        logger.debug("AdaptiveHeatmap: {} → {} iterations", old_count, n)
 
-        with log_time("_check_for_new_iterations: read .shape", level="DEBUG"):
-            try:
-                n = 0
-                for field in _HEATMAP_FIELDS:
-                    if field in self._adaptive:
-                        n = self._adaptive[field].shape[0]
-                        break
-                self._n_iterations = n
-            except Exception:
-                return
+        # Apply cached measurement data from the worker
+        if result.get("meas_x") is not None:
+            self._meas_x = result["meas_x"]
+            self._meas_y = result["meas_y"]
 
-        if self._n_iterations == old_count:
-            return
-
-        # New iterations arrived
-        logger.debug("AdaptiveHeatmap: {} → {} iterations", old_count, self._n_iterations)
-
-        with log_time("_check_for_new_iterations: _refresh_measurement_cache", level="DEBUG"):
-            self._refresh_measurement_cache()
-
-        timestamps = np.arange(self._n_iterations, dtype=np.float64)
-        self._image_view.updateFrameCount(self._n_iterations, timestamps)
+        timestamps = np.arange(n, dtype=np.float64)
+        self._image_view.updateFrameCount(n, timestamps)
 
         if was_at_end:
-            new_index = self._n_iterations - 1
+            new_index = n - 1
             self._image_view.setCurrentIndex(new_index)
             self._current_index = new_index
             self._apply_grid_rect()
