@@ -254,7 +254,9 @@ class LazyImageView(pg.ImageView):
         # Manually set histogram bins from real data
         step = max(1, real_frame.size // 500_000)
         vals = real_frame.ravel()[::step].astype(np.float64)
-        hist_counts, hist_edges = np.histogram(vals, bins=256)
+        # Explicit range avoids ValueError when all values are identical
+        hist_range = (lo, hi) if lo < hi else (lo - 0.5, lo + 0.5)
+        hist_counts, hist_edges = np.histogram(vals, bins=256, range=hist_range)
         hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
         self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
 
@@ -262,7 +264,9 @@ class LazyImageView(pg.ImageView):
         """Set only the histogram bins (not range/levels) from real data."""
         step = max(1, real_frame.size // 500_000)
         vals = real_frame.ravel()[::step].astype(np.float64)
-        hist_counts, hist_edges = np.histogram(vals, bins=256)
+        lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
+        hist_range = (lo, hi) if lo < hi else (lo - 0.5, lo + 0.5)
+        hist_counts, hist_edges = np.histogram(vals, bins=256, range=hist_range)
         hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
         self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
 
