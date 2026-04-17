@@ -292,18 +292,40 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._update_status()
 
     def refresh(self) -> None:
-        """Manual refresh — called by the panel's refresh timer for live runs."""
-        self._check_for_new_iterations_async()
+        """Manual refresh — called by the panel's refresh timer.
+
+        No-op when the WebSocket subscription is active (it handles
+        updates with lower latency).  Only used as a fallback when
+        the subscription couldn't be established.
+        """
+        if self._subscription is not None:
+            return
+
+        from lucid.utils.threads import QThreadFuture
+
+        future = QThreadFuture(
+            self._fetch_and_apply_new_iterations,
+            except_slot=lambda e: logger.debug(
+                "AdaptiveHeatmap: refresh failed: {}", e,
+            ),
+            register=False,
+            name="refresh-fallback",
+        )
+        self._image_view._in_flight.add(future)
+        future.finished.connect(lambda f=future: self._image_view._in_flight.discard(f))
+        future.start()
 
     # ------------------------------------------------------------------
-    # Live subscription (replaces polling)
+    # Live subscription
     # ------------------------------------------------------------------
 
     def _start_subscription(self) -> None:
         """Subscribe to the run container via tiled WebSocket.
 
-        Reacts to ``child_metadata_updated`` events (new events written
-        to the adaptive stream) instead of polling ``.shape[0]``.
+        The subscription callback already runs on a background
+        ``ThreadPoolExecutor``, so we do the HTTP-heavy work (reading
+        ``.shape``, refreshing measurements) right there and only
+        push the result dict to the main thread for the UI update.
         """
         self._stop_subscription()
 
@@ -314,8 +336,9 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._subscription = self._run.subscribe()
 
             def on_update(update: Any) -> None:
+                """Runs on the subscription's ThreadPoolExecutor."""
                 logger.debug("AdaptiveHeatmap: subscription update: {}", update.type)
-                self._check_for_new_iterations_async()
+                self._fetch_and_apply_new_iterations()
 
             self._subscription.child_created.add_callback(on_update)
             self._subscription.child_metadata_updated.add_callback(on_update)
@@ -338,70 +361,49 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
                 pass
             self._subscription = None
 
-    def _check_for_new_iterations_async(self) -> None:
-        """Kick off a background check for new iterations.
+    def _fetch_and_apply_new_iterations(self) -> None:
+        """Read iteration count + measurements off the main thread,
+        then deliver the UI update via ``invoke_in_main_thread``.
 
-        The HTTP-heavy work (reading .shape, refreshing measurement
-        cache) runs on a worker thread.  Only the UI update is
-        delivered to the main thread via the callback.
+        Safe to call from any thread (subscription executor, panel
+        refresh QThreadFuture, etc.).
         """
         if self._adaptive is None or not self._field_name:
             return
 
-        from lucid.utils.threads import QThreadFuture, invoke_in_main_thread
+        from lucid.utils.threads import invoke_in_main_thread
 
-        adaptive = self._adaptive
-        field_name = self._field_name
         old_count = self._n_iterations
 
-        def do_check() -> dict | None:
-            """Worker thread: read iteration count + measurement data."""
-            with log_time("_check (worker): read .shape", level="DEBUG"):
+        with log_time("_fetch_new_iterations (worker): read .shape", level="DEBUG"):
+            try:
                 n = 0
                 for field in _HEATMAP_FIELDS:
-                    if field in adaptive:
-                        n = adaptive[field].shape[0]
+                    if field in self._adaptive:
+                        n = self._adaptive[field].shape[0]
                         break
-
-            if n == old_count:
-                return None  # No change
-
-            # Also refresh measurement data while we're off the main thread
-            meas_x = meas_y = None
-            try:
-                start = self._run.metadata.get("start", {})
-                dims = start.get("hints", {}).get("dimensions", [])
-                x_field = dims[0][0][0]
-                y_field = dims[1][0][0]
-                primary = self._run["primary"]
-                with log_time("_check (worker): read measurements", level="DEBUG"):
-                    meas_x = np.asarray(primary[x_field].read())
-                    meas_y = np.asarray(primary[y_field].read())
             except Exception:
-                pass
+                return
 
-            return {"n": n, "meas_x": meas_x, "meas_y": meas_y}
+        if n == old_count:
+            return  # Nothing new
 
-        def on_result(result: dict | None) -> None:
-            if result is None:
-                return  # No new iterations
-            try:
-                self._apply_new_iterations(result)
-            except RuntimeError:
-                pass  # Widget destroyed
+        # Refresh measurement overlay data while still off main thread
+        meas_x = meas_y = None
+        try:
+            start = self._run.metadata.get("start", {})
+            dims = start.get("hints", {}).get("dimensions", [])
+            x_field = dims[0][0][0]
+            y_field = dims[1][0][0]
+            primary = self._run["primary"]
+            with log_time("_fetch_new_iterations (worker): read measurements", level="DEBUG"):
+                meas_x = np.asarray(primary[x_field].read())
+                meas_y = np.asarray(primary[y_field].read())
+        except Exception:
+            pass
 
-        future = QThreadFuture(
-            do_check,
-            callback_slot=on_result,
-            except_slot=lambda e: logger.debug(
-                "AdaptiveHeatmap: iteration check failed: {}", e,
-            ),
-            register=False,
-            name="check-iterations",
-        )
-        self._image_view._in_flight.add(future)
-        future.finished.connect(lambda f=future: self._image_view._in_flight.discard(f))
-        future.start()
+        result = {"n": n, "meas_x": meas_x, "meas_y": meas_y}
+        invoke_in_main_thread(self._apply_new_iterations, result)
 
     def _apply_new_iterations(self, result: dict) -> None:
         """Main-thread callback: update the display with new iteration data."""
