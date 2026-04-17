@@ -1,16 +1,16 @@
 """Adaptive 2D heatmap visualization (posterior mean/variance/acquisition).
 
-Reads from the ``adaptive`` sub-container written by Tsuchinoko's
-TiledPublisher. Provides an iteration slider, colormap selector,
-and optional measurement/target overlays.
+Reads from the ``adaptive`` BlueskyEventStream written by Tsuchinoko's
+TiledPublisher.  Per-iteration GP data is stored as zarr arrays (one
+per field, indexed by event number).  Evaluation grids are in the
+descriptor's ``configuration.tsuchinoko.data``.
 
-Ported from Phase 4b ``feature/tsuchinoko-gp-viz`` to the post-viz-cleanup
-BaseVisualization ABC.
+Provides an iteration slider, colormap selector, and optional
+measurement/target overlays.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import numpy as np
@@ -32,15 +32,8 @@ from lucid.visualization.base_visualization import BaseVisualization
 # Fields in priority order — only those actually present are offered.
 _HEATMAP_FIELDS = ["posterior_mean", "posterior_variance", "acquisition_function"]
 
-_ITER_RE = re.compile(r"^iter_\d{3}$")
-
 _STALE_POLL_LIMIT = 3
 _POLL_INTERVAL_MS = 2000
-
-
-def _discover_iterations(container: Any) -> list[str]:
-    """Return sorted ``iter_NNN`` keys from *container*."""
-    return sorted(k for k in container.keys() if _ITER_RE.match(k))
 
 
 class AdaptiveHeatmapVisualization(BaseVisualization):
@@ -61,11 +54,12 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         self._adaptive: Any | None = None
         self._grid_x: np.ndarray | None = None
         self._grid_y: np.ndarray | None = None
-        self._iters: list[str] = []
+        self._grid_shape: list[int] | None = None
+        self._n_iterations: int = 0
         self._current_index: int = -1
         self._stale_count: int = 0
 
-        # pyqtgraph items (created in _build_ui)
+        # pyqtgraph items
         self._plot_widget: pg.PlotWidget | None = None
         self._image_item: pg.ImageItem | None = None
         self._meas_scatter: pg.ScatterPlotItem | None = None
@@ -166,11 +160,11 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             adaptive = run["adaptive"]
             if adaptive.metadata.get("adaptive_engine") != "tsuchinoko":
                 return 0
-            config = adaptive["config"]
-            config_keys = config.keys()
-            has_x = "evaluation_grid_x" in config_keys
-            has_y = "evaluation_grid_y" in config_keys
-            has_z = "evaluation_grid_z" in config_keys
+            config = adaptive.metadata.get("configuration", {})
+            tsuchinoko_config = config.get("tsuchinoko", {}).get("data", {})
+            has_x = "evaluation_grid_x" in tsuchinoko_config
+            has_y = "evaluation_grid_y" in tsuchinoko_config
+            has_z = "evaluation_grid_z" in tsuchinoko_config
             if has_x and has_y and not has_z:
                 return 90
         except Exception:
@@ -194,24 +188,25 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             self._adaptive = None
             return
 
-        # Read evaluation grid
+        # Read evaluation grids from descriptor configuration
         try:
-            config = self._adaptive["config"]
-            self._grid_x = np.asarray(config["evaluation_grid_x"].read())
-            self._grid_y = np.asarray(config["evaluation_grid_y"].read())
+            config = self._adaptive.metadata.get("configuration", {})
+            tsuchinoko_data = config.get("tsuchinoko", {}).get("data", {})
+            self._grid_x = np.asarray(tsuchinoko_data["evaluation_grid_x"])
+            self._grid_y = np.asarray(tsuchinoko_data["evaluation_grid_y"])
         except Exception as exc:
             logger.debug("AdaptiveHeatmap: could not read grid config: {}", exc)
             self._grid_x = self._grid_y = None
 
-        # Discover iterations
-        self._iters = _discover_iterations(self._adaptive)
-        if self._iters:
-            self._slider.setMaximum(len(self._iters) - 1)
-            self._slider.setEnabled(True)
-            self._slider.setValue(len(self._iters) - 1)
-        else:
-            self._slider.setMaximum(0)
-            self._slider.setEnabled(False)
+        # Get grid shape from data_keys metadata
+        try:
+            dk = self._adaptive.metadata.get("data_keys", {})
+            self._grid_shape = dk.get("posterior_mean", {}).get("grid_shape")
+        except Exception:
+            self._grid_shape = None
+
+        # Count iterations from posterior_mean array (or internal table)
+        self._update_iteration_count()
 
         # Start polling
         self._stale_count = 0
@@ -223,12 +218,11 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             self.set_field(fields[0])
 
     def get_fields(self) -> list[str]:
-        """Return the subset of heatmap fields present in the latest iteration."""
-        if not self._iters or self._adaptive is None:
+        """Return the subset of heatmap fields present in the stream."""
+        if self._adaptive is None:
             return []
         try:
-            latest = self._adaptive[self._iters[-1]]
-            available = latest.keys()
+            available = list(self._adaptive)
         except Exception:
             return []
         return [f for f in _HEATMAP_FIELDS if f in available]
@@ -244,20 +238,41 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
     # Polling
     # ------------------------------------------------------------------
 
+    def _update_iteration_count(self) -> None:
+        """Update iteration count from the posterior_mean array shape."""
+        n = 0
+        if self._adaptive is not None:
+            try:
+                # Each zarr array has shape (N_events, flat_size)
+                for field in _HEATMAP_FIELDS:
+                    if field in self._adaptive:
+                        n = self._adaptive[field].shape[0]
+                        break
+            except Exception:
+                pass
+        self._n_iterations = n
+        if n > 0:
+            self._slider.setMaximum(n - 1)
+            self._slider.setEnabled(True)
+        else:
+            self._slider.setMaximum(0)
+            self._slider.setEnabled(False)
+
     def _poll_tick(self) -> None:
         """Check for new iterations and update display."""
         if self._adaptive is None:
             return
 
         was_at_end = (
-            self._current_index == len(self._iters) - 1
-            if self._iters
+            self._current_index == self._n_iterations - 1
+            if self._n_iterations
             else True
         )
 
-        new_iters = _discover_iterations(self._adaptive)
+        old_count = self._n_iterations
+        self._update_iteration_count()
 
-        if new_iters == self._iters:
+        if self._n_iterations == old_count:
             self._stale_count += 1
             if self._stale_count >= _STALE_POLL_LIMIT:
                 self._poll_timer.stop()
@@ -266,10 +281,7 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
 
         # New data found
         self._stale_count = 0
-        new_index = len(new_iters) - 1 if was_at_end else self._current_index
-        self._iters = new_iters
-        self._slider.setMaximum(len(self._iters) - 1)
-        self._slider.setEnabled(True)
+        new_index = self._n_iterations - 1 if was_at_end else self._current_index
         self._slider.setValue(new_index)
 
     # ------------------------------------------------------------------
@@ -277,41 +289,48 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
     # ------------------------------------------------------------------
 
     def _on_slider_changed(self, index: int) -> None:
-        if index < 0 or index >= len(self._iters):
+        if index < 0 or index >= self._n_iterations:
             return
         self._current_index = index
-        self._iter_label.setText(f"{index + 1}/{len(self._iters)}")
+        self._iter_label.setText(f"{index + 1}/{self._n_iterations}")
         self._load_current_iteration()
 
     def _load_current_iteration(self) -> None:
         if (
             self._adaptive is None
-            or not self._iters
+            or self._n_iterations == 0
             or self._current_index < 0
             or not self._field_name
         ):
             return
 
-        iter_key = self._iters[self._current_index]
-        try:
-            iter_node = self._adaptive[iter_key]
-        except Exception:
-            return
+        idx = self._current_index
 
-        # Render heatmap
-        if self._field_name in iter_node:
-            data = np.asarray(iter_node[self._field_name].read())
-            self._update_image(data)
-        else:
-            logger.debug(
-                "AdaptiveHeatmap: '{}' not in {}", self._field_name, iter_key
-            )
+        # Render heatmap — read one slice from the zarr array
+        try:
+            if self._field_name in self._adaptive:
+                flat = np.asarray(self._adaptive[self._field_name][idx])
+                if self._grid_shape:
+                    data = flat.reshape(self._grid_shape)
+                else:
+                    # Guess square grid
+                    side = int(np.sqrt(len(flat)))
+                    data = flat.reshape(side, side) if side * side == len(flat) else flat
+                self._update_image(data)
+        except Exception as exc:
+            logger.debug("AdaptiveHeatmap: could not load {}: {}", self._field_name, exc)
 
         # Target overlay
-        if "targets" in iter_node and self._target_check.isChecked():
-            targets = np.asarray(iter_node["targets"].read())
-            self._update_target_overlay(targets)
-        else:
+        try:
+            if "targets" in self._adaptive:
+                targets = np.asarray(self._adaptive["targets"][idx])
+                if self._target_check.isChecked() and len(targets) > 0:
+                    self._update_target_overlay(targets)
+                else:
+                    self._target_scatter.clear()
+            else:
+                self._target_scatter.clear()
+        except Exception:
             self._target_scatter.clear()
 
         # Measurement overlay
@@ -332,16 +351,14 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             return
         if targets.ndim == 2 and targets.shape[1] >= 2:
             self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
+        elif targets.ndim == 1 and len(targets) >= 2:
+            # Flat target pair for single target
+            self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
         else:
             self._target_scatter.clear()
 
     def _update_measurement_overlay(self) -> None:
-        """Draw measured points from primary/internal/events.
-
-        X/Y field names are inferred from the run's start hints
-        (dimensions list). Falls back gracefully if primary stream
-        or hints are unavailable.
-        """
+        """Draw measured points from primary stream."""
         if self._meas_scatter is None or not self._meas_check.isChecked():
             if self._meas_scatter is not None:
                 self._meas_scatter.clear()
@@ -360,11 +377,11 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             self._meas_scatter.clear()
             return
 
-        # Read from primary/internal/events
+        # Read from primary stream
         try:
-            events = self._run["primary"]["internal"]["events"].read()
-            x_data = np.asarray(events[x_field])
-            y_data = np.asarray(events[y_field])
+            primary = self._run["primary"]
+            x_data = np.asarray(primary[x_field].read())
+            y_data = np.asarray(primary[y_field].read())
             if len(x_data) > 0:
                 self._meas_scatter.setData(x=x_data, y=y_data)
             else:
