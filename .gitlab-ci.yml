@@ -38,11 +38,13 @@ test:
   image: python:${PYTHON_VERSION}
   variables:
     QT_QPA_PLATFORM: offscreen
+    QT_OPENGL: software
+    LIBGL_ALWAYS_SOFTWARE: "1"
   before_script:
-    - apt-get update && apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+    - apt-get update && apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 xvfb
     - pip install -e ".[dev]"
   script:
-    - pytest tests/ -v --tb=short --cov=src/lucid --cov-report=xml:coverage.xml
+    - xvfb-run pytest tests/ -v --tb=short --cov=src/lucid --cov-report=xml:coverage.xml
   artifacts:
     paths:
       - coverage.xml
