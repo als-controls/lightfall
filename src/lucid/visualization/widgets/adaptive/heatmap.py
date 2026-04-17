@@ -326,6 +326,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         ``ThreadPoolExecutor``, so we do the HTTP-heavy work (reading
         ``.shape``, refreshing measurements) right there and only
         push the result dict to the main thread for the UI update.
+
+        If the server doesn't support WebSocket streaming (e.g. no
+        API-key endpoint), the subscription thread will fail silently
+        and ``self._subscription`` is set back to ``None`` so that
+        the panel's ``refresh()`` timer takes over.
         """
         self._stop_subscription()
 
@@ -333,20 +338,35 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             return
 
         try:
-            self._subscription = self._run.subscribe()
+            sub = self._run.subscribe()
 
             def on_update(update: Any) -> None:
                 """Runs on the subscription's ThreadPoolExecutor."""
                 logger.debug("AdaptiveHeatmap: subscription update: {}", update.type)
                 self._fetch_and_apply_new_iterations()
 
-            self._subscription.child_created.add_callback(on_update)
-            self._subscription.child_metadata_updated.add_callback(on_update)
+            def on_disconnect(subscription: Any) -> None:
+                logger.debug("AdaptiveHeatmap: subscription disconnected, "
+                             "falling back to panel-driven refresh")
+                self._subscription = None
 
-            with log_time("_start_subscription: start_in_thread", level="DEBUG"):
-                self._subscription.start_in_thread()
+            sub.child_created.add_callback(on_update)
+            sub.child_metadata_updated.add_callback(on_update)
+            sub.disconnected.add_callback(on_disconnect)
 
-            logger.debug("AdaptiveHeatmap: WebSocket subscription started")
+            self._subscription = sub
+
+            # start_in_thread blocks until connected (or raises).
+            # Wrap in try so that connection errors during the initial
+            # handshake (e.g. server 500 on API-key creation) don't
+            # produce an unhandled traceback on the subscription thread.
+            try:
+                sub.start_in_thread()
+                logger.debug("AdaptiveHeatmap: WebSocket subscription started")
+            except Exception as exc:
+                logger.debug("AdaptiveHeatmap: subscription connect failed: {}", exc)
+                self._subscription = None
+                return
         except Exception as exc:
             logger.debug("AdaptiveHeatmap: subscription failed ({}), "
                          "falling back to panel-driven refresh", exc)
