@@ -245,7 +245,7 @@ def adaptive_experiment(
                     args.append(motor)
                     args.append(value)
                 yield from bps.mv(*args)
-                yield from bps.trigger_and_read(detectors, name="primary")
+                yield from bps.trigger_and_read(list(motors) + list(detectors), name="primary")
 
                 if not exhaust_first:
                     bridge.publish(f"{lucid_prefix}.adaptive.measured", {
