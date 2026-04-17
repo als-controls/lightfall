@@ -102,6 +102,13 @@ class LazyImageView(pg.ImageView):
         self._applying_log_levels: bool = False
         self._suppress_update: bool = False  # Skip frame fetch during setImage setup
 
+        # Async frame loading — first frame after setArraySource is
+        # synchronous (so the host can call _on_reset_lut immediately),
+        # then scrubbing switches to background QThreadFuture fetches.
+        self._first_frame_loaded: bool = False
+        self._fetch_gen: int = 0
+        self._current_fetch: Any | None = None  # keeps latest QThreadFuture alive
+
         # Intercept histogram level changes so we can map through log1p
         # when log mode is active.
         self.ui.histogram.sigLevelsChanged.connect(self._on_hist_levels_changed)
@@ -137,6 +144,7 @@ class LazyImageView(pg.ImageView):
         self._client = client
         self._frame_shape = frame_shape
         self._fetch_func = fetch_func
+        self._first_frame_loaded = False
         n_frames = len(timestamps) if len(timestamps) > 0 else client.shape[0]
 
         # Assume float64 — _fetch_frame converts anyway. Avoids an HTTP
@@ -317,40 +325,22 @@ class LazyImageView(pg.ImageView):
         - Avoid ``getProcessedImage`` which would normalize the full stack.
         - Keep the histogram in real units when log mode is active.
         - Apply log display + level mapping when needed.
+
+        The first call after :meth:`setArraySource` fetches synchronously
+        (so the host can immediately call ``_on_reset_lut``).  Subsequent
+        calls (timeline scrubbing) fetch in a background
+        :class:`QThreadFuture` to keep the UI responsive.
         """
         if self._suppress_update:
             return
 
         if self._client is not None and self._proxy is not None:
             # === Lazy path ===
-            raw_frame = self._fetch_frame(self.currentIndex)
-            real_frame = self._bg_correct_frame(raw_frame)
-            self._last_real_frame = real_frame
-
-            if self._log_mode:
-                display_frame = np.log1p(real_frame)
+            if self._first_frame_loaded:
+                self._update_image_async(autoHistogramRange)
             else:
-                display_frame = real_frame
-
-            # Guard: pyqtgraph requires a 2D array
-            if display_frame.ndim != 2:
-                logger.warning(
-                    "LazyImageView: frame {} has unexpected shape {}, skipping",
-                    self.currentIndex, display_frame.shape,
-                )
-                return
-
-            self.imageDisp = display_frame
-
-            # Display frame on ImageItem (may trigger histogram auto-update
-            # with wrong bins if log is on — corrected immediately below).
-            self.imageItem.updateImage(display_frame)
-
-            # Always set histogram from real data (overwrites any auto-update)
-            self._set_hist_from_real(real_frame, auto_range=autoHistogramRange)
-
-            # Apply log-mapped levels
-            self._apply_log_levels()
+                self._update_image_sync(autoHistogramRange)
+                self._first_frame_loaded = True
 
         elif self.image is not None:
             # === Eager path (in-memory stack via setImage) ===
@@ -374,6 +364,76 @@ class LazyImageView(pg.ImageView):
                     )
                     # Apply log-mapped levels
                     self._apply_log_levels()
+
+    # ------------------------------------------------------------------
+    # Sync / async frame loading
+    # ------------------------------------------------------------------
+
+    def _update_image_sync(self, autoHistogramRange: bool) -> None:
+        """Fetch and apply the current frame on the calling thread."""
+        raw_frame = self._fetch_frame(self.currentIndex)
+        self._apply_fetched_frame(raw_frame, autoHistogramRange)
+
+    def _update_image_async(self, autoHistogramRange: bool) -> None:
+        """Kick off a background fetch; apply on the main thread when done."""
+        from lucid.utils.threads import QThreadFuture
+
+        self._fetch_gen += 1
+        gen = self._fetch_gen
+        index = self.currentIndex
+
+        def on_result(raw_frame: np.ndarray) -> None:
+            if gen != self._fetch_gen:
+                return  # Stale — user has already scrubbed past this frame
+            try:
+                self._apply_fetched_frame(raw_frame, autoHistogramRange)
+            except RuntimeError:
+                pass  # Widget destroyed while fetch was in flight
+
+        future = QThreadFuture(
+            self._fetch_frame,
+            index,
+            callback_slot=on_result,
+            except_slot=lambda e: logger.debug(
+                "LazyImageView: async fetch for frame {} failed: {}", index, e,
+            ),
+            register=False,  # avoid blocking cancel-on-key during scrubbing
+            name=f"frame-{index}",
+        )
+        self._current_fetch = future  # prevent GC; old futures can be collected
+        future.start()
+
+    def _apply_fetched_frame(
+        self, raw_frame: np.ndarray, autoHistogramRange: bool
+    ) -> None:
+        """Process and display a fetched frame (called from either thread path)."""
+        real_frame = self._bg_correct_frame(raw_frame)
+        self._last_real_frame = real_frame
+
+        if self._log_mode:
+            display_frame = np.log1p(real_frame)
+        else:
+            display_frame = real_frame
+
+        # Guard: pyqtgraph requires a 2D array
+        if display_frame.ndim != 2:
+            logger.warning(
+                "LazyImageView: frame has unexpected shape {}, skipping",
+                display_frame.shape,
+            )
+            return
+
+        self.imageDisp = display_frame
+
+        # Display frame on ImageItem (may trigger histogram auto-update
+        # with wrong bins if log is on — corrected immediately below).
+        self.imageItem.updateImage(display_frame)
+
+        # Always set histogram from real data (overwrites any auto-update)
+        self._set_hist_from_real(real_frame, auto_range=autoHistogramRange)
+
+        # Apply log-mapped levels
+        self._apply_log_levels()
 
     def getProcessedImage(self) -> np.ndarray:
         """Return the current single frame (skip normalisation).
