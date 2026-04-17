@@ -38,13 +38,6 @@ _STALE_POLL_LIMIT = 3
 _POLL_INTERVAL_MS = 2000
 
 
-class _IterationSource:
-    """Minimal stub exposing ``.shape`` for :class:`LazyImageView`'s proxy."""
-
-    def __init__(self, n_iterations: int, frame_shape: tuple[int, int]) -> None:
-        self.shape = (n_iterations, *frame_shape)
-
-
 class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
     """2D heatmap of GP posterior arrays from an adaptive experiment.
 
@@ -265,21 +258,23 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         frame_shape = (gs[1], gs[0])
         self._frame_shape = frame_shape
 
-        # Build a closure that reads one iteration from the zarr array
-        adaptive = self._adaptive
-        field = field_name
+        # Build a closure that fetches one iteration via server-side
+        # slicing (avoids downloading the full chunk).
+        from lucid.utils.tiled_helpers import fetch_frame as _fetch_frame
+
+        arr_client = arr
         grid_shape = gs
 
         def fetch_iteration(index: int) -> np.ndarray:
-            flat = np.asarray(adaptive[field][index])
+            flat = _fetch_frame(arr_client, index)
             return flat.reshape(grid_shape).T
 
-        # Hand off to LazyImageView
-        source = _IterationSource(n, frame_shape)
+        # Hand off to LazyImageView — the real ArrayClient provides
+        # .shape[0] for frame count; fetch_func handles the rest.
         timestamps = np.arange(n, dtype=np.float64)
 
         self._image_view.setArraySource(
-            source, timestamps, frame_shape, fetch_func=fetch_iteration,
+            arr_client, timestamps, frame_shape, fetch_func=fetch_iteration,
         )
 
         # Display the latest iteration

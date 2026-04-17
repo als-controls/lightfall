@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -138,6 +139,22 @@ def _make_run(
         start_md = {"hints": {"dimensions": dims}}
 
     return FakeContainer(children=children, metadata={"start": start_md})
+
+
+def _fake_fetch_frame(dataset, index):
+    """Stand-in for tiled_helpers.fetch_frame — plain indexing for FakeArrays."""
+    index = int(max(0, min(index, dataset.shape[0] - 1)))
+    return np.asarray(dataset[index])
+
+
+@pytest.fixture(autouse=True)
+def _patch_fetch_frame():
+    """Patch fetch_frame so tests work with FakeArray (no HTTP)."""
+    with patch(
+        "lucid.utils.tiled_helpers.fetch_frame",
+        side_effect=_fake_fetch_frame,
+    ):
+        yield
 
 
 # ===========================================================================
