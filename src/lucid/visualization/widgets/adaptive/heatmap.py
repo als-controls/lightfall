@@ -68,6 +68,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._meas_scatter: pg.ScatterPlotItem | None = None
         self._target_scatter: pg.ScatterPlotItem | None = None
 
+        # Cached measurement overlay data — doesn't change per-iteration,
+        # only grows as new points are measured.  Refreshed on poll, not scrub.
+        self._meas_x: np.ndarray | None = None
+        self._meas_y: np.ndarray | None = None
+
         # Polling timer
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -203,6 +208,9 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         except Exception:
             self._grid_shape = None
 
+        # Cache measurement overlay data (one-time HTTP fetch)
+        self._refresh_measurement_cache()
+
         # Start polling
         self._stale_count = 0
         self._poll_timer.start()
@@ -327,6 +335,9 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         # New iterations arrived
         self._stale_count = 0
 
+        # Measurement points may have grown — refresh cache (OK on poll timer)
+        self._refresh_measurement_cache()
+
         timestamps = np.arange(self._n_iterations, dtype=np.float64)
         self._image_view.updateFrameCount(self._n_iterations, timestamps)
 
@@ -346,7 +357,8 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
     def _on_iteration_changed(self, ind: int, _time: float) -> None:
         """Called when the user scrubs the timeline."""
         self._current_index = ind
-        self._update_overlays()
+        self._update_target_overlay_async()
+        self._update_measurement_overlay()
         self._update_status()
 
     def _on_overlay_toggled(self, _checked: bool) -> None:
@@ -362,10 +374,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
     def _update_overlays(self) -> None:
         """Refresh both scatter overlays for the current iteration."""
-        self._update_target_overlay()
+        self._update_target_overlay_async()
         self._update_measurement_overlay()
 
-    def _update_target_overlay(self) -> None:
+    def _update_target_overlay_async(self) -> None:
+        """Fetch target positions for the current iteration off the main thread."""
         if self._target_scatter is None:
             return
         if not self._target_check.isChecked():
@@ -374,51 +387,86 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         if self._adaptive is None or self._current_index < 0:
             self._target_scatter.clear()
             return
-        try:
-            if "targets" in self._adaptive:
-                targets = np.asarray(self._adaptive["targets"][self._current_index])
-                if len(targets) > 0:
-                    if targets.ndim == 2 and targets.shape[1] >= 2:
-                        self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
-                    elif targets.ndim == 1 and len(targets) >= 2:
-                        self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
-                    else:
-                        self._target_scatter.clear()
-                else:
-                    self._target_scatter.clear()
+        if "targets" not in self._adaptive:
+            self._target_scatter.clear()
+            return
+
+        from lucid.utils.tiled_helpers import fetch_frame
+        from lucid.utils.threads import QThreadFuture
+
+        idx = self._current_index
+        targets_client = self._adaptive["targets"]
+
+        def do_fetch() -> np.ndarray:
+            return fetch_frame(targets_client, idx)
+
+        def on_result(targets: np.ndarray) -> None:
+            if idx != self._current_index:
+                return  # Stale
+            try:
+                self._apply_target_scatter(targets)
+            except RuntimeError:
+                pass
+
+        future = QThreadFuture(
+            do_fetch,
+            callback_slot=on_result,
+            except_slot=lambda e: logger.debug(
+                "Target overlay fetch failed: {}", e,
+            ),
+            register=False,
+            name=f"targets-{idx}",
+        )
+        self._image_view._in_flight.add(future)
+        future.finished.connect(lambda f=future: self._image_view._in_flight.discard(f))
+        future.start()
+
+    def _apply_target_scatter(self, targets: np.ndarray) -> None:
+        """Apply fetched target data to the scatter plot (main thread)."""
+        if len(targets) > 0:
+            if targets.ndim == 2 and targets.shape[1] >= 2:
+                self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
+            elif targets.ndim == 1 and len(targets) >= 2:
+                self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
             else:
                 self._target_scatter.clear()
-        except Exception:
+        else:
             self._target_scatter.clear()
 
-    def _update_measurement_overlay(self) -> None:
-        """Draw measured points from primary stream."""
-        if self._meas_scatter is None or not self._meas_check.isChecked():
-            if self._meas_scatter is not None:
-                self._meas_scatter.clear()
-            return
+    def _refresh_measurement_cache(self) -> None:
+        """Fetch measurement overlay data from the primary stream.
+
+        Called once on ``set_stream`` and again on each poll tick that
+        discovers new iterations — NOT on every scrub position.
+        """
+        self._meas_x = self._meas_y = None
         if self._run is None:
             return
 
-        # Resolve X/Y field names from start.hints.dimensions
         try:
             start = self._run.metadata.get("start", {})
             dims = start.get("hints", {}).get("dimensions", [])
             x_field = dims[0][0][0]
             y_field = dims[1][0][0]
         except (IndexError, KeyError, TypeError):
-            self._meas_scatter.clear()
             return
 
         try:
             primary = self._run["primary"]
-            x_data = np.asarray(primary[x_field].read())
-            y_data = np.asarray(primary[y_field].read())
-            if len(x_data) > 0:
-                self._meas_scatter.setData(x=x_data, y=y_data)
-            else:
-                self._meas_scatter.clear()
+            self._meas_x = np.asarray(primary[x_field].read())
+            self._meas_y = np.asarray(primary[y_field].read())
         except Exception:
+            self._meas_x = self._meas_y = None
+
+    def _update_measurement_overlay(self) -> None:
+        """Draw cached measured points (no HTTP calls)."""
+        if self._meas_scatter is None or not self._meas_check.isChecked():
+            if self._meas_scatter is not None:
+                self._meas_scatter.clear()
+            return
+        if self._meas_x is not None and len(self._meas_x) > 0:
+            self._meas_scatter.setData(x=self._meas_x, y=self._meas_y)
+        else:
             self._meas_scatter.clear()
 
     # ------------------------------------------------------------------
