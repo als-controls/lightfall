@@ -355,7 +355,15 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
     # ------------------------------------------------------------------
 
     def _on_iteration_changed(self, ind: int, _time: float) -> None:
-        """Called when the user scrubs the timeline."""
+        """Called when the user scrubs the timeline.
+
+        pyqtgraph emits ``sigTimeChanged`` on every mouse-move during a
+        drag, not just when the discrete index changes.  Guard against
+        redundant work (thread spawns, scatter re-renders) when the
+        iteration hasn't actually changed.
+        """
+        if ind == self._current_index:
+            return
         self._current_index = ind
         self._update_target_overlay_async()
         self._update_measurement_overlay()
