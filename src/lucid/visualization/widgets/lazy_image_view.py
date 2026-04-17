@@ -107,7 +107,10 @@ class LazyImageView(pg.ImageView):
         # then scrubbing switches to background QThreadFuture fetches.
         self._first_frame_loaded: bool = False
         self._fetch_gen: int = 0
-        self._current_fetch: Any | None = None  # keeps latest QThreadFuture alive
+        # Set of in-flight futures — prevents GC from tearing down signal
+        # connections before results are delivered.  Each future removes
+        # itself from the set when its ``finished`` signal fires.
+        self._in_flight: set[Any] = set()
 
         # Intercept histogram level changes so we can map through log1p
         # when log mode is active.
@@ -407,7 +410,13 @@ class LazyImageView(pg.ImageView):
             register=False,  # avoid blocking cancel-on-key during scrubbing
             name=f"frame-{index}",
         )
-        self._current_fetch = future  # prevent GC; old futures can be collected
+
+        # Keep the future alive until it finishes — prevents Python's
+        # refcount GC from destroying the object (and tearing down the
+        # sigResult connection) before the result is delivered.
+        self._in_flight.add(future)
+        future.finished.connect(lambda f=future: self._in_flight.discard(f))
+
         future.start()
 
     def _apply_fetched_frame(
