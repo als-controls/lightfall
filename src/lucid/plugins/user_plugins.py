@@ -18,7 +18,6 @@ import shutil
 import sys
 import tempfile
 import threading
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -156,7 +155,7 @@ class RegistrationTracker:
 
     def _restore_all(self) -> None:
         """Restore all original registry methods."""
-        for key, (obj, attr, original) in self._original_methods.items():
+        for _key, (obj, attr, original) in self._original_methods.items():
             setattr(obj, attr, original)
         self._original_methods.clear()
 

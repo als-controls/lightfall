@@ -12,8 +12,9 @@ import os
 import platform
 import ssl
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import nats
 from loguru import logger
@@ -70,7 +71,7 @@ class _ActionHandle:
     cancels its NATS subscription.
     """
 
-    def __init__(self, service: "IPCService", suffix: str, subject: str) -> None:
+    def __init__(self, service: IPCService, suffix: str, subject: str) -> None:
         self._service = service
         self._suffix = suffix
         self._subject = subject
@@ -477,7 +478,7 @@ class IPCService(QObject):
         try:
             msg = await self._nc.request(subject, payload, timeout=timeout)
             return json.loads(msg.data.decode())
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.debug("IPCService: request to '{}' timed out", subject)
             return None
         except Exception as exc:

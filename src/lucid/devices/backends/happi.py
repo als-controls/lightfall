@@ -326,7 +326,7 @@ class HappiBackend(DeviceBackend):
             # import lock deadlocks when multiple background threads try
             # to import from the same package simultaneously.
             seen_modules: set[str] = set()
-            for device, happi_result in to_connect:
+            for device, _happi_result in to_connect:
                 device_class = device.device_class or ""
                 if "." in device_class:
                     module_path = device_class.rsplit(".", 1)[0]

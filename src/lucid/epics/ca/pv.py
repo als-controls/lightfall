@@ -7,9 +7,9 @@ Provides a Qt-friendly interface to EPICS PVs with signals for value changes.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
+from typing import Any
 
-from PySide6.QtCore import QObject, Signal, Slot, QMetaObject, Qt, Q_ARG
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 
 class PV(QObject):

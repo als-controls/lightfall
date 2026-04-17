@@ -9,14 +9,14 @@ This module provides Pydantic models for:
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
 
-class EntryType(str, Enum):
+class EntryType(StrEnum):
     """Types of logbook entries."""
 
     NOTE = "note"  # User-written notes (editable)
@@ -26,7 +26,7 @@ class EntryType(str, Enum):
     SYSTEM = "system"  # Session events, errors
 
 
-class EntrySource(str, Enum):
+class EntrySource(StrEnum):
     """Source of logbook entries."""
 
     USER = "user"  # User-created

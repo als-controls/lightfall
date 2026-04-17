@@ -9,14 +9,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QPalette
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -384,7 +383,6 @@ class ClaudePanel(BasePanel):
     def _setup_claude_widget(self) -> None:
         """Setup the Claude assistant widget with extended tools."""
         from lucid.claude import ClaudeAssistantWidget
-
         from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
 
         # Check if Claude is configured

@@ -109,12 +109,12 @@ class MotorControlWidget(BaseControlWidget):
             # Get units and precision from metadata or ophyd signals
             self._units = ""
             self._precision = 4
-            
+
             # Try device_info metadata first
             if item.device_info and item.device_info.metadata:
                 self._units = item.device_info.metadata.get("units", "")
                 self._precision = item.device_info.metadata.get("precision", 4)
-            
+
             # Fallback: try to get units from ophyd motor signals
             if not self._units and self._motor is not None:
                 # Check user_readback signal
@@ -389,7 +389,7 @@ class MotorControlWidget(BaseControlWidget):
         flags_group = QGroupBox("Status Flags")
         flags_layout = QHBoxLayout(flags_group)
         flags_layout.setSpacing(12)
-        
+
         # DMOV indicator (Done Move)
         self._dmov_indicator = StatusIndicator(size=12)
         self._dmov_label = QLabel("Done")
@@ -397,7 +397,7 @@ class MotorControlWidget(BaseControlWidget):
         dmov_box.addWidget(self._dmov_indicator)
         dmov_box.addWidget(self._dmov_label)
         flags_layout.addLayout(dmov_box)
-        
+
         # High limit indicator
         self._hlm_indicator = StatusIndicator(size=12)
         self._hlm_label = QLabel("Hi Lim")
@@ -405,7 +405,7 @@ class MotorControlWidget(BaseControlWidget):
         hlm_box.addWidget(self._hlm_indicator)
         hlm_box.addWidget(self._hlm_label)
         flags_layout.addLayout(hlm_box)
-        
+
         # Low limit indicator
         self._llm_indicator = StatusIndicator(size=12)
         self._llm_label = QLabel("Lo Lim")
@@ -413,7 +413,7 @@ class MotorControlWidget(BaseControlWidget):
         llm_box.addWidget(self._llm_indicator)
         llm_box.addWidget(self._llm_label)
         flags_layout.addLayout(llm_box)
-        
+
         # Home switch indicator
         self._home_indicator = StatusIndicator(size=12)
         self._home_label = QLabel("Home")
@@ -421,7 +421,7 @@ class MotorControlWidget(BaseControlWidget):
         home_box.addWidget(self._home_indicator)
         home_box.addWidget(self._home_label)
         flags_layout.addLayout(home_box)
-        
+
         flags_layout.addStretch()
         self._layout.addWidget(flags_group)
 
@@ -483,12 +483,12 @@ class MotorControlWidget(BaseControlWidget):
 
         except Exception as e:
             logger.warning("Error updating motor display: {}", e)
-    
+
     def _update_status_flags(self) -> None:
         """Update the detailed status flag indicators."""
         if self._motor is None:
             return
-        
+
         try:
             # DMOV - Done Move (inverted logic: moving=False means done=True)
             dmov = True  # Default to done
@@ -496,12 +496,12 @@ class MotorControlWidget(BaseControlWidget):
                 dmov = bool(self._motor.motor_done_move.get())
             elif hasattr(self._motor, "moving"):
                 dmov = not bool(self._motor.moving)
-            
+
             if dmov:
                 self._dmov_indicator.set_state("on")
             else:
                 self._dmov_indicator.set_state("off")
-            
+
             # High Limit
             hlm_active = False
             if hasattr(self._motor, "high_limit_switch"):
@@ -514,12 +514,12 @@ class MotorControlWidget(BaseControlWidget):
                 limit = self._motor.upper_ctrl_limit.get() if hasattr(self._motor.upper_ctrl_limit, "get") else None
                 if pos is not None and limit is not None:
                     hlm_active = pos >= limit
-            
+
             if hlm_active:
                 self._hlm_indicator.set_state("error")
             else:
                 self._hlm_indicator.set_state("off")
-            
+
             # Low Limit
             llm_active = False
             if hasattr(self._motor, "low_limit_switch"):
@@ -532,24 +532,24 @@ class MotorControlWidget(BaseControlWidget):
                 limit = self._motor.lower_ctrl_limit.get() if hasattr(self._motor.lower_ctrl_limit, "get") else None
                 if pos is not None and limit is not None:
                     llm_active = pos <= limit
-            
+
             if llm_active:
                 self._llm_indicator.set_state("error")
             else:
                 self._llm_indicator.set_state("off")
-            
+
             # Home switch
             home_active = False
             if hasattr(self._motor, "home_forward"):
                 home_sig = self._motor.home_forward
                 if hasattr(home_sig, "get"):
                     home_active = bool(home_sig.get())
-            
+
             if home_active:
                 self._home_indicator.set_state("on")
             else:
                 self._home_indicator.set_state("off")
-        
+
         except Exception as e:
             logger.debug("Error updating status flags: {}", e)
 
@@ -560,13 +560,13 @@ class MotorControlWidget(BaseControlWidget):
         self._units_label.setText("")
         self._moving_indicator.set_state("off")
         self._moving_label.setText("Idle")
-        
+
         # Clear status flags
         self._dmov_indicator.set_state("off")
         self._hlm_indicator.set_state("off")
         self._llm_indicator.set_state("off")
         self._home_indicator.set_state("off")
-        
+
         self._set_controls_enabled(False)
 
     @Slot()

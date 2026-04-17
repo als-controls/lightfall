@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Property
-from PySide6.QtWidgets import QLabel, QWidget, QHBoxLayout
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from lucid.epics.widgets.base import EpicsWidget
 

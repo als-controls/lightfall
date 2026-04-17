@@ -24,9 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-
 from lucid.auth.session import AuthState, SessionManager
+from lucid.ui.dialogs.base import LucidDialog
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 

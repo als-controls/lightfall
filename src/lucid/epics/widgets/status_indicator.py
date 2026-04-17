@@ -4,10 +4,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import QFrame, QWidget
 
 from lucid.epics.widgets.style import (
-    get_success_color,
-    get_error_color,
-    get_warning_color,
     get_disconnected_color,
+    get_error_color,
+    get_success_color,
+    get_warning_color,
 )
 
 

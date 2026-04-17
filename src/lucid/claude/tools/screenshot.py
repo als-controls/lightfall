@@ -1,11 +1,12 @@
 """Screenshot tool for capturing Qt window visuals."""
 
-import asyncio
 import base64
 from typing import Any
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget
+
 from lucid.claude._internal.threading import run_on_main_thread
 
 
@@ -19,7 +20,6 @@ def create_screenshot_tool(target_window: QWidget):
     Returns:
         Tool function
     """
-    from functools import partial
     from claude_agent_sdk import tool
 
     @tool(
@@ -61,7 +61,7 @@ def create_screenshot_tool(target_window: QWidget):
             print(f"[DEBUG] Screenshot: Starting capture of {target_window}")
             # Run on main thread since Qt widgets can only be accessed from main thread
             img_data = run_on_main_thread(_capture_screenshot, target_window)
-            print(f"[DEBUG] Screenshot: capture complete")
+            print("[DEBUG] Screenshot: capture complete")
 
             if img_data is None:
                 return {

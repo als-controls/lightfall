@@ -240,7 +240,7 @@ class DeviceControlWidget(QWidget):
         if cache_key not in self._widget_instances:
             # Clean up all cached widgets except the one we're about to create
             self._cleanup_cached_widgets(except_key=cache_key)
-            
+
             widget = match.create_widget(self)
 
             # Connect control_error signal if available
@@ -275,37 +275,37 @@ class DeviceControlWidget(QWidget):
             len(self._items),
         )
         self.widget_changed.emit(match.display_name)
-    
+
     def _cleanup_cached_widgets(self, except_key: str | None = None) -> None:
         """Clean up cached widgets to prevent background tasks accumulating.
-        
+
         Args:
             except_key: Cache key to preserve (active widget).
         """
         keys_to_remove = [k for k in self._widget_instances.keys() if k != except_key]
-        
+
         for key in keys_to_remove:
             widget = self._widget_instances[key]
-            
+
             # Disconnect signals
             if hasattr(widget, "control_error"):
                 try:
                     widget.control_error.disconnect(self.control_error)
                 except Exception:
                     pass
-            
+
             # Remove from stack
             self._stack.removeWidget(widget)
-            
+
             # Call close() to clean up timers, threads, etc.
             if hasattr(widget, "close"):
                 widget.close()
-            
+
             # Delete the widget
             widget.deleteLater()
-            
+
             logger.debug("Disposed of cached control widget: {}", key)
-        
+
         # Clear from cache
         for key in keys_to_remove:
             del self._widget_instances[key]

@@ -6,10 +6,9 @@ import platform
 import subprocess
 import time
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QDialogButtonBox,
@@ -319,7 +318,6 @@ class ExportDialog(LucidDialog):
     @Slot(object)
     def _on_preview_loaded(self, frame) -> None:
         """Handle successful image load — display and add ROI."""
-        import numpy as np
         import pyqtgraph as pg
 
         self._image_view.setImage(frame.T)  # transpose for pyqtgraph (col-major)
@@ -504,8 +502,8 @@ class ExportDialog(LucidDialog):
         Pings the exporter first. If no response, spawns a local instance.
         The ping/spawn/send flow runs in a background thread.
         """
-        from lucid.ipc.service import IPCService
         from lucid.core.services import ServiceRegistry
+        from lucid.ipc.service import IPCService
         from lucid.ui.toast import ToastManager
         from lucid.utils.threads import QThreadFuture
 

@@ -13,7 +13,15 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import QEvent, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QWidget,
+)
 
 from lucid.logbook.client import LogbookClient
 from lucid.logbook.entry_widget import EntryData, EntryWidget

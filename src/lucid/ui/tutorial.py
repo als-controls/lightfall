@@ -11,14 +11,15 @@ guiding users through the LUCID interface with:
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import (
-    QEvent,
     Property,
     QEasingCurve,
+    QEvent,
     QObject,
     QPoint,
     QPropertyAnimation,

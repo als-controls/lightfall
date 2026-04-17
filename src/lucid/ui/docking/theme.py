@@ -213,7 +213,7 @@ QDockWidget > QWidget {{
     {"border-bottom-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
 
-{"" if not islands else f"""
+{"" if not islands else f'''
 /* Edge-touching scrollable widgets — must inherit bottom rounding
    so they don't paint opaque rectangles over the rounded corners */
 QDockWidget QPlainTextEdit,
@@ -266,7 +266,7 @@ QDockWidget QToolBar {{
 QDockWidget QToolBar QToolButton {{
     background: transparent;
 }}
-"""}
+'''}
 
 /* --------------------------------------------------------------------------
    Inner QMainWindow — the "sea"
@@ -278,18 +278,18 @@ QDockWidget QToolBar QToolButton {{
 /* --------------------------------------------------------------------------
    Central widget (e.g. logbook) — island with rounding + margin
    -------------------------------------------------------------------------- */
-{"" if not islands else f"""
+{"" if not islands else f'''
 #InnerDockWindow > QWidget {{
     background: {island};
     border-radius: {radius}px;
     margin: {gap}px;
 }}
-"""}
+'''}
 
 /* --------------------------------------------------------------------------
    Splitters — island colored with rounded corners
    -------------------------------------------------------------------------- */
-{"" if not islands else f"""
+{"" if not islands else f'''
 QSplitter {{
     background: {island};
     border-radius: {radius}px;
@@ -310,12 +310,12 @@ QSplitter::handle:vertical {{
 QSplitter::handle:hover {{
     background: {colors.primary};
 }}
-"""}
+'''}
 
 /* --------------------------------------------------------------------------
    Scrollbars — rounded handles
    -------------------------------------------------------------------------- */
-{"" if not islands else f"""
+{"" if not islands else f'''
 QScrollBar:vertical {{
     background: transparent;
     width: 10px;
@@ -373,7 +373,7 @@ QScrollBar::add-page:horizontal,
 QScrollBar::sub-page:horizontal {{
     background: transparent;
 }}
-"""}
+'''}
 
 /* --------------------------------------------------------------------------
    QMainWindow separators — sea-colored gaps between islands

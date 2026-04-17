@@ -508,8 +508,8 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._target_scatter.clear()
             return
 
-        from lucid.utils.tiled_helpers import fetch_frame
         from lucid.utils.threads import QThreadFuture
+        from lucid.utils.tiled_helpers import fetch_frame
 
         idx = self._current_index
         targets_client = self._adaptive["targets"]

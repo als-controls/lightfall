@@ -13,23 +13,23 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, QTimer, QEvent
+from PySide6.QtCore import Property, QEvent, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from lucid.epics.widgets.label import PVLabel
 from lucid.epics.widgets.lineedit import PVLineEdit
 from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.epics.widgets.style import (
-    get_success_color,
     get_error_color,
+    get_success_color,
     get_warning_color,
 )
 

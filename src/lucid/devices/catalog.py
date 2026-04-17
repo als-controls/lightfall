@@ -468,7 +468,7 @@ class DeviceCatalog(QObject):
         total_connected = 0
         total_failed = 0
 
-        for name, backend in self._backends.items():
+        for _name, backend in self._backends.items():
             if hasattr(backend, "reconnect_failed_devices"):
                 connected, failed = backend.reconnect_failed_devices(
                     timeout=timeout, callback=callback,

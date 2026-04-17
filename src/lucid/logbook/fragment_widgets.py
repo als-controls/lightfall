@@ -12,19 +12,17 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
-from loguru import logger
 from PySide6.QtCore import (
-    Property,
     QEasingCurve,
+    QMimeData,
     QPropertyAnimation,
     Qt,
     Signal,
     Slot,
 )
-from PySide6.QtCore import QMimeData
 from PySide6.QtGui import QCursor, QDrag, QEnterEvent, QMouseEvent, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -32,7 +30,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QTextEdit,
@@ -46,13 +43,12 @@ from lucid.logbook.style import (
     is_dark_theme,
 )
 
-
 # ---------------------------------------------------------------------------
 # Lightweight data containers (no dependency on models.py)
 # ---------------------------------------------------------------------------
 
 
-class FragmentType(str, Enum):
+class FragmentType(StrEnum):
     """Fragment content type."""
 
     TEXT = "text"
@@ -768,7 +764,7 @@ class ImageFragmentWidget(_HoverMixin, QFrame):
 # ---------------------------------------------------------------------------
 
 
-class CollapseMode(str, Enum):
+class CollapseMode(StrEnum):
     """How consecutive readonly fragments are grouped."""
 
     SAME_TYPE = "same_type"

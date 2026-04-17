@@ -34,7 +34,6 @@ from lucid.ui.models.device_tree import (
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
-    from PySide6.QtCore import QPoint
     from lucid.devices.catalog import DeviceCatalog
 
 

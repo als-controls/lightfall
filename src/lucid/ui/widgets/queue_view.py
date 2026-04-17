@@ -10,7 +10,7 @@ import json
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import (
@@ -357,7 +357,7 @@ class QueueTableView(QTableView):
             self.edit_requested.emit(item.id)
 
 
-class RecentStatus(str, Enum):
+class RecentStatus(StrEnum):
     """Status of a completed procedure."""
 
     COMPLETED = "completed"

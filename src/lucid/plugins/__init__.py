@@ -95,6 +95,7 @@ from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.plugins.skill_plugin import SkillPlugin
 from lucid.plugins.types import PluginType
+
 __all__ = [
     # Core classes
     "PluginType",

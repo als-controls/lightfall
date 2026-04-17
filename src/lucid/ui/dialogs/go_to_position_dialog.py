@@ -90,7 +90,7 @@ class GoToPositionDialog(LucidDialog):
 
         # Header with warning icon and message
         header = QLabel(
-            f"<b>Move motor to clicked position?</b>"
+            "<b>Move motor to clicked position?</b>"
         )
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)

@@ -3,19 +3,19 @@
 import os
 import platform
 import tempfile
-from typing import Any
 
-from lucid.utils.logging import logger
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
-from lucid.claude.tools import create_qt_tools_server
+
 from lucid.claude._internal.worker import PersistentClaudeWorker
 from lucid.claude.permission_manager import (
     PermissionManager,
     create_can_use_tool_callback,
     create_pre_tool_use_hook,
 )
+from lucid.claude.tools import create_qt_tools_server
+from lucid.utils.logging import logger
 
 
 def _patch_sdk_for_windows_cmdline_limit():
@@ -370,8 +370,9 @@ class QtClaudeAgent(QObject):
         self._worker.start()
 
         # Wait for connection - process Qt events while waiting
-        from PySide6.QtWidgets import QApplication
         import time
+
+        from PySide6.QtWidgets import QApplication
         timeout = 30  # seconds
         start_time = time.time()
         while not result["success"] and time.time() - start_time < timeout:

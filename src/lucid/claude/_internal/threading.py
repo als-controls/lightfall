@@ -6,9 +6,9 @@ Thin wrapper around lucid.utils.threads for backward compatibility.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QApplication
 
 from lucid.utils.threads import invoke_in_main_thread, is_main_thread

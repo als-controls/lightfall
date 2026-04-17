@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Property, Signal, Slot, QEvent
+from PySide6.QtCore import Property, QEvent, Signal, Slot
 from PySide6.QtWidgets import QWidget
 
 from lucid.epics.widgets.style import WidgetStyles

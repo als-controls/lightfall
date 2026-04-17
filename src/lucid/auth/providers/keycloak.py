@@ -828,8 +828,8 @@ class KeycloakAuthProvider(AuthProvider):
         re-authenticating with the cached session.
         """
         try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
             from PySide6.QtWebEngineCore import QWebEngineProfile
+            from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
 
             profile = QWebEngineProfile.defaultProfile()
             if profile:

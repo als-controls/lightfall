@@ -73,25 +73,25 @@ _configure_remote_display()
 
 from PySide6.QtCore import Qt  # noqa: E402
 
-from lucid.acquire import get_engine
-from lucid.acquire.plans import get_registry as get_plan_registry
-from lucid.auth.providers import LocalAuthProvider
-from lucid.auth.session import SessionManager
-from lucid.config import ConfigManager
-from lucid.core import NCSApplication
-from lucid.devices import DeviceCatalog
-from lucid.devices.backends import BCSBackend, HappiBackend, MockBackend
-from lucid.project import ProjectService, create_welcome_project
-from lucid.ui import NCSMainWindow
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.preferences import PreferencesManager
-from lucid.ui.theme import ThemeManager
-from lucid.ui.widgets.warning_banner import DismissableWarningBanner
-from lucid.utils.editor_launcher import CodeEditor, is_editor_available
-from lucid.utils.logging import logger
-from lucid.utils.sentry import clear_user as sentry_clear_user
-from lucid.utils.sentry import init_sentry
-from lucid.utils.sentry import set_user as sentry_set_user
+from lucid.acquire import get_engine  # noqa: E402
+from lucid.acquire.plans import get_registry as get_plan_registry  # noqa: E402
+from lucid.auth.providers import LocalAuthProvider  # noqa: E402
+from lucid.auth.session import SessionManager  # noqa: E402
+from lucid.config import ConfigManager  # noqa: E402
+from lucid.core import NCSApplication  # noqa: E402
+from lucid.devices import DeviceCatalog  # noqa: E402
+from lucid.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
+from lucid.project import ProjectService, create_welcome_project  # noqa: E402
+from lucid.ui import NCSMainWindow  # noqa: E402
+from lucid.ui.panels.registry import PanelRegistry  # noqa: E402
+from lucid.ui.preferences import PreferencesManager  # noqa: E402
+from lucid.ui.theme import ThemeManager  # noqa: E402
+from lucid.ui.widgets.warning_banner import DismissableWarningBanner  # noqa: E402
+from lucid.utils.editor_launcher import CodeEditor, is_editor_available  # noqa: E402
+from lucid.utils.logging import logger  # noqa: E402
+from lucid.utils.sentry import clear_user as sentry_clear_user  # noqa: E402
+from lucid.utils.sentry import init_sentry  # noqa: E402
+from lucid.utils.sentry import set_user as sentry_set_user  # noqa: E402
 
 if TYPE_CHECKING:
     pass
@@ -136,10 +136,9 @@ def _setup_auth(config: ConfigManager) -> None:
             )
     elif provider_type == "pam":
         try:
-            from lucid.auth.providers.pam import PamAuthProvider, PamConfig
-
             # Build group→role map from config if provided
             from lucid.auth.policy import Role as _Role
+            from lucid.auth.providers.pam import PamAuthProvider, PamConfig
 
             group_role_map = {}
             for group_name, role_str in auth_config.provider.pam_group_role_map.items():
@@ -881,6 +880,7 @@ def main() -> int:
     # 3. Disconnect caproto Context (tears down circuits + threads)
     # The watchdog ensures we exit within 5s even if caproto blocks.
     import threading as _threading
+
     from PySide6.QtCore import QCoreApplication
 
     def _cleanup_on_exit():

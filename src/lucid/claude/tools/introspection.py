@@ -1,14 +1,15 @@
 """Widget tree introspection tools."""
 
-import asyncio
 import json
 from typing import Any
+
 from PySide6.QtWidgets import QWidget
+
 from lucid.claude._internal.serialization import (
-    serialize_widget_tree,
-    serialize_widget,
     find_widget_by_name,
-    get_widget_summary
+    get_widget_summary,
+    serialize_widget,
+    serialize_widget_tree,
 )
 from lucid.claude._internal.threading import run_on_main_thread
 

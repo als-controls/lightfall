@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from pyqtgraph.parametertree import Parameter, ParameterTree
+from pyqtgraph.parametertree.parameterTypes import GroupParameter
 from PySide6.QtCore import QSettings, Slot
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -19,8 +21,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-from pyqtgraph.parametertree import Parameter, ParameterTree
-from pyqtgraph.parametertree.parameterTypes import GroupParameter
 
 from lucid.ui.dialogs.base import LucidDialog
 from lucid.utils.logging import logger

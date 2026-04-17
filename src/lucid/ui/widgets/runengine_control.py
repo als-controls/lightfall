@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QImage, QPainter, QPixmap, qAlpha, qRed, qGreen, qBlue, qRgba
+from PySide6.QtGui import QImage, QPainter, QPixmap, qAlpha, qBlue, qGreen, qRed, qRgba
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,

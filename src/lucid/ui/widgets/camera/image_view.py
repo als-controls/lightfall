@@ -18,14 +18,13 @@ the user's manual LUT adjustments until Reset LUT is pressed.
 from __future__ import annotations
 
 import threading
-import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,

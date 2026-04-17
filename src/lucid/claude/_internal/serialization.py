@@ -1,8 +1,17 @@
 """Widget tree serialization for Claude understanding."""
 
 from typing import Any
-from PySide6.QtWidgets import QWidget, QLayout, QPushButton, QLineEdit, QTextEdit, QLabel, QComboBox, QCheckBox, QRadioButton
+
 from PySide6.QtCore import QRect
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QTextEdit,
+    QWidget,
+)
 
 
 def serialize_widget(widget: QWidget) -> dict[str, Any]:

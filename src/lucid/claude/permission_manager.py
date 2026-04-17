@@ -3,7 +3,8 @@
 import asyncio
 import uuid
 from typing import Any
-from PySide6.QtCore import QObject, Signal, QSettings
+
+from PySide6.QtCore import QObject, QSettings, Signal
 
 
 class PermissionManager(QObject):
@@ -219,7 +220,7 @@ class PermissionManager(QObject):
         # Wait for response with timeout to prevent hanging if CLI dies
         try:
             await asyncio.wait_for(event.wait(), timeout=300)  # 5 min timeout
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Clean up and deny — user didn't respond in time
             self._pending_requests.pop(request_id, None)
             self._pending_loops.pop(request_id, None)

@@ -1,12 +1,19 @@
 """Inline widget for tool permission approval requests."""
 
 import json
-from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QWidget, QSizePolicy, QTextEdit
-)
-from PySide6.QtCore import Signal, Qt
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class PermissionRequestWidget(QFrame):

@@ -112,8 +112,8 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     proxy_url = None
 
     try:
-        from lucid.services.tiled_service import TiledService
         from lucid.core.services import ServiceRegistry
+        from lucid.services.tiled_service import TiledService
         registry = ServiceRegistry.get_instance()
         ts = registry.get(TiledService, None)
         if ts and ts.config:
@@ -241,7 +241,7 @@ def adaptive_experiment(
                     break
                 # Interleave motors and target values for bps.mv
                 args: list[Any] = []
-                for motor, value in zip(motors, target):
+                for motor, value in zip(motors, target, strict=False):
                     args.append(motor)
                     args.append(value)
                 yield from bps.mv(*args)

@@ -7,13 +7,13 @@ Uses caproto for Channel Access communication.
 
 from lucid.epics.widgets import (
     EpicsWidget,
+    PVAutoWidget,
+    PVCheckBox,
+    PVComboBox,
     PVLabel,
     PVLineEdit,
-    PVComboBox,
-    PVCheckBox,
-    PVSlider,
-    PVAutoWidget,
     PVMotor,
+    PVSlider,
 )
 
 __all__ = [

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 
 # Parameter type categories for special handling
-class ParamCategory(str, Enum):
+class ParamCategory(StrEnum):
     """Categories of plan parameters for UI generation."""
 
     BASIC = "basic"  # int, float, str, bool

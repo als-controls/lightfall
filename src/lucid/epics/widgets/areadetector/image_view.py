@@ -15,25 +15,23 @@ import time
 from typing import Any, ClassVar
 
 import numpy as np
-from PySide6.QtCore import Property, Signal, Slot, Qt, QTimer
+import pyqtgraph as pg
+from PySide6.QtCore import Property, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
-    QComboBox,
-    QCheckBox,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-
-import pyqtgraph as pg
 
 from lucid.epics.widgets.style import (
-    get_success_color,
     get_disconnected_color,
+    get_success_color,
 )
-
 
 # Available colormaps
 COLORMAPS = {

@@ -141,7 +141,7 @@ class ExporterService:
         while self._running:
             try:
                 job = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             logger.info("Processing job %s", job.job_id)

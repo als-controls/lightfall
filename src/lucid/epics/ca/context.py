@@ -6,7 +6,6 @@ Provides a singleton-like shared context that widgets can use to connect to PVs.
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from typing import TYPE_CHECKING
 

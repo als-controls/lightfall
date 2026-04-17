@@ -6,7 +6,7 @@ Provides colors that adapt to the system's light/dark theme.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 

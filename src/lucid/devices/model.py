@@ -10,14 +10,14 @@ This module provides Pydantic models for:
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
 
-class DeviceCategory(str, Enum):
+class DeviceCategory(StrEnum):
     """Categories of devices.
 
     Motor: physical read/write (independent variable)
@@ -30,7 +30,7 @@ class DeviceCategory(str, Enum):
     CONTROLLER = "controller"
 
 
-class DeviceStatus(str, Enum):
+class DeviceStatus(StrEnum):
     """Operational status of a device."""
 
     ONLINE = "online"  # Device is connected and operational
@@ -42,7 +42,7 @@ class DeviceStatus(str, Enum):
     UNKNOWN = "unknown"  # Status cannot be determined
 
 
-class ConnectionType(str, Enum):
+class ConnectionType(StrEnum):
     """Type of device connection."""
 
     EPICS = "epics"  # EPICS Channel Access

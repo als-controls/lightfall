@@ -116,7 +116,6 @@ class DeviceToolPlugin(MCPToolPlugin):
         async def list_devices(args: dict) -> dict[str, Any]:
             """List devices with optional filtering."""
             from lucid.claude._internal.threading import run_on_main_thread
-
             from lucid.devices.model import DeviceCategory
 
             category_str = args.get("category")
@@ -852,7 +851,6 @@ class DeviceToolPlugin(MCPToolPlugin):
         async def get_catalog_info(args: dict) -> dict[str, Any]:
             """Get device catalog information and API hints."""
             from lucid.claude._internal.threading import run_on_main_thread
-
             from lucid.devices.model import DeviceCategory
 
             def _get_info():

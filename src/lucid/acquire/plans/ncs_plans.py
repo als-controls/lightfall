@@ -16,7 +16,7 @@ from bluesky import plans as bp
 from lucid.ui.annotations import DeviceFilter, Range, Unit
 
 if TYPE_CHECKING:
-    from ophyd import Device
+    pass
 
 # Type aliases
 Motor = Any

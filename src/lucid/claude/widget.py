@@ -1,12 +1,19 @@
 """ClaudeAssistantWidget - High-level embeddable chat widget."""
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QPushButton, QLabel, QScrollArea, QFrame,
-    QSizePolicy,
-)
-from PySide6.QtCore import QSize, Qt, Slot, Signal, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
 from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
 

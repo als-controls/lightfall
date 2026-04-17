@@ -69,7 +69,6 @@ from lucid.logbook.fragment_widgets import (
 )
 from lucid.logbook.style import is_dark_theme
 
-
 # ---------------------------------------------------------------------------
 # Lightweight entry data container
 # ---------------------------------------------------------------------------
@@ -401,8 +400,6 @@ class EntryWidget(QFrame):
         self._widget_items.clear()
 
         groups = _group_fragments(self._entry.fragments, self._collapse_mode)
-        # Find the index of the add button so we insert before it
-        add_btn_idx = self._fragment_layout.indexOf(self._add_btn)
         insert_idx = 0
         for group in groups:
             widget: QWidget

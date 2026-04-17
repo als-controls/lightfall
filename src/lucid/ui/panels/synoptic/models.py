@@ -9,11 +9,11 @@ This module provides dataclasses for:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class PrimitiveShape(str, Enum):
+class PrimitiveShape(StrEnum):
     """Available 2D shapes for device representation."""
 
     SQUARE = "square"
@@ -43,7 +43,7 @@ class PrimitiveShape(str, Enum):
         return legacy_map.get(shape, shape)
 
 
-class ViewPreset(str, Enum):
+class ViewPreset(StrEnum):
     """Predefined 2D projection presets.
 
     Each preset defines which plane of the 3D coordinate system

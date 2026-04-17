@@ -40,8 +40,8 @@ Example (low-level API):
 """
 
 from lucid.claude.agent import QtClaudeAgent
-from lucid.claude.widget import ClaudeAssistantWidget
 from lucid.claude.permission_manager import PermissionManager
+from lucid.claude.widget import ClaudeAssistantWidget
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
 
 __all__ = [

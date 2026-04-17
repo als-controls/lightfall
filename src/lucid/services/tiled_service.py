@@ -11,9 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, QTimer, Signal
-
 from bluesky_tiled_plugins import TiledWriter
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
@@ -200,7 +199,7 @@ class TiledService(QObject):
 
             # Patch tiled Transport BEFORE from_uri (it connects immediately)
             proxy_url = self._get_proxy_url(self._config.url)
-            original_init = None
+            restore_info = None
             if proxy_url:
                 restore_info = self._patch_tiled_for_proxy(proxy_url)
             try:
@@ -627,7 +626,7 @@ class TiledService(QObject):
                 kwargs["api_key"] = api_key
 
             proxy_url = TiledService._get_proxy_url(url)
-            original_init = None
+            restore_info = None
             if proxy_url:
                 restore_info = TiledService._patch_tiled_for_proxy(proxy_url)
             try:

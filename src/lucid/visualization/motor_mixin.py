@@ -10,12 +10,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 
 if TYPE_CHECKING:
-    import pyqtgraph as pg
 
     from lucid.devices.model import DeviceInfo
 
@@ -161,7 +160,7 @@ class VisualizationMotorMixin:
         if not hasattr(self, "_spec"):
             return
 
-        spec: VisualizationSpec = self._spec  # type: ignore[assignment]
+        spec = self._spec  # type: ignore[attr-defined]
 
         x_val = data_pos.x()
         y_val = data_pos.y()
@@ -265,7 +264,7 @@ class VisualizationMotorMixin:
         if not field_name or not hasattr(self, "_spec"):
             return False
 
-        spec: VisualizationSpec = self._spec  # type: ignore[assignment]
+        spec = self._spec  # type: ignore[attr-defined]
         return field_name in spec.characteristics.dim_fields
 
     def _get_motor_device(self, field_name: str) -> tuple[Any, DeviceInfo] | None:

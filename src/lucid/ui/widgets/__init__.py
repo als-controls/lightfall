@@ -48,10 +48,6 @@ from lucid.ui.widgets.motor_control import (
     MotorControlWidget,
     MultiMotorControlWidget,
 )
-from lucid.ui.widgets.signal_control import (
-    MultiSignalControlWidget,
-    SignalControlWidget,
-)
 from lucid.ui.widgets.plan_config import (
     PlanConfigWidget,
     PlanExecutionWidget,
@@ -65,6 +61,10 @@ from lucid.ui.widgets.runengine_control import (
     RunEngineControlWidget,
     RunEngineStatusBar,
     SpinnerIndicator,
+)
+from lucid.ui.widgets.signal_control import (
+    MultiSignalControlWidget,
+    SignalControlWidget,
 )
 from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
 from lucid.ui.widgets.tiled_status import TiledStatusWidget

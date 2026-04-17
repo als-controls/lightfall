@@ -548,8 +548,8 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                 pass
 
             try:
-                import bluesky.plans as bp
                 import bluesky.plan_stubs as bps
+                import bluesky.plans as bp
                 namespace["bp"] = bp
                 namespace["bps"] = bps
             except ImportError:

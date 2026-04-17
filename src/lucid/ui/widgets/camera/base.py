@@ -28,13 +28,13 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.devices.model import DeviceCategory
-from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
-from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
-from lucid.utils.logging import logger
 from lucid.epics.widgets.ophyd_combobox import OphydComboBox
 from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.epics.widgets.status_indicator import StatusIndicator
+from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
+from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lucid.ui.widgets.camera.image_view import OphydImageView
+from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:

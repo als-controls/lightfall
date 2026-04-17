@@ -191,7 +191,7 @@ class CATunnelService:
                 logger.debug("CA tunnel: TCP connection established")
                 return sock
 
-            except (OSError, ConnectionError) as e:
+            except (OSError, ConnectionError):
                 # logger.debug("CA tunnel: TCP connect failed: {}", e)
                 try:
                     sock.close()
@@ -263,7 +263,7 @@ class CATunnelService:
                         raise ConnectionError("Gateway closed connection")
                     data += chunk
                     tcp.settimeout(0.3)
-            except socket.timeout:
+            except TimeoutError:
                 pass
 
             tcp.settimeout(None)
@@ -280,7 +280,7 @@ class CATunnelService:
         while self._running and self._udp_sock is not None:
             try:
                 data, addr = self._udp_sock.recvfrom(65536)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 if self._running:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QDoubleSpinBox, QWidget, QHBoxLayout
+from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QWidget
 
 from lucid.epics.widgets.ophyd_base import OphydWidget
 

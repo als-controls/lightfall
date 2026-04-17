@@ -2,9 +2,10 @@
 
 import asyncio
 import threading
+from queue import Empty, Queue
 from typing import Any
-from queue import Queue, Empty
-from PySide6.QtCore import QThread, Signal, QObject
+
+from PySide6.QtCore import QObject, QThread, Signal
 
 from lucid.utils.logging import logger
 
@@ -68,11 +69,11 @@ class ClaudeWorker(QThread):
             # Import here to avoid circular imports
             from claude_agent_sdk.types import (
                 AssistantMessage,
+                ResultMessage,
                 TextBlock,
                 ThinkingBlock,
-                ToolUseBlock,
                 ToolResultBlock,
-                ResultMessage,
+                ToolUseBlock,
             )
 
             # Send the query
@@ -311,11 +312,11 @@ class PersistentClaudeWorker(QThread):
         try:
             from claude_agent_sdk.types import (
                 AssistantMessage,
+                ResultMessage,
                 TextBlock,
                 ThinkingBlock,
-                ToolUseBlock,
                 ToolResultBlock,
-                ResultMessage,
+                ToolUseBlock,
             )
 
             # Send the query

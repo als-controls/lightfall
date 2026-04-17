@@ -9,8 +9,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Property, Signal, Slot
-from PySide6.QtWidgets import QLineEdit, QWidget, QHBoxLayout, QLabel
-from PySide6.QtGui import QValidator
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QWidget
 
 from lucid.epics.widgets.base import EpicsWidget
 from lucid.epics.widgets.style import WidgetStyles

@@ -10,12 +10,12 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Property, Signal, Slot
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QStackedWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from lucid.epics.widgets.base import EpicsWidget
+from lucid.epics.widgets.combobox import PVComboBox
 from lucid.epics.widgets.label import PVLabel
 from lucid.epics.widgets.lineedit import PVLineEdit
-from lucid.epics.widgets.combobox import PVComboBox
 
 
 class PVAutoWidget(EpicsWidget):

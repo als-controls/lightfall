@@ -8,7 +8,7 @@ configuration and preset management.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     pass
 
 
-class SignalKind(str, Enum):
+class SignalKind(StrEnum):
     """Signal kind for acquisition configuration.
 
     Mirrors ophyd's Kind enum but as a string enum for easier serialization.

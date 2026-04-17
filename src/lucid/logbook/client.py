@@ -287,7 +287,7 @@ def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user
                 image_dir = Path.home() / ".lucid" / "logbook" / "images"
                 image_dir.mkdir(parents=True, exist_ok=True)
 
-                for frag_id, data_json in cursor.fetchall():
+                for _frag_id, data_json in cursor.fetchall():
                     frag_data = json.loads(data_json) if data_json else {}
                     img_id = frag_data.get("image_id")
                     if not img_id:

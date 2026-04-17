@@ -6,14 +6,13 @@ with the main LogbookPanel via a shared signal bridge.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
 from lucid.logbook.entry_widget import EntryData, EntryListWidget
 from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.utils.logging import logger
 
 
 class LogbookEntriesPanel(BasePanel):

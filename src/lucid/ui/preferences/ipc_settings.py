@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-logger = logging.getLogger(__name__)
-
 from lucid.plugins.settings_plugin import SettingsPlugin
 from lucid.ui.preferences.manager import PreferencesManager
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon

@@ -9,14 +9,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QComboBox,
     QRadioButton,
     QTextEdit,
     QVBoxLayout,

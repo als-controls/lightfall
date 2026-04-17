@@ -10,16 +10,15 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import numpy as np
-from PySide6.QtCore import Property, Signal, Slot, QTimer, Qt
+from PySide6.QtCore import Property, Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
     QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
-from lucid.epics.widgets.areadetector.image_view import PVImageView
 from lucid.epics.widgets.areadetector.controls import PVAreaDetectorControls
+from lucid.epics.widgets.areadetector.image_view import PVImageView
 
 
 class PVAreaDetector(QWidget):
