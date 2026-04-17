@@ -148,13 +148,20 @@ def _fake_fetch_frame(dataset, index):
 
 
 @pytest.fixture(autouse=True)
-def _patch_fetch_frame():
-    """Patch fetch_frame so tests work with FakeArray (no HTTP)."""
-    with patch(
+def _patch_for_tests(monkeypatch):
+    """Patch fetch_frame so tests work with FakeArray (no HTTP).
+    Stub _start_subscription since FakeContainer has no subscribe().
+    """
+    monkeypatch.setattr(
         "lucid.utils.tiled_helpers.fetch_frame",
-        side_effect=_fake_fetch_frame,
-    ):
-        yield
+        _fake_fetch_frame,
+    )
+    monkeypatch.setattr(
+        "lucid.visualization.widgets.adaptive.heatmap."
+        "AdaptiveHeatmapVisualization._start_subscription",
+        lambda self: None,
+    )
+    yield
 
 
 # ===========================================================================
@@ -338,10 +345,10 @@ class TestSetField:
         assert w._frame_shape == (8, 8)
 
 
-class TestPolling:
-    """Polling timer behavior."""
+class TestNewIterationDetection:
+    """_check_for_new_iterations behavior."""
 
-    def test_stale_polling_stops_timer(self, qtbot):
+    def test_no_op_when_count_unchanged(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
@@ -354,14 +361,11 @@ class TestPolling:
         w.set_run(run)
         w.set_stream("adaptive")
 
-        # No new data — tick 3 times
-        w._poll_tick()
-        w._poll_tick()
-        assert w._poll_timer.isActive()
-        w._poll_tick()
-        assert not w._poll_timer.isActive()
+        old_index = w._current_index
+        w._check_for_new_iterations()
+        assert w._current_index == old_index  # unchanged
 
-    def test_new_data_resets_stale_count(self, qtbot):
+    def test_detects_new_iterations(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
@@ -374,9 +378,7 @@ class TestPolling:
         w.set_run(run)
         w.set_stream("adaptive")
 
-        w._poll_tick()
-        w._poll_tick()
-        assert w._stale_count == 2
+        assert w._n_iterations == 2
 
         # Grow the posterior_mean array (simulating new iteration)
         old_data = adaptive._children["posterior_mean"]._data
@@ -384,8 +386,8 @@ class TestPolling:
         adaptive._children["posterior_mean"] = FakeArray(
             np.vstack([old_data, new_row])
         )
-        w._poll_tick()
-        assert w._stale_count == 0
+        w._check_for_new_iterations()
+        assert w._n_iterations == 3
 
 
 class TestTimelineScrubbing:
@@ -427,7 +429,7 @@ class TestTimelineScrubbing:
         adaptive._children["posterior_mean"] = FakeArray(
             np.vstack([old_data, new_row])
         )
-        w._poll_tick()
+        w._check_for_new_iterations()
 
         assert w._current_index == 2  # advanced to new end
 

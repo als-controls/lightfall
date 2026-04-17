@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pyqtgraph as pg
 from loguru import logger
-from PySide6.QtCore import QRectF, QTimer
+from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lucid.utils.logging import log_time
 from lucid.visualization.base_visualization import BaseVisualization
 from lucid.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
 from lucid.visualization.widgets.lazy_image_view import LazyImageView
@@ -34,8 +35,6 @@ from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
 # Fields in priority order — only those actually present are offered.
 _HEATMAP_FIELDS = ["posterior_mean", "posterior_variance", "acquisition_function"]
 
-_STALE_POLL_LIMIT = 3
-_POLL_INTERVAL_MS = 2000
 
 
 class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
@@ -61,7 +60,6 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._grid_shape: list[int] | None = None
         self._n_iterations: int = 0
         self._current_index: int = -1
-        self._stale_count: int = 0
         self._frame_shape: tuple[int, ...] = ()
 
         # Overlay scatter items (populated in _build_ui)
@@ -73,10 +71,8 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._meas_x: np.ndarray | None = None
         self._meas_y: np.ndarray | None = None
 
-        # Polling timer
-        self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(_POLL_INTERVAL_MS)
-        self._poll_timer.timeout.connect(self._poll_tick)
+        # Live-run subscription (replaces polling timer)
+        self._subscription: Any | None = None
 
         self._build_ui()
 
@@ -209,11 +205,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._grid_shape = None
 
         # Cache measurement overlay data (one-time HTTP fetch)
-        self._refresh_measurement_cache()
+        with log_time("set_stream: _refresh_measurement_cache", level="DEBUG"):
+            self._refresh_measurement_cache()
 
-        # Start polling
-        self._stale_count = 0
-        self._poll_timer.start()
+        # Subscribe to live updates via tiled WebSocket instead of polling
+        self._start_subscription()
 
         # Auto-pick best field
         fields = self.get_fields()
@@ -296,14 +292,61 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._update_status()
 
     def refresh(self) -> None:
-        self._poll_tick()
+        """Manual refresh — called by the panel's refresh timer for live runs."""
+        with log_time("refresh: _check_for_new_iterations", level="DEBUG"):
+            self._check_for_new_iterations()
 
     # ------------------------------------------------------------------
-    # Polling
+    # Live subscription (replaces polling)
     # ------------------------------------------------------------------
 
-    def _poll_tick(self) -> None:
-        """Check for new iterations and update display."""
+    def _start_subscription(self) -> None:
+        """Subscribe to the run container via tiled WebSocket.
+
+        Reacts to ``child_metadata_updated`` events (new events written
+        to the adaptive stream) instead of polling ``.shape[0]``.
+        """
+        self._stop_subscription()
+
+        if self._run is None:
+            return
+
+        try:
+            from lucid.utils.threads import invoke_in_main_thread
+
+            self._subscription = self._run.subscribe()
+
+            def on_update(update: Any) -> None:
+                logger.debug("AdaptiveHeatmap: subscription update: {}", update.type)
+                invoke_in_main_thread(self._check_for_new_iterations)
+
+            self._subscription.child_created.add_callback(on_update)
+            self._subscription.child_metadata_updated.add_callback(on_update)
+
+            with log_time("_start_subscription: start_in_thread", level="DEBUG"):
+                self._subscription.start_in_thread()
+
+            logger.debug("AdaptiveHeatmap: WebSocket subscription started")
+        except Exception as exc:
+            logger.debug("AdaptiveHeatmap: subscription failed ({}), "
+                         "falling back to panel-driven refresh", exc)
+            self._subscription = None
+
+    def _stop_subscription(self) -> None:
+        """Disconnect the WebSocket subscription if active."""
+        if self._subscription is not None:
+            try:
+                self._subscription.disconnect()
+            except Exception:
+                pass
+            self._subscription = None
+
+    def _check_for_new_iterations(self) -> None:
+        """Check for new iterations and update the display.
+
+        Called from the subscription callback (via invoke_in_main_thread)
+        or from the panel's refresh() timer.
+        """
         if self._adaptive is None or not self._field_name:
             return
 
@@ -315,28 +358,25 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         old_count = self._n_iterations
 
-        try:
-            n = 0
-            for field in _HEATMAP_FIELDS:
-                if field in self._adaptive:
-                    n = self._adaptive[field].shape[0]
-                    break
-            self._n_iterations = n
-        except Exception:
-            return
+        with log_time("_check_for_new_iterations: read .shape", level="DEBUG"):
+            try:
+                n = 0
+                for field in _HEATMAP_FIELDS:
+                    if field in self._adaptive:
+                        n = self._adaptive[field].shape[0]
+                        break
+                self._n_iterations = n
+            except Exception:
+                return
 
         if self._n_iterations == old_count:
-            self._stale_count += 1
-            if self._stale_count >= _STALE_POLL_LIMIT:
-                self._poll_timer.stop()
-                logger.debug("AdaptiveHeatmap: polling stopped (stale)")
             return
 
         # New iterations arrived
-        self._stale_count = 0
+        logger.debug("AdaptiveHeatmap: {} → {} iterations", old_count, self._n_iterations)
 
-        # Measurement points may have grown — refresh cache (OK on poll timer)
-        self._refresh_measurement_cache()
+        with log_time("_check_for_new_iterations: _refresh_measurement_cache", level="DEBUG"):
+            self._refresh_measurement_cache()
 
         timestamps = np.arange(self._n_iterations, dtype=np.float64)
         self._image_view.updateFrameCount(self._n_iterations, timestamps)
@@ -492,5 +532,5 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:
-        self._poll_timer.stop()
+        self._stop_subscription()
         super().closeEvent(event)
