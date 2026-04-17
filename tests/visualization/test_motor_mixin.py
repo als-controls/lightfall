@@ -7,16 +7,21 @@ and coordinate conversion for visualization widgets.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu
 
 from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
 from lucid.visualization.motor_mixin import VisualizationMotorMixin
-from lucid.visualization.spec import DataCharacteristics, FieldInfo, VisualizationSpec, VizType
+
+
+@dataclass
+class MockCharacteristics:
+    """Mock data characteristics for testing."""
+
+    dim_fields: list[str] = field(default_factory=lambda: ["motor_x", "motor_y"])
+    dep_fields: list[str] = field(default_factory=lambda: ["detector"])
 
 
 @dataclass
@@ -26,16 +31,7 @@ class MockSpec:
     x_field: str | None = "motor_x"
     y_field: str | None = "motor_y"
     z_field: str | None = "detector"
-    characteristics: DataCharacteristics = field(default_factory=lambda: DataCharacteristics(
-        ndim=2,
-        dim_fields=["motor_x", "motor_y"],
-        dep_fields=["detector"],
-        field_info={
-            "motor_x": FieldInfo(name="motor_x", units="mm"),
-            "motor_y": FieldInfo(name="motor_y", units="mm"),
-            "detector": FieldInfo(name="detector"),
-        },
-    ))
+    characteristics: MockCharacteristics = field(default_factory=MockCharacteristics)
 
 
 class MockPlotWidget:
