@@ -39,12 +39,14 @@ test:
   variables:
     QT_QPA_PLATFORM: offscreen
     QT_OPENGL: software
+    QSG_RHI_BACKEND: "null"
     LIBGL_ALWAYS_SOFTWARE: "1"
+    MESA_GL_VERSION_OVERRIDE: "3.3"
   before_script:
-    - apt-get update && apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 xvfb
+    - apt-get update && apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libopengl0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
     - pip install -e ".[dev]"
   script:
-    - xvfb-run pytest tests/ -v --tb=short --cov=src/lucid --cov-report=xml:coverage.xml
+    - pytest tests/ -v --tb=short --cov=src/lucid --cov-report=xml:coverage.xml
   artifacts:
     paths:
       - coverage.xml
