@@ -94,6 +94,7 @@ class LazyImageView(pg.ImageView):
         self._client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
         self._proxy: _ArrayProxy | None = None
+        self._fetch_func: Any | None = None  # Optional custom frame fetcher
         self._minmax_cache: list[tuple[float, float]] | None = None
         self._log_mode: bool = False
         self._dark_frame: np.ndarray | None = None
@@ -114,19 +115,28 @@ class LazyImageView(pg.ImageView):
         client: Any,
         timestamps: np.ndarray,
         frame_shape: tuple[int, ...],
+        *,
+        fetch_func: Any | None = None,
     ) -> None:
         """Configure the view with a lazy ArrayClient source.
 
         Args:
             client: Tiled ``ArrayClient`` with shape ``(N, ...)``.
                 ``client[i]`` returns a flat or shaped numpy array for
-                frame *i*.
+                frame *i*.  May be a lightweight stub (only ``.shape`` is
+                required) when *fetch_func* is provided.
             timestamps: 1-D array of epoch timestamps, length N.
             frame_shape: ``(H, W)`` shape of each frame (from descriptor
                 ``data_keys[field]["shape"]``).
+            fetch_func: Optional callable ``(index: int) -> np.ndarray``
+                that returns a single 2-D frame.  When given, this is
+                used instead of the default tiled ``fetch_frame`` helper,
+                allowing non-tiled data sources (e.g. zarr iteration
+                arrays) to plug into :class:`LazyImageView`.
         """
         self._client = client
         self._frame_shape = frame_shape
+        self._fetch_func = fetch_func
         n_frames = len(timestamps) if len(timestamps) > 0 else client.shape[0]
 
         # Assume float64 — _fetch_frame converts anyway. Avoids an HTTP
@@ -429,11 +439,28 @@ class LazyImageView(pg.ImageView):
         return result
 
     # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def frame_count(self) -> int:
+        """Number of frames (or iterations) in the current source."""
+        if self._proxy is not None:
+            return self._proxy.shape[0]
+        return 0
+
+    def fetch_frame(self, index: int) -> np.ndarray:
+        """Public API: fetch a single 2-D frame by index."""
+        return self._fetch_frame(index)
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _fetch_frame(self, index: int) -> np.ndarray:
-        """Fetch a single frame via server-side slicing."""
+        """Fetch a single frame via server-side slicing or custom fetcher."""
+        if self._fetch_func is not None:
+            return self._fetch_func(index).astype(np.float64)
         from lucid.utils.tiled_helpers import fetch_frame
 
         return fetch_frame(self._client, index).astype(np.float64)

@@ -5,8 +5,10 @@ TiledPublisher.  Per-iteration GP data is stored as zarr arrays (one
 per field, indexed by event number).  Evaluation grids are in the
 descriptor's ``configuration.tsuchinoko.data``.
 
-Provides an iteration slider, colormap selector, and optional
-measurement/target overlays.
+Uses :class:`LazyImageView` for display: each iteration is fetched on
+demand, the histogram provides LUT control, and the standard
+image-view toolbar buttons (Reset LUT, Reset Axes, Log Intensity, ROI)
+are supplied by :class:`ImageViewToolbarMixin`.
 """
 
 from __future__ import annotations
@@ -16,18 +18,18 @@ from typing import Any
 import numpy as np
 import pyqtgraph as pg
 from loguru import logger
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QRectF, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
-    QLabel,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
 
 from lucid.visualization.base_visualization import BaseVisualization
+from lucid.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
+from lucid.visualization.widgets.lazy_image_view import LazyImageView
+from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 # Fields in priority order — only those actually present are offered.
 _HEATMAP_FIELDS = ["posterior_mean", "posterior_variance", "acquisition_function"]
@@ -36,11 +38,19 @@ _STALE_POLL_LIMIT = 3
 _POLL_INTERVAL_MS = 2000
 
 
-class AdaptiveHeatmapVisualization(BaseVisualization):
+class _IterationSource:
+    """Minimal stub exposing ``.shape`` for :class:`LazyImageView`'s proxy."""
+
+    def __init__(self, n_iterations: int, frame_shape: tuple[int, int]) -> None:
+        self.shape = (n_iterations, *frame_shape)
+
+
+class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
     """2D heatmap of GP posterior arrays from an adaptive experiment.
 
     Renders posterior_mean, posterior_variance, or acquisition_function
     for a selected iteration, with optional measurement and target overlays.
+    The iteration slider is replaced by the ImageView timeline scrubber.
     """
 
     viz_name = "adaptive_heatmap"
@@ -49,6 +59,7 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._init_image_view_toolbar_state()
 
         # Tiled state
         self._adaptive: Any | None = None
@@ -58,19 +69,11 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         self._n_iterations: int = 0
         self._current_index: int = -1
         self._stale_count: int = 0
+        self._frame_shape: tuple[int, ...] = ()
 
-        # pyqtgraph items
-        self._plot_widget: pg.PlotWidget | None = None
-        self._image_item: pg.ImageItem | None = None
+        # Overlay scatter items (populated in _build_ui)
         self._meas_scatter: pg.ScatterPlotItem | None = None
         self._target_scatter: pg.ScatterPlotItem | None = None
-
-        # UI controls
-        self._slider: QSlider | None = None
-        self._iter_label: QLabel | None = None
-        self._cmap_combo: QComboBox | None = None
-        self._meas_check: QCheckBox | None = None
-        self._target_check: QCheckBox | None = None
 
         # Polling timer
         self._poll_timer = QTimer(self)
@@ -90,15 +93,33 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
 
         layout.addLayout(self._build_toolbar())
 
-        self._plot_widget = pg.PlotWidget()
-        plot_item = self._plot_widget.getPlotItem()
-        if plot_item:
-            plot_item.setAspectLocked(True)
+        # Lazy image view (same pattern as ImageStackVisualization)
+        self._image_view = LazyImageView()
+        self._image_view.ui.roiPlot.show()
+        self._image_view.ui.roiPlot.setMinimumHeight(80)
+        self._image_view.ui.splitter.setSizes([400, 100])
 
-        self._image_item = pg.ImageItem()
-        self._plot_widget.addItem(self._image_item)
-        self._apply_colormap("viridis")
+        # Iteration axis on the timeline
+        self._time_axis = HumanReadableTimeAxis(orientation="bottom")
+        self._image_view.ui.roiPlot.setAxisItems({"bottom": self._time_axis})
 
+        self._image_view.sigTimeChanged.connect(self._on_iteration_changed)
+
+        # Style the scrubber bar
+        timeline = self._image_view.timeLine
+        timeline.setPen(pg.mkPen("y", width=3))
+        timeline.setHoverPen(pg.mkPen("y", width=5))
+
+        # Hide built-in ROI / menu buttons (we provide our own)
+        self._image_view.ui.roiBtn.hide()
+        self._image_view.ui.menuBtn.hide()
+
+        # Default colormap
+        cmap = pg.colormap.get("viridis")
+        if cmap:
+            self._image_view.setColorMap(cmap)
+
+        # Overlay scatter items — added to the ImageView's PlotItem
         self._meas_scatter = pg.ScatterPlotItem(
             pen=None, symbol="o", size=6,
             brush=pg.mkBrush(255, 255, 255, 120),
@@ -106,37 +127,21 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         self._target_scatter = pg.ScatterPlotItem(
             pen=pg.mkPen("r", width=1.5), brush=None, symbol="x", size=10,
         )
-        self._plot_widget.addItem(self._meas_scatter)
-        self._plot_widget.addItem(self._target_scatter)
+        self._image_view.addItem(self._meas_scatter)
+        self._image_view.addItem(self._target_scatter)
 
-        layout.addWidget(self._plot_widget)
+        layout.addWidget(self._image_view)
 
     def _build_toolbar(self) -> QHBoxLayout:
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
-        toolbar.addWidget(QLabel("Iter:"))
-        self._slider = QSlider(Qt.Horizontal)
-        self._slider.setMinimum(0)
-        self._slider.setMaximum(0)
-        self._slider.setEnabled(False)
-        self._slider.valueChanged.connect(self._on_slider_changed)
-        toolbar.addWidget(self._slider)
-
-        self._iter_label = QLabel("0/0")
-        toolbar.addWidget(self._iter_label)
-
-        toolbar.addWidget(QLabel("Cmap:"))
-        self._cmap_combo = QComboBox()
-        self._cmap_combo.addItems([
-            "viridis", "plasma", "inferno", "magma", "cividis",
-            "gray", "hot", "cool",
-        ])
-        self._cmap_combo.currentTextChanged.connect(self._apply_colormap)
-        toolbar.addWidget(self._cmap_combo)
+        # Standard image-view buttons (Reset LUT, Reset Axes, Log, ROI)
+        self._build_image_view_buttons(toolbar)
 
         toolbar.addStretch()
 
+        # Overlay toggles
         self._meas_check = QCheckBox("Measurements")
         self._meas_check.setChecked(True)
         self._meas_check.toggled.connect(self._on_overlay_toggled)
@@ -205,9 +210,6 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         except Exception:
             self._grid_shape = None
 
-        # Count iterations from posterior_mean array (or internal table)
-        self._update_iteration_count()
-
         # Start polling
         self._stale_count = 0
         self._poll_timer.start()
@@ -229,7 +231,66 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
 
     def set_field(self, field_name: str) -> None:
         self._field_name = field_name
-        self._load_current_iteration()
+
+        if self._adaptive is None or field_name not in self._adaptive:
+            return
+
+        # Count iterations from array shape
+        try:
+            arr = self._adaptive[field_name]
+            arr_shape = arr.shape
+            n = arr_shape[0]
+        except Exception as exc:
+            logger.debug("AdaptiveHeatmap: cannot read shape for '{}': {}", field_name, exc)
+            return
+
+        self._n_iterations = n
+        if n == 0:
+            return
+
+        # Determine grid/frame shape
+        if self._grid_shape:
+            gs = tuple(self._grid_shape)
+        else:
+            flat_size = arr_shape[1] if len(arr_shape) > 1 else 0
+            side = int(np.sqrt(flat_size))
+            gs = (side, side) if side * side == flat_size else None
+
+        if gs is None:
+            logger.warning("AdaptiveHeatmap: cannot determine grid shape for '{}'", field_name)
+            return
+
+        # Transposed frame shape for col-major display (matches the
+        # previous data.T behaviour with the PlotWidget ImageItem).
+        frame_shape = (gs[1], gs[0])
+        self._frame_shape = frame_shape
+
+        # Build a closure that reads one iteration from the zarr array
+        adaptive = self._adaptive
+        field = field_name
+        grid_shape = gs
+
+        def fetch_iteration(index: int) -> np.ndarray:
+            flat = np.asarray(adaptive[field][index])
+            return flat.reshape(grid_shape).T
+
+        # Hand off to LazyImageView
+        source = _IterationSource(n, frame_shape)
+        timestamps = np.arange(n, dtype=np.float64)
+
+        self._image_view.setArraySource(
+            source, timestamps, frame_shape, fetch_func=fetch_iteration,
+        )
+
+        # Display the latest iteration
+        self._image_view.setCurrentIndex(n - 1)
+        self._apply_grid_rect()
+        self._on_reset_lut()
+        self._on_reset_axes()
+
+        self._current_index = n - 1
+        self._update_overlays()
+        self._update_status()
 
     def refresh(self) -> None:
         self._poll_tick()
@@ -238,29 +299,9 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
     # Polling
     # ------------------------------------------------------------------
 
-    def _update_iteration_count(self) -> None:
-        """Update iteration count from the posterior_mean array shape."""
-        n = 0
-        if self._adaptive is not None:
-            try:
-                # Each zarr array has shape (N_events, flat_size)
-                for field in _HEATMAP_FIELDS:
-                    if field in self._adaptive:
-                        n = self._adaptive[field].shape[0]
-                        break
-            except Exception:
-                pass
-        self._n_iterations = n
-        if n > 0:
-            self._slider.setMaximum(n - 1)
-            self._slider.setEnabled(True)
-        else:
-            self._slider.setMaximum(0)
-            self._slider.setEnabled(False)
-
     def _poll_tick(self) -> None:
         """Check for new iterations and update display."""
-        if self._adaptive is None:
+        if self._adaptive is None or not self._field_name:
             return
 
         was_at_end = (
@@ -270,7 +311,16 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         )
 
         old_count = self._n_iterations
-        self._update_iteration_count()
+
+        try:
+            n = 0
+            for field in _HEATMAP_FIELDS:
+                if field in self._adaptive:
+                    n = self._adaptive[field].shape[0]
+                    break
+            self._n_iterations = n
+        except Exception:
+            return
 
         if self._n_iterations == old_count:
             self._stale_count += 1
@@ -279,82 +329,71 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
                 logger.debug("AdaptiveHeatmap: polling stopped (stale)")
             return
 
-        # New data found
+        # New iterations arrived
         self._stale_count = 0
-        new_index = self._n_iterations - 1 if was_at_end else self._current_index
-        self._slider.setValue(new_index)
+
+        timestamps = np.arange(self._n_iterations, dtype=np.float64)
+        self._image_view.updateFrameCount(self._n_iterations, timestamps)
+
+        if was_at_end:
+            new_index = self._n_iterations - 1
+            self._image_view.setCurrentIndex(new_index)
+            self._current_index = new_index
+            self._apply_grid_rect()
+            self._update_overlays()
+
+        self._update_status()
 
     # ------------------------------------------------------------------
-    # Iteration loading / rendering
+    # Iteration / overlay callbacks
     # ------------------------------------------------------------------
 
-    def _on_slider_changed(self, index: int) -> None:
-        if index < 0 or index >= self._n_iterations:
+    def _on_iteration_changed(self, ind: int, _time: float) -> None:
+        """Called when the user scrubs the timeline."""
+        self._current_index = ind
+        self._update_overlays()
+        self._update_status()
+
+    def _on_overlay_toggled(self, _checked: bool) -> None:
+        self._update_overlays()
+
+    def _apply_grid_rect(self) -> None:
+        """Map pixel coordinates to physical grid coordinates via setRect."""
+        if self._grid_x is None or self._grid_y is None:
             return
-        self._current_index = index
-        self._iter_label.setText(f"{index + 1}/{self._n_iterations}")
-        self._load_current_iteration()
+        x0, x1 = float(self._grid_x[0]), float(self._grid_x[-1])
+        y0, y1 = float(self._grid_y[0]), float(self._grid_y[-1])
+        self._image_view.imageItem.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
 
-    def _load_current_iteration(self) -> None:
-        if (
-            self._adaptive is None
-            or self._n_iterations == 0
-            or self._current_index < 0
-            or not self._field_name
-        ):
+    def _update_overlays(self) -> None:
+        """Refresh both scatter overlays for the current iteration."""
+        self._update_target_overlay()
+        self._update_measurement_overlay()
+
+    def _update_target_overlay(self) -> None:
+        if self._target_scatter is None:
             return
-
-        idx = self._current_index
-
-        # Render heatmap — read one slice from the zarr array
-        try:
-            if self._field_name in self._adaptive:
-                flat = np.asarray(self._adaptive[self._field_name][idx])
-                if self._grid_shape:
-                    data = flat.reshape(self._grid_shape)
-                else:
-                    # Guess square grid
-                    side = int(np.sqrt(len(flat)))
-                    data = flat.reshape(side, side) if side * side == len(flat) else flat
-                self._update_image(data)
-        except Exception as exc:
-            logger.debug("AdaptiveHeatmap: could not load {}: {}", self._field_name, exc)
-
-        # Target overlay
+        if not self._target_check.isChecked():
+            self._target_scatter.clear()
+            return
+        if self._adaptive is None or self._current_index < 0:
+            self._target_scatter.clear()
+            return
         try:
             if "targets" in self._adaptive:
-                targets = np.asarray(self._adaptive["targets"][idx])
-                if self._target_check.isChecked() and len(targets) > 0:
-                    self._update_target_overlay(targets)
+                targets = np.asarray(self._adaptive["targets"][self._current_index])
+                if len(targets) > 0:
+                    if targets.ndim == 2 and targets.shape[1] >= 2:
+                        self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
+                    elif targets.ndim == 1 and len(targets) >= 2:
+                        self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
+                    else:
+                        self._target_scatter.clear()
                 else:
                     self._target_scatter.clear()
             else:
                 self._target_scatter.clear()
         except Exception:
-            self._target_scatter.clear()
-
-        # Measurement overlay
-        self._update_measurement_overlay()
-
-    def _update_image(self, data: np.ndarray) -> None:
-        if self._image_item is None or self._grid_x is None or self._grid_y is None:
-            return
-        x0, x1 = float(self._grid_x[0]), float(self._grid_x[-1])
-        y0, y1 = float(self._grid_y[0]), float(self._grid_y[-1])
-        from PySide6.QtCore import QRectF
-
-        self._image_item.setImage(data.T)
-        self._image_item.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
-
-    def _update_target_overlay(self, targets: np.ndarray) -> None:
-        if self._target_scatter is None:
-            return
-        if targets.ndim == 2 and targets.shape[1] >= 2:
-            self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
-        elif targets.ndim == 1 and len(targets) >= 2:
-            # Flat target pair for single target
-            self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
-        else:
             self._target_scatter.clear()
 
     def _update_measurement_overlay(self) -> None:
@@ -363,7 +402,6 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             if self._meas_scatter is not None:
                 self._meas_scatter.clear()
             return
-
         if self._run is None:
             return
 
@@ -371,13 +409,12 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
         try:
             start = self._run.metadata.get("start", {})
             dims = start.get("hints", {}).get("dimensions", [])
-            x_field = dims[0][0][0]  # first dim -> first field
-            y_field = dims[1][0][0]  # second dim -> first field
+            x_field = dims[0][0][0]
+            y_field = dims[1][0][0]
         except (IndexError, KeyError, TypeError):
             self._meas_scatter.clear()
             return
 
-        # Read from primary stream
         try:
             primary = self._run["primary"]
             x_data = np.asarray(primary[x_field].read())
@@ -390,19 +427,14 @@ class AdaptiveHeatmapVisualization(BaseVisualization):
             self._meas_scatter.clear()
 
     # ------------------------------------------------------------------
-    # Overlay / colormap callbacks
+    # Status
     # ------------------------------------------------------------------
 
-    def _on_overlay_toggled(self, _checked: bool) -> None:
-        self._load_current_iteration()
-
-    def _apply_colormap(self, cmap_name: str) -> None:
-        try:
-            cmap = pg.colormap.get(cmap_name)
-            if cmap and self._image_item:
-                self._image_item.setLookupTable(cmap.getLookupTable(nPts=256))
-        except Exception as exc:
-            logger.debug("AdaptiveHeatmap: colormap '{}' failed: {}", cmap_name, exc)
+    def _update_status(self) -> None:
+        current_idx = self._image_view.currentIndex if self._image_view else 0
+        total = self._n_iterations
+        current = current_idx + 1 if total > 0 else 0
+        self._time_axis.setLabel(f"Iteration {current}/{total}")
 
     # ------------------------------------------------------------------
     # Cleanup

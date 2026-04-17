@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import numpy as np
@@ -15,17 +14,28 @@ import pytest
 
 
 class FakeArray:
-    """Fake Tiled array node: supports .read()."""
+    """Fake Tiled array node: supports indexing, .shape, .read()."""
 
     def __init__(self, data: np.ndarray):
         self._data = data
+
+    @property
+    def shape(self):
+        return self._data.shape
+
+    @property
+    def ndim(self):
+        return self._data.ndim
+
+    def __getitem__(self, key):
+        return self._data[key]
 
     def read(self):
         return self._data.copy()
 
 
 class FakeContainer:
-    """Fake Tiled container node: supports [], .keys(), .metadata."""
+    """Fake Tiled container node: supports [], .keys(), iter, in, .metadata."""
 
     def __init__(
         self,
@@ -41,6 +51,9 @@ class FakeContainer:
     def __getitem__(self, key: str):
         return self._children[key]
 
+    def __iter__(self):
+        return iter(self._children)
+
     def keys(self):
         return list(self._children.keys())
 
@@ -49,54 +62,58 @@ class FakeContainer:
         return self._metadata
 
 
-def _make_iter_container(
-    grid_res: int = 10,
-    *,
-    has_mean: bool = True,
-    has_var: bool = True,
-    has_acq: bool = True,
-    has_hp: bool = True,
-    has_targets: bool = True,
-) -> FakeContainer:
-    """Build a single iter_NNN container with optional arrays."""
-    arrays: dict[str, Any] = {}
-    if has_mean:
-        arrays["posterior_mean"] = FakeArray(np.random.rand(grid_res, grid_res))
-    if has_var:
-        arrays["posterior_variance"] = FakeArray(np.random.rand(grid_res, grid_res))
-    if has_acq:
-        arrays["acquisition_function"] = FakeArray(np.random.rand(grid_res, grid_res))
-    if has_hp:
-        arrays["hyperparameters"] = FakeArray(np.array([1.0, 2.0, 3.0]))
-    if has_targets:
-        arrays["targets"] = FakeArray(np.array([[25.0, 12.5], [50.0, 25.0]]))
-    return FakeContainer(children=arrays)
-
-
-def _make_adaptive_container(
+def _make_adaptive_stream(
     n_iters: int = 3,
     grid_res: int = 10,
     *,
     has_z: bool = False,
-    iter_kwargs: dict | None = None,
+    has_mean: bool = True,
+    has_var: bool = True,
+    has_acq: bool = True,
+    has_targets: bool = True,
 ) -> FakeContainer:
-    """Build a fake adaptive container with config + iter_NNN children."""
-    config_children: dict[str, Any] = {
-        "evaluation_grid_x": FakeArray(np.linspace(0, 100, grid_res)),
-        "evaluation_grid_y": FakeArray(np.linspace(0, 50, grid_res)),
+    """Build a fake adaptive stream matching the real zarr-array layout.
+
+    Children are field-level arrays with shape ``(n_iters, flat_size)``.
+    Grid config and data_keys live in ``.metadata``.
+    """
+    flat_size = grid_res * grid_res
+    children: dict[str, Any] = {}
+    data_keys: dict[str, Any] = {}
+
+    if has_mean:
+        children["posterior_mean"] = FakeArray(
+            np.random.rand(n_iters, flat_size)
+        )
+        data_keys["posterior_mean"] = {"grid_shape": [grid_res, grid_res]}
+    if has_var:
+        children["posterior_variance"] = FakeArray(
+            np.random.rand(n_iters, flat_size)
+        )
+    if has_acq:
+        children["acquisition_function"] = FakeArray(
+            np.random.rand(n_iters, flat_size)
+        )
+    if has_targets:
+        # Each iteration gets a (2, 2) target array → shape (n_iters, 2, 2)
+        children["targets"] = FakeArray(
+            np.random.rand(n_iters, 2, 2) * 50
+        )
+
+    # Grid config stored in metadata.configuration.tsuchinoko.data
+    grid_config: dict[str, Any] = {
+        "evaluation_grid_x": np.linspace(0, 100, grid_res).tolist(),
+        "evaluation_grid_y": np.linspace(0, 50, grid_res).tolist(),
     }
     if has_z:
-        config_children["evaluation_grid_z"] = FakeArray(np.linspace(0, 25, grid_res))
-    config = FakeContainer(children=config_children)
+        grid_config["evaluation_grid_z"] = np.linspace(0, 25, grid_res).tolist()
 
-    children: dict[str, Any] = {"config": config}
-    kw = iter_kwargs or {}
-    for i in range(1, n_iters + 1):
-        children[f"iter_{i:03d}"] = _make_iter_container(grid_res, **kw)
-
-    return FakeContainer(
-        children=children, metadata={"adaptive_engine": "tsuchinoko"}
-    )
+    metadata = {
+        "adaptive_engine": "tsuchinoko",
+        "configuration": {"tsuchinoko": {"data": grid_config}},
+        "data_keys": data_keys,
+    }
+    return FakeContainer(children=children, metadata=metadata)
 
 
 def _make_run(
@@ -105,17 +122,14 @@ def _make_run(
     primary_events: dict[str, np.ndarray] | None = None,
     dim_fields: tuple[str, str] = ("motor_x", "motor_y"),
 ) -> FakeContainer:
-    """Build a top-level fake BlueskyRun with 'adaptive' and optional 'primary'."""
+    """Build a top-level fake BlueskyRun."""
     children: dict[str, Any] = {}
     if adaptive is not None:
         children["adaptive"] = adaptive
 
-    # Build a minimal primary stream for measurement overlay tests
     if primary_events is not None:
-        events_data = {k: FakeArray(v) for k, v in primary_events.items()}
-        events = FakeContainer(children=events_data)
-        internal = FakeContainer(children={"events": events})
-        primary = FakeContainer(children={"internal": internal})
+        primary_children = {k: FakeArray(v) for k, v in primary_events.items()}
+        primary = FakeContainer(children=primary_children)
         children["primary"] = primary
 
     start_md: dict[str, Any] = {}
@@ -139,7 +153,7 @@ class TestCanHandle:
             AdaptiveHeatmapVisualization,
         )
 
-        adaptive = _make_adaptive_container(n_iters=2)
+        adaptive = _make_adaptive_stream(n_iters=2)
         run = _make_run(adaptive)
         assert AdaptiveHeatmapVisualization.can_handle(run) == 90
 
@@ -157,7 +171,7 @@ class TestCanHandle:
         )
 
         adaptive = FakeContainer(
-            children={"config": FakeContainer()},
+            children={},
             metadata={"adaptive_engine": "other"},
         )
         run = _make_run(adaptive)
@@ -168,7 +182,7 @@ class TestCanHandle:
             AdaptiveHeatmapVisualization,
         )
 
-        adaptive = _make_adaptive_container(n_iters=1, has_z=True)
+        adaptive = _make_adaptive_stream(n_iters=1, has_z=True)
         run = _make_run(adaptive)
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
@@ -177,20 +191,7 @@ class TestCanHandle:
             AdaptiveHeatmapVisualization,
         )
 
-        adaptive = FakeContainer(
-            children={"config": FakeContainer()}, metadata={}
-        )
-        run = _make_run(adaptive)
-        assert AdaptiveHeatmapVisualization.can_handle(run) == 0
-
-    def test_returns_zero_for_no_config(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
-            AdaptiveHeatmapVisualization,
-        )
-
-        adaptive = FakeContainer(
-            children={}, metadata={"adaptive_engine": "tsuchinoko"}
-        )
+        adaptive = FakeContainer(children={}, metadata={})
         run = _make_run(adaptive)
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
@@ -214,7 +215,7 @@ class TestSetRunAndFields:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=2)
+        adaptive = _make_adaptive_stream(n_iters=2)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -232,9 +233,7 @@ class TestSetRunAndFields:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(
-            n_iters=1, iter_kwargs={"has_acq": False}
-        )
+        adaptive = _make_adaptive_stream(n_iters=1, has_acq=False)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -251,7 +250,7 @@ class TestSetRunAndFields:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=1)
+        adaptive = _make_adaptive_stream(n_iters=1)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -275,7 +274,7 @@ class TestSetField:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=1)
+        adaptive = _make_adaptive_stream(n_iters=1)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -286,11 +285,7 @@ class TestSetField:
         w.set_field("posterior_variance")
         assert w._field_name == "posterior_variance"
 
-
-class TestIterationDiscovery:
-    """Iteration discovery and slider logic."""
-
-    def test_discovers_sorted_iterations(self, qtbot):
+    def test_set_field_configures_image_view(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
@@ -298,14 +293,18 @@ class TestIterationDiscovery:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=3)
+        adaptive = _make_adaptive_stream(n_iters=3, grid_res=5)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
 
-        assert w._iters == ["iter_001", "iter_002", "iter_003"]
+        # Should have configured LazyImageView with 3 iterations
+        assert w._n_iterations == 3
+        assert w._image_view.frame_count == 3
+        # Should be on the latest iteration
+        assert w._current_index == 2
 
-    def test_slider_max_matches_iteration_count(self, qtbot):
+    def test_set_field_sets_frame_shape(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
@@ -313,38 +312,17 @@ class TestIterationDiscovery:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=5)
+        adaptive = _make_adaptive_stream(n_iters=1, grid_res=8)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
 
-        assert w._slider.maximum() == 4  # 0-indexed
+        # grid_shape = [8, 8], transposed for col-major → (8, 8)
+        assert w._frame_shape == (8, 8)
 
 
 class TestPolling:
     """Polling timer behavior."""
-
-    def test_new_iteration_updates_list(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
-            AdaptiveHeatmapVisualization,
-        )
-
-        w = AdaptiveHeatmapVisualization()
-        qtbot.addWidget(w)
-
-        adaptive = _make_adaptive_container(n_iters=2)
-        run = _make_run(adaptive)
-        w.set_run(run)
-        w.set_stream("adaptive")
-
-        assert len(w._iters) == 2
-
-        # Simulate adding a new iteration
-        adaptive._children["iter_003"] = _make_iter_container()
-        w._poll_tick()
-
-        assert len(w._iters) == 3
-        assert "iter_003" in w._iters
 
     def test_stale_polling_stops_timer(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
@@ -354,7 +332,7 @@ class TestPolling:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=2)
+        adaptive = _make_adaptive_stream(n_iters=2)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -374,7 +352,7 @@ class TestPolling:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=2)
+        adaptive = _make_adaptive_stream(n_iters=2)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
@@ -383,14 +361,33 @@ class TestPolling:
         w._poll_tick()
         assert w._stale_count == 2
 
-        # Add new iteration
-        adaptive._children["iter_003"] = _make_iter_container()
+        # Grow the posterior_mean array (simulating new iteration)
+        old_data = adaptive._children["posterior_mean"]._data
+        new_row = np.random.rand(1, old_data.shape[1])
+        adaptive._children["posterior_mean"] = FakeArray(
+            np.vstack([old_data, new_row])
+        )
         w._poll_tick()
         assert w._stale_count == 0
 
 
-class TestSliderAutoFollow:
-    """Slider auto-follow behavior."""
+class TestTimelineScrubbing:
+    """Timeline (ImageView) replaces the old slider."""
+
+    def test_initial_position_is_last_iteration(self, qtbot):
+        from lucid.visualization.widgets.adaptive.heatmap import (
+            AdaptiveHeatmapVisualization,
+        )
+
+        w = AdaptiveHeatmapVisualization()
+        qtbot.addWidget(w)
+
+        adaptive = _make_adaptive_stream(n_iters=5)
+        run = _make_run(adaptive)
+        w.set_run(run)
+        w.set_stream("adaptive")
+
+        assert w._current_index == 4  # 0-indexed last
 
     def test_auto_advances_when_at_end(self, qtbot):
         from lucid.visualization.widgets.adaptive.heatmap import (
@@ -400,43 +397,22 @@ class TestSliderAutoFollow:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=2)
+        adaptive = _make_adaptive_stream(n_iters=2)
         run = _make_run(adaptive)
         w.set_run(run)
         w.set_stream("adaptive")
 
-        # Slider should be at end (index 1)
-        assert w._slider.value() == 1
+        assert w._current_index == 1  # at end
 
-        # Add a new iteration and poll
-        adaptive._children["iter_003"] = _make_iter_container()
-        w._poll_tick()
-
-        # Should have advanced to index 2
-        assert w._slider.value() == 2
-
-    def test_stays_put_when_not_at_end(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
-            AdaptiveHeatmapVisualization,
+        # Grow the array
+        old_data = adaptive._children["posterior_mean"]._data
+        new_row = np.random.rand(1, old_data.shape[1])
+        adaptive._children["posterior_mean"] = FakeArray(
+            np.vstack([old_data, new_row])
         )
-
-        w = AdaptiveHeatmapVisualization()
-        qtbot.addWidget(w)
-
-        adaptive = _make_adaptive_container(n_iters=2)
-        run = _make_run(adaptive)
-        w.set_run(run)
-        w.set_stream("adaptive")
-
-        # Move slider back to index 0
-        w._slider.setValue(0)
-
-        # Add a new iteration and poll
-        adaptive._children["iter_003"] = _make_iter_container()
         w._poll_tick()
 
-        # Should stay at index 0
-        assert w._slider.value() == 0
+        assert w._current_index == 2  # advanced to new end
 
 
 class TestGetStreams:
@@ -450,7 +426,7 @@ class TestGetStreams:
         w = AdaptiveHeatmapVisualization()
         qtbot.addWidget(w)
 
-        adaptive = _make_adaptive_container(n_iters=1)
+        adaptive = _make_adaptive_stream(n_iters=1)
         run = _make_run(adaptive)
         w.set_run(run)
 
