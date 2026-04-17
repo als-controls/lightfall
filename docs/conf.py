@@ -26,6 +26,14 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# Suppress warnings that are unavoidable in CI or in auto-generated plan docs
+suppress_warnings = [
+    "toc.not_included",         # plan/spec docs aren't in a toctree
+    "myst.header",              # non-consecutive headers in plan docs
+    "autodoc.import_object",    # PySide6 can't import in headless CI (no libGL)
+    "misc.highlighting_failure",  # code blocks with approximate language tags
+]
+
 # Markdown configuration
 myst_enable_extensions = [
     "colon_fence",  # ::: directives

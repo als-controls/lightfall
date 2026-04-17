@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DeviceCategory(StrEnum):
@@ -191,11 +191,7 @@ class DeviceInfo(BaseModel):
     _state: DeviceState | None = None
     _ophyd_device: Any = None  # The actual ophyd device instance
 
-    class Config:
-        """Pydantic config."""
-
-        # Allow arbitrary types for ophyd device
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def state(self) -> DeviceState | None:
