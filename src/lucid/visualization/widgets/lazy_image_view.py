@@ -382,6 +382,14 @@ class LazyImageView(pg.ImageView):
         gen = self._fetch_gen
         index = self.currentIndex
 
+        def do_fetch() -> np.ndarray:
+            frame = self._fetch_frame(index)
+            # Ensure the array is fully resolved, contiguous, and owns its
+            # data before it crosses the thread boundary via sigResult.
+            # _fetch_frame may return a transposed view backed by a buffer
+            # (e.g. httpx response content) that could be freed.
+            return np.ascontiguousarray(frame)
+
         def on_result(raw_frame: np.ndarray) -> None:
             if gen != self._fetch_gen:
                 return  # Stale — user has already scrubbed past this frame
@@ -391,8 +399,7 @@ class LazyImageView(pg.ImageView):
                 pass  # Widget destroyed while fetch was in flight
 
         future = QThreadFuture(
-            self._fetch_frame,
-            index,
+            do_fetch,
             callback_slot=on_result,
             except_slot=lambda e: logger.debug(
                 "LazyImageView: async fetch for frame {} failed: {}", index, e,
