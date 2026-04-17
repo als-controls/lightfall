@@ -253,23 +253,30 @@ class LazyImageView(pg.ImageView):
         This ensures the histogram always shows the distribution in
         linear intensity units, regardless of log display mode.
         """
-        lo = float(np.nanmin(real_frame))
-        hi = float(np.nanmax(real_frame))
+        from lucid.utils.logging import log_time
+
+        with log_time("  _set_hist_from_real: nanmin/nanmax", level="DEBUG"):
+            lo = float(np.nanmin(real_frame))
+            hi = float(np.nanmax(real_frame))
         self._imageLevels = [(lo, hi)]
         self.levelMin = lo
         self.levelMax = hi
 
         if auto_range:
-            self.ui.histogram.setHistogramRange(lo, hi)
+            with log_time("  _set_hist_from_real: setHistogramRange", level="DEBUG"):
+                self.ui.histogram.setHistogramRange(lo, hi)
 
         # Manually set histogram bins from real data
-        step = max(1, real_frame.size // 500_000)
-        vals = real_frame.ravel()[::step].astype(np.float64)
-        # Explicit range avoids ValueError when all values are identical
-        hist_range = (lo, hi) if lo < hi else (lo - 0.5, lo + 0.5)
-        hist_counts, hist_edges = np.histogram(vals, bins=256, range=hist_range)
-        hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
-        self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
+        with log_time("  _set_hist_from_real: np.histogram", level="DEBUG"):
+            step = max(1, real_frame.size // 500_000)
+            vals = real_frame.ravel()[::step].astype(np.float64)
+            # Explicit range avoids ValueError when all values are identical
+            hist_range = (lo, hi) if lo < hi else (lo - 0.5, lo + 0.5)
+            hist_counts, hist_edges = np.histogram(vals, bins=256, range=hist_range)
+            hist_centers = (hist_edges[:-1] + hist_edges[1:]) / 2
+
+        with log_time("  _set_hist_from_real: plot.setData", level="DEBUG"):
+            self.ui.histogram.item.plot.setData(hist_centers, hist_counts)
 
     def _set_hist_bins(self, real_frame: np.ndarray) -> None:
         """Set only the histogram bins (not range/levels) from real data."""
@@ -310,12 +317,15 @@ class LazyImageView(pg.ImageView):
         """
         if not self._log_mode or self._applying_log_levels:
             return
-        # pyqtgraph's regionChanged already called imageItem.setLevels
-        # with real-unit levels AND triggered imageChanged which
-        # recomputed histogram bins from log data.  Fix both:
-        if self._last_real_frame is not None:
-            self._set_hist_bins(self._last_real_frame)
-        self._apply_log_levels()
+        from lucid.utils.logging import log_time
+
+        with log_time("_on_hist_levels_changed (reactive)", level="DEBUG"):
+            # pyqtgraph's regionChanged already called imageItem.setLevels
+            # with real-unit levels AND triggered imageChanged which
+            # recomputed histogram bins from log data.  Fix both:
+            if self._last_real_frame is not None:
+                self._set_hist_bins(self._last_real_frame)
+            self._apply_log_levels()
 
     # ------------------------------------------------------------------
     # Overrides
@@ -374,11 +384,15 @@ class LazyImageView(pg.ImageView):
 
     def _update_image_sync(self, autoHistogramRange: bool) -> None:
         """Fetch and apply the current frame on the calling thread."""
-        raw_frame = self._fetch_frame(self.currentIndex)
+        from lucid.utils.logging import log_time
+
+        with log_time("_update_image_sync: _fetch_frame (main thread!)", level="DEBUG"):
+            raw_frame = self._fetch_frame(self.currentIndex)
         self._apply_fetched_frame(raw_frame, autoHistogramRange)
 
     def _update_image_async(self, autoHistogramRange: bool) -> None:
         """Kick off a background fetch; apply on the main thread when done."""
+        from lucid.utils.logging import log_time
         from lucid.utils.threads import QThreadFuture
 
         self._fetch_gen += 1
@@ -386,30 +400,31 @@ class LazyImageView(pg.ImageView):
         index = self.currentIndex
 
         def do_fetch() -> np.ndarray:
-            frame = self._fetch_frame(index)
-            # Ensure the array is fully resolved, contiguous, and owns its
-            # data before it crosses the thread boundary via sigResult.
-            # _fetch_frame may return a transposed view backed by a buffer
-            # (e.g. httpx response content) that could be freed.
-            return np.ascontiguousarray(frame)
+            with log_time(f"do_fetch[{index}]: _fetch_frame (worker thread)", level="DEBUG"):
+                frame = self._fetch_frame(index)
+            with log_time(f"do_fetch[{index}]: ascontiguousarray (worker thread)", level="DEBUG"):
+                resolved = np.ascontiguousarray(frame)
+            return resolved
 
         def on_result(raw_frame: np.ndarray) -> None:
             if gen != self._fetch_gen:
-                return  # Stale — user has already scrubbed past this frame
+                logger.debug("Stale frame {} discarded (gen {} != {})", index, gen, self._fetch_gen)
+                return
             try:
                 self._apply_fetched_frame(raw_frame, autoHistogramRange)
             except RuntimeError:
                 pass  # Widget destroyed while fetch was in flight
 
-        future = QThreadFuture(
-            do_fetch,
-            callback_slot=on_result,
-            except_slot=lambda e: logger.debug(
-                "LazyImageView: async fetch for frame {} failed: {}", index, e,
-            ),
-            register=False,  # avoid blocking cancel-on-key during scrubbing
-            name=f"frame-{index}",
-        )
+        with log_time("_update_image_async: QThreadFuture setup", level="DEBUG"):
+            future = QThreadFuture(
+                do_fetch,
+                callback_slot=on_result,
+                except_slot=lambda e: logger.debug(
+                    "LazyImageView: async fetch for frame {} failed: {}", index, e,
+                ),
+                register=False,  # avoid blocking cancel-on-key during scrubbing
+                name=f"frame-{index}",
+            )
 
         # Keep the future alive until it finishes — prevents Python's
         # refcount GC from destroying the object (and tearing down the
@@ -423,13 +438,17 @@ class LazyImageView(pg.ImageView):
         self, raw_frame: np.ndarray, autoHistogramRange: bool
     ) -> None:
         """Process and display a fetched frame (called from either thread path)."""
-        real_frame = self._bg_correct_frame(raw_frame)
+        from lucid.utils.logging import log_time
+
+        with log_time("_apply_fetched_frame: bg_correct", level="DEBUG"):
+            real_frame = self._bg_correct_frame(raw_frame)
         self._last_real_frame = real_frame
 
-        if self._log_mode:
-            display_frame = np.log1p(real_frame)
-        else:
-            display_frame = real_frame
+        with log_time("_apply_fetched_frame: log1p / copy", level="DEBUG"):
+            if self._log_mode:
+                display_frame = np.log1p(real_frame)
+            else:
+                display_frame = real_frame
 
         # Guard: pyqtgraph requires a 2D array
         if display_frame.ndim != 2:
@@ -443,13 +462,16 @@ class LazyImageView(pg.ImageView):
 
         # Display frame on ImageItem (may trigger histogram auto-update
         # with wrong bins if log is on — corrected immediately below).
-        self.imageItem.updateImage(display_frame)
+        with log_time("_apply_fetched_frame: imageItem.updateImage", level="DEBUG"):
+            self.imageItem.updateImage(display_frame)
 
         # Always set histogram from real data (overwrites any auto-update)
-        self._set_hist_from_real(real_frame, auto_range=autoHistogramRange)
+        with log_time("_apply_fetched_frame: _set_hist_from_real", level="DEBUG"):
+            self._set_hist_from_real(real_frame, auto_range=autoHistogramRange)
 
         # Apply log-mapped levels
-        self._apply_log_levels()
+        with log_time("_apply_fetched_frame: _apply_log_levels", level="DEBUG"):
+            self._apply_log_levels()
 
     def getProcessedImage(self) -> np.ndarray:
         """Return the current single frame (skip normalisation).
@@ -457,8 +479,11 @@ class LazyImageView(pg.ImageView):
         Lazy path: returns the BG-corrected (real-unit) frame.
         Eager path: delegates to base class for normal stack processing.
         """
+        from lucid.utils.logging import log_time
+
         if self._client is not None:
-            raw_frame = self._fetch_frame(self.currentIndex)
+            with log_time("getProcessedImage: _fetch_frame (main thread!)", level="DEBUG"):
+                raw_frame = self._fetch_frame(self.currentIndex)
             real_frame = self._bg_correct_frame(raw_frame)
             # Cache levels from real data
             self._imageLevels = self.quickMinMax(real_frame)
@@ -478,6 +503,8 @@ class LazyImageView(pg.ImageView):
 
         Always returns real-unit (not log-transformed) extremes.
         """
+        from lucid.utils.logging import log_time
+
         # If called with a real numpy array (single frame), compute directly
         if isinstance(data, np.ndarray):
             if data.size == 0:
@@ -500,14 +527,15 @@ class LazyImageView(pg.ImageView):
         global_min = np.inf
         global_max = -np.inf
 
-        for idx in indices:
-            frame = self._bg_correct_frame(self._fetch_frame(int(idx)))
-            lo = float(np.nanmin(frame))
-            hi = float(np.nanmax(frame))
-            if lo < global_min:
-                global_min = lo
-            if hi > global_max:
-                global_max = hi
+        with log_time(f"quickMinMax: fetching {n_samples} frames", level="DEBUG"):
+            for idx in indices:
+                frame = self._bg_correct_frame(self._fetch_frame(int(idx)))
+                lo = float(np.nanmin(frame))
+                hi = float(np.nanmax(frame))
+                if lo < global_min:
+                    global_min = lo
+                if hi > global_max:
+                    global_max = hi
 
         result = [(global_min, global_max)]
         self._minmax_cache = result
