@@ -299,18 +299,18 @@ class TestDevicePanelContextMenu:
 
     def test_context_menu_policy_set(self, qapp):
         """Tree view should have CustomContextMenu policy."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
         from lucid.ui.models.device_tree import DeviceTreeModel
-        DevicePanel._instance = None
+        catalog = MagicMock()
+        catalog.get_all_devices.return_value = []
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
-            panel = DevicePanel()
-            panel._tree_tab._model._value_timer.stop()
+            tab = DeviceTreeTab(catalog=catalog)
+            tab._model._value_timer.stop()
         assert (
-            panel._tree_tab._tree_view.contextMenuPolicy()
+            tab._tree_view.contextMenuPolicy()
             == Qt.ContextMenuPolicy.CustomContextMenu
         )
-        panel.close()
-        DevicePanel._instance = None
+        tab.close()
 
     def test_context_menu_on_device_has_favorites(self, qapp):
         """Context menu on a device should include Add to Favorites."""
@@ -379,18 +379,18 @@ class TestDevicePanelContextMenu:
         assert tab._get_backend_editable() is True
         tab.close()
 
-    def test_device_panel_delegates_to_tree_tab(self, qapp):
-        """DevicePanel should have a _tree_tab with context menu support."""
-        from lucid.ui.panels.device_panel import DevicePanel
+    def test_device_tree_tab_has_context_menu_support(self, qapp):
+        """DeviceTreeTab should have context menu support methods."""
+        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
         from lucid.ui.models.device_tree import DeviceTreeModel
-        DevicePanel._instance = None
+        catalog = MagicMock()
+        catalog.get_all_devices.return_value = []
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
-            panel = DevicePanel()
-            panel._tree_tab._model._value_timer.stop()
-        assert hasattr(panel._tree_tab, '_on_context_menu')
-        assert hasattr(panel._tree_tab, '_get_backend_editable')
-        panel.close()
-        DevicePanel._instance = None
+            tab = DeviceTreeTab(catalog=catalog)
+            tab._model._value_timer.stop()
+        assert hasattr(tab, '_on_context_menu')
+        assert hasattr(tab, '_get_backend_editable')
+        tab.close()
 
 
 class TestInactiveDeviceInteraction:

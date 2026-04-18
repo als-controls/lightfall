@@ -96,7 +96,7 @@ class TestAdaptiveExperimentPlan:
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=[MagicMock()],
-            experiment_id="test",
+
             timeout=0.1,
             poll_interval=0.01,
         )
@@ -120,7 +120,7 @@ class TestAdaptiveExperimentPlan:
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=motors,
-            experiment_id="test",
+
             timeout=0.3,
             poll_interval=0.01,
         )
@@ -136,13 +136,15 @@ class TestAdaptiveExperimentPlan:
             ],
         })
         monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr(
+            "lucid.acquire.plans.adaptive._get_lucid_prefix",
+            lambda: "test.lucid",
+        )
 
         _state.stop_requested = False
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=[MagicMock(), MagicMock()],
-            experiment_id="test",
-            lucid_prefix="test.lucid",
             exhaust_first=False,
             timeout=0.3,
             poll_interval=0.01,
@@ -163,13 +165,15 @@ class TestAdaptiveExperimentPlan:
             ],
         })
         monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr(
+            "lucid.acquire.plans.adaptive._get_lucid_prefix",
+            lambda: "test.lucid",
+        )
 
         _state.stop_requested = False
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=[MagicMock(), MagicMock()],
-            experiment_id="test",
-            lucid_prefix="test.lucid",
             exhaust_first=True,
             timeout=0.3,
             poll_interval=0.01,
@@ -203,7 +207,7 @@ class TestAdaptiveExperimentPlan:
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=[MagicMock()],
-            experiment_id="test",
+
             timeout=5.0,
             poll_interval=0.01,
         )
@@ -228,7 +232,7 @@ class TestAdaptiveExperimentPlan:
         gen = adaptive_experiment(
             detectors=[MagicMock()],
             motors=[MagicMock()],
-            experiment_id="test",
+
             timeout=0.1,
             poll_interval=0.01,
         )

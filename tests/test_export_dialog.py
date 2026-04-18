@@ -137,8 +137,11 @@ class TestLoadSampleFrame:
 
         return client
 
-    def test_loads_middle_frame_from_3d(self):
+    @patch("lucid.utils.tiled_helpers.fetch_frame")
+    def test_loads_middle_frame_from_3d(self, mock_fetch):
         image_data = np.arange(30).reshape(3, 2, 5).astype(np.float32)
+        # fetch_frame is called for 3D data — mock it to return the middle frame
+        mock_fetch.return_value = image_data[1]
         client = self._make_mock_client(image_data)
 
         frame = load_sample_frame(client, "run-key")
@@ -146,6 +149,7 @@ class TestLoadSampleFrame:
         assert frame.shape == (2, 5)
         # Middle frame of 3 is index 1
         np.testing.assert_array_equal(frame, image_data[1])
+        mock_fetch.assert_called_once()
 
     def test_loads_2d_directly(self):
         image_data = np.ones((50, 60), dtype=np.float32)
