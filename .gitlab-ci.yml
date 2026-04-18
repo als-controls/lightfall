@@ -37,15 +37,19 @@ test:
   stage: test
   image: python:${PYTHON_VERSION}
   variables:
+    QT_QPA_PLATFORM: offscreen
+    QT_OPENGL: software
+    QSG_RHI_BACKEND: "null"
     LIBGL_ALWAYS_SOFTWARE: "1"
   before_script:
-    - apt-get update && apt-get install -y xvfb libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libopengl0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+    - apt-get update && apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libopengl0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
     - pip install -e ".[dev]"
   script:
+    # PySide6 6.11 segfaults when Qt event loop ticks OpenGL-backed widgets
+    # in headless Docker without GPU. Run with --forked to isolate crashes
+    # to individual tests instead of killing the entire suite.
     - pip install pytest-forked
-    # xvfb provides a virtual display for Qt; --forked isolates PySide6 crashes
     - >-
-      xvfb-run --auto-servernum
       pytest tests/ -v --tb=short --forked
       --cov=src/lucid --cov-report=xml:coverage.xml
   artifacts:
