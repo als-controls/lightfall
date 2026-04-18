@@ -48,12 +48,12 @@ test:
     # PySide6 6.11 segfaults when Qt event loop ticks OpenGL-backed widgets
     # in headless Docker without GPU. Run with --forked to isolate crashes
     # to individual tests instead of killing the entire suite.
-    - pip install pytest-xdist
+    - pip install pytest-xdist pytest-timeout
     # pytest-xdist spawns fresh worker processes (not fork), so PySide6
-    # state is cleanly initialized in each worker. Workers that crash
-    # from PySide6 widget segfaults are replaced automatically.
+    # state is cleanly initialized in each worker.
+    # --timeout=60 kills tests that hang (e.g. Qt widget deadlocks).
     - >-
-      pytest tests/ -v --tb=short -n auto
+      pytest tests/ -v --tb=short -n auto --timeout=60
       --cov=src/lucid --cov-report=xml:coverage.xml
   artifacts:
     paths:
