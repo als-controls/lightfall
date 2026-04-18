@@ -49,9 +49,7 @@ test:
     # in headless Docker without GPU. Run with --forked to isolate crashes
     # to individual tests instead of killing the entire suite.
     - pip install pytest-forked
-    - >-
-      pytest tests/ -v --tb=short --forked
-      --cov=src/lucid --cov-report=xml:coverage.xml
+    - pytest tests/ --tb=short --forked -q
   artifacts:
     paths:
       - coverage.xml
