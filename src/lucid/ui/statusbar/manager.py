@@ -83,13 +83,13 @@ class StatusBarManager:
             self._loader = services.get(PluginLoader)
             self._loader.plugin_loaded.connect(self._on_plugin_loaded)
             logger.debug("Subscribed to PluginLoader.plugin_loaded signal")
-        except (KeyError, AttributeError):
+        except Exception:
             logger.warning("PluginLoader not available, dynamic loading disabled")
 
         # Get registry and load any already-loaded statusbar plugins
         try:
             registry = services.get(PluginRegistry)
-        except (KeyError, AttributeError):
+        except Exception:
             logger.warning("PluginRegistry not available, no status bar plugins loaded")
             return 0
 

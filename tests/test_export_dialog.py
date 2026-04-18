@@ -123,6 +123,7 @@ class TestLoadSampleFrame:
             stream.metadata = {"data_keys": data_keys}
             stream.keys.return_value = ["detector"]
             col = MagicMock()
+            col.shape = tuple(shape)
             if image_data is not None:
                 col.read.return_value = image_data
             else:

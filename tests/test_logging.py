@@ -2,6 +2,8 @@
 
 import time
 
+from loguru import logger
+
 from lucid.utils.logging import (
     get_cumulative_stats,
     log_time,
@@ -9,14 +11,18 @@ from lucid.utils.logging import (
 )
 
 
-def test_log_time_basic(capfd) -> None:
+def test_log_time_basic() -> None:
     """Test basic log_time functionality."""
-    with log_time("Test operation"):
-        time.sleep(0.01)
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        with log_time("Test operation"):
+            time.sleep(0.01)
 
-    captured = capfd.readouterr()
-    assert "Test operation" in captured.err
-    assert "elapsed:" in captured.err
+        assert any("Test operation" in m for m in messages)
+        assert any("elapsed:" in m for m in messages)
+    finally:
+        logger.remove(handler_id)
 
 
 def test_log_time_cumulative() -> None:

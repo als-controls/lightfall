@@ -1,4 +1,4 @@
-"""Tests for the QRunEngine module.
+"""Tests for the engine module.
 
 Note: These tests require the 'acquire' optional dependencies (bluesky, ophyd).
 """
@@ -12,7 +12,13 @@ pytest.importorskip("bluesky")
 
 from PySide6.QtCore import QCoreApplication
 
-from lucid.acquire.runengine import QRunEngine, get_run_engine
+from lucid.acquire.engine import (
+    BlueskyEngine,
+    EngineState,
+    get_engine,
+    reset_engine,
+    set_engine,
+)
 
 
 @pytest.fixture
@@ -26,9 +32,8 @@ def qapp():
 
 @pytest.fixture
 def run_engine(qapp):
-    """Create a fresh QRunEngine for testing."""
-    # Create a new instance (not the singleton)
-    re = QRunEngine()
+    """Create a fresh BlueskyEngine for testing."""
+    re = BlueskyEngine()
     # Wait for the RunEngine to initialize
     timeout = 5.0
     start = time.time()
@@ -39,23 +44,23 @@ def run_engine(qapp):
 
 
 class TestQRunEngine:
-    """Tests for QRunEngine."""
+    """Tests for BlueskyEngine."""
 
     def test_initialization(self, run_engine, qapp) -> None:
         """Test that RunEngine initializes properly."""
         assert run_engine.RE is not None
-        assert run_engine.state == "idle"
+        assert run_engine.state == EngineState.IDLE
         assert run_engine.is_idle is True
 
     def test_queue_operations(self, run_engine) -> None:
         """Test queue size and clear operations."""
-        # Queue some dummy plans (they won't execute valid plans)
+
         def dummy_plan():
             yield from []
 
-        run_engine.put(dummy_plan(), priority=2)
-        run_engine.put(dummy_plan(), priority=1)
-        run_engine.put(dummy_plan(), priority=3)
+        run_engine.submit(dummy_plan(), priority=2)
+        run_engine.submit(dummy_plan(), priority=1)
+        run_engine.submit(dummy_plan(), priority=3)
 
         assert run_engine.queue_size == 3
 
@@ -74,9 +79,9 @@ class TestQRunEngine:
             return plan
 
         # Queue in non-priority order
-        run_engine.put(make_plan("low")(), priority=10)
-        run_engine.put(make_plan("high")(), priority=1)
-        run_engine.put(make_plan("medium")(), priority=5)
+        run_engine.submit(make_plan("low")(), priority=10)
+        run_engine.submit(make_plan("high")(), priority=1)
+        run_engine.submit(make_plan("medium")(), priority=5)
 
         # Clear to test ordering without execution
         # The queue should order them correctly
@@ -85,6 +90,7 @@ class TestQRunEngine:
 
     def test_kwargs_callable(self, run_engine) -> None:
         """Test subscribing kwargs callables."""
+
         def metadata_provider():
             return {"custom_key": "custom_value"}
 
@@ -111,16 +117,16 @@ class TestGetRunEngine:
     """Tests for the singleton getter."""
 
     def test_singleton(self, qapp) -> None:
-        """Test that get_run_engine returns a singleton."""
-        # Reset the module-level singleton for this test
-        import lucid.acquire.runengine as re_module
-        original = re_module._run_engine
-        re_module._run_engine = None
+        """Test that get_engine returns a singleton."""
+        import lucid.acquire.engine as engine_module
+
+        original = engine_module._engine
+        engine_module._engine = None
 
         try:
-            re1 = get_run_engine()
-            re2 = get_run_engine()
+            re1 = get_engine()
+            re2 = get_engine()
             assert re1 is re2
         finally:
             # Restore original state
-            re_module._run_engine = original
+            engine_module._engine = original

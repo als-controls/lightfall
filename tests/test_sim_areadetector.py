@@ -405,4 +405,9 @@ class TestBlueskyIntegration:
         assert "sim_det_image" in data
         image = data["sim_det_image"]
         assert isinstance(image, np.ndarray)
-        assert image.shape == (256, 256)
+        # read() returns flattened 1D like real EPICS AreaDetectors;
+        # consumers use describe() shape to reconstruct dimensions
+        desc = sim_det.describe()
+        shape = desc["sim_det_image"]["shape"]
+        assert image.shape == (np.prod(shape),)
+        assert image.reshape(shape).shape == (256, 256)

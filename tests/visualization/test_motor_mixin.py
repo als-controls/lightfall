@@ -9,11 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu
 
 from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
 from lucid.visualization.motor_mixin import VisualizationMotorMixin
+
+# Ensure QApplication exists for all tests in this module (QMenu requires it)
+pytestmark = pytest.mark.usefixtures("qapp")
 
 
 @dataclass

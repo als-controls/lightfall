@@ -150,8 +150,10 @@ class TestQThreadFuture:
         assert thread_manager.get_by_key("auto_reg_test") is future
 
         future.wait(1000)
-        # After completion, should be unregistered
+        # Pump Qt event loop so the finished signal delivers the unregister callback
+        qapp.processEvents()
         time.sleep(0.05)
+        qapp.processEvents()
         assert thread_manager.get_by_key("auto_reg_test") is None
 
 
