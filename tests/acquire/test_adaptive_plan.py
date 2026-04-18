@@ -66,6 +66,13 @@ class TestAdaptiveExperimentPanel:
         assert "42" in texts
 
 
+def _mock_device(**kwargs):
+    """Create a MagicMock device compatible with bluesky's ancestry() walk."""
+    m = MagicMock(**kwargs)
+    m.parent = None  # must set after init — MagicMock reserves 'parent' kwarg
+    return m
+
+
 class TestAdaptiveExperimentPlan:
     """Drive the plan generator manually (no RunEngine) with mock IPC."""
 
@@ -94,8 +101,8 @@ class TestAdaptiveExperimentPlan:
 
         _state.stop_requested = False
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
-            motors=[MagicMock()],
+            detectors=[_mock_device()],
+            motors=[_mock_device()],
 
             timeout=0.1,
             poll_interval=0.01,
@@ -108,7 +115,7 @@ class TestAdaptiveExperimentPlan:
 
     def test_plan_measures_targets(self, qtbot, monkeypatch):
         """Plan consumes a targets message and issues mv + trigger_and_read."""
-        motors = [MagicMock(name="motor1"), MagicMock(name="motor2")]
+        motors = [_mock_device(name="motor1"), _mock_device(name="motor2")]
         ipc, _ = self._mock_ipc({
             "tsuchinoko.targets": [
                 {"iteration": 1, "targets": [[10.0, 20.0]]},
@@ -118,7 +125,7 @@ class TestAdaptiveExperimentPlan:
 
         _state.stop_requested = False
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
+            detectors=[_mock_device()],
             motors=motors,
 
             timeout=0.3,
@@ -143,8 +150,8 @@ class TestAdaptiveExperimentPlan:
 
         _state.stop_requested = False
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
-            motors=[MagicMock(), MagicMock()],
+            detectors=[_mock_device()],
+            motors=[_mock_device(), _mock_device()],
             exhaust_first=False,
             timeout=0.3,
             poll_interval=0.01,
@@ -172,8 +179,8 @@ class TestAdaptiveExperimentPlan:
 
         _state.stop_requested = False
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
-            motors=[MagicMock(), MagicMock()],
+            detectors=[_mock_device()],
+            motors=[_mock_device(), _mock_device()],
             exhaust_first=True,
             timeout=0.3,
             poll_interval=0.01,
@@ -205,8 +212,8 @@ class TestAdaptiveExperimentPlan:
 
         _state.stop_requested = False
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
-            motors=[MagicMock()],
+            detectors=[_mock_device()],
+            motors=[_mock_device()],
 
             timeout=5.0,
             poll_interval=0.01,
@@ -230,8 +237,8 @@ class TestAdaptiveExperimentPlan:
         _state.current_iteration = 99
 
         gen = adaptive_experiment(
-            detectors=[MagicMock()],
-            motors=[MagicMock()],
+            detectors=[_mock_device()],
+            motors=[_mock_device()],
 
             timeout=0.1,
             poll_interval=0.01,
