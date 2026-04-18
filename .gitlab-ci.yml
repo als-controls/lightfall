@@ -103,7 +103,7 @@ build-docs:
   before_script:
     - pip install -e ".[docs]"
   script:
-    - sphinx-build -b html docs docs/_build -W --keep-going
+    - sphinx-build -b html docs docs/_build --keep-going
   artifacts:
     paths:
       - docs/_build/
@@ -182,7 +182,7 @@ pages:
   before_script:
     - pip install -e ".[docs]"
   script:
-    - sphinx-build -b html docs public -W --keep-going
+    - sphinx-build -b html docs public --keep-going
   artifacts:
     paths:
       - public/

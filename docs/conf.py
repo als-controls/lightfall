@@ -106,3 +106,4 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "PySide6": ("https://doc.qt.io/qtforpython-6/", None),
 }
+intersphinx_timeout = 5  # seconds; don't stall the build if upstream is unreachable
