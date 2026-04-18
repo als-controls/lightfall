@@ -53,9 +53,11 @@ test:
       pytest tests/ -v --tb=short
       -n auto --max-worker-restart=5 --timeout=60
       --cov=src/lucid --cov-report=xml:coverage.xml
+      --junitxml=results.xml
   artifacts:
     paths:
       - coverage.xml
+      - results.xml
     expire_in: 1 week
     when: always
   rules:
