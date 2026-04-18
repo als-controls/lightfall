@@ -47,10 +47,8 @@ test:
   script:
     - pip install pytest-forked
     - >-
-      coverage run --source=src/lucid --parallel-mode
-      -m pytest tests/ -v --tb=short --forked
-    - coverage combine
-    - coverage xml -o coverage.xml
+      pytest tests/ -v --tb=short --forked
+      --cov=src/lucid --cov-report=xml:coverage.xml
   artifacts:
     paths:
       - coverage.xml
