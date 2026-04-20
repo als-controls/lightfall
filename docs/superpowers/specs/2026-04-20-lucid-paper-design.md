@@ -98,12 +98,12 @@ Dropped for arXiv, reconsider for JSR: a SkillPlugin code-listing figure.
 
 ## 6. Repository and build mechanics
 
-**New repo:** `git.als.lbl.gov/ncs/lucid-paper`
+**New repo:** `git.als.lbl.gov/ncs/lucid-publication`
 
 ### Layout
 
 ```
-lucid-paper/
+lucid-publication/
 ├── README.md
 ├── Makefile
 ├── main-arxiv.tex
@@ -167,7 +167,7 @@ Two milestones. The implementation plan owns M1; Pandolfi owns M2.
 
 ### M1 — Scaffold complete, initial drafts in (Claude-owned)
 
-- New repo `ncs/lucid-paper` created, pushed, and building cleanly in GitLab CI.
+- New repo `ncs/lucid-publication` created, pushed, and building cleanly in GitLab CI.
 - Repo layout matches §6: `content/` partials for all eight sections, `figures/` with placeholders, `references.bib` seeded, `Makefile` targets working, `.gitlab-ci.yml` green.
 - `figures/arch.puml` drafted and rendered to `figures/arch.pdf`.
 - Figures 2–4 present as placeholder images with `figures/README.md` explaining how to replace them.
