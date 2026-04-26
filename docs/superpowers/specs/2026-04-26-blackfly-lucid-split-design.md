@@ -143,8 +143,9 @@ class BlackflyAgent(AgentPlugin):
 ### 4.3 MCP tool — `discover_blackfly_cameras`
 
 - Wraps `lucid_endstation_7011.observers.blackfly.discover()`.
-- Signature: `discover_blackfly_cameras(timeout_s: float = 1.0) -> list[dict]`.
-- Each dict has keys `ip`, `mac`, `model`, `serial` — all JSON-serializable.
+- Signature: `discover_blackfly_cameras(bind_ip: str | None = None, timeout_s: float = 1.0) -> list[dict]`.
+- Each dict has keys `ip`, `manufacturer`, `model`, `serial`, `user_name` — all JSON-serializable. (Earlier draft of this spec listed `mac`; GVCP `DeviceInfo` does not carry MAC, so `manufacturer` and `user_name` were substituted; `user_name` is the operator-set camera label.)
+- `bind_ip` defaults to the auto-detected default-route NIC (same UDP-connect idiom as the `bfly-discover` console script).
 - That is the entire MCP surface of this skill. No `list_*`, `reload_*`, `unload_*` helpers — those are `panel_builder`'s job.
 
 ### 4.4 `references/panel_template.py`
