@@ -69,11 +69,18 @@ ipython_config.py
 # Environments
 .env
 .venv
+.venv-*/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Lock files from non-canonical package managers (project uses hatch)
+uv.lock
+
+# Stray debug captures
+test_stderr.txt
 
 # IDE
 .idea/
