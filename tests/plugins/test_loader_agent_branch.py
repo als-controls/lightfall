@@ -60,7 +60,7 @@ def test_agent_entry_registers_with_agent_registry():
     assert registered[0].name == "sample_agent"
 
 
-def test_agent_entry_invalid_class_does_not_register(caplog):
+def test_agent_entry_invalid_class_does_not_register():
     """Class that is not an AgentPlugin subclass yields no registration, no crash."""
     manifest = PluginManifest(
         name="bad_pkg",
