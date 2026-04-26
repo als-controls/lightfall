@@ -1,0 +1,68 @@
+"""Tests for AgentPlugin base class."""
+from __future__ import annotations
+
+import pytest
+
+from lucid.plugins.agent_plugin import AgentPlugin
+
+
+class _StubAgent(AgentPlugin):
+    @property
+    def name(self) -> str:
+        return "stub"
+
+    @property
+    def description(self) -> str:
+        return "Stub agent for tests"
+
+
+def test_default_get_system_prompt_returns_empty():
+    plugin = _StubAgent()
+    assert plugin.get_system_prompt() == ""
+
+
+def test_default_create_tools_returns_empty_list():
+    plugin = _StubAgent()
+    assert plugin.create_tools() == []
+
+
+def test_default_get_references_dir_returns_none():
+    plugin = _StubAgent()
+    assert plugin.get_references_dir() is None
+
+
+def test_default_display_name_titlecases_name():
+    plugin = _StubAgent()
+    assert plugin.display_name == "Stub"
+
+
+def test_default_category_is_general():
+    plugin = _StubAgent()
+    assert plugin.category == "general"
+
+
+def test_default_enabled_by_default_is_true():
+    plugin = _StubAgent()
+    assert plugin.enabled_by_default is True
+
+
+def test_default_priority_is_100():
+    plugin = _StubAgent()
+    assert plugin.priority == 100
+
+
+def test_type_name_is_agent():
+    assert AgentPlugin.type_name == "agent"
+
+
+def test_is_singleton():
+    assert AgentPlugin.is_singleton is True
+
+
+def test_name_is_abstract():
+    """Cannot instantiate without overriding name + description."""
+    class Incomplete(AgentPlugin):
+        pass
+
+    with pytest.raises(TypeError):
+        Incomplete()
