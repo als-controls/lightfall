@@ -648,26 +648,6 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 - **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
 """
 
-        # Append skill prompts from enabled skills
-        try:
-            from lucid.ui.panels.claude.skill_registry import SkillRegistry
-            skill_registry = SkillRegistry.get_instance()
-            skill_prompts = skill_registry.get_aggregated_system_prompt()
-            if skill_prompts:
-                base_prompt += "\n\n# Enabled Skills\n\n" + skill_prompts
-                logger.debug(
-                    "Added {} chars of skill prompts to system prompt",
-                    len(skill_prompts)
-                )
-
-            # Add skill reminder so Claude knows skills are invocable
-            skill_reminder = skill_registry.get_skill_reminder()
-            if skill_reminder:
-                base_prompt += "\n\n" + skill_reminder
-                logger.debug("Added skill reminder to system prompt")
-        except Exception as e:
-            logger.warning("Failed to get skill prompts: {}", e)
-
         return base_prompt
 
     def _setup_error_ui(self, message: str) -> None:
