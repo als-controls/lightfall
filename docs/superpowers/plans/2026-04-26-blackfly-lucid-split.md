@@ -545,11 +545,10 @@ cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/discovery.py \
 
 - [ ] **Step 3: Verify internal imports still resolve**
 
-`registers.py` and `pixel_formats.py` are leaves — no internal imports.
-`gvcp.py` is a leaf.
-`gvcp_transport.py` imports `from . import gvcp` — works as-is in the new location.
-`gvsp.py` is a leaf.
-`discovery.py` imports `from . import gvcp` and `from .gvcp_transport import …` — works as-is.
+`registers.py`, `gvcp.py`, `gvsp.py` are leaves — no internal imports.
+`pixel_formats.py` imports `from . import registers` — works as-is in the new location.
+`gvcp_transport.py` imports `from . import gvcp` — works as-is.
+`discovery.py` imports `from . import gvcp` — works as-is. (It opens its own UDP socket directly; doesn't use `GvcpClient`.)
 
 Sanity-check by reading each file's import block:
 
