@@ -675,6 +675,23 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("SkillRegistry not available, skipping skill registration")
 
+        elif plugin_info.type_name == "agent":
+            try:
+                from lucid.ui.panels.claude.agent_registry import AgentRegistry
+                from lucid.plugins.agent_plugin import AgentPlugin
+
+                instance = plugin_info.instance
+                if not isinstance(instance, AgentPlugin):
+                    logger.error(
+                        "Agent plugin '{}' class {} is not an AgentPlugin subclass; skipping",
+                        plugin_info.name, type(instance).__name__,
+                    )
+                else:
+                    AgentRegistry.get_instance().register(instance)
+                    logger.debug("Registered agent plugin '{}' with AgentRegistry", instance.name)
+            except ImportError:
+                logger.debug("AgentRegistry not available, skipping agent registration")
+
         elif plugin_info.type_name == "panel":
             try:
                 from lucid.ui.panels.registry import PanelRegistry
