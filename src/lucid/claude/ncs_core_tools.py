@@ -32,19 +32,33 @@ class NCSCoreToolPlugin(AgentPlugin):
     LUCID application structure.
     """
 
-    def __init__(self, main_window: NCSMainWindow) -> None:
-        """Initialize with reference to main window.
-
-        Args:
-            main_window: The NCSMainWindow instance.
-        """
+    def __init__(self) -> None:
+        """Initialize. Main window is resolved lazily on first access."""
         super().__init__()
-        self._window = main_window
+        self._cached_window: NCSMainWindow | None = None
+
+    @property
+    def _window(self) -> NCSMainWindow | None:
+        """Resolve the active NCSMainWindow lazily.
+
+        Uses QApplication.topLevelWidgets() to find the live instance.
+        Cached after first successful lookup.
+        """
+        if self._cached_window is not None:
+            return self._cached_window
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            for widget in app.topLevelWidgets():
+                if widget.__class__.__name__ == "NCSMainWindow":
+                    self._cached_window = widget
+                    return widget
+        return None
 
     @property
     def name(self) -> str:
         """Plugin name."""
-        return "ncs_core"
+        return "ncs_core_tools"
 
     @property
     def description(self) -> str:
@@ -92,6 +106,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             from lucid.claude._internal.threading import run_on_main_thread
 
             def _list():
+                if self._window is None:
+                    return {"error": "Main window not available"}
                 registry = self._get_panel_registry()
                 session = self._get_session_manager()
                 user = session.current_user
@@ -146,6 +162,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             panel_id = args["panel_id"]
 
             def _open():
+                if self._window is None:
+                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
                 panel = self._window.add_panel(panel_id)
                 if panel is not None:
                     return {"success": True, "panel_id": panel_id}
@@ -178,6 +196,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             panel_id = args["panel_id"]
 
             def _close():
+                if self._window is None:
+                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
                 success = self._window.remove_panel(panel_id)
                 return {
                     "success": success,
@@ -208,6 +228,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             panel_id = args["panel_id"]
 
             def _activate():
+                if self._window is None:
+                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
                 success = self._window.activate_panel(panel_id)
                 return {
                     "success": success,
@@ -238,6 +260,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             panel_id = args["panel_id"]
 
             def _get_info():
+                if self._window is None:
+                    return {"error": "Main window not available", "panel_id": panel_id}
                 panel = self._window.get_panel(panel_id)
                 if panel is None:
                     return {
@@ -280,6 +304,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             kwargs = args.get("kwargs", {})
 
             def _invoke():
+                if self._window is None:
+                    return {"success": False, "error": "Main window not available"}
                 panel = self._window.get_panel(panel_id)
                 if panel is None:
                     return {
@@ -319,6 +345,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             from lucid.claude._internal.threading import run_on_main_thread
 
             def _get_info():
+                if self._window is None:
+                    return {"error": "Main window not available"}
                 return self._window.get_introspection_data()
 
             return run_on_main_thread(_get_info)
@@ -349,6 +377,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             emotion = args["emotion"]
 
             def _set():
+                if self._window is None:
+                    return {"success": False, "error": "Main window not available"}
                 panel = self._window.get_panel("lucid.panels.claude")
                 if panel is None:
                     return {"success": False, "error": "Claude panel not found"}

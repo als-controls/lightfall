@@ -395,18 +395,15 @@ class ClaudePanel(BasePanel):
         if main_window is None:
             raise ValueError("Could not find main window")
 
-        # Collect all MCP tools
-        all_tools = self._collect_mcp_tools(main_window)
-
         # Build additional system prompt for NCS
         ncs_system_prompt = self._build_ncs_system_prompt()
 
-        # Create the Claude widget with the main window as target and additional tools
+        # Create the Claude widget. NCSCoreToolPlugin is now manifest-driven
+        # via AgentRegistry; no additional_tools= injection needed here.
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
             api_url=ClaudeSettingsProvider.get_base_url(),
-            additional_tools=all_tools,
             additional_system_prompt=ncs_system_prompt,
             parent=self,
         )
@@ -430,68 +427,7 @@ class ClaudePanel(BasePanel):
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
 
-        logger.info(
-            "Claude assistant panel initialized with {} additional tools",
-            len(all_tools)
-        )
-
-    def _collect_mcp_tools(self, main_window) -> list:
-        """Collect all MCP tools from various sources.
-
-        Tools are collected from NCSCoreToolPlugin (which requires
-        main_window injection at construction time and therefore is not
-        in the manifest). All other agent plugins flow directly through
-        AgentRegistry into per-plugin MCP servers in QtClaudeAgent.
-
-        Args:
-            main_window: The main window reference.
-
-        Returns:
-            List of tool functions (deduplicated by name).
-        """
-        all_tools = []
-        seen_names: set[str] = set()
-
-        def add_tools(tools: list, source: str) -> int:
-            """Add tools, skipping duplicates by name."""
-            added = 0
-            for tool_func in tools:
-                # Get tool name
-                if hasattr(tool_func, 'name'):
-                    tool_name = tool_func.name
-                elif hasattr(tool_func, '__name__'):
-                    tool_name = tool_func.__name__
-                else:
-                    # Can't determine name, add anyway
-                    all_tools.append(tool_func)
-                    added += 1
-                    continue
-
-                if tool_name in seen_names:
-                    logger.warning(
-                        "Skipping duplicate tool '{}' from {}",
-                        tool_name,
-                        source,
-                    )
-                    continue
-
-                seen_names.add(tool_name)
-                all_tools.append(tool_func)
-                added += 1
-            return added
-
-        # 1. Add NCS core tools (always included, not a plugin)
-        try:
-            from lucid.claude.ncs_core_tools import NCSCoreToolPlugin
-            ncs_core = NCSCoreToolPlugin(main_window)
-            core_tools = ncs_core.create_tools()
-            added = add_tools(core_tools, "NCS core")
-            logger.debug("Added {} NCS core tools", added)
-        except Exception as e:
-            logger.warning("Failed to create NCS core tools: {}", e)
-
-        logger.info("Collected {} unique MCP tools total", len(all_tools))
-        return all_tools
+        logger.info("Claude assistant panel initialized")
 
     def _build_ncs_system_prompt(self) -> str:
         """Build the NCS-specific system prompt addition.

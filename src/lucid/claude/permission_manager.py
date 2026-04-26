@@ -45,12 +45,11 @@ class PermissionManager(QObject):
         "mcp__qt__get_widget_tree",
         "mcp__qt__find_widget",
         # Read-only LUCID tools (per-plugin namespaces after SDK-native migration).
-        # NCSCoreToolPlugin is routed through the legacy_additional shim because
-        # it requires main_window injection at construction time.
-        "mcp__legacy_additional__ncs_list_panels",
-        "mcp__legacy_additional__ncs_get_panel_info",
-        "mcp__legacy_additional__ncs_get_application_info",
-        "mcp__legacy_additional__ncs_set_emotion",
+        # NCSCoreToolPlugin is manifest-driven via AgentRegistry (ncs_core_tools server).
+        "mcp__ncs_core_tools__ncs_list_panels",
+        "mcp__ncs_core_tools__ncs_get_panel_info",
+        "mcp__ncs_core_tools__ncs_get_application_info",
+        "mcp__ncs_core_tools__ncs_set_emotion",
         # device_tools agent
         "mcp__device_tools__ncs_list_devices",
         "mcp__device_tools__ncs_get_device",

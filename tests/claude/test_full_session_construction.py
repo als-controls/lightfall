@@ -41,8 +41,11 @@ def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monke
     options = agent.options
     # qt server always present
     assert "qt" in options.mcp_servers
-    # 5 tool-bearing plugins each get their own server
-    expected_tool_servers = {"device_tools", "plan_tools", "engine_tools", "ipython_tools", "panel_builder"}
+    # 6 tool-bearing plugins each get their own server
+    expected_tool_servers = {
+        "device_tools", "plan_tools", "engine_tools", "ipython_tools",
+        "panel_builder", "ncs_core_tools",
+    }
     assert expected_tool_servers.issubset(options.mcp_servers.keys())
     # No legacy "additional" server (and no "legacy_additional" since no
     # additional_tools= was passed)

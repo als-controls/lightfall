@@ -203,6 +203,11 @@ builtin_manifest = PluginManifest(
             name="ipython_tools",
             import_path="lucid.plugins.agents.ipython_tools:IPythonToolsAgent",
         ),
+        PluginEntry(
+            type_name="agent",
+            name="ncs_core_tools",
+            import_path="lucid.claude.ncs_core_tools:NCSCoreToolPlugin",
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
