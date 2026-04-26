@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.skill_plugin import SkillPlugin
+from lucid.plugins.agent_plugin import AgentPlugin
 
 
-class BeamlineAlignmentSkill(SkillPlugin):
+class BeamlineAlignmentAgent(AgentPlugin):
     """Skill for beamline alignment and beam optimization.
 
     This skill provides Claude with domain expertise for:

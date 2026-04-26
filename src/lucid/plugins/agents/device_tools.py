@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.mcp_tool import MCPToolPlugin
-from lucid.plugins.tools._mcp_helpers import mcp_result
+from lucid.plugins.agent_plugin import AgentPlugin
+from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
-class DeviceToolPlugin(MCPToolPlugin):
+class DeviceToolsAgent(AgentPlugin):
     """MCP tools for device interaction via the DeviceCatalog.
 
     This plugin provides tools for Claude to:

@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.skill_plugin import SkillPlugin
+from lucid.plugins.agent_plugin import AgentPlugin
 
 
-class ScanPlanningSkill(SkillPlugin):
+class ScanPlanningAgent(AgentPlugin):
     """Skill for planning and configuring scans.
 
     This skill provides Claude with domain expertise for:

@@ -7,8 +7,40 @@ and defines the required interface for that category.
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar
+
+
+def _user_plugin_roots() -> list[Path]:
+    """Canonical user plugin root directories.
+
+    Used by PluginType.__init_subclass__ to decide whether a newly-defined
+    subclass came from a user plugin file (and thus should auto-enqueue).
+    """
+    home = Path.home()
+    roots: list[Path] = []
+    for candidate in (home / "lucid" / "plugins", home / ".lucid" / "plugins"):
+        try:
+            roots.append(candidate.resolve())
+        except (OSError, RuntimeError):
+            pass
+    return roots
+
+
+def _is_under_user_plugin_dir(p: Path) -> bool:
+    try:
+        resolved = p.resolve()
+    except (OSError, RuntimeError):
+        return False
+    for root in _user_plugin_roots():
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 class PluginType(ABC):
@@ -42,6 +74,23 @@ class PluginType(ABC):
 
     type_name: ClassVar[str] = "base"
     is_singleton: ClassVar[bool] = False
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls.__module__ == "__main__" or inspect.isabstract(cls):
+            return
+        try:
+            module_file = Path(inspect.getfile(cls))
+        except (TypeError, OSError):
+            return
+        if not _is_under_user_plugin_dir(module_file):
+            return
+        try:
+            from lucid.plugins.user_plugins import UserPluginService
+            UserPluginService.get_instance().enqueue(cls, module_file)
+        except Exception:  # noqa: BLE001 — don't crash class definition on plumbing failure
+            import logging
+            logging.getLogger(__name__).exception("auto-enqueue failed for %s", cls)
 
     @property
     def description(self) -> str:

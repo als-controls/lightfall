@@ -3,18 +3,19 @@
 Provides Claude with expertise for designing Bluesky plans with
 LUCID UI annotations for procedural UI generation.
 
-Full API documentation is stored in skills/docs/plan_design.md and
-loaded on-demand via the ncs_get_skill_docs tool.
+Full API documentation is shipped as references/plan_design.md alongside
+the SKILL.md and surfaced lazily by the SDK's deferred Skill tool.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from lucid.plugins.skill_plugin import SkillPlugin
+from lucid.plugins.agent_plugin import AgentPlugin
 
 
-class PlanDesignSkill(SkillPlugin):
+class PlanDesignAgent(AgentPlugin):
     """Skill for designing Bluesky plans.
 
     This skill provides Claude with deep expertise for:
@@ -23,7 +24,8 @@ class PlanDesignSkill(SkillPlugin):
     - LUCID UI annotations for procedural UI generation
     - Best practices for plan composition and error handling
 
-    Full API documentation is in skills/docs/plan_design.md.
+    Full API documentation is in references/plan_design.md (loaded by
+    the SDK's deferred Skill tool when this skill is invoked).
     """
 
     @property
@@ -62,7 +64,7 @@ class PlanDesignSkill(SkillPlugin):
 
 Expert at designing Bluesky plans for LUCID with UI annotations.
 
-**Use `ncs_get_skill_docs` tool with skill="plan_design"** to get full API reference for:
+**See `references/plan_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
 - `bluesky.plan_stubs` (bps.*) - movement, timing, reading stubs
 - `bluesky.plans` (bp.*) - scan, grid_scan, count, etc.
 - `lucid.ui.annotations` - Unit, Range, DeviceFilter, etc.
@@ -73,8 +75,8 @@ Key imports: `from bluesky import plan_stubs as bps, plans as bp`
     def get_system_prompt(self) -> str:
         """Return the system prompt snippet for plan design expertise.
 
-        Returns the brief description for the system prompt. Full documentation
-        is available via ncs_get_skill_docs tool.
+        Returns the brief description; full documentation in references/
+        is loaded on-demand by the SDK's deferred Skill tool.
         """
         return self.get_brief_description()
 
@@ -82,3 +84,7 @@ Key imports: `from bluesky import plan_stubs as bps, plans as bp`
         """Return tools provided by this skill."""
         # This skill provides guidance only, no additional tools
         return []
+
+    def get_references_dir(self) -> Path | None:
+        """Return path to the references directory containing supplementary docs."""
+        return Path(__file__).parent / "plan_design" / "references"

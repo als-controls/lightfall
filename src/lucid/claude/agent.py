@@ -2,7 +2,10 @@
 
 import os
 import platform
+import shutil
 import tempfile
+from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
@@ -169,7 +172,6 @@ class QtClaudeAgent(QObject):
         cli_path: str | None = None,
         permission_mode: str = "default",
         max_turns: int = 20,
-        additional_tools: list | None = None,
         additional_system_prompt: str | None = None,
         require_approval: bool = True,
         parent: QObject | None = None
@@ -187,8 +189,6 @@ class QtClaudeAgent(QObject):
             cli_path: Path to Claude Code CLI executable (auto-detected if not provided)
             permission_mode: Permission mode for tools ('default', 'acceptEdits', 'bypassPermissions')
             max_turns: Maximum conversation turns
-            additional_tools: Optional list of additional MCP tool functions to register.
-                             Each tool should be decorated with @tool from claude_agent_sdk.
             additional_system_prompt: Optional additional text to append to the system prompt.
             require_approval: If True, show UI approval for tool calls (default True).
                             Read-only tools (screenshot, get_widget_tree, find_widget) are
@@ -245,29 +245,26 @@ class QtClaudeAgent(QObject):
             "mcp__qt__show_controller",
         ]
 
-        # Store additional tools and create a combined server if needed
-        self._additional_tools = additional_tools or []
-        mcp_servers = {"qt": self.qt_tools}
+        mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
-        if self._additional_tools:
-            # Create a separate MCP server for additional tools
-            from claude_agent_sdk import create_sdk_mcp_server
-            additional_server = create_sdk_mcp_server(
-                name="additional",
-                version="1.0.0",
-                tools=self._additional_tools,
-            )
-            mcp_servers["additional"] = additional_server
+        # Per-plugin server assembly from AgentRegistry
+        from lucid.claude._session_assembly import (
+            assemble_mcp_servers,
+            init_session_plugin_dir,
+            materialize_skill,
+        )
+        from lucid.ui.panels.claude.agent_registry import AgentRegistry
 
-            # Add allowed tools for additional tools
-            for tool_func in self._additional_tools:
-                if hasattr(tool_func, '__name__'):
-                    tool_name = tool_func.__name__
-                elif hasattr(tool_func, 'name'):
-                    tool_name = tool_func.name
-                else:
-                    continue
-                allowed_tools.append(f"mcp__additional__{tool_name}")
+        enabled = AgentRegistry.get_instance().enabled_plugins()
+        agent_servers, agent_allowed = assemble_mcp_servers(enabled)
+        mcp_servers.update(agent_servers)
+        allowed_tools.extend(agent_allowed)
+
+        # Synthesize per-session SDK plugin dir
+        self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lucid_claude_"))
+        init_session_plugin_dir(self._session_plugin_dir)
+        for plugin in enabled:
+            materialize_skill(plugin, self._session_plugin_dir)
 
         # Build system prompt
         system_prompt = QT_SYSTEM_PROMPT
@@ -276,6 +273,7 @@ class QtClaudeAgent(QObject):
 
         # Configure Claude options
         options_dict = {
+            "plugins": [{"type": "local", "path": str(self._session_plugin_dir)}],
             "mcp_servers": mcp_servers,
             "allowed_tools": allowed_tools,
             "system_prompt": system_prompt,
@@ -430,6 +428,10 @@ class QtClaudeAgent(QObject):
                 self._worker.terminate()
                 self._worker.wait(1000)
         self._is_connected = False
+
+        # Clean up the per-session SDK plugin dir
+        if hasattr(self, "_session_plugin_dir") and self._session_plugin_dir.exists():
+            shutil.rmtree(self._session_plugin_dir, ignore_errors=True)
 
     def is_busy(self) -> bool:
         """

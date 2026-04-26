@@ -13,12 +13,12 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from lucid.plugins.mcp_tool import MCPToolPlugin
-from lucid.plugins.tools._mcp_helpers import mcp_result
+from lucid.plugins.agent_plugin import AgentPlugin
+from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
-class IPythonToolPlugin(MCPToolPlugin):
+class IPythonToolsAgent(AgentPlugin):
     """MCP tools for interacting with the IPython console.
 
     This plugin provides tools that allow Claude to:

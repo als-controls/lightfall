@@ -1,11 +1,8 @@
 """Service for loading and managing user-defined plugins with hot-reload.
 
-User plugins are Python files in ~/lucid/plugins/ that self-register
-with type-specific registries on execution (e.g., PanelRegistry, SkillRegistry).
-
-This module provides:
-- UserPluginService: Main service for loading/watching user plugins
-- RegistrationTracker: Context manager for tracking plugin registrations
+User plugins are Python files in ~/lucid/plugins/. Plugin classes auto-register
+via PluginType.__init_subclass__ when defined; UserPluginService tracks
+registrations so that unload + hot-reload work correctly.
 
 Hot-reload warning: Reloading a plugin may cause instability if the
 old version's objects are still in use. A stability warning is shown
@@ -47,117 +44,6 @@ class PluginInfo:
     is_temp: bool = False
     load_error: str | None = None
 
-
-class RegistrationTracker:
-    """Context manager that tracks plugin registrations during execution.
-
-    Patches registry methods to record all registrations made while
-    the context is active. This enables proper unloading by knowing
-    exactly what was registered.
-
-    Example:
-        >>> tracker = RegistrationTracker(file_path)
-        >>> with tracker:
-        ...     exec(code, namespace)
-        >>> print(tracker.registrations)  # All registrations made
-    """
-
-    def __init__(self, file_path: Path) -> None:
-        """Initialize the tracker.
-
-        Args:
-            file_path: Path to the plugin file being loaded.
-        """
-        self.file_path = file_path
-        self.registrations: list[PluginRegistration] = []
-        self._original_methods: dict[str, Any] = {}
-
-    def __enter__(self) -> RegistrationTracker:
-        """Start tracking registrations by patching registry methods."""
-        self._patch_panel_registry()
-        self._patch_skill_registry()
-        self._patch_mcp_tool_registry()
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Stop tracking and restore original methods."""
-        self._restore_all()
-
-    def _patch_panel_registry(self) -> None:
-        """Patch PanelRegistry.register to track registrations."""
-        try:
-            from lucid.ui.panels.registry import PanelRegistry
-
-            registry = PanelRegistry.get_instance()
-            original = registry.register
-
-            def tracking_register(
-                panel_class: Any,
-                *,
-                replace: bool = False,
-            ) -> None:
-                original(panel_class, replace=replace)
-                panel_id = panel_class.panel_metadata.id
-                self.registrations.append(
-                    PluginRegistration(registry_type="panel", key=panel_id)
-                )
-
-            self._original_methods["panel_register"] = (registry, "register", original)
-            registry.register = tracking_register  # type: ignore[method-assign]
-        except ImportError:
-            pass
-
-    def _patch_skill_registry(self) -> None:
-        """Patch SkillRegistry.register_plugin to track registrations."""
-        try:
-            from lucid.ui.panels.claude.skill_registry import SkillRegistry
-
-            registry = SkillRegistry.get_instance()
-            original = registry.register_plugin
-
-            def tracking_register(plugin: Any) -> None:
-                original(plugin)
-                self.registrations.append(
-                    PluginRegistration(registry_type="skill", key=plugin.name)
-                )
-
-            self._original_methods["skill_register"] = (
-                registry,
-                "register_plugin",
-                original,
-            )
-            registry.register_plugin = tracking_register  # type: ignore[method-assign]
-        except ImportError:
-            pass
-
-    def _patch_mcp_tool_registry(self) -> None:
-        """Patch MCPToolRegistry.register_plugin to track registrations."""
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-            registry = MCPToolRegistry.get_instance()
-            original = registry.register_plugin
-
-            def tracking_register(plugin: Any) -> None:
-                original(plugin)
-                self.registrations.append(
-                    PluginRegistration(registry_type="mcp_tool", key=plugin.name)
-                )
-
-            self._original_methods["mcp_tool_register"] = (
-                registry,
-                "register_plugin",
-                original,
-            )
-            registry.register_plugin = tracking_register  # type: ignore[method-assign]
-        except ImportError:
-            pass
-
-    def _restore_all(self) -> None:
-        """Restore all original registry methods."""
-        for _key, (obj, attr, original) in self._original_methods.items():
-            setattr(obj, attr, original)
-        self._original_methods.clear()
 
 
 class UserPluginService(QObject):
@@ -205,6 +91,7 @@ class UserPluginService(QObject):
         self._has_shown_hot_reload_warning = False
         self._temp_dir: Path | None = None
         self._temp_plugins: set[Path] = set()
+        self._current_load: PluginInfo | None = None  # set during load_plugin_from_file
 
         # Ensure plugins directory exists
         self._ensure_directory()
@@ -350,32 +237,47 @@ class UserPluginService(QObject):
                 "__file__": str(path),
             }
 
-            # Execute with registration tracking
-            tracker = RegistrationTracker(path)
-            with tracker:
+            # Pre-construct PluginInfo so enqueue() can append registrations
+            # into it while exec() runs class definitions.
+            module_name = f"lucid_user_plugins.{path.stem}"
+            info = PluginInfo(
+                file_path=path,
+                module_name=module_name,
+                is_temp=path in self._temp_plugins,
+            )
+
+            # Pre-register a stub module in sys.modules BEFORE exec() so that
+            # inspect.getfile(cls) can resolve the source file.  Without this,
+            # PluginType.__init_subclass__ falls back to inspect.getfile() which
+            # raises TypeError for classes whose module isn't in sys.modules yet,
+            # causing the auto-enqueue to silently bail out.
+            stub_module = type(sys)("lucid_user_plugins")  # ModuleType
+            stub_module.__name__ = module_name
+            stub_module.__file__ = str(path)
+            stub_module.__loader__ = None
+            stub_module.__spec__ = None
+            sys.modules[module_name] = stub_module
+
+            self._current_load = info
+            try:
                 try:
                     exec(code, namespace)
                 except Exception as e:
                     error_msg = f"Execution error: {type(e).__name__}: {e}"
                     logger.warning("Error loading {}: {}", path.name, error_msg)
-                    self._loaded_plugins[path_str] = PluginInfo(
-                        file_path=path,
-                        module_name=f"lucid_user_plugins.{path.stem}",
-                        load_error=error_msg,
-                    )
+                    info.load_error = error_msg
+                    self._loaded_plugins[path_str] = info
                     self.plugin_error.emit(path_str, error_msg)
+                    # Clean up the stub module on failure
+                    sys.modules.pop(module_name, None)
                     return False
+            finally:
+                self._current_load = None
 
-            # Store plugin info
-            module_name = f"lucid_user_plugins.{path.stem}"
-            self._loaded_plugins[path_str] = PluginInfo(
-                file_path=path,
-                module_name=module_name,
-                registrations=tracker.registrations,
-                is_temp=path in self._temp_plugins,
-            )
+            # Store plugin info (registrations list was populated by enqueue())
+            self._loaded_plugins[path_str] = info
 
-            # Add module to sys.modules so imports work
+            # Update the module entry with the fully populated namespace
             sys.modules[module_name] = type(
                 "module", (), {"__dict__": namespace, "__name__": module_name}
             )()
@@ -388,7 +290,7 @@ class UserPluginService(QObject):
             logger.debug(
                 "Loaded user plugin: {} ({} registrations)",
                 path.name,
-                len(tracker.registrations),
+                len(info.registrations),
             )
 
             return True
@@ -484,19 +386,11 @@ class UserPluginService(QObject):
                 registry.unregister(reg.key)
                 logger.debug("Unregistered panel: {}", reg.key)
 
-            elif reg.registry_type == "skill":
-                from lucid.ui.panels.claude.skill_registry import SkillRegistry
+            elif reg.registry_type in ("agent", "skill", "mcp_tool"):
+                from lucid.ui.panels.claude.agent_registry import AgentRegistry
 
-                registry = SkillRegistry.get_instance()
-                registry.unregister_plugin(reg.key)
-                logger.debug("Unregistered skill: {}", reg.key)
-
-            elif reg.registry_type == "mcp_tool":
-                from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-                registry = MCPToolRegistry.get_instance()
-                registry.unregister_plugin(reg.key)
-                logger.debug("Unregistered mcp_tool: {}", reg.key)
+                AgentRegistry.get_instance().unregister(reg.key)
+                logger.debug("Unregistered agent plugin: {}", reg.key)
 
         except Exception as e:
             logger.warning(
@@ -505,6 +399,61 @@ class UserPluginService(QObject):
                 reg.key,
                 e,
             )
+
+    def enqueue(self, cls: type, file_path: Path) -> None:
+        """Register a PluginType subclass auto-discovered via __init_subclass__.
+
+        Called from PluginType.__init_subclass__ during exec() of a user
+        plugin file. Instantiates the class, registers it with the
+        appropriate registry, and tracks the registration on the in-flight
+        PluginInfo so unload can clean up later.
+        """
+        if self._current_load is None:
+            # Class defined outside a load_plugin_from_file call (e.g., test
+            # framework introspection). Just register it; we can't track unload.
+            logger.debug(
+                "auto-enqueue for {} outside a load operation; registering only",
+                cls.__name__,
+            )
+
+        try:
+            instance = cls()
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "Could not instantiate user plugin {} from {}: {}",
+                cls.__name__, file_path, e,
+            )
+            return
+
+        registry_type = cls.type_name
+        plugin_name = getattr(instance, "name", cls.__name__)
+
+        try:
+            if registry_type == "agent":
+                from lucid.ui.panels.claude.agent_registry import AgentRegistry
+                AgentRegistry.get_instance().register(instance)
+            elif registry_type == "panel":
+                from lucid.ui.panels.registry import PanelRegistry
+                PanelRegistry.get_instance().register(cls)
+            else:
+                logger.warning(
+                    "auto-enqueue for type '{}' not supported (plugin {})",
+                    registry_type, plugin_name,
+                )
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "Failed to register user plugin {} (type={}): {}",
+                plugin_name, registry_type, e,
+            )
+            return
+
+        if self._current_load is not None:
+            self._current_load.registrations.append(
+                PluginRegistration(registry_type=registry_type, key=plugin_name)
+            )
+
+        logger.debug("auto-enqueued user plugin: {} (type={})", plugin_name, registry_type)
 
     # Temporary plugins
 

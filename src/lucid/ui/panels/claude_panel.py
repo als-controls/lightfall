@@ -255,15 +255,8 @@ class ClaudePanel(BasePanel):
             logger.debug("Subscribed to plugin loading_complete signal")
 
     def _subscribe_to_plugin_signals(self) -> None:
-        """Subscribe to MCPToolRegistry signals for hot-reload."""
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-            registry = MCPToolRegistry.get_instance()
-            registry.signals.plugin_registered.connect(self._on_plugin_registered)
-            logger.debug("Subscribed to MCPToolRegistry plugin_registered signal")
-        except Exception as e:
-            logger.debug("Could not subscribe to plugin_registered: {}", e)
+        """Subscribe to plugin signals for hot-reload (no-op; AgentRegistry has no signal)."""
+        pass
 
     def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
         """Handle plugin loading completion.
@@ -402,18 +395,13 @@ class ClaudePanel(BasePanel):
         if main_window is None:
             raise ValueError("Could not find main window")
 
-        # Collect all MCP tools
-        all_tools = self._collect_mcp_tools(main_window)
-
         # Build additional system prompt for NCS
         ncs_system_prompt = self._build_ncs_system_prompt()
 
-        # Create the Claude widget with the main window as target and additional tools
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
             api_url=ClaudeSettingsProvider.get_base_url(),
-            additional_tools=all_tools,
             additional_system_prompt=ncs_system_prompt,
             parent=self,
         )
@@ -437,78 +425,7 @@ class ClaudePanel(BasePanel):
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
 
-        logger.info(
-            "Claude assistant panel initialized with {} additional tools",
-            len(all_tools)
-        )
-
-    def _collect_mcp_tools(self, main_window) -> list:
-        """Collect all MCP tools from various sources.
-
-        Tools are collected from:
-        1. NCS core tools (always included, not registered as plugins)
-        2. MCPToolRegistry - all enabled tool plugins (mcp_tool and skill types)
-
-        Args:
-            main_window: The main window reference.
-
-        Returns:
-            List of tool functions (deduplicated by name).
-        """
-        all_tools = []
-        seen_names: set[str] = set()
-
-        def add_tools(tools: list, source: str) -> int:
-            """Add tools, skipping duplicates by name."""
-            added = 0
-            for tool_func in tools:
-                # Get tool name
-                if hasattr(tool_func, 'name'):
-                    tool_name = tool_func.name
-                elif hasattr(tool_func, '__name__'):
-                    tool_name = tool_func.__name__
-                else:
-                    # Can't determine name, add anyway
-                    all_tools.append(tool_func)
-                    added += 1
-                    continue
-
-                if tool_name in seen_names:
-                    logger.warning(
-                        "Skipping duplicate tool '{}' from {}",
-                        tool_name,
-                        source,
-                    )
-                    continue
-
-                seen_names.add(tool_name)
-                all_tools.append(tool_func)
-                added += 1
-            return added
-
-        # 1. Add NCS core tools (always included, not a plugin)
-        try:
-            from lucid.plugins.tools.ncs_tools import NCSCoreToolPlugin
-            ncs_core = NCSCoreToolPlugin(main_window)
-            core_tools = ncs_core.create_tools()
-            added = add_tools(core_tools, "NCS core")
-            logger.debug("Added {} NCS core tools", added)
-        except Exception as e:
-            logger.warning("Failed to create NCS core tools: {}", e)
-
-        # 2. Add tools from enabled tool plugins (includes both mcp_tool and skill types)
-        # MCPToolRegistry.get_enabled_tools() returns tools only from enabled plugins
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-            registry = MCPToolRegistry.get_instance()
-            plugin_tools = registry.get_enabled_tools()
-            added = add_tools(plugin_tools, "enabled plugins")
-            logger.debug("Added {} tools from enabled plugins", added)
-        except Exception as e:
-            logger.warning("Failed to get plugin tools: {}", e)
-
-        logger.info("Collected {} unique MCP tools total", len(all_tools))
-        return all_tools
+        logger.info("Claude assistant panel initialized")
 
     def _build_ncs_system_prompt(self) -> str:
         """Build the NCS-specific system prompt addition.
@@ -612,10 +529,6 @@ If Tiled is off, run data cannot be retrieved programmatically.
 - ncs_ipython_get_namespace — Inspect available variables
 - ncs_ipython_clear — Clear the console
 
-### Skill Documentation
-- ncs_list_skills — List available skills and their descriptions
-- ncs_get_skill_docs — Get detailed documentation for a specific skill
-
 ## Key Panels
 - Bluesky panel: Controls data acquisition scans
 - Device panel: Shows available hardware devices
@@ -647,26 +560,6 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 - Use panel actions (ncs_invoke_panel_action) rather than clicking widgets when available
 - **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
 """
-
-        # Append skill prompts from enabled skills
-        try:
-            from lucid.ui.panels.claude.skill_registry import SkillRegistry
-            skill_registry = SkillRegistry.get_instance()
-            skill_prompts = skill_registry.get_aggregated_system_prompt()
-            if skill_prompts:
-                base_prompt += "\n\n# Enabled Skills\n\n" + skill_prompts
-                logger.debug(
-                    "Added {} chars of skill prompts to system prompt",
-                    len(skill_prompts)
-                )
-
-            # Add skill reminder so Claude knows skills are invocable
-            skill_reminder = skill_registry.get_skill_reminder()
-            if skill_reminder:
-                base_prompt += "\n\n" + skill_reminder
-                logger.debug("Added skill reminder to system prompt")
-        except Exception as e:
-            logger.warning("Failed to get skill prompts: {}", e)
 
         return base_prompt
 
@@ -893,14 +786,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """Cleanup when panel is closing."""
         self._stop_thinking_animation()
         self._stop_permission_animation()
-        # Disconnect from registry signals
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-            registry = MCPToolRegistry.get_instance()
-            registry.signals.plugin_registered.disconnect(self._on_plugin_registered)
-        except Exception:
-            pass  # Ignore disconnection errors
+        # AgentRegistry has no signals to disconnect
 
         # Disconnect from loader signals
         loader = self._get_plugin_loader()
