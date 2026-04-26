@@ -398,8 +398,6 @@ class ClaudePanel(BasePanel):
         # Build additional system prompt for NCS
         ncs_system_prompt = self._build_ncs_system_prompt()
 
-        # Create the Claude widget. NCSCoreToolPlugin is now manifest-driven
-        # via AgentRegistry; no additional_tools= injection needed here.
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),

@@ -172,7 +172,6 @@ class QtClaudeAgent(QObject):
         cli_path: str | None = None,
         permission_mode: str = "default",
         max_turns: int = 20,
-        additional_tools: list | None = None,
         additional_system_prompt: str | None = None,
         require_approval: bool = True,
         parent: QObject | None = None
@@ -190,8 +189,6 @@ class QtClaudeAgent(QObject):
             cli_path: Path to Claude Code CLI executable (auto-detected if not provided)
             permission_mode: Permission mode for tools ('default', 'acceptEdits', 'bypassPermissions')
             max_turns: Maximum conversation turns
-            additional_tools: Optional list of additional MCP tool functions to register.
-                             Each tool should be decorated with @tool from claude_agent_sdk.
             additional_system_prompt: Optional additional text to append to the system prompt.
             require_approval: If True, show UI approval for tool calls (default True).
                             Read-only tools (screenshot, get_widget_tree, find_widget) are
@@ -248,8 +245,6 @@ class QtClaudeAgent(QObject):
             "mcp__qt__show_controller",
         ]
 
-        # Store legacy additional_tools (deprecated; AgentPlugin is preferred)
-        self._additional_tools = additional_tools or []
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
         # Per-plugin server assembly from AgentRegistry
@@ -270,28 +265,6 @@ class QtClaudeAgent(QObject):
         init_session_plugin_dir(self._session_plugin_dir)
         for plugin in enabled:
             materialize_skill(plugin, self._session_plugin_dir)
-
-        # Legacy additional_tools support (deprecated; warn but keep working
-        # for any direct API consumers)
-        if self._additional_tools:
-            from claude_agent_sdk import create_sdk_mcp_server
-            logger.warning(
-                "QtClaudeAgent.additional_tools is deprecated; "
-                "contribute via AgentPlugin instead"
-            )
-            legacy_server = create_sdk_mcp_server(
-                name="legacy_additional",
-                version="1.0.0",
-                tools=self._additional_tools,
-            )
-            mcp_servers["legacy_additional"] = legacy_server
-            for tool_func in self._additional_tools:
-                tool_name = (
-                    getattr(tool_func, "name", None)
-                    or getattr(tool_func, "__name__", None)
-                )
-                if tool_name:
-                    allowed_tools.append(f"mcp__legacy_additional__{tool_name}")
 
         # Build system prompt
         system_prompt = QT_SYSTEM_PROMPT

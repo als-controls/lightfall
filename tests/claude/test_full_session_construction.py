@@ -47,10 +47,8 @@ def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monke
         "panel_builder", "ncs_core_tools",
     }
     assert expected_tool_servers.issubset(options.mcp_servers.keys())
-    # No legacy "additional" server (and no "legacy_additional" since no
-    # additional_tools= was passed)
+    # No bundled "additional" server (skills + tools split into per-plugin servers).
     assert "additional" not in options.mcp_servers
-    assert "legacy_additional" not in options.mcp_servers
     # plugins= present, points at a real on-disk dir with skills
     plugin_dir = Path(options.plugins[0]["path"])
     assert plugin_dir.exists()
