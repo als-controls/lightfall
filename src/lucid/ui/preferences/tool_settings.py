@@ -43,7 +43,7 @@ class ToolPluginTableModel(QAbstractTableModel):
     The model allows toggling plugins enabled/disabled via the checkbox.
     """
 
-    COLUMNS = ["Plugin", "Type", "Category", "Description"]
+    COLUMNS = ["Plugin", "Category", "Description"]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the tool plugin table model."""
@@ -166,11 +166,9 @@ class ToolPluginTableModel(QAbstractTableModel):
                 return plugin.display_name
 
         elif role == Qt.ItemDataRole.DisplayRole:
-            if col == 1:  # Type
-                return plugin.type_name.title()
-            elif col == 2:  # Category
+            if col == 1:  # Category
                 return plugin.category.title()
-            elif col == 3:  # Description
+            elif col == 2:  # Description
                 return plugin.description
 
         if role == Qt.ItemDataRole.ToolTipRole:
@@ -342,9 +340,20 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         # Load enabled plugin names from preferences
         prefs = PreferencesManager.get_instance()
 
-        # Load the enabled_tool_plugins preference
+        # Load the enabled_tool_plugins preference (with one-time migration
+        # from the legacy SkillRegistry-era enabled_skills key).
         from lucid.ui.panels.claude.agent_registry import ENABLED_PLUGINS_PREF
         enabled_list = prefs.get(ENABLED_PLUGINS_PREF)
+
+        if enabled_list is None:
+            legacy = prefs.get("enabled_skills")
+            if isinstance(legacy, list):
+                logger.info(
+                    "Migrating {} entries from enabled_skills to {}",
+                    len(legacy), ENABLED_PLUGINS_PREF,
+                )
+                prefs.set(ENABLED_PLUGINS_PREF, list(legacy))
+                enabled_list = legacy
 
         if enabled_list is None:
             # No preference set - use defaults
