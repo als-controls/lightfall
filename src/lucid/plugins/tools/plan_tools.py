@@ -663,7 +663,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
         async def get_user_plan(args: dict) -> dict[str, Any]:
             """Read source code of a user plan."""
             from lucid.acquire.plans.user_plans import UserPlanService
-            from lucid.plugins.tools._mcp_helpers import mcp_result
+            from lucid.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
 
@@ -709,7 +709,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
         async def delete_user_plan(args: dict) -> dict[str, Any]:
             """Delete a user plan."""
             from lucid.acquire.plans.user_plans import UserPlanService
-            from lucid.plugins.tools._mcp_helpers import mcp_result
+            from lucid.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
             confirm = args.get("confirm", False)

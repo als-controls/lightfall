@@ -14,7 +14,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
 from lucid.plugins.mcp_tool import MCPToolPlugin
-from lucid.plugins.tools._mcp_helpers import mcp_result
+from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
