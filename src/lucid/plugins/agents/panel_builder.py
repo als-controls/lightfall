@@ -1,4 +1,4 @@
-"""Panel builder skill plugin with MCP tools.
+﻿"""Panel builder skill plugin with MCP tools.
 
 Provides MCP tools for Claude to create and manage user-defined plugins,
 particularly panel plugins. Includes tools for creating, listing, reloading,
@@ -61,15 +61,28 @@ class PanelBuilderAgent(AgentPlugin):
 
 You have access to tools for creating user plugins in LUCID.
 
-### Creating a Panel Plugin
+### Plugin Kind is Determined by Class Hierarchy
 
-Use `ncs_create_user_plugin` to create a panel plugin file in ~/lucid/plugins/.
-The plugin will be automatically loaded and available in the View menu.
+The `plugin_type` parameter no longer exists. Instead, the kind of plugin is
+inferred automatically from which base class your code subclasses:
+
+- **`PanelPlugin`** — subclass this to register a new dock panel
+- **`AgentPlugin`** — subclass this to extend the embedded Claude agent
+  (adds skill prompts and MCP tools)
+
+`__init_subclass__` auto-registers each concrete subclass; no explicit
+`Registry.get_instance().register()` call is required.
+
+### Creating a Plugin
+
+Use `ncs_create_user_plugin` to write a plugin file to ~/lucid/plugins/.
+The plugin will be validated (syntax + exec + concrete-PluginType-subclass
+check), written to disk, and loaded immediately.
 
 Example workflow:
 1. User asks for a panel with specific functionality
-2. You generate the panel code using the panel_design skill knowledge
-3. You call ncs_create_user_plugin with the code
+2. You generate the panel code subclassing `PanelPlugin`
+3. You call `ncs_create_user_plugin` with the code
 4. The plugin is validated, written to disk, and loaded
 5. User can open the panel from View > User > [Panel Name]
 
@@ -90,57 +103,46 @@ ideas before committing to a persistent plugin.
         self,
         code: str,
         name: str,
-        plugin_type: str | None = None,
-    ) -> tuple[bool, str | None]:
-        """Validate plugin code without writing to disk.
+    ) -> tuple[bool, str | None, list[str]]:
+        """Validate user plugin code. Returns (is_valid, error, found_kinds).
+
+        found_kinds is a list of type_names ("panel", "agent", ...) for
+        each concrete PluginType subclass discovered.
 
         Performs in-memory validation:
         1. Syntax check via compile()
         2. Execution in isolated namespace to check imports
-        3. Type-specific checks (e.g., panel_metadata for panels)
+        3. Discovers concrete PluginType subclasses (kind inferred from hierarchy)
         4. Warning for dangerous imports
-
-        Args:
-            code: Python source code for the plugin.
-            name: Plugin name (for error messages).
-            plugin_type: Optional type hint ("panel", "skill", etc.).
-
-        Returns:
-            Tuple of (is_valid, error_message). error_message is None if valid.
         """
         # 1. Syntax check
         try:
             compile(code, f"{name}.py", "exec")
         except SyntaxError as e:
-            return False, f"Syntax error at line {e.lineno}: {e.msg}"
+            return False, f"Syntax error at line {e.lineno}: {e.msg}", []
 
         # 2. Execute in isolated namespace to check for import errors
         namespace: dict[str, Any] = {"__name__": f"lucid_user_plugins.{name}"}
         try:
             exec(code, namespace)
-        except Exception as e:
-            return False, f"Execution error: {type(e).__name__}: {e}"
+        except Exception as e:  # noqa: BLE001
+            return False, f"Import/exec error: {e}", []
 
-        # 3. Type-specific validation
-        if plugin_type == "panel":
-            # Check for a class with panel_metadata
-            panel_classes = [
-                v
-                for v in namespace.values()
-                if isinstance(v, type) and hasattr(v, "panel_metadata")
-            ]
-            if not panel_classes:
-                return False, (
-                    "No panel class found. Ensure your class has a "
-                    "'panel_metadata' class attribute of type PanelMetadata."
-                )
+        # 3. Find PluginType subclasses (concrete only)
+        from lucid.plugins.types import PluginType
 
-            # Check for self-registration
-            if "PanelRegistry" not in code:
-                return False, (
-                    "Missing self-registration. Add at the end of your file:\n"
-                    "PanelRegistry.get_instance().register(YourPanel, replace=True)"
-                )
+        found_kinds: list[str] = []
+        for v in namespace.values():
+            if (
+                isinstance(v, type)
+                and issubclass(v, PluginType)
+                and v is not PluginType
+                and not getattr(v, "__abstractmethods__", None)
+            ):
+                found_kinds.append(v.type_name)
+
+        if not found_kinds:
+            return False, "No concrete PluginType subclass found", []
 
         # 4. Warn about dangerous imports (but don't fail)
         dangerous_patterns = [
@@ -161,7 +163,7 @@ ideas before committing to a persistent plugin.
                 ", ".join(warnings),
             )
 
-        return True, None
+        return True, None, found_kinds
 
     def create_tools(self) -> list[Any]:
         """Create plugin management MCP tools.
@@ -180,22 +182,17 @@ ideas before committing to a persistent plugin.
             description="""Create a LUCID user plugin from Python code.
 
 The plugin will be written to ~/lucid/plugins/ and automatically loaded.
-Supports panel plugins, skill plugins, and MCP tool plugins.
+The kind of plugin is determined by the class hierarchy in `code`:
 
-For panel plugins:
-- Create a `BasePanel` subclass with `panel_metadata` attribute
-- Do NOT use `PanelPlugin` (that's only for built-in plugins)
-- Include self-registration at the end:
+- Subclass `AgentPlugin` to extend the embedded Claude agent (adds skill prompts + MCP tools)
+- Subclass `PanelPlugin` to register a new dock panel
 
-```python
-PanelRegistry.get_instance().register(MyPanel, replace=True)
-```
+`__init_subclass__` auto-registers each concrete subclass on module load;
+no explicit `Registry.get_instance().register()` call is required.
 
-Returns success status and file path.
+Returns success status, file path, and the discovered plugin kind(s).
 
-## CRITICAL: Panel Plugin Template
-
-You MUST use these exact imports and patterns:
+## Panel Plugin Template
 
 ```python
 \"\"\"My panel description.\"\"\"
@@ -207,11 +204,11 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
 )
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
+from lucid.plugins.panel_plugin import PanelPlugin
+from lucid.ui.panels.base import PanelMetadata
 
 
-class MyPanel(BasePanel):
+class MyPanel(PanelPlugin):
     \"\"\"Panel description.\"\"\"
 
     panel_metadata = PanelMetadata(
@@ -239,17 +236,12 @@ class MyPanel(BasePanel):
     def _on_click(self) -> None:
         \"\"\"Handle button click.\"\"\"
         pass
-
-
-# REQUIRED: Self-register at module load time
-PanelRegistry.get_instance().register(MyPanel, replace=True)
 ```
 
 ## Common Mistakes to AVOID:
 - DON'T use `qtpy` imports - use `PySide6` directly
 - DON'T override `__init__` - override `_setup_ui()` instead
 - DON'T create `QVBoxLayout(self)` - use inherited `self._layout`
-- DON'T use `lucid.registries` - use `lucid.ui.panels.registry`
 - DON'T use `lucid.panels.base` - use `lucid.ui.panels.base`
 
 ## Accessing Devices:
@@ -290,11 +282,6 @@ engine.submit(my_plan(), description="My plan")
                         "description": "If true, overwrite existing plugin with same name. Default: false",
                         "default": False,
                     },
-                    "plugin_type": {
-                        "type": "string",
-                        "description": "Optional type hint for validation: 'panel', 'skill', 'mcp_tool'",
-                        "enum": ["panel", "skill", "mcp_tool"],
-                    },
                 },
                 "required": ["name", "code", "description"],
             },
@@ -307,7 +294,6 @@ engine.submit(my_plan(), description="My plan")
             code = args["code"]
             description = args["description"]
             overwrite = args.get("overwrite", False)
-            plugin_type = args.get("plugin_type")
 
             # Validate name is a valid Python identifier
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
@@ -318,7 +304,7 @@ engine.submit(my_plan(), description="My plan")
                 }
 
             # Validate code in-memory before writing
-            is_valid, error = self._validate_plugin_code(code, name, plugin_type)
+            is_valid, error, kinds = self._validate_plugin_code(code, name)
             if not is_valid:
                 return {
                     "success": False,
@@ -390,7 +376,7 @@ engine.submit(my_plan(), description="My plan")
 
             return {
                 "success": True,
-                "message": f"Plugin '{name}' created successfully",
+                "message": f"Plugin '{name}' created successfully (kinds: {', '.join(sorted(set(kinds)))})",
                 "path": str(file_path),
                 "description": description,
             }
@@ -402,7 +388,11 @@ engine.submit(my_plan(), description="My plan")
 Useful for quick prototyping. The plugin is loaded immediately but will
 be lost when the application exits.
 
-Returns success status and temporary file path.
+The kind of plugin is determined by the class hierarchy in `code`:
+- Subclass `AgentPlugin` for agent extensions (skill prompts + MCP tools)
+- Subclass `PanelPlugin` for dock panels
+
+Returns success status, temporary file path, and the discovered plugin kind(s).
 
 IMPORTANT: Use the same imports and patterns as ncs_create_user_plugin.
 See that tool's description for the required template.""",
@@ -415,12 +405,7 @@ See that tool's description for the required template.""",
                     },
                     "code": {
                         "type": "string",
-                        "description": "Complete Python source code for the plugin",
-                    },
-                    "plugin_type": {
-                        "type": "string",
-                        "description": "Optional type hint for validation",
-                        "enum": ["panel", "skill", "mcp_tool"],
+                        "description": "Complete Python source code for the plugin. The class hierarchy determines the plugin kind.",
                     },
                 },
                 "required": ["name", "code"],
@@ -432,7 +417,6 @@ See that tool's description for the required template.""",
 
             name = args["name"]
             code = args["code"]
-            plugin_type = args.get("plugin_type")
 
             # Validate name
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
@@ -442,7 +426,7 @@ See that tool's description for the required template.""",
                 }
 
             # Validate code
-            is_valid, error = self._validate_plugin_code(code, name, plugin_type)
+            is_valid, error, kinds = self._validate_plugin_code(code, name)
             if not is_valid:
                 return {
                     "success": False,
@@ -455,7 +439,7 @@ See that tool's description for the required template.""",
 
                 return {
                     "success": True,
-                    "message": f"Temporary plugin '{name}' created",
+                    "message": f"Temporary plugin '{name}' created (kinds: {', '.join(sorted(set(kinds)))})",
                     "path": str(file_path),
                     "is_temporary": True,
                 }
