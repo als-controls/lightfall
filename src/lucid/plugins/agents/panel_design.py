@@ -10,6 +10,7 @@ loaded on-demand via the ncs_get_skill_docs tool.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from lucid.plugins.agent_plugin import AgentPlugin
@@ -86,3 +87,7 @@ Key imports: `from lucid.ui.panels.base import BasePanel, PanelMetadata`
         """Return tools provided by this skill."""
         # This skill provides guidance only, no additional tools
         return []
+
+    def get_references_dir(self) -> Path | None:
+        """Return path to the references directory containing supplementary docs."""
+        return Path(__file__).parent / "panel_design" / "references"

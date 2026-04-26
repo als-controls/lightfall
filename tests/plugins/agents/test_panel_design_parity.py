@@ -18,3 +18,13 @@ def test_metadata_preserved():
     assert p.category == "development"
     assert p.enabled_by_default is True
     assert p.priority == 20
+
+
+def test_references_dir_points_to_migrated_doc():
+    from lucid.plugins.agents.panel_design import PanelDesignAgent
+
+    p = PanelDesignAgent()
+    refs = p.get_references_dir()
+    assert refs is not None
+    assert refs.is_dir()
+    assert (refs / "panel_design.md").exists()
