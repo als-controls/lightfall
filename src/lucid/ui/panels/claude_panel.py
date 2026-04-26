@@ -594,10 +594,6 @@ If Tiled is off, run data cannot be retrieved programmatically.
 - ncs_ipython_get_namespace — Inspect available variables
 - ncs_ipython_clear — Clear the console
 
-### Skill Documentation
-- ncs_list_skills — List available skills and their descriptions
-- ncs_get_skill_docs — Get detailed documentation for a specific skill
-
 ## Key Panels
 - Bluesky panel: Controls data acquisition scans
 - Device panel: Shows available hardware devices
