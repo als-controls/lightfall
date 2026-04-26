@@ -1,11 +1,9 @@
-"""Claude Tools settings plugin for NCS.
+"""Claude agent settings plugin for NCS.
 
-This module contains the ClaudeToolsSettingsPlugin that allows users to
-view all discovered Claude tool plugins (including skills) and enable/disable
-them via checkbox. Enabled/disabled state is persisted in preferences.
-
-This replaces the former skill_settings.py and unifies management of both
-mcp_tool and skill plugin types.
+ClaudeToolsSettingsPlugin lets users enable/disable AgentPlugin instances
+discovered by AgentRegistry. Enabled state is persisted to the
+`enabled_tool_plugins` preference key (carried over from the legacy
+SkillRegistry/MCPToolRegistry world for backward compatibility).
 """
 
 from __future__ import annotations
@@ -32,13 +30,12 @@ if TYPE_CHECKING:
 
 
 class ToolPluginTableModel(QAbstractTableModel):
-    """Table model for displaying Claude tool plugins.
+    """Table model for displaying registered AgentPlugin instances.
 
     Columns:
         0: Plugin (with checkbox for enabled/disabled)
-        1: Type (Tool or Skill)
-        2: Category
-        3: Description
+        1: Category
+        2: Description
 
     The model allows toggling plugins enabled/disabled via the checkbox.
     """
@@ -233,11 +230,12 @@ class ToolPluginTableModel(QAbstractTableModel):
 
 
 class ClaudeToolsSettingsPlugin(SettingsPlugin):
-    """Settings plugin for managing Claude tool plugins.
+    """Settings plugin for managing Claude agent plugins.
 
-    Allows users to view all discovered tool plugins (including skills)
-    and enable/disable them. Enabled plugins have their tools available
-    to Claude, and enabled skills also contribute system prompts.
+    Allows users to view all AgentPlugin instances registered with
+    AgentRegistry and enable/disable them. Enabled plugins contribute
+    their tools (per-plugin MCP server) and skill prompt (SKILL.md
+    materialized into the per-session SDK plugin dir).
     """
 
     def __init__(self) -> None:

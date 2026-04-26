@@ -533,8 +533,9 @@ def _setup_plugins(app: NCSApplication) -> None:
 def _setup_user_plugins(app: NCSApplication) -> None:
     """Load user-defined plugins from ~/lucid/plugins/.
 
-    User plugins are Python files that self-register with type-specific
-    registries (PanelRegistry, SkillRegistry, etc.) on execution.
+    User plugins are Python files in ~/lucid/plugins/. Plugin classes
+    auto-register via PluginType.__init_subclass__ when defined, so user
+    files do not need explicit Registry.register() calls.
 
     Args:
         app: The LUCID application instance.

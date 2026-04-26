@@ -94,7 +94,7 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="lucid.ui.preferences.claude_settings:ClaudeSettingsPlugin",
         ),
-        # Claude tools settings (includes both tool plugins and skills)
+        # Claude agent plugin settings (enable/disable AgentPlugin instances)
         PluginEntry(
             type_name="settings",
             name="claude_tools",

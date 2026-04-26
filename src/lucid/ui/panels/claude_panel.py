@@ -438,9 +438,10 @@ class ClaudePanel(BasePanel):
     def _collect_mcp_tools(self, main_window) -> list:
         """Collect all MCP tools from various sources.
 
-        Tools are collected from:
-        1. NCS core tools (always included, not registered as plugins)
-        2. MCPToolRegistry - all enabled tool plugins (mcp_tool and skill types)
+        Tools are collected from NCSCoreToolPlugin (which requires
+        main_window injection at construction time and therefore is not
+        in the manifest). All other agent plugins flow directly through
+        AgentRegistry into per-plugin MCP servers in QtClaudeAgent.
 
         Args:
             main_window: The main window reference.
