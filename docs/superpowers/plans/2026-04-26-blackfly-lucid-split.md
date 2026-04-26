@@ -433,9 +433,14 @@ class CameraImageView(QWidget):
         if self._frames_seen == 1:
             self._image_view.setImage(img.T, autoLevels=True, autoRange=True)
         else:
-            self._image_view.updateImage(img.T)
+            # ImageView.updateImage() only refreshes display state (no image arg).
+            # For per-frame data updates that preserve user pan/zoom/levels, push
+            # the array through the underlying ImageItem.
+            self._image_view.getImageItem().setImage(img.T, autoLevels=False)
         self._status.setText(f"{self._frames_seen} frames · {img.shape[1]}×{img.shape[0]} · {img.dtype}")
 ```
+
+**Note:** the standalone `blackfly_observer/widgets.py` had a bug here — it called `self._image_view.updateImage(img.T)`, but `pyqtgraph.ImageView.updateImage`'s signature is `(self, autoHistogramRange=True)` and takes no image argument. The image array got bound to `autoHistogramRange`, then `if autoHistogramRange:` raised `ValueError: truth value of an array with more than one element is ambiguous`. Lucid's `pytest-qt` plugin re-raises Qt event-loop exceptions as test failures (the standalone repo's bare pytest silently swallowed them), which surfaced the bug during the Task 2 lift. The fix routes per-frame updates through the underlying `ImageItem` instead.
 
 - [ ] **Step 4: Update `__init__.py` to export `CameraImageView`**
 
