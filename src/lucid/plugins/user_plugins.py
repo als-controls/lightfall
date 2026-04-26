@@ -506,6 +506,19 @@ class UserPluginService(QObject):
                 e,
             )
 
+    def enqueue(self, cls: type, file_path: Path) -> None:
+        """Auto-register a PluginType subclass discovered via __init_subclass__.
+
+        Called from PluginType.__init_subclass__ when a class is defined in a
+        file under the user plugin dir. Real implementation lands in Phase 4
+        (when RegistrationTracker is removed). For now this is a no-op so that
+        the foundation phase doesn't break existing user-plugin loading.
+        """
+        # TODO(Phase 4): route through PluginLoader._register_plugin and track
+        # for unload. Currently a no-op; existing user plugins still rely on
+        # explicit Registry.register() calls in their bodies.
+        pass
+
     # Temporary plugins
 
     def create_temp_plugin(self, name: str, code: str) -> Path:
