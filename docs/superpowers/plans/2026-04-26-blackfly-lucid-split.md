@@ -19,7 +19,7 @@
 Files to **create**:
 
 - `src/lucid/ui/widgets/observers/__init__.py` — re-exports `CameraBase`, `CameraImageView`.
-- `src/lucid/ui/widgets/observers/camera.py` — `CameraBase` ABC + the convenience `Geometry` dataclass-equivalent kept here so future observers can reuse it. (Single responsibility: the abstract camera contract.)
+- `src/lucid/ui/widgets/observers/camera.py` — `CameraBase` ABC. (Single responsibility: the abstract camera contract. The `Geometry` dataclass with FLIR-specific register-readout semantics ships with `BlackflyCamera` in Task 5, not here.)
 - `src/lucid/ui/widgets/observers/image_view.py` — `CameraImageView` pyqtgraph widget. (Single responsibility: live-view widget over any `CameraBase`.)
 - `tests/ui/widgets/observers/__init__.py` — empty.
 - `tests/ui/widgets/observers/test_camera_base.py` — ABC contract tests.
