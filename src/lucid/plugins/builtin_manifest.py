@@ -155,58 +155,53 @@ builtin_manifest = PluginManifest(
             name="thread_status",
             import_path="lucid.ui.statusbar.plugins.thread_status:ThreadStatusPlugin",
         ),
-        # MCP Tool plugins - loaded during background loading
-        # Claude panel collects tools when opened (also not preloaded)
+        # Agent plugins (skill prompts and/or MCP tool bags).
+        # Each contributes via AgentRegistry; per-plugin MCP servers are
+        # assembled at agent-construction time in lucid/claude/agent.py.
         PluginEntry(
-            type_name="mcp_tool",
-            name="device_tools",
-            import_path="lucid.plugins.tools.device_tools:DeviceToolPlugin",
-        ),
-        PluginEntry(
-            type_name="mcp_tool",
-            name="plan_tools",
-            import_path="lucid.plugins.tools.plan_tools:PlanToolPlugin",
-        ),
-        PluginEntry(
-            type_name="mcp_tool",
-            name="engine_tools",
-            import_path="lucid.plugins.tools.engine_tools:EngineToolPlugin",
-        ),
-        PluginEntry(
-            type_name="mcp_tool",
-            name="ipython_tools",
-            import_path="lucid.plugins.tools.ipython_tools:IPythonToolPlugin",
-        ),
-        PluginEntry(
-            type_name="mcp_tool",
-            name="skill_docs",
-            import_path="lucid.plugins.tools.skill_docs_tool:SkillDocsToolPlugin",
-        ),
-        # Skill plugins - loaded during background loading
-        PluginEntry(
-            type_name="skill",
+            type_name="agent",
             name="alignment",
-            import_path="lucid.plugins.skills.alignment:BeamlineAlignmentSkill",
+            import_path="lucid.plugins.agents.alignment:BeamlineAlignmentAgent",
         ),
         PluginEntry(
-            type_name="skill",
+            type_name="agent",
             name="plan_design",
-            import_path="lucid.plugins.skills.plan_design:PlanDesignSkill",
+            import_path="lucid.plugins.agents.plan_design:PlanDesignAgent",
         ),
         PluginEntry(
-            type_name="skill",
+            type_name="agent",
             name="scan_planning",
-            import_path="lucid.plugins.skills.scan_planning:ScanPlanningSkill",
+            import_path="lucid.plugins.agents.scan_planning:ScanPlanningAgent",
         ),
         PluginEntry(
-            type_name="skill",
+            type_name="agent",
             name="panel_design",
-            import_path="lucid.plugins.skills.panel_design:PanelDesignSkill",
+            import_path="lucid.plugins.agents.panel_design:PanelDesignAgent",
         ),
         PluginEntry(
-            type_name="skill",
+            type_name="agent",
             name="panel_builder",
-            import_path="lucid.plugins.skills.panel_builder:PanelBuilderSkill",
+            import_path="lucid.plugins.agents.panel_builder:PanelBuilderAgent",
+        ),
+        PluginEntry(
+            type_name="agent",
+            name="device_tools",
+            import_path="lucid.plugins.agents.device_tools:DeviceToolsAgent",
+        ),
+        PluginEntry(
+            type_name="agent",
+            name="plan_tools",
+            import_path="lucid.plugins.agents.plan_tools:PlanToolsAgent",
+        ),
+        PluginEntry(
+            type_name="agent",
+            name="engine_tools",
+            import_path="lucid.plugins.agents.engine_tools:EngineToolsAgent",
+        ),
+        PluginEntry(
+            type_name="agent",
+            name="ipython_tools",
+            import_path="lucid.plugins.agents.ipython_tools:IPythonToolsAgent",
         ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
