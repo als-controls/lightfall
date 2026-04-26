@@ -432,9 +432,15 @@ class UserPluginService(QObject):
             if registry_type == "agent":
                 from lucid.ui.panels.claude.agent_registry import AgentRegistry
                 AgentRegistry.get_instance().register(instance)
+                registration_key = plugin_name
             elif registry_type == "panel":
                 from lucid.ui.panels.registry import PanelRegistry
-                PanelRegistry.get_instance().register(cls)
+                # PanelRegistry.register expects the BasePanel subclass (it reads
+                # panel_metadata off it); the auto-discovered cls is the PanelPlugin
+                # subclass, so route through get_panel_class().
+                panel_class = instance.get_panel_class()
+                PanelRegistry.get_instance().register(panel_class)
+                registration_key = panel_class.panel_metadata.id
             else:
                 logger.warning(
                     "auto-enqueue for type '{}' not supported (plugin {})",
@@ -450,7 +456,7 @@ class UserPluginService(QObject):
 
         if self._current_load is not None:
             self._current_load.registrations.append(
-                PluginRegistration(registry_type=registry_type, key=plugin_name)
+                PluginRegistration(registry_type=registry_type, key=registration_key)
             )
 
         logger.debug("auto-enqueued user plugin: {} (type={})", plugin_name, registry_type)
