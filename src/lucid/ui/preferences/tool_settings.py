@@ -307,9 +307,8 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         header = self._table_view.horizontalHeader()
         if header:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Plugin
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Category
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Description
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Category
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Description
 
         layout.addWidget(self._table_view, stretch=1)
 
