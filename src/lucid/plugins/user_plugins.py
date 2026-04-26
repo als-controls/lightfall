@@ -484,19 +484,11 @@ class UserPluginService(QObject):
                 registry.unregister(reg.key)
                 logger.debug("Unregistered panel: {}", reg.key)
 
-            elif reg.registry_type == "skill":
-                from lucid.ui.panels.claude.skill_registry import SkillRegistry
+            elif reg.registry_type in ("agent", "skill", "mcp_tool"):
+                from lucid.ui.panels.claude.agent_registry import AgentRegistry
 
-                registry = SkillRegistry.get_instance()
-                registry.unregister_plugin(reg.key)
-                logger.debug("Unregistered skill: {}", reg.key)
-
-            elif reg.registry_type == "mcp_tool":
-                from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-                registry = MCPToolRegistry.get_instance()
-                registry.unregister_plugin(reg.key)
-                logger.debug("Unregistered mcp_tool: {}", reg.key)
+                AgentRegistry.get_instance().unregister(reg.key)
+                logger.debug("Unregistered agent plugin: {}", reg.key)
 
         except Exception as e:
             logger.warning(

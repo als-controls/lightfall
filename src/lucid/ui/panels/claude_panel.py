@@ -255,15 +255,8 @@ class ClaudePanel(BasePanel):
             logger.debug("Subscribed to plugin loading_complete signal")
 
     def _subscribe_to_plugin_signals(self) -> None:
-        """Subscribe to MCPToolRegistry signals for hot-reload."""
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-            registry = MCPToolRegistry.get_instance()
-            registry.signals.plugin_registered.connect(self._on_plugin_registered)
-            logger.debug("Subscribed to MCPToolRegistry plugin_registered signal")
-        except Exception as e:
-            logger.debug("Could not subscribe to plugin_registered: {}", e)
+        """Subscribe to plugin signals for hot-reload (no-op; AgentRegistry has no signal)."""
+        pass
 
     def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
         """Handle plugin loading completion.
@@ -488,24 +481,13 @@ class ClaudePanel(BasePanel):
 
         # 1. Add NCS core tools (always included, not a plugin)
         try:
-            from lucid.plugins.tools.ncs_tools import NCSCoreToolPlugin
+            from lucid.claude.ncs_core_tools import NCSCoreToolPlugin
             ncs_core = NCSCoreToolPlugin(main_window)
             core_tools = ncs_core.create_tools()
             added = add_tools(core_tools, "NCS core")
             logger.debug("Added {} NCS core tools", added)
         except Exception as e:
             logger.warning("Failed to create NCS core tools: {}", e)
-
-        # 2. Add tools from enabled tool plugins (includes both mcp_tool and skill types)
-        # MCPToolRegistry.get_enabled_tools() returns tools only from enabled plugins
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-            registry = MCPToolRegistry.get_instance()
-            plugin_tools = registry.get_enabled_tools()
-            added = add_tools(plugin_tools, "enabled plugins")
-            logger.debug("Added {} tools from enabled plugins", added)
-        except Exception as e:
-            logger.warning("Failed to get plugin tools: {}", e)
 
         logger.info("Collected {} unique MCP tools total", len(all_tools))
         return all_tools
@@ -873,14 +855,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """Cleanup when panel is closing."""
         self._stop_thinking_animation()
         self._stop_permission_animation()
-        # Disconnect from registry signals
-        try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-            registry = MCPToolRegistry.get_instance()
-            registry.signals.plugin_registered.disconnect(self._on_plugin_registered)
-        except Exception:
-            pass  # Ignore disconnection errors
+        # AgentRegistry has no signals to disconnect
 
         # Disconnect from loader signals
         loader = self._get_plugin_loader()

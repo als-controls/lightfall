@@ -479,13 +479,12 @@ def _setup_plugins(app: NCSApplication) -> None:
     Args:
         app: The LUCID application instance.
     """
-    from lucid.plugins import MCPToolPlugin, PluginLoader, PluginRegistry
+    from lucid.plugins import AgentPlugin, PluginLoader, PluginRegistry
     from lucid.plugins.builtin_manifest import builtin_manifest
     from lucid.plugins.controller_plugin import ControllerPlugin
     from lucid.plugins.engine_plugin import EnginePlugin
     from lucid.plugins.panel_plugin import PanelPlugin
     from lucid.plugins.settings_plugin import SettingsPlugin
-    from lucid.plugins.skill_plugin import SkillPlugin
     from lucid.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
@@ -500,11 +499,10 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
-    loader.register_plugin_type("mcp_tool", MCPToolPlugin)
+    loader.register_plugin_type("agent", AgentPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
     loader.register_plugin_type("panel", PanelPlugin)
-    loader.register_plugin_type("skill", SkillPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)

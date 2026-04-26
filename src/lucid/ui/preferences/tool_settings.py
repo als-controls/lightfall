@@ -28,7 +28,7 @@ from lucid.utils.logging import logger
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-    from lucid.plugins.mcp_tool import MCPToolPlugin
+    from lucid.plugins.agent_plugin import AgentPlugin
 
 
 class ToolPluginTableModel(QAbstractTableModel):
@@ -48,33 +48,31 @@ class ToolPluginTableModel(QAbstractTableModel):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the tool plugin table model."""
         super().__init__(parent)
-        self._plugins: list[MCPToolPlugin] = []
+        self._plugins: list[AgentPlugin] = []
         self._enabled_names: set[str] = set()
         self._original_enabled_names: set[str] = set()
         self._has_preference_set = False
 
     def refresh(self) -> None:
-        """Load plugins from MCPToolRegistry.
+        """Load plugins from AgentRegistry.
 
-        Retrieves all tool plugins (including skills) and sorts them
-        by type, then category, then by display name.
+        Retrieves all agent plugins and sorts them by category, then display name.
         """
         self.beginResetModel()
         try:
-            from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
+            from lucid.ui.panels.claude.agent_registry import AgentRegistry
 
-            registry = MCPToolRegistry.get_instance()
+            registry = AgentRegistry.get_instance()
             self._plugins = registry.get_plugins()
-            # Sort by type (skills last), then category, then display name
+            # Sort by category, then display name
             self._plugins.sort(
                 key=lambda p: (
-                    0 if p.type_name == "mcp_tool" else 1,
                     p.category,
                     p.display_name,
                 )
             )
         except Exception as e:
-            logger.warning("Failed to get MCPToolRegistry: {}", e)
+            logger.warning("Failed to get AgentRegistry: {}", e)
             self._plugins = []
         self.endResetModel()
 
@@ -169,7 +167,7 @@ class ToolPluginTableModel(QAbstractTableModel):
 
         elif role == Qt.ItemDataRole.DisplayRole:
             if col == 1:  # Type
-                return "Skill" if plugin.type_name == "skill" else "Tool"
+                return plugin.type_name.title()
             elif col == 2:  # Category
                 return plugin.category.title()
             elif col == 3:  # Description
@@ -344,26 +342,13 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         # Load enabled plugin names from preferences
         prefs = PreferencesManager.get_instance()
 
-        # Try the new preference key first
-        from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-        enabled_list = prefs.get(MCPToolRegistry.ENABLED_PLUGINS_PREF)
+        # Load the enabled_tool_plugins preference
+        from lucid.ui.panels.claude.agent_registry import ENABLED_PLUGINS_PREF
+        enabled_list = prefs.get(ENABLED_PLUGINS_PREF)
 
         if enabled_list is None:
-            # Check for old skills-only preference and migrate
-            old_skills_list = prefs.get("enabled_skills")
-            if old_skills_list is not None and isinstance(old_skills_list, list):
-                # Migrate: old skills + all default-enabled tool plugins
-                logger.info("Migrating from enabled_skills to enabled_tool_plugins")
-                enabled_set = set(old_skills_list)
-                # Add default-enabled mcp_tool plugins
-                registry = MCPToolRegistry.get_instance()
-                for plugin in registry.get_plugins():
-                    if plugin.type_name == "mcp_tool" and plugin.enabled_by_default:
-                        enabled_set.add(plugin.name)
-                self._model.set_enabled_names(enabled_set)
-            else:
-                # No preference set - use defaults
-                self._model.set_enabled_names(None)
+            # No preference set - use defaults
+            self._model.set_enabled_names(None)
         elif isinstance(enabled_list, list):
             self._model.set_enabled_names(set(enabled_list))
         else:
@@ -386,33 +371,17 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         # Get current enabled names
         enabled_names = self._model.get_enabled_names()
 
-        # Save to preferences using the new key
-        from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
+        # Save to preferences using the shared key
+        from lucid.ui.panels.claude.agent_registry import ENABLED_PLUGINS_PREF
         prefs = PreferencesManager.get_instance()
-        prefs.set(MCPToolRegistry.ENABLED_PLUGINS_PREF, list(enabled_names))
+        prefs.set(ENABLED_PLUGINS_PREF, list(enabled_names))
 
         logger.debug(
             "Saved tool settings: {} enabled",
             len(enabled_names),
         )
 
-        # Invalidate MCPToolRegistry cache so changes take effect
-        try:
-            registry = MCPToolRegistry.get_instance()
-            registry.invalidate_cache()
-            logger.debug("Invalidated MCP tool registry cache")
-        except Exception as e:
-            logger.warning("Failed to invalidate tool registry cache: {}", e)
-
-        # Also invalidate SkillRegistry cache for skills
-        try:
-            from lucid.ui.panels.claude.skill_registry import SkillRegistry
-
-            skill_registry = SkillRegistry.get_instance()
-            skill_registry.invalidate_cache()
-            logger.debug("Invalidated skill registry cache")
-        except Exception as e:
-            logger.warning("Failed to invalidate skill registry cache: {}", e)
+        # AgentRegistry has no cache to invalidate; enabled_plugins() reads prefs directly
 
     def validate(self) -> list[str]:
         """Validate current widget values.

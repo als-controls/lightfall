@@ -600,21 +600,6 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("EngineRegistry not available, skipping engine registration")
 
-        elif plugin_info.type_name == "mcp_tool":
-            try:
-                from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-                tool_registry = MCPToolRegistry.get_instance()
-                tool_plugin = plugin_info.instance
-
-                tool_registry.register_plugin(tool_plugin)
-                logger.debug(
-                    "Registered MCP tool plugin '{}' with MCPToolRegistry",
-                    tool_plugin.name,
-                )
-            except ImportError:
-                logger.debug("MCPToolRegistry not available, skipping MCP tool registration")
-
         elif plugin_info.type_name == "statusbar":
             # Statusbar plugins don't need type-specific registration here.
             # They are loaded by StatusBarManager when the main window is created.
@@ -640,40 +625,6 @@ class PluginLoader(QObject):
                     "ControllerPluginRegistry not available, "
                     "skipping controller registration"
                 )
-
-        elif plugin_info.type_name == "skill":
-            # Skills inherit from MCPToolPlugin and are registered with both registries:
-            # - MCPToolRegistry: for unified enable/disable and tool collection
-            # - SkillRegistry: for system prompt aggregation
-            try:
-                from lucid.ui.panels.claude.tool_registry import MCPToolRegistry
-
-                tool_registry = MCPToolRegistry.get_instance()
-                skill_plugin = plugin_info.instance
-
-                tool_registry.register_plugin(skill_plugin)
-                logger.debug(
-                    "Registered skill plugin '{}' with MCPToolRegistry",
-                    skill_plugin.name,
-                )
-            except ImportError:
-                logger.debug(
-                    "MCPToolRegistry not available, skipping skill tool registration"
-                )
-
-            try:
-                from lucid.ui.panels.claude.skill_registry import SkillRegistry
-
-                skill_registry = SkillRegistry.get_instance()
-                skill_plugin = plugin_info.instance
-
-                skill_registry.register_plugin(skill_plugin)
-                logger.debug(
-                    "Registered skill plugin '{}' with SkillRegistry",
-                    skill_plugin.name,
-                )
-            except ImportError:
-                logger.debug("SkillRegistry not available, skipping skill registration")
 
         elif plugin_info.type_name == "agent":
             try:

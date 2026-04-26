@@ -88,12 +88,11 @@ from lucid.plugins.errors import (
 from lucid.plugins.info import PluginInfo
 from lucid.plugins.loader import PluginLoader
 from lucid.plugins.manifest import PluginEntry, PluginManifest
-from lucid.plugins.mcp_tool import MCPToolPlugin
+from lucid.plugins.agent_plugin import AgentPlugin
 from lucid.plugins.panel_plugin import PanelPlugin
 from lucid.plugins.plan_plugin import PlanPlugin
 from lucid.plugins.registry import PluginRegistry
 from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.plugins.skill_plugin import SkillPlugin
 from lucid.plugins.types import PluginType
 
 __all__ = [
@@ -105,12 +104,11 @@ __all__ = [
     "PluginRegistry",
     "PluginLoader",
     # Plugin types
+    "AgentPlugin",
     "ControllerPlugin",
     "PanelPlugin",
     "PlanPlugin",
     "SettingsPlugin",
-    "MCPToolPlugin",
-    "SkillPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",

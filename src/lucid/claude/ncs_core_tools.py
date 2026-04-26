@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.plugins.mcp_tool import MCPToolPlugin
+from lucid.plugins.agent_plugin import AgentPlugin
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from lucid.ui.mainwindow import NCSMainWindow
 
 
-class NCSCoreToolPlugin(MCPToolPlugin):
+class NCSCoreToolPlugin(AgentPlugin):
     """Built-in tools for LUCID panel and window interaction.
 
     This plugin provides core tools that are always available:
