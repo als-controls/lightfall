@@ -910,7 +910,9 @@ markers = [
 .venv/Scripts/python -m pytest tests/observers/blackfly/ -v -m "not hw"
 ```
 
-Expected: all offline tests pass (74 in the original suite minus the 4 hw-marked tests = 70 passing). Hw tests are deselected by `-m "not hw"`.
+Expected: all offline tests pass with zero failures. Hw tests are deselected by `-m "not hw"`. The original blackfly_observer suite had 71 tests total (67 offline + 4 hw); the lift preserves that count exactly.
+
+**Note on the research data file.** `test_registers.py::test_blackfly_s_addresses_match_research_file` references `Path(__file__).parent.parent / "research" / "blackfly_s_registers.txt"`. The data file lifts to `tests/observers/research/blackfly_s_registers.txt` so the test's existing path expression resolves without editing the test body.
 
 - [ ] **Step 6: Commit**
 
