@@ -2,7 +2,10 @@
 
 import os
 import platform
+import shutil
 import tempfile
+from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
@@ -245,29 +248,50 @@ class QtClaudeAgent(QObject):
             "mcp__qt__show_controller",
         ]
 
-        # Store additional tools and create a combined server if needed
+        # Store legacy additional_tools (deprecated; AgentPlugin is preferred)
         self._additional_tools = additional_tools or []
-        mcp_servers = {"qt": self.qt_tools}
+        mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
+        # Per-plugin server assembly from AgentRegistry
+        from lucid.claude._session_assembly import (
+            assemble_mcp_servers,
+            init_session_plugin_dir,
+            materialize_skill,
+        )
+        from lucid.ui.panels.claude.agent_registry import AgentRegistry
+
+        enabled = AgentRegistry.get_instance().enabled_plugins()
+        agent_servers, agent_allowed = assemble_mcp_servers(enabled)
+        mcp_servers.update(agent_servers)
+        allowed_tools.extend(agent_allowed)
+
+        # Synthesize per-session SDK plugin dir
+        self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lucid_claude_"))
+        init_session_plugin_dir(self._session_plugin_dir)
+        for plugin in enabled:
+            materialize_skill(plugin, self._session_plugin_dir)
+
+        # Legacy additional_tools support (deprecated; warn but keep working
+        # for any direct API consumers)
         if self._additional_tools:
-            # Create a separate MCP server for additional tools
             from claude_agent_sdk import create_sdk_mcp_server
-            additional_server = create_sdk_mcp_server(
-                name="additional",
+            logger.warning(
+                "QtClaudeAgent.additional_tools is deprecated; "
+                "contribute via AgentPlugin instead"
+            )
+            legacy_server = create_sdk_mcp_server(
+                name="legacy_additional",
                 version="1.0.0",
                 tools=self._additional_tools,
             )
-            mcp_servers["additional"] = additional_server
-
-            # Add allowed tools for additional tools
+            mcp_servers["legacy_additional"] = legacy_server
             for tool_func in self._additional_tools:
-                if hasattr(tool_func, '__name__'):
-                    tool_name = tool_func.__name__
-                elif hasattr(tool_func, 'name'):
-                    tool_name = tool_func.name
-                else:
-                    continue
-                allowed_tools.append(f"mcp__additional__{tool_name}")
+                tool_name = (
+                    getattr(tool_func, "name", None)
+                    or getattr(tool_func, "__name__", None)
+                )
+                if tool_name:
+                    allowed_tools.append(f"mcp__legacy_additional__{tool_name}")
 
         # Build system prompt
         system_prompt = QT_SYSTEM_PROMPT
@@ -276,6 +300,7 @@ class QtClaudeAgent(QObject):
 
         # Configure Claude options
         options_dict = {
+            "plugins": [{"type": "local", "path": str(self._session_plugin_dir)}],
             "mcp_servers": mcp_servers,
             "allowed_tools": allowed_tools,
             "system_prompt": system_prompt,
@@ -430,6 +455,10 @@ class QtClaudeAgent(QObject):
                 self._worker.terminate()
                 self._worker.wait(1000)
         self._is_connected = False
+
+        # Clean up the per-session SDK plugin dir
+        if hasattr(self, "_session_plugin_dir") and self._session_plugin_dir.exists():
+            shutil.rmtree(self._session_plugin_dir, ignore_errors=True)
 
     def is_busy(self) -> bool:
         """
