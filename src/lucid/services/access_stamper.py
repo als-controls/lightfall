@@ -138,3 +138,52 @@ class AccessStamper:
         if len(parts) == 2 and parts[1].isdigit():
             return parts[0]
         return None
+
+
+def install_into_run_engine(stamper: "AccessStamper", run_engine: Any) -> None:
+    """Install the stamper's blob as a lazy entry in `RE.md`.
+
+    Bluesky's RE accepts callables in `md` — the value is called for each
+    run start. Using a callable means the blob is built fresh per run
+    (operator changes, override toggling, alshub schedule rolling).
+    """
+    import asyncio
+    import threading
+
+    if not hasattr(run_engine, "md") or run_engine.md is None:
+        run_engine.md = {}
+
+    async def _build():
+        return await stamper.build_blob()
+
+    def _md_provider() -> Dict[str, Any]:
+        # Bluesky's md callables are sync. Bridge via the running loop or
+        # asyncio.run.
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context (e.g., pytest-asyncio test).
+            # Use a thread to run asyncio.run without deadlock.
+            result = None
+            exception = None
+
+            def _run_in_thread():
+                nonlocal result, exception
+                try:
+                    result = asyncio.run(_build())
+                except Exception as e:
+                    exception = e
+
+            thread = threading.Thread(target=_run_in_thread, daemon=False)
+            thread.start()
+            thread.join(timeout=10)
+
+            if exception:
+                raise exception
+            if result is None:
+                raise TimeoutError("MD provider timed out")
+            return result
+        except RuntimeError:
+            # No running loop; use asyncio.run directly (production case)
+            return asyncio.run(_build())
+
+    run_engine.md["access_blob"] = _md_provider

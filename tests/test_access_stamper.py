@@ -161,3 +161,35 @@ async def test_stamp_no_token_raises(fake_alshub, fake_settings_no_override):
     )
     with pytest.raises(MissingSessionError):
         await stamper.build_blob()
+
+
+@pytest.mark.asyncio
+async def test_install_attaches_md_callable(
+    fake_alshub, fake_settings_no_override, fake_session,
+):
+    from lucid.services.access_stamper import AccessStamper, install_into_run_engine
+    from unittest.mock import MagicMock
+
+    stamper = AccessStamper(
+        beamline="4.0.2",
+        alshub_client=fake_alshub,
+        session_provider=lambda: fake_session.session,
+        settings_provider=lambda: fake_settings_no_override,
+    )
+
+    re = MagicMock()
+    re.md = {}
+
+    install_into_run_engine(stamper, re)
+    assert "access_blob" in re.md or callable(re.md.get("access_blob"))
+    blob_field = re.md["access_blob"]
+    if callable(blob_field):
+        # md callable — call to verify
+        result = blob_field()
+        # If it's a coroutine, await it
+        if hasattr(result, "__await__"):
+            result = await result
+    else:
+        result = blob_field
+    assert result["beamline"] == "4.0.2"
+    assert result["esaf_id"] == "BLS-00480-001"
