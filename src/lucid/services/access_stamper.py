@@ -141,49 +141,43 @@ class AccessStamper:
 
 
 def install_into_run_engine(stamper: "AccessStamper", run_engine: Any) -> None:
-    """Install the stamper's blob as a lazy entry in `RE.md`.
+    """Install the stamper as a bluesky preprocessor on the RunEngine.
 
-    Bluesky's RE accepts callables in `md` — the value is called for each
-    run start. Using a callable means the blob is built fresh per run
-    (operator changes, override toggling, alshub schedule rolling).
+    On each ``RE(plan)`` call, the preprocessor builds a fresh access_blob
+    (so operator identity changes, override toggling, and alshub schedule
+    rolling are picked up live) and injects it into the run's ``open_run``
+    message via :func:`bluesky.preprocessors.inject_md_wrapper`. Bluesky
+    then merges that kwarg into the emitted start document.
+
+    Why a preprocessor and not ``RE.md``: bluesky inserts ``RE.md`` values
+    verbatim into the start doc — it does NOT evaluate callables. Storing
+    a function under ``RE.md["access_blob"]`` either fails to serialize or
+    embeds a function reference, neither of which is what we want.
+    Preprocessors are the supported per-run metadata mechanism.
+
+    Idempotent: if a stamper preprocessor was previously installed, it is
+    removed before the new one is appended (so reconfigure-and-reconnect
+    flows don't accumulate stamping passes).
     """
     import asyncio
-    import threading
+    import concurrent.futures
 
-    if not hasattr(run_engine, "md") or run_engine.md is None:
-        run_engine.md = {}
+    from bluesky.preprocessors import inject_md_wrapper
 
-    async def _build():
-        return await stamper.build_blob()
+    existing = getattr(run_engine, "preprocessors", None) or []
+    run_engine.preprocessors = [
+        p for p in existing if not getattr(p, "_is_access_stamper", False)
+    ]
 
-    def _md_provider() -> Dict[str, Any]:
-        # Bluesky's md callables are sync. Bridge via the running loop or
-        # asyncio.run.
-        try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context (e.g., pytest-asyncio test).
-            # Use a thread to run asyncio.run without deadlock.
-            result = None
-            exception = None
+    def _build_blob_sync() -> Dict[str, Any]:
+        # The RE owns an event loop; preprocessors execute inside it. A
+        # worker thread gives asyncio.run a fresh, loop-free context.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, stamper.build_blob()).result(timeout=10)
 
-            def _run_in_thread():
-                nonlocal result, exception
-                try:
-                    result = asyncio.run(_build())
-                except Exception as e:
-                    exception = e
+    def _stamping_preprocessor(plan):
+        blob = _build_blob_sync()
+        return (yield from inject_md_wrapper(plan, {"access_blob": blob}))
 
-            thread = threading.Thread(target=_run_in_thread, daemon=False)
-            thread.start()
-            thread.join(timeout=10)
-
-            if exception:
-                raise exception
-            if result is None:
-                raise TimeoutError("MD provider timed out")
-            return result
-        except RuntimeError:
-            # No running loop; use asyncio.run directly (production case)
-            return asyncio.run(_build())
-
-    run_engine.md["access_blob"] = _md_provider
+    _stamping_preprocessor._is_access_stamper = True  # type: ignore[attr-defined]
+    run_engine.preprocessors.append(_stamping_preprocessor)
