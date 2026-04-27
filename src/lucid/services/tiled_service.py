@@ -21,6 +21,18 @@ if TYPE_CHECKING:
     pass
 
 
+class _SettingsAdapter:
+    """Adapter so AccessStamper sees access_override on a single object."""
+
+    @property
+    def access_override(self):
+        from lucid.ui.preferences.manager import PreferencesManager
+        from lucid.ui.preferences.tiled_settings import access_override_from_prefs
+
+        prefs = PreferencesManager.get_instance()
+        return access_override_from_prefs(prefs)
+
+
 class TiledConnectionState(Enum):
     """Connection state for the Tiled service."""
 
@@ -666,6 +678,33 @@ class TiledService(QObject):
             )
             self._subscription_token = engine.subscribe(self._writer)
             logger.debug("ThreadedTiledWriter subscribed to Engine")
+
+            # Install AccessStamper if beamline + alshub prefs are configured
+            try:
+                from lucid.auth.session import SessionManager
+                from lucid.services._alshub_client import AlshubClient
+                from lucid.services.access_stamper import AccessStamper, install_into_run_engine
+                from lucid.ui.preferences.manager import PreferencesManager
+
+                prefs = PreferencesManager.get_instance()
+                beamline = prefs.get("tiled_beamline", None) or None
+                alshub_url = prefs.get("tiled_alshub_url", None) or None
+                alshub_key = prefs.get("tiled_alshub_api_key", None) or None
+                if beamline and alshub_url:
+                    stamper = AccessStamper(
+                        beamline=beamline,
+                        alshub_client=AlshubClient(base_url=alshub_url, api_key=alshub_key),
+                        session_provider=lambda: SessionManager.get_instance().session,
+                        settings_provider=lambda: _SettingsAdapter(),
+                    )
+                    install_into_run_engine(stamper, engine)
+                    logger.info("AccessStamper installed for beamline={}", beamline)
+                else:
+                    logger.debug(
+                        "AccessStamper not installed: tiled_beamline and/or tiled_alshub_url not configured"
+                    )
+            except Exception as e:
+                logger.warning("Failed to install AccessStamper: {}", e)
 
         except Exception as e:
             logger.error("Failed to subscribe TiledWriter: {}", e)
