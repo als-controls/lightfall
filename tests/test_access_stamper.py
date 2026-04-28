@@ -41,12 +41,20 @@ def fake_settings_active_override():
 
 @pytest.fixture
 def fake_session():
+    """Mock SessionManager-style object.
+
+    Mirrors the real lucid.auth.session.Session shape:
+    - .token is the raw JWT string
+    - .user.attributes holds the decoded claims dict (where orcid/sub live)
+    """
     s = MagicMock()
     s.session = MagicMock()
-    s.session.token = MagicMock()
-    s.session.token.claims = {
+    s.session.token = "fake-jwt-token-string"
+    s.session.user = MagicMock()
+    s.session.user.attributes = {
         "orcid": "0000-0001-9363-2557",
         "sub": "abc-uuid-1234",
+        "email": "test@lbl.gov",
     }
     return s
 

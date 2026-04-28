@@ -43,10 +43,20 @@ class AccessStamper:
         self._version = version
 
     def _operator_identity(self) -> tuple[Optional[str], Optional[str]]:
+        """Pull (orcid, keycloak_sub) from the Keycloak session.
+
+        ``session.token`` is the raw JWT string. The decoded claims dict is
+        stuffed into ``session.user.attributes`` by LUCID's Keycloak provider
+        (lucid.auth.providers.keycloak._create_session_from_tokens), which
+        is the canonical place to read claims from. ``orcid`` is only
+        present if the Keycloak realm is configured to emit it as a claim;
+        ``sub`` is always present in any Keycloak token.
+        """
         session = self._session_provider()
         if session is None or session.token is None:
             raise MissingSessionError("No Keycloak session — refusing to stamp")
-        claims = getattr(session.token, "claims", {}) or {}
+        user = getattr(session, "user", None)
+        claims = getattr(user, "attributes", None) or {}
         orcid = claims.get("orcid")
         sub = claims.get("sub")
         return orcid, sub
