@@ -686,10 +686,18 @@ class TiledService(QObject):
                 from lucid.services.access_stamper import AccessStamper, install_into_run_engine
                 from lucid.ui.preferences.manager import PreferencesManager
 
+                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+
                 prefs = PreferencesManager.get_instance()
                 beamline = prefs.get("tiled_beamline", None) or None
                 alshub_url = prefs.get("tiled_alshub_url", None) or None
-                alshub_proxy = prefs.get("tiled_alshub_proxy", None) or None
+                # Honor LUCID's shared Network Proxy settings (global on/off
+                # plus auto-detect for *.lbl.gov). Returns None when no proxy
+                # is configured for this URL.
+                alshub_proxy = (
+                    ProxySettingsProvider.should_use_proxy_for_url(alshub_url)
+                    if alshub_url else None
+                )
                 if beamline and alshub_url:
                     # `engine` here is LUCID's BaseEngine wrapper. The bluesky
                     # RunEngine that actually executes plans (and reads
