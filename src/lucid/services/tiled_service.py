@@ -689,11 +689,11 @@ class TiledService(QObject):
                 prefs = PreferencesManager.get_instance()
                 beamline = prefs.get("tiled_beamline", None) or None
                 alshub_url = prefs.get("tiled_alshub_url", None) or None
-                alshub_key = prefs.get("tiled_alshub_api_key", None) or None
                 if beamline and alshub_url:
+                    # active-esaf is a public route on alshub-api; no key needed.
                     stamper = AccessStamper(
                         beamline=beamline,
-                        alshub_client=AlshubClient(base_url=alshub_url, api_key=alshub_key),
+                        alshub_client=AlshubClient(base_url=alshub_url),
                         session_provider=lambda: SessionManager.get_instance().session,
                         settings_provider=lambda: _SettingsAdapter(),
                     )

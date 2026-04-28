@@ -83,7 +83,6 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._status_label: QLabel | None = None
         self._beamline_edit: QLineEdit | None = None
         self._alshub_url_edit: QLineEdit | None = None
-        self._alshub_api_key_edit: QLineEdit | None = None
         self._override_esaf_edit: QLineEdit | None = None
         self._override_start_edit: QLineEdit | None = None
         self._override_end_edit: QLineEdit | None = None
@@ -196,17 +195,12 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._alshub_url_edit.setPlaceholderText("https://bcgmds01.als.lbl.gov")
         authz_layout.addRow("alshub URL:", self._alshub_url_edit)
 
-        self._alshub_api_key_edit = QLineEdit()
-        self._alshub_api_key_edit.setPlaceholderText("(API key)")
-        self._alshub_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        authz_layout.addRow("alshub API key:", self._alshub_api_key_edit)
-
         authz_help = QLabel(
-            "Set all three to enable AccessStamper. Each Tiled entry written "
+            "Set both fields to enable AccessStamper. Each Tiled entry written "
             "after reconnect will be stamped with an access_blob containing "
             "the operator's Keycloak identity and the active ESAF for this "
-            "beamline (looked up via alshub-api). Leave any field blank to "
-            "disable stamping."
+            "beamline (looked up via alshub-api's public active-esaf route). "
+            "Leave either field blank to disable stamping."
         )
         authz_help.setWordWrap(True)
         authz_help.setStyleSheet("color: gray;")
@@ -358,10 +352,9 @@ class TiledSettingsPlugin(SettingsPlugin):
             self._beamline_edit.setText(prefs.get("tiled_beamline", ""))
 
         if self._alshub_url_edit:
-            self._alshub_url_edit.setText(prefs.get("tiled_alshub_url", ""))
-
-        if self._alshub_api_key_edit:
-            self._alshub_api_key_edit.setText(prefs.get("tiled_alshub_api_key", ""))
+            self._alshub_url_edit.setText(
+                prefs.get("tiled_alshub_url", "https://bcgmds01.als.lbl.gov")
+            )
 
         if self._status_label:
             self._status_label.setText("")
@@ -398,10 +391,8 @@ class TiledSettingsPlugin(SettingsPlugin):
 
         beamline = self._beamline_edit.text().strip() if self._beamline_edit else ""
         alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""
-        alshub_api_key = self._alshub_api_key_edit.text().strip() if self._alshub_api_key_edit else ""
         prefs.set("tiled_beamline", beamline)
         prefs.set("tiled_alshub_url", alshub_url)
-        prefs.set("tiled_alshub_api_key", alshub_api_key)
 
         override_esaf = self._override_esaf_edit.text().strip() if self._override_esaf_edit else ""
         override_start = self._override_start_edit.text().strip() if self._override_start_edit else ""
