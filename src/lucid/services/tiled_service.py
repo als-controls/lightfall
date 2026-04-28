@@ -690,15 +690,28 @@ class TiledService(QObject):
                 beamline = prefs.get("tiled_beamline", None) or None
                 alshub_url = prefs.get("tiled_alshub_url", None) or None
                 if beamline and alshub_url:
-                    # active-esaf is a public route on alshub-api; no key needed.
-                    stamper = AccessStamper(
-                        beamline=beamline,
-                        alshub_client=AlshubClient(base_url=alshub_url),
-                        session_provider=lambda: SessionManager.get_instance().session,
-                        settings_provider=lambda: _SettingsAdapter(),
-                    )
-                    install_into_run_engine(stamper, engine)
-                    logger.info("AccessStamper installed for beamline={}", beamline)
+                    # `engine` here is LUCID's BaseEngine wrapper. The bluesky
+                    # RunEngine that actually executes plans (and reads
+                    # `.preprocessors`) lives at `engine.RE`. Installing on the
+                    # wrapper would silently no-op because `wrapper(plan)` calls
+                    # `self._RE(plan, **kwargs)` directly — it does not
+                    # consult `wrapper.preprocessors`.
+                    re = getattr(engine, "RE", None)
+                    if re is None:
+                        logger.warning(
+                            "AccessStamper not installed: engine.RE is None "
+                            "(engine wrapper not fully initialized yet)"
+                        )
+                    else:
+                        # active-esaf is a public route on alshub-api; no key needed.
+                        stamper = AccessStamper(
+                            beamline=beamline,
+                            alshub_client=AlshubClient(base_url=alshub_url),
+                            session_provider=lambda: SessionManager.get_instance().session,
+                            settings_provider=lambda: _SettingsAdapter(),
+                        )
+                        install_into_run_engine(stamper, re)
+                        logger.info("AccessStamper installed for beamline={}", beamline)
                 else:
                     logger.debug(
                         "AccessStamper not installed: tiled_beamline and/or tiled_alshub_url not configured"
