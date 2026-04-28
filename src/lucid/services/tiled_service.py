@@ -689,6 +689,7 @@ class TiledService(QObject):
                 prefs = PreferencesManager.get_instance()
                 beamline = prefs.get("tiled_beamline", None) or None
                 alshub_url = prefs.get("tiled_alshub_url", None) or None
+                alshub_proxy = prefs.get("tiled_alshub_proxy", None) or None
                 if beamline and alshub_url:
                     # `engine` here is LUCID's BaseEngine wrapper. The bluesky
                     # RunEngine that actually executes plans (and reads
@@ -706,12 +707,18 @@ class TiledService(QObject):
                         # active-esaf is a public route on alshub-api; no key needed.
                         stamper = AccessStamper(
                             beamline=beamline,
-                            alshub_client=AlshubClient(base_url=alshub_url),
+                            alshub_client=AlshubClient(
+                                base_url=alshub_url, proxy=alshub_proxy
+                            ),
                             session_provider=lambda: SessionManager.get_instance().session,
                             settings_provider=lambda: _SettingsAdapter(),
                         )
                         install_into_run_engine(stamper, re)
-                        logger.info("AccessStamper installed for beamline={}", beamline)
+                        logger.info(
+                            "AccessStamper installed for beamline={} (proxy={})",
+                            beamline,
+                            alshub_proxy or "none",
+                        )
                 else:
                     logger.debug(
                         "AccessStamper not installed: tiled_beamline and/or tiled_alshub_url not configured"
