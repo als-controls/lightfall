@@ -6,7 +6,9 @@ configure the Tiled server connection for data catalog integration.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,6 +29,35 @@ from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
+
+
+@dataclass
+class AccessOverride:
+    """Time-windowed admin override of write-time ESAF selection."""
+
+    esaf_id: str
+    start: datetime
+    end: datetime
+    set_by: Optional[str] = None
+
+
+def access_override_from_prefs(prefs: PreferencesManager) -> Optional[AccessOverride]:
+    """Read AccessOverride from preferences, or None if any field missing."""
+    esaf = prefs.get("tiled_access_override_esaf_id", "")
+    start = prefs.get("tiled_access_override_start", "")
+    end = prefs.get("tiled_access_override_end", "")
+    set_by = prefs.get("tiled_access_override_set_by", None) or None
+    if not (esaf and start and end):
+        return None
+    try:
+        return AccessOverride(
+            esaf_id=esaf,
+            start=datetime.fromisoformat(start),
+            end=datetime.fromisoformat(end),
+            set_by=set_by,
+        )
+    except ValueError:
+        return None
 
 
 class TiledSettingsPlugin(SettingsPlugin):
@@ -50,6 +81,11 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._api_key_edit: QLineEdit | None = None
         self._test_button: QPushButton | None = None
         self._status_label: QLabel | None = None
+        self._beamline_edit: QLineEdit | None = None
+        self._alshub_url_edit: QLineEdit | None = None
+        self._override_esaf_edit: QLineEdit | None = None
+        self._override_start_edit: QLineEdit | None = None
+        self._override_end_edit: QLineEdit | None = None
 
     @property
     def name(self) -> str:
@@ -146,11 +182,81 @@ class TiledSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(desc)
 
         layout.addWidget(connection_group)
+
+        # Per-entry authorization (alshub-api integration)
+        authz_group = QGroupBox("Per-entry authorization (alshub-api)")
+        authz_layout = QFormLayout()
+
+        self._beamline_edit = QLineEdit()
+        self._beamline_edit.setPlaceholderText("4.0.2")
+        authz_layout.addRow("Beamline:", self._beamline_edit)
+
+        self._alshub_url_edit = QLineEdit()
+        self._alshub_url_edit.setPlaceholderText("https://bcgmds01.als.lbl.gov")
+        authz_layout.addRow("alshub URL:", self._alshub_url_edit)
+
+        authz_help = QLabel(
+            "Set Beamline + alshub URL to enable AccessStamper. Each Tiled "
+            "entry written after reconnect will be stamped with an access_blob "
+            "containing the operator's Keycloak identity and the active ESAF "
+            "for this beamline (looked up via alshub-api's public active-esaf "
+            "route). Off-network setups: configure SOCKS in Network Proxy."
+        )
+        authz_help.setWordWrap(True)
+        authz_help.setStyleSheet("color: gray;")
+        authz_layout.addRow(authz_help)
+
+        authz_group.setLayout(authz_layout)
+        layout.addWidget(authz_group)
+
+        # Admin: access override section (hidden for non-admin/staff users)
+        override_group = QGroupBox("Admin: write-time access override")
+        override_layout = QFormLayout()
+
+        self._override_esaf_edit = QLineEdit()
+        self._override_esaf_edit.setPlaceholderText("BLS-00480-001")
+        override_layout.addRow("ESAF ID:", self._override_esaf_edit)
+
+        self._override_start_edit = QLineEdit()
+        self._override_start_edit.setPlaceholderText("2026-04-26T18:00:00+00:00")
+        override_layout.addRow("Start (ISO8601):", self._override_start_edit)
+
+        self._override_end_edit = QLineEdit()
+        self._override_end_edit.setPlaceholderText("2026-04-27T02:00:00+00:00")
+        override_layout.addRow("End (ISO8601):", self._override_end_edit)
+
+        override_help = QLabel(
+            "When set and current time is within [start, end], the AccessStamper "
+            "will use this ESAF ID instead of querying alshub-api."
+        )
+        override_help.setWordWrap(True)
+        override_help.setStyleSheet("color: gray;")
+        override_layout.addRow(override_help)
+
+        override_group.setLayout(override_layout)
+        override_group.setVisible(self._user_has_admin_or_staff())
+        layout.addWidget(override_group)
+
         layout.addStretch()
 
         self._widget = widget
         self._update_enabled_state()
         return widget
+
+    def _user_has_admin_or_staff(self) -> bool:
+        """Check current SessionManager token for admin/staff groups."""
+        try:
+            from lucid.auth.session import SessionManager
+
+            session = SessionManager.get_instance().session
+            if not session or not session.token:
+                return False
+            groups = getattr(session.token, "claims", {}).get("groups", []) or []
+            if "tiled:admin" in groups:
+                return True
+            return any(g.startswith("staff:") for g in groups)
+        except Exception:
+            return False
 
     def _on_enabled_changed(self, state: int) -> None:
         """Handle enable checkbox state change."""
@@ -242,8 +348,25 @@ class TiledSettingsPlugin(SettingsPlugin):
         if self._api_key_edit:
             self._api_key_edit.setText(prefs.get("tiled_api_key", ""))
 
+        if self._beamline_edit:
+            self._beamline_edit.setText(prefs.get("tiled_beamline", ""))
+
+        if self._alshub_url_edit:
+            self._alshub_url_edit.setText(
+                prefs.get("tiled_alshub_url", "https://bcgmds01.als.lbl.gov")
+            )
+
         if self._status_label:
             self._status_label.setText("")
+
+        if self._override_esaf_edit:
+            self._override_esaf_edit.setText(prefs.get("tiled_access_override_esaf_id", ""))
+
+        if self._override_start_edit:
+            self._override_start_edit.setText(prefs.get("tiled_access_override_start", ""))
+
+        if self._override_end_edit:
+            self._override_end_edit.setText(prefs.get("tiled_access_override_end", ""))
 
         self._update_enabled_state()
 
@@ -265,6 +388,18 @@ class TiledSettingsPlugin(SettingsPlugin):
         prefs.set("tiled_url", url)
         prefs.set("tiled_auth_mode", auth_mode)
         prefs.set("tiled_api_key", api_key or "")
+
+        beamline = self._beamline_edit.text().strip() if self._beamline_edit else ""
+        alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""
+        prefs.set("tiled_beamline", beamline)
+        prefs.set("tiled_alshub_url", alshub_url)
+
+        override_esaf = self._override_esaf_edit.text().strip() if self._override_esaf_edit else ""
+        override_start = self._override_start_edit.text().strip() if self._override_start_edit else ""
+        override_end = self._override_end_edit.text().strip() if self._override_end_edit else ""
+        prefs.set("tiled_access_override_esaf_id", override_esaf)
+        prefs.set("tiled_access_override_start", override_start)
+        prefs.set("tiled_access_override_end", override_end)
 
         # Update the TiledService with new configuration
         try:

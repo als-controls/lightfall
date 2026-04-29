@@ -21,6 +21,18 @@ if TYPE_CHECKING:
     pass
 
 
+class _SettingsAdapter:
+    """Adapter so AccessStamper sees access_override on a single object."""
+
+    @property
+    def access_override(self):
+        from lucid.ui.preferences.manager import PreferencesManager
+        from lucid.ui.preferences.tiled_settings import access_override_from_prefs
+
+        prefs = PreferencesManager.get_instance()
+        return access_override_from_prefs(prefs)
+
+
 class TiledConnectionState(Enum):
     """Connection state for the Tiled service."""
 
@@ -666,6 +678,61 @@ class TiledService(QObject):
             )
             self._subscription_token = engine.subscribe(self._writer)
             logger.debug("ThreadedTiledWriter subscribed to Engine")
+
+            # Install AccessStamper if beamline + alshub prefs are configured
+            try:
+                from lucid.auth.session import SessionManager
+                from lucid.services._alshub_client import AlshubClient
+                from lucid.services.access_stamper import AccessStamper, install_into_run_engine
+                from lucid.ui.preferences.manager import PreferencesManager
+
+                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+
+                prefs = PreferencesManager.get_instance()
+                beamline = prefs.get("tiled_beamline", None) or None
+                alshub_url = prefs.get("tiled_alshub_url", None) or None
+                # Honor LUCID's shared Network Proxy settings (global on/off
+                # plus auto-detect for *.lbl.gov). Returns None when no proxy
+                # is configured for this URL.
+                alshub_proxy = (
+                    ProxySettingsProvider.should_use_proxy_for_url(alshub_url)
+                    if alshub_url else None
+                )
+                if beamline and alshub_url:
+                    # `engine` here is LUCID's BaseEngine wrapper. The bluesky
+                    # RunEngine that actually executes plans (and reads
+                    # `.preprocessors`) lives at `engine.RE`. Installing on the
+                    # wrapper would silently no-op because `wrapper(plan)` calls
+                    # `self._RE(plan, **kwargs)` directly — it does not
+                    # consult `wrapper.preprocessors`.
+                    re = getattr(engine, "RE", None)
+                    if re is None:
+                        logger.warning(
+                            "AccessStamper not installed: engine.RE is None "
+                            "(engine wrapper not fully initialized yet)"
+                        )
+                    else:
+                        # active-esaf is a public route on alshub-api; no key needed.
+                        stamper = AccessStamper(
+                            beamline=beamline,
+                            alshub_client=AlshubClient(
+                                base_url=alshub_url, proxy=alshub_proxy
+                            ),
+                            session_provider=lambda: SessionManager.get_instance().session,
+                            settings_provider=lambda: _SettingsAdapter(),
+                        )
+                        install_into_run_engine(stamper, re)
+                        logger.info(
+                            "AccessStamper installed for beamline={} (proxy={})",
+                            beamline,
+                            alshub_proxy or "none",
+                        )
+                else:
+                    logger.debug(
+                        "AccessStamper not installed: tiled_beamline and/or tiled_alshub_url not configured"
+                    )
+            except Exception as e:
+                logger.warning("Failed to install AccessStamper: {}", e)
 
         except Exception as e:
             logger.error("Failed to subscribe TiledWriter: {}", e)
