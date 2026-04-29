@@ -171,10 +171,33 @@ async def test_stamp_no_token_raises(fake_alshub, fake_settings_no_override):
         await stamper.build_blob()
 
 
+def test_compute_access_tags_emits_one_per_predicate():
+    from lucid.services.access_stamper import compute_access_tags
+
+    blob = {
+        "esaf_id": "BLS-00480-001",
+        "beamline": "4.0.2",
+        "participants": [
+            {"keycloak_sub": "abc", "orcid": "0000-0001-9363-2557"},
+            {"keycloak_sub": "def", "orcid": None},
+        ],
+    }
+    tags = set(compute_access_tags(blob))
+    assert tags == {
+        "esaf:BLS-00480-001",
+        "beamline:4.0.2",
+        "participant:keycloak_sub:abc",
+        "participant:orcid:0000-0001-9363-2557",
+        "participant:keycloak_sub:def",
+    }
+
+
 def test_install_appends_preprocessor(
     fake_alshub, fake_settings_no_override, fake_session,
 ):
-    """Verify install adds a preprocessor that injects access_blob into open_run."""
+    """Verify install adds a preprocessor that injects both access_blob
+    (for audit metadata) and tiled_access_tags (for Tiled's access column,
+    which is what AccessBlobFilter actually queries) into open_run."""
     from bluesky import Msg
     from unittest.mock import MagicMock
 
@@ -192,8 +215,6 @@ def test_install_appends_preprocessor(
     install_into_run_engine(stamper, re)
     assert len(re.preprocessors) == 1
 
-    # Run a tiny plan through the preprocessor and verify it injects
-    # access_blob into the open_run Msg's kwargs.
     preprocessor = re.preprocessors[0]
 
     def plan():
@@ -202,12 +223,22 @@ def test_install_appends_preprocessor(
 
     msgs = list(preprocessor(plan()))
     open_run_msg = next(m for m in msgs if m.command == "open_run")
+
+    # Audit blob (lands in metadata.start.access_blob).
     assert "access_blob" in open_run_msg.kwargs
     blob = open_run_msg.kwargs["access_blob"]
     assert blob["beamline"] == "4.0.2"
     assert blob["esaf_id"] == "BLS-00480-001"
     assert blob["esaf_source"] == "schedule"
     assert blob["participants"][0]["orcid"] == "0000-0001-9363-2557"
+
+    # Read-side gate (popped by TiledWriter and routed to access_blob column).
+    assert "tiled_access_tags" in open_run_msg.kwargs
+    tags = set(open_run_msg.kwargs["tiled_access_tags"])
+    assert "esaf:BLS-00480-001" in tags
+    assert "beamline:4.0.2" in tags
+    assert "participant:keycloak_sub:abc-uuid-1234" in tags
+    assert "participant:orcid:0000-0001-9363-2557" in tags
 
 
 def test_install_is_idempotent(

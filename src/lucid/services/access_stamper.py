@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from lucid.services._alshub_client import AlshubClient
 
@@ -23,6 +23,42 @@ class MissingSessionError(RuntimeError):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def compute_access_tags(blob: Dict[str, Any]) -> List[str]:
+    """Project the human-readable access blob into the flat tag list that
+    Tiled's PostgreSQL ``AccessBlobFilter`` actually queries.
+
+    ``bluesky_tiled_plugins.TiledWriter`` pops a ``tiled_access_tags`` key
+    from the run-start doc and forwards it to ``client.create_container(
+    access_tags=...)``, which lands in Tiled's dedicated ``access_blob``
+    column as ``{"tags": [...]}``. Without that key the column stays
+    empty and every authenticated read filters down to nothing — the data
+    is in the catalog but invisible to the policy.
+
+    Tag schema MUST stay in lockstep with als_tiled.write_helpers.access_tags
+    (the symmetric reader-side tag minting in ALSAccessPolicy.filters).
+
+      esaf:<esaf_id>
+      beamline:<beamline>
+      participant:keycloak_sub:<sub>
+      participant:orcid:<orcid>
+    """
+    tags: List[str] = []
+    if blob.get("esaf_id"):
+        tags.append(f"esaf:{blob['esaf_id']}")
+    if blob.get("beamline"):
+        tags.append(f"beamline:{blob['beamline']}")
+    for p in blob.get("participants") or []:
+        if not isinstance(p, dict):
+            continue
+        sub = p.get("keycloak_sub")
+        orcid = p.get("orcid")
+        if sub:
+            tags.append(f"participant:keycloak_sub:{sub}")
+        if orcid:
+            tags.append(f"participant:orcid:{orcid}")
+    return tags
 
 
 class AccessStamper:
@@ -187,7 +223,16 @@ def install_into_run_engine(stamper: "AccessStamper", run_engine: Any) -> None:
 
     def _stamping_preprocessor(plan):
         blob = _build_blob_sync()
-        return (yield from inject_md_wrapper(plan, {"access_blob": blob}))
+        # `access_blob` lands in the start doc's metadata for human-readable
+        # audit (which ESAF, which participants, why); `tiled_access_tags`
+        # is what TiledWriter actually pops and routes to Tiled's dedicated
+        # access_blob column for the AccessBlobFilter SQL predicate. Both
+        # are needed: the former for traceability, the latter for the
+        # actual read-side gate.
+        tags = compute_access_tags(blob)
+        return (yield from inject_md_wrapper(
+            plan, {"access_blob": blob, "tiled_access_tags": tags},
+        ))
 
     _stamping_preprocessor._is_access_stamper = True  # type: ignore[attr-defined]
     run_engine.preprocessors.append(_stamping_preprocessor)
