@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QTabWidget,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -108,26 +109,36 @@ class BlueskyPanel(BasePanel):
 
     def _setup_ui(self) -> None:
         """Set up the panel UI."""
-        # Toolbar for plan actions
-        self._toolbar = QToolBar()
-        self._toolbar.setMovable(False)
-        self._setup_toolbar()
-        self._layout.addWidget(self._toolbar)
-
         # QTabWidget hosts: "Plans" (always), "Config: <plan>" (on demand),
         # "Running: <plan>" (on demand).
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabBarAutoHide(True)
 
-        # Tab 0: Plans — just the selector.
+        # Tab 0: Plans — toolbar over the selector. The toolbar's actions
+        # (New Plan / Refresh / Open Folder) only operate on the plan list,
+        # so they live inside this tab rather than at the panel top level.
+        plans_tab = QWidget()
+        plans_layout = QVBoxLayout(plans_tab)
+        plans_layout.setContentsMargins(0, 0, 0, 0)
+        plans_layout.setSpacing(0)
+
+        self._toolbar = QToolBar()
+        self._toolbar.setMovable(False)
+        self._setup_toolbar()
+        plans_layout.addWidget(self._toolbar)
+
         self._plan_selector = PlanSelectorWidget()
         self._plan_selector.plan_selected.connect(self._on_plan_selected)
-        self._tab_widget.addTab(self._plan_selector, "Plans")
+        plans_layout.addWidget(self._plan_selector)
+
+        self._tab_widget.addTab(plans_tab, "Plans")
 
         # PlanConfigWidget is constructed eagerly so set_catalog() etc. work
         # before the user has opened a plan. It is added to the tab widget
-        # lazily on first plan selection (see _show_plan_config).
-        self._plan_config = PlanConfigWidget(parent=self)
+        # lazily on first plan selection (see _show_plan_config). Leave it
+        # parentless until then — parenting it to the panel here makes it
+        # a free-floating child that renders on top of the tab content.
+        self._plan_config = PlanConfigWidget()
         self._plan_config.run_requested.connect(self._on_run_requested)
         self._config_tab_added: bool = False
 
