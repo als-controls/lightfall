@@ -11,14 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDialog,
-    QSplitter,
     QTabWidget,
     QToolBar,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -116,34 +114,27 @@ class BlueskyPanel(BasePanel):
         self._setup_toolbar()
         self._layout.addWidget(self._toolbar)
 
-        # QTabWidget for plan selector + running plan UIs
+        # QTabWidget hosts: "Plans" (always), "Config: <plan>" (on demand),
+        # "Running: <plan>" (on demand).
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabBarAutoHide(True)
 
-        # Tab 1: plan selector + config (existing content)
-        selector_container = QWidget()
-        selector_layout = QVBoxLayout(selector_container)
-        selector_layout.setContentsMargins(0, 0, 0, 0)
-
+        # Tab 0: Plans — just the selector.
         self._plan_selector = PlanSelectorWidget()
         self._plan_selector.plan_selected.connect(self._on_plan_selected)
+        self._tab_widget.addTab(self._plan_selector, "Plans")
 
-        self._plan_config = PlanConfigWidget()
+        # PlanConfigWidget is constructed eagerly so set_catalog() etc. work
+        # before the user has opened a plan. It is added to the tab widget
+        # lazily on first plan selection (see _show_plan_config).
+        self._plan_config = PlanConfigWidget(parent=self)
         self._plan_config.run_requested.connect(self._on_run_requested)
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self._plan_selector)
-        splitter.addWidget(self._plan_config)
-        splitter.setSizes([300, 200])
-
-        selector_layout.addWidget(splitter)
-        self._tab_widget.addTab(selector_container, "Plans")
+        self._config_tab_added: bool = False
 
         self._layout.addWidget(self._tab_widget)
 
         # Running plan UI state
         self._running_plan_ui: PlanUI | None = None
-        self._running_plan_tab_index: int = -1
 
         # Auto-configure with RunEngine and PlanRegistry singletons
         self._auto_configure()
@@ -363,12 +354,35 @@ class BlueskyPanel(BasePanel):
 
         plan_info = self._registry.get_plan(plan_name)
         if plan_info:
-            self._plan_config.set_plan(plan_info)
+            self._show_plan_config(plan_info)
             self._current_plan_name = plan_name
             return True
         return False
 
     # === Slots ===
+
+    def _show_plan_config(self, plan_info: PlanInfo) -> None:
+        """Show the Config tab for `plan_info`.
+
+        On first call, adds ``self._plan_config`` as a new tab. On
+        subsequent calls with a different plan, updates the widget's
+        plan and retitles the tab. Always brings the tab to the front.
+        """
+        title = f"Config: {plan_info.get_display_name()}"
+
+        if not self._config_tab_added:
+            self._tab_widget.addTab(self._plan_config, title)
+            self._config_tab_added = True
+            self._plan_config.set_plan(plan_info)
+        else:
+            current = self._plan_config.current_plan
+            if current is None or current.name != plan_info.name:
+                self._plan_config.set_plan(plan_info)
+                index = self._tab_widget.indexOf(self._plan_config)
+                if index >= 0:
+                    self._tab_widget.setTabText(index, title)
+
+        self._tab_widget.setCurrentWidget(self._plan_config)
 
     @Slot(object)
     def _on_plan_selected(self, plan_info: PlanInfo) -> None:
@@ -377,7 +391,7 @@ class BlueskyPanel(BasePanel):
         Args:
             plan_info: Selected plan.
         """
-        self._plan_config.set_plan(plan_info)
+        self._show_plan_config(plan_info)
         self._current_plan_name = plan_info.name
         logger.debug(f"Plan selected: {plan_info.name}")
 
@@ -420,20 +434,20 @@ class BlueskyPanel(BasePanel):
 
         ui = ui_class()
         self._running_plan_ui = ui
-        self._running_plan_tab_index = self._tab_widget.addTab(
-            ui, f"Running: {plan_info.name}"
-        )
-        self._tab_widget.setCurrentIndex(self._running_plan_tab_index)
+        index = self._tab_widget.addTab(ui, f"Running: {plan_info.name}")
+        self._tab_widget.setCurrentIndex(index)
 
     def _on_plan_ui_finished(self) -> None:
         """Remove the running plan UI tab, if any."""
         if self._running_plan_ui is None:
             return
-        if self._running_plan_tab_index >= 0:
-            self._tab_widget.removeTab(self._running_plan_tab_index)
+        index = self._tab_widget.indexOf(self._running_plan_ui)
+        if index >= 0:
+            self._tab_widget.removeTab(index)
         self._running_plan_ui.deleteLater()
         self._running_plan_ui = None
-        self._running_plan_tab_index = -1
+        if self._config_tab_added:
+            self._tab_widget.setCurrentWidget(self._plan_config)
 
     def _resolve_device_kwargs(
         self, plan_info: PlanInfo, kwargs: dict
