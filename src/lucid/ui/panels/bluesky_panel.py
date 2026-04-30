@@ -361,6 +361,29 @@ class BlueskyPanel(BasePanel):
 
     # === Slots ===
 
+    def _show_plan_config(self, plan_info: PlanInfo) -> None:
+        """Show the Config tab for `plan_info`.
+
+        On first call, adds ``self._plan_config`` as a new tab. On
+        subsequent calls with a different plan, updates the widget's
+        plan and retitles the tab. Always brings the tab to the front.
+        """
+        title = f"Config: {plan_info.get_display_name()}"
+
+        if not self._config_tab_added:
+            self._tab_widget.addTab(self._plan_config, title)
+            self._config_tab_added = True
+            self._plan_config.set_plan(plan_info)
+        else:
+            current = self._plan_config.current_plan
+            if current is None or current.name != plan_info.name:
+                self._plan_config.set_plan(plan_info)
+                index = self._tab_widget.indexOf(self._plan_config)
+                if index >= 0:
+                    self._tab_widget.setTabText(index, title)
+
+        self._tab_widget.setCurrentWidget(self._plan_config)
+
     @Slot(object)
     def _on_plan_selected(self, plan_info: PlanInfo) -> None:
         """Handle plan selection from selector.
@@ -368,7 +391,7 @@ class BlueskyPanel(BasePanel):
         Args:
             plan_info: Selected plan.
         """
-        self._plan_config.set_plan(plan_info)
+        self._show_plan_config(plan_info)
         self._current_plan_name = plan_info.name
         logger.debug(f"Plan selected: {plan_info.name}")
 
