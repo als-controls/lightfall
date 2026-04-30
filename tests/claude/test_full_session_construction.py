@@ -28,8 +28,12 @@ def loaded_builtins(monkeypatch):
 
 def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monkeypatch):
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._get_enabled_pref",
-        lambda self: None,  # default-enabled set
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        lambda self, key: None,  # no overrides — falls through to enabled_by_default
+    )
+    monkeypatch.setattr(
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        lambda self: None,
     )
     from PySide6.QtWidgets import QWidget
     from lucid.claude.agent import QtClaudeAgent

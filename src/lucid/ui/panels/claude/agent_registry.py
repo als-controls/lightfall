@@ -5,9 +5,16 @@ the enable/disable table. The agent-construction path (claude/agent.py +
 claude_panel.py) reads `enabled_plugins()` to materialize SKILL.md files
 and assemble per-plugin MCP servers.
 
-The preference key `enabled_tool_plugins` is retained from the previous
-SkillRegistry/MCPToolRegistry world for backward-compat with existing user
-settings — set semantics, plugin names unchanged.
+Preference model (opt-out semantics so newly-added plugins are enabled
+by default unless the user explicitly disables them):
+
+- `disabled_tool_plugins`: explicit user opt-outs (default-enabled plugins
+  the user has unchecked).
+- `forced_enabled_tool_plugins`: explicit user opt-ins (default-disabled
+  plugins the user has checked).
+
+The legacy `enabled_tool_plugins` allow-list pref (full enabled set) is
+migrated once on first read into the two new keys.
 """
 
 from __future__ import annotations
@@ -21,7 +28,10 @@ if TYPE_CHECKING:
     from lucid.plugins.agent_plugin import AgentPlugin
 
 
-ENABLED_PLUGINS_PREF: str = "enabled_tool_plugins"
+DISABLED_PLUGINS_PREF: str = "disabled_tool_plugins"
+FORCED_ENABLED_PLUGINS_PREF: str = "forced_enabled_tool_plugins"
+LEGACY_ENABLED_PLUGINS_PREF: str = "enabled_tool_plugins"
+LEGACY_ENABLED_SKILLS_PREF: str = "enabled_skills"  # SkillRegistry-era
 
 
 class AgentRegistry:
@@ -35,6 +45,7 @@ class AgentRegistry:
 
     def __init__(self) -> None:
         self._plugins: dict[str, AgentPlugin] = {}
+        self._legacy_migrated: bool = False
 
     @classmethod
     def get_instance(cls) -> "AgentRegistry":
@@ -74,26 +85,75 @@ class AgentRegistry:
     def get_plugin(self, name: str) -> "AgentPlugin | None":
         return self._plugins.get(name)
 
-    def _get_enabled_pref(self) -> list[str] | None:
-        """Read the enabled_tool_plugins preference. Returns None if not set."""
+    def _read_list_pref(self, key: str) -> list[str] | None:
+        """Read a list-valued preference. Returns None if unset/unreadable."""
         try:
             from lucid.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
-            value = prefs.get(ENABLED_PLUGINS_PREF)
+            value = prefs.get(key)
             if value is None or isinstance(value, list):
                 return value
         except Exception as e:  # noqa: BLE001
-            logger.debug("Could not load {}: {}", ENABLED_PLUGINS_PREF, e)
+            logger.debug("Could not load {}: {}", key, e)
         return None
+
+    def _migrate_legacy_pref_if_needed(self) -> None:
+        """Convert legacy `enabled_tool_plugins` allow-list into the new
+        opt-out + opt-in pair, then delete the legacy key.
+
+        Why: the legacy pref froze the enabled set, so any plugin registered
+        *after* the user saved settings was silently excluded. Splitting into
+        explicit opt-out / opt-in makes new plugins fall through to their
+        `enabled_by_default` value.
+        """
+        if self._legacy_migrated:
+            return
+        try:
+            from lucid.ui.preferences.manager import PreferencesManager
+            prefs = PreferencesManager.get_instance()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Could not access PreferencesManager for migration: {}", e)
+            return
+
+        if prefs.get(DISABLED_PLUGINS_PREF) is not None:
+            self._legacy_migrated = True
+            return
+
+        legacy = prefs.get(LEGACY_ENABLED_PLUGINS_PREF)
+        if not isinstance(legacy, list):
+            legacy = prefs.get(LEGACY_ENABLED_SKILLS_PREF)
+            if not isinstance(legacy, list):
+                return  # don't mark migrated yet — registry may still be filling
+
+        legacy_set = set(legacy)
+        disabled = sorted(
+            p.name for p in self._plugins.values()
+            if p.enabled_by_default and p.name not in legacy_set
+        )
+        forced_enabled = sorted(
+            p.name for p in self._plugins.values()
+            if not p.enabled_by_default and p.name in legacy_set
+        )
+        prefs.set(DISABLED_PLUGINS_PREF, disabled)
+        prefs.set(FORCED_ENABLED_PLUGINS_PREF, forced_enabled)
+        prefs.remove(LEGACY_ENABLED_PLUGINS_PREF)
+        prefs.remove(LEGACY_ENABLED_SKILLS_PREF)
+        self._legacy_migrated = True
+        logger.info(
+            "Migrated tool-plugin prefs: {} disabled, {} forced-enabled",
+            len(disabled), len(forced_enabled),
+        )
 
     def enabled_plugins(self) -> list["AgentPlugin"]:
         """Plugins enabled by current preferences, sorted by priority (ascending)."""
-        pref = self._get_enabled_pref()
-        if pref is None:
-            enabled_names = {p.name for p in self._plugins.values() if p.enabled_by_default}
-        else:
-            enabled_names = set(pref) & set(self._plugins.keys())
-        result = [p for name, p in self._plugins.items() if name in enabled_names]
+        self._migrate_legacy_pref_if_needed()
+        disabled = set(self._read_list_pref(DISABLED_PLUGINS_PREF) or [])
+        forced_enabled = set(self._read_list_pref(FORCED_ENABLED_PLUGINS_PREF) or [])
+        result = [
+            p for p in self._plugins.values()
+            if p.name not in disabled
+            and (p.enabled_by_default or p.name in forced_enabled)
+        ]
         result.sort(key=lambda p: p.priority)
         return result
 

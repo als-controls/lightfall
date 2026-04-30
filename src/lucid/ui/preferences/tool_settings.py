@@ -1,9 +1,15 @@
 """Claude agent settings plugin for NCS.
 
 ClaudeToolsSettingsPlugin lets users enable/disable AgentPlugin instances
-discovered by AgentRegistry. Enabled state is persisted to the
-`enabled_tool_plugins` preference key (carried over from the legacy
-SkillRegistry/MCPToolRegistry world for backward compatibility).
+discovered by AgentRegistry. The user's choices are persisted as overrides
+of each plugin's `enabled_by_default`:
+
+- `disabled_tool_plugins`: default-enabled plugins the user unchecked.
+- `forced_enabled_tool_plugins`: default-disabled plugins the user checked.
+
+A plugin not listed in either pref falls through to its `enabled_by_default`
+value, so newly-registered plugins are enabled by default without the user
+having to revisit settings.
 """
 
 from __future__ import annotations
@@ -48,7 +54,6 @@ class ToolPluginTableModel(QAbstractTableModel):
         self._plugins: list[AgentPlugin] = []
         self._enabled_names: set[str] = set()
         self._original_enabled_names: set[str] = set()
-        self._has_preference_set = False
 
     def refresh(self) -> None:
         """Load plugins from AgentRegistry.
@@ -73,38 +78,42 @@ class ToolPluginTableModel(QAbstractTableModel):
             self._plugins = []
         self.endResetModel()
 
-    def set_enabled_names(
+    def set_overrides(
         self,
-        enabled_names: set[str] | None,
+        disabled_names: set[str],
+        forced_enabled_names: set[str],
     ) -> None:
-        """Set which plugins are enabled.
+        """Apply persisted overrides to the per-plugin checkbox state.
 
-        Args:
-            enabled_names: Set of plugin names that are enabled, or None if
-                no preference has been set (use defaults).
+        Each plugin's effective state is its `enabled_by_default` value
+        minus any overrides: name in `disabled_names` forces it off, name
+        in `forced_enabled_names` forces it on.
         """
         self.beginResetModel()
-        if enabled_names is None:
-            # No preference set - use default enabled state from plugins
-            self._has_preference_set = False
-            self._enabled_names = {
-                plugin.name
-                for plugin in self._plugins
-                if plugin.enabled_by_default
-            }
-        else:
-            self._has_preference_set = True
-            self._enabled_names = set(enabled_names)
+        self._enabled_names = {
+            plugin.name
+            for plugin in self._plugins
+            if (plugin.enabled_by_default and plugin.name not in disabled_names)
+            or (not plugin.enabled_by_default and plugin.name in forced_enabled_names)
+        }
         self._original_enabled_names = set(self._enabled_names)
         self.endResetModel()
 
-    def get_enabled_names(self) -> set[str]:
-        """Get the set of enabled plugin names.
+    def get_overrides(self) -> tuple[set[str], set[str]]:
+        """Return (disabled, forced_enabled) for the current checkbox state.
 
-        Returns:
-            Set of plugin names that are enabled.
+        Only plugins whose state diverges from `enabled_by_default` are
+        recorded, so the persisted overrides stay minimal.
         """
-        return set(self._enabled_names)
+        disabled: set[str] = set()
+        forced_enabled: set[str] = set()
+        for plugin in self._plugins:
+            checked = plugin.name in self._enabled_names
+            if plugin.enabled_by_default and not checked:
+                disabled.add(plugin.name)
+            elif not plugin.enabled_by_default and checked:
+                forced_enabled.add(plugin.name)
+        return disabled, forced_enabled
 
     def has_changes(self) -> bool:
         """Check if there are unsaved changes.
@@ -323,71 +332,52 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         return widget
 
     def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Populates the table with plugins and sets enabled state from preferences.
-        Also handles migration from old enabled_skills preference.
-        """
+        """Populate the table from the registry and apply persisted overrides."""
         if not self._model:
             return
 
-        # Refresh plugin list from registry
         self._model.refresh()
 
-        # Load enabled plugin names from preferences
+        from lucid.ui.panels.claude.agent_registry import AgentRegistry
+        AgentRegistry.get_instance()._migrate_legacy_pref_if_needed()
+
+        from lucid.ui.panels.claude.agent_registry import (
+            DISABLED_PLUGINS_PREF,
+            FORCED_ENABLED_PLUGINS_PREF,
+        )
         prefs = PreferencesManager.get_instance()
+        disabled = prefs.get(DISABLED_PLUGINS_PREF)
+        forced = prefs.get(FORCED_ENABLED_PLUGINS_PREF)
+        self._model.set_overrides(
+            set(disabled) if isinstance(disabled, list) else set(),
+            set(forced) if isinstance(forced, list) else set(),
+        )
 
-        # Load the enabled_tool_plugins preference (with one-time migration
-        # from the legacy SkillRegistry-era enabled_skills key).
-        from lucid.ui.panels.claude.agent_registry import ENABLED_PLUGINS_PREF
-        enabled_list = prefs.get(ENABLED_PLUGINS_PREF)
-
-        if enabled_list is None:
-            legacy = prefs.get("enabled_skills")
-            if isinstance(legacy, list):
-                logger.info(
-                    "Migrating {} entries from enabled_skills to {}",
-                    len(legacy), ENABLED_PLUGINS_PREF,
-                )
-                prefs.set(ENABLED_PLUGINS_PREF, list(legacy))
-                enabled_list = legacy
-
-        if enabled_list is None:
-            # No preference set - use defaults
-            self._model.set_enabled_names(None)
-        elif isinstance(enabled_list, list):
-            self._model.set_enabled_names(set(enabled_list))
-        else:
-            self._model.set_enabled_names(set())
-
+        d, f = self._model.get_overrides()
         logger.debug(
-            "Loaded tool settings: {} plugins, {} enabled",
-            self._model.rowCount(),
-            len(self._model.get_enabled_names()),
+            "Loaded tool settings: {} plugins, {} disabled, {} forced-enabled",
+            self._model.rowCount(), len(d), len(f),
         )
 
     def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Saves the enabled plugins list and invalidates the registry cache.
-        """
+        """Persist the user's overrides relative to each plugin's default."""
         if not self._model:
             return
 
-        # Get current enabled names
-        enabled_names = self._model.get_enabled_names()
+        disabled, forced_enabled = self._model.get_overrides()
 
-        # Save to preferences using the shared key
-        from lucid.ui.panels.claude.agent_registry import ENABLED_PLUGINS_PREF
+        from lucid.ui.panels.claude.agent_registry import (
+            DISABLED_PLUGINS_PREF,
+            FORCED_ENABLED_PLUGINS_PREF,
+        )
         prefs = PreferencesManager.get_instance()
-        prefs.set(ENABLED_PLUGINS_PREF, list(enabled_names))
+        prefs.set(DISABLED_PLUGINS_PREF, sorted(disabled))
+        prefs.set(FORCED_ENABLED_PLUGINS_PREF, sorted(forced_enabled))
 
         logger.debug(
-            "Saved tool settings: {} enabled",
-            len(enabled_names),
+            "Saved tool settings: {} disabled, {} forced-enabled",
+            len(disabled), len(forced_enabled),
         )
-
-        # AgentRegistry has no cache to invalidate; enabled_plugins() reads prefs directly
 
     def validate(self) -> list[str]:
         """Validate current widget values.

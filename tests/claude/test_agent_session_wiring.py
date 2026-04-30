@@ -51,9 +51,14 @@ def mock_sdk(monkeypatch):
 def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot, monkeypatch):
     AgentRegistry.get_instance().register(_PromptAgent())
     AgentRegistry.get_instance().register(_ToolAgent())
+    # Both agents default to enabled_by_default=True; stub pref reads to no overrides.
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._get_enabled_pref",
-        lambda self: ["prompt_agent", "tool_agent"],
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        lambda self, key: None,
+    )
+    monkeypatch.setattr(
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        lambda self: None,
     )
 
     from PySide6.QtWidgets import QWidget

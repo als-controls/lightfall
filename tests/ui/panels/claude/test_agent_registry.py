@@ -1,8 +1,6 @@
 """Tests for AgentRegistry."""
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from lucid.plugins.agent_plugin import AgentPlugin
@@ -47,6 +45,28 @@ def reset_registry():
     AgentRegistry.reset_instance()
 
 
+def _stub_prefs(monkeypatch, *, disabled=None, forced=None):
+    """Stub the registry's pref reads so tests don't touch QSettings."""
+    def fake(self, key):
+        from lucid.ui.panels.claude.agent_registry import (
+            DISABLED_PLUGINS_PREF, FORCED_ENABLED_PLUGINS_PREF,
+        )
+        if key == DISABLED_PLUGINS_PREF:
+            return disabled
+        if key == FORCED_ENABLED_PLUGINS_PREF:
+            return forced
+        return None
+    monkeypatch.setattr(
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        fake,
+    )
+    # Skip migration: tests assert on the new prefs directly.
+    monkeypatch.setattr(
+        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        lambda self: None,
+    )
+
+
 def test_register_adds_plugin():
     reg = AgentRegistry.get_instance()
     a = _Pure_Prompt_Agent()
@@ -78,39 +98,56 @@ def test_unregister_unknown_returns_false():
     assert reg.unregister("never_registered") is False
 
 
-def test_enabled_plugins_no_pref_uses_defaults(monkeypatch):
-    """When enabled_tool_plugins pref is None, enabled = those with enabled_by_default=True."""
-    monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._get_enabled_pref",
-        lambda self: None,
-    )
+def test_enabled_plugins_no_overrides_uses_defaults(monkeypatch):
+    """With no overrides set, enabled = those with enabled_by_default=True."""
+    _stub_prefs(monkeypatch)
     reg = AgentRegistry.get_instance()
     a, b, g = _Pure_Prompt_Agent(), _Pure_Tools_Agent(), _Disabled_By_Default_Agent()
     reg.register(a); reg.register(b); reg.register(g)
-    enabled = reg.enabled_plugins()
-    names = {p.name for p in enabled}
+    names = {p.name for p in reg.enabled_plugins()}
     assert names == {"alpha", "beta"}
-    assert "gamma" not in names
 
 
-def test_enabled_plugins_respects_pref(monkeypatch):
-    monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._get_enabled_pref",
-        lambda self: ["beta", "gamma"],
-    )
+def test_disabled_pref_excludes_default_enabled(monkeypatch):
+    _stub_prefs(monkeypatch, disabled=["alpha"])
     reg = AgentRegistry.get_instance()
     a, b, g = _Pure_Prompt_Agent(), _Pure_Tools_Agent(), _Disabled_By_Default_Agent()
     reg.register(a); reg.register(b); reg.register(g)
-    enabled = reg.enabled_plugins()
-    names = {p.name for p in enabled}
-    assert names == {"beta", "gamma"}
+    names = {p.name for p in reg.enabled_plugins()}
+    assert names == {"beta"}
+
+
+def test_forced_enabled_pref_includes_default_disabled(monkeypatch):
+    _stub_prefs(monkeypatch, forced=["gamma"])
+    reg = AgentRegistry.get_instance()
+    a, b, g = _Pure_Prompt_Agent(), _Pure_Tools_Agent(), _Disabled_By_Default_Agent()
+    reg.register(a); reg.register(b); reg.register(g)
+    names = {p.name for p in reg.enabled_plugins()}
+    assert names == {"alpha", "beta", "gamma"}
+
+
+def test_disabled_overrides_forced_enabled(monkeypatch):
+    """A name in both lists is disabled — opt-out is the safer policy."""
+    _stub_prefs(monkeypatch, disabled=["gamma"], forced=["gamma"])
+    reg = AgentRegistry.get_instance()
+    g = _Disabled_By_Default_Agent()
+    reg.register(g)
+    assert reg.enabled_plugins() == []
+
+
+def test_newly_registered_plugin_is_enabled_by_default(monkeypatch):
+    """Regression: a plugin registered after the user saved settings should
+    still be enabled, not silently excluded."""
+    _stub_prefs(monkeypatch, disabled=["alpha"], forced=[])
+    reg = AgentRegistry.get_instance()
+    reg.register(_Pure_Prompt_Agent())  # disabled
+    reg.register(_Pure_Tools_Agent())   # newly added — should appear
+    names = {p.name for p in reg.enabled_plugins()}
+    assert names == {"beta"}
 
 
 def test_enabled_plugins_sorted_by_priority(monkeypatch):
-    monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._get_enabled_pref",
-        lambda self: ["alpha", "beta"],
-    )
+    _stub_prefs(monkeypatch)
     reg = AgentRegistry.get_instance()
     a, b = _Pure_Prompt_Agent(), _Pure_Tools_Agent()
     reg.register(b); reg.register(a)  # registered out of order
