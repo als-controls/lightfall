@@ -127,7 +127,7 @@ class BlueskyPanel(BasePanel):
         # PlanConfigWidget is constructed eagerly so set_catalog() etc. work
         # before the user has opened a plan. It is added to the tab widget
         # lazily on first plan selection (see _show_plan_config).
-        self._plan_config = PlanConfigWidget()
+        self._plan_config = PlanConfigWidget(parent=self)
         self._plan_config.run_requested.connect(self._on_run_requested)
         self._config_tab_added: bool = False
 
@@ -446,6 +446,8 @@ class BlueskyPanel(BasePanel):
             self._tab_widget.removeTab(index)
         self._running_plan_ui.deleteLater()
         self._running_plan_ui = None
+        if self._config_tab_added:
+            self._tab_widget.setCurrentWidget(self._plan_config)
 
     def _resolve_device_kwargs(
         self, plan_info: PlanInfo, kwargs: dict

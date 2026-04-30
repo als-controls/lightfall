@@ -94,10 +94,11 @@ class TestConfigTabLifecycle:
         assert tab_widget.count() == 3
         assert tab_widget.tabText(2).startswith("Running: ")
 
-        # Plan finishes — Running tab goes, Config stays
+        # Plan finishes — Running tab goes, Config stays and gets focus
         panel._on_plan_ui_finished()
         assert tab_widget.count() == 2
         assert tab_widget.tabText(1).startswith("Config: ")
+        assert tab_widget.currentWidget() is panel._plan_config
 
     def test_mcp_select_plan_opens_config_tab(self, qtbot):
         panel = BlueskyPanel()
