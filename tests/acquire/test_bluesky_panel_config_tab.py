@@ -98,3 +98,19 @@ class TestConfigTabLifecycle:
         panel._on_plan_ui_finished()
         assert tab_widget.count() == 2
         assert tab_widget.tabText(1).startswith("Config: ")
+
+    def test_mcp_select_plan_opens_config_tab(self, qtbot):
+        panel = BlueskyPanel()
+        qtbot.addWidget(panel)
+        tab_widget = panel.findChild(QTabWidget)
+
+        # Stub a registry that returns our PlanInfo for "alpha"
+        panel._registry = MagicMock()
+        panel._registry.get_plan.return_value = _plan("alpha")
+
+        ok = panel.select_plan("alpha")
+
+        assert ok is True
+        assert tab_widget.count() == 2
+        assert tab_widget.currentWidget() is panel._plan_config
+        assert panel._plan_config.current_plan.name == "alpha"

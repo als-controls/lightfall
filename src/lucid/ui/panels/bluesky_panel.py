@@ -354,7 +354,7 @@ class BlueskyPanel(BasePanel):
 
         plan_info = self._registry.get_plan(plan_name)
         if plan_info:
-            self._plan_config.set_plan(plan_info)
+            self._show_plan_config(plan_info)
             self._current_plan_name = plan_name
             return True
         return False
