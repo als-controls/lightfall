@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from PySide6.QtWidgets import QTabWidget
 
 from lucid.acquire.plan_ui import PlanUI, plan_with_ui
@@ -17,7 +16,6 @@ def _plan(name: str) -> PlanInfo:
     """Build a minimal PlanInfo for `name`."""
     def fn():
         yield
-    fn.__name__ = name
     return PlanInfo.from_function(name, fn, category="test")
 
 
