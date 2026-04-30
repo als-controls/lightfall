@@ -114,3 +114,4 @@ class TestConfigTabLifecycle:
         assert tab_widget.count() == 2
         assert tab_widget.currentWidget() is panel._plan_config
         assert panel._plan_config.current_plan.name == "alpha"
+        assert panel._current_plan_name == "alpha"
