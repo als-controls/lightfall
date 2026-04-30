@@ -30,6 +30,15 @@ class PermissionManager(QObject):
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     auto_approvals_changed = Signal(set)  # Current set of auto-approved tools
 
+    # File-edit tools auto-approved when permission_mode == "acceptEdits"
+    # (matches the Claude Agent SDK's own acceptEdits semantics).
+    EDIT_TOOLS = frozenset({
+        "Edit", "edit",
+        "Write", "write",
+        "NotebookEdit", "notebook_edit",
+        "MultiEdit", "multi_edit",
+    })
+
     # Default read-only tools that are auto-approved (whitelist design).
     # Only tools explicitly listed here skip the approval prompt.
     # Everything else requires user approval.
@@ -70,7 +79,11 @@ class PermissionManager(QObject):
         "ncs_set_emotion",
     })
 
-    def __init__(self, parent: QObject | None = None):
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        permission_mode: str = "default",
+    ):
         """
         Initialize the permission manager.
 
@@ -79,11 +92,16 @@ class PermissionManager(QObject):
 
         Args:
             parent: Parent QObject
+            permission_mode: SDK permission mode. When 'acceptEdits', file-edit
+                tools (Edit/Write/NotebookEdit/MultiEdit) are added to the
+                auto-approved set, matching the SDK's own acceptEdits semantics.
         """
         super().__init__(parent)
 
         # Auto-approved tools — whitelist only (configurable by external UI)
         self._auto_approved: set[str] = set(self.DEFAULT_AUTO_APPROVED)
+        if permission_mode == "acceptEdits":
+            self._auto_approved |= self.EDIT_TOOLS
 
         # User's "Always Allow" choices (session-based, can be persisted)
         self._user_always_allowed: set[str] = set()

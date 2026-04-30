@@ -85,6 +85,7 @@ class ClaudeAssistantWidget(QWidget):
         api_url: str | None = None,
         cli_path: str | None = None,
         additional_system_prompt: str | None = None,
+        permission_mode: str = "default",
         require_approval: bool = True,
         parent: QWidget | None = None
     ):
@@ -98,7 +99,10 @@ class ClaudeAssistantWidget(QWidget):
             api_url: Not used - set ANTHROPIC_BASE_URL environment variable instead
             cli_path: Path to Claude Code CLI executable (auto-detected if not provided)
             additional_system_prompt: Optional additional text to append to the system prompt.
+            permission_mode: SDK permission mode ('default', 'acceptEdits', 'bypassPermissions').
             require_approval: If True, show UI approval for tool calls (default True).
+                              Set False alongside permission_mode='bypassPermissions' to
+                              fully silence prompts.
             parent: Parent widget
 
         Note:
@@ -124,6 +128,7 @@ class ClaudeAssistantWidget(QWidget):
                 api_key,
                 api_url,
                 cli_path,
+                permission_mode=permission_mode,
                 additional_system_prompt=additional_system_prompt,
                 require_approval=require_approval,
                 parent=self,

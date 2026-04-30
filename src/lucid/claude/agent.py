@@ -226,7 +226,9 @@ class QtClaudeAgent(QObject):
         self._permission_manager: PermissionManager | None = None
 
         if require_approval:
-            self._permission_manager = PermissionManager(parent=self)
+            self._permission_manager = PermissionManager(
+                parent=self, permission_mode=permission_mode
+            )
             # Forward permission requests to our signal
             self._permission_manager.permission_requested.connect(
                 self.permission_requested.emit

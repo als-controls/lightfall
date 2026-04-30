@@ -398,11 +398,14 @@ class ClaudePanel(BasePanel):
         # Build additional system prompt for NCS
         ncs_system_prompt = self._build_ncs_system_prompt()
 
+        permission_mode = ClaudeSettingsProvider.get_permission_mode()
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
             api_url=ClaudeSettingsProvider.get_base_url(),
             additional_system_prompt=ncs_system_prompt,
+            permission_mode=permission_mode,
+            require_approval=(permission_mode != "bypassPermissions"),
             parent=self,
         )
 
