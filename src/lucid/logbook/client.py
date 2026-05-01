@@ -407,10 +407,11 @@ class LogbookClient:
         self._initialized = False
 
     def _load_preferences(self) -> None:
+        from lucid.logbook.url import get_logbook_base_url
         try:
             from lucid.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
-            self._server_url = prefs.get("logbook_url", None) or "http://bcglucidlogbook.dhcp.lbl.gov"
+            self._server_url = get_logbook_base_url()
             self._offline_only = prefs.get("logbook_offline_only", False)
         except Exception:
             logger.debug("Could not load logbook preferences, using defaults")
