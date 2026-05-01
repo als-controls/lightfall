@@ -39,6 +39,8 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def __init__(self) -> None:
         self._widget: QWidget | None = None
         self._avatar_label: QLabel | None = None
+        self._loaded_image_id: str | None = None
+        self._load_future = None  # QThreadFuture
 
     @property
     def name(self) -> str:
@@ -114,7 +116,47 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     # ── Lifecycle (noop bodies for now; later tasks fill in) ─────────────
 
     def load_settings(self) -> None:
-        return None  # Task 12 implements
+        """Fetch the current profile_image_id and render the avatar."""
+        from lucid.settings.user_settings_client import UserSettingsClient
+        from lucid.utils.threads import QThreadFuture
+
+        client = UserSettingsClient.get_instance()
+        image_id = client.get("profile_image_id", default=None)
+        if not image_id:
+            self._set_placeholder_avatar()
+            self._loaded_image_id = None
+            return
+
+        # Fetch the bytes on a worker thread, decode to QImage there,
+        # then convert to QPixmap on the GUI thread (signal slot).
+        self._load_future = QThreadFuture(
+            _fetch_qimage,
+            client,
+            image_id,
+            callback_slot=lambda qimg: self._on_image_ready(image_id, qimg),
+            except_slot=lambda exc: self._on_image_error(exc),
+        )
+        self._load_future.start()
+
+    def _on_image_ready(self, image_id: str, qimage) -> None:
+        from PySide6.QtGui import QPixmap
+        if qimage is None or qimage.isNull():
+            self._set_placeholder_avatar()
+            return
+        pm = QPixmap.fromImage(qimage).scaled(
+            _AVATAR_PX,
+            _AVATAR_PX,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        if self._avatar_label is not None:
+            self._avatar_label.setPixmap(pm)
+        self._loaded_image_id = image_id
+
+    def _on_image_error(self, exc: BaseException) -> None:
+        logger.warning("Failed to load profile image: {}", exc)
+        self._set_placeholder_avatar()
+        self._loaded_image_id = None
 
     def save_settings(self) -> None:
         # Commit-on-action design: nothing to do here.
@@ -161,3 +203,16 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         pm = QPixmap(_AVATAR_PX, _AVATAR_PX)
         pm.fill(Qt.GlobalColor.lightGray)
         self._avatar_label.setPixmap(pm)
+
+
+def _fetch_qimage(client, image_id: str):
+    """Worker-thread function: download bytes via the client, decode to QImage.
+
+    QImage is safe to construct off the GUI thread; QPixmap is not.
+    """
+    from PySide6.QtGui import QImage
+
+    data, _ = client.download_image(image_id)
+    img = QImage()
+    img.loadFromData(data)
+    return img

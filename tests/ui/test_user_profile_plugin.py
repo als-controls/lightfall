@@ -112,3 +112,80 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
     from PySide6.QtWidgets import QLabel
     label_text = " ".join(lbl.text() for lbl in w.findChildren(QLabel))
     assert "0000-0001-2345-6789" in label_text
+
+
+def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session, httpx_mock):
+    """When no profile_image_id is set, load_settings leaves placeholder."""
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
+        status_code=404,
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    p.load_settings()
+    # Spin the event loop briefly to let the worker thread finish (or be
+    # absent if no image_id).
+    qtbot.wait(100)
+    # Placeholder pixmap exists, label is not empty
+    assert p._avatar_label is not None
+    assert not p._avatar_label.pixmap().isNull()
+
+
+def test_load_settings_with_image_fetches_bytes(
+    qtbot, stub_session, httpx_mock, monkeypatch
+):
+    """When an image_id is set, the bytes are fetched and rendered."""
+    image_bytes = _png_bytes_1x1_red()
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
+        json={
+            "user_id": "rpandolfi",
+            "beamline": "",
+            "key": "profile_image_id",
+            "value": "img-1",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/images/img-1",
+        content=image_bytes,
+        headers={"content-type": "image/png"},
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    p.load_settings()
+
+    # Wait for the worker thread to deliver the QImage to the GUI
+    qtbot.waitUntil(
+        lambda: p._loaded_image_id == "img-1",
+        timeout=5000,
+    )
+    assert not p._avatar_label.pixmap().isNull()
+
+
+def _png_bytes_1x1_red() -> bytes:
+    import struct, zlib
+
+    def chunk(t, d):
+        return (
+            struct.pack(">I", len(d))
+            + t + d
+            + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+        )
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+    raw = zlib.compress(b"\x00\xff\x00\x00")
+    idat = chunk(b"IDAT", raw)
+    iend = chunk(b"IEND", b"")
+    return header + ihdr + idat + iend
