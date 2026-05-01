@@ -173,6 +173,130 @@ def test_load_settings_with_image_fetches_bytes(
     assert not p._avatar_label.pixmap().isNull()
 
 
+ALLOWED_MIMES = {"image/png", "image/jpeg", "image/gif"}
+MAX_BYTES = 20 * 1024 * 1024
+
+
+def test_choose_image_happy_path(
+    qtbot, stub_session, httpx_mock, tmp_path, monkeypatch
+):
+    """Selecting a small valid PNG uploads it and writes profile_image_id."""
+    png_path = tmp_path / "me.png"
+    png_path.write_bytes(_png_bytes_1x1_red())
+
+    # Patch QFileDialog to return the prepared path
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **kw: (str(png_path), "Images (*.png *.jpg *.gif)")),
+    )
+
+    httpx_mock.add_response(
+        method="POST",
+        url="https://lb.test/logbook/images",
+        json={"image_id": "new-id", "mime_type": "image/png", "size_bytes": len(_png_bytes_1x1_red())},
+        status_code=201,
+    )
+    httpx_mock.add_response(
+        method="PUT",
+        url="https://lb.test/logbook/settings/profile_image_id",
+        match_json={"value": "new-id", "beamline": ""},
+        json={
+            "user_id": "rpandolfi",
+            "beamline": "",
+            "key": "profile_image_id",
+            "value": "new-id",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    # load_settings() after upload will GET profile_image_id then GET the image bytes
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
+        json={
+            "user_id": "rpandolfi",
+            "beamline": "",
+            "key": "profile_image_id",
+            "value": "new-id",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/images/new-id",
+        content=_png_bytes_1x1_red(),
+        headers={"content-type": "image/png"},
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    p._on_choose_clicked()
+    qtbot.waitUntil(lambda: p._loaded_image_id == "new-id", timeout=5000)
+
+
+def test_choose_image_rejects_too_large(
+    qtbot, stub_session, tmp_path, monkeypatch
+):
+    """Files over 20 MB are rejected client-side with no upload attempted."""
+    big = tmp_path / "big.png"
+    big.write_bytes(b"\x89PNG" + b"\x00" * (MAX_BYTES + 1))
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **kw: (str(big), "Images (*.png)")),
+    )
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    p._on_choose_clicked()
+    assert shown, "Expected QMessageBox.warning to be shown"
+
+
+def test_choose_image_rejects_unknown_mime(
+    qtbot, stub_session, tmp_path, monkeypatch
+):
+    """Files whose mime can't be determined or isn't allowed → warning, no upload."""
+    bad = tmp_path / "thing.bmp"
+    bad.write_bytes(b"BM" + b"\x00" * 100)
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **kw: (str(bad), "Images (*.bmp)")),
+    )
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    p._on_choose_clicked()
+    assert shown
+
+
 def _png_bytes_1x1_red() -> bytes:
     import struct, zlib
 

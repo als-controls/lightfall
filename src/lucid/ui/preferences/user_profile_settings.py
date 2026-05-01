@@ -32,6 +32,14 @@ if TYPE_CHECKING:
 
 _AVATAR_PX = 128
 
+_ALLOWED_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+}
+_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
 
 class UserProfileSettingsPlugin(SettingsPlugin):
     """Profile picture + identity preview."""
@@ -168,7 +176,85 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     # ── Stubs the later tasks replace ────────────────────────────────────
 
     def _on_choose_clicked(self) -> None:
-        return None  # Task 13
+        from pathlib import Path
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path_str, _ = QFileDialog.getOpenFileName(
+            self._widget,
+            "Choose profile image",
+            "",
+            "Images (*.png *.jpg *.jpeg *.gif)",
+        )
+        if not path_str:
+            return
+
+        path = Path(path_str)
+        ext = path.suffix.lower()
+        mime = _ALLOWED_MIMES.get(ext)
+        if mime is None:
+            QMessageBox.warning(
+                self._widget,
+                "Unsupported file type",
+                f"{ext or '(no extension)'} is not a supported image type. "
+                "Please choose a PNG, JPEG, or GIF.",
+            )
+            return
+
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            QMessageBox.warning(
+                self._widget, "Cannot read file", f"Could not read {path}: {e}"
+            )
+            return
+
+        if len(data) > _MAX_IMAGE_BYTES:
+            QMessageBox.warning(
+                self._widget,
+                "File too large",
+                f"{path.name} is {len(data) // (1024*1024)} MB — limit is "
+                f"{_MAX_IMAGE_BYTES // (1024*1024)} MB.",
+            )
+            return
+
+        self._upload_and_set(data, mime)
+
+    def _upload_and_set(self, data: bytes, mime: str) -> None:
+        """Upload image, set profile_image_id, refresh avatar."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from lucid.settings.user_settings_client import (
+            UserSettingsClient,
+            UserSettingsError,
+        )
+        from lucid.utils.threads import QThreadFuture
+
+        client = UserSettingsClient.get_instance()
+
+        def work():
+            image_id = client.upload_image(data, mime)
+            client.set("profile_image_id", image_id)
+            return image_id
+
+        def on_ok(image_id: str):
+            # Re-trigger load to pull and display the new image.
+            self.load_settings()
+
+        def on_err(exc: BaseException):
+            logger.warning("Profile image upload failed: {}", exc)
+            QMessageBox.warning(
+                self._widget,
+                "Upload failed",
+                f"Could not save profile image: {exc}",
+            )
+
+        self._upload_future = QThreadFuture(
+            work,
+            callback_slot=on_ok,
+            except_slot=on_err,
+        )
+        self._upload_future.start()
 
     def _on_remove_clicked(self) -> None:
         return None  # Task 14
