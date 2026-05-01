@@ -142,3 +142,38 @@ class UserSettingsClient:
             raise UserSettingsError(
                 f"Failed to delete setting {key!r}: {e}"
             ) from e
+
+    # ── Image helpers ────────────────────────────────────────────────────
+
+    def upload_image(self, data: bytes, mime_type: str) -> str:
+        """POST bytes to /logbook/images, return image_id."""
+        try:
+            with self._client() as c:
+                r = c.post(
+                    "/logbook/images",
+                    files={"file": ("image", data, mime_type)},
+                )
+            r.raise_for_status()
+            return r.json()["image_id"]
+        except (httpx.HTTPError, KeyError) as e:
+            raise UserSettingsError(f"Image upload failed: {e}") from e
+
+    def download_image(self, image_id: str) -> tuple[bytes, str]:
+        """GET /logbook/images/{id}; return (bytes, content_type).
+
+        Used by clients that want raw image bytes (e.g., a worker thread
+        decoding into a QImage)."""
+        try:
+            with self._client() as c:
+                r = c.get(f"/logbook/images/{image_id}")
+            r.raise_for_status()
+            return r.content, r.headers.get("content-type", "")
+        except httpx.HTTPError as e:
+            raise UserSettingsError(
+                f"Image download failed for {image_id!r}: {e}"
+            ) from e
+
+    def image_url(self, image_id: str) -> str:
+        """Build the absolute URL for an image (e.g., for QPixmap loaders
+        that handle their own auth)."""
+        return f"{self._base_url}/logbook/images/{image_id}"

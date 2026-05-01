@@ -146,3 +146,61 @@ def test_delete_raises_on_404(httpx_mock):
     c = _client()
     with pytest.raises(UserSettingsError):
         c.delete("missing")
+
+
+def test_upload_image_returns_id(httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url="https://lb.test/logbook/images",
+        json={"image_id": "abc-123", "mime_type": "image/png", "size_bytes": 42},
+        status_code=201,
+    )
+    c = _client()
+    image_id = c.upload_image(b"\x89PNG fake bytes", "image/png")
+    assert image_id == "abc-123"
+
+
+def test_upload_image_raises_on_4xx(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_response(
+        method="POST",
+        url="https://lb.test/logbook/images",
+        status_code=400,
+        json={"detail": "too big"},
+    )
+    c = _client()
+    with pytest.raises(UserSettingsError):
+        c.upload_image(b"x" * 10, "image/png")
+
+
+def test_image_url_builds_absolute():
+    c = _client()
+    assert (
+        c.image_url("abc-123")
+        == "https://lb.test/logbook/images/abc-123"
+    )
+
+
+def test_download_image_returns_bytes_and_mime(httpx_mock):
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/images/img-1",
+        content=b"BYTES",
+        headers={"content-type": "image/png"},
+    )
+    c = _client()
+    data, mime = c.download_image("img-1")
+    assert data == b"BYTES"
+    assert mime == "image/png"
+
+
+def test_download_image_raises_on_404(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/images/missing",
+        status_code=404,
+    )
+    c = _client()
+    with pytest.raises(UserSettingsError):
+        c.download_image("missing")
