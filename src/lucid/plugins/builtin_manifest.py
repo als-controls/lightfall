@@ -52,6 +52,12 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.preferences.proxy_settings:ProxySettingsPlugin",
             preload=True,
         ),
+        # User Profile settings (avatar + identity preview)
+        PluginEntry(
+            type_name="settings",
+            name="user_profile",
+            import_path="lucid.ui.preferences.user_profile_settings:UserProfileSettingsPlugin",
+        ),
         # Login & Session settings
         PluginEntry(
             type_name="settings",

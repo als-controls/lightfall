@@ -13,10 +13,12 @@ from lucid.ui.preferences.builtin import AppearanceSettingsPlugin
 from lucid.ui.preferences.device_settings import DeviceSettingsPlugin
 from lucid.ui.preferences.dialog import PreferencesDialog
 from lucid.ui.preferences.manager import PreferencesManager
+from lucid.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
 
 __all__ = [
     "AppearanceSettingsPlugin",
     "DeviceSettingsPlugin",
     "PreferencesDialog",
     "PreferencesManager",
+    "UserProfileSettingsPlugin",
 ]
