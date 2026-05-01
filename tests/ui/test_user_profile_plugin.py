@@ -297,6 +297,30 @@ def test_choose_image_rejects_unknown_mime(
     assert shown
 
 
+def test_remove_image_clears_setting(qtbot, stub_session, httpx_mock):
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
+        status_code=204,
+    )
+    # After delete, load_settings does a GET that 404s → placeholder
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
+        status_code=404,
+    )
+
+    from lucid.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    qtbot.addWidget(w)
+    # Pretend an image was loaded
+    p._loaded_image_id = "old"
+    p._on_remove_clicked()
+    qtbot.waitUntil(lambda: p._loaded_image_id is None, timeout=5000)
+
+
 def _png_bytes_1x1_red() -> bytes:
     import struct, zlib
 

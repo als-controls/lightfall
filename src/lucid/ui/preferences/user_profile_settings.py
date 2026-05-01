@@ -257,7 +257,42 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         self._upload_future.start()
 
     def _on_remove_clicked(self) -> None:
-        return None  # Task 14
+        from PySide6.QtWidgets import QMessageBox
+
+        from lucid.settings.user_settings_client import (
+            UserSettingsClient,
+            UserSettingsError,
+        )
+        from lucid.utils.threads import QThreadFuture
+
+        client = UserSettingsClient.get_instance()
+
+        def work():
+            try:
+                client.delete("profile_image_id")
+            except UserSettingsError as e:
+                # If the setting wasn't there, treat as success.
+                if "404" in str(e) or "Not Found" in str(e):
+                    return
+                raise
+
+        def on_ok(_):
+            self.load_settings()
+
+        def on_err(exc):
+            logger.warning("Profile image removal failed: {}", exc)
+            QMessageBox.warning(
+                self._widget,
+                "Remove failed",
+                f"Could not remove profile image: {exc}",
+            )
+
+        self._remove_future = QThreadFuture(
+            work,
+            callback_slot=on_ok,
+            except_slot=on_err,
+        )
+        self._remove_future.start()
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
