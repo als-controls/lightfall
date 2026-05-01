@@ -594,11 +594,9 @@ class ClaudeAssistantWidget(QWidget):
 
     def _append_thinking_message(self, thinking: str) -> None:
         """Append thinking block to chat display."""
-        text = self._escape_html(thinking[:200])
-        if len(thinking) > 200:
-            text += "…"
         card = self._create_card(
-            text, label="Thinking", italic=True, small=True,
+            self._escape_html(thinking),
+            label="Thinking", italic=True, small=True,
         )
         self._add_widget(card)
 
