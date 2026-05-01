@@ -67,3 +67,82 @@ def test_beamline_query_passed_through(httpx_mock):
     )
     c = _client()
     assert c.get_all(beamline="11.0.1") == {}
+
+
+def test_set_posts_value(httpx_mock):
+    httpx_mock.add_response(
+        method="PUT",
+        url="https://lb.test/logbook/settings/theme",
+        match_json={"value": "dark", "beamline": ""},
+        json={
+            "user_id": "alice",
+            "beamline": "",
+            "key": "theme",
+            "value": "dark",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    c = _client()
+    c.set("theme", "dark")  # no return value checked
+
+
+def test_set_with_beamline(httpx_mock):
+    httpx_mock.add_response(
+        method="PUT",
+        url="https://lb.test/logbook/settings/k",
+        match_json={"value": [1, 2], "beamline": "11.0.1"},
+        json={
+            "user_id": "alice",
+            "beamline": "11.0.1",
+            "key": "k",
+            "value": [1, 2],
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    c = _client()
+    c.set("k", [1, 2], beamline="11.0.1")
+
+
+def test_set_raises_on_5xx(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_response(
+        method="PUT",
+        url="https://lb.test/logbook/settings/x",
+        status_code=500,
+    )
+    c = _client()
+    with pytest.raises(UserSettingsError):
+        c.set("x", "y")
+
+
+def test_set_raises_on_network_error(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_exception(httpx.ConnectError("boom"))
+    c = _client()
+    with pytest.raises(UserSettingsError):
+        c.set("x", "y")
+
+
+def test_delete_succeeds(httpx_mock):
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://lb.test/logbook/settings/theme?beamline=",
+        status_code=204,
+    )
+    c = _client()
+    c.delete("theme")
+
+
+def test_delete_raises_on_404(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_response(
+        method="DELETE",
+        url=re.compile(r"https://lb\.test/logbook/settings/missing.*"),
+        status_code=404,
+    )
+    c = _client()
+    with pytest.raises(UserSettingsError):
+        c.delete("missing")

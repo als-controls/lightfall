@@ -108,3 +108,37 @@ class UserSettingsClient:
         except httpx.HTTPError as e:
             logger.debug("UserSettingsClient.get_all failed: {}", e)
             return {}
+
+    # ── Write API ────────────────────────────────────────────────────────
+
+    def set(
+        self,
+        key: str,
+        value: Any,
+        *,
+        beamline: str | None = None,
+    ) -> None:
+        """Upsert a setting. Raises UserSettingsError on failure."""
+        body = {"value": value, "beamline": self._bl(beamline)}
+        try:
+            with self._client() as c:
+                r = c.put(f"/logbook/settings/{key}", json=body)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise UserSettingsError(
+                f"Failed to set setting {key!r}: {e}"
+            ) from e
+
+    def delete(self, key: str, *, beamline: str | None = None) -> None:
+        """Delete a setting. Raises UserSettingsError on failure."""
+        try:
+            with self._client() as c:
+                r = c.delete(
+                    f"/logbook/settings/{key}",
+                    params={"beamline": self._bl(beamline)},
+                )
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise UserSettingsError(
+                f"Failed to delete setting {key!r}: {e}"
+            ) from e
