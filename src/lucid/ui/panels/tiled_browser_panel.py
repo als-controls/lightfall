@@ -496,24 +496,17 @@ class TiledBrowserPanel(BasePanel):
         # Get total count before pagination
         total_count = len(result)
 
-        # Collect unique plan names for filter dropdown
-        plan_names: set[str] = set()
-
-        # Apply pagination
+        # Apply pagination. Use items()[start:end] so the server returns keys
+        # AND full metadata in one paginated request — avoids an N+1 pattern
+        # where each `result[key]` would issue its own KeyLookup roundtrip.
         start = page * page_size
         end = start + page_size
 
         records: list[TiledRecord] = []
+        plan_names: set[str] = set()
 
-        # Iterate over results with pagination
-        for i, key in enumerate(result):
-            if i < start:
-                continue
-            if i >= end:
-                break
-
+        for key, entry in result.items()[start:end]:
             try:
-                entry = result[key]
                 record = self._entry_to_record(key, entry)
                 records.append(record)
                 if record.plan_name:
@@ -521,20 +514,6 @@ class TiledBrowserPanel(BasePanel):
             except Exception as e:
                 logger.warning("Failed to parse record {}: {}", key, e)
                 continue
-
-        # Also collect plan names from a broader sample for the filter dropdown
-        for i, key in enumerate(result):
-            if i >= 500:  # Sample first 500 for plan names
-                break
-            try:
-                entry = result[key]
-                metadata = entry.metadata
-                start_doc = metadata.get("start", {})
-                plan = start_doc.get("plan_name", "")
-                if plan:
-                    plan_names.add(plan)
-            except Exception:
-                pass
 
         return records, total_count, list(plan_names)
 
