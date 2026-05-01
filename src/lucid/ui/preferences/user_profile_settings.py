@@ -49,6 +49,8 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         self._avatar_label: QLabel | None = None
         self._loaded_image_id: str | None = None
         self._load_future = None  # QThreadFuture
+        self._upload_future = None
+        self._remove_future = None
 
     @property
     def name(self) -> str:
@@ -259,22 +261,13 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def _on_remove_clicked(self) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.settings.user_settings_client import (
-            UserSettingsClient,
-            UserSettingsError,
-        )
+        from lucid.settings.user_settings_client import UserSettingsClient
         from lucid.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
 
         def work():
-            try:
-                client.delete("profile_image_id")
-            except UserSettingsError as e:
-                # If the setting wasn't there, treat as success.
-                if "404" in str(e) or "Not Found" in str(e):
-                    return
-                raise
+            client.delete("profile_image_id")
 
         def on_ok(_):
             self.load_settings()

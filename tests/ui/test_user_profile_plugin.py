@@ -69,7 +69,6 @@ def test_create_widget_shows_identity_labels(qtbot, stub_session):
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    text = w.findChildren(type(w))  # silence unused-import
     # Walk all QLabels and assert username/email/display name appear
     from PySide6.QtWidgets import QLabel
     label_text = " ".join(

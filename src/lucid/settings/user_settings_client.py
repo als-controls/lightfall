@@ -130,13 +130,16 @@ class UserSettingsClient:
             ) from e
 
     def delete(self, key: str, *, beamline: str | None = None) -> None:
-        """Delete a setting. Raises UserSettingsError on failure."""
+        """Delete a setting. Idempotent — 404 is treated as success.
+        Raises UserSettingsError on any other failure."""
         try:
             with self._client() as c:
                 r = c.delete(
                     f"/logbook/settings/{key}",
                     params={"beamline": self._bl(beamline)},
                 )
+            if r.status_code == 404:
+                return  # already gone, treat as success
             r.raise_for_status()
         except httpx.HTTPError as e:
             raise UserSettingsError(

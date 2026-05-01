@@ -135,17 +135,28 @@ def test_delete_succeeds(httpx_mock):
     c.delete("theme")
 
 
-def test_delete_raises_on_404(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
-
+def test_delete_treats_404_as_success(httpx_mock):
+    """Delete is idempotent — 404 (already gone) is success, not an error."""
     httpx_mock.add_response(
         method="DELETE",
         url=re.compile(r"https://lb\.test/logbook/settings/missing.*"),
         status_code=404,
     )
     c = _client()
+    c.delete("missing")  # no exception expected
+
+
+def test_delete_raises_on_5xx(httpx_mock):
+    from lucid.settings.user_settings_client import UserSettingsError
+
+    httpx_mock.add_response(
+        method="DELETE",
+        url=re.compile(r"https://lb\.test/logbook/settings/x.*"),
+        status_code=500,
+    )
+    c = _client()
     with pytest.raises(UserSettingsError):
-        c.delete("missing")
+        c.delete("x")
 
 
 def test_upload_image_returns_id(httpx_mock):
