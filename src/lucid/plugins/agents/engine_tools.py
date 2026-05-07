@@ -306,9 +306,16 @@ class EngineToolsAgent(AgentPlugin):
                             "uid": uid,
                         })
 
-                    # BlueskyRunV3: stream.read() returns a DataFrame directly.
-                    # The old V2 path (stream["data"]) raises KeyError on V3.
-                    df = run["primary"].read()
+                    # BlueskyEventStreamV3.read() returns an xarray.Dataset
+                    # (via CompositeClient.read). Flatten to a DataFrame so the
+                    # dim coords (time, seq_num) and each data_var become
+                    # explicit columns for JSON-friendly serialization.
+                    result = run["primary"].read()
+                    if hasattr(result, "to_dataframe"):
+                        df = result.to_dataframe().reset_index()
+                    else:
+                        df = result  # already DataFrame-like
+
                     columns = df.columns.tolist() if hasattr(df, "columns") else []
                     shape = list(df.shape) if hasattr(df, "shape") else None
 
