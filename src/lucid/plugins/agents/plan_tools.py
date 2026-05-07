@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Any
+from typing import Any, Union
 
 from lucid.plugins.agent_plugin import AgentPlugin
 from lucid.utils.logging import logger
@@ -43,13 +43,46 @@ class PlanToolsAgent(AgentPlugin):
 
         return DeviceCatalog.get_instance()
 
+    @staticmethod
+    def _is_str_annotation(annotation: Any) -> bool:
+        """Check if a parameter annotation indicates a plain string type.
+
+        Handles both real type objects (``str``) and stringified
+        annotations produced by ``from __future__ import annotations``
+        (``"str"``).  Returns True for ``str``, ``Optional[str]``,
+        ``str | None``, etc.  Returns False for device-related
+        annotations (Annotated types with DeviceFilter, Motor,
+        Detector, Any, etc.) so those get resolved.
+        """
+        if annotation is str:
+            return True
+        # Stringified annotations (from __future__ import annotations)
+        if isinstance(annotation, str):
+            stripped = annotation.strip()
+            if stripped == "str":
+                return True
+            # Optional[str], str | None, Union[str, None]
+            if stripped in ("Optional[str]", "str | None", "Union[str, None]"):
+                return True
+            return False
+        # Real type objects — handle Optional[str], str | None, Union[str, None]
+        origin = getattr(annotation, "__origin__", None)
+        if origin is Union:
+            args = getattr(annotation, "__args__", ())
+            non_none = [a for a in args if a is not type(None)]
+            return len(non_none) == 1 and non_none[0] is str
+        return False
+
     def _resolve_plan_params(
         self, plan_info: Any, params: dict[str, Any]
     ) -> dict[str, Any]:
         """Resolve string device names to actual ophyd device objects.
 
         Inspects plan parameters and resolves string device names
-        via the DeviceCatalog.
+        via the DeviceCatalog.  Parameters whose type annotation is
+        ``str`` are left untouched — they are data-field names, not
+        device references (e.g. ``target_field`` in adaptive / tune
+        plans).
 
         Args:
             plan_info: PlanInfo with parameter metadata.
@@ -67,6 +100,11 @@ class PlanToolsAgent(AgentPlugin):
 
         for p_info in plan_info.parameters:
             if p_info.name not in resolved:
+                continue
+
+            # Skip parameters annotated as plain str — they are field
+            # names, not device names (e.g. target_field for tune/adaptive).
+            if self._is_str_annotation(p_info.annotation):
                 continue
 
             val = resolved[p_info.name]
