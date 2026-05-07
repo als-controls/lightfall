@@ -279,55 +279,53 @@ class EngineToolsAgent(AgentPlugin):
             max_rows = args.get("max_rows", 50)
 
             def _get():
+                from lucid.services.tiled_service import TiledService
+                service = TiledService.get_instance()
+
+                if not service.is_connected or service._client is None:
+                    return mcp_result({
+                        "success": False,
+                        "error": "Tiled service not connected",
+                    }, is_error=True)
+
+                client = service._client
                 try:
-                    from lucid.services.tiled_service import TiledService
-                    service = TiledService.get_instance()
-
-                    if not service.is_connected or service._client is None:
-                        return mcp_result({
-                            "success": False,
-                            "error": "Tiled service not connected",
-                        }, is_error=True)
-
-                    client = service._client
                     run = client[uid]
-
-                    # Try to get primary data stream
-                    if "primary" in run:
-                        data_node = run["primary"]["data"]
-                        columns = list(data_node)
-                        # Read as dataframe for easy serialization
-                        df = data_node.read()
-                        shape = list(df.shape) if hasattr(df, "shape") else None
-
-                        # Convert first N rows to records
-                        if hasattr(df, "iloc"):
-                            subset = df.iloc[:max_rows]
-                            rows = subset.to_dict(orient="records")
-                        else:
-                            rows = []
-
-                        return mcp_result({
-                            "success": True,
-                            "uid": uid,
-                            "columns": columns,
-                            "shape": shape,
-                            "rows_returned": len(rows),
-                            "data": rows,
-                        })
-                    else:
-                        streams = list(run)
-                        return mcp_result({
-                            "success": False,
-                            "error": "No 'primary' stream found",
-                            "available_streams": streams,
-                            "uid": uid,
-                        })
                 except KeyError:
                     return mcp_result({
                         "success": False,
                         "error": f"Run '{uid}' not found",
                     }, is_error=True)
+
+                try:
+                    if "primary" not in run:
+                        return mcp_result({
+                            "success": False,
+                            "error": "No 'primary' stream found",
+                            "available_streams": list(run),
+                            "uid": uid,
+                        })
+
+                    # BlueskyRunV3: stream.read() returns a DataFrame directly.
+                    # The old V2 path (stream["data"]) raises KeyError on V3.
+                    df = run["primary"].read()
+                    columns = df.columns.tolist() if hasattr(df, "columns") else []
+                    shape = list(df.shape) if hasattr(df, "shape") else None
+
+                    if hasattr(df, "iloc"):
+                        subset = df.iloc[:max_rows]
+                        rows = subset.to_dict(orient="records")
+                    else:
+                        rows = []
+
+                    return mcp_result({
+                        "success": True,
+                        "uid": uid,
+                        "columns": columns,
+                        "shape": shape,
+                        "rows_returned": len(rows),
+                        "data": rows,
+                    })
                 except Exception as e:
                     return mcp_result({"success": False, "error": str(e)}, is_error=True)
 
