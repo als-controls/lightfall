@@ -401,9 +401,11 @@ def adaptive_scan(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Name of the signal field to watch (e.g. ``det2``).
-            Naked device names (``det2``) are auto-corrected to the
-            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+        target_field: Name of the data field to watch, as it appears in the
+            detector's ``describe()`` output (e.g. ``det2``).  When the
+            actual field carries a suffix (``_val``, ``_value``,
+            ``_intensity``), the resolver will auto-correct an
+            unadorned device name to the suffixed variant.
             Pass ``None`` to use the first hinted field of the detectors.
         motor: Motor to scan.
         start: Starting position.
@@ -447,9 +449,11 @@ def tune_centroid(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Signal field name to optimize (e.g. ``det2``).
-            Naked device names (``det2``) are auto-corrected to the
-            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+        target_field: Name of the data field to optimize, as it appears in
+            the detector's ``describe()`` output (e.g. ``det2``).  When
+            the actual field carries a suffix (``_val``, ``_value``,
+            ``_intensity``), the resolver will auto-correct an
+            unadorned device name to the suffixed variant.
             Pass ``None`` to use the first hinted field of the detectors.
         motor: Motor to tune.
         start: Initial start position.
@@ -492,9 +496,11 @@ def tune_centroid_2d(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Signal field name to optimize (e.g. ``det2``).
-            Naked device names (``det2``) are auto-corrected to the
-            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+        target_field: Name of the data field to optimize, as it appears in
+            the detector's ``describe()`` output (e.g. ``det2``).  When
+            the actual field carries a suffix (``_val``, ``_value``,
+            ``_intensity``), the resolver will auto-correct an
+            unadorned device name to the suffixed variant.
             Pass ``None`` to use the first hinted field of the detectors.
         motor1: First motor to tune.
         start1: Initial start for motor1.
