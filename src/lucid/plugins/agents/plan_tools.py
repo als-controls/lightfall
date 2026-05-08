@@ -73,6 +73,73 @@ class PlanToolsAgent(AgentPlugin):
             return len(non_none) == 1 and non_none[0] is str
         return False
 
+    @staticmethod
+    def _numeric_target_type(annotation: Any) -> type | None:
+        """Return ``float`` or ``int`` if the annotation declares one of those
+        as the underlying scalar type, else ``None``.
+
+        Unwraps ``Annotated[T, ...]``, ``Optional[T]`` / ``T | None``, and
+        ``Union[T, None]``. Stringified annotations (``"float"``,
+        ``"Optional[float]"``, ``"Annotated[int, ...]"``) are matched by
+        substring on the head token, since we don't have access to the
+        original namespace to actually evaluate them.
+
+        Used to coerce JSON ints to Python floats for plan parameters
+        annotated as ``float`` — without coercion, ``mv(motor, -5)``
+        leaves the motor's setpoint sim_state as a Python int, which
+        propagates through ``describe()`` as ``dtype="integer"`` for
+        ophyd-fakes devices and bakes the Tiled SQL column as int64.
+        First fractional position written to that column then raises
+        ``ArrowInvalid``.
+        """
+        # Stringified path: "float", "Annotated[float, ...]", "float | None", etc.
+        if isinstance(annotation, str):
+            head = annotation.strip()
+            # Strip Annotated[T, ...] -> T
+            if head.startswith("Annotated[") and "," in head:
+                head = head[len("Annotated["):].split(",", 1)[0].strip()
+            # Strip Optional[T] / Union[T, None] / T | None
+            if head.startswith("Optional["):
+                head = head[len("Optional["):-1].strip()
+            elif head.startswith("Union[") and "None" in head:
+                args = [a.strip() for a in head[len("Union["):-1].split(",")]
+                non_none = [a for a in args if a not in ("None", "type(None)")]
+                head = non_none[0] if len(non_none) == 1 else head
+            elif "| None" in head:
+                head = head.split("|", 1)[0].strip()
+            if head == "float":
+                return float
+            if head == "int":
+                return int
+            return None
+
+        # Real type objects.
+        # Annotated[T, ...] - the underlying type is in __origin__'s arg list,
+        # but typing.get_args() works for both real Annotated and Union too.
+        try:
+            from typing import Annotated, get_args, get_origin
+            origin = get_origin(annotation)
+            if origin is Annotated:
+                # First arg is the underlying type; rest are metadata.
+                args = get_args(annotation)
+                if args:
+                    return PlanToolsAgent._numeric_target_type(args[0])
+        except Exception:
+            origin = getattr(annotation, "__origin__", None)
+
+        # Optional[T] / Union[T, None]
+        if origin is Union:
+            args = getattr(annotation, "__args__", ())
+            non_none = [a for a in args if a is not type(None)]
+            if len(non_none) == 1:
+                return PlanToolsAgent._numeric_target_type(non_none[0])
+
+        if annotation is float:
+            return float
+        if annotation is int:
+            return int
+        return None
+
     def _resolve_plan_params(
         self, plan_info: Any, params: dict[str, Any]
     ) -> dict[str, Any]:
@@ -108,6 +175,24 @@ class PlanToolsAgent(AgentPlugin):
                 continue
 
             val = resolved[p_info.name]
+
+            # Coerce JSON ints to Python floats for parameters annotated as
+            # float. The MCP wire format encodes JSON numbers without a
+            # type tag, so ``{"start": -5}`` decodes as ``int``. Passing an
+            # int through ``mv(motor, -5)`` leaves the ophyd-fakes
+            # setpoint sim_state as a Python int, ``describe()`` reports
+            # ``dtype="integer"``, the Tiled SQL column is baked as
+            # int64, and the first fractional scan position raises
+            # ``ArrowInvalid: Float value … was truncated converting to
+            # int64`` mid-run.
+            if (
+                isinstance(val, (int, float))
+                and not isinstance(val, bool)
+                and self._numeric_target_type(p_info.annotation) is float
+                and not isinstance(val, float)
+            ):
+                resolved[p_info.name] = float(val)
+                continue
 
             # List of strings → resolve each as a device
             if isinstance(val, list) and all(isinstance(v, str) for v in val):
@@ -505,7 +590,7 @@ Example:
             try:
                 engine = get_engine()
                 plan_generator = plan_info.func(**resolved_params)
-                proc_id = engine.submit(plan_generator, name=plan_name)
+                proc_id = engine.submit(plan_generator, name=plan_name, skip_pre_submit=True)
                 return {
                     "content": [{
                         "type": "text",
@@ -659,7 +744,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
             try:
                 engine = get_engine()
                 plan_generator = plan_func()
-                proc_id = engine.submit(plan_generator, name=description)
+                proc_id = engine.submit(plan_generator, name=description, skip_pre_submit=True)
                 return {
                     "content": [{
                         "type": "text",

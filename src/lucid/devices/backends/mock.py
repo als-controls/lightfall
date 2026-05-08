@@ -89,28 +89,59 @@ class MockBackend(DeviceBackend):
         logger.info("Mock backend disconnected")
 
     def _create_simulated_devices(self) -> None:
-        """Create the simulated ophyd devices."""
+        """Create the simulated ophyd devices.
+
+        Note: we deliberately construct fresh ``SynAxis``/``SynGauss`` instances
+        with explicit ``value=0.0`` rather than importing the module-level
+        singletons (``ophyd.sim.motor``, ``ophyd.sim.det2``, ...). The
+        singletons are created with ``SynAxis()``'s default ``value=0`` (a
+        Python int), which causes ``setpoint.describe()`` to report
+        ``dtype="integer"`` / ``dtype_numpy="<i8"`` at run-start — before any
+        ``mv()`` call has had a chance to coerce the sim_state to float.
+        TiledWriter then bakes the SQL appendable-table column as int64, and
+        the first fractional motor position written into it (e.g. from
+        ``tune_centroid``) raises ``ArrowInvalid: Float value … was truncated
+        converting to int64`` and aborts the run.
+
+        The fix is to declare the float type at construction. Real EPICS
+        signals don't have this problem because the IOC declares the dtype.
+        """
         try:
             from ophyd.sim import (
-                SynAxis,  # noqa: F401
-                SynGauss,  # noqa: F401
-                SynSignal,  # noqa: F401
-                det,
-                det1,
-                det2,
-                motor,
-                motor1,
-                motor2,
-                motor3,
-                noisy_det,
+                SynAxis,
+                SynGauss,
+                SynSignal,  # noqa: F401  (used elsewhere in this method)
             )
         except ImportError:
             logger.warning("ophyd.sim not available, creating minimal mock devices")
             self._create_minimal_mock_devices()
             return
 
-        # Use the pre-made simulated devices from ophyd.sim
-        # These are commonly used in Bluesky tutorials and testing
+        # Build motors with explicit float starting positions so describe()
+        # reports the correct dtype before any move occurs.
+        motor = SynAxis(name="motor", value=0.0, labels={"motors"})
+        motor1 = SynAxis(name="motor1", value=0.0, labels={"motors"})
+        motor2 = SynAxis(name="motor2", value=0.0, labels={"motors"})
+        motor3 = SynAxis(name="motor3", value=0.0, labels={"motors"})
+
+        # Recreate the SynGauss detectors against our local motors. Mirror the
+        # parameters used by ``ophyd.sim.hw()`` so existing tutorials/tests
+        # behave identically.
+        det = SynGauss(
+            "det", motor, "motor", center=0, Imax=1, sigma=1, labels={"detectors"},
+        )
+        det1 = SynGauss(
+            "det1", motor1, "motor1", center=0, Imax=5, sigma=0.5, labels={"detectors"},
+        )
+        det2 = SynGauss(
+            "det2", motor2, "motor2", center=1, Imax=2, sigma=2, labels={"detectors"},
+        )
+        noisy_det = SynGauss(
+            "noisy_det", motor, "motor",
+            center=0, Imax=1, sigma=1,
+            noise="uniform", noise_multiplier=0.1,
+            labels={"detectors"},
+        )
 
         # === Motors ===
 

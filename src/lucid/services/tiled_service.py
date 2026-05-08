@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from bluesky_tiled_plugins import TiledWriter
+from lucid.services.tiled_writer_patch import TiledWriter
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.utils.logging import logger
