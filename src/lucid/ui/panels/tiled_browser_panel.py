@@ -566,6 +566,13 @@ class TiledBrowserPanel(BasePanel):
             except Exception as e:
                 logger.debug("Failed to apply exit_status filter: {}", e)
 
+        # Sort by start time descending so the first PAGE_SIZE slice
+        # returns the most recent runs, not the oldest.
+        try:
+            result = result.sort(("start.time", -1))
+        except Exception as e:
+            logger.debug("Failed to apply server-side sort: {}", e)
+
         return result
 
     def _entry_to_record(self, key: str, entry: Any) -> TiledRecord:
