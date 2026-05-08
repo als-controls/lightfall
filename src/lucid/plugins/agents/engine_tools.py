@@ -225,8 +225,10 @@ class EngineToolsAgent(AgentPlugin):
 
                     client = service._client
                     runs = []
-                    # Tiled client is a catalog; iterate in reverse for most recent
-                    keys = list(client)
+                    # Tiled client is a catalog; iterate in reverse for most recent.
+                    # NOTE: list(client) only returns the first page (default 100).
+                    # Use client.items() to get ALL entries.
+                    keys = [k for k, _ in client.items()]
                     for uid in reversed(keys[-limit:]):
                         try:
                             run = client[uid]
@@ -306,24 +308,38 @@ class EngineToolsAgent(AgentPlugin):
                             "uid": uid,
                         })
 
-                    # BlueskyEventStreamV3.read() returns an xarray.Dataset
-                    # (via CompositeClient.read). Flatten to a DataFrame so the
-                    # dim coords (time, seq_num) and each data_var become
-                    # explicit columns for JSON-friendly serialization.
-                    result = run["primary"].read()
-                    if hasattr(result, "to_dataframe"):
-                        df = result.to_dataframe().reset_index()
-                    else:
-                        df = result  # already DataFrame-like
+                    from lucid.utils.tiled_helpers import read_events
+                    stream = run["primary"]
+                    events = read_events(stream)
 
-                    columns = df.columns.tolist() if hasattr(df, "columns") else []
-                    shape = list(df.shape) if hasattr(df, "shape") else None
+                    if events is None:
+                        return mcp_result({
+                            "success": False,
+                            "error": "No readable data in primary stream",
+                            "stream_keys": list(stream.keys()),
+                            "uid": uid,
+                        })
 
-                    if hasattr(df, "iloc"):
-                        subset = df.iloc[:max_rows]
-                        rows = subset.to_dict(orient="records")
-                    else:
-                        rows = []
+                    # events is an xarray Dataset (or similar mapping).
+                    # Use dict-style access — .keys() and dataset[col].
+                    import numpy as np
+                    all_cols = list(events.keys())
+                    # Filter out timestamp columns (ts_*) for cleaner output
+                    columns = [c for c in all_cols if not c.startswith("ts_")]
+                    n_rows = len(np.asarray(events[columns[0]])) if columns else 0
+                    shape = [n_rows, len(columns)]
+
+                    # Build row dicts from the column arrays
+                    rows = []
+                    limit = min(n_rows, max_rows)
+                    col_arrays = {c: np.asarray(events[c])[:limit] for c in columns}
+                    for i in range(limit):
+                        row = {}
+                        for c in columns:
+                            val = col_arrays[c][i]
+                            # Convert numpy types to Python natives for JSON
+                            row[c] = val.item() if hasattr(val, "item") else val
+                        rows.append(row)
 
                     return mcp_result({
                         "success": True,
@@ -358,7 +374,9 @@ class EngineToolsAgent(AgentPlugin):
                         }, is_error=True)
 
                     client = service._client
-                    keys = list(client)
+                    # NOTE: list(client) only returns the first page (default 100).
+                    # Use client.items() to get ALL entries.
+                    keys = [k for k, _ in client.items()]
                     if not keys:
                         return mcp_result({
                             "success": False,

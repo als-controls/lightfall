@@ -173,7 +173,7 @@ class LogBuffer:
         if since is not None:
             cutoffs.append(since if since.tzinfo else since.replace(tzinfo=UTC))
         if since_seconds is not None:
-            cutoffs.append(datetime.now(UTC) - timedelta(seconds=since_seconds))
+            cutoffs.append(datetime.now(UTC) - timedelta(seconds=float(since_seconds)))
         cutoff = max(cutoffs) if cutoffs else None
 
         contains_lc = contains.lower() if contains else None

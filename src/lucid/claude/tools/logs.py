@@ -102,7 +102,7 @@ def create_logs_tool():
     async def get_recent_logs(args: dict) -> dict[str, Any]:
         try:
             level = args.get("level", "WARNING")
-            since_seconds = args.get("since_seconds", 120)
+            since_seconds = float(args.get("since_seconds", 120))
             max_count = int(args.get("max_count", _DEFAULT_MAX_COUNT))
             max_count = max(1, min(max_count, _HARD_MAX_COUNT))
             contains = args.get("contains") or None
