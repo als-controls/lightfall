@@ -100,6 +100,7 @@ You also have general Qt inspection and interaction tools as a fallback:
 - find_widget: Locate widgets by object name
 - click_widget: Click buttons and interactive widgets
 - type_text: Enter text into input fields
+- get_recent_logs: Read recent log records from the running LUCID process. Use this when something unexpected happened outside your own tool calls (e.g., a panel didn't update as expected, a plan failed, a device went offline). Defaults to WARNING+ in the last two minutes; widen the filter (e.g., level="DEBUG", since_seconds=600) only when narrower scopes don't surface the issue.
 
 ## Tool Selection Guidelines
 
@@ -245,6 +246,7 @@ class QtClaudeAgent(QObject):
             "mcp__qt__click_widget",
             "mcp__qt__type_text",
             "mcp__qt__show_controller",
+            "mcp__qt__get_recent_logs",
         ]
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}

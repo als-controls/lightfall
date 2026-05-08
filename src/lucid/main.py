@@ -12,6 +12,15 @@ if sys.platform == "win32":
     import ctypes
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("gov.lbl.als.lucid")
 
+# Install crash diagnostics before QApplication is constructed so
+# faulthandler is enabled and Qt environment knobs (QT_LOGGING_RULES) are
+# in place when Qt's logging system is first read. PySide6 is transitively
+# imported by lucid.utils, but importing the package does not construct a
+# QCoreApplication — env vars are still in time.
+from lucid.utils import crash_diagnostics  # noqa: E402
+
+crash_diagnostics.install()
+
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -799,6 +808,11 @@ def main() -> int:
     # Initialize with default settings
     app.initialize(log_level="DEBUG")
 
+    # Bridge Qt's internal warnings (thread-affinity violations, queued
+    # connection failures, paint-event errors) into loguru. Must run after
+    # PySide6.QtCore is importable, which app.initialize() guarantees.
+    crash_diagnostics.install_qt_bridge()
+
     # Get config manager
     config: ConfigManager = app.services.get(ConfigManager)
 
@@ -815,6 +829,12 @@ def main() -> int:
     from lucid.utils.error_collector import ErrorCollector
 
     ErrorCollector.get_instance().install()
+
+    # Install full-tail log buffer so the embedded agent can look back
+    # at recent activity when something unexpected happens.
+    from lucid.utils.log_buffer import LogBuffer
+
+    LogBuffer.get_instance().install()
 
     # Setup authentication
     _setup_auth(config)

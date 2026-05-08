@@ -3,6 +3,7 @@
 from .controller import create_controller_tool
 from .interaction import create_interaction_tools
 from .introspection import create_introspection_tools
+from .logs import create_logs_tool
 from .screenshot import create_screenshot_tool
 
 
@@ -23,6 +24,7 @@ def create_qt_tools_server(target_window):
     get_tree_tool, find_widget_tool = create_introspection_tools(target_window)
     click_tool, type_tool = create_interaction_tools(target_window)
     controller_tool = create_controller_tool(target_window)
+    logs_tool = create_logs_tool()
 
     # Create and return the server
     return create_sdk_mcp_server(
@@ -35,6 +37,7 @@ def create_qt_tools_server(target_window):
             click_tool,
             type_tool,
             controller_tool,
+            logs_tool,
         ]
     )
 
