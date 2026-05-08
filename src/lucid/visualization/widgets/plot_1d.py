@@ -192,21 +192,9 @@ class Plot1DVisualization(BaseVisualization):
         return motors
 
     def _read_events_table(self):
-        """Read the internal/events table from the current stream."""
-        if not self._stream:
-            return None
-        try:
-            stream_keys = list(self._stream.keys())
-        except Exception:
-            return None
-        if "internal" in stream_keys:
-            try:
-                internal = self._stream["internal"]
-                if "events" in internal:
-                    return internal["events"].read()
-            except Exception as e:
-                logger.debug("Plot1D: could not read events table: {}", e)
-        return None
+        """Read the data table from the current stream (V3 or V2)."""
+        from lucid.utils.tiled_helpers import read_events
+        return read_events(self._stream)
 
     def _on_x_changed(self, _: str) -> None:
         self._replot()

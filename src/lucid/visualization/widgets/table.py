@@ -187,20 +187,8 @@ class TableVisualization(BaseVisualization):
     # ------------------------------------------------------------------
 
     def _read_events_table(self):
-        if not self._stream:
-            return None
-        try:
-            stream_keys = list(self._stream.keys())
-        except Exception:
-            return None
-        if "internal" in stream_keys:
-            try:
-                internal = self._stream["internal"]
-                if "events" in internal:
-                    return internal["events"].read()
-            except Exception as e:
-                logger.debug("Table: could not read events table: {}", e)
-        return None
+        from lucid.utils.tiled_helpers import read_events
+        return read_events(self._stream)
 
     def _reload(self) -> None:
         events = self._read_events_table()
