@@ -216,7 +216,16 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         # 2. Cache shape (single HTTP call) to avoid repeated round-trips
         full_shape = image_client.shape  # e.g. (21, 1024, 1024)
         n_frames = full_shape[0]
-        self._frame_shape = tuple(full_shape[-2:])
+
+        # Prefer the frame shape from data_keys metadata — the stored
+        # array may be flattened (e.g. (N, H*W) instead of (N, H, W))
+        # when data is written internally vs. from external files.
+        dk = self._data_keys.get(field_name, {})
+        dk_shape = dk.get("shape", [])
+        if len(dk_shape) >= 2:
+            self._frame_shape = tuple(dk_shape[-2:])
+        else:
+            self._frame_shape = tuple(full_shape[-2:])
         t2 = _time.monotonic()
 
         # 3. Synthetic timestamps (reading events table is too expensive)

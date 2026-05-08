@@ -566,9 +566,25 @@ class LazyImageView(pg.ImageView):
     # ------------------------------------------------------------------
 
     def _fetch_frame(self, index: int) -> np.ndarray:
-        """Fetch a single frame via server-side slicing or custom fetcher."""
-        if self._fetch_func is not None:
-            return self._fetch_func(index).astype(np.float64)
-        from lucid.utils.tiled_helpers import fetch_frame
+        """Fetch a single frame via server-side slicing or custom fetcher.
 
-        return fetch_frame(self._client, index).astype(np.float64)
+        If the stored array is flattened (e.g. shape ``(N, H*W)`` instead
+        of ``(N, H, W)``), the returned 1-D slice is reshaped to the
+        expected ``_frame_shape`` so downstream code always gets a 2-D
+        array.
+        """
+        if self._fetch_func is not None:
+            frame = self._fetch_func(index).astype(np.float64)
+        else:
+            from lucid.utils.tiled_helpers import fetch_frame
+            frame = fetch_frame(self._client, index).astype(np.float64)
+
+        # Reshape flattened frames using the known frame shape from metadata
+        if (
+            frame.ndim == 1
+            and len(self._frame_shape) == 2
+            and frame.size == self._frame_shape[0] * self._frame_shape[1]
+        ):
+            frame = frame.reshape(self._frame_shape)
+
+        return frame
