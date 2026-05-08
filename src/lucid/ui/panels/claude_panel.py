@@ -727,7 +727,6 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 
     def _icon_set_thinking(self, _thinking: str = "") -> None:
         """Set sidebar icon to thinking state with animation."""
-        logger.debug("Icon state -> thinking")
         self._stop_permission_animation()
         if self._thinking_timer is not None:
             return  # Already animating
