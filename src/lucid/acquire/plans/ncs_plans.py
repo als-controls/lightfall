@@ -30,11 +30,9 @@ def _resolve_target_field(
 ) -> str:
     """Resolve a user-supplied target_field to a real detector field name.
 
-    The field name in ``describe()`` depends on the device class —
-    SynGauss exposes the readout as ``det2``, area detectors as
-    ``det2_image``, etc. This helper validates the user's choice against
-    each detector's ``describe()`` output and applies a few sensible
-    corrections before failing.
+    Field names in ``describe()`` vary by device class. This helper
+    validates the user's choice against each detector's ``describe()``
+    output and applies a few sensible corrections before failing.
 
     Resolution order:
 
@@ -401,12 +399,8 @@ def adaptive_scan(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Name of the data field to watch, as it appears in the
-            detector's ``describe()`` output (e.g. ``det2``).  When the
-            actual field carries a suffix (``_val``, ``_value``,
-            ``_intensity``), the resolver will auto-correct an
-            unadorned device name to the suffixed variant.
-            Pass ``None`` to use the first hinted field of the detectors.
+        target_field: Field name from the detector's ``describe()`` output,
+            or ``None`` to auto-detect from hinted fields.
         motor: Motor to scan.
         start: Starting position.
         stop: Ending position.
@@ -449,12 +443,8 @@ def tune_centroid(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Name of the data field to optimize, as it appears in
-            the detector's ``describe()`` output (e.g. ``det2``).  When
-            the actual field carries a suffix (``_val``, ``_value``,
-            ``_intensity``), the resolver will auto-correct an
-            unadorned device name to the suffixed variant.
-            Pass ``None`` to use the first hinted field of the detectors.
+        target_field: Field name from the detector's ``describe()`` output,
+            or ``None`` to auto-detect from hinted fields.
         motor: Motor to tune.
         start: Initial start position.
         stop: Initial stop position.
@@ -496,12 +486,8 @@ def tune_centroid_2d(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Name of the data field to optimize, as it appears in
-            the detector's ``describe()`` output (e.g. ``det2``).  When
-            the actual field carries a suffix (``_val``, ``_value``,
-            ``_intensity``), the resolver will auto-correct an
-            unadorned device name to the suffixed variant.
-            Pass ``None`` to use the first hinted field of the detectors.
+        target_field: Field name from the detector's ``describe()`` output,
+            or ``None`` to auto-detect from hinted fields.
         motor1: First motor to tune.
         start1: Initial start for motor1.
         stop1: Initial stop for motor1.
