@@ -675,3 +675,47 @@ class TestPreSubmitIntegration:
 
             result = _sample_metadata_pre_submit("scan", {})
             assert result is None
+
+    def test_sample_metadata_callable_marshals_from_worker_thread(
+        self, qapp, qtbot
+    ) -> None:
+        """Worker-thread callers must be marshalled to the GUI thread.
+
+        Regression test: invoking ``QDialog.exec()`` on a non-GUI thread
+        (e.g. via the Claude SDK MCP worker) corrupts Qt state and
+        crashes the process. The pre-submit hook must detect a
+        worker-thread caller and run the dialog on the GUI thread.
+        """
+        import threading
+        from unittest.mock import patch
+
+        from lucid.ui.panels import bluesky_panel
+        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lucid.utils.threads import initialize_main_thread_invoker
+
+        # The invoker singleton must be constructed on the GUI thread for
+        # cross-thread events to dispatch correctly. Production does this
+        # via plugins/loader; tests must do it explicitly.
+        initialize_main_thread_invoker()
+
+        main_thread = threading.current_thread()
+        seen: dict[str, threading.Thread] = {}
+        holder: dict[str, Any] = {}
+
+        def fake_show() -> dict:
+            seen["thread"] = threading.current_thread()
+            return {"sample_name": "from_worker"}
+
+        def worker() -> None:
+            with patch.object(
+                bluesky_panel, "_show_sample_metadata_dialog", side_effect=fake_show
+            ):
+                holder["value"] = _sample_metadata_pre_submit("scan", {})
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        qtbot.waitUntil(lambda: not t.is_alive(), timeout=5000)
+        t.join()
+
+        assert holder["value"] == {"sample_name": "from_worker"}
+        assert seen["thread"] is main_thread

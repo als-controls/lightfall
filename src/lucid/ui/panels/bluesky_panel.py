@@ -8,6 +8,7 @@ Provides an interface for:
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
@@ -25,6 +26,8 @@ from lucid.acquire.plan_ui import PlanUI, get_plan_ui_class
 from lucid.ui.panels.base import BasePanel, PanelMetadata
 from lucid.ui.widgets.plan_config import PlanConfigWidget
 from lucid.ui.widgets.plan_selector import PlanSelectorWidget
+from lucid.utils.crash_diagnostics import gui_thread_only
+from lucid.utils.threads import invoke_in_main_thread, is_main_thread
 
 if TYPE_CHECKING:
     from lucid.acquire.engine import Engine
@@ -35,8 +38,29 @@ from lucid.acquire.plans import PlanRegistry, get_registry
 from lucid.devices import DeviceCatalog
 
 
+@gui_thread_only
+def _show_sample_metadata_dialog() -> dict[str, Any] | None:
+    """Show the SampleMetadataDialog and return collected metadata.
+
+    Must run on the GUI thread; ``_sample_metadata_pre_submit`` is the
+    public entry point that marshals worker-thread callers safely.
+    """
+    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+
+    dialog = SampleMetadataDialog()
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        return dialog.get_metadata()
+    return None
+
+
 def _sample_metadata_pre_submit(plan_name: str, kwargs: dict) -> dict | None:
     """Pre-submit callable that shows the SampleMetadataDialog.
+
+    Marshals to the GUI thread when invoked from a worker thread (e.g.
+    an MCP tool running in the Claude SDK worker), since QDialog.exec()
+    on a non-GUI thread corrupts Qt state and crashes the process.
+    Blocks indefinitely while the user interacts with the dialog —
+    user-modal waits cannot be bounded by a timeout.
 
     Args:
         plan_name: Name of the plan being submitted.
@@ -45,12 +69,25 @@ def _sample_metadata_pre_submit(plan_name: str, kwargs: dict) -> dict | None:
     Returns:
         Metadata dict to merge, or None if cancelled.
     """
-    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+    if is_main_thread():
+        return _show_sample_metadata_dialog()
 
-    dialog = SampleMetadataDialog()
-    if dialog.exec() == QDialog.DialogCode.Accepted:
-        return dialog.get_metadata()
-    return None
+    holder: dict[str, Any] = {}
+    done = threading.Event()
+
+    def _run() -> None:
+        try:
+            holder["value"] = _show_sample_metadata_dialog()
+        except Exception as exc:  # noqa: BLE001 – propagate to caller
+            holder["error"] = exc
+        finally:
+            done.set()
+
+    invoke_in_main_thread(_run, force_event=True)
+    done.wait()
+    if "error" in holder:
+        raise holder["error"]
+    return holder.get("value")
 
 
 class BlueskyPanel(BasePanel):
