@@ -11,6 +11,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
+from lucid.utils.crash_diagnostics import gui_thread_only
+
 
 class PV(QObject):
     """
@@ -130,6 +132,7 @@ class PV(QObject):
             self._connection_ready.emit(False)
 
     @Slot(bool)
+    @gui_thread_only
     def _handle_connection_ready(self, connected: bool) -> None:
         """
         Handle connection completion in the main Qt thread.
@@ -199,6 +202,7 @@ class PV(QObject):
         self._value_received.emit(value)
 
     @Slot(object)
+    @gui_thread_only
     def _handle_value_received(self, value: Any) -> None:
         """
         Handle value update in the main Qt thread.
