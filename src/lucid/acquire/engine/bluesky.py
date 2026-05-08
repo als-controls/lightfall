@@ -182,8 +182,19 @@ class BlueskyEngine(BaseEngine):
             self._current_procedure = item
             self.sigQueueChanged.emit()
 
-            self._execute_plan(item)
-            self._queue.task_done()
+            try:
+                self._execute_plan(item)
+            except Exception as ex:
+                logger.error(
+                    "[bluesky] Unhandled exception in queue processor "
+                    "for plan '{}': {}",
+                    item.name, ex,
+                )
+                logger.exception(ex)
+                self._clear_current_procedure()
+                self.sigException.emit(ex)
+            finally:
+                self._queue.task_done()
 
         logger.info("[bluesky] RunEngine processor shutting down")
 

@@ -23,6 +23,102 @@ Motor = Any
 Detector = Any
 
 
+def _resolve_target_field(
+    detectors: list[Any],
+    target_field: str | None,
+    plan_name: str = "plan",
+) -> str:
+    """Resolve a user-supplied target_field to a real detector field name.
+
+    The field name in ``describe()`` depends on the device class —
+    SynGauss exposes the readout as ``det2``, area detectors as
+    ``det2_image``, etc. This helper validates the user's choice against
+    each detector's ``describe()`` output and applies a few sensible
+    corrections before failing.
+
+    Resolution order:
+
+    1. ``target_field is None`` → first hinted field, else first
+       described field.
+    2. Exact match in the union of ``describe()`` keys.
+    3. Common suffix corrections: ``{target_field}_val``,
+       ``{target_field}_value``, ``{target_field}_intensity``.
+    4. Unique prefix match (``det2`` → ``det2_centroid_x``).
+    5. Otherwise ``ValueError`` listing available fields and the
+       closest guess.
+
+    A WARNING is logged whenever resolution succeeds via 3 or 4 so the
+    user notices the auto-correction.
+    """
+    available: dict[str, Any] = {}
+    hinted: list[str] = []
+    for det in detectors:
+        try:
+            available.update(det.describe())
+        except Exception:
+            pass
+        try:
+            hints = getattr(det, "hints", None)
+            fields = hints.get("fields") if isinstance(hints, dict) else None
+            if fields:
+                hinted.extend(fields)
+        except Exception:
+            pass
+
+    if not available:
+        # describe() unavailable (mock backends, deferred wiring) — trust
+        # the user's literal string if provided, else surface a clear
+        # error rather than silently failing inside bp.tune_centroid.
+        if target_field:
+            return target_field
+        raise ValueError(
+            f"{plan_name}: detectors expose no describable fields and no "
+            "target_field was provided"
+        )
+
+    available_names = list(available.keys())
+
+    if not target_field:
+        for h in hinted:
+            if h in available:
+                return h
+        if available_names:
+            return available_names[0]
+        raise ValueError(f"{plan_name}: no readable fields on detectors")
+
+    if target_field in available:
+        return target_field
+
+    from lucid.utils.logging import logger
+
+    for suffix in ("_val", "_value", "_intensity"):
+        candidate = f"{target_field}{suffix}"
+        if candidate in available:
+            logger.warning(
+                "{}: target_field '{}' not found; using '{}' (auto-corrected)",
+                plan_name, target_field, candidate,
+            )
+            return candidate
+
+    prefix_matches = [n for n in available_names if n.startswith(f"{target_field}_")]
+    if len(prefix_matches) == 1:
+        logger.warning(
+            "{}: target_field '{}' not found; using '{}' (unique prefix match)",
+            plan_name, target_field, prefix_matches[0],
+        )
+        return prefix_matches[0]
+
+    closest = prefix_matches[0] if prefix_matches else (
+        hinted[0] if hinted and hinted[0] in available else available_names[0]
+    )
+    raise ValueError(
+        f"{plan_name}: target_field '{target_field}' not in detector describe(). "
+        f"Available fields: {available_names}. "
+        f"Hinted fields: {hinted or '(none)'}. "
+        f"Did you mean '{closest}'?"
+    )
+
+
 # =============================================================================
 # Camera Acquisition Plans
 # =============================================================================
@@ -287,7 +383,7 @@ def rel_list_scan_1d(
 
 def adaptive_scan(
     detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
-    target_field: str,
+    target_field: str | None,
     motor: Annotated[Motor, DeviceFilter(category="motor")],
     start: float,
     stop: float,
@@ -305,7 +401,10 @@ def adaptive_scan(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Name of the signal field to watch (e.g. 'det_intensity').
+        target_field: Name of the signal field to watch (e.g. ``det2``).
+            Naked device names (``det2``) are auto-corrected to the
+            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+            Pass ``None`` to use the first hinted field of the detectors.
         motor: Motor to scan.
         start: Starting position.
         stop: Ending position.
@@ -318,6 +417,7 @@ def adaptive_scan(
     Yields:
         Bluesky plan messages.
     """
+    target_field = _resolve_target_field(detectors, target_field, plan_name="adaptive_scan")
     yield from bp.adaptive_scan(
         detectors, target_field, motor, start, stop,
         min_step, max_step, target_delta, backstep,
@@ -331,7 +431,7 @@ def adaptive_scan(
 
 def tune_centroid(
     detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
-    target_field: str,
+    target_field: str | None,
     motor: Annotated[Motor, DeviceFilter(category="motor")],
     start: float,
     stop: float,
@@ -347,7 +447,10 @@ def tune_centroid(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Signal field name to optimize (e.g. 'det_intensity').
+        target_field: Signal field name to optimize (e.g. ``det2``).
+            Naked device names (``det2``) are auto-corrected to the
+            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+            Pass ``None`` to use the first hinted field of the detectors.
         motor: Motor to tune.
         start: Initial start position.
         stop: Initial stop position.
@@ -359,6 +462,7 @@ def tune_centroid(
     Yields:
         Bluesky plan messages.
     """
+    target_field = _resolve_target_field(detectors, target_field, plan_name="tune_centroid")
     yield from bp.tune_centroid(
         detectors, target_field, motor, start, stop,
         min_step, num=num, step_factor=step_factor, snake=snake,
@@ -367,7 +471,7 @@ def tune_centroid(
 
 def tune_centroid_2d(
     detectors: Annotated[list[Detector], DeviceFilter(category="detector")],
-    target_field: str,
+    target_field: str | None,
     motor1: Annotated[Motor, DeviceFilter(category="motor")],
     start1: float,
     stop1: float,
@@ -388,7 +492,10 @@ def tune_centroid_2d(
 
     Args:
         detectors: Detectors to read (must produce target_field).
-        target_field: Signal field name to optimize.
+        target_field: Signal field name to optimize (e.g. ``det2``).
+            Naked device names (``det2``) are auto-corrected to the
+            ``_val``/``_value``/``_intensity`` suffix when unambiguous.
+            Pass ``None`` to use the first hinted field of the detectors.
         motor1: First motor to tune.
         start1: Initial start for motor1.
         stop1: Initial stop for motor1.
@@ -405,6 +512,7 @@ def tune_centroid_2d(
     Yields:
         Bluesky plan messages.
     """
+    target_field = _resolve_target_field(detectors, target_field, plan_name="tune_centroid_2d")
     for _ in range(max_iterations):
         # Tune motor1
         yield from bp.tune_centroid(
