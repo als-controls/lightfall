@@ -112,6 +112,7 @@ class IPCService(QObject):
 
         self._connected_lock = threading.Lock()
         self._connected: bool = False
+        self._connectivity_error_logged: bool = False
         self._nc: nats.NATS | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -625,7 +626,33 @@ class IPCService(QObject):
     # ------------------------------------------------------------------
 
     async def _error_cb(self, exc: Exception) -> None:
-        logger.error("IPCService: NATS error: {}", exc)
+        # str(exc) is often empty for nats errors (StaleConnection, SlowConsumer, ...)
+        msg = str(exc) or type(exc).__name__
+        # Connectivity errors fire on every reconnect attempt while the broker
+        # is unreachable. Log the first one, then stay silent until we
+        # reconnect (cleared in _reconnected_cb).
+        if isinstance(
+            exc,
+            (
+                nats.errors.NoServersError,
+                nats.errors.ConnectionClosedError,
+                nats.errors.StaleConnectionError,
+                TimeoutError,
+            ),
+        ):
+            if self._connectivity_error_logged:
+                return
+            self._connectivity_error_logged = True
+            logger.warning(
+                "IPCService: NATS {} (further reconnect errors suppressed until reconnect)",
+                msg,
+            )
+        elif isinstance(exc, nats.errors.SlowConsumerError):
+            logger.warning("IPCService: NATS {}", msg)
+        else:
+            logger.error(
+                "IPCService: NATS error: {} ({})", msg, type(exc).__name__
+            )
 
     async def _disconnected_cb(self) -> None:
         logger.warning("IPCService: disconnected from NATS")
@@ -637,6 +664,7 @@ class IPCService(QObject):
         logger.info("IPCService: reconnected to NATS")
         with self._connected_lock:
             self._connected = True
+        self._connectivity_error_logged = False
         invoke_in_main_thread(self.sigConnectionChanged.emit, True)
 
 
