@@ -16,10 +16,12 @@ def reset_singletons():
     GitTracker.reset_instance()
     yield
     UserPlanService.reset_instance()
+    GitTracker.reset_instance()
 
 
 @pytest.fixture
 def tracked_plan_dir(tmp_path, monkeypatch):
+    GitTracker.reset_instance()
     repo_root = tmp_path / "lucid"
     repo_root.mkdir()
     plans_dir = repo_root / "plans"
@@ -27,7 +29,8 @@ def tracked_plan_dir(tmp_path, monkeypatch):
 
     tracker = GitTracker(repo_root=repo_root)
     monkeypatch.setattr(GitTracker, "_instance", tracker)
-    return plans_dir
+    yield plans_dir
+    # monkeypatch handles cleanup
 
 
 def _write_user_plan(dir_: Path, name: str) -> Path:
@@ -86,3 +89,16 @@ def test_external_plan_delete_commits_removal(tracked_plan_dir, monkeypatch):
     assert subjects[0].startswith("external delete:")
     assert "doomed.py" in subjects[0]
     assert len(subjects) == 2  # initial load + deletion
+
+
+def test_load_plan_with_syntax_error_still_commits(tracked_plan_dir, monkeypatch):
+    """Failed loads stay in history (forensic evidence)."""
+    service = UserPlanService.get_instance()
+    monkeypatch.setattr(service, "_plans_dir", tracked_plan_dir)
+
+    bad = tracked_plan_dir / "broken.py"
+    bad.write_text("def : syntax error", encoding="utf-8")
+
+    service.load_plan_from_file(bad, commit_msg="agent: try broken")
+
+    assert _git_log_subjects(tracked_plan_dir.parent) == ["agent: try broken"]
