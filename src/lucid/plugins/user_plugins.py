@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
+from lucid.utils.git_tracker import GitTracker
+
 if TYPE_CHECKING:
     pass
 
@@ -212,9 +214,16 @@ class UserPluginService(QObject):
         """
         if not path.exists():
             return  # delete path: handled elsewhere
-        from lucid.utils.git_tracker import GitTracker
-        msg = commit_msg or f"agent-edit: updated {path.name}"
+        msg = commit_msg or f"auto: updated {path.name}"
         GitTracker.get_instance().commit([path], msg)
+
+    def _commit_removal(self, path: Path, commit_msg: str) -> None:
+        """Commit a removal of ``path`` via the GitTracker singleton.
+
+        Mirrors :meth:`_commit_change` for the deletion path. The tracker
+        swallows all errors, so this never raises.
+        """
+        GitTracker.get_instance().commit_removal([path], commit_msg)
 
     def load_plugin_from_file(
         self, path: Path, commit_msg: str | None = None,
@@ -224,7 +233,7 @@ class UserPluginService(QObject):
         Args:
             path: Path to the Python file.
             commit_msg: Optional subject for the auto-commit. Defaults to
-                ``"agent-edit: updated <name>"`` when omitted. Commits happen
+                ``"auto: updated <name>"`` when omitted. Commits happen
                 on every terminal branch (success, syntax error, exec error,
                 outer except) -- even failed loads land in history as
                 forensic evidence.
@@ -581,10 +590,8 @@ class UserPluginService(QObject):
             # File was deleted
             if str(file_path) in self._loaded_plugins:
                 self.unload_plugin(file_path)
-                from lucid.utils.git_tracker import GitTracker
-                GitTracker.get_instance().commit_removal(
-                    [file_path],
-                    f"external delete: {file_path.name}",
+                self._commit_removal(
+                    file_path, f"external delete: {file_path.name}"
                 )
                 self.plugins_refreshed.emit()
         else:
@@ -625,12 +632,10 @@ class UserPluginService(QObject):
             )
 
         # Unload deleted files
-        from lucid.utils.git_tracker import GitTracker
-        tracker = GitTracker.get_instance()
         for file_path in loaded_paths - current_files:
             self.unload_plugin(file_path)
-            tracker.commit_removal(
-                [file_path], f"external delete: {file_path.name}"
+            self._commit_removal(
+                file_path, f"external delete: {file_path.name}"
             )
 
         self.plugins_refreshed.emit()

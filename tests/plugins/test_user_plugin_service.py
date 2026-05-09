@@ -179,12 +179,13 @@ def tracked_user_dir(tmp_path, monkeypatch):
         lambda: [plugins_dir.resolve()],
     )
 
-    # Force GitTracker singleton to use our tmp_path repo
+    # Force GitTracker singleton to use our tmp_path repo.
+    # monkeypatch.setattr restores GitTracker._instance on teardown, so no
+    # explicit post-yield reset_instance() is needed.
     tracker = GitTracker(repo_root=repo_root)
     monkeypatch.setattr(GitTracker, "_instance", tracker)
 
     yield plugins_dir
-    GitTracker.reset_instance()
 
 
 def _git_log_subjects(repo_root):
@@ -246,6 +247,7 @@ def test_external_file_change_commits_with_default_message(
     subjects = _git_log_subjects(repo_root)
     assert subjects[0].startswith("external edit:")
     assert "user_delta.py" in subjects[0]
+    assert len(subjects) == 2  # initial load + external edit
 
 
 def test_file_deletion_commits_removal(tracked_user_dir, monkeypatch):
@@ -263,3 +265,4 @@ def test_file_deletion_commits_removal(tracked_user_dir, monkeypatch):
     subjects = _git_log_subjects(repo_root)
     assert subjects[0].startswith("external delete:")
     assert "user_epsilon.py" in subjects[0]
+    assert len(subjects) == 2  # initial load + deletion
