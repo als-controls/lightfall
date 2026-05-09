@@ -1,6 +1,7 @@
 """Tests for UserPluginService with __init_subclass__-driven tracking."""
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from lucid.plugins.user_plugins import UserPluginService
 from lucid.ui.panels.claude.agent_registry import AgentRegistry
 from lucid.ui.panels.registry import PanelRegistry
+from lucid.utils.git_tracker import GitTracker
 
 
 @pytest.fixture(autouse=True)
@@ -161,3 +163,103 @@ def test_reload_replaces_old_registration(fake_user_dir, monkeypatch):
     assert second is not None
     assert second is not first
     assert "v2" in second.description
+
+
+@pytest.fixture
+def tracked_user_dir(tmp_path, monkeypatch):
+    """tmp_path acts as ~/lucid/, with a plugins subdir tracked by GitTracker."""
+    GitTracker.reset_instance()
+    repo_root = tmp_path / "lucid"
+    repo_root.mkdir()
+    plugins_dir = repo_root / "plugins"
+    plugins_dir.mkdir()
+
+    monkeypatch.setattr(
+        "lucid.plugins.types._user_plugin_roots",
+        lambda: [plugins_dir.resolve()],
+    )
+
+    # Force GitTracker singleton to use our tmp_path repo
+    tracker = GitTracker(repo_root=repo_root)
+    monkeypatch.setattr(GitTracker, "_instance", tracker)
+
+    yield plugins_dir
+    GitTracker.reset_instance()
+
+
+def _git_log_subjects(repo_root):
+    out = subprocess.run(
+        ["git", "log", "--format=%s"],
+        cwd=repo_root, capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return []
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def test_load_plugin_creates_commit(tracked_user_dir, monkeypatch):
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+
+    path = _write_user_agent(tracked_user_dir, "user_gamma")
+    assert service.load_plugin_from_file(path, commit_msg="agent: add user_gamma")
+
+    repo_root = tracked_user_dir.parent
+    subjects = _git_log_subjects(repo_root)
+    assert subjects == ["agent: add user_gamma"]
+
+
+def test_load_plugin_with_load_error_still_commits(tracked_user_dir, monkeypatch):
+    """Failed loads stay in history with an explicit subject prefix — forensics."""
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+
+    bad = tracked_user_dir / "broken.py"
+    bad.write_text("def : syntax error", encoding="utf-8")
+
+    service.load_plugin_from_file(bad, commit_msg="agent: try broken")
+
+    repo_root = tracked_user_dir.parent
+    subjects = _git_log_subjects(repo_root)
+    # Failed load still committed (subject untouched; the load_error is on PluginInfo)
+    assert subjects == ["agent: try broken"]
+
+
+def test_external_file_change_commits_with_default_message(
+    tracked_user_dir, monkeypatch, qtbot,
+):
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+    service.enable_hot_reload(True)
+
+    path = _write_user_agent(tracked_user_dir, "user_delta")
+    service.load_plugin_from_file(path, commit_msg="agent: add user_delta")
+
+    # Simulate an external edit
+    path.write_text(path.read_text(encoding="utf-8") + "\n# touched\n", encoding="utf-8")
+
+    with qtbot.waitSignal(service.plugins_refreshed, timeout=2000):
+        # Trigger the slot directly — Qt watchers can be flaky on Windows tmpdirs
+        service._on_file_changed(str(path))
+
+    repo_root = tracked_user_dir.parent
+    subjects = _git_log_subjects(repo_root)
+    assert subjects[0].startswith("external edit:")
+    assert "user_delta.py" in subjects[0]
+
+
+def test_file_deletion_commits_removal(tracked_user_dir, monkeypatch):
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+    service.enable_hot_reload(True)
+
+    path = _write_user_agent(tracked_user_dir, "user_epsilon")
+    service.load_plugin_from_file(path, commit_msg="agent: add user_epsilon")
+
+    path.unlink()
+    service._on_file_changed(str(path))
+
+    repo_root = tracked_user_dir.parent
+    subjects = _git_log_subjects(repo_root)
+    assert subjects[0].startswith("external delete:")
+    assert "user_epsilon.py" in subjects[0]

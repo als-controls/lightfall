@@ -198,11 +198,36 @@ class UserPluginService(QObject):
 
         return results
 
-    def load_plugin_from_file(self, path: Path) -> bool:
+    def _commit_change(self, path: Path, commit_msg: str | None) -> None:
+        """Commit a change to ``path`` via the GitTracker singleton.
+
+        Called on every terminal path of load_plugin_from_file where the file
+        has been written to disk (success, syntax error, exec error, outer
+        except). Failed loads still commit -- the file's presence is forensic
+        evidence even when the load itself didn't take.
+
+        No-op if the path doesn't exist (delete paths handle their own
+        commit_removal in the watcher slot). The tracker swallows all errors,
+        so this never raises.
+        """
+        if not path.exists():
+            return  # delete path: handled elsewhere
+        from lucid.utils.git_tracker import GitTracker
+        msg = commit_msg or f"agent-edit: updated {path.name}"
+        GitTracker.get_instance().commit([path], msg)
+
+    def load_plugin_from_file(
+        self, path: Path, commit_msg: str | None = None,
+    ) -> bool:
         """Load a single plugin from a file.
 
         Args:
             path: Path to the Python file.
+            commit_msg: Optional subject for the auto-commit. Defaults to
+                ``"agent-edit: updated <name>"`` when omitted. Commits happen
+                on every terminal branch (success, syntax error, exec error,
+                outer except) -- even failed loads land in history as
+                forensic evidence.
 
         Returns:
             True if successful.
@@ -211,7 +236,7 @@ class UserPluginService(QObject):
 
         # If already loaded, this is a reload
         if path_str in self._loaded_plugins:
-            return self.reload_plugin(path)
+            return self.reload_plugin(path, commit_msg=commit_msg)
 
         try:
             # Read the code
@@ -229,6 +254,7 @@ class UserPluginService(QObject):
                     load_error=error_msg,
                 )
                 self.plugin_error.emit(path_str, error_msg)
+                self._commit_change(path, commit_msg)
                 return False
 
             # Create namespace with standard imports available
@@ -270,6 +296,7 @@ class UserPluginService(QObject):
                     self.plugin_error.emit(path_str, error_msg)
                     # Clean up the stub module on failure
                     sys.modules.pop(module_name, None)
+                    self._commit_change(path, commit_msg)
                     return False
             finally:
                 self._current_load = None
@@ -293,6 +320,7 @@ class UserPluginService(QObject):
                 len(info.registrations),
             )
 
+            self._commit_change(path, commit_msg)
             return True
 
         except Exception as e:
@@ -304,6 +332,7 @@ class UserPluginService(QObject):
                 load_error=error_msg,
             )
             self.plugin_error.emit(path_str, error_msg)
+            self._commit_change(path, commit_msg)
             return False
 
     def unload_plugin(self, path: Path) -> bool:
@@ -341,11 +370,15 @@ class UserPluginService(QObject):
 
         return True
 
-    def reload_plugin(self, path: Path) -> bool:
+    def reload_plugin(
+        self, path: Path, commit_msg: str | None = None,
+    ) -> bool:
         """Reload a plugin (unload + load).
 
         Args:
             path: Path to the plugin file.
+            commit_msg: Forwarded to ``load_plugin_from_file`` for the
+                auto-commit subject.
 
         Returns:
             True if successful.
@@ -361,7 +394,7 @@ class UserPluginService(QObject):
         success = False
         if path.exists():
             # Need to re-add to watcher since we removed it
-            success = self.load_plugin_from_file(path)
+            success = self.load_plugin_from_file(path, commit_msg=commit_msg)
 
         # Show hot-reload warning on first reload
         if was_loaded and not self._has_shown_hot_reload_warning:
@@ -548,10 +581,18 @@ class UserPluginService(QObject):
             # File was deleted
             if str(file_path) in self._loaded_plugins:
                 self.unload_plugin(file_path)
+                from lucid.utils.git_tracker import GitTracker
+                GitTracker.get_instance().commit_removal(
+                    [file_path],
+                    f"external delete: {file_path.name}",
+                )
                 self.plugins_refreshed.emit()
         else:
-            # File was modified - reload it
-            self.reload_plugin(file_path)
+            # File was modified - reload it (commit happens in load_plugin_from_file)
+            self.reload_plugin(
+                file_path,
+                commit_msg=f"external edit: {file_path.name}",
+            )
             self.plugins_refreshed.emit()
 
         # Re-add the path to the watcher (Qt removes it after change)
@@ -579,11 +620,18 @@ class UserPluginService(QObject):
 
         # Load new files
         for file_path in current_files - loaded_paths:
-            self.load_plugin_from_file(file_path)
+            self.load_plugin_from_file(
+                file_path, commit_msg=f"external add: {file_path.name}"
+            )
 
         # Unload deleted files
+        from lucid.utils.git_tracker import GitTracker
+        tracker = GitTracker.get_instance()
         for file_path in loaded_paths - current_files:
             self.unload_plugin(file_path)
+            tracker.commit_removal(
+                [file_path], f"external delete: {file_path.name}"
+            )
 
         self.plugins_refreshed.emit()
 
