@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
+from lucid.utils.git_tracker import GitTracker
+
 if TYPE_CHECKING:
     from lucid.acquire.plans.registry import PlanInfo
 
@@ -193,11 +195,42 @@ class UserPlanService(QObject):
 
         return results
 
-    def load_plan_from_file(self, path: Path) -> PlanInfo | None:
+    def _commit_change(self, path: Path, commit_msg: str | None) -> None:
+        """Commit a change to ``path`` via the GitTracker singleton.
+
+        Mirrors :meth:`UserPluginService._commit_change`. Called on every
+        terminal path of :meth:`load_plan_from_file` where the file has been
+        written to disk. Failed loads still commit -- the file's presence is
+        forensic evidence even when the load itself didn't take.
+
+        No-op if the path doesn't exist (delete paths handle their own
+        ``commit_removal`` in the watcher slot). The tracker swallows all
+        errors, so this never raises.
+        """
+        if not path.exists():
+            return  # delete path: handled elsewhere
+        msg = commit_msg or f"auto: updated {path.name}"
+        GitTracker.get_instance().commit([path], msg)
+
+    def _commit_removal(self, path: Path, commit_msg: str) -> None:
+        """Commit a removal of ``path`` via the GitTracker singleton.
+
+        Mirrors :meth:`_commit_change` for the deletion path. The tracker
+        swallows all errors, so this never raises.
+        """
+        GitTracker.get_instance().commit_removal([path], commit_msg)
+
+    def load_plan_from_file(
+        self, path: Path, commit_msg: str | None = None,
+    ) -> PlanInfo | None:
         """Load a single plan from a file.
 
         Args:
             path: Path to the Python file.
+            commit_msg: Optional subject for the auto-commit. Defaults to
+                ``"auto: updated <name>"`` when omitted. Commits happen
+                regardless of load outcome -- failed loads land in history
+                as forensic evidence.
 
         Returns:
             PlanInfo if successful, None otherwise.
@@ -206,6 +239,10 @@ class UserPlanService(QObject):
 
         registry = PlanRegistry.get_instance()
         result = self._load_plan_from_file(path, registry)
+
+        # Commit regardless of load outcome -- failed loads stay in history
+        # (forensics). The _commit_change helper guards against missing path.
+        self._commit_change(path, commit_msg)
 
         if isinstance(result, PlanInfo):
             return result
@@ -315,12 +352,20 @@ class UserPlanService(QObject):
 
         return True
 
-    def create_new_plan(self, name: str, description: str = "") -> Path:
+    def create_new_plan(
+        self,
+        name: str,
+        description: str = "",
+        commit_msg: str | None = None,
+    ) -> Path:
         """Create a new plan file from template.
 
         Args:
             name: Plan name (will be used as filename).
             description: Optional plan description.
+            commit_msg: Optional subject for the auto-commit. Forwarded to
+                :meth:`load_plan_from_file`; defaults to
+                ``"auto: updated <name>"`` when omitted.
 
         Returns:
             Path to the created file.
@@ -350,8 +395,9 @@ class UserPlanService(QObject):
         file_path.write_text(content, encoding="utf-8")
         logger.info("Created new plan file: {}", file_path)
 
-        # Load the new plan immediately
-        self.load_plan_from_file(file_path)
+        # Load the new plan immediately. Forwarding commit_msg ensures a single
+        # commit happens with the user-supplied message.
+        self.load_plan_from_file(file_path, commit_msg=commit_msg)
 
         return file_path
 
@@ -379,10 +425,15 @@ class UserPlanService(QObject):
             plan_name = file_path.stem
             if plan_name in self._loaded_plans:
                 self._unload_plan(plan_name)
+                self._commit_removal(
+                    file_path, f"external delete: {file_path.name}"
+                )
                 self.plans_refreshed.emit()
         else:
-            # File was modified - reload it
-            self.load_plan_from_file(file_path)
+            # File was modified - reload it (commit happens in load_plan_from_file)
+            self.load_plan_from_file(
+                file_path, commit_msg=f"external edit: {file_path.name}"
+            )
             self.plans_refreshed.emit()
 
         # Re-add the path to the watcher (Qt removes it after change)
@@ -396,16 +447,24 @@ class UserPlanService(QObject):
             path: Path to the changed directory.
         """
         # Rescan for new/deleted files
-        current_files = {p.stem for p in self._plans_dir.glob("*.py") if not p.name.startswith("_")}
+        current_files = {
+            p.stem for p in self._plans_dir.glob("*.py")
+            if not p.name.startswith("_")
+        }
         loaded_names = set(self._loaded_plans.keys())
 
         # Load new files
         for name in current_files - loaded_names:
             file_path = self._plans_dir / f"{name}.py"
-            self.load_plan_from_file(file_path)
+            self.load_plan_from_file(
+                file_path, commit_msg=f"external add: {file_path.name}"
+            )
 
         # Unload deleted files
         for name in loaded_names - current_files:
+            path = self._loaded_plans.get(name)
             self._unload_plan(name)
+            if path is not None:
+                self._commit_removal(path, f"external delete: {path.name}")
 
         self.plans_refreshed.emit()
