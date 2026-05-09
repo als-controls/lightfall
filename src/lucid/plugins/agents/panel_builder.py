@@ -350,6 +350,8 @@ engine.submit(my_plan(), description="My plan")
 
             # Load the plugin
             try:
+                # description is required by input_schema, but the guard handles
+                # direct calls (e.g., from unit tests) that may pass ""
                 commit_msg = f"agent: {description}" if description else None
                 success = service.load_plugin_from_file(file_path, commit_msg=commit_msg)
                 if not success:

@@ -11,6 +11,7 @@ import re
 from typing import Any, Union
 
 from lucid.plugins.agent_plugin import AgentPlugin
+from lucid.utils.git_tracker import GitTracker
 from lucid.utils.logging import logger
 
 
@@ -437,6 +438,8 @@ Plans are saved to ~/lucid/plans/ and immediately available in the Plan Runner."
             # The UserPlanService's file watcher will auto-detect and load the plan.
             # We can also explicitly trigger a load to ensure it's available immediately.
             try:
+                # description is required by input_schema, but the guard handles
+                # direct calls (e.g., from unit tests) that may pass ""
                 commit_msg = f"agent: {description}" if description else None
                 service.load_plan_from_file(file_path, commit_msg=commit_msg)
             except Exception as e:
@@ -853,7 +856,6 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
 
             try:
                 file_path.unlink()
-                from lucid.utils.git_tracker import GitTracker
                 GitTracker.get_instance().commit_removal(
                     [file_path], f"agent: delete plan {name}"
                 )
