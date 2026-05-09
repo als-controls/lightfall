@@ -72,12 +72,14 @@ class GitTracker:
             return False
 
     def _ensure_local_identity(self) -> None:
-        """Set local user.email/name if not already set locally.
+        """Set local user.email/name to the LUCID Agent identity if not already configured locally.
 
-        We deliberately check the *local* config (not global). Commits
-        in ``~/lucid/`` should be authored as the LUCID Agent regardless
-        of the developer's global git identity, so the auto-commits are
-        traceable as agent-produced.
+        Intentionally ignores any global git identity. The §4 paper claim is
+        that agent-produced changes in ``~/lucid/`` are attributable to
+        "LUCID Agent" -- allowing the developer's global identity to leak
+        through would muddy that forensic record. A user who deliberately
+        sets a different *local* identity via ``git config --local`` is
+        still respected (the early return below).
         """
         if (
             self._git_config_get_local("user.email")
@@ -149,7 +151,7 @@ class GitTracker:
 
         ``paths`` should already be deleted from the working tree.
         """
-        rel_paths = self._validate_paths(paths, must_exist=False)
+        rel_paths = self._validate_paths(paths)
         if not rel_paths:
             return False
         if not self.ensure_repo():
@@ -175,9 +177,7 @@ class GitTracker:
             logger.warning("git commit (removal) failed for {}: {}", rel_paths, e)
             return False
 
-    def _validate_paths(
-        self, paths: list[Path], must_exist: bool = True
-    ) -> list[str]:
+    def _validate_paths(self, paths: list[Path]) -> list[str]:
         """Return repo-relative path strings, dropping any outside the root."""
         out: list[str] = []
         root = self.repo_root.resolve()
@@ -187,5 +187,5 @@ class GitTracker:
             except ValueError:
                 logger.warning("Path {} is outside repo {}; skipping", p, root)
                 continue
-            out.append(str(rel).replace("\\", "/"))
+            out.append(rel.as_posix())
         return out
