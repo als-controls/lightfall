@@ -79,22 +79,28 @@ class GitTracker:
         "LUCID Agent" -- allowing the developer's global identity to leak
         through would muddy that forensic record. A user who deliberately
         sets a different *local* identity via ``git config --local`` is
-        still respected (the early return below).
+        still respected.
+
+        Each field (user.email and user.name) is checked and set
+        independently. If a staff member's existing repo became
+        ``~/lucid/`` and they had only ``user.email`` set locally, we set
+        only the missing ``user.name`` rather than clobbering both.
         """
-        if (
-            self._git_config_get_local("user.email")
-            and self._git_config_get_local("user.name")
-        ):
+        existing_email = self._git_config_get_local("user.email")
+        existing_name = self._git_config_get_local("user.name")
+        if existing_email and existing_name:
             return
         try:
-            subprocess.run(
-                ["git", "config", "--local", "user.email", self.DEFAULT_USER_EMAIL],
-                cwd=self.repo_root, check=True, capture_output=True,
-            )
-            subprocess.run(
-                ["git", "config", "--local", "user.name", self.DEFAULT_USER_NAME],
-                cwd=self.repo_root, check=True, capture_output=True,
-            )
+            if not existing_email:
+                subprocess.run(
+                    ["git", "config", "--local", "user.email", self.DEFAULT_USER_EMAIL],
+                    cwd=self.repo_root, check=True, capture_output=True,
+                )
+            if not existing_name:
+                subprocess.run(
+                    ["git", "config", "--local", "user.name", self.DEFAULT_USER_NAME],
+                    cwd=self.repo_root, check=True, capture_output=True,
+                )
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             logger.warning("Failed to set local git identity: {}", e)
 

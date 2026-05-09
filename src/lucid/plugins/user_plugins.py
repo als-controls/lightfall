@@ -182,7 +182,12 @@ class UserPluginService(QObject):
             if py_file.name.startswith("_"):
                 continue  # Skip private files
 
-            success = self.load_plugin_from_file(py_file)
+            # Skip per-file commits on bulk startup load: each commit costs
+            # 2 subprocess calls (git add + git diff --cached --quiet) even
+            # when the file is unchanged. With 50 staff plugins that's 100
+            # subprocesses fired on every LUCID startup. The hot-reload
+            # watcher and explicit edits still commit normally.
+            success = self.load_plugin_from_file(py_file, _skip_commit=True)
             error = None
             if not success:
                 info = self._loaded_plugins.get(str(py_file))
@@ -226,7 +231,11 @@ class UserPluginService(QObject):
         GitTracker.get_instance().commit_removal([path], commit_msg)
 
     def load_plugin_from_file(
-        self, path: Path, commit_msg: str | None = None,
+        self,
+        path: Path,
+        commit_msg: str | None = None,
+        *,
+        _skip_commit: bool = False,
     ) -> bool:
         """Load a single plugin from a file.
 
@@ -237,6 +246,11 @@ class UserPluginService(QObject):
                 on every terminal branch (success, syntax error, exec error,
                 outer except) -- even failed loads land in history as
                 forensic evidence.
+            _skip_commit: If True, do not invoke the GitTracker on any
+                terminal path. Used by :meth:`load_all_plugins` so the
+                bulk startup scan doesn't fire 2 subprocesses per file.
+                Underscore-prefixed because it is not part of the public
+                contract -- callers writing the file should always commit.
 
         Returns:
             True if successful.
@@ -263,7 +277,8 @@ class UserPluginService(QObject):
                     load_error=error_msg,
                 )
                 self.plugin_error.emit(path_str, error_msg)
-                self._commit_change(path, commit_msg)
+                if not _skip_commit:
+                    self._commit_change(path, commit_msg)
                 return False
 
             # Create namespace with standard imports available
@@ -305,7 +320,8 @@ class UserPluginService(QObject):
                     self.plugin_error.emit(path_str, error_msg)
                     # Clean up the stub module on failure
                     sys.modules.pop(module_name, None)
-                    self._commit_change(path, commit_msg)
+                    if not _skip_commit:
+                        self._commit_change(path, commit_msg)
                     return False
             finally:
                 self._current_load = None
@@ -329,7 +345,8 @@ class UserPluginService(QObject):
                 len(info.registrations),
             )
 
-            self._commit_change(path, commit_msg)
+            if not _skip_commit:
+                self._commit_change(path, commit_msg)
             return True
 
         except Exception as e:
@@ -341,7 +358,8 @@ class UserPluginService(QObject):
                 load_error=error_msg,
             )
             self.plugin_error.emit(path_str, error_msg)
-            self._commit_change(path, commit_msg)
+            if not _skip_commit:
+                self._commit_change(path, commit_msg)
             return False
 
     def unload_plugin(self, path: Path) -> bool:

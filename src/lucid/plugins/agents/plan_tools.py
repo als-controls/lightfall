@@ -855,6 +855,13 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                 return mcp_result({"success": False, "error": f"Plan '{name}' not found at {file_path}"}, is_error=True)
 
             try:
+                # Unload from the registry BEFORE removing the file so that
+                # ncs_list_plans / ncs_run_plan don't briefly see a stale
+                # entry in the window between unlink() and the watcher's
+                # _on_file_changed callback. The watcher will fire later as
+                # a no-op (plan already unloaded; commit_removal is a no-op
+                # via `git diff --cached --quiet`).
+                service._unload_plan(name)
                 file_path.unlink()
                 GitTracker.get_instance().commit_removal(
                     [file_path], f"agent: delete plan {name}"

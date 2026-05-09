@@ -59,6 +59,22 @@ def test_ensure_repo_sets_local_identity(tracker, repo_root):
     assert name == "LUCID Agent"
 
 
+def test_ensure_repo_preserves_partial_existing_local_identity(repo_root):
+    """If user has set only user.email locally, do not clobber it; set only user.name."""
+    # Pre-init the repo and set only user.email
+    subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "--local", "user.email", "staff@als.lbl.gov"],
+        cwd=repo_root, check=True,
+    )
+    GitTracker.reset_instance()
+    tracker = GitTracker(repo_root=repo_root)
+    tracker.ensure_repo()
+    assert _git(repo_root, "config", "--local", "user.email") == "staff@als.lbl.gov"
+    # name should now be the default
+    assert _git(repo_root, "config", "--local", "user.name") == "LUCID Agent"
+
+
 def test_commit_creates_commit_with_message(tracker, repo_root):
     plugins_dir = repo_root / "plugins"
     plugins_dir.mkdir()

@@ -266,3 +266,34 @@ def test_file_deletion_commits_removal(tracked_user_dir, monkeypatch):
     assert subjects[0].startswith("external delete:")
     assert "user_epsilon.py" in subjects[0]
     assert len(subjects) == 2  # initial load + deletion
+
+
+def test_load_all_plugins_does_not_commit(tracked_user_dir, monkeypatch):
+    """Startup load should not flood the git history with auto-commits."""
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+
+    _write_user_agent(tracked_user_dir, "alpha")
+    _write_user_agent(tracked_user_dir, "beta")
+
+    service.load_all_plugins()
+
+    repo_root = tracked_user_dir.parent
+    subjects = _git_log_subjects(repo_root)
+    assert subjects == [], (
+        "load_all_plugins should not commit on startup; got: " + str(subjects)
+    )
+
+
+def test_load_plugin_succeeds_when_git_absent(tracked_user_dir, monkeypatch):
+    """Plugin creation must not fail because git is misconfigured."""
+    def boom(*args, **kwargs):
+        raise FileNotFoundError("git: command not found")
+    monkeypatch.setattr("lucid.utils.git_tracker.subprocess.run", boom)
+
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)
+
+    path = _write_user_agent(tracked_user_dir, "user_zeta")
+    success = service.load_plugin_from_file(path, commit_msg="agent: try")
+    assert success is True  # the load worked even though commit failed silently
