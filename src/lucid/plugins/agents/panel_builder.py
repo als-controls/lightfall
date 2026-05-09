@@ -350,7 +350,8 @@ engine.submit(my_plan(), description="My plan")
 
             # Load the plugin
             try:
-                success = service.load_plugin_from_file(file_path)
+                commit_msg = f"agent: {description}" if description else None
+                success = service.load_plugin_from_file(file_path, commit_msg=commit_msg)
                 if not success:
                     info = service.get_plugin_info(file_path)
                     error_msg = info.load_error if info and info.load_error else "Unknown load error"

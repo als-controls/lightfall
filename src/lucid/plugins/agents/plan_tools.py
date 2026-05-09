@@ -437,7 +437,8 @@ Plans are saved to ~/lucid/plans/ and immediately available in the Plan Runner."
             # The UserPlanService's file watcher will auto-detect and load the plan.
             # We can also explicitly trigger a load to ensure it's available immediately.
             try:
-                service.load_plan_from_file(file_path)
+                commit_msg = f"agent: {description}" if description else None
+                service.load_plan_from_file(file_path, commit_msg=commit_msg)
             except Exception as e:
                 logger.warning("Plan file written but failed to load: {}", e)
                 # File was written successfully, so we return success
@@ -852,6 +853,10 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
 
             try:
                 file_path.unlink()
+                from lucid.utils.git_tracker import GitTracker
+                GitTracker.get_instance().commit_removal(
+                    [file_path], f"agent: delete plan {name}"
+                )
                 logger.info("Deleted user plan '{}'", name)
                 return mcp_result({
                     "success": True,
