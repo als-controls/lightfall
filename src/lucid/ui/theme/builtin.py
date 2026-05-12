@@ -5,6 +5,9 @@ This module contains the default themes that ship with NCS:
 - SlateThemePlugin: Neutral gray dark theme
 - DarkBlueThemePlugin: Blue-gray dark theme
 - IslandsThemePlugin: Modern theme with visually separated components
+- CatppuccinMochaThemePlugin: Catppuccin Mocha palette (warm dark)
+- EldritchThemePlugin: Eldritch palette (deep blue/magenta dark)
+- EvangelionThemePlugin: NGE Unit-01 palette (purple/green dark)
 """
 
 from __future__ import annotations
@@ -511,3 +514,115 @@ QStatusBar::item {{
     border: none;
 }}
 """
+
+
+class CatppuccinMochaThemePlugin(ThemePlugin):
+    """Catppuccin Mocha theme plugin.
+
+    Dark variant of the Catppuccin palette — warm, pastel colors on a deep
+    navy base. Mauve accent, soft text, calm contrast.
+    """
+
+    @property
+    def name(self) -> str:
+        return "catppuccin_mocha"
+
+    @property
+    def display_name(self) -> str:
+        return "Catppuccin Mocha"
+
+    @property
+    def is_dark(self) -> bool:
+        return True
+
+    def get_theme_definition(self) -> ThemeDefinition:
+        return ThemeDefinition(
+            primary="#cba6f7",       # mauve
+            secondary="#f5c2e7",     # pink
+            success="#a6e3a1",       # green
+            warning="#fab387",       # peach
+            error="#f38ba8",         # red
+            info="#74c7ec",          # sapphire
+            background="#1e1e2e",    # base
+            surface="#313244",       # surface0
+            text="#cdd6f4",          # text
+            text_secondary="#a6adc8",  # subtext0
+            border="#45475a",        # surface1
+            connected="#a6e3a1",
+            disconnected="#5c2530",
+        )
+
+
+class EldritchThemePlugin(ThemePlugin):
+    """Eldritch theme plugin.
+
+    Dark theme based on the Eldritch neovim colorscheme — deep blue-violet
+    background with magenta, cyan, and acid-green accents.
+    """
+
+    @property
+    def name(self) -> str:
+        return "eldritch"
+
+    @property
+    def display_name(self) -> str:
+        return "Eldritch"
+
+    @property
+    def is_dark(self) -> bool:
+        return True
+
+    def get_theme_definition(self) -> ThemeDefinition:
+        return ThemeDefinition(
+            primary="#a48cf2",       # magenta/purple
+            secondary="#04d1f9",     # cyan
+            success="#37f499",       # green
+            warning="#f7c67f",       # orange
+            error="#f16c75",         # red
+            info="#39DDFD",          # bright_cyan
+            background="#212337",    # bg
+            surface="#292e42",       # bg_highlight
+            text="#ebfafa",          # fg
+            text_secondary="#ABB4DA",  # fg_dark
+            border="#414868",        # terminal_black
+            connected="#37f499",
+            disconnected="#722f55",  # magenta3
+        )
+
+
+class EvangelionThemePlugin(ThemePlugin):
+    """Evangelion theme plugin.
+
+    NERV / Unit-01 inspired palette: deep violet background with the
+    signature Unit-01 purple and Kaworu green accents. Based on xero's
+    evangelion.nvim colorscheme.
+    """
+
+    @property
+    def name(self) -> str:
+        return "evangelion"
+
+    @property
+    def display_name(self) -> str:
+        return "Evangelion"
+
+    @property
+    def is_dark(self) -> bool:
+        return True
+
+    def get_theme_definition(self) -> ThemeDefinition:
+        return ThemeDefinition(
+            primary="#875FAF",       # unit01
+            secondary="#87FF5F",     # kaworu
+            success="#8EDF5F",       # terminaldogma
+            warning="#D99145",       # lcl
+            error="#DB6088",         # misato
+            info="#AB92FC",          # dummyplug
+            background="#201430",    # midnight
+            surface="#39274C",       # casper
+            text="#E1D6F8",          # rei
+            text_secondary="#A1A0AD",  # shinji
+            border="#483160",        # longingus
+            connected="#8EDF5F",
+            disconnected="#5B2B41",  # nerv
+        )
