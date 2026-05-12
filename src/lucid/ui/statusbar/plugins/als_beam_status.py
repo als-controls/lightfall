@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QUrl, Slot
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 from lucid.ui.theme import ThemeManager
@@ -28,17 +27,14 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     - error: Beam unavailable (shutters closed)
     - text_secondary: Offline/disconnected from API
 
-    Example display:
-        "500.3 mA | 6.6h | Available" (success)
-        "500.3 mA | 6.6h | Closed" (error)
-        "Offline" (muted)
+    Clicking opens the ALS beam status page.
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
         id="lucid.statusbar.als_beam",
         name="ALS Beam Status",
         description="Shows ALS synchrotron beam current and status",
-        priority=45,  # After connection (30), before tiled (40)
+        priority=45,
         position="permanent",
         tooltip="ALS beam status - click for details",
     )
@@ -48,9 +44,8 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     def __init__(self) -> None:
         """Initialize the ALS beam status plugin."""
         super().__init__()
-        self._label: QLabel | None = None
         self._service: ALSBeamStatusService | None = None
-        self._last_beam_available: bool | None = None  # Track for change detection
+        self._last_beam_available: bool | None = None
         self._theme_manager: ThemeManager | None = None
 
     @property
@@ -58,33 +53,14 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         """Plugin name."""
         return "als_beam_status"
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the ALS beam status label.
-
-        Clicking the label opens the ALS beam status page.
-
-        Args:
-            parent: Parent widget.
-
-        Returns:
-            QLabel showing beam status.
-        """
-        self._label = QLabel(parent)
-        self._label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._label.mousePressEvent = lambda _: self._open_beam_status_page()
-        self._theme_manager = ThemeManager.get_instance()
-        return self._label
-
-    def _open_beam_status_page(self) -> None:
+    def on_clicked(self) -> None:
         """Open the ALS beam status page in the default browser."""
-        from PySide6.QtCore import QUrl
-
         QDesktopServices.openUrl(QUrl(self.BEAM_STATUS_URL))
 
     def update(self) -> None:
-        """Update the label with current beam status."""
-        if self._label is None:
-            return
+        """Update the button with current beam status."""
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
 
         try:
             from lucid.services.als_beam_status import ALSBeamStatusService
@@ -92,7 +68,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
             service = ALSBeamStatusService.get_instance()
             self._service = service
 
-            # Start polling if not already
             if not service.is_polling:
                 service.start_polling()
 
@@ -109,6 +84,10 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         """Connect to beam status service signals."""
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        self._theme_manager.colors_changed.connect(self.update)
+
         try:
             from lucid.services.als_beam_status import ALSBeamStatusService
 
@@ -120,10 +99,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         except Exception as e:
             logger.debug("Could not connect to ALSBeamStatusService: {}", e)
 
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self.update)
-
     def disconnect_signals(self) -> None:
         """Disconnect from service signals."""
         if self._service is not None:
@@ -131,7 +106,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
                 self._service.status_changed.disconnect(self._on_status_changed)
                 self._service.connection_changed.disconnect(self._on_connection_changed)
             except RuntimeError:
-                # Already disconnected
                 pass
 
         if self._theme_manager is not None:
@@ -142,37 +116,19 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     @Slot(object)
     def _on_status_changed(self, data: ALSBeamData) -> None:
-        """Handle beam status update.
-
-        Args:
-            data: New beam status data.
-        """
+        """Handle beam status update."""
         self._update_display_data(data)
 
     @Slot(bool)
     def _on_connection_changed(self, connected: bool) -> None:
-        """Handle connection state change.
-
-        Args:
-            connected: Whether connected to API.
-        """
+        """Handle connection state change."""
         if not connected:
             self._update_display_offline()
         else:
             self.update()
 
     def _update_display_data(self, data: ALSBeamData) -> None:
-        """Update display with beam data.
-
-        Emits a toast notification when beam availability changes.
-
-        Args:
-            data: Current beam data.
-        """
-        if self._label is None:
-            return
-
-        # Detect beam availability change and notify
+        """Update display with beam data; toast on availability change."""
         if (
             self._last_beam_available is not None
             and data.beam_available != self._last_beam_available
@@ -180,27 +136,21 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
             self._notify_status_change(data.beam_available)
         self._last_beam_available = data.beam_available
 
-        # Format: "500.3 mA | 6.6h | Available"
         current_str = f"{data.beam_current:.1f} mA"
         lifetime_str = f"{data.lifetime:.1f}h"
         status_str = "Available" if data.beam_available else "Closed"
 
-        text = f"{current_str} | {lifetime_str} | {status_str}"
         if self._theme_manager is None:
             self._theme_manager = ThemeManager.get_instance()
         colors = self._theme_manager.colors
         color = colors.success if data.beam_available else colors.error
 
-        self._label.setText(text)
-        self._label.setStyleSheet(f"color: {color};")
-        self._label.setToolTip(self._build_tooltip(data))
+        self.set_text(f"{current_str} | {lifetime_str} | {status_str}")
+        self.set_color(color)
+        self.set_tooltip(self._build_tooltip(data))
 
     def _notify_status_change(self, beam_available: bool) -> None:
-        """Show a toast notification when ring status changes.
-
-        Args:
-            beam_available: Whether beam is now available.
-        """
+        """Show a toast notification when ring status changes."""
         toast = ToastManager.get_instance()
         link = f'<a href="{self.BEAM_STATUS_URL}">Beam Status</a>'
 
@@ -219,30 +169,19 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     def _update_display_offline(self) -> None:
         """Update display for offline/error state."""
-        if self._label is None:
-            return
-
         if self._theme_manager is None:
             self._theme_manager = ThemeManager.get_instance()
 
-        self._label.setText("Offline")
-        self._label.setStyleSheet(f"color: {self._theme_manager.colors.text_secondary};")
+        self.set_text("Offline")
+        self.set_color(self._theme_manager.colors.text_secondary)
 
         error_msg = ""
         if self._service and self._service.last_error:
             error_msg = f"\nError: {self._service.last_error}"
-
-        self._label.setToolTip(f"ALS beam status unavailable{error_msg}")
+        self.set_tooltip(f"ALS beam status unavailable{error_msg}")
 
     def _build_tooltip(self, data: ALSBeamData) -> str:
-        """Build detailed tooltip from beam data.
-
-        Args:
-            data: Current beam data.
-
-        Returns:
-            Formatted tooltip string.
-        """
+        """Build detailed tooltip from beam data."""
         lines = [
             "ALS Beam Status",
             "─" * 25,

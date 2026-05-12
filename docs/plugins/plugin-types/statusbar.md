@@ -7,7 +7,7 @@ Status bar plugins add indicator widgets to the main window's status bar.
 Use `StatusBarPlugin` when you want to:
 - Display real-time status information
 - Show connection states or system health
-- Provide quick access to state changes
+- Provide a quick click-through to detail dialogs / external pages
 
 ## Base Class
 
@@ -38,6 +38,20 @@ class StatusBarPluginMetadata:
     tooltip: str = ""      # Default tooltip text
 ```
 
+## Default Widget
+
+The base class provides a default widget: a flat ``QToolButton`` whose
+``clicked`` signal is wired to ``on_clicked()``. The button shares a
+single horizontal layout with neighbouring plugins (no Qt separator
+notches between items), so every entry looks consistent and signals
+clickability. Plugins typically just override ``update()``,
+``connect_signals()``, ``disconnect_signals()``, and (optionally)
+``on_clicked()``.
+
+For complex needs (anchoring a popup, embedding non-button widgets),
+override ``create_widget()``; you are then responsible for setting
+``self._widget`` and any click wiring.
+
 ## Required Methods
 
 ### name (property)
@@ -50,55 +64,64 @@ def name(self) -> str:
     return "my_status"
 ```
 
-### create_widget(parent)
-
-Create the status bar widget.
-
-```python
-def create_widget(self, parent: QWidget | None = None) -> QWidget:
-    """Create the status bar indicator widget.
-
-    Args:
-        parent: Parent widget (the status bar).
-
-    Returns:
-        QWidget to display in the status bar.
-    """
-    label = QLabel("Status", parent)
-    self._widget = label
-    return label
-```
-
 ### update()
 
-Update the widget based on current state.
+Update the displayed state. Use the inherited helpers to drive the
+default button:
 
 ```python
 def update(self) -> None:
-    """Update the widget display."""
-    if self._widget:
-        self._widget.setText(self._get_current_status())
+    self.set_text("OK")
+    self.set_tooltip("Everything is fine")
+    self.set_color(self._theme.colors.success)
 ```
 
-### connect_signals()
+### connect_signals() / disconnect_signals()
 
-Connect to service signals for state changes.
+Wire up (and tear down) the service signals that drive ``update()``.
 
 ```python
 def connect_signals(self) -> None:
-    """Connect to state change signals."""
     self._service.state_changed.connect(self.update)
+
+def disconnect_signals(self) -> None:
+    try:
+        self._service.state_changed.disconnect(self.update)
+    except RuntimeError:
+        pass
 ```
 
-### disconnect_signals()
+## Optional Methods
 
-Disconnect signals during cleanup.
+### on_clicked()
+
+Override to react to a button click. Default is a no-op.
 
 ```python
-def disconnect_signals(self) -> None:
-    """Disconnect from signals."""
-    self._service.state_changed.disconnect(self.update)
+def on_clicked(self) -> None:
+    QDesktopServices.openUrl(QUrl("https://example.com"))
 ```
+
+### create_widget(parent)
+
+Override only when the default button is not enough (e.g., custom popup
+anchor). You must assign ``self._widget`` and ``self._button`` (if
+applicable) yourself.
+
+## Helpers
+
+| Helper | Purpose |
+|--------|---------|
+| `set_text(str)` | Set the button label text |
+| `set_tooltip(str)` | Set the tooltip |
+| `set_color(str \| None)` | Apply a CSS color string (`None` clears) |
+| `set_visible(bool)` | Show or hide the plugin's widget in the status bar |
+| `is_visible` | Current visibility flag |
+| `visibility_changed` | Qt signal emitted with the new visibility |
+
+When a plugin calls ``set_visible(False)`` the widget is hidden and the
+side container's layout collapses around it — no leftover gap, no
+trailing separator.
 
 ## Lifecycle
 
@@ -114,190 +137,146 @@ def disconnect_signals(self) -> None:
 ```python
 """Device connection status indicator."""
 
-from PySide6.QtWidgets import QLabel, QWidget
+from typing import ClassVar
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lucid.ui.theme import ThemeManager
 
 
 class DeviceConnectionStatus(StatusBarPlugin):
     """Status bar indicator showing device connection state."""
 
-    metadata = StatusBarPluginMetadata(
+    metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
         id="my_package.statusbar.device_connection",
         name="Device Connection",
         description="Shows whether devices are connected",
-        priority=50,  # Appears towards the left
+        priority=50,
         position="permanent",
     )
 
     def __init__(self) -> None:
         super().__init__()
-        self._label: QLabel | None = None
         self._device_manager = None
+        self._theme: ThemeManager | None = None
 
     @property
     def name(self) -> str:
         return "device_connection"
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        self._label = QLabel(parent)
-        self._label.setMinimumWidth(100)
-        self._widget = self._label
-        return self._label
-
     def update(self) -> None:
-        """Update the connection status display."""
-        if not self._label or not self._device_manager:
+        if not self._device_manager:
             return
+        if self._theme is None:
+            self._theme = ThemeManager.get_instance()
+        colors = self._theme.colors
 
         connected = self._device_manager.connected_count
         total = self._device_manager.total_count
 
         if connected == total:
-            self._label.setText(f"Devices: {total} connected")
-            self._label.setStyleSheet("color: green;")
+            self.set_text(f"Devices: {total} connected")
+            self.set_color(colors.success)
         elif connected == 0:
-            self._label.setText(f"Devices: {total} disconnected")
-            self._label.setStyleSheet("color: red;")
+            self.set_text(f"Devices: {total} disconnected")
+            self.set_color(colors.error)
         else:
-            self._label.setText(f"Devices: {connected}/{total}")
-            self._label.setStyleSheet("color: orange;")
+            self.set_text(f"Devices: {connected}/{total}")
+            self.set_color(colors.warning)
 
-        self._label.setToolTip(
+        self.set_tooltip(
             f"Connected: {connected}\n"
             f"Disconnected: {total - connected}"
         )
 
     def connect_signals(self) -> None:
-        """Connect to device manager signals."""
         from lucid.devices.manager import DeviceManager
 
         self._device_manager = DeviceManager.get_instance()
         self._device_manager.connection_changed.connect(self.update)
 
     def disconnect_signals(self) -> None:
-        """Disconnect from device manager."""
         if self._device_manager:
             try:
                 self._device_manager.connection_changed.disconnect(self.update)
             except RuntimeError:
-                pass  # Already disconnected
+                pass
 ```
 
-## Clickable Status Indicator
+## Clickable Indicator
 
 ```python
-"""Clickable status indicator that opens a dialog."""
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
-class ClickableStatusPlugin(StatusBarPlugin):
-    """Status indicator that shows details on click."""
-
+class ExternalLinkStatus(StatusBarPlugin):
     metadata = StatusBarPluginMetadata(
-        id="my_package.statusbar.clickable",
-        name="System Status",
-        priority=10,
+        id="my_package.statusbar.docs",
+        name="Docs",
+        priority=80,
     )
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._label: QLabel | None = None
 
     @property
     def name(self) -> str:
-        return "clickable_status"
-
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        self._label = QLabel("Status: OK", parent)
-        self._label.setCursor(Qt.PointingHandCursor)
-        self._label.mousePressEvent = self._on_click
-        self._widget = self._label
-        return self._label
-
-    def _on_click(self, event):
-        """Handle click to show details dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
-        QMessageBox.information(
-            self._label,
-            "System Status",
-            "All systems operational.",
-        )
+        return "docs_link"
 
     def update(self) -> None:
-        pass  # Static display
+        self.set_text("Docs")
+        self.set_tooltip("Open documentation")
 
     def connect_signals(self) -> None:
-        pass  # No dynamic updates
+        pass
 
     def disconnect_signals(self) -> None:
         pass
+
+    def on_clicked(self) -> None:
+        QDesktopServices.openUrl(QUrl("https://example.com/docs"))
 ```
 
-## Icon-based Status
+## Custom Widget (icon-based, popup anchor, etc.)
+
+Override ``create_widget`` only when the default button is not enough.
 
 ```python
-"""Status indicator using icons."""
-
-from PySide6.QtWidgets import QLabel, QWidget
 import qtawesome as qta
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import QToolButton, QWidget
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
 class IconStatusPlugin(StatusBarPlugin):
-    """Status indicator with icon."""
-
     metadata = StatusBarPluginMetadata(
-        id="my_package.statusbar.icon_status",
-        name="Network Status",
+        id="my_package.statusbar.icon",
+        name="Network",
         priority=30,
     )
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._label: QLabel | None = None
 
     @property
     def name(self) -> str:
         return "icon_status"
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        self._label = QLabel(parent)
-        self._widget = self._label
-        return self._label
+        button = QToolButton(parent)
+        button.setAutoRaise(True)
+        button.setIcon(qta.icon("mdi.wifi"))
+        button.setIconSize(QSize(14, 14))
+        button.clicked.connect(self.on_clicked)
+        self._button = button
+        self._widget = button
+        return button
 
     def update(self) -> None:
-        if not self._label:
-            return
-
-        # Use qtawesome icons
-        connected = self._check_connection()
-
-        if connected:
-            icon = qta.icon("mdi.wifi", color="green")
-            tooltip = "Network: Connected"
-        else:
-            icon = qta.icon("mdi.wifi-off", color="red")
-            tooltip = "Network: Disconnected"
-
-        self._label.setPixmap(icon.pixmap(16, 16))
-        self._label.setToolTip(tooltip)
-
-    def _check_connection(self) -> bool:
-        # Check network connection
-        return True
+        ...
 
     def connect_signals(self) -> None:
-        pass  # Could connect to network monitor
+        ...
 
     def disconnect_signals(self) -> None:
-        pass
+        ...
 ```
 
 ## Registration
@@ -314,9 +293,13 @@ PluginEntry(
 
 | Position | Description |
 |----------|-------------|
-| `"left"` | Added to the left side of status bar |
-| `"right"` | Added to the right side |
-| `"permanent"` | Permanent widget (always visible) |
+| `"left"` | Routed to the left-side container (`QStatusBar.addWidget`) |
+| `"right"` | Routed to the right-side container (`QStatusBar.addPermanentWidget`) |
+| `"permanent"` | Same as `"right"` (default) |
+
+Within each side, plugins are sorted by ``priority`` (lower = further
+left). A small uniform gap separates adjacent items; there are no
+inter-item separator notches and no trailing separator.
 
 ## Priority Guidelines
 
@@ -330,13 +313,31 @@ Lower priority values appear further left:
 | 75-100 | Informational |
 | 100+ | Low priority |
 
+## Hiding a Plugin
+
+Plugins can hide themselves when there is nothing to show:
+
+```python
+def update(self) -> None:
+    if not self._has_anything_to_say():
+        self.set_visible(False)
+        return
+    self.set_visible(True)
+    self.set_text(self._render())
+```
+
+Hidden plugins are removed from the layout flow — the surrounding items
+close up cleanly, with no leftover gap or trailing separator.
+
 ## Built-in Status Plugins
 
 LUCID includes these status bar plugins:
 
 | Plugin | Description |
 |--------|-------------|
+| `thread_status` | Background tasks and scan progress (hides when idle) |
 | `user_status` | Current user information |
 | `auth_status` | Authentication state |
 | `connection_status` | Network connection |
 | `tiled_status` | Tiled data service status |
+| `als_beam_status` | ALS synchrotron beam current and availability |

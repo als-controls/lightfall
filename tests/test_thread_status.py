@@ -259,13 +259,13 @@ class TestPluginLabelText:
     def test_hidden_when_idle(self, qapp):
         plugin = self._make_plugin()
         plugin.update()
-        assert plugin._label.text() == ""
+        assert plugin._button.text() == ""
 
     def test_scanning_no_tasks(self, qapp):
         plugin = self._make_plugin()
         plugin._scanning = True
         plugin.update()
-        assert "scanning" in plugin._label.text()
+        assert "scanning" in plugin._button.text()
 
     def test_scanning_with_tasks(self, qapp):
         plugin = self._make_plugin()
@@ -273,16 +273,16 @@ class TestPluginLabelText:
         plugin._tracked.add(1)
         plugin._tracked.add(2)
         plugin.update()
-        assert "scan" in plugin._label.text()
-        assert "2 tasks" in plugin._label.text()
+        assert "scan" in plugin._button.text()
+        assert "2 tasks" in plugin._button.text()
 
     def test_no_scan_with_tasks(self, qapp):
         plugin = self._make_plugin()
         plugin._tracked.add(1)
         plugin.update()
-        assert "1 task" in plugin._label.text()
+        assert "1 task" in plugin._button.text()
         # Should not mention scan
-        assert "scan" not in plugin._label.text()
+        assert "scan" not in plugin._button.text()
 
 
 # ======================================================================

@@ -4,19 +4,18 @@ Displays the number of background threads reporting progress,
 device-level move progress from the RunEngine waiting hook,
 and scan-level progress from document events.
 
-Clicking the label opens an overlay with per-thread progress bars.
+Clicking the button opens an overlay with per-thread progress bars.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QScrollArea,
@@ -28,9 +27,6 @@ from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetad
 from lucid.ui.theme import ThemeManager
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture, thread_manager
-
-if TYPE_CHECKING:
-    pass
 
 
 class _ProgressOverlay(QFrame):
@@ -164,7 +160,6 @@ class _ProgressOverlay(QFrame):
         bar.setMaximum(100)
         bar.setValue(100)
 
-        # Cancel any existing timer for this device
         old_timer = self._device_removal_timers.pop(name, None)
         if old_timer is not None:
             old_timer.stop()
@@ -177,12 +172,10 @@ class _ProgressOverlay(QFrame):
 
     def clear_devices(self) -> None:
         """Remove all device rows immediately, cancelling pending timers."""
-        # Cancel all pending removal timers
         for timer in self._device_removal_timers.values():
             timer.stop()
         self._device_removal_timers.clear()
 
-        # Remove all device rows
         for name in list(self._device_rows):
             self._remove_device(name)
 
@@ -205,7 +198,6 @@ class _ProgressOverlay(QFrame):
         self._device_rows[name] = row
         self._device_bars[name] = bar
         self._device_labels[name] = label
-        # Insert before the stretch at the end
         self._list_layout.insertWidget(self._list_layout.count() - 1, row)
         self._update_separator()
 
@@ -246,7 +238,7 @@ class _ProgressOverlay(QFrame):
             self._scan_label.setText(f"Scan ({event_count}/{num_points})")
         else:
             self._scan_bar.setMinimum(0)
-            self._scan_bar.setMaximum(0)  # indeterminate
+            self._scan_bar.setMaximum(0)
             self._scan_label.setText(f"Scan ({event_count} pts)")
 
     def mark_scan_done(self) -> None:
@@ -259,7 +251,6 @@ class _ProgressOverlay(QFrame):
         if self._scan_label is not None:
             self._scan_label.setText("Scan (complete)")
 
-        # Cancel any existing timer
         if self._scan_removal_timer is not None:
             self._scan_removal_timer.stop()
 
@@ -286,8 +277,6 @@ class _ProgressOverlay(QFrame):
         self._scan_row = row
         self._scan_bar = bar
         self._scan_label = label
-        # Insert at position 0 (before everything else, but after header which is
-        # outside the scroll area)
         self._list_layout.insertWidget(0, row)
 
     def _remove_scan_row(self) -> None:
@@ -328,8 +317,6 @@ class _ProgressOverlay(QFrame):
             self._separator.setFixedHeight(1)
             mid_color = self._subdued_text_color()
             self._separator.setStyleSheet(f"color: {mid_color};")
-            # Insert after the last thread row
-            # Thread rows are at the start (after scan), devices after them
             insert_idx = len(self._rows)
             if self._scan_row is not None:
                 insert_idx += 1
@@ -356,29 +343,12 @@ class _ProgressOverlay(QFrame):
         return self._scan_row is not None
 
 
-class _ClickableLabel(QLabel):
-    """QLabel that emits a click via a callback."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.on_click: Any = None
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mousePressEvent(self, event: Any) -> None:
-        if self.on_click is not None:
-            self.on_click()
-        super().mousePressEvent(event)
-
-
 class ThreadStatusPlugin(StatusBarPlugin):
     """Status bar plugin showing background thread activity.
 
-    Displays the count of threads that have reported progress,
-    device-level progress from the RunEngine waiting hook,
-    and scan-level progress from document events.
-
-    Clicking opens an overlay with per-thread progress bars,
-    per-device progress, and scan progress.
+    Renders as the default flat button; clicking opens an overlay with
+    per-thread progress bars, per-device progress, and scan progress.
+    Hides itself entirely when there is no activity.
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
@@ -392,12 +362,9 @@ class ThreadStatusPlugin(StatusBarPlugin):
 
     def __init__(self) -> None:
         super().__init__()
-        self._label: _ClickableLabel | None = None
         self._overlay: _ProgressOverlay | None = None
         self._theme_manager: ThemeManager | None = None
-        # Track threads that have reported progress (even if overlay not open)
         self._tracked: set[int] = set()
-        # Scan tracking state (owned by plugin, overlay is display-only)
         self._scanning: bool = False
         self._scan_uid: str | None = None
         self._scan_event_count: int = 0
@@ -408,50 +375,53 @@ class ThreadStatusPlugin(StatusBarPlugin):
         return "thread_status"
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
+        """Create the default flat button, plus the lazy overlay."""
+        widget = super().create_widget(parent)
         self._theme_manager = ThemeManager.get_instance()
-
-        container = QWidget(parent)
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._label = _ClickableLabel(container)
-        self._label.on_click = self._toggle_overlay
-        layout.addWidget(self._label)
-
         self._overlay = _ProgressOverlay()
+        return widget
 
-        return container
+    def on_clicked(self) -> None:
+        """Toggle the progress overlay anchored to the button."""
+        if self._overlay is None or self._button is None:
+            return
+        if self._overlay.isVisible():
+            self._overlay.hide()
+            return
+
+        pos = self._button.mapToGlobal(self._button.rect().topLeft())
+        self._overlay.adjustSize()
+        pos.setY(pos.y() - self._overlay.sizeHint().height())
+        self._overlay.move(pos)
+        self._overlay.show()
 
     def update(self) -> None:
-        if self._label is None:
-            return
         count = len(self._tracked)
         scanning = self._scanning
 
         if count == 0 and not scanning:
-            self._label.setText("")
-            self._label.setToolTip("")
-            self._label.setVisible(False)
-        elif scanning and count == 0:
-            self._label.setText("\u23f3 scanning")
-            self._label.setToolTip("Scan in progress")
-            self._label.setVisible(True)
+            self.set_text("")
+            self.set_tooltip("")
+            self.set_visible(False)
+            return
+
+        if scanning and count == 0:
+            self.set_text("⏳ scanning")
+            self.set_tooltip("Scan in progress")
         elif scanning and count > 0:
-            self._label.setText(f"\u23f3 scan + {count} task{'s' if count != 1 else ''}")
-            self._label.setToolTip(
+            self.set_text(f"⏳ scan + {count} task{'s' if count != 1 else ''}")
+            self.set_tooltip(
                 f"Scan in progress, {count} background task{'s' if count != 1 else ''}"
             )
-            self._label.setVisible(True)
         else:
-            self._label.setText(f"\u23f3 {count} task{'s' if count != 1 else ''}")
-            self._label.setToolTip(f"{count} background task{'s' if count != 1 else ''} running")
-            self._label.setVisible(True)
+            self.set_text(f"⏳ {count} task{'s' if count != 1 else ''}")
+            self.set_tooltip(f"{count} background task{'s' if count != 1 else ''} running")
+        self.set_visible(True)
 
     def connect_signals(self) -> None:
         thread_manager.sigProgress.connect(self._on_progress)
         thread_manager.sigFinished.connect(self._on_finished)
 
-        # Connect to engine signals if available
         try:
             from lucid.acquire import get_engine
 
@@ -475,7 +445,6 @@ class ThreadStatusPlugin(StatusBarPlugin):
         except RuntimeError:
             pass
 
-        # Disconnect engine signals
         try:
             from lucid.acquire import get_engine
 
@@ -554,7 +523,6 @@ class ThreadStatusPlugin(StatusBarPlugin):
                 except (ValueError, TypeError):
                     num_points = None
             self._scan_num_points = num_points
-            # Cancel any pending removal timer from a previous scan
             self._overlay.cancel_scan_removal()
             self._overlay.upsert_scan(0, num_points)
             self.update()
@@ -570,23 +538,6 @@ class ThreadStatusPlugin(StatusBarPlugin):
             self._scan_event_count = 0
             self._scan_num_points = None
             self.update()
-
-    # ------------------------------------------------------------------
-    # Overlay toggle
-    # ------------------------------------------------------------------
-
-    def _toggle_overlay(self) -> None:
-        if self._overlay is None or self._label is None:
-            return
-        if self._overlay.isVisible():
-            self._overlay.hide()
-        else:
-            # Position above the label
-            pos = self._label.mapToGlobal(self._label.rect().topLeft())
-            self._overlay.adjustSize()
-            pos.setY(pos.y() - self._overlay.sizeHint().height())
-            self._overlay.move(pos)
-            self._overlay.show()
 
     def get_introspection_data(self) -> dict[str, Any]:
         data = super().get_introspection_data()

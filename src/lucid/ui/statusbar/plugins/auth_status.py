@@ -5,16 +5,11 @@ Displays the current authentication state with color-coded indicator.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
-
-from PySide6.QtWidgets import QLabel, QWidget
+from typing import Any, ClassVar
 
 from lucid.auth.session import AuthState, SessionManager
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 from lucid.ui.theme import ThemeManager
-
-if TYPE_CHECKING:
-    pass
 
 
 class AuthStatusPlugin(StatusBarPlugin):
@@ -22,13 +17,8 @@ class AuthStatusPlugin(StatusBarPlugin):
 
     Displays the auth state with color coding:
     - Green: Authenticated
-    - Yellow/warning: Offline mode or error
+    - Warning: Offline mode or error
     - Default: Unauthenticated or authenticating
-
-    Example display:
-        "Authenticated" (green)
-        "Offline Mode" (yellow)
-        "Not logged in"
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
@@ -40,7 +30,6 @@ class AuthStatusPlugin(StatusBarPlugin):
         tooltip="Authentication status",
     )
 
-    # State display text
     STATE_TEXT = {
         AuthState.UNAUTHENTICATED: "Not logged in",
         AuthState.AUTHENTICATING: "Authenticating...",
@@ -52,7 +41,6 @@ class AuthStatusPlugin(StatusBarPlugin):
     def __init__(self) -> None:
         """Initialize the auth status plugin."""
         super().__init__()
-        self._label: QLabel | None = None
         self._session_manager: SessionManager | None = None
         self._theme_manager: ThemeManager | None = None
 
@@ -61,67 +49,41 @@ class AuthStatusPlugin(StatusBarPlugin):
         """Plugin name."""
         return "auth_status"
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the auth status label.
-
-        Args:
-            parent: Parent widget.
-
-        Returns:
-            QLabel showing auth state.
-        """
-        self._label = QLabel(parent)
-        self._session_manager = SessionManager.get_instance()
-        self._theme_manager = ThemeManager.get_instance()
-        return self._label
-
     def update(self) -> None:
-        """Update the label with current auth state."""
-        if self._label is None or self._session_manager is None:
-            return
+        """Update the button with current auth state."""
+        if self._session_manager is None:
+            self._session_manager = SessionManager.get_instance()
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
 
         state = self._session_manager.state
-        self._label.setText(self.STATE_TEXT.get(state, "Unknown"))
-
-        # Style based on state
-        self._apply_state_style(state)
-
-    def _apply_state_style(self, state: AuthState) -> None:
-        """Apply color styling based on auth state.
-
-        Args:
-            state: Current authentication state.
-        """
-        if self._label is None or self._theme_manager is None:
-            return
+        self.set_text(self.STATE_TEXT.get(state, "Unknown"))
 
         colors = self._theme_manager.colors
-
         if state == AuthState.AUTHENTICATED:
-            self._label.setStyleSheet(f"color: {colors.success};")
-            self._label.setToolTip("Successfully authenticated")
+            self.set_color(colors.success)
+            self.set_tooltip("Successfully authenticated")
         elif state in (AuthState.OFFLINE, AuthState.ERROR):
-            self._label.setStyleSheet(f"color: {colors.warning};")
+            self.set_color(colors.warning)
             if state == AuthState.OFFLINE:
-                self._label.setToolTip("Operating in offline mode with limited features")
+                self.set_tooltip("Operating in offline mode with limited features")
             else:
-                self._label.setToolTip("Authentication error occurred")
+                self.set_tooltip("Authentication error occurred")
         else:
-            self._label.setStyleSheet("")
+            self.set_color(None)
             if state == AuthState.AUTHENTICATING:
-                self._label.setToolTip("Authentication in progress...")
+                self.set_tooltip("Authentication in progress...")
             else:
-                self._label.setToolTip("Not logged in - some features may be restricted")
+                self.set_tooltip("Not logged in - some features may be restricted")
 
     def connect_signals(self) -> None:
         """Connect to session manager signals."""
         if self._session_manager is None:
             self._session_manager = SessionManager.get_instance()
-
-        self._session_manager.state_changed.connect(self._on_state_changed)
-
         if self._theme_manager is None:
             self._theme_manager = ThemeManager.get_instance()
+
+        self._session_manager.state_changed.connect(self._on_state_changed)
         self._theme_manager.colors_changed.connect(self.update)
 
     def disconnect_signals(self) -> None:
@@ -130,7 +92,6 @@ class AuthStatusPlugin(StatusBarPlugin):
             try:
                 self._session_manager.state_changed.disconnect(self._on_state_changed)
             except RuntimeError:
-                # Already disconnected
                 pass
 
         if self._theme_manager is not None:
@@ -140,12 +101,7 @@ class AuthStatusPlugin(StatusBarPlugin):
                 pass
 
     def _on_state_changed(self, new_state: AuthState, old_state: AuthState) -> None:
-        """Handle auth state change signal.
-
-        Args:
-            new_state: The new auth state.
-            old_state: The previous auth state.
-        """
+        """Handle auth state change signal."""
         self.update()
 
     def get_introspection_data(self) -> dict[str, Any]:
