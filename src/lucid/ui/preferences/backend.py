@@ -140,5 +140,9 @@ class LocalPreferenceBackend(PreferenceBackend):
     def remove(self, key: str) -> None:
         if self._cm is None:
             return
-        self._cm.set(f"preferences.{key}", None, persist=True)
+        if key in BEAMLINE_SPECIFIC_PREFS and self._beamline:
+            config_key = f"preferences.beamlines.{self._beamline}.{key}"
+        else:
+            config_key = f"preferences.{key}"
+        self._cm.set(config_key, None, persist=True)
         self.changed.emit(key, None)

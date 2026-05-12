@@ -103,3 +103,27 @@ def test_local_backend_falls_back_when_no_beamline_override(qapp, config_manager
     config_manager._store["preferences.default_data_dir"] = "/data/global"
     b = LocalPreferenceBackend(config_manager, beamline="7011")
     assert b.get("default_data_dir") == "/data/global"
+
+
+def test_local_backend_remove_clears_beamline_override(qapp, config_manager):
+    """remove() must clear the beamline override for beamline-specific keys
+    so that get() no longer returns the stale override."""
+    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    config_manager._store["preferences.default_data_dir"] = "/data/global"
+    config_manager._store["preferences.beamlines.7011.default_data_dir"] = "/data/7011"
+
+    b = LocalPreferenceBackend(config_manager, beamline="7011")
+    captured: list[tuple] = []
+    b.changed.connect(lambda k, v: captured.append((k, v)))
+
+    b.remove("default_data_dir")
+
+    # Beamline override must be cleared.
+    assert config_manager._store.get(
+        "preferences.beamlines.7011.default_data_dir"
+    ) is None
+    # The signal still fires (key, None).
+    assert captured == [("default_data_dir", None)]
+    # get() must no longer return the stale override; it falls back to
+    # the global value (which we did not clear in this test).
+    assert b.get("default_data_dir") == "/data/global"
