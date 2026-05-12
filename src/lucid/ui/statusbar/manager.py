@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 # Spacing between adjacent status bar entries (pixels). Small enough to
 # read as related items, large enough to distinguish them without a glyph.
-ITEM_SPACING_PX = 12
+ITEM_SPACING_PX = 4
 
 
 class StatusBarManager:
