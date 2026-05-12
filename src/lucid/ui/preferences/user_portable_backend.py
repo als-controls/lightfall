@@ -31,8 +31,6 @@ class UserPortableBackend(PreferenceBackend):
         # Keys for which a set/remove is in flight. refresh() skips
         # these so a slow server response can't clobber a recent write.
         self._inflight: set[str] = set()
-        # Keep refs to futures so GC doesn't kill them mid-flight.
-        self._futures: list[QThreadFuture] = []
 
     # ── Hot-path ────────────────────────────────────────────────────
 
@@ -56,7 +54,6 @@ class UserPortableBackend(PreferenceBackend):
             callback_slot=lambda v: self._on_set_ok(key, v),
             except_slot=lambda e: self._on_set_err(key, e),
         )
-        self._futures.append(f)
         f.start()
 
     def remove(self, key: str) -> None:
@@ -71,7 +68,6 @@ class UserPortableBackend(PreferenceBackend):
             callback_slot=lambda _v: self._on_remove_ok(key),
             except_slot=lambda e: self._on_remove_err(key, e),
         )
-        self._futures.append(f)
         f.start()
 
     def refresh(self) -> None:
@@ -83,7 +79,6 @@ class UserPortableBackend(PreferenceBackend):
             callback_slot=self._on_refresh_ok,
             except_slot=self._on_refresh_err,
         )
-        self._futures.append(f)
         f.start()
 
     # ── Callbacks (GUI thread) ──────────────────────────────────────
