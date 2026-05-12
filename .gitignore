@@ -104,5 +104,9 @@ Thumbs.db
 # Project specific
 src/lucid/_version.py
 
+# Runtime debug output
+logs/
+src/lucid/logs/
+
 # Git worktrees
 .worktrees/
