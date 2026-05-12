@@ -404,6 +404,79 @@ class EngineToolsAgent(AgentPlugin):
 
             return run_on_main_thread(_get)
 
+        @tool(
+            name="ncs_show_run",
+            description=(
+                "Display a Bluesky run by uid in the Visualization panel. "
+                "Opens the panel if it isn't already shown. "
+                "Use ncs_get_last_run or ncs_get_run_history to find a uid."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "uid": {
+                        "type": "string",
+                        "description": "Run uid (start document uid).",
+                    },
+                },
+                "required": ["uid"],
+            },
+        )
+        async def show_run(args: dict) -> dict[str, Any]:
+            from lucid.claude._internal.threading import run_on_main_thread
+
+            uid = args.get("uid")
+            if not uid:
+                return mcp_result(
+                    {"success": False, "error": "uid is required"},
+                    is_error=True,
+                )
+
+            def _show():
+                try:
+                    from lucid.core.services import ServiceRegistry
+                    from lucid.services.tiled_service import TiledService
+                    from lucid.ui.docking import DockingManager
+                    from lucid.ui.panels.visualization_panel import VisualizationPanel
+
+                    service = TiledService.get_instance()
+                    if not service.is_connected or service._client is None:
+                        return mcp_result(
+                            {"success": False, "error": "Tiled service not connected"},
+                            is_error=True,
+                        )
+                    try:
+                        entry = service._client[uid]
+                    except KeyError:
+                        return mcp_result(
+                            {"success": False, "error": f"Run uid {uid!r} not found"},
+                            is_error=True,
+                        )
+
+                    dm = ServiceRegistry.get_instance().get(DockingManager, None)
+                    if dm is None:
+                        return mcp_result(
+                            {"success": False, "error": "DockingManager not available"},
+                            is_error=True,
+                        )
+
+                    viz_panel_id = "lucid.panels.visualization"
+                    dm.show_panel(viz_panel_id)
+                    panel = dm.get_panel(viz_panel_id)
+                    if not isinstance(panel, VisualizationPanel):
+                        return mcp_result(
+                            {"success": False, "error": "Visualization panel unavailable"},
+                            is_error=True,
+                        )
+
+                    panel.open_run(entry)
+                    return mcp_result({"success": True, "uid": uid})
+                except Exception as e:
+                    logger.exception("ncs_show_run failed")
+                    return mcp_result({"success": False, "error": str(e)}, is_error=True)
+
+            return run_on_main_thread(_show)
+
         return [
             get_run_status,
             pause_plan,
@@ -412,4 +485,5 @@ class EngineToolsAgent(AgentPlugin):
             get_run_history,
             get_scan_data,
             get_last_run,
+            show_run,
         ]

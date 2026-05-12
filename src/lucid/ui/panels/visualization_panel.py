@@ -468,3 +468,41 @@ class VisualizationPanel(BasePanel):
                 cls.viz_name for cls in _widget_classes()
             ],
         }
+
+    # ---- Actions ---------------------------------------------------------
+
+    def _get_available_actions(self) -> list[dict[str, Any]]:
+        actions = super()._get_available_actions()
+        actions.append(
+            {
+                "name": "open_run",
+                "description": (
+                    "Display a Bluesky run by uid in this panel. "
+                    "kwargs: uid (str) — start-document uid of the run."
+                ),
+                "method": "open_run",
+                "kwargs": {"uid": "Run uid (start document uid)"},
+            }
+        )
+        return actions
+
+    def invoke_action(self, action_name: str, **kwargs: Any) -> Any:
+        if action_name == "open_run":
+            uid = kwargs.get("uid")
+            if not uid:
+                raise ValueError("open_run requires 'uid'")
+            from lucid.services.tiled_service import TiledService
+
+            service = TiledService.get_instance()
+            client = service._client
+            if client is None or not service.is_connected:
+                raise ValueError("Tiled service is not connected")
+            try:
+                entry = client[uid]
+            except KeyError as e:
+                raise ValueError(
+                    f"Run uid {uid!r} not found in Tiled catalog"
+                ) from e
+            self.open_run(entry)
+            return {"uid": uid}
+        return super().invoke_action(action_name, **kwargs)
