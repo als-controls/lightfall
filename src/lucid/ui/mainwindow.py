@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QMainWindow,
     QStatusBar,
     QWidget,
@@ -30,6 +31,7 @@ from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.preferences import PreferencesDialog, PreferencesManager
 from lucid.ui.statusbar import StatusBarManager
 from lucid.ui.theme import Theme, ThemeManager
+from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
 from lucid.ui.widgets.runengine_control import RunEngineControlWidget
 from lucid.utils.logging import logger
 
@@ -189,9 +191,17 @@ class NCSMainWindow(QMainWindow):
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
-        # Add RunEngine control widget to menubar corner
+        # Compose the menubar-corner: [RunEngine controls | profile avatar]
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(8)
         self._re_control = RunEngineControlWidget()
-        menubar.setCornerWidget(self._re_control, Qt.Corner.TopRightCorner)
+        self._profile_avatar = ProfileAvatarWidget()
+        self._profile_avatar.clicked.connect(self._on_preferences)
+        corner_layout.addWidget(self._re_control)
+        corner_layout.addWidget(self._profile_avatar)
+        menubar.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
     def set_engine(self, engine) -> None:
         """Connect the Engine to the menubar control widget.
@@ -629,6 +639,9 @@ class NCSMainWindow(QMainWindow):
         if hasattr(user, "username") and user.username != "anonymous":
             self._show_login_notification(user)
             self._maybe_suggest_tutorial()
+            # Pull user-portable preferences (e.g. profile_image_id) so the
+            # avatar and any open dialogs render the user's saved values.
+            self._prefs_manager.refresh_user_portable_keys()
 
     def _show_login_notification(self, user: Any) -> None:
         """Show toast with session expiry info.
