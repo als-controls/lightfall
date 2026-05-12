@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -70,6 +71,13 @@ class Plot1DVisualization(BaseVisualization):
         self._x_combo.setMinimumWidth(100)
         self._x_combo.currentTextChanged.connect(self._on_x_changed)
         toolbar.addWidget(self._x_combo)
+
+        self._markers_button = QToolButton()
+        self._markers_button.setText("Markers")
+        self._markers_button.setCheckable(True)
+        self._markers_button.setChecked(True)
+        self._markers_button.toggled.connect(self._on_markers_toggled)
+        toolbar.addWidget(self._markers_button)
 
         toolbar.addStretch()
         return toolbar
@@ -199,6 +207,9 @@ class Plot1DVisualization(BaseVisualization):
     def _on_x_changed(self, _: str) -> None:
         self._replot()
 
+    def _on_markers_toggled(self, _: bool) -> None:
+        self._replot()
+
     def _replot(self) -> None:
         if not self._field_name:
             return
@@ -233,10 +244,15 @@ class Plot1DVisualization(BaseVisualization):
             plot_item.setLabel("bottom", x_field)
             plot_item.setLabel("left", self._field_name)
 
+        markers = self._markers_button.isChecked()
         self._plot_widget.plot(
             x_arr,
             y_arr,
             pen=pg.mkPen(color="#3b82f6", width=2),
+            symbol="o" if markers else None,
+            symbolSize=6,
+            symbolBrush="#3b82f6",
+            symbolPen=pg.mkPen(color="#3b82f6"),
             name=self._field_name,
         )
 
