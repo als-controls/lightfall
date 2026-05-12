@@ -10,27 +10,20 @@ Supports beamline-specific preference overrides where appropriate.
 from __future__ import annotations
 
 import threading
+import weakref
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QByteArray, QObject, QSettings, Signal
+from PySide6.QtCore import QByteArray, QObject, QSettings, Signal, Slot
 
+from lucid.ui.preferences.backend import BEAMLINE_SPECIFIC_PREFS
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QMainWindow
 
     from lucid.config.manager import ConfigManager
-
-
-# Preferences that can have beamline-specific overrides
-BEAMLINE_SPECIFIC_PREFS = {
-    "default_data_dir",
-    "panel_layout",
-    "plot_defaults",
-    "acquisition_defaults",
-    "device_favorites",
-}
 
 # Preferences that are always global (never beamline-specific)
 GLOBAL_ONLY_PREFS = {
@@ -84,6 +77,79 @@ GLOBAL_ONLY_PREFS = {
 }
 
 
+class _Topic(QObject):
+    """Per-key dispatcher for PreferencesManager subscriptions.
+
+    Holds subscribers as weakrefs for bound methods (so they don't pin
+    their owner alive past natural lifetime) and as strong refs for
+    plain functions / lambdas (since lambdas typically have no other
+    caller-held reference). Dispatch happens through a Qt signal so
+    cross-thread emits are auto-marshalled to the topic's thread
+    (the GUI thread).
+    """
+
+    _emit = Signal(object)  # internal — external callers use emit_value()
+
+    def __init__(self, parent: QObject) -> None:
+        super().__init__(parent)
+        # Each entry: (slot_repr, is_weakref)
+        #   - is_weakref=True  → slot_repr is weakref.WeakMethod | weakref.ref
+        #   - is_weakref=False → slot_repr is the strong callable itself
+        self._slots: list[tuple[Any, bool]] = []
+        self._emit.connect(self._dispatch)
+
+    # External API ────────────────────────────────────────────────────
+
+    def emit_value(self, value: Any) -> None:
+        """Emit `value` to all subscribers (queued if cross-thread)."""
+        self._emit.emit(value)
+
+    def add_subscriber(self, slot: Callable[[Any], None]) -> None:
+        """Register `slot`. Bound methods are stored weakly; plain
+        callables strongly."""
+        if hasattr(slot, "__self__") and hasattr(slot, "__func__"):
+            self._slots.append((weakref.WeakMethod(slot), True))
+        else:
+            self._slots.append((slot, False))
+
+    def remove_subscriber(self, slot: Callable[[Any], None]) -> None:
+        """Disconnect `slot`. No-op if not subscribed."""
+        if hasattr(slot, "__self__") and hasattr(slot, "__func__"):
+            target = weakref.WeakMethod(slot)
+            for i, (ref, is_weak) in enumerate(self._slots):
+                if is_weak and ref == target:
+                    del self._slots[i]
+                    return
+        else:
+            for i, (ref, is_weak) in enumerate(self._slots):
+                if not is_weak and ref == slot:
+                    del self._slots[i]
+                    return
+
+    # Internal ────────────────────────────────────────────────────────
+
+    @Slot(object)
+    def _dispatch(self, value: Any) -> None:
+        dead: list[int] = []
+        for i, (ref, is_weak) in enumerate(self._slots):
+            if is_weak:
+                target = ref()
+                if target is None:
+                    dead.append(i)
+                    continue
+            else:
+                target = ref
+            try:
+                target(value)
+            except Exception as exc:
+                logger.warning(
+                    "Preference subscription slot {!r} raised: {}",
+                    target, exc,
+                )
+        for i in reversed(dead):
+            del self._slots[i]
+
+
 class PreferencesManager(QObject):
     """
     Manager for NCS user preferences.
@@ -98,22 +164,20 @@ class PreferencesManager(QObject):
         - default_data_dir
         - panel_layout
         - plot_defaults
+        - acquisition_defaults
+        - device_favorites
 
         These are stored as preferences.beamlines.{name}.{key} and fall
         back to preferences.{key} if no beamline override exists.
-
-    Signals:
-        preference_changed: Emitted when a preference changes (key, value).
 
     Example:
         >>> prefs = PreferencesManager.get_instance()
         >>> prefs.set("theme", "dark")
         >>> prefs.get("theme")
         "dark"
+        >>> prefs.subscribe("theme", on_theme_changed)
         >>> prefs.save_window_state(main_window)
     """
-
-    preference_changed = Signal(str, object)  # key, value
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -123,17 +187,27 @@ class PreferencesManager(QObject):
         config_manager: ConfigManager | None = None,
         beamline: str | None = None,
     ) -> None:
-        """Initialize the preferences manager.
-
-        Args:
-            config_manager: ConfigManager for typed preferences.
-            beamline: Current beamline identifier for beamline-specific prefs.
-        """
+        """Initialize the preferences manager."""
         super().__init__()
         self._config_manager = config_manager
         self._beamline = beamline
 
-        # QSettings for Qt binary state
+        # Backend multiplex: user-portable backend takes precedence for
+        # keys it owns; local backend handles everything else.
+        from lucid.settings.user_settings_client import UserSettingsClient
+        from lucid.ui.preferences.backend import LocalPreferenceBackend
+        from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+
+        self._local = LocalPreferenceBackend(config_manager, beamline)
+        self._user_portable = UserPortableBackend(
+            UserSettingsClient.get_instance()
+        )
+        self._backends: tuple = (self._user_portable, self._local)
+        self._topics: dict[str, _Topic] = {}
+        for b in self._backends:
+            b.changed.connect(self._on_backend_changed)
+
+        # QSettings for Qt binary state (unchanged).
         self._settings = QSettings("ALS", "NCS")
 
         logger.debug("PreferencesManager initialized (beamline={})", beamline)
@@ -156,20 +230,15 @@ class PreferencesManager(QObject):
             cls._instance = None
 
     def set_config_manager(self, config_manager: ConfigManager) -> None:
-        """Set the ConfigManager to use for typed preferences.
-
-        Args:
-            config_manager: The ConfigManager instance.
-        """
+        """Set the ConfigManager used by the local backend."""
         self._config_manager = config_manager
+        # Rebuild the local backend so it uses the new ConfigManager.
+        self._local._cm = config_manager
 
     def set_beamline(self, beamline: str | None) -> None:
-        """Set the current beamline for beamline-specific preferences.
-
-        Args:
-            beamline: Beamline identifier or None for global only.
-        """
+        """Set the current beamline for beamline-specific preferences."""
         self._beamline = beamline
+        self._local.set_beamline(beamline)
         logger.debug("Beamline set to: {}", beamline)
 
     @property
@@ -180,65 +249,58 @@ class PreferencesManager(QObject):
     # Typed preferences (via ConfigManager)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get a preference value.
-
-        For beamline-specific preferences, checks beamline override first.
-
-        Args:
-            key: Preference key.
-            default: Default value if not set.
-
-        Returns:
-            The preference value.
-        """
-        if self._config_manager is None:
-            logger.warning("ConfigManager not set, returning default for {}", key)
-            return default
-
-        # Check if this is a beamline-specific preference
-        if key in BEAMLINE_SPECIFIC_PREFS and self._beamline:
-            beamline_key = f"preferences.beamlines.{self._beamline}.{key}"
-            value = self._config_manager.get(beamline_key)
-            if value is not None:
-                return value
-
-        # Fall back to global preference
-        return self._config_manager.get(f"preferences.{key}", default)
+        """Get a preference value. Dispatches to the owning backend."""
+        return self._backend_for(key).get(key, default)
 
     def set(self, key: str, value: Any, *, persist: bool = True) -> None:
-        """Set a preference value.
-
-        Args:
-            key: Preference key.
-            value: Value to set.
-            persist: If True, save to user config file.
-        """
-        if self._config_manager is None:
-            logger.warning("ConfigManager not set, cannot set {}", key)
-            return
-
-        # Determine the config key
-        if key in BEAMLINE_SPECIFIC_PREFS and self._beamline:
-            config_key = f"preferences.beamlines.{self._beamline}.{key}"
-        else:
-            config_key = f"preferences.{key}"
-
-        self._config_manager.set(config_key, value, persist=persist)
-        self.preference_changed.emit(key, value)
+        """Set a preference value. Dispatches to the owning backend.
+        `persist` retained for back-compat; user-portable backend ignores it."""
+        self._backend_for(key).set(key, value)
         logger.debug("Preference set: {} = {}", key, value)
 
     def remove(self, key: str) -> None:
-        """Remove a preference (revert to default).
+        """Remove a preference. Dispatches to the owning backend."""
+        self._backend_for(key).remove(key)
 
-        Args:
-            key: Preference key to remove.
-        """
-        if self._config_manager is None:
-            return
+    def subscribe(self, key: str, slot: Callable[[Any], None]) -> None:
+        """Subscribe `slot(value)` to changes for this specific `key` only.
 
-        config_key = f"preferences.{key}"
-        self._config_manager.set(config_key, None, persist=True)
-        self.preference_changed.emit(key, None)
+        Bound-method slots are held with a weakref — the subscription
+        auto-clears when the owner is garbage-collected. Plain functions
+        / lambdas are held with a strong reference (callers must keep
+        their own ref if they need to unsubscribe later).
+
+        Call from the GUI thread; slot is invoked on the GUI thread."""
+        topic = self._topics.get(key)
+        if topic is None:
+            topic = _Topic(self)
+            self._topics[key] = topic
+        topic.add_subscriber(slot)
+
+    def unsubscribe(self, key: str, slot: Callable[[Any], None]) -> None:
+        """Disconnect a previously-subscribed slot. No-op if not subscribed."""
+        topic = self._topics.get(key)
+        if topic is not None:
+            topic.remove_subscriber(slot)
+
+    def refresh_user_portable_keys(self) -> None:
+        """Trigger an async pull of all user-portable keys from the backend.
+        Subscribed slots fire for each key whose value moved."""
+        self._user_portable.refresh()
+
+    def _backend_for(self, key: str):
+        """Pick the backend that owns `key` (user-portable wins)."""
+        for b in self._backends:
+            if b.owns(key):
+                return b
+        return self._local
+
+    @Slot(str, object)
+    def _on_backend_changed(self, key: str, value: Any) -> None:
+        """Route a backend's per-key change to the matching topic."""
+        topic = self._topics.get(key)
+        if topic is not None:
+            topic.emit_value(value)
 
     # Recent files management
 

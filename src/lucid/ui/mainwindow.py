@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QMainWindow,
     QStatusBar,
     QWidget,
@@ -30,6 +31,7 @@ from lucid.ui.panels.registry import PanelRegistry
 from lucid.ui.preferences import PreferencesDialog, PreferencesManager
 from lucid.ui.statusbar import StatusBarManager
 from lucid.ui.theme import Theme, ThemeManager
+from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
 from lucid.ui.widgets.runengine_control import RunEngineControlWidget
 from lucid.utils.logging import logger
 
@@ -189,9 +191,17 @@ class NCSMainWindow(QMainWindow):
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
-        # Add RunEngine control widget to menubar corner
+        # Compose the menubar-corner: [RunEngine controls | profile avatar]
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(8)
         self._re_control = RunEngineControlWidget()
-        menubar.setCornerWidget(self._re_control, Qt.Corner.TopRightCorner)
+        self._profile_avatar = ProfileAvatarWidget()
+        self._profile_avatar.clicked.connect(self._on_preferences)
+        corner_layout.addWidget(self._re_control)
+        corner_layout.addWidget(self._profile_avatar)
+        menubar.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
     def set_engine(self, engine) -> None:
         """Connect the Engine to the menubar control widget.
@@ -249,7 +259,7 @@ class NCSMainWindow(QMainWindow):
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
         # Preferences signals
-        self._prefs_manager.preference_changed.connect(self._on_preference_changed)
+        self._prefs_manager.subscribe("theme", self._on_pref_theme_changed)
 
         # Panel registry signals (for View > Panels menu updates)
         self._panel_registry.panel_registered.connect(self._on_panel_registered)
@@ -557,13 +567,23 @@ class NCSMainWindow(QMainWindow):
         """Apply current theme to the window."""
         self._theme_manager.apply_to_application()
 
+        # Push the same theme into pyqtgraph: globals (background, foreground,
+        # axis/tick/grid colors) via setConfigOption, and live themed items
+        # (PlotDataItem / ScatterPlotItem / InfiniteLine from
+        # lucid.visualization.pg) via the wrapper's retheme_all().
+        from lucid.visualization import pg as themed_pg
+        from lucid.visualization.theme import apply_pyqtgraph_theme
+
+        apply_pyqtgraph_theme(is_dark=self._theme_manager.is_dark)
+        themed_pg.retheme_all()
+
     def _set_theme(self, theme: Theme, *, save_preference: bool = True) -> None:
         """Set the application theme.
 
         Args:
             theme: Theme to apply.
             save_preference: If True, persist the theme to preferences.
-                Set to False when called from preference_changed handler
+                Set to False when called from a preference subscription handler
                 to avoid infinite recursion.
         """
         self._theme_manager.set_theme(theme)
@@ -629,6 +649,9 @@ class NCSMainWindow(QMainWindow):
         if hasattr(user, "username") and user.username != "anonymous":
             self._show_login_notification(user)
             self._maybe_suggest_tutorial()
+            # Pull user-portable preferences (e.g. profile_image_id) so the
+            # avatar and any open dialogs render the user's saved values.
+            self._prefs_manager.refresh_user_portable_keys()
 
     def _show_login_notification(self, user: Any) -> None:
         """Show toast with session expiry info.
@@ -718,12 +741,11 @@ class NCSMainWindow(QMainWindow):
         """Handle theme change."""
         self._apply_theme()
 
-    @Slot(str, object)
-    def _on_preference_changed(self, key: str, value: Any) -> None:
-        """Handle preference change."""
-        if key == "theme":
-            # Use string-based API to support plugin themes
-            self._theme_manager.set_theme_by_name(str(value))
+    @Slot(object)
+    def _on_pref_theme_changed(self, value: Any) -> None:
+        """Handle theme preference changes."""
+        # Use string-based API to support plugin themes
+        self._theme_manager.set_theme_by_name(str(value))
 
     @Slot(str, object)
     def _on_panel_registered(self, panel_id: str, metadata: Any) -> None:
