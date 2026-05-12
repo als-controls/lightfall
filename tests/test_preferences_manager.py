@@ -9,14 +9,6 @@ from PySide6.QtCore import QCoreApplication
 
 
 @pytest.fixture
-def qapp():
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
-
-
-@pytest.fixture
 def config_manager():
     cm = MagicMock()
     cm._store: dict = {}

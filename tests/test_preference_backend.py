@@ -4,15 +4,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QCoreApplication
-
-
-@pytest.fixture
-def qapp():
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
 
 
 @pytest.fixture

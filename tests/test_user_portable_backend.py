@@ -13,14 +13,6 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtTest import QSignalSpy
 
 
-@pytest.fixture
-def qapp():
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
-
-
 def _wait_for_spy(spy: QSignalSpy, expected_count: int, timeout_ms: int = 2000) -> None:
     """Pump the event loop until spy has at least `expected_count` items
     or `timeout_ms` elapses. Raises AssertionError on timeout."""

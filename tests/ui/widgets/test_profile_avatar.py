@@ -6,16 +6,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication
-
-
-@pytest.fixture
-def qapp():
-    """ProfileAvatarWidget is a QWidget — need a full QApplication."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
 
 
 @pytest.fixture(autouse=True)

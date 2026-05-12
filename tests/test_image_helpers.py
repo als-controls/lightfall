@@ -4,16 +4,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QImage
-
-
-@pytest.fixture
-def qapp():
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
 
 
 def test_fetch_qimage_returns_qimage_for_png_bytes(qapp):
