@@ -191,8 +191,13 @@ class NCSMainWindow(QMainWindow):
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
-        # Compose the menubar-corner: [RunEngine controls | profile avatar]
-        corner = QWidget()
+        # Compose the menubar-corner: [RunEngine controls | profile avatar].
+        # Parent corner to the menubar up-front so PySide6 ownership tracks
+        # correctly: setCornerWidget alone doesn't always transfer ownership
+        # from "Python-owned" to "Qt-owned", and the local `corner` going out
+        # of scope at the end of this method would otherwise destroy the C++
+        # object (and its children, including the SpinnerIndicator QTimer).
+        corner = QWidget(menubar)
         corner_layout = QHBoxLayout(corner)
         corner_layout.setContentsMargins(0, 0, 0, 0)
         corner_layout.setSpacing(8)
