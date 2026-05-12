@@ -17,13 +17,13 @@ if TYPE_CHECKING:
     from lucid.config.manager import ConfigManager
 
 
-# Beamline-specific preference keys. Kept in sync with manager.py's
-# BEAMLINE_SPECIFIC_PREFS — Task 4 removes the duplicate set in manager.py
-# and has it import from here.
+# Beamline-specific preference keys. Single source of truth — manager.py imports this set.
 BEAMLINE_SPECIFIC_PREFS: frozenset[str] = frozenset({
     "default_data_dir",
     "panel_layout",
     "plot_defaults",
+    "acquisition_defaults",
+    "device_favorites",
 })
 
 

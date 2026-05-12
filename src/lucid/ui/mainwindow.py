@@ -249,7 +249,7 @@ class NCSMainWindow(QMainWindow):
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
         # Preferences signals
-        self._prefs_manager.preference_changed.connect(self._on_preference_changed)
+        self._prefs_manager.subscribe("theme", self._on_pref_theme_changed)
 
         # Panel registry signals (for View > Panels menu updates)
         self._panel_registry.panel_registered.connect(self._on_panel_registered)
@@ -563,7 +563,7 @@ class NCSMainWindow(QMainWindow):
         Args:
             theme: Theme to apply.
             save_preference: If True, persist the theme to preferences.
-                Set to False when called from preference_changed handler
+                Set to False when called from a preference subscription handler
                 to avoid infinite recursion.
         """
         self._theme_manager.set_theme(theme)
@@ -718,12 +718,11 @@ class NCSMainWindow(QMainWindow):
         """Handle theme change."""
         self._apply_theme()
 
-    @Slot(str, object)
-    def _on_preference_changed(self, key: str, value: Any) -> None:
-        """Handle preference change."""
-        if key == "theme":
-            # Use string-based API to support plugin themes
-            self._theme_manager.set_theme_by_name(str(value))
+    @Slot(object)
+    def _on_pref_theme_changed(self, value: Any) -> None:
+        """Handle theme preference changes."""
+        # Use string-based API to support plugin themes
+        self._theme_manager.set_theme_by_name(str(value))
 
     @Slot(str, object)
     def _on_panel_registered(self, panel_id: str, metadata: Any) -> None:
