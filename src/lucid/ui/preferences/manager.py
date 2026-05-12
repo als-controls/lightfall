@@ -10,6 +10,7 @@ Supports beamline-specific preference overrides where appropriate.
 from __future__ import annotations
 
 import threading
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -77,9 +78,76 @@ GLOBAL_ONLY_PREFS = {
 
 
 class _Topic(QObject):
-    """One signal per subscribed preference key. Created lazily."""
+    """Per-key dispatcher for PreferencesManager subscriptions.
 
-    changed = Signal(object)  # value (None on removal)
+    Holds subscribers as weakrefs for bound methods (so they don't pin
+    their owner alive past natural lifetime) and as strong refs for
+    plain functions / lambdas (since lambdas typically have no other
+    caller-held reference). Dispatch happens through a Qt signal so
+    cross-thread emits are auto-marshalled to the topic's thread
+    (the GUI thread).
+    """
+
+    _emit = Signal(object)  # internal — external callers use emit_value()
+
+    def __init__(self, parent: QObject) -> None:
+        super().__init__(parent)
+        # Each entry: (slot_repr, is_weakref)
+        #   - is_weakref=True  → slot_repr is weakref.WeakMethod | weakref.ref
+        #   - is_weakref=False → slot_repr is the strong callable itself
+        self._slots: list[tuple[Any, bool]] = []
+        self._emit.connect(self._dispatch)
+
+    # External API ────────────────────────────────────────────────────
+
+    def emit_value(self, value: Any) -> None:
+        """Emit `value` to all subscribers (queued if cross-thread)."""
+        self._emit.emit(value)
+
+    def add_subscriber(self, slot: Callable[[Any], None]) -> None:
+        """Register `slot`. Bound methods are stored weakly; plain
+        callables strongly."""
+        if hasattr(slot, "__self__") and hasattr(slot, "__func__"):
+            self._slots.append((weakref.WeakMethod(slot), True))
+        else:
+            self._slots.append((slot, False))
+
+    def remove_subscriber(self, slot: Callable[[Any], None]) -> None:
+        """Disconnect `slot`. No-op if not subscribed."""
+        if hasattr(slot, "__self__") and hasattr(slot, "__func__"):
+            target = weakref.WeakMethod(slot)
+            for i, (ref, is_weak) in enumerate(self._slots):
+                if is_weak and ref == target:
+                    del self._slots[i]
+                    return
+        else:
+            for i, (ref, is_weak) in enumerate(self._slots):
+                if not is_weak and ref == slot:
+                    del self._slots[i]
+                    return
+
+    # Internal ────────────────────────────────────────────────────────
+
+    @Slot(object)
+    def _dispatch(self, value: Any) -> None:
+        dead: list[int] = []
+        for i, (ref, is_weak) in enumerate(self._slots):
+            if is_weak:
+                target = ref()
+                if target is None:
+                    dead.append(i)
+                    continue
+            else:
+                target = ref
+            try:
+                target(value)
+            except Exception as exc:
+                logger.warning(
+                    "Preference subscription slot {!r} raised: {}",
+                    target, exc,
+                )
+        for i in reversed(dead):
+            del self._slots[i]
 
 
 class PreferencesManager(QObject):
@@ -197,24 +265,23 @@ class PreferencesManager(QObject):
     def subscribe(self, key: str, slot: Callable[[Any], None]) -> None:
         """Subscribe `slot(value)` to changes for this specific `key` only.
 
-        Connect/disconnect from the GUI thread; slot is delivered on the
-        GUI thread regardless of which thread emitted the change.
-        """
+        Bound-method slots are held with a weakref — the subscription
+        auto-clears when the owner is garbage-collected. Plain functions
+        / lambdas are held with a strong reference (callers must keep
+        their own ref if they need to unsubscribe later).
+
+        Call from the GUI thread; slot is invoked on the GUI thread."""
         topic = self._topics.get(key)
         if topic is None:
             topic = _Topic(self)
             self._topics[key] = topic
-        topic.changed.connect(slot)
+        topic.add_subscriber(slot)
 
     def unsubscribe(self, key: str, slot: Callable[[Any], None]) -> None:
         """Disconnect a previously-subscribed slot. No-op if not subscribed."""
         topic = self._topics.get(key)
-        if topic is None:
-            return
-        try:
-            topic.changed.disconnect(slot)
-        except (TypeError, RuntimeError):
-            pass  # slot wasn't connected — treat as no-op
+        if topic is not None:
+            topic.remove_subscriber(slot)
 
     def refresh_user_portable_keys(self) -> None:
         """Trigger an async pull of all user-portable keys from the backend.
@@ -233,7 +300,7 @@ class PreferencesManager(QObject):
         """Route a backend's per-key change to the matching topic."""
         topic = self._topics.get(key)
         if topic is not None:
-            topic.changed.emit(value)
+            topic.emit_value(value)
 
     # Recent files management
 

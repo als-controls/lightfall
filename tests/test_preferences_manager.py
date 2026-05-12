@@ -135,3 +135,84 @@ def test_refresh_user_portable_keys_calls_backend_refresh(qapp, prefs_manager, _
 
     assert received == ["img-7"]
     assert prefs_manager.get("profile_image_id") == "img-7"
+
+
+def test_bound_method_subscriber_auto_freed_when_owner_gc(prefs_manager):
+    """A bound-method subscriber should not keep its owner alive."""
+    import gc
+    import weakref
+
+    class Receiver:
+        def __init__(self):
+            self.received: list = []
+
+        def on_change(self, value):
+            self.received.append(value)
+
+    r = Receiver()
+    wref = weakref.ref(r)
+    prefs_manager.subscribe("theme", r.on_change)
+
+    # Sanity: first emit reaches the receiver.
+    prefs_manager.set("theme", "dark")
+    _flush()
+    assert r.received == ["dark"]
+
+    # Drop the strong ref + force GC.
+    del r
+    gc.collect()
+    assert wref() is None, "Receiver was held alive by subscription"
+
+    # Subsequent emits must not crash and must not keep growing the topic.
+    prefs_manager.set("theme", "ev")
+    _flush()
+    topic = prefs_manager._topics["theme"]
+    # _Topic prunes dead weakrefs on dispatch — should be empty now.
+    assert len(topic._slots) == 0
+
+
+def test_slot_exception_does_not_block_other_subscribers(prefs_manager):
+    """If one slot raises, other subscribers still receive the value."""
+    received_after_failing: list = []
+
+    def failing_slot(value):
+        raise RuntimeError("boom")
+
+    prefs_manager.subscribe("theme", failing_slot)
+    prefs_manager.subscribe("theme", received_after_failing.append)
+
+    prefs_manager.set("theme", "dark")
+    _flush()
+
+    assert received_after_failing == ["dark"]
+
+
+def test_lambda_subscriber_held_strongly(prefs_manager):
+    """Lambdas have no caller-held reference; the manager must hold them."""
+    received: list = []
+    prefs_manager.subscribe("theme", lambda v: received.append(v))
+    # No local reference to the lambda — would be GC'd if held weakly.
+
+    prefs_manager.set("theme", "dark")
+    _flush()
+
+    assert received == ["dark"]
+
+
+def test_unsubscribe_with_bound_method(qapp, prefs_manager):
+    """unsubscribe on a bound method removes the right entry."""
+    class Receiver:
+        def __init__(self):
+            self.received: list = []
+
+        def on_change(self, value):
+            self.received.append(value)
+
+    r = Receiver()
+    prefs_manager.subscribe("theme", r.on_change)
+    prefs_manager.unsubscribe("theme", r.on_change)
+
+    prefs_manager.set("theme", "dark")
+    _flush()
+
+    assert r.received == []
