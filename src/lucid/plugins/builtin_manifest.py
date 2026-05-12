@@ -38,6 +38,24 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.theme.builtin:IslandsThemePlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="theme",
+            name="catppuccin_mocha",
+            import_path="lucid.ui.theme.builtin:CatppuccinMochaThemePlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="theme",
+            name="eldritch",
+            import_path="lucid.ui.theme.builtin:EldritchThemePlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="theme",
+            name="evangelion",
+            import_path="lucid.ui.theme.builtin:EvangelionThemePlugin",
+            preload=True,
+        ),
         # Appearance settings - preload to apply theme before window
         PluginEntry(
             type_name="settings",
