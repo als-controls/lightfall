@@ -15,6 +15,26 @@ from lucid.auth.httpx_auth import SessionAuth
 from lucid.logbook.url import get_logbook_base_url
 from lucid.utils.logging import logger
 
+try:
+    from socksio.exceptions import SOCKSError as _SOCKSError
+except ImportError:  # pragma: no cover
+    class _SOCKSError(Exception):  # type: ignore[no-redef]
+        """Stand-in so the except clauses still parse if socksio isn't installed."""
+
+# Transport-level errors that httpx/httpcore don't always wrap.
+# A wedged SOCKS tunnel raises socksio.SOCKSError ("Malformed reply") straight
+# through the call stack instead of as httpx.ProxyError, so we catch both.
+_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (httpx.HTTPError, _SOCKSError)
+
+
+def _format_transport_error(operation: str, exc: BaseException) -> str:
+    if isinstance(exc, (_SOCKSError, httpx.ProxyError)):
+        return (
+            f"{operation} failed: proxy error ({exc}). "
+            f"Check that the SSH tunnel on localhost:1080 is healthy."
+        )
+    return f"{operation} failed: {exc}"
+
 
 _DEFAULT_TIMEOUT = 10.0
 
@@ -29,20 +49,37 @@ class UserSettingsClient:
     _instance: "UserSettingsClient | None" = None
     _lock = threading.Lock()
 
-    def __init__(self, base_url: str) -> None:
-        self._base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str | None = None) -> None:
+        # base_url=None means "resolve from prefs at call time". This matters
+        # because UserSettingsClient is constructed during PreferencesManager
+        # bootstrap (manager.py: UserPortableBackend(UserSettingsClient.get_instance())),
+        # so a pref read at __init__ time recurses back through a half-built
+        # PreferencesManager and silently falls back to DEFAULT_LOGBOOK_URL.
+        self._explicit_base_url: str | None = (
+            base_url.rstrip("/") if base_url else None
+        )
         self._auth = SessionAuth()
+
+    @property
+    def _base_url(self) -> str:
+        if self._explicit_base_url is not None:
+            return self._explicit_base_url
+        return get_logbook_base_url().rstrip("/")
 
     # ── Singleton plumbing ───────────────────────────────────────────────
 
     @classmethod
     def init(cls, base_url: str | None = None) -> None:
-        """Initialize the singleton. base_url=None falls back to
-        get_logbook_base_url()."""
-        url = base_url or get_logbook_base_url()
+        """Initialize the singleton. base_url=None defers URL resolution
+        to each request, so the user's logbook_url preference is picked up
+        even when this client is constructed before PreferencesManager is
+        fully initialised."""
         with cls._lock:
-            cls._instance = cls(url)
-        logger.info("UserSettingsClient initialised (base_url={})", url)
+            cls._instance = cls(base_url)
+        logger.info(
+            "UserSettingsClient initialised (base_url={})",
+            base_url or "<lazy from prefs>",
+        )
 
     @classmethod
     def get_instance(cls) -> "UserSettingsClient":
@@ -98,7 +135,7 @@ class UserSettingsClient:
                 return default
             r.raise_for_status()
             return r.json()["value"]
-        except (httpx.HTTPError, KeyError) as e:
+        except (*_TRANSPORT_ERRORS, KeyError) as e:
             logger.debug("UserSettingsClient.get({!r}) failed: {}", key, e)
             return default
 
@@ -114,7 +151,7 @@ class UserSettingsClient:
                 )
             r.raise_for_status()
             return r.json()
-        except httpx.HTTPError as e:
+        except _TRANSPORT_ERRORS as e:
             logger.debug("UserSettingsClient.get_all failed: {}", e)
             return {}
 
@@ -133,9 +170,9 @@ class UserSettingsClient:
             with self._client() as c:
                 r = c.put(f"/logbook/settings/{key}", json=body)
             r.raise_for_status()
-        except httpx.HTTPError as e:
+        except _TRANSPORT_ERRORS as e:
             raise UserSettingsError(
-                f"Failed to set setting {key!r}: {e}"
+                _format_transport_error(f"Set setting {key!r}", e)
             ) from e
 
     def delete(self, key: str, *, beamline: str | None = None) -> None:
@@ -150,9 +187,9 @@ class UserSettingsClient:
             if r.status_code == 404:
                 return  # already gone, treat as success
             r.raise_for_status()
-        except httpx.HTTPError as e:
+        except _TRANSPORT_ERRORS as e:
             raise UserSettingsError(
-                f"Failed to delete setting {key!r}: {e}"
+                _format_transport_error(f"Delete setting {key!r}", e)
             ) from e
 
     # ── Image helpers ────────────────────────────────────────────────────
@@ -167,8 +204,12 @@ class UserSettingsClient:
                 )
             r.raise_for_status()
             return r.json()["image_id"]
-        except (httpx.HTTPError, KeyError) as e:
-            raise UserSettingsError(f"Image upload failed: {e}") from e
+        except KeyError as e:
+            raise UserSettingsError(
+                f"Image upload failed: malformed response (missing {e})"
+            ) from e
+        except _TRANSPORT_ERRORS as e:
+            raise UserSettingsError(_format_transport_error("Image upload", e)) from e
 
     def download_image(self, image_id: str) -> tuple[bytes, str]:
         """GET /logbook/images/{id}; return (bytes, content_type).
@@ -180,9 +221,9 @@ class UserSettingsClient:
                 r = c.get(f"/logbook/images/{image_id}")
             r.raise_for_status()
             return r.content, r.headers.get("content-type", "")
-        except httpx.HTTPError as e:
+        except _TRANSPORT_ERRORS as e:
             raise UserSettingsError(
-                f"Image download failed for {image_id!r}: {e}"
+                _format_transport_error(f"Image download for {image_id!r}", e)
             ) from e
 
     def image_url(self, image_id: str) -> str:
