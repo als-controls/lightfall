@@ -127,19 +127,28 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     # ── Lifecycle (noop bodies for now; later tasks fill in) ─────────────
 
     def load_settings(self) -> None:
-        """Fetch the current profile_image_id and render the avatar."""
+        """Render the current avatar from PreferencesManager's cache;
+        subscribe for live updates so a change elsewhere re-renders this dialog."""
+        from lucid.ui.preferences.manager import PreferencesManager
+
+        prefs = PreferencesManager.get_instance()
+        prefs.subscribe("profile_image_id", self._on_image_id_changed)
+        image_id = prefs.get("profile_image_id", default=None)
+        self._on_image_id_changed(image_id)
+
+    def _on_image_id_changed(self, image_id: str | None) -> None:
+        """Called both at dialog open and on any future prefs change."""
         from lucid.settings.user_settings_client import UserSettingsClient
         from lucid.utils.threads import QThreadFuture
 
-        client = UserSettingsClient.get_instance()
-        image_id = client.get("profile_image_id", default=None)
         if not image_id:
             self._set_placeholder_avatar()
             self._loaded_image_id = None
             return
+        if image_id == self._loaded_image_id:
+            return
 
-        # Fetch the bytes on a worker thread, decode to QImage there,
-        # then convert to QPixmap on the GUI thread (signal slot).
+        client = UserSettingsClient.get_instance()
         self._load_future = QThreadFuture(
             _fetch_qimage,
             client,
@@ -224,25 +233,27 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         self._upload_and_set(data, mime)
 
     def _upload_and_set(self, data: bytes, mime: str) -> None:
-        """Upload image, set profile_image_id, refresh avatar."""
+        """Upload image blob; route the key/value write through PreferencesManager."""
         from PySide6.QtWidgets import QMessageBox
 
         from lucid.settings.user_settings_client import (
             UserSettingsClient,
             UserSettingsError,
         )
+        from lucid.ui.preferences.manager import PreferencesManager
         from lucid.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
 
         def work():
-            image_id = client.upload_image(data, mime)
-            client.set("profile_image_id", image_id)
-            return image_id
+            # Blob upload stays direct on the client.
+            return client.upload_image(data, mime)
 
         def on_ok(image_id: str):
-            # Re-trigger load to pull and display the new image.
-            self.load_settings()
+            # Route the key/value write through PreferencesManager so that
+            # observers (this dialog's subscription, the toolbar avatar) get
+            # notified.
+            PreferencesManager.get_instance().set("profile_image_id", image_id)
 
         def on_err(exc: BaseException):
             logger.warning("Profile image upload failed: {}", exc)
@@ -262,31 +273,17 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def _on_remove_clicked(self) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.settings.user_settings_client import UserSettingsClient
-        from lucid.utils.threads import QThreadFuture
+        from lucid.ui.preferences.manager import PreferencesManager
 
-        client = UserSettingsClient.get_instance()
-
-        def work():
-            client.delete("profile_image_id")
-
-        def on_ok(_):
-            self.load_settings()
-
-        def on_err(exc):
+        try:
+            PreferencesManager.get_instance().remove("profile_image_id")
+        except Exception as exc:
             logger.warning("Profile image removal failed: {}", exc)
             QMessageBox.warning(
                 self._widget,
                 "Remove failed",
                 f"Could not remove profile image: {exc}",
             )
-
-        self._remove_future = QThreadFuture(
-            work,
-            callback_slot=on_ok,
-            except_slot=on_err,
-        )
-        self._remove_future.start()
 
     # ── Helpers ──────────────────────────────────────────────────────────
 

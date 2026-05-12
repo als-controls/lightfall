@@ -2,14 +2,15 @@
 """UI-side tests for UserProfileSettingsPlugin.
 
 Uses pytest-qt's qtbot fixture and a stubbed Session so the widget can be
-constructed without a real auth backend. UserSettingsClient calls are
-intercepted via the singleton's reset/init pattern + httpx_mock.
+constructed without a real auth backend. Key/value operations are tested
+against PreferencesManager; the blob (upload/download) path still hits the
+mocked UserSettingsClient directly.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,12 +29,31 @@ class _StubSession:
 
 
 @pytest.fixture(autouse=True)
-def _reset_settings_client():
-    from lucid.settings.user_settings_client import UserSettingsClient
-    UserSettingsClient.reset()
-    UserSettingsClient.init(base_url="https://lb.test")
-    yield
-    UserSettingsClient.reset()
+def _reset_prefs(monkeypatch):
+    """Patch UserSettingsClient.get_instance() and set up a real
+    PreferencesManager backed by a mock ConfigManager."""
+    from lucid.settings import user_settings_client as usc_mod
+    from lucid.ui.preferences.manager import PreferencesManager
+
+    fake_client = MagicMock()
+    fake_client.set.return_value = None
+    fake_client.delete.return_value = None
+    fake_client.get_all.return_value = {}
+    monkeypatch.setattr(
+        usc_mod.UserSettingsClient,
+        "get_instance",
+        classmethod(lambda cls: fake_client),
+    )
+
+    cm = MagicMock()
+    cm._store: dict = {}
+    cm.get.side_effect = lambda k, default=None: cm._store.get(k, default)
+    cm.set.side_effect = lambda k, v, persist=True: cm._store.__setitem__(k, v)
+
+    PreferencesManager.reset()
+    PreferencesManager._instance = PreferencesManager(config_manager=cm)
+    yield fake_client
+    PreferencesManager.reset()
 
 
 @pytest.fixture
@@ -113,13 +133,9 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
     assert "0000-0001-2345-6789" in label_text
 
 
-def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session, httpx_mock):
-    """When no profile_image_id is set, load_settings leaves placeholder."""
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
-        status_code=404,
-    )
-
+def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session):
+    """When no profile_image_id is in prefs, load_settings leaves placeholder."""
+    # _reset_prefs leaves the cache empty → get("profile_image_id") returns None
     from lucid.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
@@ -127,44 +143,33 @@ def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session, httpx_moc
     w = p.create_widget()
     qtbot.addWidget(w)
     p.load_settings()
-    # Spin the event loop briefly to let the worker thread finish (or be
-    # absent if no image_id).
     qtbot.wait(100)
-    # Placeholder pixmap exists, label is not empty
     assert p._avatar_label is not None
     assert not p._avatar_label.pixmap().isNull()
 
 
 def test_load_settings_with_image_fetches_bytes(
-    qtbot, stub_session, httpx_mock, monkeypatch
+    qtbot, stub_session, _reset_prefs
 ):
-    """When an image_id is set, the bytes are fetched and rendered."""
+    """When an image_id is in prefs cache, the bytes are fetched and rendered."""
+    fake_client = _reset_prefs
     image_bytes = _png_bytes_1x1_red()
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
-        json={
-            "user_id": "rpandolfi",
-            "beamline": "",
-            "key": "profile_image_id",
-            "value": "img-1",
-            "updated_at": "2026-04-30T00:00:00+00:00",
-        },
-    )
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/images/img-1",
-        content=image_bytes,
-        headers={"content-type": "image/png"},
-    )
+    fake_client.download_image.return_value = (image_bytes, "image/png")
 
+    from lucid.ui.preferences.manager import PreferencesManager
     from lucid.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
+
+    # Seed the cache directly so get() returns the id without HTTP
+    prefs = PreferencesManager.get_instance()
+    prefs._user_portable._cache["profile_image_id"] = "img-1"
+
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
     p.load_settings()
 
-    # Wait for the worker thread to deliver the QImage to the GUI
     qtbot.waitUntil(
         lambda: p._loaded_image_id == "img-1",
         timeout=5000,
@@ -177,53 +182,24 @@ MAX_BYTES = 20 * 1024 * 1024
 
 
 def test_choose_image_happy_path(
-    qtbot, stub_session, httpx_mock, tmp_path, monkeypatch
+    qtbot, stub_session, _reset_prefs, tmp_path, monkeypatch
 ):
-    """Selecting a small valid PNG uploads it and writes profile_image_id."""
+    """Selecting a small valid PNG uploads it, writes profile_image_id via
+    PreferencesManager, and the subscription re-renders the avatar."""
+    fake_client = _reset_prefs
+    png_bytes = _png_bytes_1x1_red()
     png_path = tmp_path / "me.png"
-    png_path.write_bytes(_png_bytes_1x1_red())
+    png_path.write_bytes(png_bytes)
 
-    # Patch QFileDialog to return the prepared path
+    # upload_image returns the new image id; download_image returns the bytes
+    fake_client.upload_image.return_value = "new-id"
+    fake_client.download_image.return_value = (png_bytes, "image/png")
+
     from PySide6.QtWidgets import QFileDialog
     monkeypatch.setattr(
         QFileDialog,
         "getOpenFileName",
         staticmethod(lambda *a, **kw: (str(png_path), "Images (*.png *.jpg *.gif)")),
-    )
-
-    httpx_mock.add_response(
-        method="POST",
-        url="https://lb.test/logbook/images",
-        json={"image_id": "new-id", "mime_type": "image/png", "size_bytes": len(_png_bytes_1x1_red())},
-        status_code=201,
-    )
-    httpx_mock.add_response(
-        method="PUT",
-        url="https://lb.test/logbook/settings/profile_image_id",
-        match_json={"value": "new-id", "beamline": ""},
-        json={
-            "user_id": "rpandolfi",
-            "beamline": "",
-            "key": "profile_image_id",
-            "value": "new-id",
-            "updated_at": "2026-04-30T00:00:00+00:00",
-        },
-    )
-    # load_settings() after upload will GET profile_image_id then GET the image bytes
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
-        json={
-            "user_id": "rpandolfi",
-            "beamline": "",
-            "key": "profile_image_id",
-            "value": "new-id",
-            "updated_at": "2026-04-30T00:00:00+00:00",
-        },
-    )
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/images/new-id",
-        content=_png_bytes_1x1_red(),
-        headers={"content-type": "image/png"},
     )
 
     from lucid.ui.preferences.user_profile_settings import (
@@ -232,7 +208,12 @@ def test_choose_image_happy_path(
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
+    p.load_settings()  # subscribe so the prefs change triggers re-render
     p._on_choose_clicked()
+
+    # The full chain: upload → PreferencesManager.set → UserPortableBackend
+    # worker → client.set succeeds → changed signal → _on_image_id_changed →
+    # download worker → _on_image_ready → _loaded_image_id == "new-id"
     qtbot.waitUntil(lambda: p._loaded_image_id == "new-id", timeout=5000)
 
 
@@ -296,27 +277,28 @@ def test_choose_image_rejects_unknown_mime(
     assert shown
 
 
-def test_remove_image_clears_setting(qtbot, stub_session, httpx_mock):
-    httpx_mock.add_response(
-        method="DELETE",
-        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
-        status_code=204,
-    )
-    # After delete, load_settings does a GET that 404s → placeholder
-    httpx_mock.add_response(
-        url="https://lb.test/logbook/settings/profile_image_id?beamline=",
-        status_code=404,
-    )
-
+def test_remove_image_clears_setting(qtbot, stub_session):
+    """Clicking Remove routes through PreferencesManager.remove; the
+    subscription callback clears _loaded_image_id."""
+    from lucid.ui.preferences.manager import PreferencesManager
     from lucid.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
+
+    # Pre-seed the cache so the plugin thinks an image is loaded
+    prefs = PreferencesManager.get_instance()
+    prefs._user_portable._cache["profile_image_id"] = "old"
+
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    # Pretend an image was loaded
+    p.load_settings()  # subscribe; _on_image_id_changed("old") → starts fetch
+    # Skip waiting for the image fetch; just force the loaded state directly
     p._loaded_image_id = "old"
+
     p._on_remove_clicked()
+    # UserPortableBackend.remove fires a worker → client.delete → on_ok →
+    # cache.pop → changed(key, None) → _on_image_id_changed(None) → _loaded_image_id = None
     qtbot.waitUntil(lambda: p._loaded_image_id is None, timeout=5000)
 
 
