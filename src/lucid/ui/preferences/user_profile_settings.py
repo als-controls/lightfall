@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from lucid.plugins.settings_plugin import SettingsPlugin
+from lucid.settings.image_helpers import _fetch_qimage
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -317,16 +318,3 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         pm = QPixmap(_AVATAR_PX, _AVATAR_PX)
         pm.fill(Qt.GlobalColor.lightGray)
         self._avatar_label.setPixmap(pm)
-
-
-def _fetch_qimage(client, image_id: str):
-    """Worker-thread function: download bytes via the client, decode to QImage.
-
-    QImage is safe to construct off the GUI thread; QPixmap is not.
-    """
-    from PySide6.QtGui import QImage
-
-    data, _ = client.download_image(image_id)
-    img = QImage()
-    img.loadFromData(data)
-    return img
