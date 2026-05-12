@@ -73,6 +73,28 @@ specific path that produced the crash you are chasing.
   `invoke_in_main_thread`, `is_main_thread`, and the `@method` / `@iterator`
   decorators. Prefer these over raw `threading.Thread` so shutdown is clean.
 
+## Visualization theming (pyqtgraph)
+
+Use `from lucid.visualization import pg` instead of `import pyqtgraph as pg`
+in viz widgets. The wrapper re-exports the full pyqtgraph namespace and
+adds themed subclasses for items that hold their own pen/brush:
+
+- `pg.PlotDataItem` — default pen tracks `VisualizationColors.primary_line`.
+- `pg.ScatterPlotItem` — default brush tracks `primary_line`.
+- `pg.InfiniteLine` — default pen tracks `highlight` (good for crosshairs).
+- `pg.series_pen(i)` — palette color for the *i*-th series, cycles.
+- `pg.retheme_all()` — re-applies the current palette to every live themed
+  item (called automatically from `NCSMainWindow._apply_theme`).
+
+Background, axis, tick, and grid colors are handled globally by
+`apply_pyqtgraph_theme()`, also called from `_apply_theme`. Items
+constructed with explicit `pen=` / `brush=` keep the caller's value across
+theme changes.
+
+For widgets that need more than per-item retheme (e.g. a custom legend or
+overlay), inherit `ThemedVisualizationMixin` from
+`lucid.visualization.theme` and override `_apply_viz_colors`.
+
 ## Test runner
 
 Always use the venv Python: `.venv/Scripts/python -m pytest`. Bare `pytest`

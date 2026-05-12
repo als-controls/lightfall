@@ -567,6 +567,16 @@ class NCSMainWindow(QMainWindow):
         """Apply current theme to the window."""
         self._theme_manager.apply_to_application()
 
+        # Push the same theme into pyqtgraph: globals (background, foreground,
+        # axis/tick/grid colors) via setConfigOption, and live themed items
+        # (PlotDataItem / ScatterPlotItem / InfiniteLine from
+        # lucid.visualization.pg) via the wrapper's retheme_all().
+        from lucid.visualization import pg as themed_pg
+        from lucid.visualization.theme import apply_pyqtgraph_theme
+
+        apply_pyqtgraph_theme(is_dark=self._theme_manager.is_dark)
+        themed_pg.retheme_all()
+
     def _set_theme(self, theme: Theme, *, save_preference: bool = True) -> None:
         """Set the application theme.
 
