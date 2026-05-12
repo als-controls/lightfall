@@ -59,11 +59,20 @@ class UserSettingsClient:
     # ── Helpers ──────────────────────────────────────────────────────────
 
     def _client(self) -> httpx.Client:
-        return httpx.Client(
-            base_url=self._base_url,
-            timeout=_DEFAULT_TIMEOUT,
-            auth=self._auth,
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": self._base_url,
+            "timeout": _DEFAULT_TIMEOUT,
+            "auth": self._auth,
+        }
+        try:
+            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            proxy_url = ProxySettingsProvider.should_use_proxy_for_url(self._base_url)
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+                logger.debug("UserSettingsClient using proxy: {}", proxy_url)
+        except Exception:
+            pass
+        return httpx.Client(**client_kwargs)
 
     @staticmethod
     def _bl(beamline: str | None) -> str:

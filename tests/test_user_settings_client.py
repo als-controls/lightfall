@@ -215,3 +215,49 @@ def test_download_image_raises_on_404(httpx_mock):
     c = _client()
     with pytest.raises(UserSettingsError):
         c.download_image("missing")
+
+
+def test_client_uses_proxy_from_provider(monkeypatch):
+    """_client() must thread the shared ProxySettingsProvider into httpx
+    so calls to *.lbl.gov work behind the SOCKS proxy (matches LogbookClient)."""
+    import httpx as _httpx
+    from lucid.ui.preferences import proxy_settings as ps_module
+
+    monkeypatch.setattr(
+        ps_module.ProxySettingsProvider,
+        "should_use_proxy_for_url",
+        staticmethod(lambda url: "socks5://localhost:1080"),
+    )
+    captured: dict = {}
+    real_client = _httpx.Client
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(_httpx, "Client", spy)
+    c = _client(base_url="https://anything.lbl.gov")
+    c._client().close()
+    assert captured.get("proxy") == "socks5://localhost:1080"
+
+
+def test_client_omits_proxy_when_provider_returns_none(monkeypatch):
+    import httpx as _httpx
+    from lucid.ui.preferences import proxy_settings as ps_module
+
+    monkeypatch.setattr(
+        ps_module.ProxySettingsProvider,
+        "should_use_proxy_for_url",
+        staticmethod(lambda url: None),
+    )
+    captured: dict = {}
+    real_client = _httpx.Client
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return real_client(**kwargs)
+
+    monkeypatch.setattr(_httpx, "Client", spy)
+    c = _client(base_url="https://other.example")
+    c._client().close()
+    assert "proxy" not in captured
