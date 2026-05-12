@@ -16,6 +16,9 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
+from PySide6.QtGui import QColor
+
+from lucid.ui.theme import ThemeManager
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
@@ -79,6 +82,18 @@ class TiledRecordModel(QAbstractTableModel):
         self._total_available: int = 0
         self._fetch_callback: Any = None
         self._fetching: bool = False
+
+        # Re-emit Status column colors when the theme changes
+        ThemeManager.get_instance().colors_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self) -> None:
+        """Notify views that the Status column foreground may have changed."""
+        if not self._records:
+            return
+        status_col = self.COLUMNS.index("Status")
+        top = self.index(0, status_col)
+        bottom = self.index(len(self._records) - 1, status_col)
+        self.dataChanged.emit(top, bottom, [Qt.ItemDataRole.ForegroundRole])
 
     def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Return number of rows."""
@@ -154,19 +169,18 @@ class TiledRecordModel(QAbstractTableModel):
         return None
 
     def _get_foreground_data(self, record: TiledRecord, col: int) -> Any:
-        """Get foreground color for status column."""
+        """Get foreground color for status column from the active theme."""
         if col == 3:  # Status column
-            from PySide6.QtGui import QColor
-
+            colors = ThemeManager.get_instance().colors
             status = record.exit_status.lower() if record.exit_status else ""
             if status == "success":
-                return QColor(0, 128, 0)  # Green
+                return QColor(colors.success)
             elif status in ("fail", "error"):
-                return QColor(192, 0, 0)  # Red
+                return QColor(colors.error)
             elif status == "abort":
-                return QColor(192, 128, 0)  # Orange
+                return QColor(colors.warning)
             elif status == "running":
-                return QColor(0, 100, 200)  # Blue
+                return QColor(colors.info)
         return None
 
     def headerData(

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from lucid.services.tiled_service import TiledConnectionState, TiledService
 from lucid.ui.models.tiled_model import TiledRecord, TiledRecordFilterProxy, TiledRecordModel
 from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.theme import ThemeManager
 from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
@@ -79,6 +80,7 @@ class TiledBrowserPanel(BasePanel):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the Tiled browser panel."""
         self._tiled_service = TiledService.get_instance()
+        self._theme_manager = ThemeManager.get_instance()
         self._total_records = 0
         self._current_filters = TiledFilters()
         self._loading = False
@@ -97,6 +99,9 @@ class TiledBrowserPanel(BasePanel):
 
         # Connect to TiledService signals
         self._tiled_service.connection_changed.connect(self._on_connection_changed)
+
+        # Re-style the status label when the theme changes
+        self._theme_manager.colors_changed.connect(self._update_status)
 
         # Initial status update and data load
         self._update_status()
@@ -182,21 +187,22 @@ class TiledBrowserPanel(BasePanel):
         """Update the status display based on TiledService state."""
         state = self._tiled_service.state
         status_info = self._tiled_service.get_status_info()
+        colors = self._theme_manager.colors
 
         if state == TiledConnectionState.CONNECTED:
             self._status_label.setText(f"Status: Connected to {status_info['url']}")
-            self._status_label.setStyleSheet("font-weight: bold; color: green;")
+            self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.success};")
             self._filter_widget.set_enabled(True)
             self._refresh_btn.setEnabled(True)
         elif state == TiledConnectionState.CONNECTING:
             self._status_label.setText("Status: Connecting...")
-            self._status_label.setStyleSheet("font-weight: bold; color: orange;")
+            self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.warning};")
             self._filter_widget.set_enabled(False)
             self._refresh_btn.setEnabled(False)
         elif state == TiledConnectionState.ERROR:
             error_msg = status_info.get("error", "Unknown error")
             self._status_label.setText(f"Status: Error - {error_msg}")
-            self._status_label.setStyleSheet("font-weight: bold; color: red;")
+            self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.error};")
             self._filter_widget.set_enabled(False)
             self._refresh_btn.setEnabled(True)  # Allow retry
         else:  # DISCONNECTED
@@ -689,7 +695,9 @@ class TiledBrowserPanel(BasePanel):
         self._loading = False
         self._refresh_btn.setEnabled(True)
         self._status_label.setText(f"Error: {error}")
-        self._status_label.setStyleSheet("font-weight: bold; color: red;")
+        self._status_label.setStyleSheet(
+            f"font-weight: bold; color: {self._theme_manager.colors.error};"
+        )
         logger.error("Failed to load records: {}", error)
 
     # === Introspection ===

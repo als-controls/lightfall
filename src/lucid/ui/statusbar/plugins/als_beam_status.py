@@ -12,6 +12,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lucid.ui.theme import ThemeManager
 from lucid.ui.toast import ToastManager
 from lucid.utils.logging import logger
 
@@ -22,15 +23,15 @@ if TYPE_CHECKING:
 class ALSBeamStatusPlugin(StatusBarPlugin):
     """Status bar plugin showing ALS beam status.
 
-    Displays beam current, lifetime, and availability with color coding:
-    - Green: Beam available (shutters open)
-    - Red: Beam unavailable (shutters closed)
-    - Gray: Offline/disconnected from API
+    Displays beam current, lifetime, and availability with theme-aware coloring:
+    - success: Beam available (shutters open)
+    - error: Beam unavailable (shutters closed)
+    - text_secondary: Offline/disconnected from API
 
     Example display:
-        "500.3 mA | 6.6h | Available" (green)
-        "500.3 mA | 6.6h | Closed" (red)
-        "Offline" (gray)
+        "500.3 mA | 6.6h | Available" (success)
+        "500.3 mA | 6.6h | Closed" (error)
+        "Offline" (muted)
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
@@ -42,11 +43,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         tooltip="ALS beam status - click for details",
     )
 
-    # State colors
-    COLOR_AVAILABLE = "#4CAF50"  # Green - beam available
-    COLOR_CLOSED = "#F44336"  # Red - shutters closed
-    COLOR_OFFLINE = "#9E9E9E"  # Gray - API unreachable
-
     BEAM_STATUS_URL = "https://als.lbl.gov/beam-status/"
 
     def __init__(self) -> None:
@@ -55,6 +51,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         self._label: QLabel | None = None
         self._service: ALSBeamStatusService | None = None
         self._last_beam_available: bool | None = None  # Track for change detection
+        self._theme_manager: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -75,6 +72,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         self._label = QLabel(parent)
         self._label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._label.mousePressEvent = lambda _: self._open_beam_status_page()
+        self._theme_manager = ThemeManager.get_instance()
         return self._label
 
     def _open_beam_status_page(self) -> None:
@@ -122,6 +120,10 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         except Exception as e:
             logger.debug("Could not connect to ALSBeamStatusService: {}", e)
 
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        self._theme_manager.colors_changed.connect(self.update)
+
     def disconnect_signals(self) -> None:
         """Disconnect from service signals."""
         if self._service is not None:
@@ -130,6 +132,12 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
                 self._service.connection_changed.disconnect(self._on_connection_changed)
             except RuntimeError:
                 # Already disconnected
+                pass
+
+        if self._theme_manager is not None:
+            try:
+                self._theme_manager.colors_changed.disconnect(self.update)
+            except RuntimeError:
                 pass
 
     @Slot(object)
@@ -178,7 +186,10 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         status_str = "Available" if data.beam_available else "Closed"
 
         text = f"{current_str} | {lifetime_str} | {status_str}"
-        color = self.COLOR_AVAILABLE if data.beam_available else self.COLOR_CLOSED
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        colors = self._theme_manager.colors
+        color = colors.success if data.beam_available else colors.error
 
         self._label.setText(text)
         self._label.setStyleSheet(f"color: {color};")
@@ -211,8 +222,11 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         if self._label is None:
             return
 
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+
         self._label.setText("Offline")
-        self._label.setStyleSheet(f"color: {self.COLOR_OFFLINE};")
+        self._label.setStyleSheet(f"color: {self._theme_manager.colors.text_secondary};")
 
         error_msg = ""
         if self._service and self._service.last_error:
