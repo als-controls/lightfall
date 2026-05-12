@@ -120,6 +120,10 @@ class AuthStatusPlugin(StatusBarPlugin):
 
         self._session_manager.state_changed.connect(self._on_state_changed)
 
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        self._theme_manager.colors_changed.connect(self.update)
+
     def disconnect_signals(self) -> None:
         """Disconnect from session manager signals."""
         if self._session_manager is not None:
@@ -127,6 +131,12 @@ class AuthStatusPlugin(StatusBarPlugin):
                 self._session_manager.state_changed.disconnect(self._on_state_changed)
             except RuntimeError:
                 # Already disconnected
+                pass
+
+        if self._theme_manager is not None:
+            try:
+                self._theme_manager.colors_changed.disconnect(self.update)
+            except RuntimeError:
                 pass
 
     def _on_state_changed(self, new_state: AuthState, old_state: AuthState) -> None:

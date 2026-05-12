@@ -11,6 +11,7 @@ from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lucid.ui.theme import ThemeManager
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -20,16 +21,16 @@ if TYPE_CHECKING:
 class TiledStatusPlugin(StatusBarPlugin):
     """Status bar plugin showing Tiled connection state.
 
-    Displays connection state with color coding:
-    - Green: Connected
-    - Yellow: Connecting
-    - Red: Error
-    - Gray: Disabled/Disconnected
+    Displays connection state with theme-aware color coding:
+    - success: Connected
+    - warning: Connecting
+    - error: Error
+    - text_secondary: Disabled/Disconnected
 
     Example display:
-        "Tiled: Connected" (green)
-        "Tiled: Error" (red)
-        "Tiled: Off" (gray)
+        "Tiled: Connected" (success)
+        "Tiled: Error" (error)
+        "Tiled: Off" (muted)
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
@@ -41,17 +42,12 @@ class TiledStatusPlugin(StatusBarPlugin):
         tooltip="Tiled data catalog status",
     )
 
-    # State colors
-    COLOR_CONNECTED = "#4CAF50"  # Green
-    COLOR_CONNECTING = "#FFC107"  # Yellow/Amber
-    COLOR_ERROR = "#F44336"  # Red
-    COLOR_DISABLED = "#9E9E9E"  # Gray
-
     def __init__(self) -> None:
         """Initialize the Tiled status plugin."""
         super().__init__()
         self._label: QLabel | None = None
         self._service = None
+        self._theme_manager: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -68,6 +64,7 @@ class TiledStatusPlugin(StatusBarPlugin):
             QLabel showing Tiled state.
         """
         self._label = QLabel(parent)
+        self._theme_manager = ThemeManager.get_instance()
         return self._label
 
     def update(self) -> None:
@@ -108,6 +105,10 @@ class TiledStatusPlugin(StatusBarPlugin):
         except Exception as e:
             logger.debug("Could not connect to TiledService: {}", e)
 
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        self._theme_manager.colors_changed.connect(self.update)
+
     def disconnect_signals(self) -> None:
         """Disconnect from Tiled service signals."""
         if self._service is not None:
@@ -115,6 +116,12 @@ class TiledStatusPlugin(StatusBarPlugin):
                 self._service.connection_changed.disconnect(self._on_connection_changed)
             except RuntimeError:
                 # Already disconnected
+                pass
+
+        if self._theme_manager is not None:
+            try:
+                self._theme_manager.colors_changed.disconnect(self.update)
+            except RuntimeError:
                 pass
 
     @Slot(object, str)
@@ -146,12 +153,19 @@ class TiledStatusPlugin(StatusBarPlugin):
             except Exception:
                 self._update_display_disconnected()
 
+    @property
+    def _colors(self):
+        """Resolve theme colors, falling back to the singleton on first use."""
+        if self._theme_manager is None:
+            self._theme_manager = ThemeManager.get_instance()
+        return self._theme_manager.colors
+
     def _update_display_connected(self) -> None:
         """Update display for connected state."""
         if self._label is None:
             return
         self._label.setText("Tiled: Connected")
-        self._label.setStyleSheet(f"color: {self.COLOR_CONNECTED};")
+        self._label.setStyleSheet(f"color: {self._colors.success};")
         self._label.setToolTip("Connected to Tiled server")
 
     def _update_display_connecting(self) -> None:
@@ -159,7 +173,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         if self._label is None:
             return
         self._label.setText("Tiled: Connecting...")
-        self._label.setStyleSheet(f"color: {self.COLOR_CONNECTING};")
+        self._label.setStyleSheet(f"color: {self._colors.warning};")
         self._label.setToolTip("Connecting to Tiled server...")
 
     def _update_display_error(self, message: str = "") -> None:
@@ -171,7 +185,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         if self._label is None:
             return
         self._label.setText("Tiled: Error")
-        self._label.setStyleSheet(f"color: {self.COLOR_ERROR};")
+        self._label.setStyleSheet(f"color: {self._colors.error};")
         tooltip = "Tiled connection error"
         if message:
             tooltip = f"Tiled error: {message}"
@@ -182,7 +196,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         if self._label is None:
             return
         self._label.setText("Tiled: Disconnected")
-        self._label.setStyleSheet(f"color: {self.COLOR_DISABLED};")
+        self._label.setStyleSheet(f"color: {self._colors.text_secondary};")
         self._label.setToolTip("Disconnected from Tiled server")
 
     def _update_display_disabled(self) -> None:
@@ -190,7 +204,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         if self._label is None:
             return
         self._label.setText("Tiled: Off")
-        self._label.setStyleSheet(f"color: {self.COLOR_DISABLED};")
+        self._label.setStyleSheet(f"color: {self._colors.text_secondary};")
         self._label.setToolTip("Tiled integration is disabled")
 
     def get_introspection_data(self) -> dict[str, Any]:
