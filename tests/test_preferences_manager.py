@@ -216,3 +216,83 @@ def test_unsubscribe_with_bound_method(qapp, prefs_manager):
     _flush()
 
     assert r.received == []
+
+
+# ── User-portable with local fallback ──────────────────────────────────
+
+
+def test_device_favorites_falls_back_to_local_when_user_portable_empty(
+    qapp, prefs_manager, config_manager
+):
+    """A user-portable cache miss for device_favorites consults the local
+    backend so site/beamline defaults populate new users."""
+    config_manager._store["preferences.device_favorites"] = ["motor_a", "motor_b"]
+    assert prefs_manager.get("device_favorites", []) == ["motor_a", "motor_b"]
+
+
+def test_device_favorites_user_value_wins_over_local_default(
+    qapp, prefs_manager, config_manager
+):
+    """Once the user-portable cache has a value (e.g., post-refresh or
+    post-set), the local default no longer leaks through."""
+    config_manager._store["preferences.device_favorites"] = ["motor_a"]
+    prefs_manager.set("device_favorites", ["motor_x"])
+
+    deadline = time.monotonic() + 2.0
+    while prefs_manager._user_portable.get("device_favorites") != ["motor_x"] \
+            and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+
+    assert prefs_manager.get("device_favorites") == ["motor_x"]
+
+
+def test_device_favorites_explicit_empty_user_value_overrides_default(
+    qapp, prefs_manager, config_manager
+):
+    """An explicitly-saved empty list means "user wants no favorites" and
+    must NOT be substituted with the local default."""
+    config_manager._store["preferences.device_favorites"] = ["motor_a"]
+    prefs_manager.set("device_favorites", [])
+
+    deadline = time.monotonic() + 2.0
+    while prefs_manager._user_portable.get("device_favorites", "missing") == "missing" \
+            and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+
+    assert prefs_manager.get("device_favorites") == []
+
+
+def test_device_favorites_beamline_override_visible_through_fallback(
+    qapp, prefs_manager, config_manager
+):
+    """When a beamline override exists in local config and the user has
+    no server value, the beamline-scoped default reaches callers."""
+    config_manager._store["preferences.device_favorites"] = ["default_motor"]
+    config_manager._store["preferences.beamlines.7.0.1.device_favorites"] = ["bl_motor"]
+    prefs_manager.set_beamline("7.0.1")
+
+    assert prefs_manager.get("device_favorites", []) == ["bl_motor"]
+
+
+def test_device_favorites_subscribe_gets_local_fallback_on_user_remove(
+    qapp, prefs_manager, config_manager, _patch_user_settings_client
+):
+    """When user-portable removes a key with local fallback, subscribers
+    receive the local fallback value, not None."""
+    config_manager._store["preferences.device_favorites"] = ["fallback_motor"]
+    # Seed the user-portable cache so remove() has something to clear.
+    prefs_manager.set("device_favorites", ["user_motor"])
+    deadline = time.monotonic() + 2.0
+    while prefs_manager._user_portable.get("device_favorites") != ["user_motor"] \
+            and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+
+    received: list = []
+    prefs_manager.subscribe("device_favorites", received.append)
+    prefs_manager.remove("device_favorites")
+
+    deadline = time.monotonic() + 2.0
+    while not received and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+
+    assert received == [["fallback_motor"]]

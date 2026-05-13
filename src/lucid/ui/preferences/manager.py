@@ -182,6 +182,17 @@ class PreferencesManager(QObject):
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
 
+    # Keys whose owning (user-portable) backend cache miss should fall
+    # through to LocalPreferenceBackend, which preserves the beamline-
+    # aware default lookup. Used to persist user-specific values server-
+    # side while keeping a site/beamline default in YAML that applies
+    # until the user saves their own.
+    _USER_PORTABLE_WITH_LOCAL_FALLBACK: frozenset[str] = frozenset({
+        "device_favorites",
+    })
+
+    _MISSING: Any = object()
+
     def __init__(
         self,
         config_manager: ConfigManager | None = None,
@@ -249,7 +260,17 @@ class PreferencesManager(QObject):
     # Typed preferences (via ConfigManager)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get a preference value. Dispatches to the owning backend."""
+        """Get a preference value. Dispatches to the owning backend.
+
+        For keys in `_USER_PORTABLE_WITH_LOCAL_FALLBACK`, a user-portable
+        cache miss falls through to LocalPreferenceBackend so site or
+        beamline defaults still apply when the user has no saved value.
+        """
+        if key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
+            value = self._user_portable.get(key, self._MISSING)
+            if value is self._MISSING:
+                return self._local.get(key, default)
+            return value
         return self._backend_for(key).get(key, default)
 
     def set(self, key: str, value: Any, *, persist: bool = True) -> None:
@@ -297,10 +318,18 @@ class PreferencesManager(QObject):
 
     @Slot(str, object)
     def _on_backend_changed(self, key: str, value: Any) -> None:
-        """Route a backend's per-key change to the matching topic."""
+        """Route a backend's per-key change to the matching topic.
+
+        For keys with a local fallback, a None from the user-portable
+        backend (cache removal / refresh-saw-key-gone) is rewritten to
+        the local fallback so subscribers always see the logical value.
+        """
         topic = self._topics.get(key)
-        if topic is not None:
-            topic.emit_value(value)
+        if topic is None:
+            return
+        if value is None and key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
+            value = self._local.get(key, None)
+        topic.emit_value(value)
 
     # Recent files management
 

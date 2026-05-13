@@ -76,7 +76,13 @@ class FavoritesTab(QWidget):
 
         Does NOT emit favorites_changed to avoid re-saving what was just
         loaded. Use add_favorite/remove_favorite for user-initiated changes.
+
+        Skip the teardown/rebuild when the list is unchanged — subscribe()
+        echoes our own writes back, and a rebuild would briefly clear the
+        visible widgets.
         """
+        if device_ids == self._favorite_ids:
+            return
         for did in list(self._favorite_ids):
             self._remove_widget(did)
         self._favorite_ids.clear()

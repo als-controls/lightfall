@@ -17,7 +17,14 @@ if TYPE_CHECKING:
     from lucid.settings.user_settings_client import UserSettingsClient
 
 
-USER_PORTABLE_KEYS: frozenset[str] = frozenset({"profile_image_id"})
+USER_PORTABLE_KEYS: frozenset[str] = frozenset({
+    "profile_image_id",
+    # device_favorites is also listed in BEAMLINE_SPECIFIC_PREFS — that
+    # entry governs the LocalPreferenceBackend's beamline-aware lookup,
+    # which PreferencesManager.get falls back to when the user has no
+    # server-side value (see manager._USER_PORTABLE_WITH_LOCAL_FALLBACK).
+    "device_favorites",
+})
 
 
 class UserPortableBackend(PreferenceBackend):

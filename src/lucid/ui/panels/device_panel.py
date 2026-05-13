@@ -68,8 +68,11 @@ class DevicePanel(BasePanel):
 
         super().__init__(parent)
 
-        # Load saved favorites
+        # Load favorites: synchronous cache/local-fallback read fills
+        # the UI immediately; the subscription handles later updates
+        # from the post-login refresh of the user-portable backend.
         self._load_favorites()
+        self._prefs.subscribe("device_favorites", self._on_favorites_pref_changed)
 
         # Connect catalog signals for favorites updates
         self._catalog.device_connected.connect(self._favorites_tab.on_device_connected)
@@ -130,14 +133,28 @@ class DevicePanel(BasePanel):
     # === Favorites ===
 
     def _load_favorites(self) -> None:
-        """Load favorites from preferences."""
-        saved = self._prefs.get("device_favorites", [])
+        """Load favorites from preferences (falls back to beamline defaults)."""
+        saved = self._prefs.get("device_favorites", []) or []
         if saved:
             self._favorites_tab.set_favorites(saved)
 
+    @Slot(object)
+    def _on_favorites_pref_changed(self, value: Any) -> None:
+        """Apply a change to device_favorites from the preference layer.
+
+        Fires when the user-portable backend's post-login refresh learns
+        the user's saved list (or when another LUCID instance updates it
+        once cross-instance notifications are wired up). The manager
+        rewrites a user-portable None into the local fallback for this
+        key, so a list (possibly empty) always arrives here.
+        """
+        if value is None:
+            value = []
+        self._favorites_tab.set_favorites(list(value))
+
     @Slot(list)
     def _save_favorites(self, favorite_ids: list[str]) -> None:
-        """Save favorites to preferences."""
+        """Save favorites to preferences (user-scoped via UserPortableBackend)."""
         self._prefs.set("device_favorites", favorite_ids)
 
     @Slot(str, bool)
