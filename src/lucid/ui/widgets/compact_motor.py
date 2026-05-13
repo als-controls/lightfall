@@ -92,7 +92,10 @@ class CompactMotorWidget(QWidget):
         if self._device_info.metadata:
             precision = self._device_info.metadata.get("precision", 4)
             units = self._device_info.metadata.get("units", "") or ""
-        self._rbv_display = OphydLabel(precision=precision)
+        # show_units=False on OphydLabel — its units label is signal-driven
+        # and disappears when EGU isn't reported. We render units ourselves
+        # from DeviceInfo metadata so they always show.
+        self._rbv_display = OphydLabel(precision=precision, show_units=False)
         self._rbv_display._value_label.setStyleSheet(
             "font-family: monospace; font-size: 10pt;"
         )
@@ -100,14 +103,12 @@ class CompactMotorWidget(QWidget):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         self._rbv_display.setMinimumWidth(80)
-        # Seed the OphydLabel's units label from DeviceInfo metadata so units
-        # appear before the signal connects; EGU from the live signal will
-        # overwrite if it differs.
-        if units:
-            units_label = self._rbv_display._ensure_units_label()
-            units_label.setText(units)
-            units_label.setVisible(True)
         layout.addWidget(self._rbv_display)
+
+        self._units_label = QLabel(units)
+        self._units_label.setStyleSheet("color: #9aa0a6; font-size: 10pt;")
+        self._units_label.setFixedWidth(28)
+        layout.addWidget(self._units_label)
 
         self._mode_btn = QPushButton("Abs")
         self._mode_btn.setFixedWidth(56)
@@ -117,6 +118,18 @@ class CompactMotorWidget(QWidget):
         self._mode_btn.clicked.connect(self._on_mode_toggled)
         layout.addWidget(self._mode_btn)
 
+        self._jog_left_btn = QPushButton()
+        self._jog_left_btn.setIcon(
+            qta.icon("ph.arrow-fat-lines-left-fill", color="#90caf9")
+        )
+        self._jog_left_btn.setIconSize(QSize(18, 18))
+        self._jog_left_btn.setFixedWidth(40)
+        self._jog_left_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._jog_left_btn.setToolTip("Jog negative by step")
+        self._jog_left_btn.setVisible(False)
+        self._jog_left_btn.clicked.connect(self._on_jog_left_clicked)
+        layout.addWidget(self._jog_left_btn)
+
         self._setpoint_edit = QLineEdit()
         self._setpoint_edit.setValidator(QDoubleValidator())
         self._setpoint_edit.setPlaceholderText("Target")
@@ -124,9 +137,13 @@ class CompactMotorWidget(QWidget):
         self._setpoint_edit.returnPressed.connect(self._on_go_clicked)
         layout.addWidget(self._setpoint_edit)
 
-        self._go_btn = QPushButton("Go")
-        self._go_btn.setFixedWidth(48)
+        # _go_btn doubles as "go to target" in abs mode and "jog positive" in jog mode.
+        self._go_btn = QPushButton()
+        self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
+        self._go_btn.setIconSize(QSize(18, 18))
+        self._go_btn.setFixedWidth(40)
         self._go_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._go_btn.setToolTip("Move to target")
         self._go_btn.clicked.connect(self._on_go_clicked)
         layout.addWidget(self._go_btn)
 
@@ -153,6 +170,7 @@ class CompactMotorWidget(QWidget):
     def _update_state(self) -> None:
         has_motor = self._motor is not None
         self._go_btn.setEnabled(has_motor)
+        self._jog_left_btn.setEnabled(has_motor)
         self._stop_btn.setEnabled(has_motor)
         self._setpoint_edit.setEnabled(has_motor)
         self._mode_btn.setEnabled(has_motor)
@@ -183,12 +201,29 @@ class CompactMotorWidget(QWidget):
         if checked:
             self._mode_btn.setText("Jog")
             self._setpoint_edit.setPlaceholderText("Step")
+            self._jog_left_btn.setVisible(True)
+            self._go_btn.setIcon(
+                qta.icon("ph.arrow-fat-lines-right-fill", color="#90caf9")
+            )
+            self._go_btn.setToolTip("Jog positive by step")
         else:
             self._mode_btn.setText("Abs")
             self._setpoint_edit.setPlaceholderText("Target")
+            self._jog_left_btn.setVisible(False)
+            self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
+            self._go_btn.setToolTip("Move to target")
 
     @Slot()
     def _on_go_clicked(self) -> None:
+        # In jog mode the right-arrow button is "jog positive"; direction
+        # comes from the button, not the sign of the entered value.
+        self._move(direction=+1 if self._is_jog_mode else 0)
+
+    @Slot()
+    def _on_jog_left_clicked(self) -> None:
+        self._move(direction=-1)
+
+    def _move(self, direction: int) -> None:
         if self._motor is None:
             return
         text = self._setpoint_edit.text().strip()
@@ -201,7 +236,7 @@ class CompactMotorWidget(QWidget):
                 if current is None:
                     self.control_error.emit("Cannot read current position for jog")
                     return
-                target = current + value
+                target = current + direction * abs(value)
             else:
                 target = value
             if hasattr(self._motor, "set"):
