@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QPoint, Qt, Signal, Slot
+import qtawesome as qta
+from PySide6.QtCore import QPoint, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -42,7 +43,8 @@ class CompactMotorWidget(QWidget):
     remove_favorite_requested = Signal(str)
     control_error = Signal(str)
 
-    WIDGET_HEIGHT = 38
+    WIDGET_HEIGHT = 42
+    _BUTTON_STYLE = "QPushButton { padding: 2px 6px; font-size: 10pt; }"
 
     def __init__(
         self,
@@ -86,8 +88,10 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._name_label)
 
         precision = 4
+        units = ""
         if self._device_info.metadata:
             precision = self._device_info.metadata.get("precision", 4)
+            units = self._device_info.metadata.get("units", "") or ""
         self._rbv_display = OphydLabel(precision=precision)
         self._rbv_display._value_label.setStyleSheet(
             "font-family: monospace; font-size: 10pt;"
@@ -96,10 +100,18 @@ class CompactMotorWidget(QWidget):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         self._rbv_display.setMinimumWidth(80)
+        # Seed the OphydLabel's units label from DeviceInfo metadata so units
+        # appear before the signal connects; EGU from the live signal will
+        # overwrite if it differs.
+        if units:
+            units_label = self._rbv_display._ensure_units_label()
+            units_label.setText(units)
+            units_label.setVisible(True)
         layout.addWidget(self._rbv_display)
 
         self._mode_btn = QPushButton("Abs")
-        self._mode_btn.setFixedWidth(40)
+        self._mode_btn.setFixedWidth(56)
+        self._mode_btn.setStyleSheet(self._BUTTON_STYLE)
         self._mode_btn.setToolTip("Toggle between Absolute and Jog (relative) mode")
         self._mode_btn.setCheckable(True)
         self._mode_btn.clicked.connect(self._on_mode_toggled)
@@ -113,14 +125,17 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._setpoint_edit)
 
         self._go_btn = QPushButton("Go")
-        self._go_btn.setFixedWidth(36)
+        self._go_btn.setFixedWidth(48)
+        self._go_btn.setStyleSheet(self._BUTTON_STYLE)
         self._go_btn.clicked.connect(self._on_go_clicked)
         layout.addWidget(self._go_btn)
 
-        self._stop_btn = QPushButton("\u25a0")
-        self._stop_btn.setFixedWidth(30)
+        self._stop_btn = QPushButton()
+        self._stop_btn.setIcon(qta.icon("mdi6.stop", color="#F44336"))
+        self._stop_btn.setIconSize(QSize(18, 18))
+        self._stop_btn.setFixedWidth(36)
+        self._stop_btn.setStyleSheet(self._BUTTON_STYLE)
         self._stop_btn.setToolTip("Stop motor")
-        self._stop_btn.setStyleSheet("color: #F44336; font-weight: bold;")
         self._stop_btn.clicked.connect(self._on_stop_clicked)
         layout.addWidget(self._stop_btn)
 
