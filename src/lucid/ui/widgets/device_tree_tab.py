@@ -42,7 +42,7 @@ class DeviceTreeTab(QWidget):
 
     Signals:
         device_open_requested: DeviceTreeItem — double-click to open controller.
-        favorite_toggled: (device_id, is_favorite) — context menu toggle.
+        favorite_toggled: (device_name, is_favorite) — context menu toggle.
         item_selected: DeviceTreeItem — single selection.
         items_selected: list[DeviceTreeItem] — selection change.
     """
@@ -229,14 +229,16 @@ class DeviceTreeTab(QWidget):
         menu = QMenu(self._tree_view)
 
         if device_info is not None:
-            device_id_str = str(device_info.id)
-            is_fav = self._is_favorite_fn(device_id_str) if self._is_favorite_fn else False
+            # Favorites use device.name as the stable identifier — UUIDs
+            # are per-session and would invalidate persisted favorites.
+            device_name = device_info.name
+            is_fav = self._is_favorite_fn(device_name) if self._is_favorite_fn else False
             if is_fav:
                 fav_action = menu.addAction("Remove from Favorites")
-                fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_id_str, False))
+                fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_name, False))
             else:
                 fav_action = menu.addAction("Add to Favorites")
-                fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_id_str, True))
+                fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_name, True))
             menu.addSeparator()
 
             if device_editable:

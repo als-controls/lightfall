@@ -65,7 +65,10 @@ class CompactMotorWidget(QWidget):
 
     @property
     def device_id(self) -> str:
-        return str(self._device_info.id)
+        # Returns the device name — the stable identifier favorites pass
+        # around. DeviceInfo.id is a per-session UUID and not safe to
+        # persist or route across catalog rebuilds.
+        return self._device_info.name
 
     @property
     def is_jog_mode(self) -> bool:

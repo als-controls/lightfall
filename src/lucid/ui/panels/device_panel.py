@@ -9,6 +9,7 @@ Provides a tabbed panel for viewing and managing devices:
 from __future__ import annotations
 
 from typing import Any, ClassVar
+from uuid import UUID
 
 from PySide6.QtCore import QCoreApplication, Signal, Slot
 from PySide6.QtWidgets import (
@@ -76,6 +77,9 @@ class DevicePanel(BasePanel):
 
         # Connect catalog signals for favorites updates
         self._catalog.device_connected.connect(self._favorites_tab.on_device_connected)
+        # Devices may arrive after favorites are loaded — let the tab
+        # render any deferred favorites once their device shows up.
+        self._catalog.device_added.connect(self._favorites_tab.on_device_added)
 
         logger.info("DevicePanel.__init__() END")
 
@@ -132,9 +136,31 @@ class DevicePanel(BasePanel):
 
     # === Favorites ===
 
+    @staticmethod
+    def _clean_favorite_names(raw: Any) -> list[str]:
+        """Filter persisted favorites down to plausible device names.
+
+        Drops entries that are UUID-shaped — those are legacy values
+        from an earlier version that persisted per-session UUIDs and
+        can never resolve. Self-heals on the next save.
+        """
+        if not raw:
+            return []
+        names: list[str] = []
+        for s in raw:
+            if not isinstance(s, str):
+                continue
+            try:
+                UUID(s)
+            except ValueError:
+                names.append(s)
+            else:
+                logger.debug("Dropping legacy UUID-shaped favorite entry: {}", s)
+        return names
+
     def _load_favorites(self) -> None:
         """Load favorites from preferences (falls back to beamline defaults)."""
-        saved = self._prefs.get("device_favorites", []) or []
+        saved = self._clean_favorite_names(self._prefs.get("device_favorites", []))
         if saved:
             self._favorites_tab.set_favorites(saved)
 
@@ -148,9 +174,7 @@ class DevicePanel(BasePanel):
         rewrites a user-portable None into the local fallback for this
         key, so a list (possibly empty) always arrives here.
         """
-        if value is None:
-            value = []
-        self._favorites_tab.set_favorites(list(value))
+        self._favorites_tab.set_favorites(self._clean_favorite_names(value))
 
     @Slot(list)
     def _save_favorites(self, favorite_ids: list[str]) -> None:
@@ -195,18 +219,30 @@ class DevicePanel(BasePanel):
         # Focus the new tab
         self._tabs.setCurrentWidget(control)
 
-    def _open_device_tab_by_id(self, device_id: str) -> None:
-        """Open a device controller tab by device ID."""
-        # If already open, focus
-        if device_id in self._device_tabs:
-            widget = self._device_tabs[device_id]
+    def _open_device_tab_by_id(self, device_name: str) -> None:
+        """Open a device controller tab by device NAME.
+
+        Favorites pass the stable device name here (not a UUID), so we
+        resolve through the catalog and then route on the same UUID key
+        the rest of the tab bookkeeping uses.
+        """
+        info = self._catalog.get_device_by_name(device_name)
+        if info is None:
+            logger.warning(
+                "Cannot open controller for {!r}: device not in catalog",
+                device_name,
+            )
+            return
+
+        uuid_key = str(info.id)
+        if uuid_key in self._device_tabs:
+            widget = self._device_tabs[uuid_key]
             idx = self._tabs.indexOf(widget)
             if idx >= 0:
                 self._tabs.setCurrentIndex(idx)
             return
 
-        # Find the device in the tree model and open
-        item = self._tree_tab.find_item_by_id(device_id)
+        item = self._tree_tab.find_item_by_id(uuid_key)
         if item is not None:
             self._open_device_tab(item)
 
