@@ -112,12 +112,14 @@ class CompactMotorWidget(QWidget):
         self._status_indicator.setToolTip("Motor status")
         layout.addWidget(self._status_indicator)
 
-        self._name_label = _ElidedLabel(self._device_info.name)
+        self._name_label = _ElidedLabel(self._display_label())
         self._name_label.setStyleSheet("font-weight: bold;")
         self._name_label.setMinimumWidth(120)
         self._name_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
+        # Tooltip stays as the canonical device name so users can disambiguate
+        # when display_name is a friendlier alias.
         self._name_label.setToolTip(self._device_info.name)
         layout.addWidget(self._name_label, 2)
 
@@ -298,6 +300,15 @@ class CompactMotorWidget(QWidget):
 
         invoke_in_main_thread(self._update_status_indicator)
 
+    def _display_label(self) -> str:
+        """The user-facing label for the motor.
+
+        Prefers ``DeviceInfo.display_name`` and falls back to the canonical
+        ``DeviceInfo.name`` when it isn't set. ``device_id`` (the favorites
+        identifier) intentionally still uses ``name``.
+        """
+        return self._device_info.display_name or self._device_info.name
+
     def _theme_colors(self) -> tuple[str, str, str]:
         """Resolve (action, danger, muted) from the active ThemeManager.
 
@@ -372,7 +383,7 @@ class CompactMotorWidget(QWidget):
         self._mode_btn.setEnabled(has_motor)
         if not has_motor:
             self._rbv_display._value_label.setText("...")
-            self._name_label.setText(f"{self._device_info.name} (connecting...)")
+            self._name_label.setText(f"{self._display_label()} (connecting...)")
         self._update_status_indicator()
 
     def _update_status_indicator(self) -> None:
@@ -396,7 +407,7 @@ class CompactMotorWidget(QWidget):
         self._unbind_signals()
         self._motor = ophyd_obj
         self._bind_signals()
-        self._name_label.setText(self._device_info.name)
+        self._name_label.setText(self._display_label())
         # Re-resolve units now that the motor is connected — EpicsMotor.egu
         # and signal.metadata["units"] are only populated after the CA
         # connection handshake completes, so the initial _setup_ui() call may

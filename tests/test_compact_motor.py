@@ -24,6 +24,10 @@ def mock_device_info():
     info = MagicMock(spec=DeviceInfo)
     info.id = device_id
     info.name = "test_motor"
+    # Mirror DeviceInfo's real default. MagicMock(spec=Pydantic) doesn't
+    # expose model fields, so set explicitly to keep spec-strict access
+    # working.
+    info.display_name = ""
     info.device_class = "ophyd.sim.SynAxis"
     info.category = DeviceCategory.MOTOR
     info.metadata = {"units": "mm", "precision": 3}
@@ -54,6 +58,19 @@ class TestCompactMotorWidget:
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
         assert widget is not None
         assert widget._name_label.text() == "test_motor"
+        widget.close()
+
+    def test_label_prefers_display_name(
+        self, qapp, mock_device_info, mock_motor
+    ):
+        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+
+        mock_device_info.display_name = "Sample X"
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
+        # Friendly label is shown; canonical name stays as device_id and tooltip.
+        assert widget._name_label.text() == "Sample X"
+        assert widget._name_label.toolTip() == "test_motor"
+        assert widget.device_id == "test_motor"
         widget.close()
 
     def test_jog_abs_toggle(self, qapp, mock_device_info, mock_motor):
