@@ -115,3 +115,41 @@ class TestOnDeviceConnected:
         assert insert_calls[1] == ("end", 2), (
             "endInsertRows must be called after children are attached"
         )
+
+
+class TestRefreshRepopulatesChildren:
+    def test_refresh_keeps_subitems_for_connected_devices(self, qapp):
+        """After refresh(), connected devices must still expose their
+        sub-items. Regression: the model previously left children empty
+        on every populate and relied on device_connected to fill them,
+        which never re-fires on refresh.
+        """
+        catalog, device_info, device_id_str = _make_catalog_with_device()
+
+        # Pretend the device is already connected with components.
+        ophyd_device = MagicMock()
+        ophyd_device.component_names = ("readback", "setpoint")
+        ophyd_device._signals = {
+            "readback": MagicMock(),
+            "setpoint": MagicMock(),
+        }
+        ophyd_device._sig_attrs = {}
+        device_info.ophyd_device = ophyd_device
+
+        with patch.object(DeviceTreeModel, "_poll_value_refresh"):
+            model = DeviceTreeModel(catalog)
+            model._value_timer.stop()
+        try:
+            # After initial populate, children should already be present
+            # because the device is connected.
+            device_index = model.index(0, 0)
+            assert model.rowCount(device_index) == 2
+
+            # Now call refresh — children should still be present.
+            model.refresh()
+            device_index = model.index(0, 0)
+            assert model.rowCount(device_index) == 2, (
+                "refresh() must repopulate sub-items for already-connected devices"
+            )
+        finally:
+            model._value_pool.shutdown(wait=False)

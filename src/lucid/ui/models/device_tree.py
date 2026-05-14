@@ -529,10 +529,13 @@ class DeviceTreeModel(QAbstractItemModel):
         # Track for quick lookup by device_id
         self._device_id_to_item[str(device_info.id)] = item
 
-        # Don't add components during initial populate — they'll be added later:
-        # - When device finishes connecting (via _on_device_connected signal)
-        # - Or when tree item is expanded (lazy loading)
-        # This prevents blocking getattr() calls on unconnected ophyd components.
+        # For unconnected devices: defer to _on_device_connected so we
+        # don't trigger blocking getattr() calls on uninstantiated
+        # components. For devices that are already connected (e.g. on a
+        # tree refresh after startup), populate children now —
+        # device_connected won't re-fire and the children would stay empty.
+        if ophyd_device is not None:
+            self._add_components(item, ophyd_device)
 
         return item
 

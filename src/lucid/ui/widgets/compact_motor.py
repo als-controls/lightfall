@@ -14,13 +14,14 @@ from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMenu,
     QPushButton,
     QWidget,
 )
 
 from lucid.epics.widgets.ophyd_label import OphydLabel
+from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -56,6 +57,8 @@ class CompactMotorWidget(QWidget):
         self._device_info = device_info
         self._motor = ophyd_obj
         self._is_jog_mode = False
+        self._moving_sub_id: int | None = None
+        self._moving_sub_signal: Any = None
 
         self.setFixedHeight(self.WIDGET_HEIGHT)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -80,6 +83,10 @@ class CompactMotorWidget(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
+
+        self._status_indicator = StatusIndicator(size=10)
+        self._status_indicator.setToolTip("Motor status")
+        layout.addWidget(self._status_indicator)
 
         self._name_label = QLabel(self._device_info.name)
         self._name_label.setStyleSheet("font-weight: bold;")
@@ -130,11 +137,19 @@ class CompactMotorWidget(QWidget):
         self._jog_left_btn.clicked.connect(self._on_jog_left_clicked)
         layout.addWidget(self._jog_left_btn)
 
-        self._setpoint_edit = QLineEdit()
-        self._setpoint_edit.setValidator(QDoubleValidator())
-        self._setpoint_edit.setPlaceholderText("Target")
+        # In abs mode the entry is bound to user_setpoint so it shows the
+        # current setpoint; the actual move goes through motor.set() in
+        # _on_go_clicked, so we disable OphydLineEdit's own write paths.
+        self._setpoint_edit = OphydLineEdit(
+            precision=precision,
+            show_units=False,
+            write_on_enter=False,
+            write_on_focus_out=False,
+        )
+        self._setpoint_edit._line_edit.setValidator(QDoubleValidator())
+        self._setpoint_edit._line_edit.setPlaceholderText("Target")
         self._setpoint_edit.setMaximumWidth(100)
-        self._setpoint_edit.returnPressed.connect(self._on_go_clicked)
+        self._setpoint_edit._line_edit.returnPressed.connect(self._on_go_clicked)
         layout.addWidget(self._setpoint_edit)
 
         # _go_btn doubles as "go to target" in abs mode and "jog positive" in jog mode.
@@ -163,9 +178,57 @@ class CompactMotorWidget(QWidget):
             self._rbv_display.signal = self._motor.user_readback
         elif hasattr(self._motor, "readback"):
             self._rbv_display.signal = self._motor.readback
+        # Bind the setpoint entry in abs mode only — jog mode shows a
+        # step size, not a signal value (see _on_mode_toggled).
+        if not self._is_jog_mode:
+            self._setpoint_edit.signal = self._setpoint_signal()
+        self._subscribe_moving()
+
+    def _subscribe_moving(self) -> None:
+        """Subscribe to the motor's moving signal so the status indicator
+        flips to "warning" while in motion. EpicsMotor exposes this as
+        ``motor_is_moving``; soft/simulated motors usually don't have it,
+        so this is best-effort.
+        """
+        if self._motor is None:
+            return
+        sig = getattr(self._motor, "motor_is_moving", None)
+        if sig is None or not hasattr(sig, "subscribe"):
+            return
+        try:
+            self._moving_sub_id = sig.subscribe(self._on_moving_changed)
+            self._moving_sub_signal = sig
+        except Exception:
+            self._moving_sub_id = None
+            self._moving_sub_signal = None
+
+    def _on_moving_changed(self, value: Any = None, **kwargs: Any) -> None:
+        # ophyd callbacks fire on a background thread; bounce back to the
+        # GUI thread before touching widgets.
+        from lucid.utils.threads import invoke_in_main_thread
+
+        invoke_in_main_thread(self._update_status_indicator)
+
+    def _setpoint_signal(self) -> Any:
+        """The ophyd signal that backs the setpoint entry in abs mode."""
+        if self._motor is None:
+            return None
+        for attr in ("user_setpoint", "setpoint"):
+            sig = getattr(self._motor, attr, None)
+            if sig is not None:
+                return sig
+        return None
 
     def _unbind_signals(self) -> None:
         self._rbv_display.signal = None
+        self._setpoint_edit.signal = None
+        if self._moving_sub_signal is not None and self._moving_sub_id is not None:
+            try:
+                self._moving_sub_signal.unsubscribe(self._moving_sub_id)
+            except Exception:
+                pass
+        self._moving_sub_signal = None
+        self._moving_sub_id = None
 
     def _update_state(self) -> None:
         has_motor = self._motor is not None
@@ -177,6 +240,23 @@ class CompactMotorWidget(QWidget):
         if not has_motor:
             self._rbv_display._value_label.setText("...")
             self._name_label.setText(f"{self._device_info.name} (connecting...)")
+        self._update_status_indicator()
+
+    def _update_status_indicator(self) -> None:
+        if self._motor is None:
+            self._status_indicator.set_state("off")
+            return
+        connected = getattr(self._motor, "connected", True)
+        if not connected:
+            self._status_indicator.set_state("disconnected")
+            return
+        try:
+            if bool(getattr(self._motor, "moving", False)):
+                self._status_indicator.set_state("warning")
+                return
+        except Exception:
+            pass
+        self._status_indicator.set_state("on")
 
     def set_motor(self, ophyd_obj: Any) -> None:
         """Update the underlying motor object (e.g. after delayed connection)."""
@@ -200,7 +280,11 @@ class CompactMotorWidget(QWidget):
         self._is_jog_mode = checked
         if checked:
             self._mode_btn.setText("Jog")
-            self._setpoint_edit.setPlaceholderText("Step")
+            # Unbind setpoint signal so a default step size can show
+            # without being immediately overwritten by the setpoint feed.
+            self._setpoint_edit.signal = None
+            self._setpoint_edit._line_edit.setPlaceholderText("Step")
+            self._setpoint_edit._line_edit.setText("1")
             self._jog_left_btn.setVisible(True)
             self._go_btn.setIcon(
                 qta.icon("ph.arrow-fat-lines-right-fill", color="#90caf9")
@@ -208,10 +292,16 @@ class CompactMotorWidget(QWidget):
             self._go_btn.setToolTip("Jog positive by step")
         else:
             self._mode_btn.setText("Abs")
-            self._setpoint_edit.setPlaceholderText("Target")
+            self._setpoint_edit._line_edit.setPlaceholderText("Target")
             self._jog_left_btn.setVisible(False)
             self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
             self._go_btn.setToolTip("Move to target")
+            # Re-bind to the setpoint signal so the entry tracks the
+            # current target again. Clear the modified flag first so the
+            # initial signal read can repaint the entry — typing in jog
+            # mode leaves OphydLineEdit's _modified set.
+            self._setpoint_edit._modified = False
+            self._setpoint_edit.signal = self._setpoint_signal()
 
     @Slot()
     def _on_go_clicked(self) -> None:

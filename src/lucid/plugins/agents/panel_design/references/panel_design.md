@@ -422,6 +422,25 @@ btn = QPushButton("Click Me")
 btn.clicked.connect(handler)
 ```
 
+## compact-motor-widget
+
+For simple motor controls in a panel, use `CompactMotorWidget` — a single-row
+widget with status dot, readback, jog/abs toggle, setpoint entry, go, and stop.
+It handles ophyd subscription, units, and motion state internally.
+
+```python
+from lucid.ui.widgets.compact_motor import CompactMotorWidget
+from lucid.devices import DeviceCatalog
+
+catalog = DeviceCatalog.get_instance()
+info = catalog.get_device_by_name("sample_x")
+widget = CompactMotorWidget(device_info=info, ophyd_obj=info.ophyd_device)
+self._layout.addWidget(widget)
+```
+
+The `ophyd_obj` may be `None` initially; call `widget.set_motor(...)` once
+the device finishes connecting (e.g. from `DeviceCatalog.device_connected`).
+
 ## lucid-services
 
 ```python

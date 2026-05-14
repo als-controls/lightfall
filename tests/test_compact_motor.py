@@ -72,7 +72,7 @@ class TestCompactMotorWidget:
     def test_abs_move(self, qapp, mock_device_info, mock_motor):
         from lucid.ui.widgets.compact_motor import CompactMotorWidget
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
-        widget._setpoint_edit.setText("25.0")
+        widget._setpoint_edit._line_edit.setText("25.0")
         widget._go_btn.click()
         mock_motor.set.assert_called_once_with(25.0)
         widget.close()
@@ -82,7 +82,7 @@ class TestCompactMotorWidget:
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
         widget._mode_btn.click()
         assert widget.is_jog_mode is True
-        widget._setpoint_edit.setText("5.0")
+        widget._setpoint_edit._line_edit.setText("5.0")
         widget._go_btn.click()
         mock_motor.set.assert_called_once_with(15.0)
         widget.close()
@@ -100,4 +100,43 @@ class TestCompactMotorWidget:
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=None)
         assert widget._go_btn.isEnabled() is False
         assert widget._stop_btn.isEnabled() is False
+        widget.close()
+
+    def test_status_indicator_states(self, qapp, mock_device_info, mock_motor):
+        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+
+        # No motor → "off"
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=None)
+        assert widget._status_indicator._state == "off"
+        widget.close()
+
+        # Connected, idle → "on"
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
+        assert widget._status_indicator._state == "on"
+        widget.close()
+
+        # Moving → "warning"
+        mock_motor.moving = True
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
+        assert widget._status_indicator._state == "warning"
+        widget.close()
+
+    def test_abs_mode_binds_setpoint_signal(self, qapp, mock_device_info, mock_motor):
+        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
+        # In abs mode, the setpoint entry is bound to user_setpoint
+        assert widget._setpoint_edit.signal is mock_motor.user_setpoint
+        widget.close()
+
+    def test_jog_mode_unbinds_signal_and_defaults_to_one(
+        self, qapp, mock_device_info, mock_motor
+    ):
+        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
+        widget._mode_btn.click()  # → Jog
+        assert widget._setpoint_edit.signal is None
+        assert widget._setpoint_edit._line_edit.text() == "1"
+        # Returning to abs re-binds
+        widget._mode_btn.click()  # → Abs
+        assert widget._setpoint_edit.signal is mock_motor.user_setpoint
         widget.close()
