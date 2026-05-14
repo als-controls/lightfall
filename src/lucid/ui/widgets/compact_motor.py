@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import qtawesome as qta
 from PySide6.QtCore import QPoint, QSize, Qt, Signal, Slot
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtGui import QDoubleValidator, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -26,6 +26,20 @@ from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
     from lucid.devices.model import DeviceInfo
+
+
+class _ElidedLabel(QLabel):
+    """QLabel that draws its text with a right-side ellipsis when the
+    rendered text is wider than the label. Keeps the full text available
+    for the tooltip and accessibility."""
+
+    def paintEvent(self, event: Any) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(
+            self.text(), Qt.TextElideMode.ElideRight, self.width()
+        )
+        painter.drawText(self.rect(), int(self.alignment()), elided)
 
 
 class CompactMotorWidget(QWidget):
@@ -88,9 +102,9 @@ class CompactMotorWidget(QWidget):
         self._status_indicator.setToolTip("Motor status")
         layout.addWidget(self._status_indicator)
 
-        self._name_label = QLabel(self._device_info.name)
+        self._name_label = _ElidedLabel(self._device_info.name)
         self._name_label.setStyleSheet("font-weight: bold;")
-        self._name_label.setFixedWidth(120)
+        self._name_label.setFixedWidth(72)
         self._name_label.setToolTip(self._device_info.name)
         layout.addWidget(self._name_label)
 
