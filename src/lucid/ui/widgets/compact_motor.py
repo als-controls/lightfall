@@ -25,6 +25,11 @@ from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lucid.epics.widgets.status_indicator import StatusIndicator
 from lucid.utils.logging import logger
 
+# Fallback colors when ThemeManager isn't available (e.g. headless tests).
+_FALLBACK_ACTION = "#90caf9"
+_FALLBACK_DANGER = "#F44336"
+_FALLBACK_MUTED = "#9aa0a6"
+
 if TYPE_CHECKING:
     from lucid.devices.model import DeviceInfo
 
@@ -82,6 +87,7 @@ class CompactMotorWidget(QWidget):
         self._setup_ui()
         self._bind_signals()
         self._update_state()
+        self._connect_theme_signal()
 
     @property
     def device_id(self) -> str:
@@ -95,6 +101,8 @@ class CompactMotorWidget(QWidget):
         return self._is_jog_mode
 
     def _setup_ui(self) -> None:
+        action, danger, muted = self._theme_colors()
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
@@ -127,7 +135,7 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._rbv_display)
 
         self._units_label = QLabel(units)
-        self._units_label.setStyleSheet("color: #9aa0a6; font-size: 10pt;")
+        self._units_label.setStyleSheet(f"color: {muted}; font-size: 10pt;")
         self._units_label.setFixedWidth(28)
         layout.addWidget(self._units_label)
 
@@ -141,7 +149,7 @@ class CompactMotorWidget(QWidget):
 
         self._jog_left_btn = QPushButton()
         self._jog_left_btn.setIcon(
-            qta.icon("ph.arrow-fat-lines-left-fill", color="#90caf9")
+            qta.icon("ph.arrow-fat-lines-left-fill", color=action)
         )
         self._jog_left_btn.setIconSize(QSize(18, 18))
         self._jog_left_btn.setFixedWidth(40)
@@ -180,7 +188,7 @@ class CompactMotorWidget(QWidget):
 
         # _go_btn doubles as "go to target" in abs mode and "jog positive" in jog mode.
         self._go_btn = QPushButton()
-        self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
+        self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color=action))
         self._go_btn.setIconSize(QSize(18, 18))
         self._go_btn.setFixedWidth(40)
         self._go_btn.setStyleSheet(self._BUTTON_STYLE)
@@ -189,7 +197,7 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._go_btn)
 
         self._stop_btn = QPushButton()
-        self._stop_btn.setIcon(qta.icon("mdi6.stop", color="#F44336"))
+        self._stop_btn.setIcon(qta.icon("mdi6.stop", color=danger))
         self._stop_btn.setIconSize(QSize(18, 18))
         self._stop_btn.setFixedWidth(36)
         self._stop_btn.setStyleSheet(self._BUTTON_STYLE)
@@ -283,6 +291,49 @@ class CompactMotorWidget(QWidget):
 
         invoke_in_main_thread(self._update_status_indicator)
 
+    def _theme_colors(self) -> tuple[str, str, str]:
+        """Resolve (action, danger, muted) from the active ThemeManager.
+
+        Falls back to literals when ThemeManager isn't reachable (headless
+        tests, very early init).
+        """
+        try:
+            from lucid.ui.theme import ThemeManager
+
+            c = ThemeManager.get_instance().colors
+            return c.primary, c.error, c.text_secondary
+        except Exception:
+            return _FALLBACK_ACTION, _FALLBACK_DANGER, _FALLBACK_MUTED
+
+    def _connect_theme_signal(self) -> None:
+        try:
+            from lucid.ui.theme import ThemeManager
+
+            ThemeManager.get_instance().colors_changed.connect(
+                self._apply_themed_styles
+            )
+        except Exception:
+            pass
+
+    def _apply_themed_styles(self) -> None:
+        """Re-pull theme colors and re-skin the icon buttons + units label.
+
+        Called on the colors_changed signal so a live theme switch refreshes
+        the widget without rebuilding it.
+        """
+        action, danger, muted = self._theme_colors()
+        self._units_label.setStyleSheet(f"color: {muted}; font-size: 10pt;")
+        self._jog_left_btn.setIcon(
+            qta.icon("ph.arrow-fat-lines-left-fill", color=action)
+        )
+        self._stop_btn.setIcon(qta.icon("mdi6.stop", color=danger))
+        if self._is_jog_mode:
+            self._go_btn.setIcon(
+                qta.icon("ph.arrow-fat-lines-right-fill", color=action)
+            )
+        else:
+            self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color=action))
+
     def _setpoint_signal(self) -> Any:
         """The ophyd signal that backs the setpoint entry in abs mode."""
         if self._motor is None:
@@ -360,17 +411,18 @@ class CompactMotorWidget(QWidget):
         self._is_jog_mode = checked
         self._setpoint_edit.setVisible(not checked)
         self._jog_edit.setVisible(checked)
+        action, _, _ = self._theme_colors()
         if checked:
             self._mode_btn.setText("Jog")
             self._jog_left_btn.setVisible(True)
             self._go_btn.setIcon(
-                qta.icon("ph.arrow-fat-lines-right-fill", color="#90caf9")
+                qta.icon("ph.arrow-fat-lines-right-fill", color=action)
             )
             self._go_btn.setToolTip("Jog positive by step")
         else:
             self._mode_btn.setText("Abs")
             self._jog_left_btn.setVisible(False)
-            self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
+            self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color=action))
             self._go_btn.setToolTip("Move to target")
 
     @Slot()
@@ -441,4 +493,12 @@ class CompactMotorWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         self._unbind_signals()
+        try:
+            from lucid.ui.theme import ThemeManager
+
+            ThemeManager.get_instance().colors_changed.disconnect(
+                self._apply_themed_styles
+            )
+        except Exception:
+            pass
         super().closeEvent(event)
