@@ -110,13 +110,12 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._name_label)
 
         precision = 4
-        units = ""
         if self._device_info.metadata:
             precision = self._device_info.metadata.get("precision", 4)
-            units = self._device_info.metadata.get("units", "") or ""
+        units = self._resolve_units()
         # show_units=False on OphydLabel — its units label is signal-driven
         # and disappears when EGU isn't reported. We render units ourselves
-        # from DeviceInfo metadata so they always show.
+        # via _resolve_units() so they always show.
         self._rbv_display = OphydLabel(precision=precision, show_units=False)
         self._rbv_display._value_label.setStyleSheet(
             "font-family: monospace; font-size: 10pt;"
@@ -197,6 +196,54 @@ class CompactMotorWidget(QWidget):
         self._stop_btn.setToolTip("Stop motor")
         self._stop_btn.clicked.connect(self._on_stop_clicked)
         layout.addWidget(self._stop_btn)
+
+    def _resolve_units(self) -> str:
+        """Return the best available engineering-units string for this motor.
+
+        Priority:
+        1. ``DeviceInfo.metadata["units"]`` — static entry from the device
+           catalog (happi, YAML, etc.).  Always tried first so the database
+           can override whatever the hardware reports.
+        2. ``motor.egu`` — the :class:`~ophyd.epics_motor.EpicsMotor`
+           convenience property.  Calls ``motor_egu.get()``; because the
+           component uses ``auto_monitor=True`` the value is cached after the
+           first monitor update, so this is effectively free once connected.
+        3. ``motor.user_readback.metadata["units"]`` / ``motor.readback.metadata["units"]``
+           — the CA control-variable metadata dict on the readback signal,
+           populated at connection time with zero additional CA calls.  Works
+           for any :class:`~ophyd.epics_motor.EpicsMotor`-like device even
+           when the ``egu`` property is absent.
+        """
+        # 1. Static catalog metadata
+        if self._device_info.metadata:
+            units = self._device_info.metadata.get("units", "") or ""
+            if units:
+                return units
+
+        if self._motor is None:
+            return ""
+
+        # 2. EpicsMotor.egu convenience property
+        if hasattr(self._motor, "egu"):
+            try:
+                units = self._motor.egu or ""
+                if units:
+                    return units
+            except Exception:
+                pass
+
+        # 3. Readback-signal CA metadata dict (zero-cost after connection)
+        for attr in ("user_readback", "readback"):
+            sig = getattr(self._motor, attr, None)
+            if sig is not None and hasattr(sig, "metadata"):
+                try:
+                    units = sig.metadata.get("units", "") or ""
+                    if units:
+                        return units
+                except Exception:
+                    pass
+
+        return ""
 
     def _bind_signals(self) -> None:
         if self._motor is None:
@@ -292,6 +339,11 @@ class CompactMotorWidget(QWidget):
         self._motor = ophyd_obj
         self._bind_signals()
         self._name_label.setText(self._device_info.name)
+        # Re-resolve units now that the motor is connected — EpicsMotor.egu
+        # and signal.metadata["units"] are only populated after the CA
+        # connection handshake completes, so the initial _setup_ui() call may
+        # have returned "" for motors not yet in static.json metadata.
+        self._units_label.setText(self._resolve_units())
         self._update_state()
 
     def _get_current_position(self) -> float | None:
