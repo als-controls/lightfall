@@ -105,7 +105,7 @@ class CompactMotorWidget(QWidget):
 
         self._name_label = _ElidedLabel(self._device_info.name)
         self._name_label.setStyleSheet("font-weight: bold;")
-        self._name_label.setFixedWidth(72)
+        self._name_label.setFixedWidth(120)
         self._name_label.setToolTip(self._device_info.name)
         layout.addWidget(self._name_label)
 
