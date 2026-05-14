@@ -363,6 +363,45 @@ class DeviceCatalog(QObject):
 
         logger.debug("Rebuilt device cache with {} devices", len(self._device_cache))
 
+    def reload_backends(self) -> bool:
+        """Reload every backend from its source and resync the cache.
+
+        This drives the user-facing "refresh" so out-of-band edits
+        (e.g. someone editing the happi JSON) propagate. Each backend's
+        reload() is expected to preserve live ophyd instances by name,
+        so the cache rebuild here is safe to do without tearing down
+        active connections.
+
+        Returns:
+            True if at least one backend supported reload.
+        """
+        any_reloaded = False
+        for name, backend in self._backends.items():
+            if not backend.is_connected:
+                continue
+            try:
+                if backend.reload():
+                    any_reloaded = True
+                    logger.info("Reloaded backend: {}", name)
+            except Exception as e:
+                logger.error("Error reloading backend '{}': {}", name, e)
+
+        # Snapshot pre-reload name -> id map so we can emit add/remove
+        # signals (carrying UUID strings per existing contract) for
+        # entries that appeared or disappeared.
+        old_name_ids = dict(self._name_index)
+        self._rebuild_cache()
+        new_names = set(self._name_index.keys())
+
+        for added in new_names - old_name_ids.keys():
+            device = self._device_cache.get(self._name_index[added])
+            if device is not None:
+                self.device_added.emit(device)
+        for removed in old_name_ids.keys() - new_names:
+            self.device_removed.emit(str(old_name_ids[removed]))
+
+        return any_reloaded
+
     # === On-Demand Connection ===
 
     def request_device_connection(self, device_id: UUID | str) -> bool:

@@ -309,6 +309,20 @@ class DeviceBackend(ABC):
         """
         return self.list_devices(beamline=beamline)
 
+    def reload(self) -> bool:
+        """Re-read the backend source (e.g. JSON file) to pick up
+        out-of-band changes.
+
+        Backends backed by an external file or service should override
+        this to refresh their in-memory cache. Runtime state (live ophyd
+        instances, connection status) should be preserved by name for
+        devices that still exist after the reload.
+
+        Returns:
+            True if the reload happened, False if unsupported / not connected.
+        """
+        return False
+
     # === Introspection ===
 
     def get_backend_info(self) -> dict[str, Any]:

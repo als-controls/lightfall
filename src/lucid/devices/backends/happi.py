@@ -653,6 +653,86 @@ class HappiBackend(DeviceBackend):
             self._fail_counts.clear()
         logger.info("Reset failed device tracking")
 
+    def reload(self) -> bool:
+        """Re-read the happi database to pick up out-of-band edits.
+
+        Recreates the happi client (the JSON backend caches the
+        deserialized payload), then re-discovers devices. Runtime
+        state — live ophyd instances, status, and the persistent
+        DeviceInfo.id — is preserved for devices whose name is still
+        present after the reload, so model lookups and active
+        connections survive.
+
+        Returns:
+            True if the reload succeeded.
+        """
+        if not self._connected:
+            return False
+
+        try:
+            import happi as _happi
+            from happi.backends.json_db import JSONBackend
+        except ImportError:
+            return False
+
+        try:
+            if self._path:
+                db = JSONBackend(self._path)
+                self._client = _happi.Client(database=db)
+            else:
+                self._client = _happi.Client.from_config()
+        except Exception as e:
+            logger.error("Failed to reload happi client: {}", e)
+            return False
+
+        # Snapshot existing entries by name so we can carry runtime
+        # state forward for devices that still exist.
+        old_by_name: dict[str, DeviceInfo] = {
+            d.name: d for d in self._devices.values()
+        }
+
+        self._devices.clear()
+        self._configurations.clear()
+        self._maintenance.clear()
+        self._discover_devices()
+
+        # Re-key new entries with the old UUIDs (and copy runtime state)
+        # for names that survived the reload. Anything else is genuinely
+        # new and keeps its fresh UUID.
+        preserved: dict[UUID, DeviceInfo] = {}
+        for new_dev in list(self._devices.values()):
+            old = old_by_name.get(new_dev.name)
+            if old is not None:
+                # Drop the fresh entry's id-keyed empty config/maintenance
+                # lists so we don't leak them under the abandoned UUID.
+                self._configurations.pop(new_dev.id, None)
+                self._maintenance.pop(new_dev.id, None)
+
+                new_dev.id = old.id
+                new_dev._ophyd_device = old._ophyd_device
+                new_dev._state = old._state
+                if old._ophyd_device is not None:
+                    # Already live — don't re-queue for background connect.
+                    new_dev.metadata.pop("_happi_result", None)
+            preserved[new_dev.id] = new_dev
+            self._configurations.setdefault(new_dev.id, [])
+            self._maintenance.setdefault(new_dev.id, [])
+
+        self._devices = preserved
+
+        # Reset failure tracking so a previously-broken entry that the
+        # user just fixed isn't stuck on the permanent-fail list.
+        self._permanently_failed.clear()
+        if hasattr(self, "_fail_counts"):
+            self._fail_counts.clear()
+
+        # Queue any newly-introduced (or repaired) devices for connection.
+        if self._instantiate_mode == "background":
+            self._start_background_connections()
+
+        logger.info("Reloaded happi backend: {} devices", len(self._devices))
+        return True
+
     # === Device CRUD ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
@@ -708,7 +788,12 @@ class HappiBackend(DeviceBackend):
         try:
             import happi
 
-            item = happi.HappiItem(
+            # OphydItem (rather than the base HappiItem) seeds the entry
+            # with type=OphydItem and the args=["{{prefix}}"] /
+            # kwargs={"name": "{{name}}"} defaults required for ophyd
+            # instantiation. Without those, the entry loads but fails
+            # to construct an ophyd device.
+            item = happi.OphydItem(
                 name=device.name,
                 device_class=device.device_class or "ophyd.Device",
                 active=device.active,

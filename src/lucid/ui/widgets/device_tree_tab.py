@@ -142,7 +142,10 @@ class DeviceTreeTab(QWidget):
         toolbar.setFloatable(False)
 
         sync_action = QAction(qta.icon("mdi6.sync"), "Sync", self)
-        sync_action.setToolTip("Retry failed device connections and refresh the tree")
+        sync_action.setToolTip(
+            "Re-read device backends (e.g. happi JSON), retry failed "
+            "connections, and refresh the tree"
+        )
         sync_action.triggered.connect(self._sync_devices)
         toolbar.addAction(sync_action)
         toolbar.addSeparator()
@@ -342,6 +345,10 @@ class DeviceTreeTab(QWidget):
 
     def _sync_devices(self) -> None:
         from lucid.utils.threads import QThreadFuture
+        # Pick up out-of-band edits to the backing store (e.g. someone
+        # edited the happi JSON) before retrying connections. Without
+        # this, Sync only reconnected the existing cached entries.
+        self._catalog.reload_backends()
         for backend in self._catalog.backends.values():
             if hasattr(backend, "reset_failed_devices"):
                 backend.reset_failed_devices()
@@ -353,6 +360,7 @@ class DeviceTreeTab(QWidget):
             logger.info("Sync: {} connected, {} still offline", connected, failed)
         thread = QThreadFuture(_do_reconnect, callback_slot=_on_done, name="sync-devices")
         thread.start()
+        self._model.refresh()
         logger.info("Syncing devices...")
 
     def _on_device_changed(self, _: Any) -> None:

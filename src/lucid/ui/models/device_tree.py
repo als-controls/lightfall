@@ -416,6 +416,13 @@ class DeviceTreeModel(QAbstractItemModel):
                 self._icons[f"{name}_inactive"] = qta.icon(
                     icon_name, color=self._INACTIVE_COLOR
                 )
+            # Single error icon used in the name column when a device
+            # failed to instantiate (e.g. missing args/kwargs in happi).
+            # Replaces the category icon entirely so the failure is
+            # impossible to miss.
+            self._icons["device_error"] = qta.icon(
+                "mdi6.alert-circle", color="#F44336"
+            )
         except Exception:
             # Fallback to painted letter circles if qtawesome unavailable
             _fallback = {"motor": ("#4CAF50", "M"), "detector": ("#2196F3", "D"), "controller": ("#FF9800", "C")}
@@ -424,6 +431,7 @@ class DeviceTreeModel(QAbstractItemModel):
                 self._icons[f"{name}_inactive"] = self._create_letter_icon(
                     self._INACTIVE_COLOR, letter
                 )
+            self._icons["device_error"] = self._create_letter_icon("#F44336", "!")
 
         # Connection status icons (small dots for status column)
         status_specs = {
@@ -506,8 +514,12 @@ class DeviceTreeModel(QAbstractItemModel):
         """Create a tree item for a device and its components."""
         ophyd_device = device_info.ophyd_device
 
+        # display_name is the user-facing label; fall back to the
+        # stable backend name when it's unset.  getattr keeps mocks
+        # without the attribute happy.
+        display = getattr(device_info, "display_name", "") or device_info.name
         item = DeviceTreeItem(
-            name=device_info.name,
+            name=display,
             node_type=NodeType.DEVICE,
             parent=self._root,
             ophyd_obj=ophyd_device,
@@ -654,6 +666,19 @@ class DeviceTreeModel(QAbstractItemModel):
                 child_bottom = self.index(child_count - 1, 1, parent_index)
                 self.dataChanged.emit(child_top, child_bottom, [Qt.ItemDataRole.DisplayRole])
 
+    @staticmethod
+    def _is_device_errored(item: DeviceTreeItem) -> bool:
+        """True if this is a top-level device whose state is ERROR.
+
+        Used to swap in the error icon / red name for entries that
+        couldn't be instantiated (e.g. malformed happi records).
+        """
+        info = item.device_info
+        if info is None or info.state is None:
+            return False
+        from lucid.devices.model import DeviceStatus
+        return info.state.status == DeviceStatus.ERROR
+
     def _on_device_state_changed(self, device_id: str, state: Any) -> None:
         """Handle device state change from catalog."""
         item = self._device_id_to_item.get(device_id)
@@ -665,11 +690,14 @@ class DeviceTreeModel(QAbstractItemModel):
         if row < 0:
             return
 
-        # Emit dataChanged for the status column (column 2)
-        index = self.index(row, 2)
+        # Repaint the Name + Status columns: column 0 picks up the
+        # error icon / red text when the state flips to ERROR, column 2
+        # repaints the status dot.
+        top_left = self.index(row, 0)
+        bottom_right = self.index(row, 2)
         self.dataChanged.emit(
-            index,
-            index,
+            top_left,
+            bottom_right,
             [
                 Qt.ItemDataRole.DisplayRole,
                 Qt.ItemDataRole.DecorationRole,
@@ -827,6 +855,13 @@ class DeviceTreeModel(QAbstractItemModel):
 
         elif role == Qt.ItemDataRole.DecorationRole:
             if index.column() == 0:
+                # Surface instantiation failures right next to the name
+                # — happi entries with missing args/kwargs etc. otherwise
+                # look identical to a healthy device.
+                if self._is_device_errored(item):
+                    err = self._icons.get("device_error")
+                    if err is not None:
+                        return err
                 category = item.get_device_category()
                 active = item.device_info.active if item.device_info else True
                 if not active:
@@ -853,6 +888,10 @@ class DeviceTreeModel(QAbstractItemModel):
             device_info = item.device_info
             if device_info is not None and not device_info.active:
                 return QColor("#9E9E9E")  # Grey for all columns
+
+            # Errored devices: red name to match the error icon.
+            if index.column() == 0 and self._is_device_errored(item):
+                return QColor("#F44336")
 
             # Color status column
             if index.column() == 2:

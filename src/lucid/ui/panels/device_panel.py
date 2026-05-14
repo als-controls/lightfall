@@ -344,6 +344,7 @@ class DevicePanel(BasePanel):
         return actions
 
     def action_refresh(self) -> bool:
+        self._catalog.reload_backends()
         self._tree_tab.model.refresh()
         return True
 
