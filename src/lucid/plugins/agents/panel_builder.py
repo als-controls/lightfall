@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from lucid.plugins.agent_plugin import AgentPlugin
+from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
@@ -61,30 +62,33 @@ class PanelBuilderAgent(AgentPlugin):
 
 You have access to tools for creating user plugins in LUCID.
 
-### Plugin Kind is Determined by Class Hierarchy
+### Plugin Kinds
 
-The `plugin_type` parameter no longer exists. Instead, the kind of plugin is
-inferred automatically from which base class your code subclasses:
+Two kinds of user plugins are supported. The kind is inferred from what your
+code defines and registers:
 
-- **`PanelPlugin`** — subclass this to register a new dock panel
-- **`AgentPlugin`** — subclass this to extend the embedded Claude agent
-  (adds skill prompts and MCP tools)
-
-`__init_subclass__` auto-registers each concrete subclass; no explicit
-`Registry.get_instance().register()` call is required.
+- **Panel plugin** — a `BasePanel` subclass with a `panel_metadata` class
+  attribute, self-registered at module scope with
+  `PanelRegistry.get_instance().register(MyPanel, replace=True)`. This is
+  the canonical user-plugin pattern; see the `panel_design` skill for the
+  full `BasePanel` API.
+- **Agent plugin** — an `AgentPlugin` subclass that extends the embedded
+  Claude agent (skill prompts + MCP tools). Auto-registered via
+  `PluginType.__init_subclass__` on module load.
 
 ### Creating a Plugin
 
 Use `ncs_create_user_plugin` to write a plugin file to ~/lucid/plugins/.
-The plugin will be validated (syntax + exec + concrete-PluginType-subclass
-check), written to disk, and loaded immediately.
+The plugin is validated (syntax + exec + at least one panel registration
+or concrete AgentPlugin subclass), written to disk, and loaded immediately.
 
 Example workflow:
-1. User asks for a panel with specific functionality
-2. You generate the panel code subclassing `PanelPlugin`
-3. You call `ncs_create_user_plugin` with the code
-4. The plugin is validated, written to disk, and loaded
-5. User can open the panel from View > User > [Panel Name]
+1. User asks for a panel with specific functionality.
+2. You generate a `BasePanel` subclass with a `panel_metadata` and a
+   trailing `PanelRegistry.get_instance().register(MyPanel, replace=True)`.
+3. You call `ncs_create_user_plugin` with that source.
+4. The plugin is validated, written to disk, and loaded.
+5. User can open the panel from View > User > [Panel Name].
 
 ### Quick Prototyping
 
@@ -107,12 +111,14 @@ ideas before committing to a persistent plugin.
         """Validate user plugin code. Returns (is_valid, error, found_kinds).
 
         found_kinds is a list of type_names ("panel", "agent", ...) for
-        each concrete PluginType subclass discovered.
+        each registerable plugin class discovered.
 
         Performs in-memory validation:
         1. Syntax check via compile()
         2. Execution in isolated namespace to check imports
-        3. Discovers concrete PluginType subclasses (kind inferred from hierarchy)
+        3. Discovers either:
+           - Concrete `PluginType` subclasses (auto-enqueue path), or
+           - `BasePanel` subclasses with `panel_metadata` (self-register path)
         4. Warning for dangerous imports
         """
         # 1. Syntax check
@@ -128,21 +134,36 @@ ideas before committing to a persistent plugin.
         except Exception as e:  # noqa: BLE001
             return False, f"Import/exec error: {e}", []
 
-        # 3. Find PluginType subclasses (concrete only)
+        # 3. Find registerable plugin classes. Accept either pattern:
+        #    - Concrete PluginType subclass (auto-enqueued via __init_subclass__).
+        #    - BasePanel subclass with panel_metadata (self-registered via
+        #      PanelRegistry.register at module scope — the canonical
+        #      user-plugin pattern from the panel_design skill).
         from lucid.plugins.types import PluginType
+        from lucid.ui.panels.base import BasePanel
 
         found_kinds: list[str] = []
         for v in namespace.values():
-            if (
-                isinstance(v, type)
-                and issubclass(v, PluginType)
-                and v is not PluginType
-                and not getattr(v, "__abstractmethods__", None)
-            ):
+            if not isinstance(v, type):
+                continue
+            if getattr(v, "__abstractmethods__", None):
+                continue
+            if issubclass(v, PluginType) and v is not PluginType:
                 found_kinds.append(v.type_name)
+            elif (
+                issubclass(v, BasePanel)
+                and v is not BasePanel
+                and getattr(v, "panel_metadata", None) is not None
+            ):
+                found_kinds.append("panel")
 
         if not found_kinds:
-            return False, "No concrete PluginType subclass found", []
+            return False, (
+                "No registerable plugin class found. Define either a "
+                "BasePanel subclass with `panel_metadata` (and call "
+                "PanelRegistry.get_instance().register(...) at module scope), "
+                "or a concrete AgentPlugin subclass."
+            ), []
 
         # 4. Warn about dangerous imports (but don't fail)
         dangerous_patterns = [
@@ -182,13 +203,15 @@ ideas before committing to a persistent plugin.
             description="""Create a LUCID user plugin from Python code.
 
 The plugin will be written to ~/lucid/plugins/ and automatically loaded.
-The kind of plugin is determined by the class hierarchy in `code`:
+The kind of plugin is inferred from what `code` defines:
 
-- Subclass `AgentPlugin` to extend the embedded Claude agent (adds skill prompts + MCP tools)
-- Subclass `PanelPlugin` to register a new dock panel
-
-`__init_subclass__` auto-registers each concrete subclass on module load;
-no explicit `Registry.get_instance().register()` call is required.
+- A `BasePanel` subclass with `panel_metadata`, self-registered at module
+  scope with `PanelRegistry.get_instance().register(MyPanel, replace=True)`,
+  contributes a dock panel. This is the canonical user-plugin pattern
+  (see the `panel_design` skill for the full `BasePanel` API).
+- A concrete `AgentPlugin` subclass extends the embedded Claude agent
+  (skill prompts + MCP tools); it auto-registers via `__init_subclass__`
+  on module load.
 
 Returns success status, file path, and the discovered plugin kind(s).
 
@@ -204,15 +227,15 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
 )
-from lucid.plugins.panel_plugin import PanelPlugin
-from lucid.ui.panels.base import PanelMetadata
+from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
 
 
-class MyPanel(PanelPlugin):
+class MyPanel(BasePanel):
     \"\"\"Panel description.\"\"\"
 
     panel_metadata = PanelMetadata(
-        id="user.my_panel",
+        id="lucid.panels.user.my_panel",
         name="My Panel",
         description="What this panel does",
         icon="mdi6.icon-name",
@@ -236,9 +259,17 @@ class MyPanel(PanelPlugin):
     def _on_click(self) -> None:
         \"\"\"Handle button click.\"\"\"
         pass
+
+
+# Self-register at module load time (REQUIRED for user plugins).
+# `replace=True` is required to support hot-reload of this file.
+PanelRegistry.get_instance().register(MyPanel, replace=True)
 ```
 
 ## Common Mistakes to AVOID:
+- DON'T subclass `PanelPlugin` for a user panel — that's the built-in
+  two-layer pattern. User panels subclass `BasePanel` directly and
+  self-register.
 - DON'T use `qtpy` imports - use `PySide6` directly
 - DON'T override `__init__` - override `_setup_ui()` instead
 - DON'T create `QVBoxLayout(self)` - use inherited `self._layout`
@@ -297,19 +328,19 @@ engine.submit(my_plan(), description="My plan")
 
             # Validate name is a valid Python identifier
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
-                return {
+                return mcp_result({
                     "success": False,
                     "error": "Invalid plugin name. Must be a valid Python identifier "
                     "(letters, numbers, underscore; must start with letter or underscore).",
-                }
+                })
 
             # Validate code in-memory before writing
             is_valid, error, kinds = self._validate_plugin_code(code, name)
             if not is_valid:
-                return {
+                return mcp_result({
                     "success": False,
                     "error": error,
-                }
+                })
 
             # Get plugins directory from UserPluginService
             try:
@@ -317,36 +348,36 @@ engine.submit(my_plan(), description="My plan")
                 plugins_dir = service.get_plugins_directory()
             except Exception as e:
                 logger.error("Failed to get UserPluginService: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": f"Failed to access user plugins service: {e}",
-                }
+                })
 
             file_path = plugins_dir / f"{name}.py"
 
             # Check for existing file
             if file_path.exists() and not overwrite:
-                return {
+                return mcp_result({
                     "success": False,
                     "error": f"Plugin '{name}' already exists. Set overwrite=true to replace it.",
-                }
+                })
 
             # Write the file
             try:
                 file_path.write_text(code, encoding="utf-8")
             except Exception as e:
                 logger.error("Failed to write plugin file {}: {}", file_path, e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": f"Failed to write plugin file: {e}",
-                }
+                })
 
             # Verify file was actually written
             if not file_path.exists():
-                return {
+                return mcp_result({
                     "success": False,
                     "error": f"File write appeared to succeed but file does not exist: {file_path}",
-                }
+                })
 
             # Load the plugin
             try:
@@ -357,18 +388,18 @@ engine.submit(my_plan(), description="My plan")
                 if not success:
                     info = service.get_plugin_info(file_path)
                     error_msg = info.load_error if info and info.load_error else "Unknown load error"
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Plugin file written but failed to load: {error_msg}",
                         "path": str(file_path),
-                    }
+                    })
             except Exception as e:
                 logger.warning("Plugin file written but failed to load: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": f"Plugin file written but failed to load: {e}",
                     "path": str(file_path),
-                }
+                })
 
             logger.info(
                 "Created user plugin '{}': {} (overwrite={})",
@@ -377,12 +408,12 @@ engine.submit(my_plan(), description="My plan")
                 overwrite,
             )
 
-            return {
+            return mcp_result({
                 "success": True,
                 "message": f"Plugin '{name}' created successfully (kinds: {', '.join(sorted(set(kinds)))})",
                 "path": str(file_path),
                 "description": description,
-            }
+            })
 
         @tool(
             name="ncs_create_temp_plugin",
@@ -423,35 +454,35 @@ See that tool's description for the required template.""",
 
             # Validate name
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
-                return {
+                return mcp_result({
                     "success": False,
                     "error": "Invalid plugin name",
-                }
+                })
 
             # Validate code
             is_valid, error, kinds = self._validate_plugin_code(code, name)
             if not is_valid:
-                return {
+                return mcp_result({
                     "success": False,
                     "error": error,
-                }
+                })
 
             try:
                 service = UserPluginService.get_instance()
                 file_path = service.create_temp_plugin(name, code)
 
-                return {
+                return mcp_result({
                     "success": True,
                     "message": f"Temporary plugin '{name}' created (kinds: {', '.join(sorted(set(kinds)))})",
                     "path": str(file_path),
                     "is_temporary": True,
-                }
+                })
             except Exception as e:
                 logger.error("Failed to create temp plugin: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": str(e),
-                }
+                })
 
         @tool(
             name="ncs_list_user_plugins",
@@ -475,20 +506,20 @@ Returns information about each loaded plugin including:
                 service = UserPluginService.get_instance()
                 data = service.get_introspection_data()
 
-                return {
+                return mcp_result({
                     "success": True,
                     "plugins_dir": data["plugins_dir"],
                     "hot_reload_enabled": data["hot_reload_enabled"],
                     "plugins": data["plugins"],
                     "total_count": data["loaded_plugin_count"],
                     "temp_count": data["temp_plugin_count"],
-                }
+                })
             except Exception as e:
                 logger.error("Failed to list user plugins: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": str(e),
-                }
+                })
 
         @tool(
             name="ncs_reload_plugin",
@@ -521,32 +552,32 @@ Note: Hot-reload may cause instability if panel instances are still open.""",
                 file_path = plugins_dir / f"{name}.py"
 
                 if not file_path.exists():
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Plugin file not found: {file_path}",
-                    }
+                    })
 
                 success = service.reload_plugin(file_path)
 
                 if success:
-                    return {
+                    return mcp_result({
                         "success": True,
                         "message": f"Plugin '{name}' reloaded successfully",
                         "path": str(file_path),
-                    }
+                    })
                 else:
                     info = service.get_plugin_info(file_path)
                     error = info.load_error if info else "Unknown error"
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Failed to reload: {error}",
-                    }
+                    })
             except Exception as e:
                 logger.error("Failed to reload plugin: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": str(e),
-                }
+                })
 
         @tool(
             name="ncs_unload_plugin",
@@ -581,21 +612,21 @@ Note: Open panel instances may become unstable.""",
                 success = service.unload_plugin(file_path)
 
                 if success:
-                    return {
+                    return mcp_result({
                         "success": True,
                         "message": f"Plugin '{name}' unloaded",
-                    }
+                    })
                 else:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Plugin '{name}' was not loaded",
-                    }
+                    })
             except Exception as e:
                 logger.error("Failed to unload plugin: {}", e)
-                return {
+                return mcp_result({
                     "success": False,
                     "error": str(e),
-                }
+                })
 
         return [
             create_user_plugin,

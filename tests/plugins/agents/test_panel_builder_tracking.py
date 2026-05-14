@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json as json_mod
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,13 @@ from lucid.plugins.user_plugins import UserPluginService
 from lucid.ui.panels.claude.agent_registry import AgentRegistry
 from lucid.ui.panels.registry import PanelRegistry
 from lucid.utils.git_tracker import GitTracker
+
+
+def _unwrap(result):
+    """Tools may return raw dicts or mcp_result-wrapped envelopes."""
+    if isinstance(result, dict) and "content" in result:
+        return json_mod.loads(result["content"][0]["text"])
+    return result
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +86,8 @@ class ThermAgent(AgentPlugin):
         "code": code,
         "description": "create thermometer panel for sample env",
     }))
-    assert result["success"], result
+    body = _unwrap(result)
+    assert body["success"], body
 
     subjects = _git_log_subjects(tracked_dirs.parent)
     assert subjects == ["agent: create thermometer panel for sample env"]

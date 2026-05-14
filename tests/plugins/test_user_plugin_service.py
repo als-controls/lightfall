@@ -142,6 +142,62 @@ def test_unload_user_panel_removes_basepanel_from_registry(fake_user_dir, monkey
     assert panel_id not in PanelRegistry.get_instance().list_panel_ids()
 
 
+def _write_user_panel_direct(dir_: Path, name: str) -> Path:
+    """Write a user panel using the canonical BasePanel-direct pattern from
+    the panel_design skill: no PanelPlugin wrapper, self-register at module
+    scope."""
+    path = dir_ / f"{name}.py"
+    cls_stem = name.title().replace("_", "")
+    path.write_text(
+        f'''
+from typing import ClassVar
+
+from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lucid.ui.panels.registry import PanelRegistry
+
+
+class {cls_stem}Panel(BasePanel):
+    panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
+        id="lucid.panels.user.{name}",
+        name="{cls_stem} Panel",
+    )
+
+
+PanelRegistry.get_instance().register({cls_stem}Panel, replace=True)
+''',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_load_basepanel_direct_registers_panel(fake_user_dir, monkeypatch, qapp):
+    """BasePanel + module-scope PanelRegistry.register is the canonical
+    user-plugin pattern from the panel_design skill. It must work end-to-end."""
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", fake_user_dir)
+
+    path = _write_user_panel_direct(fake_user_dir, "user_zeta")
+    success = service.load_plugin_from_file(path)
+    assert success
+    panel_id = "lucid.panels.user.user_zeta"
+    assert panel_id in PanelRegistry.get_instance().list_panel_ids()
+
+
+def test_unload_basepanel_direct_removes_panel(fake_user_dir, monkeypatch, qapp):
+    """BasePanel + module-scope register bypasses __init_subclass__; the
+    service must still track and unregister it on unload."""
+    service = UserPluginService.get_instance()
+    monkeypatch.setattr(service, "_plugins_dir", fake_user_dir)
+
+    path = _write_user_panel_direct(fake_user_dir, "user_eta")
+    service.load_plugin_from_file(path)
+    panel_id = "lucid.panels.user.user_eta"
+    assert panel_id in PanelRegistry.get_instance().list_panel_ids()
+
+    service.unload_plugin(path)
+    assert panel_id not in PanelRegistry.get_instance().list_panel_ids()
+
+
 def test_reload_replaces_old_registration(fake_user_dir, monkeypatch):
     service = UserPluginService.get_instance()
     monkeypatch.setattr(service, "_plugins_dir", fake_user_dir)

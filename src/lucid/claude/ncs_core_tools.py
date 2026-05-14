@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lucid.plugins.agent_plugin import AgentPlugin
+from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -107,7 +108,7 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _list():
                 if self._window is None:
-                    return {"error": "Main window not available"}
+                    return mcp_result({"error": "Main window not available"})
                 registry = self._get_panel_registry()
                 session = self._get_session_manager()
                 user = session.current_user
@@ -134,10 +135,10 @@ class NCSCoreToolPlugin(AgentPlugin):
                             "is_active": panel.is_active,
                         })
 
-                return {
+                return mcp_result({
                     "available_panels": available,
                     "open_panels": open_panels,
-                }
+                })
 
             return run_on_main_thread(_list)
 
@@ -163,15 +164,15 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _open():
                 if self._window is None:
-                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
+                    return mcp_result({"success": False, "panel_id": panel_id, "error": "Main window not available"})
                 panel = self._window.add_panel(panel_id)
                 if panel is not None:
-                    return {"success": True, "panel_id": panel_id}
-                return {
+                    return mcp_result({"success": True, "panel_id": panel_id})
+                return mcp_result({
                     "success": False,
                     "panel_id": panel_id,
                     "error": "Failed to open panel (may not exist or permission denied)"
-                }
+                })
 
             return run_on_main_thread(_open)
 
@@ -197,13 +198,13 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _close():
                 if self._window is None:
-                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
+                    return mcp_result({"success": False, "panel_id": panel_id, "error": "Main window not available"})
                 success = self._window.remove_panel(panel_id)
-                return {
+                return mcp_result({
                     "success": success,
                     "panel_id": panel_id,
                     "error": None if success else "Panel not found or cannot be closed"
-                }
+                })
 
             return run_on_main_thread(_close)
 
@@ -229,13 +230,13 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _activate():
                 if self._window is None:
-                    return {"success": False, "panel_id": panel_id, "error": "Main window not available"}
+                    return mcp_result({"success": False, "panel_id": panel_id, "error": "Main window not available"})
                 success = self._window.activate_panel(panel_id)
-                return {
+                return mcp_result({
                     "success": success,
                     "panel_id": panel_id,
                     "error": None if success else "Panel not found"
-                }
+                })
 
             return run_on_main_thread(_activate)
 
@@ -261,14 +262,14 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _get_info():
                 if self._window is None:
-                    return {"error": "Main window not available", "panel_id": panel_id}
+                    return mcp_result({"error": "Main window not available", "panel_id": panel_id})
                 panel = self._window.get_panel(panel_id)
                 if panel is None:
-                    return {
+                    return mcp_result({
                         "error": f"Panel '{panel_id}' not found or not open",
                         "panel_id": panel_id,
-                    }
-                return panel.get_introspection_data()
+                    })
+                return mcp_result(panel.get_introspection_data())
 
             return run_on_main_thread(_get_info)
 
@@ -305,30 +306,30 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _invoke():
                 if self._window is None:
-                    return {"success": False, "error": "Main window not available"}
+                    return mcp_result({"success": False, "error": "Main window not available"})
                 panel = self._window.get_panel(panel_id)
                 if panel is None:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Panel '{panel_id}' not found",
-                    }
+                    })
                 try:
                     result = panel.invoke_action(action, **kwargs)
-                    return {
+                    return mcp_result({
                         "success": True,
                         "result": result,
-                    }
+                    })
                 except ValueError as e:
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": str(e),
-                    }
+                    })
                 except Exception as e:
                     logger.error("Error invoking action {} on {}: {}", action, panel_id, e)
-                    return {
+                    return mcp_result({
                         "success": False,
                         "error": f"Action failed: {e}",
-                    }
+                    })
 
             return run_on_main_thread(_invoke)
 
@@ -346,8 +347,8 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _get_info():
                 if self._window is None:
-                    return {"error": "Main window not available"}
-                return self._window.get_introspection_data()
+                    return mcp_result({"error": "Main window not available"})
+                return mcp_result(self._window.get_introspection_data())
 
             return run_on_main_thread(_get_info)
 
@@ -378,10 +379,10 @@ class NCSCoreToolPlugin(AgentPlugin):
 
             def _set():
                 if self._window is None:
-                    return {"success": False, "error": "Main window not available"}
+                    return mcp_result({"success": False, "error": "Main window not available"})
                 panel = self._window.get_panel("lucid.panels.claude")
                 if panel is None:
-                    return {"success": False, "error": "Claude panel not found"}
+                    return mcp_result({"success": False, "error": "Claude panel not found"})
 
                 icon_map = {
                     "neutral": ("mdi6.robot", ""),
@@ -393,7 +394,7 @@ class NCSCoreToolPlugin(AgentPlugin):
                 panel._idle_icon = icon_name
                 panel._idle_color = color
                 panel.set_sidebar_icon(icon_name=icon_name, color=color)
-                return {"success": True, "emotion": emotion}
+                return mcp_result({"success": True, "emotion": emotion})
 
             return run_on_main_thread(_set)
 

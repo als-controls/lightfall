@@ -323,10 +323,18 @@ class UserPluginService(QObject):
                     if not _skip_commit:
                         self._commit_change(path, commit_msg)
                     return False
+
+                # Track BasePanel subclasses self-registered with PanelRegistry
+                # at module scope (the canonical user-plugin pattern). These
+                # don't go through PluginType.__init_subclass__ / enqueue, so
+                # we discover them here and add them to registrations so unload
+                # and hot-reload can remove them.
+                self._track_self_registered_panels(namespace, info)
             finally:
                 self._current_load = None
 
-            # Store plugin info (registrations list was populated by enqueue())
+            # Store plugin info (registrations list was populated by enqueue()
+            # and _track_self_registered_panels())
             self._loaded_plugins[path_str] = info
 
             # Update the module entry with the fully populated namespace
@@ -520,6 +528,54 @@ class UserPluginService(QObject):
             )
 
         logger.debug("auto-enqueued user plugin: {} (type={})", plugin_name, registry_type)
+
+    def _track_self_registered_panels(
+        self, namespace: dict[str, Any], info: PluginInfo,
+    ) -> None:
+        """Track BasePanel subclasses self-registered at module scope.
+
+        The canonical user-panel pattern (per the ``panel_design`` skill) is::
+
+            class MyPanel(BasePanel):
+                panel_metadata = PanelMetadata(id=..., ...)
+                ...
+            PanelRegistry.get_instance().register(MyPanel, replace=True)
+
+        ``BasePanel`` is not a ``PluginType`` so ``__init_subclass__`` does not
+        fire the auto-enqueue path; the explicit ``register()`` call adds the
+        class to ``PanelRegistry`` but bypasses our load tracking. Without
+        tracking, ``unload_plugin`` and hot-reload leak the entry.
+
+        After ``exec()`` we scan the populated namespace for ``BasePanel``
+        subclasses whose ``panel_metadata.id`` is now in ``PanelRegistry`` and
+        not already tracked from this load (e.g. via a PanelPlugin wrapper),
+        and append a registration entry.
+        """
+        from lucid.ui.panels.base import BasePanel
+        from lucid.ui.panels.registry import PanelRegistry
+
+        registry = PanelRegistry.get_instance()
+        already_tracked: set[str] = {
+            reg.key for reg in info.registrations if reg.registry_type == "panel"
+        }
+        for v in namespace.values():
+            if not isinstance(v, type):
+                continue
+            if not issubclass(v, BasePanel) or v is BasePanel:
+                continue
+            metadata = getattr(v, "panel_metadata", None)
+            panel_id = getattr(metadata, "id", None)
+            if not panel_id or panel_id in already_tracked:
+                continue
+            if registry.get(panel_id) is not None:
+                info.registrations.append(
+                    PluginRegistration(registry_type="panel", key=panel_id)
+                )
+                already_tracked.add(panel_id)
+                logger.debug(
+                    "tracked self-registered panel: {} (class {})",
+                    panel_id, v.__name__,
+                )
 
     # Temporary plugins
 

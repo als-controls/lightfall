@@ -85,16 +85,14 @@ class DeviceToolsAgent(AgentPlugin):
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Filter by device category",
+                        "description": (
+                            "Filter by device category. Must be one of the "
+                            "values in the DeviceCategory enum."
+                        ),
                         "enum": [
                             "motor",
                             "detector",
-                            "sensor",
                             "controller",
-                            "signal",
-                            "positioner",
-                            "camera",
-                            "other",
                         ],
                     },
                     "beamline": {
