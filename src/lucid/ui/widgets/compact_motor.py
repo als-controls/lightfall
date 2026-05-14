@@ -119,7 +119,7 @@ class CompactMotorWidget(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
         self._name_label.setToolTip(self._device_info.name)
-        layout.addWidget(self._name_label, 1)
+        layout.addWidget(self._name_label, 2)
 
         precision = 4
         if self._device_info.metadata:
