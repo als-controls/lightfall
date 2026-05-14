@@ -124,7 +124,7 @@ class CompactMotorWidget(QWidget):
         self._rbv_display._value_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self._rbv_display.setMinimumWidth(80)
+        self._rbv_display.setMinimumWidth(56)
         layout.addWidget(self._rbv_display)
 
         self._units_label = QLabel(units)
