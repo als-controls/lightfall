@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
@@ -113,9 +114,12 @@ class CompactMotorWidget(QWidget):
 
         self._name_label = _ElidedLabel(self._device_info.name)
         self._name_label.setStyleSheet("font-weight: bold;")
-        self._name_label.setFixedWidth(120)
+        self._name_label.setMinimumWidth(120)
+        self._name_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._name_label.setToolTip(self._device_info.name)
-        layout.addWidget(self._name_label)
+        layout.addWidget(self._name_label, 1)
 
         precision = 4
         if self._device_info.metadata:
@@ -132,7 +136,10 @@ class CompactMotorWidget(QWidget):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         self._rbv_display.setMinimumWidth(56)
-        layout.addWidget(self._rbv_display)
+        self._rbv_display.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        layout.addWidget(self._rbv_display, 1)
 
         self._units_label = QLabel(units)
         self._units_label.setStyleSheet(f"color: {muted}; font-size: 10pt;")
