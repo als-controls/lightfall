@@ -14,6 +14,7 @@ from PySide6.QtGui import QDoubleValidator, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QPushButton,
     QWidget,
@@ -151,9 +152,13 @@ class CompactMotorWidget(QWidget):
         self._jog_left_btn.clicked.connect(self._on_jog_left_clicked)
         layout.addWidget(self._jog_left_btn)
 
-        # In abs mode the entry is bound to user_setpoint so it shows the
-        # current setpoint; the actual move goes through motor.set() in
-        # _on_go_clicked, so we disable OphydLineEdit's own write paths.
+        # Two stacked entries in the same slot:
+        # - Abs mode: OphydLineEdit bound to user_setpoint shows the live
+        #   setpoint. Writes go through motor.set() via the go button, so
+        #   OphydLineEdit's own write paths are disabled.
+        # - Jog mode: a plain QLineEdit defaulting to "1". A separate
+        #   widget avoids the readonly/disconnected styling OphydLineEdit
+        #   applies when its signal is unbound.
         self._setpoint_edit = OphydLineEdit(
             precision=precision,
             show_units=False,
@@ -165,6 +170,14 @@ class CompactMotorWidget(QWidget):
         self._setpoint_edit.setMaximumWidth(100)
         self._setpoint_edit._line_edit.returnPressed.connect(self._on_go_clicked)
         layout.addWidget(self._setpoint_edit)
+
+        self._jog_edit = QLineEdit("1")
+        self._jog_edit.setValidator(QDoubleValidator())
+        self._jog_edit.setPlaceholderText("Step")
+        self._jog_edit.setMaximumWidth(100)
+        self._jog_edit.returnPressed.connect(self._on_go_clicked)
+        self._jog_edit.setVisible(False)
+        layout.addWidget(self._jog_edit)
 
         # _go_btn doubles as "go to target" in abs mode and "jog positive" in jog mode.
         self._go_btn = QPushButton()
@@ -192,10 +205,10 @@ class CompactMotorWidget(QWidget):
             self._rbv_display.signal = self._motor.user_readback
         elif hasattr(self._motor, "readback"):
             self._rbv_display.signal = self._motor.readback
-        # Bind the setpoint entry in abs mode only — jog mode shows a
-        # step size, not a signal value (see _on_mode_toggled).
-        if not self._is_jog_mode:
-            self._setpoint_edit.signal = self._setpoint_signal()
+        # OphydLineEdit stays bound regardless of mode — jog mode hides
+        # this widget and shows a separate plain QLineEdit instead, so
+        # the signal can keep updating silently in the background.
+        self._setpoint_edit.signal = self._setpoint_signal()
         self._subscribe_moving()
 
     def _subscribe_moving(self) -> None:
@@ -250,6 +263,7 @@ class CompactMotorWidget(QWidget):
         self._jog_left_btn.setEnabled(has_motor)
         self._stop_btn.setEnabled(has_motor)
         self._setpoint_edit.setEnabled(has_motor)
+        self._jog_edit.setEnabled(has_motor)
         self._mode_btn.setEnabled(has_motor)
         if not has_motor:
             self._rbv_display._value_label.setText("...")
@@ -292,13 +306,10 @@ class CompactMotorWidget(QWidget):
     @Slot(bool)
     def _on_mode_toggled(self, checked: bool) -> None:
         self._is_jog_mode = checked
+        self._setpoint_edit.setVisible(not checked)
+        self._jog_edit.setVisible(checked)
         if checked:
             self._mode_btn.setText("Jog")
-            # Unbind setpoint signal so a default step size can show
-            # without being immediately overwritten by the setpoint feed.
-            self._setpoint_edit.signal = None
-            self._setpoint_edit._line_edit.setPlaceholderText("Step")
-            self._setpoint_edit._line_edit.setText("1")
             self._jog_left_btn.setVisible(True)
             self._go_btn.setIcon(
                 qta.icon("ph.arrow-fat-lines-right-fill", color="#90caf9")
@@ -306,16 +317,9 @@ class CompactMotorWidget(QWidget):
             self._go_btn.setToolTip("Jog positive by step")
         else:
             self._mode_btn.setText("Abs")
-            self._setpoint_edit._line_edit.setPlaceholderText("Target")
             self._jog_left_btn.setVisible(False)
             self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color="#90caf9"))
             self._go_btn.setToolTip("Move to target")
-            # Re-bind to the setpoint signal so the entry tracks the
-            # current target again. Clear the modified flag first so the
-            # initial signal read can repaint the entry — typing in jog
-            # mode leaves OphydLineEdit's _modified set.
-            self._setpoint_edit._modified = False
-            self._setpoint_edit.signal = self._setpoint_signal()
 
     @Slot()
     def _on_go_clicked(self) -> None:
@@ -330,7 +334,8 @@ class CompactMotorWidget(QWidget):
     def _move(self, direction: int) -> None:
         if self._motor is None:
             return
-        text = self._setpoint_edit.text().strip()
+        entry = self._jog_edit if self._is_jog_mode else self._setpoint_edit
+        text = entry.text().strip()
         if not text:
             return
         try:

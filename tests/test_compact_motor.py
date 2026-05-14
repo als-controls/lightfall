@@ -82,7 +82,7 @@ class TestCompactMotorWidget:
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
         widget._mode_btn.click()
         assert widget.is_jog_mode is True
-        widget._setpoint_edit._line_edit.setText("5.0")
+        widget._jog_edit.setText("5.0")
         widget._go_btn.click()
         mock_motor.set.assert_called_once_with(15.0)
         widget.close()
@@ -128,15 +128,25 @@ class TestCompactMotorWidget:
         assert widget._setpoint_edit.signal is mock_motor.user_setpoint
         widget.close()
 
-    def test_jog_mode_unbinds_signal_and_defaults_to_one(
+    def test_jog_mode_swaps_to_editable_default_one(
         self, qapp, mock_device_info, mock_motor
     ):
         from lucid.ui.widgets.compact_motor import CompactMotorWidget
         widget = CompactMotorWidget(device_info=mock_device_info, ophyd_obj=mock_motor)
-        widget._mode_btn.click()  # → Jog
-        assert widget._setpoint_edit.signal is None
-        assert widget._setpoint_edit._line_edit.text() == "1"
-        # Returning to abs re-binds
-        widget._mode_btn.click()  # → Abs
+        # Abs mode: OphydLineEdit visible, plain jog edit hidden
+        assert widget._setpoint_edit.isVisibleTo(widget)
+        assert not widget._jog_edit.isVisibleTo(widget)
+        # OphydLineEdit stays bound to user_setpoint across the toggle.
         assert widget._setpoint_edit.signal is mock_motor.user_setpoint
+
+        widget._mode_btn.click()  # → Jog
+        assert not widget._setpoint_edit.isVisibleTo(widget)
+        assert widget._jog_edit.isVisibleTo(widget)
+        assert widget._jog_edit.text() == "1"
+        # The plain QLineEdit must stay editable.
+        assert widget._jog_edit.isReadOnly() is False
+
+        widget._mode_btn.click()  # → Abs
+        assert widget._setpoint_edit.isVisibleTo(widget)
+        assert not widget._jog_edit.isVisibleTo(widget)
         widget.close()
