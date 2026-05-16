@@ -156,9 +156,19 @@ sb.glue("output_run_uids", [new_uid_1, new_uid_2])
 sb.glue("output_files", ["/data/derived/foo.h5"])  # optional
 ```
 
-The executor reads them post-execution via `sb.read_notebook(executed_nb_path).scraps`. Missing `output_run_uids` is **not** an error — a pipeline that doesn't produce new Tiled runs (e.g., a QC notebook that only emits a report) is valid; the executed notebook itself is the artifact.
+The executor reads them post-execution via `sb.read_notebook(executed_nb_path).scraps`. Missing `output_run_uids` is **not** an error.
 
-A notebook may also `sb.glue("metrics", {…})` for arbitrary scalar metrics surfaced in the Jobs panel.
+**Fallback for notebooks that opt out of scrapbook entirely.** The bootstrap cell (see Auth) records the user's current Tiled write head — specifically, the set of start-UIDs visible under the user's catalog at job start. After the kernel exits, if no `output_run_uids` scrap is present, the executor diffs the post-run set and reports the delta as `output_run_uids`. This is best-effort (a concurrent write by another process could be misattributed) but lets a fully unmodified notebook still produce input→output linkage in the Pipeline Jobs panel. Explicit `sb.glue` always wins.
+
+**Pre-prepared renderings.** Beyond UIDs, the notebook may glue arbitrary visualization artifacts:
+
+```python
+sb.glue("figures", fig, encoder="display")       # matplotlib Figure
+sb.glue("html_report", html_string, encoder="html")
+sb.glue("metrics", {"chi2": 1.04, "n_peaks": 7})
+```
+
+These are harvested by the executor and made available to LUCID's Visualization panel — see §UI surface → Rendering pipeline outputs.
 
 ## Pipeline registry
 
@@ -343,6 +353,16 @@ A new dockable `BasePanel` (mirrors `lucid/ui/panels/`):
 
 Exposes signals consumed by the panel: `sigJobQueued`, `sigJobProgress`, `sigJobCompleted`, `sigJobFailed`. Owns the API-key mint and revoke calls.
 
+### Rendering pipeline outputs
+
+Output rendering reuses LUCID's existing **Visualization panel** (`lucid.visualization`, `BaseVisualization` ABC). Two rendering pathways, both flowing through that same panel:
+
+1. **Procedural rendering (free, no new code).** A pipeline's output runs are themselves `BlueskyRun` entries in Tiled. The existing visualization widgets (`plot_1d`, `image_stack`, `heatmap`, `scatter`, `table`, etc., each registered via `VisualizationRegistry`) score `can_handle(run)` on them just like any other run. Selecting an output UID in the Tiled browser or via the Jobs panel's "Show outputs" action opens the Visualization panel which auto-picks the best widget. This is the default — no work required from the pipeline author.
+
+2. **Pre-prepared rendering (notebook-glued artifacts).** When a notebook glues scrapbook artifacts (`figures`, `html_report`, etc.) the executor harvests them and attaches them to the output Tiled run as side-car entries (e.g., the figure goes in as an `image`-typed child node with `metadata.source = "pipeline_artifact"`, the HTML report as an `html`-typed entry). Phase 1.5 adds a thin `ScrapbookViz(BaseVisualization)` widget whose `can_handle()` returns 100 for runs carrying `pipeline_artifact` children, rendering them in a tabbed layout. Until that widget lands, scrapbook artifacts are still visible via the existing `image_stack`/`table` widgets that already handle image and tabular children.
+
+The key property: pipeline outputs are first-class Tiled entries, so they live in the same browser, the same access-control machinery, and the same visualization pipeline as any other beamline data. The notebook author chooses how much rendering effort to invest — pure procedural (write data, walk away) or pre-prepared (glue exactly the figure you want shown).
+
 ## Data flow: one job
 
 ```
@@ -424,6 +444,36 @@ This stays in the registry repo so beamline scientists own their tests alongside
 - LUCID CI: unit + integration with a NATS container and a Tiled container.
 - Registry CI (per beamline repo): notebook contract tests via Papermill in a matrix of declared envs.
 
+## Related work: Raydata (NSLS-II)
+
+Wijesinghe, Barbour, Wiegart, Rakitin et al., *"Bluesky and Raydata: An Integrated Platform for Adaptive Experiment Orchestration"* (SCW 2024, doi:10.1109/SCW63240.2024.00271) describes the closest sibling system. Architectural shape:
+
+- **Backbone:** Sirepo (RadiaSoft's Tornado-based web gateway) hosts `raydata_scan_monitor`, a containerized service that polls Tiled.
+- **Execution:** Papermill on parameterized notebooks; Conda envs per analysis, mounted from facility-wide NFS.
+- **Triggers:** Tiled-poll automatic + manual via Sirepo web GUI; CHX uses metadata-based dynamic workflow selection, CSX uses static.
+- **Feedback loop:** Raydata → Bluesky Queueserver via ZeroMQ for adaptive plan management (paper notes this is in active development).
+- **UI:** browser-based; auto-renders artifacts (figures, JSON, logs) the notebook drops on disk.
+
+Where this design **deliberately diverges** from Raydata:
+
+| Concern | Raydata | This design | Reason |
+|---|---|---|---|
+| IPC | Sirepo's internal broker | LUCID's existing NATS | Reuses `lucid.exporter`'s production pattern; LUCID is NATS-native |
+| GUI | Browser (Sirepo) | Qt desktop (LUCID's existing panels) | LUCID's product bet is workstation-resident; no second GUI |
+| RunEngine access | Via Queueserver/ZeroMQ | Direct (LUCID owns RE) | Adaptive loops are a function call away |
+| Output linkage | Filesystem artifacts only | Explicit input→output run graph in Tiled (scrapbook) | Enables Tiled-browser "show derived data" navigation |
+| Long-job credentials | Not addressed in paper | Job-scoped Tiled API key | Solves the access-token TTL problem; reusable by tsuchinoko |
+| Access-blob inheritance | Not addressed | Default behavior | Per-entry authz is enforced in ALS Tiled |
+| Pipeline registry | "Provided as-is" (filesystem) | Per-beamline git repo + CI | Reviewability, versioning, reproducibility |
+
+Where Raydata **influences** this design:
+
+- The "notebooks unmodified, papermill executes them as-is" stance is reinforced; the scrapbook contract is correspondingly soft (missing keys are not errors, with a UID-delta fallback).
+- The auto-artifact rendering UX is good — adopted as the Phase 1.5 `ScrapbookViz` plan, routed through LUCID's existing Visualization panel rather than a new web UI.
+- Metadata-driven workflow selection (CHX style) is supported via the `when:` clause in `bindings.yaml`.
+
+Why not just use Raydata: the entire Sirepo + browser-UI stack would have to be installed, integrated, and maintained alongside LUCID; the credential, access-inheritance, and Tiled-linkage gaps would still need solving; and the GUI duplication would confuse beamline scientists who already have LUCID open.
+
 ## Phase 2+ (designed-for)
 
 The Phase 1 wire format is shaped so the following don't need protocol changes:
@@ -433,6 +483,8 @@ The Phase 1 wire format is shaped so the following don't need protocol changes:
 - **Persistent kernels.** A manifest flag `kernel: persistent` switches the runner from Papermill to direct `jupyter_client` with kernel reuse across jobs. Same job message, same scrapbook harvest.
 - **Bindings UI.** Replace `bindings.yaml` with a settings panel writing the same YAML.
 - **Cancellation.** Add a `lucid.pipeline.<host>.cancel` request taking a `job_id`; executor SIGTERMs the subprocess and marks failed.
+- **`ScrapbookViz` widget (Phase 1.5).** Dedicated `BaseVisualization` subclass that renders pipeline artifacts (figures, HTML, metrics) attached to output runs in a tabbed layout. Until then, scrapbook image artifacts already render via the existing `image_stack` widget.
+- **Remote executor offload.** Replace `PapermillRunner` with a `SlurmRunner` / `NerscRunner` etc. — wire format is unchanged; only the runner's "where to spawn the subprocess" changes. Equivalent of Sirepo's NERSC dispatch.
 
 ## Open questions
 
