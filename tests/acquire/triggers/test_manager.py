@@ -79,3 +79,25 @@ def test_manager_exposes_engine_subscribe_to_subclasses():
     mgr.unsubscribe_engine(tok)
     engine.emit("start", {"uid": "u2"})
     assert called == [("start", {"uid": "u1"})]
+
+
+def test_add_raises_does_not_register_trigger():
+    """If trigger.attach() raises, the trigger must NOT end up in _triggers.
+
+    Guards against a future refactor that reverses the order in add() to
+    append-before-attach, which would silently leave a half-attached trigger
+    registered.
+    """
+    mgr = TriggerManager(engine=_FakeEngine(), submit_callable=MagicMock())
+
+    class _Boom(Trigger):
+        def attach(self, m):
+            raise RuntimeError("attach failed")
+
+        def detach(self):
+            pass
+
+    with pytest.raises(RuntimeError, match="attach failed"):
+        mgr.add(_Boom())
+
+    assert mgr.triggers() == []

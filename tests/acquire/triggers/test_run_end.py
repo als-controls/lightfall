@@ -77,3 +77,31 @@ def test_run_end_handles_stop_with_unknown_start():
     engine.emit("stop", {"uid": "s", "run_start": "never-seen"})
 
     submit.assert_not_called()
+
+
+def test_run_end_lru_evicts_oldest_when_over_capacity(monkeypatch):
+    """When the start-doc cache exceeds capacity, evict oldest entries first."""
+    # Monkeypatch the LRU cap to a small value so we don't need 513 emits.
+    monkeypatch.setattr(RunEndTrigger, "_START_LRU_SIZE", 3)
+
+    engine = _FakeEngine()
+    submit = MagicMock()
+    mgr = TriggerManager(engine=engine, submit_callable=submit)
+    trigger = RunEndTrigger(
+        filter=FilterPredicate(),  # match-all
+        pipeline="p",
+        parameter_overrides={},
+    )
+    mgr.add(trigger)
+
+    # Emit 4 starts; cap is 3, so the oldest (uid="a") should be evicted.
+    for uid in ("a", "b", "c", "d"):
+        engine.emit("start", {"uid": uid, "plan_name": "count"})
+
+    # Stop for the evicted start should be ignored (no fire).
+    engine.emit("stop", {"uid": "s_a", "run_start": "a"})
+    submit.assert_not_called()
+
+    # Stop for a still-cached start should fire.
+    engine.emit("stop", {"uid": "s_b", "run_start": "b"})
+    submit.assert_called_once_with(pipeline="p", run_uid="b", parameters={})
