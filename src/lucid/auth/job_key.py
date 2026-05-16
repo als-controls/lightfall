@@ -11,7 +11,6 @@ als-tiled grants `create:apikeys` / `revoke:apikeys` to authenticated users
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 import httpx
 from loguru import logger
@@ -21,18 +20,18 @@ from loguru import logger
 class MintedJobKey:
     secret: str
     first_eight: str
-    expires_at: Optional[str]
-    scopes: List[str]
-    note: Optional[str]
+    expires_at: str | None
+    scopes: tuple[str, ...]
+    note: str | None
 
 
 def mint_job_key(
     tiled_url: str,
     bearer_token: str,
-    lifetime: int,
-    scopes: List[str],
-    note: str,
     *,
+    lifetime: int,
+    scopes: list[str],
+    note: str,
     timeout: float = 10.0,
 ) -> MintedJobKey:
     """Mint a user-scoped Tiled API key.
@@ -51,6 +50,10 @@ def mint_job_key(
         httpx.HTTPStatusError on a 4xx/5xx from Tiled.
     """
     url = tiled_url.rstrip("/") + "/auth/apikey"
+    # Tiled's APIKeyRequestParams schema names this field `expires_in`, not
+    # `lifetime`. The plan draft (docs/superpowers/plans/2026-05-16-notebook-pipelines.md)
+    # used `lifetime`; this is the corrected wire name. The Python parameter
+    # stays `lifetime` for readability at call sites.
     response = httpx.post(
         url,
         headers={"Authorization": f"Bearer {bearer_token}"},
@@ -63,7 +66,7 @@ def mint_job_key(
         secret=body["secret"],
         first_eight=body["first_eight"],
         expires_at=body.get("expiration_time"),
-        scopes=body.get("scopes", scopes),
+        scopes=tuple(body.get("scopes", scopes)),
         note=body.get("note"),
     )
     logger.info("minted job key first_eight={} note='{}'", minted.first_eight, minted.note)
@@ -77,13 +80,22 @@ def revoke_job_key(
     first_eight: str,
     timeout: float = 10.0,
 ) -> None:
-    """Revoke a previously-minted job key. Best-effort; expiry is the backstop."""
+    """Revoke a previously-minted job key.
+
+    Best-effort: any error talking to Tiled is logged and swallowed (the key's
+    TTL is the backstop). Callers can safely place this in a `finally` block
+    without worrying about a transient revoke failure masking the original
+    exception.
+    """
     url = tiled_url.rstrip("/") + "/auth/apikey"
-    response = httpx.delete(
-        url,
-        headers={"Authorization": f"Bearer {bearer_token}"},
-        params={"first_eight": first_eight},
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    logger.info("revoked job key first_eight={}", first_eight)
+    try:
+        response = httpx.delete(
+            url,
+            headers={"Authorization": f"Bearer {bearer_token}"},
+            params={"first_eight": first_eight},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        logger.info("revoked job key first_eight={}", first_eight)
+    except (httpx.HTTPError, httpx.HTTPStatusError) as e:
+        logger.warning("revoke failed first_eight={} err={}", first_eight, e)

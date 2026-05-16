@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+import httpx
 import pytest
 
 from lucid.auth.job_key import MintedJobKey, mint_job_key, revoke_job_key
@@ -64,3 +65,12 @@ def test_revoke_calls_delete():
         assert args[0] == "https://tiled.test/api/v1/auth/apikey"
         assert kwargs["params"] == {"first_eight": "ab12cd34"}
         assert kwargs["headers"]["Authorization"] == "Bearer bearer-tok"
+
+
+def test_revoke_swallows_errors_with_warning():
+    """revoke_job_key is best-effort: transient errors must not propagate
+    (so it's safe in `finally:` blocks)."""
+    with patch("lucid.auth.job_key.httpx.delete") as mock_del:
+        mock_del.side_effect = httpx.ConnectError("network down")
+        # Must not raise.
+        revoke_job_key("https://tiled.test/api/v1", "tok", first_eight="ab12cd34")
