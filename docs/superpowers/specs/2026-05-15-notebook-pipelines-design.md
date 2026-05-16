@@ -489,32 +489,156 @@ The Phase 1 wire format is shaped so the following don't need protocol changes:
 ## Open questions
 
 1. **Where does the `RunStopNATSEmitter` live?** The auto-trigger needs a NATS `run.stopped` event. The existing IPC service catalog (`src/lucid/ipc/service.py:215`) doesn't yet publish bluesky stop docs. Two options: (a) a small RunEngine subscriber callback in `lucid.acquire.runengine` that emits one NATS event per stop doc (cleanest); (b) extend the existing logbook plugin's hook surface. Phase 1 should add (a) — it's a useful primitive beyond pipelines.
+> I don't think we need any extra stop notification. Tiled provides this once you have the run id. Please correct me if I missed context. Make note that Tiled's documentation is in a poor state. It LOOKS good, but in largely incomplete or inaccurate, missing critically helpful tools. For triggering jobs on run completion, that should be done with a runengine subscriber in lucid that submits the jobs, but the job submission should contain the run id, not the stop doc id.
+! Agreed — that's strictly better. The dispatcher chain collapses from "RunEngine → NATS stop event → executor-side AutoTriggerSubscriber → match binding → submit job" to just "RunEngine → LUCID-side BindingDispatcher → match binding → submit job via the normal `lucid.pipeline.<host>` request." Three consequences I'll fold into the spec: (i) `AutoTriggerSubscriber` is **removed from the executor**; the binding dispatcher lives in LUCID as a RunEngine subscriber alongside `RunEngine.subscribe('stop', …)`. (ii) `bindings.yaml` now lives on the LUCID side (per-workstation user config or a settings panel later), not in the registry. The executor stays a pure job runner. (iii) Job payload carries the run uid only; the dispatcher pulls anything else it needs from Tiled. Adding the "Tiled docs are aspirational" caveat to the spec since it'll bite the implementer.
 
 2. **Does ALS Tiled allow user-scoped API key creation today?** Tiled's API key endpoint exists and is enabled by default, but the per-deployment policy may restrict who can mint and with what TTL. Needs a one-shot probe against `bcgtiled` before committing — if disabled, fall back to NATS-brokered token (worse but works).
+> I suspect we have to build this in to als-tiled. It is a big benefit to LUCID too, since that's the main reason we are on the referesh token route currently (to be able to talk to als-tiled). Haven a 24-hour api key with tiled would be great for lucid too.
+! Confirmed — this is a **precursor dependency**. The als-tiled side needs an API-key mint endpoint that accepts a Keycloak access token, mints a TTL-bounded user-scoped key, returns it. Once that exists, LUCID itself can move off the access-token treadmill for its own data-browser calls (huge win), and notebook pipelines fall out for free. I'll mark this as Stage 0 in the implementation skeleton: ship the als-tiled change, then everything downstream simplifies. Worth coordinating with whoever owns als-tiled — looks like a small endpoint addition rather than a Tiled-core change.
 
 3. **Conda vs uv as default env resolver.** Both are supported via file extension, but the manifest could grow a `resolver:` field if one ends up clearly preferred. Defer until 2-3 real pipelines exist.
+> I DO NOT like conda. I think uv is good path, but we can also leave it open with a path to set the python executable so that pre- or externally-prepared envs can be used.
+! uv is the default; conda support is dropped from the design. Three env-spec flavors the manifest accepts:
+  - `env: pyproject.toml` (preferred — `uv sync` against an inline `[project]` or `[tool.uv]` table; locked via `uv.lock` in the registry)
+  - `env: requirements.txt` (acceptable — `uv pip install -r`)
+  - `python: /path/to/python` (escape hatch — use an externally-prepared interpreter; executor does no env management, just spawns papermill against that python)
+The "python:" path is the right answer for facility-managed envs (NSLS-II-style shared NFS conda envs, or a beamline-curated venv on local disk). No conda code in our codebase.
 
 4. **Should the executed notebook itself be stored in Tiled?** As a `dataframe`-type entry tagged with the input run? It's the natural audit artifact. Phase 1 stores it on the executor's local disk under `/var/lib/lucid-pipelines/runs/<job_id>.ipynb`. Promoting to Tiled (Phase 1.5) is a small addition.
+> Sounds like a good thing to default to, but might want to allow it to be disabled
+! Resolved: Phase 1 stores executed notebooks **to Tiled by default**, as `awkward`/`json`-typed entries (the JSON serialization of `nbformat`) with `metadata.pipeline_provenance` linking back to the input run + pipeline + git SHA. Manifest opt-out: `store_executed_notebook: false`. This collapses the local-disk-accumulation worry (see Q11). The Pipeline Jobs panel's "Open executed notebook" action fetches from Tiled.
 
 5. **Per-pipeline resource limits.** A misbehaving notebook can fill memory or saturate I/O. Phase 1 enforces `timeout_seconds` only; cgroup-style limits deferred.
+> the trust model should give full freedom to notebooks. Its something beamline scientists need to be responsible for ensuring quality.
+! Resolved — out of scope. Spec will be edited to drop the resource-limit framing entirely; even `timeout_seconds` becomes optional rather than required. Quality of beamline notebooks is the beamline's responsibility.
 
 6. **Notebook output run linkage.** Should we require the notebook to write `metadata.start.parent_run_uid = LUCID_INPUT_RUN_UID` on each output, or have the bootstrap inject it into a context manager? Convention vs. enforcement — lean toward bootstrap-injected helper if/when the optional `lucid_pipeline` module materializes.
+> Need this explained more
+! Sorry — re-stating the concrete question:
+
+When a pipeline writes a derived run to Tiled, that derived run should "know" which input run it came from. Otherwise the Tiled-browser navigation "show derived data from run X" can't work, and provenance is broken. The mechanism is: derived runs carry `metadata.start.parent_run_uid = <input_uid>` (and probably also the `pipeline_provenance` blob from Q7).
+
+The question is **who stamps that metadata**:
+
+  (a) Convention — the notebook author writes it explicitly:
+```python
+tw = TiledWriter(client, metadata={"parent_run_uid": LUCID_INPUT_RUN_UID, "pipeline_provenance": LUCID_PIPELINE_PROVENANCE})
+```
+Pro: zero LUCID code; con: every notebook author must remember.
+
+  (b) Enforcement via a thin wrapper the bootstrap exposes:
+```python
+# notebook imports
+from lucid_pipeline import TiledWriter  # wraps bluesky.TiledWriter, auto-stamps metadata
+tw = TiledWriter(client)  # parent_run_uid + provenance stamped automatically
+```
+Pro: can't forget; con: tiny LUCID-shaped dependency for notebook authors (the `lucid_pipeline` module we said was non-goal earlier).
+
+Given your Q7 answer ("aim for enforcement"), I'd flip the earlier non-goal and **ship a minimal `lucid_pipeline.TiledWriter` wrapper** in Phase 1 — it's ~20 lines and removes a whole class of provenance bugs. Resolves Q6 + Q7 together.
 
 7. **Pipeline versioning in output metadata.** Provenance: "what code produced this output run, six months from now?" The executor already knows the registry's git SHA + the notebook path + the manifest entry. Proposal: bootstrap injects `LUCID_PIPELINE_PROVENANCE = {repo_url, repo_sha, notebook_path, pipeline_name, manifest_version, env_hash}` as an env var; output runs are expected to land `metadata.start.pipeline_provenance = LUCID_PIPELINE_PROVENANCE` either via notebook convention or via a TiledWriter wrapper the bootstrap provides. **Open:** convention only, or do we ship a thin write helper to enforce it? Cheap to add now, miserable to backfill across an already-churned registry.
+! Resolved: enforce via the `lucid_pipeline.TiledWriter` wrapper (same one as Q6). Provenance keys: `pipeline_name`, `pipeline_package` (Python dist name), `pipeline_package_version` (PEP 440 from importlib.metadata), `python_executable`, `env_hash` if uv-resolved, `parent_run_uid`. With the plugin-registry model (Q9), "git SHA" is replaced by package version — semantically equivalent for provenance, more standard tooling.
 
 8. **Auto-trigger loop guards.** If `outputs.tagged` includes a tag that also appears in `bindings.yaml`'s `when.tags_includes`, the binding refires on its own output → unbounded recursion. **Proposal:** the executor stamps every output run with a reserved tag `pipeline_output` (or `lucid.pipeline_output`); `bindings.yaml` `when:` matchers implicitly exclude runs carrying that tag unless they explicitly set `include_pipeline_outputs: true`. Trivial to implement; catastrophic if missed. Worth promoting from "open question" to a hard requirement before any binding ships.
+> Please explain what you're asking more.
+! Concrete failure scenario:
+
+1. User has a binding (in `bindings.yaml`): *"when a run finishes carrying tag `saxs`, run pipeline `reduce_saxs`."*
+2. User starts a SAXS plan. The plan's runs are tagged `saxs`. Plan finishes.
+3. Binding fires → `reduce_saxs` runs against the raw run.
+4. `reduce_saxs` writes a derived run to Tiled. Derived run inherits `access_tags` from the input (per the access-blob inheritance design) **plus** anything in the manifest's `outputs.tagged`. End result: the derived run also carries `saxs`.
+5. The BindingDispatcher (now in LUCID, per Q1's answer) sees a new run finish with tag `saxs` and fires `reduce_saxs` again — against the derived run this time.
+6. Step 4 repeats. Step 5 repeats. Runs multiply each iteration. Disk fills overnight.
+
+This is a real footgun specifically because tag inheritance is the right default — we *want* derived runs to be visible to the same audience as the input. But "tagged for access" overloaded onto "tagged for triggering" causes the loop.
+
+Fix (small, hard requirement before any binding ships):
+  - Every pipeline-emitted output run is automatically stamped with a reserved sentinel: `metadata.start.lucid_pipeline_output = true` (boolean, not a tag).
+  - The BindingDispatcher's match function **filters out any run with `lucid_pipeline_output = true`** before evaluating `when` clauses.
+  - To explicitly chain pipelines (rare but legitimate), a binding sets `match_pipeline_outputs: true` in its config.
+
+The sentinel is a metadata flag, not a tag, so it can't bleed into access decisions or be accidentally consumed by other matchers. Promote from open question to hard requirement?
 
 9. **Registry git credentials.** `lucid-pipelines --registry <git-url>` does `git clone` / `git pull`. For ALS GitLab the repo is almost certainly private (`git.als.lbl.gov/ncs/beamline-saxs-pipelines` style). Options: (a) `--registry-token` flag reading a GitLab deploy token (Maintainer-scoped, per `TOOLS.md` patterns); (b) `--registry-ssh-key` flag; (c) host's existing `~/.gitconfig` / `~/.ssh/` (requires the executor to run as a user with credentials configured). **Open:** pick one as default and document the rest as alternatives. (a) is most portable; (c) is most ops-friendly on a managed workstation. Real Phase 1 blocker — needed before the first deployment.
+> I have some questions about how this is envisioned. What I had in mind is lucid-pipelines having its own registry of pipeline plugins (like lucid plugins) keyed by name. Lucid asks lucid-pipelines to run a pipeline by name. No cloning needed, since lucid-pipelines knows about it only by nature of the plugin registry. Let me know if I've missed something here.
+! You haven't missed anything — your plugin-registry model is genuinely better and **I'm convinced we should switch to it**. To make sure we agree on what it means:
+
+**What I had been describing** (git-clone model): one `beamline-saxs-pipelines` git repo per beamline, structured as a tree of `.ipynb` files plus a `pipelines.yaml` manifest at the root. Executor clones at startup, pulls on refresh. Pipelines are *content in a repo*.
+
+**What you're proposing** (plugin model, matching LUCID's `AgentPlugin` etc.): each pipeline is its own pip-installable Python package that exposes a `lucid_pipelines.pipeline` entry point. Executor discovers via `importlib.metadata.entry_points(group="lucid_pipelines.pipeline")` at startup. Pipelines are *Python packages*.
+
+Concretely, a pipeline package looks like:
+
+```
+als-saxs-reduce/
+├── pyproject.toml          # declares lucid_pipelines.pipeline entry point
+├── src/als_saxs_reduce/
+│   ├── __init__.py         # defines class ReduceSaxsPipeline(PipelinePlugin):
+│   ├── manifest.py         # name, description, params schema, output_tags
+│   ├── notebook.ipynb      # the actual pipeline (loaded via importlib.resources)
+│   └── …
+└── uv.lock or requirements.txt
+```
+
+`pyproject.toml`:
+```toml
+[project.entry-points."lucid_pipelines.pipeline"]
+reduce_saxs = "als_saxs_reduce:ReduceSaxsPipeline"
+```
+
+The `PipelinePlugin` base class (parallel to `AgentPlugin`) declares `name`, `description`, `notebook_resource()`, `parameters_schema()`, `output_tags`, `store_executed_notebook: bool`.
+
+Why this is better:
+- **Uniform with LUCID's existing plugin model** — scientists who already understand `AgentPlugin` get pipelines for free; one mental model.
+- **Standard packaging tooling** — `pip install als-saxs-reduce` (or `uv pip install`); no `git clone` step, no credential ceremony beyond pip's existing index auth (PyPI, GitLab Package Registry, git+ssh URLs all just work).
+- **Per-pipeline envs become "pip install the package"** — `uv venv` + `uv pip install als-saxs-reduce` is the env-resolve step. The pipeline's own dependencies are declared in its `pyproject.toml` as normal.
+- **Version pinning is PEP 440**, not a git SHA — `als-saxs-reduce==0.4.1` for prod, `als-saxs-reduce==0.5.0rc1` for dev, etc. Better provenance shape (see Q7).
+- **The "registry git credentials" problem disappears** — it's just `pip install` auth, which Linux workstations already have configured.
+
+Consequences for the spec — this is a substantive rewrite of multiple sections:
+- §Pipeline registry → rewrite around entry-point discovery. The git-repo / `pipelines.yaml` layout goes away.
+- §Environment management → rewrite around `uv pip install <pipeline-pkg>`. The cache key becomes `(pkg_name, version)` not `sha256(env-spec)`.
+- §Auth → "registry credentials" subsection deleted, "pip index auth" added (boring).
+- §UI surface → `lucid.pipeline.<host>.list` returns entry-point-discovered pipelines.
+- §Wire formats → `pipeline` field in the job message stays a string name, same as before — externally unchanged.
+- §Implementation skeleton → reorder around plugin class + entry-point hookup + a reference pipeline package.
+
+A `lucid-pipelines install <pkg-spec>` subcommand handles the "add a new pipeline" workflow (just calls `uv pip install` into the executor's per-pipeline env area). A `lucid-pipelines list` reflects what's discoverable.
+
+Open detail to confirm: **does `bindings.yaml` still live as a YAML file on the LUCID workstation** (per Q1, where the dispatcher moved to LUCID), or do pipeline packages themselves declare default bindings via their entry point? Leaning workstation YAML — bindings are inherently user/site-specific (different beamlines bind the same `reduce_saxs` to different plans), so they shouldn't live inside the pipeline package.
+
+If you confirm the plugin-registry direction, I'll do the rewrite in a follow-up commit.
 
 10. **Executor lifecycle: systemd unit or on-demand only?** The exporter spawns on-demand from LUCID via `subprocess.Popen` and that's fine for manual triggers, but auto-trigger semantics break if "user closed LUCID, plan still running on queueserver, plan finishes, auto-trigger fires" — no LUCID, no executor. **Options:** (a) Phase 1 accepts "no LUCID open = no auto-trigger" as a limit (consistent with the auto-trigger-identity design, since the plan-time pre-mint also requires live LUCID); (b) Phase 1 ships a `lucid-pipelines.service` systemd unit + an autostart pattern, decoupling executor lifetime from LUCID. Leaning (a) for Phase 1 since the auth model already requires LUCID at plan-start; revisit when fallback-to-service-account is enabled.
+> We're not baking in queueserver. a for phase 1, b planned.
+! Resolved. Phase 1 = on-demand only; (b) planned for a later phase. Also dropping the stray queueserver mention — none of the design *requires* queueserver, it appeared only in the Raydata comparison as their architecture and I'll keep it confined there.
+
 
 11. **Output cleanup / garbage collection.** Executed notebooks accumulate in `/var/lib/lucid-pipelines/runs/<job_id>.ipynb`; env cache in `~/.cache/lucid-pipelines/envs/<hash>/` is potentially gigabytes per env. Phase 1 proposal: `--retention-days N` flag (default 30) prunes executed notebooks older than N days; envs are never auto-pruned (rebuild cost is high); a `lucid-pipelines cleanup` subcommand removes envs with no manifest entry pointing at them. Defer specifics or pin now?
+> why would they accumulate? we can run them without making copies? please educate me on how this integrates with the plan.
+! Fair question. They accumulate because **papermill writes a new `.ipynb` per job by design** — that output file is where the executed cell outputs live (figures, prints, scrapbook scraps, tracebacks). Papermill's job is essentially "read input.ipynb + parameters, execute against a kernel, write output.ipynb with results inline." The result lives *in* a notebook file because nbformat is its serialization format.
+
+You can avoid persisting to local disk by running papermill against an in-memory `nbformat.NotebookNode` and harvesting the result object without writing it. But you do need to **keep the result somewhere** to read the scrapbook scraps (post-execution) and to surface it as an audit artifact.
+
+Given your Q4 answer (executed notebook → Tiled by default), the cleanest path is: **don't write to local disk at all**. Papermill executes in-memory, executor harvests scrapbook from the in-memory `NotebookNode`, then writes the executed notebook directly to Tiled as a JSON entry tagged with `pipeline_provenance`. Local disk is only used in an explicit `--debug` mode for development.
+
+With that, the accumulation worry collapses:
+- **Executed notebooks**: never on local disk; live in Tiled with the same lifecycle as any other Tiled entry.
+- **Env cache** (`~/.cache/lucid-pipelines/envs/`): per-pipeline-version, persistent on purpose (rebuild = slow). One env per `(pipeline_package, version)` tuple per the Q9 plugin model. When you upgrade `als-saxs-reduce` from 0.4.1 to 0.4.2, the old env stays cached until manually cleaned with `lucid-pipelines cleanup --unused`. That's a real cache, not a leak.
+
+So **Q11 is resolved as "no Phase 1 GC needed"** — executed notebooks ride Tiled's retention; env cache is intentional. Add a `cleanup --unused` subcommand for ops convenience.
 
 12. **Job idempotency / NATS redelivery.** If a NATS message is redelivered (JetStream replay, transient network glitch) the executor would run the same `job_id` twice. Proposal: per-process LRU set of recent `job_id`s (size ~1024); second arrival replies `{status: already_processed, job_id, current_status}` instead of re-running. Cheap; should we just bake it in or call it explicitly?
+> sounds good; bake it in.
+! Baked in. Spec will fold this into §Wire formats reply behavior, no separate section needed.
 
 13. **System-lib pinning (deferred from Phase 1).** Conda env captures Python deps; system-side state (HDF5 ABI, CUDA toolkit, GPU drivers) is workstation-pinned and varies across hosts. A pipeline that requires CUDA 12.4 cannot be expressed in a conda env alone. Raydata accepts this constraint. Phase 1 should explicitly document "the manifest declares Python deps only; system-lib portability is the registry author's responsibility, fix is containerization (Phase 2+)."
+> managing system-libs is out of scope
+! Confirmed — dropping this from the open-questions list; a single line in §Non-Goals will suffice.
 
 14. **Network policy from the kernel.** Some facilities prohibit pipeline kernels reaching the public internet (e.g., calling out to PyPI for a forgotten import). Not something the design can enforce — falls to the deployment / firewall layer. **Action:** add a runbook note, no spec change.
+> Seem like nothing to be done here. There are other solutions to this (local hardware, tunnels, etc.)
+! Agreed — dropping from open questions entirely.
 
 ## Implementation skeleton (for the plan)
 
@@ -529,3 +653,7 @@ The implementation plan that follows from this spec is expected to be staged rou
 7. A reference registry repo (`als-saxs-pipelines`) with one working notebook (`reduce_saxs`) as a smoke test
 
 Each stage merges independently; the executor is usable from the CLI before the LUCID UI lands.
+
+Other notes:
+- consider using the same plugin model (entrypoint + manifest) as lucid for pipeline registry
+! Agreed and absorbed into Q9 above. The next revision of this spec — assuming you confirm — restructures around `PipelinePlugin` + `entry_points(group="lucid_pipelines.pipeline")`, mirroring LUCID's own plugin model (`AgentPlugin`, `EnginePlugin`, etc.). The git-repo / `pipelines.yaml` model is replaced by per-pipeline pip-installable packages. `bindings.yaml` stays as user/workstation config (LUCID-side, per Q1).
