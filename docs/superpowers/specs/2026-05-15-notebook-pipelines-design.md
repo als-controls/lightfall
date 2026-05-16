@@ -66,7 +66,7 @@ LUCID                                       lucid-pipelines (per host)
 │  - mint API key (Tiled)       │           │   entry_points(group=            │
 │  - submit job ────────────────┘           │     "lucid_pipelines.pipeline")  │
 │  - track progress             │  pub/sub  │                                  │
-│  - revoke on completion       │ ◄─────────│ EnvCache  (uv venvs by           │
+│  - revoke on completion       │ ◄─────────│ EnvCache  (per-package venvs     │
 │                               │           │            (pkg_name, version))  │
 │ Pipeline Jobs panel           │           │                                  │
 │ Pipeline Triggers settings    │           │ PapermillRunner                  │
@@ -162,19 +162,17 @@ The pipeline's package declares its plugin class via standard `[project.entry-po
 reduce_saxs = "als_saxs_pipelines.reduce:ReduceSaxsPipeline"
 ```
 
-The executor at startup runs `importlib.metadata.entry_points(group="lucid_pipelines.pipeline")` to find all installed pipeline plugins. Adding a pipeline = `uv pip install <package>` in the executor's host env; calling `lucid.pipeline.<host>.refresh` re-scans.
+The executor at startup runs `importlib.metadata.entry_points(group="lucid_pipelines.pipeline")` to find all installed pipeline plugins. Adding a pipeline = `pip install <package>` in the executor's host env; calling `lucid.pipeline.<host>.refresh` re-scans.
 
-Discovery is uniform across install mechanisms: pip from PyPI, from a private GitLab Package Registry, from `git+ssh://`, from a local wheel — all just work because entry-point lookup doesn't care how the package got there. Workstation-managed install vs. ops-managed install is a deployment choice, not an architectural one.
+Discovery is uniform across install mechanisms: pip from PyPI, from a private GitLab Package Registry, from `git+ssh://`, from a local wheel — all just work because entry-point lookup doesn't care how the package got there. The choice of installer (`pip`, `uv pip`, `pdm`, `poetry`, …) is a deployment preference, not an architectural one. Workstation-managed install vs. ops-managed install is also a deployment choice.
 
-### Beamline plugins repository (uv workspace monorepo)
+### Beamline plugins repository (multi-package monorepo)
 
-A beamline typically has multiple kinds of plugins (panels, agents, pipelines) with different dependencies. To prevent dep leakage (a panel plugin should not pull pyFAI), use a uv workspace monorepo with one sub-package per plugin family:
+A beamline typically has multiple kinds of plugins (panels, agents, pipelines) with different dependencies. To prevent dep leakage (a panel plugin should not pull pyFAI), use a multi-package monorepo with one sub-package per plugin family:
 
 ```
 als-saxs/                              # one repo, one git history
-├── pyproject.toml                     # workspace root
-│   [tool.uv.workspace]
-│   members = ["packages/*"]
+├── README.md
 ├── packages/
 │   ├── als-saxs-panels/               # dist: als-saxs-panels
 │   │   ├── pyproject.toml             #   dependencies = [lucid, PySide6]
@@ -193,16 +191,19 @@ als-saxs/                              # one repo, one git history
 │   │       └── reduce.ipynb           # packaged resource
 │   └── als-saxs-agents/               # dist: als-saxs-agents
 │       └── ...
-└── README.md
 ```
 
-`uv sync` resolves all members for development; `uv build --package als-saxs-pipelines` produces a single wheel. Each sub-package is independently installable, with its own dependency closure. For tiny beamlines with only one or two pipelines and no other plugin types, a single-package layout with `[project.optional-dependencies]` is also acceptable.
+Each sub-package is a standard PEP 621 distribution. `pip install ./packages/als-saxs-pipelines` (or installing a built wheel from a registry) works regardless of which packaging tool a developer uses locally — vanilla pip + stdlib `venv`, uv, pdm, poetry, and hatch all work because the wire format (wheels + PEP 621 metadata + entry points) is tool-agnostic.
+
+For dev convenience, a team may optionally add a tool-specific workspace declaration at the repo root (`[tool.uv.workspace]`, pdm workspaces, etc.) for one-command "install all packages editable" — but this is purely a local-dev choice and doesn't affect distribution or executor consumption.
+
+For tiny beamlines with only one or two pipelines and no other plugin types, a single-package layout with `[project.optional-dependencies]` is also acceptable.
 
 ## Environment management
 
 ### Per-pipeline-package venv
 
-Each installed pipeline package gets its own `uv`-managed venv at:
+Each installed pipeline package gets its own venv at:
 
 ```
 ~/.cache/lucid-pipelines/envs/<package_name>@<package_version>/
@@ -210,13 +211,16 @@ Each installed pipeline package gets its own `uv`-managed venv at:
 
 Built lazily on first job that names a pipeline in that package. Subsequent jobs reuse. Different package versions get different venvs — upgrading `als-saxs-pipelines` from 0.4.1 to 0.4.2 builds a fresh venv and leaves the old one cached.
 
-Build step is roughly:
+Build step uses standard-library tooling by default:
 
 ```sh
-uv venv ~/.cache/lucid-pipelines/envs/<pkg>@<version>
-uv pip install --python <venv>/bin/python <pkg>==<version>
-# uv.lock from the installed dist drives reproducibility
+python -m venv ~/.cache/lucid-pipelines/envs/<pkg>@<version>
+~/.cache/lucid-pipelines/envs/<pkg>@<version>/bin/pip install <pkg>==<version>
 ```
+
+If `uv` is available on PATH, the executor prefers `uv venv` + `uv pip install` purely as a speed optimization (typically ~10× faster builds). Functional behavior is identical either way — sites with policies against uv (locked-down workstations, restricted HPC environments) get the same result with stdlib `venv` + pip. The choice is auto-detected; no configuration.
+
+Reproducibility comes from the executor's install pin (`pkg==X.Y.Z`) plus whatever the dist itself ships (a `requirements.txt`, a `uv.lock`, a `pdm.lock`, …, all consumed via their respective installers if present). Lock files are nice-to-have, not required.
 
 A kernel spec is registered against the venv's python as `lucid-pipelines:<pkg>@<version>`; Papermill is invoked with that kernel name. Kernels are pinned per-pipeline-package, not leaked into the user's global Jupyter config.
 
@@ -509,7 +513,7 @@ Consumed by the Jobs panel: `sigJobQueued`, `sigJobProgress`, `sigJobCompleted`,
      a. validate job (pipeline plugin discovered, schema match, R reachable)
      b. enqueue, reply { status: queued }
      c. dequeue → resolve plugin's package → check env cache
-        - cache miss → progress: env_building → uv venv + uv pip install <pkg>==<ver>
+        - cache miss → progress: env_building → venv + pip install <pkg>==<ver>
         - cache hit → progress: running
      d. spawn subprocess (venv's python, kernel_name=lucid-pipelines:<pkg>@<ver>)
      e. invoke Papermill in-memory with input nb + bootstrap params + user params
@@ -537,7 +541,7 @@ Consumed by the Jobs panel: `sigJobQueued`, `sigJobProgress`, `sigJobCompleted`,
 | ------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------- |
 | Unknown `pipeline` in job (not entry-point-discovered)  | Service validate      | NATS reply `{error, code: unknown_pipeline}`                              |
 | API-key mint fails (Tiled 5xx)                          | LUCID client          | Toast "Could not authorize pipeline job"; job not submitted               |
-| Env build fails (`uv pip install …` non-zero)           | Executor env step     | Progress: failed, detail = last 50 lines of build log                     |
+| Env build fails (`pip install …` non-zero)              | Executor env step     | Progress: failed, detail = last 50 lines of build log                     |
 | Plugin's `expects` mismatch with input run              | Service validate      | NATS reply `{error, code: schema_mismatch}` with detail                   |
 | Notebook raises exception                               | Papermill subprocess  | Executed notebook records traceback; executor publishes failed with excerpt |
 | Subprocess timeout (`PipelinePlugin.timeout_seconds`)   | Executor watchdog     | SIGTERM → SIGKILL; failed with `code: timeout`                            |
@@ -603,7 +607,7 @@ Where this design deliberately diverges:
 | Long-job creds       | Not addressed                          | Job-scoped Tiled API key                                 |
 | Access inheritance   | Not addressed                          | Default; merged from input run                           |
 | Pipeline distribution| "Provided as-is" (filesystem)          | pip-installable plugin packages + entry points           |
-| Env mgmt             | Conda from NFS                         | uv venvs cached by `(pkg, version)`                      |
+| Env mgmt             | Conda from NFS                         | Per-package venvs cached by `(pkg, version)`             |
 
 ## Phase 2+ (designed-for)
 
@@ -644,7 +648,7 @@ Staged so each merges independently and the executor is usable from the CLI befo
 **Stage 2 (executor + SDK):**
 
 4. `lucid_pipeline` SDK package: `PipelinePlugin` base class, `TiledWriter` wrapper, `notebook` helpers, parameter schema types + tests.
-5. `lucid_pipelines.executor` (the headless service): `PipelineService`, `PapermillRunner` (in-memory execution + scrapbook harvest + disk-write of executed notebook + Tiled-pointer registration), `EnvCache` (uv-driven) + tests.
+5. `lucid_pipelines.executor` (the headless service): `PipelineService`, `PapermillRunner` (in-memory execution + scrapbook harvest + disk-write of executed notebook + Tiled-pointer registration), `EnvCache` (stdlib `venv` + `pip`; auto-prefers `uv` if available) + tests.
 6. `lucid-pipelines` console script + meta endpoints (list, refresh, ping) + tests.
 
 **Stage 3 (LUCID-side integration):**
@@ -657,7 +661,7 @@ Staged so each merges independently and the executor is usable from the CLI befo
 **Stage 4 (end-to-end):**
 
 11. End-to-end integration test against `bcgtiled` + local NATS.
-12. Reference beamline plugins repo (`als-saxs` uv workspace with one working `als-saxs-pipelines` package).
+12. Reference beamline plugins repo (`als-saxs` monorepo with one working `als-saxs-pipelines` package).
 13. Tsuchinoko `LUCID-refactor` branch comparison; factor shared `TiledWriter` helper if profitable.
 
 Stage 0 is a precursor for Stages 2–4 (mint endpoint must exist). Stage 1 has no dependencies. Stage 2 depends on Stage 1's `mint_job_key`. Stage 3 depends on Stage 2's wire format. Stage 4 ties everything.
