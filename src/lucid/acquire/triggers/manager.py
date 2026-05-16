@@ -27,8 +27,8 @@ class TriggerManager:
         self._engine_tokens: set[int] = set()
 
     def add(self, trigger: Trigger) -> None:
+        trigger.attach(self)                # may raise — append only on success
         self._triggers.append(trigger)
-        trigger.attach(self)
         logger.debug("TriggerManager: added {}", type(trigger).__name__)
 
     def remove(self, trigger: Trigger) -> None:
