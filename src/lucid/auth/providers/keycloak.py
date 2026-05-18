@@ -803,9 +803,8 @@ class KeycloakAuthProvider(AuthProvider):
         # Use RP-initiated logout with id_token_hint to end the SSO session
         data: dict[str, str] = {
             "client_id": self._config.client_id,
+            "id_token_hint": session.id_token,
         }
-        if session.id_token:
-            data["id_token_hint"] = session.id_token
         if session.refresh_token:
             data["refresh_token"] = session.refresh_token
         if self._config.client_secret:
@@ -967,7 +966,15 @@ class KeycloakAuthProvider(AuthProvider):
             return False
 
     async def get_user_info(self, session: Session) -> dict[str, Any] | None:
-        """Get user info from Keycloak userinfo endpoint."""
+        """Get user info from Keycloak userinfo endpoint.
+
+        Auth-v2: this method is non-functional for sessions that have been
+        through ``SessionManager._mint_all_service_keys`` (session.token is
+        None post-mint). Decoded claims are available on
+        ``session.user.attributes`` and should be preferred over a live
+        userinfo round-trip. Kept for callers that hold a fresh bearer
+        token in a non-singleton context.
+        """
         if not session.token:
             return None
 
