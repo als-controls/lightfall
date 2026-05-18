@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from lucid.auth.service_key import MintedKey
-from lucid.auth.session import Session, SessionManager, User
+from lucid.auth.session import AuthState, Session, SessionManager, User
 
 
 @pytest.fixture(autouse=True)
@@ -322,3 +322,57 @@ def test_logout_restores_id_token_for_provider(monkeypatch):
     assert captured["id_token"] == "id-stashed"
     # After logout completes, the slot is cleared
     assert sm._id_token_for_logout is None
+
+
+def test_reconnect_restores_authenticated_state(monkeypatch):
+    """After enter_offline_mode + _attempt_reconnect, state goes back to
+    AUTHENTICATED when a session is still live.
+
+    Regression for the state-machine bug found in Task 2 of the auth-v2
+    cleanup plan: _on_done used to only call _set_state when session was
+    None, leaving an authenticated user stuck in OFFLINE.
+    """
+    sm = SessionManager.get_instance()
+    sm._session = Session(user=User(username="tester"))
+    sm._set_state(AuthState.AUTHENTICATED)
+
+    sm.enter_offline_mode()
+    assert sm.state == AuthState.OFFLINE
+    assert sm.is_offline is True
+
+    # Drive _on_done directly to bypass the QThreadFuture machinery.
+    # Find the closure by re-invoking _attempt_reconnect with a stubbed provider.
+    class _StubProvider:
+        async def check_connectivity(self):
+            return True
+        @property
+        def name(self): return "stub"
+        @property
+        def supports_password_auth(self): return False
+        @property
+        def supports_browser_auth(self): return False
+        async def authenticate(self, **kwargs): return None
+        async def logout(self, session): pass
+        async def refresh(self, session): return None
+
+    sm._provider = _StubProvider()
+
+    # Call the reconnect callback semantics directly: simulate "connected=True"
+    # by patching QThreadFuture to fire the callback synchronously.
+    import lucid.utils.threads as threads_mod
+
+    class _SyncFuture:
+        def __init__(self, fn, *args, callback_slot=None, except_slot=None, **kwargs):
+            self._fn = fn
+            self._cb = callback_slot
+        def start(self):
+            result = self._fn()
+            if self._cb:
+                self._cb(result)
+
+    monkeypatch.setattr(threads_mod, "QThreadFuture", _SyncFuture)
+
+    sm._attempt_reconnect()
+
+    assert sm.state == AuthState.AUTHENTICATED
+    assert sm.is_offline is False

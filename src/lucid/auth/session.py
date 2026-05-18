@@ -529,8 +529,11 @@ class SessionManager(QObject):
             logger.info("Authentication service reconnected")
             self._set_offline_mode(False)
             # Auth-v2: there is no in-session re-mint. Reconnection just clears
-            # offline mode; the user must re-login if their service keys expired.
-            if self._session is None:
+            # offline mode and restores the prior auth state. The user must
+            # re-login if their service keys have expired in the meantime.
+            if self._session is not None:
+                self._set_state(AuthState.AUTHENTICATED)
+            else:
                 self._set_state(AuthState.UNAUTHENTICATED)
 
         def _on_error(exc):
