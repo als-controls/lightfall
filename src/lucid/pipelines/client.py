@@ -1,22 +1,24 @@
 """PipelineClient - LUCID-side client for the lucid-pipelines NATS service.
 
 Responsibilities:
-- Mint a job-scoped Tiled API key via `lucid.auth.job_key.mint_job_key()`.
+- Read the cached Tiled API key from SessionManager (auth-v2 minted at login).
 - Build a JobMessage and dispatch over IPCService request/reply.
 - Subscribe to progress events; re-emit as Qt signals.
-- Revoke the API key after the job terminates (best-effort).
+
+Key revocation is owned by SessionManager (cache cleared on logout).
 """
 from __future__ import annotations
 
 import socket
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.auth.job_key import mint_job_key, revoke_job_key
+if TYPE_CHECKING:
+    from lucid.auth.service_key import MintedKey
 
 
 class PipelineClient(QObject):
@@ -37,21 +39,14 @@ class PipelineClient(QObject):
         ipc: Any,
         host: str,
         tiled_url: str,
-        bearer_provider: Callable[[], str],
-        default_lifetime: int = 86400,
-        default_scopes: Optional[List[str]] = None,
+        key_provider: Callable[[str], Optional["MintedKey"]],
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._ipc = ipc
         self._host = host
         self._tiled_url = tiled_url
-        self._get_bearer = bearer_provider
-        self._default_lifetime = default_lifetime
-        self._default_scopes = list(default_scopes or [
-            "read:metadata", "read:data", "write:metadata", "write:data",
-        ])
-        self._active_keys: Dict[str, str] = {}                # job_id -> first_eight
+        self._key_provider = key_provider
 
         self._ipc.subscribe(self._progress_subject, self._on_progress, main_thread=True)
 
@@ -88,7 +83,7 @@ class PipelineClient(QObject):
         user_id: str,
         timeout_ms: int = 5000,
     ) -> str:
-        """Mint a key, send the job; returns job_id.
+        """Build a JobMessage and dispatch over IPCService; returns job_id.
 
         Note: TriggerManager.fire() calls submit_callable as
         ``submit_callable(pipeline=, run_uid=, parameters=)``. Wiring
@@ -97,21 +92,19 @@ class PipelineClient(QObject):
         and the current session, and renames ``run_uid`` to ``input_run_uid``.
         """
         job_id = str(uuid.uuid4())
-        bearer = self._get_bearer()
-        minted = mint_job_key(
-            self._tiled_url,
-            bearer,
-            lifetime=self._default_lifetime,
-            scopes=self._default_scopes,
-            note=f"lucid pipeline {pipeline} job {job_id[:8]}",
-        )
-        self._active_keys[job_id] = minted.first_eight
+
+        minted = self._key_provider("tiled")
+        if minted is None:
+            raise RuntimeError(
+                "No Tiled API key in session cache; login may have failed to mint. "
+                "Re-login to refresh."
+            )
 
         payload = {
             "job_id": job_id,
             "tiled_url": self._tiled_url,
             "api_key": minted.secret,
-            "api_key_expires_at": minted.expires_at,
+            "api_key_expires_at": minted.expires_at.isoformat() if minted.expires_at else None,
             "input_run_uid": input_run_uid,
             "input_access_blob": input_access_blob,
             "pipeline": pipeline,
@@ -123,11 +116,6 @@ class PipelineClient(QObject):
 
         reply = self._ipc.request(self._submit_subject, payload, timeout_ms=timeout_ms)
         if reply is None:
-            try:
-                revoke_job_key(self._tiled_url, self._get_bearer(), first_eight=minted.first_eight)
-            except Exception as e:
-                logger.warning("PipelineClient: submit-failure revoke failed: {}", e)
-            self._active_keys.pop(job_id, None)
             raise RuntimeError(
                 f"Pipeline executor '{self._host}' did not respond to submit"
             )
@@ -155,18 +143,5 @@ class PipelineClient(QObject):
         status = data.get("status")
         if status == "completed":
             self.sigJobCompleted.emit(data)
-            self._maybe_revoke(data.get("job_id"))
         elif status == "failed":
             self.sigJobFailed.emit(data)
-            self._maybe_revoke(data.get("job_id"))
-
-    def _maybe_revoke(self, job_id: Optional[str]) -> None:
-        if not job_id:
-            return
-        first_eight = self._active_keys.pop(job_id, None)
-        if not first_eight:
-            return
-        try:
-            revoke_job_key(self._tiled_url, self._get_bearer(), first_eight=first_eight)
-        except Exception as e:
-            logger.warning("PipelineClient: revoke failed for {}: {}", first_eight, e)
