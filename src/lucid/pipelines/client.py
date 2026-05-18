@@ -118,13 +118,32 @@ class PipelineClient(QObject):
             "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
 
-        self._ipc.request(self._submit_subject, payload, timeout_ms=timeout_ms)
+        reply = self._ipc.request(self._submit_subject, payload, timeout_ms=timeout_ms)
+        if reply is None:
+            try:
+                revoke_job_key(self._tiled_url, self._get_bearer(), first_eight=minted.first_eight)
+            except Exception as e:
+                logger.warning("PipelineClient: submit-failure revoke failed: {}", e)
+            self._active_keys.pop(job_id, None)
+            raise RuntimeError(
+                f"Pipeline executor '{self._host}' did not respond to submit"
+            )
+
+        logger.info(
+            "PipelineClient: submitted job_id={} pipeline={} user={}",
+            job_id, pipeline, user_id,
+        )
         self.sigJobQueued.emit({"job_id": job_id, "pipeline": pipeline})
         return job_id
 
     # -- progress handling -------------------------------------------------
 
     def _on_progress(self, subject: str, data: Dict[str, Any], reply: Optional[str]) -> None:
+        if not data.get("job_id") or not data.get("status"):
+            logger.warning(
+                "PipelineClient: malformed progress event on {}: {}", subject, data,
+            )
+            return
         self.sigJobProgress.emit(data)
         status = data.get("status")
         if status == "completed":

@@ -80,3 +80,51 @@ def test_client_subscribes_to_progress_on_construction(mock_ipc, qtbot):
     mock_ipc.subscribe.assert_called_once()
     args, kwargs = mock_ipc.subscribe.call_args
     assert args[0] == "lucid.pipeline.testhost.progress"
+
+
+def test_client_revokes_key_and_raises_when_submit_times_out(mock_ipc, qtbot):
+    mock_ipc.request.return_value = None  # IPCService returns None on timeout
+    with patch("lucid.pipelines.client.mint_job_key") as mint, \
+         patch("lucid.pipelines.client.revoke_job_key") as revoke:
+        mint.return_value = MagicMock(
+            secret="s" * 48,
+            first_eight="ssssssss",
+            expires_at=None,
+            scopes=(),
+        )
+        client = PipelineClient(
+            ipc=mock_ipc,
+            host="h",
+            tiled_url="https://t/api/v1",
+            bearer_provider=lambda: "tok",
+        )
+        with pytest.raises(RuntimeError, match="did not respond"):
+            client.submit(
+                pipeline="p",
+                input_run_uid="r",
+                parameters={},
+                input_access_blob={},
+                user_id="u",
+            )
+
+    revoke.assert_called_once()
+    args, kwargs = revoke.call_args
+    assert kwargs.get("first_eight") == "ssssssss"
+
+
+def test_client_drops_malformed_progress_event(mock_ipc, qtbot):
+    client = PipelineClient(
+        ipc=mock_ipc, host="h",
+        tiled_url="https://t/api/v1", bearer_provider=lambda: "t",
+    )
+    received = []
+    client.sigJobProgress.connect(lambda ev: received.append(ev))
+
+    client._on_progress(subject="lucid.pipeline.h.progress", data={}, reply=None)
+    client._on_progress(
+        subject="lucid.pipeline.h.progress",
+        data={"status": "running"},  # missing job_id
+        reply=None,
+    )
+
+    assert received == []
