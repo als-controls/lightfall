@@ -43,13 +43,13 @@ def fake_settings_active_override():
 def fake_session():
     """Mock SessionManager-style object.
 
-    Mirrors the real lucid.auth.session.Session shape:
-    - .token is the raw JWT string
-    - .user.attributes holds the decoded claims dict (where orcid/sub live)
+    Mirrors the auth-v2 lucid.auth.session.Session shape: the bearer is
+    discarded post-mint so ``.token`` is None, and the decoded claims dict
+    lives on ``.user.attributes`` (where orcid/sub live).
     """
     s = MagicMock()
     s.session = MagicMock()
-    s.session.token = "fake-jwt-token-string"
+    s.session.token = None  # auth-v2: bearer discarded post-mint
     s.session.user = MagicMock()
     s.session.user.attributes = {
         "orcid": "0000-0001-9363-2557",
@@ -157,7 +157,7 @@ async def test_stamp_alshub_outage_marks_pending(fake_session, fake_settings_no_
 
 
 @pytest.mark.asyncio
-async def test_stamp_no_token_raises(fake_alshub, fake_settings_no_override):
+async def test_stamp_no_session_raises(fake_alshub, fake_settings_no_override):
     from lucid.services.access_stamper import AccessStamper, MissingSessionError
 
     no_session = lambda: None
@@ -165,6 +165,24 @@ async def test_stamp_no_token_raises(fake_alshub, fake_settings_no_override):
         beamline="4.0.2",
         alshub_client=fake_alshub,
         session_provider=no_session,
+        settings_provider=lambda: fake_settings_no_override,
+    )
+    with pytest.raises(MissingSessionError):
+        await stamper.build_blob()
+
+
+@pytest.mark.asyncio
+async def test_stamp_no_user_raises(fake_alshub, fake_settings_no_override):
+    """Auth-v2 presence-check gates on `session.user`, not `session.token`."""
+    from lucid.services.access_stamper import AccessStamper, MissingSessionError
+
+    session_without_user = MagicMock()
+    session_without_user.token = None
+    session_without_user.user = None
+    stamper = AccessStamper(
+        beamline="4.0.2",
+        alshub_client=fake_alshub,
+        session_provider=lambda: session_without_user,
         settings_provider=lambda: fake_settings_no_override,
     )
     with pytest.raises(MissingSessionError):

@@ -301,11 +301,6 @@ class NCSApplication(QObject):
             self._handle_ipc_auth_request,
             description="Trust handshake + token sharing",
         )
-        ipc.register_action(
-            "auth.token",
-            self._handle_ipc_token_request,
-            description="Return current Keycloak Bearer token",
-        )
         logger.info("IPC service started")
 
         # Wire engine signals → IPC events & plan commands
@@ -630,36 +625,6 @@ class NCSApplication(QObject):
                 )
         finally:
             self._auth_dialog_active = False
-
-    def _handle_ipc_token_request(
-        self, subject: str, data: dict, reply: str | None
-    ) -> None:
-        """Return the current Keycloak Bearer token for Tiled access.
-
-        Called by headless services (e.g. Tsuchinoko) when their cached
-        token expires. LUCID is the sole token authority — services never
-        refresh against Keycloak directly.
-
-        auth-v2 deprecation: this refresh-path handler is redundant under
-        the per-service API key model — the standard IPC `auth.request`
-        handshake (see lucid.ipc.service.build_auth_response) already
-        carries a 1-week-TTL Tiled API key under the `tiled_token` field.
-        Consumers that bind once at startup do not need to re-fetch. The
-        LUCID auth cleanup plan deletes this handler once tsuchinoko
-        migrates to the new flow.
-        """
-        if not reply:
-            return
-        logger.warning(
-            "auth.token IPC handler called — this path is deprecated under "
-            "auth-v2. Caller should use the auth.request handshake which "
-            "carries an API key under 'tiled_token'. Deletion pending "
-            "tsuchinoko migration."
-        )
-        ipc = self._services.get(IPCService)
-        session = self._get_current_session()
-        token = session.token if session else None
-        ipc.reply(reply, {"token": token})
 
     def _get_current_session(self):
         """Return the current :class:`Session` or ``None``."""

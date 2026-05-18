@@ -171,22 +171,15 @@ class SessionManager(QObject):
         self._policy_engine = PolicyEngine()
         self._offline_mode = False
 
-        # Token refresh state
-        self._refresh_in_progress = False
-        self._fast_retry_count = 0
-        self._refresh_timer_id: int | None = None
-
         # Service-key cache (auth-v2): per-(user, service) API keys minted at
         # login. See docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md.
-        # The refresh state above is transitionally kept alive for the logbook
-        # bearer flow until lucid-logbook ships its mint endpoint.
         self._service_keys: dict[str, MintedKey] = {}
         self._keys_lock = threading.RLock()
 
-        # Schedule/cancel refresh when auth state changes — this works
-        # regardless of whether login() or direct _session assignment is used
-        # (LoginDialog sets _session directly without calling login()).
-        self.state_changed.connect(self._on_state_for_refresh)
+        # Auth-v2: id_token survives mint for RP-initiated logout. Set by
+        # _mint_all_service_keys; consumed by logout(); cleared on logout
+        # completion or on reset().
+        self._id_token_for_logout: str | None = None
 
         # Reconnection timer for offline mode
         self._reconnect_timer = QTimer(self)
@@ -206,7 +199,7 @@ class SessionManager(QObject):
         """Reset the singleton instance (for testing)."""
         with cls._lock:
             if cls._instance is not None:
-                cls._instance._cancel_refresh_timer()
+                cls._instance._id_token_for_logout = None
                 cls._instance._reconnect_timer.stop()
                 cls._instance.deleteLater()
             cls._instance = None
@@ -331,6 +324,17 @@ class SessionManager(QObject):
                 self._service_keys[service] = minted
             logger.info("session key cached for service={}", service)
 
+        # Bearer + refresh + id_token are no longer used by any consumer
+        # (auth-v2). Preserve id_token for KeycloakAuthProvider.logout, then
+        # discard the rest. Storing on the manager (not Session) makes the
+        # invariant explicit: Session.token is None means "logged in via
+        # auth-v2".
+        if self._session is not None:
+            self._id_token_for_logout = self._session.id_token
+            self._session.token = None
+            self._session.refresh_token = None
+            self._session.id_token = None
+
     @staticmethod
     def _hostname_for_note() -> str:
         """Return the local hostname for mint audit notes; falls back gracefully."""
@@ -423,10 +427,17 @@ class SessionManager(QObject):
             return
 
         if self._provider:
+            # Restore id_token (stashed at mint time) so RP-initiated logout
+            # works after the post-mint clearing. Clear the slot in finally so
+            # a provider exception doesn't leak it.
+            if self._id_token_for_logout:
+                self._session.id_token = self._id_token_for_logout
             try:
                 await self._provider.logout(self._session)
             except Exception as e:
                 logger.warning("Logout cleanup failed: {}", e)
+            finally:
+                self._id_token_for_logout = None
 
         old_user = self._session.user
         self._session = None
@@ -464,219 +475,6 @@ class SessionManager(QObject):
             logger.warning("Session refresh failed: {}", e)
 
         return False
-
-    @staticmethod
-    def _get_jwt_exp(token: str) -> datetime | None:
-        """Extract the expiry time from a JWT access token.
-
-        The LoginDialog overwrites user.expires_at with an app-level session
-        duration (default 2 hours), which is unrelated to the actual Keycloak
-        token lifetime (~5 minutes). This method reads the real ``exp`` claim
-        so the refresh timer fires before the token actually expires.
-        """
-        import base64
-        import json
-
-        try:
-            parts = token.split(".")
-            if len(parts) != 3:
-                return None
-            payload = parts[1]
-            payload += "=" * (4 - len(payload) % 4)
-            decoded = json.loads(base64.urlsafe_b64decode(payload))
-            exp = decoded.get("exp")
-            if exp:
-                return datetime.fromtimestamp(exp, tz=UTC)
-        except Exception:
-            pass
-        return None
-
-    def _schedule_refresh(self) -> None:
-        """Schedule a one-shot timer to refresh the token before it expires.
-
-        Uses the JWT ``exp`` claim from the access token rather than
-        ``user.expires_at``, which may be overwritten with an app-level
-        session duration.
-        """
-        self._cancel_refresh_timer()
-
-        if self._session is None or not self._session.token:
-            return
-
-        expires_at = self._get_jwt_exp(self._session.token)
-        if expires_at is None:
-            logger.warning("Cannot read exp from access token, refresh not scheduled")
-            return
-
-        now = datetime.now(UTC)
-        delay_s = max(0, (expires_at - now).total_seconds() - 60)
-        delay_ms = int(delay_s * 1000)
-
-        logger.info(
-            "Token refresh scheduled in {}s (JWT exp={})",
-            int(delay_s),
-            expires_at.isoformat(),
-        )
-        self._start_single_shot(delay_ms)
-
-    def _on_state_for_refresh(self, new_state: AuthState, old_state: AuthState) -> None:
-        """Schedule or cancel token refresh when auth state changes."""
-        if new_state == AuthState.AUTHENTICATED:
-            self._schedule_refresh()
-        elif old_state == AuthState.AUTHENTICATED:
-            self._cancel_refresh_timer()
-            self._refresh_in_progress = False
-            self._fast_retry_count = 0
-
-    def _start_single_shot(self, delay_ms: int) -> None:
-        """Start a single-shot timer. Separated for testability."""
-        timer_id = self.startTimer(delay_ms)
-        if timer_id == 0:
-            logger.error("startTimer failed (no event loop?), refresh will not be scheduled")
-            return
-        self._refresh_timer_id = timer_id
-
-    def _cancel_refresh_timer(self) -> None:
-        """Cancel the pending refresh timer if any."""
-        if self._refresh_timer_id is not None:
-            self.killTimer(self._refresh_timer_id)
-            self._refresh_timer_id = None
-
-    def timerEvent(self, event) -> None:  # noqa: N802
-        """Handle QObject timer events (used for single-shot refresh)."""
-        if event.timerId() == self._refresh_timer_id:
-            self.killTimer(self._refresh_timer_id)
-            self._refresh_timer_id = None
-            self._do_scheduled_refresh()
-        else:
-            super().timerEvent(event)
-
-    def _do_scheduled_refresh(self) -> None:
-        """Execute the scheduled token refresh.
-
-        Runs the actual Keycloak call in a background thread via QThreadFuture.
-        Guarded by _refresh_in_progress to prevent concurrent refresh attempts.
-        """
-        if self._refresh_in_progress:
-            logger.debug("Token refresh already in progress, skipping")
-            return
-
-        if self._session is None or self._provider is None:
-            return
-
-        if not self._session.refresh_token:
-            logger.warning("No refresh token available, cannot refresh")
-            return
-
-        self._refresh_in_progress = True
-
-        from lucid.utils.threads import QThreadFuture
-
-        # Capture references for the background thread
-        session = self._session
-        provider = self._provider
-
-        def _refresh():
-            has_refresh_token = bool(session.refresh_token)
-            logger.debug(
-                "Token refresh starting: has_refresh_token={}, provider={}",
-                has_refresh_token,
-                type(provider).__name__,
-            )
-            if hasattr(provider, "refresh_sync"):
-                result = provider.refresh_sync(session)
-            else:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                try:
-                    result = loop.run_until_complete(
-                        provider.refresh(session)
-                    )
-                finally:
-                    loop.close()
-            if result is None:
-                raise RuntimeError(
-                    f"Provider returned None from refresh "
-                    f"(has_refresh_token={has_refresh_token})"
-                )
-            return result
-
-        QThreadFuture(
-            _refresh,
-            callback_slot=self._on_refresh_success,
-            except_slot=self._on_refresh_failure,
-            key="session-token-refresh",
-            name="session-token-refresh",
-        ).start()
-
-    def _on_refresh_success(self, new_session: Session | None = None) -> None:
-        """Handle successful token refresh (called on main thread).
-
-        Verifies the new session has a later expiry, updates state, and
-        schedules the next refresh.
-
-        Note: QThreadFuture's generator-based callback emits sigResult twice —
-        once with the real value and once with None when the generator ends.
-        The None call is ignored here; actual provider failures raise in
-        _refresh() and go to _on_refresh_failure via except_slot.
-        """
-        if new_session is None:
-            return
-
-        self._refresh_in_progress = False
-
-        # Verify the refresh actually advanced the JWT expiry
-        old_expires = (
-            self._get_jwt_exp(self._session.token)
-            if self._session and self._session.token
-            else None
-        )
-        new_expires = (
-            self._get_jwt_exp(new_session.token)
-            if new_session.token
-            else None
-        )
-        if old_expires and new_expires and new_expires <= old_expires:
-            self._on_refresh_failure(
-                RuntimeError(
-                    f"Refresh did not advance expiry: "
-                    f"{old_expires.isoformat()} -> {new_expires.isoformat()}"
-                )
-            )
-            return
-
-        self._session = new_session
-        self._fast_retry_count = 0
-
-        logger.info("Token refresh OK for '{}'", new_session.user.username)
-        self._schedule_refresh()
-
-    def _on_refresh_failure(self, exc: Exception) -> None:
-        """Handle failed token refresh (called on main thread).
-
-        Retries quickly up to 3 times, then falls back to 30s intervals.
-        """
-        self._refresh_in_progress = False
-        self._fast_retry_count += 1
-
-        if self._fast_retry_count <= 3:
-            delay_ms = 3000
-            logger.warning(
-                "Token refresh failed (attempt {}): {}, retrying in {}ms",
-                self._fast_retry_count,
-                exc,
-                delay_ms,
-            )
-        else:
-            delay_ms = 30_000
-            logger.warning(
-                "Token refresh failed (attempt {}): {}, backing off to {}s",
-                self._fast_retry_count,
-                exc,
-                delay_ms // 1000,
-            )
-
-        self._start_single_shot(delay_ms)
 
     def enter_offline_mode(self) -> None:
         """Enter offline mode due to network unavailability."""
@@ -730,10 +528,11 @@ class SessionManager(QObject):
                 return
             logger.info("Authentication service reconnected")
             self._set_offline_mode(False)
-
-            # Try to restore session if we have one
-            if self._session and self._session.refresh_token:
-                self._do_scheduled_refresh()
+            # Auth-v2: there is no in-session re-mint. Reconnection just clears
+            # offline mode and restores the prior auth state. The user must
+            # re-login if their service keys have expired in the meantime.
+            if self._session is not None:
+                self._set_state(AuthState.AUTHENTICATED)
             else:
                 self._set_state(AuthState.UNAUTHENTICATED)
 
