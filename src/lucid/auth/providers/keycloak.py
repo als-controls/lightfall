@@ -793,7 +793,9 @@ class KeycloakAuthProvider(AuthProvider):
         1. Revokes the token via Keycloak's logout endpoint (ends SSO session)
         2. Clears embedded browser cookies (prevents auto-login on next auth)
         """
-        if not session.token:
+        if not session.id_token:
+            # Auth-v2: bearer is discarded post-mint; id_token is the RP-initiated
+            # logout credential. If neither is present, there is nothing to revoke.
             return
 
         http = await self._ensure_http()

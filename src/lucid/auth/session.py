@@ -443,7 +443,7 @@ class SessionManager(QObject):
             # Restore id_token (stashed at mint time) so RP-initiated logout
             # works after the post-mint clearing. Clear the slot in finally so
             # a provider exception doesn't leak it.
-            if self._id_token_for_logout and self._session is not None:
+            if self._id_token_for_logout:
                 self._session.id_token = self._id_token_for_logout
             try:
                 await self._provider.logout(self._session)
