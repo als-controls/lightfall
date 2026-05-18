@@ -70,10 +70,22 @@ A successful response has this shape:
 ```json
 {
   "status": "approved",
-  "tiled_token": "<jwt>",
+  "tiled_token": "<api_key_secret>",
   "tiled_url": "https://tiled.als.lbl.gov"
 }
 ```
+
+> **Auth v2 (since 2026-05):** The `tiled_token` field name is preserved for
+> wire-format compatibility, but the value is now a Tiled API key (not a
+> Keycloak JWT bearer). Consume it via the Tiled client's `api_key=` parameter:
+>
+> ```python
+> from tiled.client import from_uri
+> client = from_uri(tiled_url, api_key=tiled_token)
+> ```
+>
+> The key has a TTL (~1 week by default) configured server-side; clients should
+> handle 401 responses by re-requesting via the IPC `auth.request` flow.
 
 A denial looks like:
 
@@ -84,8 +96,10 @@ A denial looks like:
 ### Token Refresh
 
 If you receive a reply with `{"error": true}` and the message indicates an auth error, re-run the
-authentication handshake. Tokens are session-scoped and do not expire independently, but a new
-LUCID session (restart) will invalidate old tokens.
+authentication handshake. Under auth-v2, `tiled_token` is a server-issued Tiled API key with a TTL
+(typically 1 week) — it may outlive the IPC requester's local session, and conversely a new LUCID
+session (restart) will invalidate old keys. On a 401 from Tiled, re-run `auth.request` to obtain a
+fresh key.
 
 ## Discovering Available Actions and Events
 
@@ -281,7 +295,7 @@ All messages use JSON encoding (UTF-8). The following fields appear in replies:
 | `status`       | `str`             | Success replies — describes the outcome       |
 | `error`        | `bool` (`true`)   | Error replies only                            |
 | `message`      | `str`             | Error replies — human-readable description    |
-| `tiled_token`  | `str`             | `auth.request` approved response             |
+| `tiled_token`  | `str`             | `auth.request` approved response — Tiled API key (auth-v2; pass to `from_uri(..., api_key=…)`) |
 | `tiled_url`    | `str`             | `auth.request` approved response             |
 | `procedure_id` | `str`             | `commands.plan.run` success reply             |
 | `entry_id`     | `str`             | `commands.logbook.add` success reply          |
