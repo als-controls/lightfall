@@ -36,7 +36,11 @@ def _load_tiled_url_pref() -> str | None:
 
 
 def get_tiled_base_url() -> str:
-    """Return the configured Tiled base URL, or the default fallback."""
+    """Return the configured Tiled base URL (bare host, no /api/v1 suffix).
+
+    The returned value is the *server root*, e.g. "http://bcgtiled.dhcp.lbl.gov:8000".
+    Callers that need the API root must append "/api/v1" themselves.
+    """
     try:
         value = _load_tiled_url_pref()
     except Exception:

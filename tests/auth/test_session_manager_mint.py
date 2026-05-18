@@ -30,11 +30,10 @@ def _minted(secret: str = "abc123", expires_in_s: int = 3600) -> MintedKey:
     )
 
 
-# Tests below poke `sm._service_keys` directly because Task 3 introduces only
-# the read API (get_api_key, get_minted_key). Task 4 will add the public
-# cache-populate path via `SessionManager.login()` -> `_mint_all_service_keys`.
-# When Task 4 lands, the direct-poke pattern in these tests can be replaced
-# with black-box login-based setup. TODO(task-4): migrate to login(...).
+# The five tests below exercise the cache via direct attribute access
+# (`sm._service_keys[...] = ...`) because they are unit tests of the cache
+# read API. The login-path integration test at the bottom of this file
+# covers the production write path.
 
 
 def test_get_api_key_returns_none_when_no_cache():
@@ -123,3 +122,60 @@ def test_mint_all_service_keys_tolerates_failure(monkeypatch):
     sm._mint_all_service_keys("bearer-xyz")
 
     assert sm.get_api_key("tiled") is None
+
+
+def test_login_runs_mint_round_through_asyncio_to_thread(monkeypatch):
+    """Integration test: full login() path mints service keys via asyncio.to_thread.
+
+    Bypassed by the direct _mint_all_service_keys tests above; this one exercises
+    the actual production code path so a regression in the asyncio.to_thread
+    wrapper would be caught.
+    """
+    import asyncio
+
+    from lucid.auth.providers.base import AuthProvider
+    from lucid.auth.session import Session
+
+    sm = SessionManager.get_instance()
+
+    # Stub mint helper + URL resolver
+    monkeypatch.setattr("lucid.auth.session.mint_service_key", lambda *a, **kw: _minted(secret="login-tiled-key"))
+    monkeypatch.setattr(
+        "lucid.services.tiled_service.get_tiled_base_url",
+        lambda: "https://tiled.test",
+    )
+
+    # Minimal AuthProvider stub that returns a session with a token
+    class _StubProvider(AuthProvider):
+        @property
+        def name(self) -> str:
+            return "stub"
+
+        @property
+        def supports_password_auth(self) -> bool:
+            return True
+
+        @property
+        def supports_browser_auth(self) -> bool:
+            return False
+
+        async def authenticate(self, **kwargs):
+            from lucid.auth.session import User
+            user = User(username="tester", attributes={"sub": "kc-sub-1"})
+            return Session(user=user, token="stub-bearer")
+
+        async def logout(self, session):
+            pass
+
+        async def refresh(self, session):
+            return None
+
+        async def check_connectivity(self):
+            return True
+
+    sm.set_provider(_StubProvider())
+
+    ok = asyncio.run(sm.login())
+
+    assert ok is True
+    assert sm.get_api_key("tiled") == "login-tiled-key"
