@@ -311,6 +311,8 @@ class TiledBrowserPanel(BasePanel):
         menu.addSeparator()
         show_viz_action = menu.addAction("Show Visualization")
         show_docs_action = menu.addAction("Show Documents")
+        run_pipeline_action = menu.addAction("Run pipeline...")
+        run_pipeline_action.setEnabled(self._pipeline_client() is not None)
 
         action = menu.exec(self._table_view.viewport().mapToGlobal(pos))
         if action is None:
@@ -324,6 +326,8 @@ class TiledBrowserPanel(BasePanel):
             self._open_run_in_visualization(record)
         elif action is show_docs_action:
             self._open_run_in_documents(record)
+        elif action is run_pipeline_action:
+            self._open_run_pipeline_dialog(record)
 
     def _get_tiled_entry(self, record: TiledRecord):
         """Get the Tiled entry for a record, or None on failure."""
@@ -335,6 +339,27 @@ class TiledBrowserPanel(BasePanel):
         except Exception as e:
             logger.error("Failed to access run {}: {}", record.uid[:8], e)
             return None
+
+    def _pipeline_client(self):
+        """Look up the PipelineClient via the service registry (lazy)."""
+        from lucid.core.services import ServiceRegistry
+        from lucid.pipelines import PipelineClient
+        return ServiceRegistry.get_instance().get(PipelineClient, None)
+
+    def _open_run_pipeline_dialog(self, record: TiledRecord) -> None:
+        """Open the Run Pipeline dialog for the selected run."""
+        client = self._pipeline_client()
+        if client is None:
+            return
+        from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+        dialog = RunPipelineDialog(
+            client=client,
+            run_uid=record.uid,
+            input_access_blob=getattr(record, "access_blob", {}) or {},
+            user_id="",
+            parent=self,
+        )
+        dialog.exec()
 
     def _open_run_in_visualization(self, record: TiledRecord) -> None:
         """Open a run in the Visualization panel."""
