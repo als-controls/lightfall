@@ -89,6 +89,10 @@ class AccessStamper:
         ``sub`` is always present in any Keycloak token.
         """
         session = self._session_provider()
+        # auth-v2 cleanup plan will change this to `session.user is None` when
+        # the bearer is discarded post-mint. Until then, session.token presence
+        # is still a valid "logged in" signal (claims read from user.attributes
+        # below is already auth-v2 compatible).
         if session is None or session.token is None:
             raise MissingSessionError("No Keycloak session — refusing to stamp")
         user = getattr(session, "user", None)
