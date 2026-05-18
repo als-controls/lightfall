@@ -61,3 +61,4 @@ def test_service_key_auth_skips_header_when_no_key(monkeypatch):
     out = next(flow)
 
     assert "Authorization" not in out.headers
+    assert out is request  # generator must still yield even without a cached key
