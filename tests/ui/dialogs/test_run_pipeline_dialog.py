@@ -33,3 +33,37 @@ def test_dialog_submits_via_client(qtbot):
     args, kwargs = client.submit.call_args
     assert kwargs["pipeline"] == "reduce_saxs"
     assert kwargs["input_run_uid"] == "abc"
+
+
+def test_dialog_disables_ok_when_no_pipelines(qtbot):
+    client = MagicMock()
+    client.list_available.return_value = []
+    dialog = RunPipelineDialog(client=client, run_uid="abc", input_access_blob={})
+    qtbot.addWidget(dialog)
+    assert not dialog._ok_button.isEnabled()
+
+
+def test_dialog_shows_error_on_submit_exception(qtbot, monkeypatch):
+    client = MagicMock()
+    client.list_available.return_value = [{"name": "p", "description": "", "parameters_schema": {}}]
+    client.submit.side_effect = RuntimeError("executor offline")
+
+    dialog = RunPipelineDialog(client=client, run_uid="abc", input_access_blob={})
+    qtbot.addWidget(dialog)
+
+    captured = {}
+    def fake_critical(parent, title, text, *args, **kwargs):
+        captured["title"] = title
+        captured["text"] = text
+        return None
+
+    from lucid.ui.dialogs import run_pipeline_dialog as mod
+    monkeypatch.setattr(mod.QMessageBox, "critical", fake_critical)
+
+    dialog._submit()
+
+    assert captured.get("title") == "Pipeline error"
+    assert "executor offline" in captured.get("text", "")
+    # Dialog must NOT have accepted (it's still open).
+    from PySide6.QtWidgets import QDialog
+    assert dialog.result() != QDialog.Accepted

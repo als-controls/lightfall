@@ -356,6 +356,7 @@ class TiledBrowserPanel(BasePanel):
             client=client,
             run_uid=record.uid,
             input_access_blob=getattr(record, "access_blob", {}) or {},
+            # TODO: populate user_id from the active session once auth-v2 lands
             user_id="",
             parent=self,
         )

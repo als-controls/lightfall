@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-    QVBoxLayout, QWidget,
+    QMessageBox, QVBoxLayout, QWidget,
 )
 
 
@@ -46,6 +46,8 @@ class RunPipelineDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._submit)
         buttons.rejected.connect(self.reject)
+        self._ok_button = buttons.button(QDialogButtonBox.Ok)
+        self._ok_button.setEnabled(bool(self._pipelines))
         outer.addWidget(buttons)
 
     def _rebuild_param_form(self, _index: int) -> None:
@@ -74,7 +76,7 @@ class RunPipelineDialog(QDialog):
             text = w.text()
             try:
                 out[k] = json.loads(text)
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 out[k] = text
         return out
 
@@ -83,11 +85,15 @@ class RunPipelineDialog(QDialog):
         if not pipeline:
             self.reject()
             return
-        self._client.submit(
-            pipeline=pipeline,
-            input_run_uid=self._run_uid,
-            parameters=self._collect_parameters(),
-            input_access_blob=self._blob,
-            user_id=self.user_id,
-        )
+        try:
+            self._client.submit(
+                pipeline=pipeline,
+                input_run_uid=self._run_uid,
+                parameters=self._collect_parameters(),
+                input_access_blob=self._blob,
+                user_id=self.user_id,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Pipeline error", str(exc))
+            return
         self.accept()
