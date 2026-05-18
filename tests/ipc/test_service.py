@@ -241,11 +241,40 @@ class TestAuthHandshake:
         assert svc.evaluate_trust("anyapp") == TrustState.DENIED
 
     def test_build_auth_response_approved(self):
-        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
-        mock_session = MagicMock()
-        mock_session.token = "test-token-123"
-        resp = svc.build_auth_response(approved=True, session=mock_session, tiled_url="https://tiled.example.com")
-        assert resp == {"status": "approved", "tiled_token": "test-token-123", "tiled_url": "https://tiled.example.com"}
+        """Approved response carries the cached Tiled API key under the
+        legacy ``tiled_token`` field name (auth-v2; see method docstring)."""
+        from datetime import UTC, datetime, timedelta
+
+        from lucid.auth.service_key import MintedKey
+        from lucid.auth.session import SessionManager
+
+        SessionManager.reset()
+        try:
+            sm = SessionManager.get_instance()
+            sm._service_keys["tiled"] = MintedKey(
+                secret="tiled-apikey-xyz",
+                first_eight="tiled-ap",
+                expires_at=datetime.now(UTC) + timedelta(seconds=3600),
+                scopes=("read:metadata",),
+                note="test",
+            )
+
+            svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+            # session is still required as a presence flag, but its .token
+            # is no longer read.
+            mock_session = MagicMock()
+            resp = svc.build_auth_response(
+                approved=True,
+                session=mock_session,
+                tiled_url="https://tiled.example.com",
+            )
+            assert resp == {
+                "status": "approved",
+                "tiled_token": "tiled-apikey-xyz",
+                "tiled_url": "https://tiled.example.com",
+            }
+        finally:
+            SessionManager.reset()
 
     def test_build_auth_response_denied(self):
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")

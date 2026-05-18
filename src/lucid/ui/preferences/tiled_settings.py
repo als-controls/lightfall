@@ -244,14 +244,19 @@ class TiledSettingsPlugin(SettingsPlugin):
         return widget
 
     def _user_has_admin_or_staff(self) -> bool:
-        """Check current SessionManager token for admin/staff groups."""
+        """Check current SessionManager user claims for admin/staff groups.
+
+        Reads from ``session.user.attributes`` (decoded JWT claims) rather
+        than ``session.token`` (which is the raw JWT string and has no
+        ``.claims`` attribute — the previous code was dead).
+        """
         try:
             from lucid.auth.session import SessionManager
 
             session = SessionManager.get_instance().session
-            if not session or not session.token:
+            if not session or not session.user:
                 return False
-            groups = getattr(session.token, "claims", {}).get("groups", []) or []
+            groups = session.user.attributes.get("groups", []) or []
             if "tiled:admin" in groups:
                 return True
             return any(g.startswith("staff:") for g in groups)

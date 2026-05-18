@@ -229,9 +229,9 @@ class TiledService(QObject):
             if self._config.auth_mode == TiledAuthMode.API_KEY and self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
             elif self._config.auth_mode == TiledAuthMode.KEYCLOAK:
-                from lucid.services.tiled_auth import KeycloakTiledAuth
+                from lucid.auth.service_key_auth import ServiceKeyAuth
 
-                kwargs["auth"] = KeycloakTiledAuth()
+                kwargs["auth"] = ServiceKeyAuth("tiled")
                 logger.debug("Using Keycloak authentication for Tiled (sync)")
             elif self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
@@ -326,20 +326,24 @@ class TiledService(QObject):
 
     @staticmethod
     def _get_keycloak_headers() -> dict[str, str]:
-        """Get Authorization headers from the current LUCID session.
+        """Get Authorization headers for Tiled from the cached service API key.
+
+        Auth-v2: instead of the raw Keycloak bearer token, return the
+        cached per-service API key minted at login. The method name keeps
+        "keycloak" for backward compatibility — the key itself is the
+        product of the Keycloak-authenticated mint round.
 
         Returns:
-            Dict with Authorization header, or empty dict if not authenticated.
+            Dict with Authorization header, or empty dict if no key is cached.
         """
         try:
             from lucid.auth.session import SessionManager
 
-            sm = SessionManager.get_instance()
-            session = sm.session
-            if session and session.token:
-                return {"Authorization": f"Bearer {session.token}"}
+            secret = SessionManager.get_instance().get_api_key("tiled")
+            if secret:
+                return {"Authorization": f"Apikey {secret}"}
         except Exception as e:
-            logger.warning("Could not get Keycloak token for Tiled: {}", e)
+            logger.warning("Could not get Tiled API key for Tiled: {}", e)
         return {}
 
     @staticmethod
@@ -529,9 +533,9 @@ class TiledService(QObject):
         if auth_mode == TiledAuthMode.API_KEY and api_key:
             kwargs["api_key"] = api_key
         elif auth_mode == TiledAuthMode.KEYCLOAK:
-            from lucid.services.tiled_auth import KeycloakTiledAuth
+            from lucid.auth.service_key_auth import ServiceKeyAuth
 
-            kwargs["auth"] = KeycloakTiledAuth()
+            kwargs["auth"] = ServiceKeyAuth("tiled")
             logger.debug("Using Keycloak authentication for Tiled")
 
         # Proxy setup
@@ -654,13 +658,13 @@ class TiledService(QObject):
 
             kwargs = {}
             if auth_mode == "keycloak":
-                from lucid.services.tiled_auth import KeycloakTiledAuth
+                from lucid.auth.service_key_auth import ServiceKeyAuth
 
                 # Check that we have a token before attempting
                 headers = self._get_keycloak_headers()
                 if not headers:
                     return False, "Not authenticated — log in to Keycloak first"
-                kwargs["auth"] = KeycloakTiledAuth()
+                kwargs["auth"] = ServiceKeyAuth("tiled")
             elif api_key:
                 kwargs["api_key"] = api_key
 

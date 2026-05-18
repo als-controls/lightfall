@@ -306,19 +306,35 @@ class IPCService(QObject):
         """Build a response dict for an auth handshake.
 
         Args:
-            approved: Whether the connection was approved.
-            session: Session object with a ``token`` attribute (required when
-                *approved* is True).
+            approved: Whether the connection was approved. When True, the
+                cached Tiled API key is read from :class:`SessionManager`
+                (auth-v2); ``session`` is still required to gate the
+                approved/denied branch.
+            session: Session object; used as a presence flag for the
+                approved branch. Its ``.token`` attribute is no longer
+                read — the credential comes from the API-key cache.
             tiled_url: Tiled server URL to include in an approved response.
             reason: Optional denial reason; only included when non-empty.
 
         Returns:
             A plain dict ready to be JSON-serialised and sent over IPC.
+
+        Note:
+            The field name ``"tiled_token"`` is preserved as a public IPC
+            contract (see ``docs/ipc-architecture.md`` /
+            ``docs/ipc-client-guide.md``). Its *value* is now a Tiled API
+            key, not a Keycloak bearer token — external clients consume it
+            as ``api_key=tiled_token`` when building their Tiled client,
+            which is the intended usage. The field rename is deferred to
+            the auth cleanup plan, coordinated with IPC client updates.
         """
         if approved and session is not None:
+            from lucid.auth.session import SessionManager
+
             return {
                 "status": "approved",
-                "tiled_token": session.token,
+                # Historical name; actually carries an API key under auth-v2.
+                "tiled_token": SessionManager.get_instance().get_api_key("tiled"),
                 "tiled_url": tiled_url,
             }
         response: dict = {"status": "denied"}
