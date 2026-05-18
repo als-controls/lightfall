@@ -813,16 +813,45 @@ class NCSMainWindow(QMainWindow):
         dialog.exec()
 
     def _on_logout(self) -> None:
-        """Logout current user."""
-        import asyncio
+        """Logout current user. Confirm if the RunEngine is currently active."""
+        if self._re_active_for_logout_gate():
+            from PySide6.QtWidgets import QMessageBox
 
+            reply = QMessageBox.question(
+                self,
+                "Confirm logout",
+                "The RunEngine is currently active. Logging out will not stop "
+                "it, but data writes may be rejected once your session ends. "
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        import asyncio
         from lucid.utils.threads import QThreadFuture
 
         def do_logout() -> None:
             asyncio.run(self._session_manager.logout())
 
-        thread = QThreadFuture(do_logout, name="logout")
-        thread.start()
+        QThreadFuture(do_logout, name="logout").start()
+
+    def _re_active_for_logout_gate(self) -> bool:
+        """Return True if the RunEngine is RUNNING or PAUSED.
+
+        Read errors (no engine, plugin not loaded, etc.) return False --
+        logout proceeds. The gate is a UX safety net, not a correctness
+        barrier.
+        """
+        try:
+            from lucid.acquire.engine import EngineState, get_engine
+            engine = get_engine()
+            return engine is not None and engine.state in (
+                EngineState.RUNNING, EngineState.PAUSED,
+            )
+        except Exception:
+            return False
 
     def _update_user_menu(self, user: Any) -> None:
         """Update user menu state based on current user.
