@@ -639,6 +639,14 @@ class NCSApplication(QObject):
         Called by headless services (e.g. Tsuchinoko) when their cached
         token expires. LUCID is the sole token authority — services never
         refresh against Keycloak directly.
+
+        auth-v2 deprecation: this refresh-path handler is redundant under
+        the per-service API key model — the standard IPC `auth.request`
+        handshake (see lucid.ipc.service.build_auth_response) already
+        carries a 1-week-TTL Tiled API key under the `tiled_token` field.
+        Consumers that bind once at startup do not need to re-fetch. The
+        LUCID auth cleanup plan deletes this handler once tsuchinoko
+        migrates to the new flow.
         """
         if not reply:
             return
