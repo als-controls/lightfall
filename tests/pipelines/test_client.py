@@ -112,6 +112,29 @@ def test_client_revokes_key_and_raises_when_submit_times_out(mock_ipc, qtbot):
     assert kwargs.get("first_eight") == "ssssssss"
 
 
+def test_client_emits_queued_signal_with_input_run_uid(mock_ipc, qtbot):
+    mock_ipc.request.return_value = {"status": "queued"}
+    with patch("lucid.pipelines.client.mint_job_key") as mint:
+        mint.return_value = MagicMock(
+            secret="s" * 48, first_eight="ssssssss",
+            expires_at=None, scopes=(),
+        )
+        client = PipelineClient(
+            ipc=mock_ipc, host="h",
+            tiled_url="https://t/api/v1", bearer_provider=lambda: "t",
+        )
+        captured = []
+        client.sigJobQueued.connect(lambda ev: captured.append(ev))
+        client.submit(
+            pipeline="p", input_run_uid="RAW123",
+            parameters={}, input_access_blob={}, user_id="u",
+        )
+
+    assert len(captured) == 1
+    assert captured[0]["input_run_uid"] == "RAW123"
+    assert captured[0]["pipeline"] == "p"
+
+
 def test_client_drops_malformed_progress_event(mock_ipc, qtbot):
     client = PipelineClient(
         ipc=mock_ipc, host="h",

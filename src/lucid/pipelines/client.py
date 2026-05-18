@@ -66,10 +66,6 @@ class PipelineClient(QObject):
         return f"lucid.pipeline.{self._host}.list"
 
     @property
-    def _ping_subject(self) -> str:
-        return f"lucid.pipeline.{self._host}.ping"
-
-    @property
     def _progress_subject(self) -> str:
         return f"lucid.pipeline.{self._host}.progress"
 
@@ -92,7 +88,14 @@ class PipelineClient(QObject):
         user_id: str,
         timeout_ms: int = 5000,
     ) -> str:
-        """Mint a key, send the job; returns job_id."""
+        """Mint a key, send the job; returns job_id.
+
+        Note: TriggerManager.fire() calls submit_callable as
+        ``submit_callable(pipeline=, run_uid=, parameters=)``. Wiring
+        TriggerManager directly to this method requires an adapter that
+        resolves ``input_access_blob`` and ``user_id`` from the start doc
+        and the current session, and renames ``run_uid`` to ``input_run_uid``.
+        """
         job_id = str(uuid.uuid4())
         bearer = self._get_bearer()
         minted = mint_job_key(
@@ -133,7 +136,11 @@ class PipelineClient(QObject):
             "PipelineClient: submitted job_id={} pipeline={} user={}",
             job_id, pipeline, user_id,
         )
-        self.sigJobQueued.emit({"job_id": job_id, "pipeline": pipeline})
+        self.sigJobQueued.emit({
+            "job_id": job_id,
+            "pipeline": pipeline,
+            "input_run_uid": input_run_uid,
+        })
         return job_id
 
     # -- progress handling -------------------------------------------------

@@ -85,6 +85,10 @@ class RunPipelineDialog(QDialog):
         if not pipeline:
             self.reject()
             return
+        # NOTE: client.submit() makes synchronous HTTP (mint_job_key) and
+        # NATS round-trip (ipc.request) calls; can block the Qt main thread
+        # for several seconds on a slow network. Future: run in QThread with
+        # a progress indicator.
         try:
             self._client.submit(
                 pipeline=pipeline,
