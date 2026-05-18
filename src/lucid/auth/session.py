@@ -251,21 +251,23 @@ class SessionManager(QObject):
         """
         with self._keys_lock:
             minted = self._service_keys.get(service)
-        if minted is None:
-            return None
-        if minted.is_expired:
-            return None
-        return minted.secret
+            if minted is None or minted.is_expired:
+                return None
+            return minted.secret
 
     def get_minted_key(self, service: str) -> MintedKey | None:
-        """Return the full cached record (for NATS payload embedding).
+        """Return the full cached record (for NATS payload embedding), or None if absent or expired.
 
-        Unlike get_api_key, this returns the whole MintedKey including
-        first_eight and expiry so the dispatcher can pass the metadata along
-        with the secret. Returns None if the slot is empty.
+        Filters expired keys the same way get_api_key does — NATS dispatchers
+        that embed an expired key would just hand the executor a dead
+        credential. Callers that genuinely need to inspect expired keys can
+        read the cache directly.
         """
         with self._keys_lock:
-            return self._service_keys.get(service)
+            minted = self._service_keys.get(service)
+            if minted is not None and minted.is_expired:
+                return None
+            return minted
 
     def _set_state(self, new_state: AuthState) -> None:
         """Update authentication state and emit signal."""

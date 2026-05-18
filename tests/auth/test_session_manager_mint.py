@@ -29,6 +29,13 @@ def _minted(secret: str = "abc123", expires_in_s: int = 3600) -> MintedKey:
     )
 
 
+# Tests below poke `sm._service_keys` directly because Task 3 introduces only
+# the read API (get_api_key, get_minted_key). Task 4 will add the public
+# cache-populate path via `SessionManager.login()` -> `_mint_all_service_keys`.
+# When Task 4 lands, the direct-poke pattern in these tests can be replaced
+# with black-box login-based setup. TODO(task-4): migrate to login(...).
+
+
 def test_get_api_key_returns_none_when_no_cache():
     sm = SessionManager.get_instance()
     assert sm.get_api_key("tiled") is None
