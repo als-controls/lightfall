@@ -107,6 +107,12 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
     client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
     # Per-service API key auth — reads from SessionManager cache per request
     client_kwargs["auth"] = ServiceKeyAuth("logbook")
+    if user_id:
+        # Dev-mode passthrough: when the logbook server is configured without
+        # Keycloak, its CombinedAuthMiddleware falls through unauthenticated
+        # requests and the API layer reads X-User-Id to identify the user.
+        # In prod the apikey carries identity and this header is ignored.
+        client_kwargs["headers"] = {"X-User-Id": user_id}
     try:
         from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
