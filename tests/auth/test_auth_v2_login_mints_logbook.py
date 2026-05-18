@@ -107,7 +107,10 @@ def test_login_mints_logbook_key_and_consumer_uses_it(monkeypatch, httpx_mock):
     assert "https://logbook.test/api/v1" in urls_minted
     assert "https://tiled.test/api/v1" in urls_minted
 
-    # 2. A downstream consumer uses the logbook key
+    # 2. A downstream consumer uses the logbook key.
+    # The base_url here ("lb.test") is intentionally distinct from the mint
+    # URL ("logbook.test") — ServiceKeyAuth looks up by service name, not URL,
+    # so the consumer's base_url is independent of where the key was minted.
     httpx_mock.add_response(
         url="https://lb.test/logbook/settings/theme?beamline=",
         json={
