@@ -21,6 +21,29 @@ if TYPE_CHECKING:
     pass
 
 
+DEFAULT_TILED_URL = "http://bcgtiled.dhcp.lbl.gov:8000"
+
+
+def _load_tiled_url_pref() -> str | None:
+    """Read the configured Tiled URL from PreferencesManager.
+
+    Returns None on any failure (manager uninitialised, ConfigManager
+    missing, etc.). Wrapped so it's trivially monkeypatchable in tests.
+    """
+    from lucid.ui.preferences.manager import PreferencesManager
+    prefs = PreferencesManager.get_instance()
+    return prefs.get("tiled_url", None)
+
+
+def get_tiled_base_url() -> str:
+    """Return the configured Tiled base URL, or the default fallback."""
+    try:
+        value = _load_tiled_url_pref()
+    except Exception:
+        return DEFAULT_TILED_URL
+    return value or DEFAULT_TILED_URL
+
+
 class _SettingsAdapter:
     """Adapter so AccessStamper sees access_override on a single object."""
 

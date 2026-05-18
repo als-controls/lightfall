@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 from lucid.auth.service_key import MintedKey
@@ -71,5 +72,54 @@ def test_cache_cleared_on_logout(monkeypatch):
 
     # logout() is async; run it
     asyncio.run(sm.logout())
+
+    assert sm.get_api_key("tiled") is None
+
+
+def test_mint_all_service_keys_populates_cache(monkeypatch):
+    """A successful mint populates the cache slot."""
+    sm = SessionManager.get_instance()
+    called: list = []
+
+    def fake_mint(service_url, bearer, *, expires_in, scopes, note, timeout=10.0):
+        called.append((service_url, bearer, expires_in, tuple(scopes), note))
+        return _minted(secret=f"key-for-{service_url}")
+
+    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr(
+        "lucid.services.tiled_service.get_tiled_base_url",
+        lambda: "https://tiled.test",
+    )
+
+    sm._mint_all_service_keys("bearer-xyz")
+
+    assert "tiled" in sm._service_keys
+    assert sm.get_api_key("tiled") == "key-for-https://tiled.test/api/v1"
+    assert len(called) == 1
+    url, bearer, expires_in, scopes, note = called[0]
+    assert url == "https://tiled.test/api/v1"
+    assert bearer == "bearer-xyz"
+    assert expires_in == 604800
+    assert "read:metadata" in scopes and "create:apikeys" not in scopes
+    assert "lucid" in note
+
+
+def test_mint_all_service_keys_tolerates_failure(monkeypatch):
+    """A failed mint logs but leaves the slot empty; other services unaffected."""
+    import httpx
+
+    sm = SessionManager.get_instance()
+
+    def boom(service_url, bearer, **kwargs):
+        raise httpx.ConnectError("unreachable")
+
+    monkeypatch.setattr("lucid.auth.session.mint_service_key", boom)
+    monkeypatch.setattr(
+        "lucid.services.tiled_service.get_tiled_base_url",
+        lambda: "https://tiled.test",
+    )
+
+    # MUST NOT raise
+    sm._mint_all_service_keys("bearer-xyz")
 
     assert sm.get_api_key("tiled") is None

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.auth.policy import Permission, PolicyEngine, Role
-from lucid.auth.service_key import MintedKey
+from lucid.auth.service_key import MintedKey, mint_service_key
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -269,6 +269,73 @@ class SessionManager(QObject):
                 return None
             return minted
 
+    # Default scopes per service. See spec §"Scopes".
+    _SERVICE_SCOPES: dict[str, list[str]] = {
+        "tiled": [
+            "read:metadata", "read:data",
+            "write:metadata", "write:data",
+            "register", "create:node",
+        ],
+        # logbook entry added by the logbook consumer plan; empty scopes
+        # (logbook has no granular scope model).
+    }
+
+    _SESSION_KEY_LIFETIME = 604800  # 7 days, per spec
+
+    def _mint_all_service_keys(self, bearer_token: str) -> None:
+        """Mint a session key per configured service in sequence.
+
+        Called by login() once authentication succeeds. Failures are logged,
+        never raised — login degrades but does not fail per spec.
+
+        Phase 1 (this plan): Tiled only. Logbook joins in the logbook
+        consumer plan.
+
+        Synchronous httpx + small N, so serial execution keeps the code
+        simple. If N grows beyond a handful of services or any mint ever
+        blocks for noticeable wall time, switch to a thread pool here.
+        """
+        from lucid.services.tiled_service import get_tiled_base_url
+
+        urls = {"tiled": get_tiled_base_url().rstrip("/") + "/api/v1"}
+
+        hostname = self._hostname_for_note()
+        sub = (
+            self._session.user.attributes.get("sub", "unknown")
+            if self._session and self._session.user
+            else "unknown"
+        )
+        note = f"lucid {hostname} {sub}"
+
+        for service, url in urls.items():
+            scopes = self._SERVICE_SCOPES.get(service, [])
+            try:
+                minted = mint_service_key(
+                    url,
+                    bearer_token,
+                    expires_in=self._SESSION_KEY_LIFETIME,
+                    scopes=scopes,
+                    note=note,
+                )
+            except Exception as e:
+                logger.warning(
+                    "mint failed for service={} url={}: {}", service, url, e
+                )
+                continue
+
+            with self._keys_lock:
+                self._service_keys[service] = minted
+            logger.info("session key cached for service={}", service)
+
+    @staticmethod
+    def _hostname_for_note() -> str:
+        """Return the local hostname for mint audit notes; falls back gracefully."""
+        import socket
+        try:
+            return socket.gethostname()
+        except Exception:
+            return "unknown-host"
+
     def _set_state(self, new_state: AuthState) -> None:
         """Update authentication state and emit signal."""
         if new_state != self._state:
@@ -318,6 +385,16 @@ class SessionManager(QObject):
 
             if session:
                 self._session = session
+
+                # Mint per-service API keys before transitioning to AUTHENTICATED
+                # so the keys are available to any AUTHENTICATED-state listeners.
+                # Failure is non-fatal: individual slots may be empty.
+                if session.token:
+                    import asyncio
+                    await asyncio.to_thread(
+                        self._mint_all_service_keys, session.token
+                    )
+
                 self._set_state(AuthState.AUTHENTICATED)
                 self.user_changed.emit(session.user)
                 logger.info("User '{}' authenticated", session.user.username)
