@@ -69,13 +69,24 @@ def mint_service_key(
         httpx.HTTPStatusError on a 4xx/5xx from the service.
     """
     url = service_url.rstrip("/") + "/auth/apikey"
+    logger.debug(
+        "mint POST url={} scopes={} expires_in={}", url, scopes, expires_in
+    )
     response = httpx.post(
         url,
         headers={"Authorization": f"Bearer {bearer_token}"},
         json={"expires_in": expires_in, "scopes": scopes, "note": note},
         timeout=timeout,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        # Capture the response body so the caller's log shows the actual
+        # server-side rejection reason (not just an opaque "401 Unauthorized").
+        # Truncate to keep log lines bounded.
+        body_preview = response.text[:500] if response.text else "<empty>"
+        logger.error(
+            "mint POST {} returned {}: {}", url, response.status_code, body_preview
+        )
+        response.raise_for_status()
     body = response.json()
 
     expires_at: datetime | None = None

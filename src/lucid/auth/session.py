@@ -325,7 +325,13 @@ class SessionManager(QObject):
                     note=note,
                 )
             except Exception as e:
-                logger.warning(
+                # Promoted from warning to error: a failed mint means every
+                # subsequent request to this service goes out unauthenticated,
+                # which surfaces as a confusing 401 far from the actual cause.
+                # The actual server response body is logged at ERROR by
+                # `mint_service_key` itself, so the warning here adds context
+                # rather than swallowing the failure.
+                logger.error(
                     "mint failed for service={} url={}: {}", service, url, e
                 )
                 continue
