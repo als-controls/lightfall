@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.auth.policy import Permission, PolicyEngine, Role
+from lucid.auth.service_key import MintedKey
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -175,6 +176,13 @@ class SessionManager(QObject):
         self._fast_retry_count = 0
         self._refresh_timer_id: int | None = None
 
+        # Service-key cache (auth-v2): per-(user, service) API keys minted at
+        # login. See docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md.
+        # The refresh state above is transitionally kept alive for the logbook
+        # bearer flow until lucid-logbook ships its mint endpoint.
+        self._service_keys: dict[str, MintedKey] = {}
+        self._keys_lock = threading.RLock()
+
         # Schedule/cancel refresh when auth state changes — this works
         # regardless of whether login() or direct _session assignment is used
         # (LoginDialog sets _session directly without calling login()).
@@ -234,6 +242,30 @@ class SessionManager(QObject):
     def policy_engine(self) -> PolicyEngine:
         """Access the policy engine for permission checks."""
         return self._policy_engine
+
+    def get_api_key(self, service: str) -> str | None:
+        """Return the cached API-key secret for a service, or None if absent or expired.
+
+        Consumers (e.g. ServiceKeyAuth) call this on every request so that a
+        re-login that refreshes the cache is picked up immediately.
+        """
+        with self._keys_lock:
+            minted = self._service_keys.get(service)
+        if minted is None:
+            return None
+        if minted.is_expired:
+            return None
+        return minted.secret
+
+    def get_minted_key(self, service: str) -> MintedKey | None:
+        """Return the full cached record (for NATS payload embedding).
+
+        Unlike get_api_key, this returns the whole MintedKey including
+        first_eight and expiry so the dispatcher can pass the metadata along
+        with the secret. Returns None if the slot is empty.
+        """
+        with self._keys_lock:
+            return self._service_keys.get(service)
 
     def _set_state(self, new_state: AuthState) -> None:
         """Update authentication state and emit signal."""
@@ -315,6 +347,8 @@ class SessionManager(QObject):
 
         old_user = self._session.user
         self._session = None
+        with self._keys_lock:
+            self._service_keys.clear()
         self._set_state(AuthState.UNAUTHENTICATED)
         self.user_changed.emit(ANONYMOUS_USER)
         logger.info("User '{}' logged out", old_user.username)
