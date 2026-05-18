@@ -9,10 +9,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
+    from lucid.auth.session import SessionManager
     from lucid.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.reset()
+    SessionManager.reset()
     yield
     UserSettingsClient.reset()
+    SessionManager.reset()
 
 
 def _client(base_url="https://lb.test"):
@@ -270,32 +273,28 @@ def test_request_carries_apikey_header(httpx_mock):
     from lucid.auth.service_key import MintedKey
     from lucid.auth.session import SessionManager
 
-    SessionManager.reset()
-    try:
-        sm = SessionManager.get_instance()
-        sm._service_keys["logbook"] = MintedKey(
-            secret="settings-secret",
-            first_eight="settings",
-            expires_at=datetime.now(UTC) + timedelta(hours=1),
-            scopes=(),
-            note="test",
-        )
+    sm = SessionManager.get_instance()
+    sm._service_keys["logbook"] = MintedKey(
+        secret="settings-secret",
+        first_eight="settings",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        scopes=(),
+        note="test",
+    )
 
-        httpx_mock.add_response(
-            url="https://lb.test/logbook/settings/theme?beamline=",
-            json={
-                "user_id": "alice",
-                "beamline": "",
-                "key": "theme",
-                "value": "dark",
-                "updated_at": "2026-04-30T00:00:00+00:00",
-            },
-        )
-        c = _client()
-        c.get("theme")
+    httpx_mock.add_response(
+        url="https://lb.test/logbook/settings/theme?beamline=",
+        json={
+            "user_id": "alice",
+            "beamline": "",
+            "key": "theme",
+            "value": "dark",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        },
+    )
+    c = _client()
+    c.get("theme")
 
-        requests = httpx_mock.get_requests()
-        assert len(requests) == 1
-        assert requests[0].headers.get("Authorization") == "Apikey settings-secret"
-    finally:
-        SessionManager.reset()
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 1
+    assert requests[0].headers.get("Authorization") == "Apikey settings-secret"
