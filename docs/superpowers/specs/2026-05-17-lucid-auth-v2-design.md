@@ -105,7 +105,7 @@ The wire protocol is what's uniform. Storage models are per-service implementati
 - **Default lifetime:** 7 days (604800s). Matches "no experiment lasts longer than a week."
 - **Re-mint on re-login:** every Keycloak login (initial or forced) re-mints all configured services in parallel; cache is replaced. Old keys are **not revoked** — they age out at TTL. The RunEngine's writers, mid-scan, pick up the fresh key on their next request via `ServiceKeyAuth`.
 - **Re-mint within a session:** none. There is no idle refresher, no proactive renewal. If a user keeps LUCID open >7 days and a key expires mid-session, surface a re-login prompt via the existing `AuthState` flow.
-- **Logout:** clear the cache. Do **not** revoke. Acceptable because the threat model is "physical workstation," not "leaked log file"; a stolen workstation already has worse problems than a 7-day API key, and not revoking guarantees RE state isn't invalidated by a stray logout click.
+- **Logout:** gated on RunEngine state. If the RE reports `state in {"running", "paused"}` (via the current engine wrapper's `engine.RE.state`), surface a confirmation dialog: `"Logging out will end your active scan's ability to write data. The scan in progress will continue but any further writes will fail. Continue with logout?"` If the user confirms, or if the RE is idle, proceed: clear the cache. Do **not** revoke (the user already accepted the data-loss risk by confirming). Threat model is "physical workstation," not "leaked log file"; non-revocation buys us the property that an idle-but-not-RE-aware Logout never invalidates a scan that the user forgot was running.
 
 ## Login flow
 
@@ -275,7 +275,7 @@ Every site that currently reads `session.token` must change. Categorized below:
 | `ServiceKeyAuth` finds no key in cache (slot empty)   | per-request           | Yield request without auth header. The downstream call will fail 401 — surface as a "service not authorized; please re-login" toast at the call site. |
 | `ServiceKeyAuth` finds expired key                    | per-request           | Same — treat as empty. (At 7-day TTL this should be rare; user has been working > 1 week without re-login.) |
 | Server returns 401 on a request despite cached key    | per-request           | One retry with same key (in case of transient server glitch). On second 401, treat as expired: clear that slot, surface re-login toast. |
-| RE plan mid-execution; user clicks Logout             | `SessionManager.logout` | No revocation; cache cleared. RE's holding httpx.Auth will return None for the cache lookup → fail on next request. **Document the behavior; do not gate logout on RE state in Phase 1.** (If we want to gate later, it's a UI add.) |
+| RE plan mid-execution; user clicks Logout             | UI (logout action)    | Check `engine.RE.state` (via the LUCID engine wrapper, see [[lucid-engine-wrapper]]). If `running` / `paused`, show confirm dialog citing data-write loss. On confirm or idle: proceed to `SessionManager.logout()` which clears the cache (no revocation — the user already accepted the risk). |
 | Keycloak logout endpoint unreachable                  | `provider.logout`     | Warn-log, continue. The local cache is cleared regardless.                                     |
 | User keeps LUCID open >7 days                         | `ServiceKeyAuth`       | Cache slot reports expired; user is prompted to re-login on next service call.                |
 
