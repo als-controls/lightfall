@@ -91,9 +91,15 @@ def mint_service_key(
                 raw_expires,
             )
 
+    try:
+        secret = body["secret"]
+        first_eight = body["first_eight"]
+    except KeyError as exc:
+        raise ValueError(f"mint response missing required field {exc}") from exc
+
     minted = MintedKey(
-        secret=body["secret"],
-        first_eight=body["first_eight"],
+        secret=secret,
+        first_eight=first_eight,
         expires_at=expires_at,
         scopes=tuple(body.get("scopes", scopes)),
         note=body.get("note"),
@@ -126,5 +132,5 @@ def revoke_service_key(
         )
         response.raise_for_status()
         logger.info("revoked service key first_eight={}", first_eight)
-    except (httpx.HTTPError, httpx.HTTPStatusError) as e:
+    except httpx.HTTPError as e:
         logger.warning("revoke failed first_eight={} err={}", first_eight, e)

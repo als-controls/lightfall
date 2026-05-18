@@ -1,6 +1,7 @@
 """Unit tests for lucid.auth.service_key — mint/revoke against a stub transport."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -16,6 +17,27 @@ from lucid.auth.service_key import (
 def _stub_transport(handler):
     """Wrap an httpx.MockTransport-style handler into a real httpx.Client."""
     return httpx.MockTransport(handler)
+
+
+@contextmanager
+def _patched_httpx(client: httpx.Client):
+    """Redirect module-level httpx.post/delete to a real client with a stub transport."""
+    import lucid.auth.service_key as mod
+    original = mod.httpx
+
+    class _Mod:
+        def post(self, url, **kwargs):
+            return client.post(url, **kwargs)
+        def delete(self, url, **kwargs):
+            return client.delete(url, **kwargs)
+        HTTPError = httpx.HTTPError
+        HTTPStatusError = httpx.HTTPStatusError
+
+    mod.httpx = _Mod()
+    try:
+        yield
+    finally:
+        mod.httpx = original
 
 
 def test_mint_service_key_posts_expected_body():
@@ -36,27 +58,14 @@ def test_mint_service_key_posts_expected_body():
             },
         )
 
-    with httpx.Client(transport=_stub_transport(handler)) as client:
-        import lucid.auth.service_key as mod
-        original = mod.httpx
-        class _Mod:
-            def post(self_inner, url, **kwargs):
-                return client.post(url, **kwargs)
-            def delete(self_inner, url, **kwargs):
-                return client.delete(url, **kwargs)
-            HTTPError = httpx.HTTPError
-            HTTPStatusError = httpx.HTTPStatusError
-        mod.httpx = _Mod()
-        try:
-            minted = mint_service_key(
-                "https://example/api/v1",
-                "bearer-token-xyz",
-                expires_in=604800,
-                scopes=["read:metadata", "read:data"],
-                note="lucid bcg-ws-3 user123",
-            )
-        finally:
-            mod.httpx = original
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        minted = mint_service_key(
+            "https://example/api/v1",
+            "bearer-token-xyz",
+            expires_in=604800,
+            scopes=["read:metadata", "read:data"],
+            note="lucid bcg-ws-3 user123",
+        )
 
     assert captured["url"] == "https://example/api/v1/auth/apikey"
     assert captured["headers"]["authorization"] == "Bearer bearer-token-xyz"
@@ -72,54 +81,28 @@ def test_mint_service_key_raises_on_http_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, json={"detail": "no create:apikeys"})
 
-    with httpx.Client(transport=_stub_transport(handler)) as client:
-        import lucid.auth.service_key as mod
-        original = mod.httpx
-        class _Mod:
-            def post(self_inner, url, **kwargs):
-                return client.post(url, **kwargs)
-            def delete(self_inner, url, **kwargs):
-                return client.delete(url, **kwargs)
-            HTTPError = httpx.HTTPError
-            HTTPStatusError = httpx.HTTPStatusError
-        mod.httpx = _Mod()
-        try:
-            with pytest.raises(httpx.HTTPStatusError):
-                mint_service_key(
-                    "https://example/api/v1",
-                    "bearer-token-xyz",
-                    expires_in=600,
-                    scopes=["read:metadata"],
-                    note="t",
-                )
-        finally:
-            mod.httpx = original
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        with pytest.raises(httpx.HTTPStatusError):
+            mint_service_key(
+                "https://example/api/v1",
+                "bearer-token-xyz",
+                expires_in=600,
+                scopes=["read:metadata"],
+                note="t",
+            )
 
 
 def test_revoke_service_key_swallows_errors():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "kaboom"})
 
-    with httpx.Client(transport=_stub_transport(handler)) as client:
-        import lucid.auth.service_key as mod
-        original = mod.httpx
-        class _Mod:
-            def post(self_inner, url, **kwargs):
-                return client.post(url, **kwargs)
-            def delete(self_inner, url, **kwargs):
-                return client.delete(url, **kwargs)
-            HTTPError = httpx.HTTPError
-            HTTPStatusError = httpx.HTTPStatusError
-        mod.httpx = _Mod()
-        try:
-            # Must NOT raise
-            revoke_service_key(
-                "https://example/api/v1",
-                "bearer-token-xyz",
-                first_eight="aaaaaaaa",
-            )
-        finally:
-            mod.httpx = original
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        # Must NOT raise
+        revoke_service_key(
+            "https://example/api/v1",
+            "bearer-token-xyz",
+            first_eight="aaaaaaaa",
+        )
 
 
 def test_minted_key_is_expired():
