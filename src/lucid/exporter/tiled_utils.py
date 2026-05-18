@@ -38,6 +38,8 @@ def connect_tiled(
     kwargs: dict[str, Any] = {}
     if api_key:
         kwargs["auth"] = StaticApiKeyAuth(api_key)
+    else:
+        logger.warning("connect_tiled: no api_key provided, connecting anonymously")
 
     if not proxy_url:
         return from_uri(url, **kwargs)
