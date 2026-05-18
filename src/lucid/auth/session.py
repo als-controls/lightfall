@@ -264,19 +264,21 @@ class SessionManager(QObject):
 
     # Default scopes per service. See spec §"Scopes".
     #
-    # Tiled's ProxiedOIDCAuthenticator (als-tiled config.yml) enforces
-    # `openid` on every request. Keycloak issues `openid` automatically on
-    # every token (OIDC mandatory), but the apikey-mint endpoint only
-    # grants the scopes we ASK for — so the apikey carries `openid` only
-    # if we list it explicitly. Without it, every Tiled call returns
-    # 401 "Requires scopes ['openid']. Request had scopes []".
+    # Tiled validates requested scopes against `principal.roles[*].scopes`
+    # (DB-stored Tiled roles), NOT against the user's OIDC scopes. A fresh
+    # Keycloak user typically has no Tiled roles assigned, so any explicit
+    # scope request (including `openid`) is rejected with 403:
+    #
+    #     Requested scopes [...] must be a subset of the principal's
+    #     scopes [].
+    #
+    # `inherit` is a Tiled metascope that always passes validation and is
+    # resolved to the principal's current effective scopes at request time
+    # (see tiled.server.authentication line 360-365). That is exactly the
+    # semantics we want for a session apikey: whatever the user is allowed
+    # to do today via the ALS access policy, the apikey can do.
     _SERVICE_SCOPES: dict[str, list[str]] = {
-        "tiled": [
-            "openid",
-            "read:metadata", "read:data",
-            "write:metadata", "write:data",
-            "register", "create:node",
-        ],
+        "tiled": ["inherit"],
         "logbook": [],  # logbook has no granular scope model
     }
 
