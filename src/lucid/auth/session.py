@@ -263,8 +263,16 @@ class SessionManager(QObject):
             return minted
 
     # Default scopes per service. See spec §"Scopes".
+    #
+    # Tiled's ProxiedOIDCAuthenticator (als-tiled config.yml) enforces
+    # `openid` on every request. Keycloak issues `openid` automatically on
+    # every token (OIDC mandatory), but the apikey-mint endpoint only
+    # grants the scopes we ASK for — so the apikey carries `openid` only
+    # if we list it explicitly. Without it, every Tiled call returns
+    # 401 "Requires scopes ['openid']. Request had scopes []".
     _SERVICE_SCOPES: dict[str, list[str]] = {
         "tiled": [
+            "openid",
             "read:metadata", "read:data",
             "write:metadata", "write:data",
             "register", "create:node",
