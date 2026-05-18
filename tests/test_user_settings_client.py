@@ -261,3 +261,41 @@ def test_client_omits_proxy_when_provider_returns_none(monkeypatch):
     c = _client(base_url="https://other.example")
     c._client().close()
     assert "proxy" not in captured
+
+
+def test_request_carries_apikey_header(httpx_mock):
+    """ServiceKeyAuth injects Authorization: Apikey <secret>."""
+    from datetime import UTC, datetime, timedelta
+
+    from lucid.auth.service_key import MintedKey
+    from lucid.auth.session import SessionManager
+
+    SessionManager.reset()
+    try:
+        sm = SessionManager.get_instance()
+        sm._service_keys["logbook"] = MintedKey(
+            secret="settings-secret",
+            first_eight="settings",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            scopes=(),
+            note="test",
+        )
+
+        httpx_mock.add_response(
+            url="https://lb.test/logbook/settings/theme?beamline=",
+            json={
+                "user_id": "alice",
+                "beamline": "",
+                "key": "theme",
+                "value": "dark",
+                "updated_at": "2026-04-30T00:00:00+00:00",
+            },
+        )
+        c = _client()
+        c.get("theme")
+
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 1
+        assert requests[0].headers.get("Authorization") == "Apikey settings-secret"
+    finally:
+        SessionManager.reset()

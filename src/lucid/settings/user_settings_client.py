@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from lucid.auth.httpx_auth import SessionAuth
+from lucid.auth.service_key_auth import ServiceKeyAuth
 from lucid.logbook.url import get_logbook_base_url
 from lucid.utils.logging import logger
 
@@ -58,7 +58,7 @@ class UserSettingsClient:
         self._explicit_base_url: str | None = (
             base_url.rstrip("/") if base_url else None
         )
-        self._auth = SessionAuth()
+        self._auth = ServiceKeyAuth("logbook")
 
     @property
     def _base_url(self) -> str:
