@@ -205,9 +205,11 @@ def test_mint_all_service_keys_mints_both_services(monkeypatch):
     """Both tiled and logbook are minted at login."""
     sm = SessionManager.get_instance()
     called: dict[str, str] = {}
+    scopes_by_url: dict[str, tuple] = {}
 
     def fake_mint(service_url, bearer, *, expires_in, scopes, note, timeout=10.0):
         called[service_url] = bearer
+        scopes_by_url[service_url] = tuple(scopes)
         return _minted(secret=f"key-for-{service_url}")
 
     monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
@@ -226,6 +228,10 @@ def test_mint_all_service_keys_mints_both_services(monkeypatch):
     assert sm.get_api_key("logbook") == "key-for-https://logbook.test/api/v1"
     assert called["https://tiled.test/api/v1"] == "bearer-xyz"
     assert called["https://logbook.test/api/v1"] == "bearer-xyz"
+    # Logbook must be minted with empty scopes; tiled needs read:metadata.
+    assert scopes_by_url["https://logbook.test/api/v1"] == ()
+    tiled_scopes = scopes_by_url["https://tiled.test/api/v1"]
+    assert "read:metadata" in tiled_scopes
 
 
 def test_mint_logbook_failure_leaves_tiled_intact(monkeypatch):
