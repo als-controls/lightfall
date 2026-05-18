@@ -7,6 +7,11 @@ This package provides:
 - Authentication provider abstraction
 """
 
+from lucid.auth.service_key import (
+    MintedKey,
+    mint_service_key,
+    revoke_service_key,
+)
 from lucid.auth.policy import (
     Permission,
     PolicyEngine,
@@ -21,10 +26,13 @@ from lucid.auth.session import (
 
 __all__ = [
     "AuthState",
+    "MintedKey",
     "Permission",
     "PolicyEngine",
     "Role",
     "Session",
     "SessionManager",
     "User",
+    "mint_service_key",
+    "revoke_service_key",
 ]

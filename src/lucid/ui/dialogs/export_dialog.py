@@ -42,7 +42,7 @@ def build_job_message(
     export_type: str,
     output_dir: str,
     tiled_url: str,
-    auth_token: str | None,
+    tiled_api_key: str | None,
     extra_params: dict[str, Any],
     proxy_url: str | None = None,
 ) -> dict[str, Any]:
@@ -54,7 +54,7 @@ def build_job_message(
     msg: dict[str, Any] = {
         "job_id": str(uuid.uuid4()),
         "tiled_url": tiled_url,
-        "auth_token": auth_token,
+        "tiled_api_key": tiled_api_key,
         "run_uids": [r.uid for r in records],
         "export_type": export_type,
         "params": params,
@@ -459,7 +459,7 @@ class ExportDialog(LucidDialog):
                 extra_params["roi"] = roi
 
         tiled_url = self._tiled_service.config.url
-        auth_token = self._get_auth_token()
+        tiled_api_key = self._get_tiled_api_key()
         proxy_url = self._get_proxy_url(tiled_url)
 
         message = build_job_message(
@@ -467,7 +467,7 @@ class ExportDialog(LucidDialog):
             export_type=export_type,
             output_dir=output_dir,
             tiled_url=tiled_url,
-            auth_token=auth_token,
+            tiled_api_key=tiled_api_key,
             proxy_url=proxy_url,
             extra_params=extra_params,
         )
@@ -475,16 +475,13 @@ class ExportDialog(LucidDialog):
         self._send_to_exporter(message)
         self.accept()
 
-    def _get_auth_token(self) -> str | None:
-        """Get current auth token from SessionManager."""
+    def _get_tiled_api_key(self) -> str | None:
+        """Get the current Tiled API key from SessionManager's cache."""
         try:
             from lucid.auth.session import SessionManager
-            session_mgr = SessionManager.get_instance()
-            session = session_mgr.session
-            if session and session.token:
-                return session.token
+            return SessionManager.get_instance().get_api_key("tiled")
         except Exception as e:
-            logger.debug("Could not get auth token: {}", e)
+            logger.debug("Could not get tiled api key: {}", e)
         return None
 
     @staticmethod

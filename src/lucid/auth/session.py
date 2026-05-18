@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lucid.auth.policy import Permission, PolicyEngine, Role
+from lucid.auth.service_key import MintedKey, mint_service_key
 from lucid.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -175,6 +176,13 @@ class SessionManager(QObject):
         self._fast_retry_count = 0
         self._refresh_timer_id: int | None = None
 
+        # Service-key cache (auth-v2): per-(user, service) API keys minted at
+        # login. See docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md.
+        # The refresh state above is transitionally kept alive for the logbook
+        # bearer flow until lucid-logbook ships its mint endpoint.
+        self._service_keys: dict[str, MintedKey] = {}
+        self._keys_lock = threading.RLock()
+
         # Schedule/cancel refresh when auth state changes — this works
         # regardless of whether login() or direct _session assignment is used
         # (LoginDialog sets _session directly without calling login()).
@@ -235,6 +243,99 @@ class SessionManager(QObject):
         """Access the policy engine for permission checks."""
         return self._policy_engine
 
+    def get_api_key(self, service: str) -> str | None:
+        """Return the cached API-key secret for a service, or None if absent or expired.
+
+        Consumers (e.g. ServiceKeyAuth) call this on every request so that a
+        re-login that refreshes the cache is picked up immediately.
+        """
+        with self._keys_lock:
+            minted = self._service_keys.get(service)
+            if minted is None or minted.is_expired:
+                return None
+            return minted.secret
+
+    def get_minted_key(self, service: str) -> MintedKey | None:
+        """Return the full cached record (for NATS payload embedding), or None if absent or expired.
+
+        Filters expired keys the same way get_api_key does — NATS dispatchers
+        that embed an expired key would just hand the executor a dead
+        credential. Callers that genuinely need to inspect expired keys can
+        read the cache directly.
+        """
+        with self._keys_lock:
+            minted = self._service_keys.get(service)
+            if minted is not None and minted.is_expired:
+                return None
+            return minted
+
+    # Default scopes per service. See spec §"Scopes".
+    _SERVICE_SCOPES: dict[str, list[str]] = {
+        "tiled": [
+            "read:metadata", "read:data",
+            "write:metadata", "write:data",
+            "register", "create:node",
+        ],
+        # logbook entry added by the logbook consumer plan; empty scopes
+        # (logbook has no granular scope model).
+    }
+
+    _SESSION_KEY_LIFETIME = 604800  # 7 days, per spec
+
+    def _mint_all_service_keys(self, bearer_token: str) -> None:
+        """Mint a session key per configured service in sequence.
+
+        Called by login() once authentication succeeds. Failures are logged,
+        never raised — login degrades but does not fail per spec.
+
+        Phase 1 (this plan): Tiled only. Logbook joins in the logbook
+        consumer plan.
+
+        Synchronous httpx + small N, so serial execution keeps the code
+        simple. If N grows beyond a handful of services or any mint ever
+        blocks for noticeable wall time, switch to a thread pool here.
+        """
+        from lucid.services.tiled_service import get_tiled_base_url
+
+        urls = {"tiled": get_tiled_base_url().rstrip("/") + "/api/v1"}
+
+        hostname = self._hostname_for_note()
+        sub = (
+            self._session.user.attributes.get("sub", "unknown")
+            if self._session and self._session.user
+            else "unknown"
+        )
+        note = f"lucid {hostname} {sub}"
+
+        for service, url in urls.items():
+            scopes = self._SERVICE_SCOPES.get(service, [])
+            try:
+                minted = mint_service_key(
+                    url,
+                    bearer_token,
+                    expires_in=self._SESSION_KEY_LIFETIME,
+                    scopes=scopes,
+                    note=note,
+                )
+            except Exception as e:
+                logger.warning(
+                    "mint failed for service={} url={}: {}", service, url, e
+                )
+                continue
+
+            with self._keys_lock:
+                self._service_keys[service] = minted
+            logger.info("session key cached for service={}", service)
+
+    @staticmethod
+    def _hostname_for_note() -> str:
+        """Return the local hostname for mint audit notes; falls back gracefully."""
+        import socket
+        try:
+            return socket.gethostname()
+        except Exception:
+            return "unknown-host"
+
     def _set_state(self, new_state: AuthState) -> None:
         """Update authentication state and emit signal."""
         if new_state != self._state:
@@ -284,6 +385,16 @@ class SessionManager(QObject):
 
             if session:
                 self._session = session
+
+                # Mint per-service API keys before transitioning to AUTHENTICATED
+                # so the keys are available to any AUTHENTICATED-state listeners.
+                # Failure is non-fatal: individual slots may be empty.
+                if session.token:
+                    import asyncio
+                    await asyncio.to_thread(
+                        self._mint_all_service_keys, session.token
+                    )
+
                 self._set_state(AuthState.AUTHENTICATED)
                 self.user_changed.emit(session.user)
                 logger.info("User '{}' authenticated", session.user.username)
@@ -315,6 +426,8 @@ class SessionManager(QObject):
 
         old_user = self._session.user
         self._session = None
+        with self._keys_lock:
+            self._service_keys.clear()
         self._set_state(AuthState.UNAUTHENTICATED)
         self.user_changed.emit(ANONYMOUS_USER)
         logger.info("User '{}' logged out", old_user.username)

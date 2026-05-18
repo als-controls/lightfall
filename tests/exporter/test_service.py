@@ -33,7 +33,7 @@ class TestJobDispatch:
         job_data = {
             "job_id": "abc-123",
             "tiled_url": "https://tiled.example.com",
-            "auth_token": "tok",
+            "tiled_api_key": "apikey-secret",
             "run_uids": ["uid1", "uid2"],
             "export_type": "noop",
             "params": {"output_dir": "/tmp/export"},
@@ -42,6 +42,7 @@ class TestJobDispatch:
         assert job.job_id == "abc-123"
         assert job.run_uids == ["uid1", "uid2"]
         assert job.export_type == "noop"
+        assert job.tiled_api_key == "apikey-secret"
 
     def test_parse_job_missing_field_raises(self, svc):
         with pytest.raises(KeyError):
@@ -51,13 +52,25 @@ class TestJobDispatch:
         job_data = {
             "job_id": "abc-123",
             "tiled_url": "https://tiled.example.com",
-            "auth_token": "tok",
+            "tiled_api_key": "apikey-secret",
             "run_uids": ["uid1"],
             "export_type": "unknown_format",
             "params": {"output_dir": "/tmp/export"},
         }
         with pytest.raises(ValueError, match="Unknown export type"):
             svc._parse_job(job_data)
+
+    def test_parse_job_missing_tiled_api_key_is_none(self, svc):
+        """Anonymous exports: omitting tiled_api_key parses to None."""
+        job_data = {
+            "job_id": "abc-123",
+            "tiled_url": "https://tiled.example.com",
+            "run_uids": ["uid1"],
+            "export_type": "noop",
+            "params": {"output_dir": "/tmp/export"},
+        }
+        job = svc._parse_job(job_data)
+        assert job.tiled_api_key is None
 
 
 class TestPingResponse:

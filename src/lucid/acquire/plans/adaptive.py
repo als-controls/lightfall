@@ -102,13 +102,16 @@ class AdaptiveExperimentPanel(PlanUI):
 
 
 def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
-    """Pull Tiled URL, auth token, and proxy URL from LUCID services.
+    """Pull Tiled URL, API key, and proxy URL from LUCID services.
+
+    The API key is the LUCID-minted Tiled session key sourced from
+    :class:`SessionManager`'s per-service cache.
 
     Returns:
-        (tiled_url, auth_token, proxy_url) — any may be empty/None.
+        (tiled_url, tiled_api_key, proxy_url) — any may be empty/None.
     """
     tiled_url = ""
-    auth_token = None
+    tiled_api_key: str | None = None
     proxy_url = None
 
     try:
@@ -123,10 +126,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
 
     try:
         from lucid.auth.session import SessionManager
-        session_mgr = SessionManager.get_instance()
-        session = session_mgr.session
-        if session and session.token:
-            auth_token = session.token
+        tiled_api_key = SessionManager.get_instance().get_api_key("tiled")
     except Exception:
         pass
 
@@ -134,7 +134,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     if tiled_url and ".lbl.gov" in tiled_url:
         proxy_url = "socks5://localhost:1080"
 
-    return tiled_url, auth_token, proxy_url
+    return tiled_url, tiled_api_key, proxy_url
 
 
 def _get_lucid_prefix() -> str:
@@ -201,12 +201,15 @@ def adaptive_experiment(
         md = {"tsuchinoko": {"experiment_id": experiment_id}}
         run_uid = yield from bps.open_run(md=md)
 
-        # Pull Tiled credentials from LUCID and forward to Tsuchinoko
-        tiled_url, auth_token, proxy_url = _get_tiled_credentials()
+        # Pull Tiled credentials from LUCID and forward to Tsuchinoko.
+        # NOTE: payload field renamed auth_token → tiled_api_key as part of
+        # LUCID Auth v2. Tsuchinoko-side cutover is committed at 817408d on
+        # the LUCID-refactor branch; adaptive jobs work once both sides deploy.
+        tiled_url, tiled_api_key, proxy_url = _get_tiled_credentials()
         bridge.publish("tsuchinoko.experiment.bind_run", {
             "run_uid": run_uid,
             "tiled_url": tiled_url,
-            "auth_token": auth_token,
+            "tiled_api_key": tiled_api_key,
             "proxy_url": proxy_url,
             "lucid_prefix": lucid_prefix,
             "motor_names": [m.name for m in motors],
