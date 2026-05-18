@@ -23,7 +23,7 @@ class ExportJob:
 
     job_id: str
     tiled_url: str
-    auth_token: str | None
+    tiled_api_key: str | None
     run_uids: list[str]
     export_type: str
     params: dict[str, Any]
@@ -69,7 +69,7 @@ class ExporterService:
         job = ExportJob(
             job_id=data["job_id"],
             tiled_url=data["tiled_url"],
-            auth_token=data.get("auth_token"),
+            tiled_api_key=data.get("tiled_api_key"),
             run_uids=data["run_uids"],
             export_type=data["export_type"],
             params=data["params"],
@@ -146,7 +146,7 @@ class ExporterService:
 
             logger.info("Processing job %s", job.job_id)
             try:
-                client = await asyncio.to_thread(connect_tiled, job.tiled_url, job.auth_token, job.proxy_url)
+                client = await asyncio.to_thread(connect_tiled, job.tiled_url, job.tiled_api_key, job.proxy_url)
                 converter_cls = get_converter(job.export_type)
                 converter = converter_cls()
 

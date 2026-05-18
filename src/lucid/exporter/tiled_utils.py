@@ -1,48 +1,43 @@
-"""Tiled client utilities for the exporter."""
+"""Executor-side Tiled connection helpers.
+
+Used by lucid.exporter. Constructs a ``tiled.client`` with
+:class:`~lucid.auth.service_key_auth.StaticApiKeyAuth` so the executor
+authenticates with the LUCID session API key it received in the NATS job
+payload.
+"""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
 from typing import Any
 
-import httpx
 from tiled.client import from_uri
+
+from lucid.auth.service_key_auth import StaticApiKeyAuth
 
 logger = logging.getLogger(__name__)
 
 
-class BearerAuth(httpx.Auth):
-    """Simple httpx.Auth that adds a static Bearer token."""
-
-    def __init__(self, token: str) -> None:
-        self._token = token
-
-    def sync_auth_flow(
-        self, request: httpx.Request
-    ) -> Generator[httpx.Request, httpx.Response, None]:
-        request.headers["Authorization"] = f"Bearer {self._token}"
-        yield request
-
-
 def connect_tiled(
     url: str,
-    token: str | None = None,
+    api_key: str | None = None,
     proxy_url: str | None = None,
 ) -> Any:
     """Connect to a Tiled server and return the client.
 
     Args:
         url: Tiled server URL.
-        token: Optional auth token (Bearer token for Keycloak).
-        proxy_url: Optional SOCKS/HTTP proxy URL (e.g. ``socks5://localhost:1080``).
+        api_key: Optional LUCID-minted Tiled API key secret. When None, the
+            client is anonymous.
+        proxy_url: Optional SOCKS/HTTP proxy URL (e.g.
+            ``socks5://localhost:1080``).
 
     Returns:
         Tiled client instance.
     """
     kwargs: dict[str, Any] = {}
-    if token:
-        kwargs["auth"] = BearerAuth(token)
+    if api_key:
+        kwargs["auth"] = StaticApiKeyAuth(api_key)
 
     if not proxy_url:
         return from_uri(url, **kwargs)

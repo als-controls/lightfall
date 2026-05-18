@@ -17,14 +17,14 @@ class TestBuildJobMessage:
             export_type="noop",
             output_dir="/tmp/export",
             tiled_url="https://tiled.example.com",
-            auth_token="tok123",
+            tiled_api_key="apikey-secret",
             extra_params={},
         )
         assert msg["run_uids"] == ["uid1", "uid2"]
         assert msg["export_type"] == "noop"
         assert msg["params"]["output_dir"] == "/tmp/export"
         assert msg["tiled_url"] == "https://tiled.example.com"
-        assert msg["auth_token"] == "tok123"
+        assert msg["tiled_api_key"] == "apikey-secret"
         assert "job_id" in msg
 
     def test_builds_nxsas_job_with_roi(self):
@@ -35,11 +35,12 @@ class TestBuildJobMessage:
             export_type="nxsas",
             output_dir="/data/out",
             tiled_url="https://tiled.example.com",
-            auth_token=None,
+            tiled_api_key=None,
             extra_params={"roi": roi},
         )
         assert msg["export_type"] == "nxsas"
         assert msg["params"]["roi"] == roi
+        assert msg["tiled_api_key"] is None
 
 
 from unittest.mock import patch, MagicMock
