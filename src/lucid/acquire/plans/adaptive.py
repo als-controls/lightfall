@@ -203,9 +203,8 @@ def adaptive_experiment(
 
         # Pull Tiled credentials from LUCID and forward to Tsuchinoko.
         # NOTE: payload field renamed auth_token → tiled_api_key as part of
-        # LUCID Auth v2. The tsuchinoko-side executor still consumes the
-        # old field name; it migrates in a separate repo plan, so adaptive
-        # jobs are broken until that ships — coordinated cutover required.
+        # LUCID Auth v2. Tsuchinoko-side cutover is committed at 817408d on
+        # the LUCID-refactor branch; adaptive jobs work once both sides deploy.
         tiled_url, tiled_api_key, proxy_url = _get_tiled_credentials()
         bridge.publish("tsuchinoko.experiment.bind_run", {
             "run_uid": run_uid,
