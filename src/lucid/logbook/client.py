@@ -22,7 +22,7 @@ from typing import Any
 
 from PySide6.QtCore import QTimer
 
-from lucid.auth.httpx_auth import SessionAuth
+from lucid.auth.service_key_auth import ServiceKeyAuth
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture, thread_manager
 
@@ -91,7 +91,7 @@ def _mime_from_ext(ext: str) -> str:
 _MIME_TO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif"}
 
 
-def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user_id: str | None = None) -> tuple[int, int]:
+def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tuple[int, int]:
     """Run logbook sync (push pending → pull remote). Returns (pushed, pulled).
 
     Designed to run inside a QThreadFuture — pure function, no Qt objects.
@@ -105,8 +105,8 @@ def _run_sync(db_path: str, server_url: str, auth_token: str | None = None, user
 
     # Use proxy settings if configured
     client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
-    # Use auth class that reads fresh token per request (same pattern as Tiled)
-    client_kwargs["auth"] = SessionAuth(user_id=user_id)
+    # Per-service API key auth — reads from SessionManager cache per request
+    client_kwargs["auth"] = ServiceKeyAuth("logbook")
     try:
         from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
@@ -749,15 +749,13 @@ class LogbookClient:
             self._sync_timer.start(2000)
             return
 
-        # Get auth token and user ID from session manager if available
-        auth_token: str | None = None
+        # Get user ID from session manager if available. The user is identified
+        # by the apikey record on the server side under ServiceKeyAuth; the
+        # local user_id is still needed downstream to upsert local logbook rows.
         user_id: str | None = None
         try:
             from lucid.auth.session import SessionManager
             sm = SessionManager.get_instance()
-            session = sm.session
-            if session and session.token:
-                auth_token = session.token
             user = sm.current_user
             if user and user.username:
                 user_id = user.username
@@ -768,7 +766,6 @@ class LogbookClient:
             _run_sync,
             str(self._db_path),
             self._server_url,
-            auth_token,
             user_id,
             callback_slot=self._on_sync_done,
             except_slot=self._on_sync_error,
