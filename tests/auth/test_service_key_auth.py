@@ -62,3 +62,37 @@ def test_service_key_auth_skips_header_when_no_key(monkeypatch):
 
     assert "Authorization" not in out.headers
     assert out is request  # generator must still yield even without a cached key
+
+
+import asyncio
+
+
+def _drive_async_flow(auth, request):
+    """Pump a single-step async generator and return the yielded request."""
+    async def _run():
+        gen = auth.async_auth_flow(request)
+        return await gen.__anext__()
+    return asyncio.run(_run())
+
+
+def test_static_apikey_auth_async_flow_sets_header():
+    auth = StaticApiKeyAuth("async-secret")
+    request = httpx.Request("GET", "https://example/data")
+    out = _drive_async_flow(auth, request)
+    assert out.headers["Authorization"] == "Apikey async-secret"
+
+
+def test_service_key_auth_async_flow_reads_from_session_manager(monkeypatch):
+    class _FakeSM:
+        @classmethod
+        def get_instance(cls):
+            return cls()
+        def get_api_key(self, service):
+            return "async-tiled-key"
+
+    monkeypatch.setattr("lucid.auth.service_key_auth.SessionManager", _FakeSM)
+
+    auth = ServiceKeyAuth("tiled")
+    request = httpx.Request("GET", "https://example/data")
+    out = _drive_async_flow(auth, request)
+    assert out.headers["Authorization"] == "Apikey async-tiled-key"

@@ -650,6 +650,12 @@ class NCSApplication(QObject):
         """
         if not reply:
             return
+        logger.warning(
+            "auth.token IPC handler called — this path is deprecated under "
+            "auth-v2. Caller should use the auth.request handshake which "
+            "carries an API key under 'tiled_token'. Deletion pending "
+            "tsuchinoko migration."
+        )
         ipc = self._services.get(IPCService)
         session = self._get_current_session()
         token = session.token if session else None

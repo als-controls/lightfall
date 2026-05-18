@@ -60,6 +60,12 @@ def test_get_minted_key_returns_full_record():
     assert sm.get_minted_key("tiled") is key
 
 
+def test_get_minted_key_returns_none_when_expired():
+    sm = SessionManager.get_instance()
+    sm._service_keys["tiled"] = _minted(secret="stale", expires_in_s=-60)
+    assert sm.get_minted_key("tiled") is None
+
+
 def test_cache_cleared_on_logout(monkeypatch):
     import asyncio
 

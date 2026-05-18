@@ -124,3 +124,26 @@ def test_minted_key_is_expired():
     assert past.is_expired
     assert not future.is_expired
     assert not no_exp.is_expired
+
+
+def test_revoke_service_key_happy_path():
+    """200 response — verify the DELETE call shape, no exception, no return value."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json={})
+
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        result = revoke_service_key(
+            "https://example/api/v1",
+            "bearer-token-xyz",
+            first_eight="abcdefgh",
+        )
+
+    assert result is None
+    assert captured["method"] == "DELETE"
+    assert "first_eight=abcdefgh" in captured["url"]
+    assert captured["headers"]["authorization"] == "Bearer bearer-token-xyz"
