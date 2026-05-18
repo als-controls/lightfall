@@ -112,6 +112,9 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
     assert bearer == "bearer-xyz"
     assert expires_in == 604800
     assert "read:metadata" in scopes and "create:apikeys" not in scopes
+    # openid is required by Tiled's ProxiedOIDCAuthenticator on every
+    # request; without it the apikey carries scopes=[] and Tiled 401s.
+    assert "openid" in scopes
     assert "lucid" in note
 
 
