@@ -81,19 +81,16 @@ class AccessStamper:
     def _operator_identity(self) -> tuple[Optional[str], Optional[str]]:
         """Pull (orcid, keycloak_sub) from the Keycloak session.
 
-        ``session.token`` is the raw JWT string. The decoded claims dict is
-        stuffed into ``session.user.attributes`` by LUCID's Keycloak provider
-        (lucid.auth.providers.keycloak._create_session_from_tokens), which
-        is the canonical place to read claims from. ``orcid`` is only
-        present if the Keycloak realm is configured to emit it as a claim;
-        ``sub`` is always present in any Keycloak token.
+        Decoded JWT claims live on ``session.user.attributes``, populated by
+        LUCID's Keycloak provider at login. ``orcid`` is only present if the
+        Keycloak realm is configured to emit it; ``sub`` is always present
+        in any Keycloak token.
         """
         session = self._session_provider()
-        # auth-v2 cleanup plan will change this to `session.user is None` when
-        # the bearer is discarded post-mint. Until then, session.token presence
-        # is still a valid "logged in" signal (claims read from user.attributes
-        # below is already auth-v2 compatible).
-        if session is None or session.token is None:
+        # Auth-v2: bearer is discarded post-mint, so `session.token` is always
+        # None for an authenticated user. `session.user` (set by the provider in
+        # the same place as the token) is the canonical "logged in" signal.
+        if session is None or session.user is None:
             raise MissingSessionError("No Keycloak session — refusing to stamp")
         user = getattr(session, "user", None)
         claims = getattr(user, "attributes", None) or {}
