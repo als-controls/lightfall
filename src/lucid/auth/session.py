@@ -276,8 +276,7 @@ class SessionManager(QObject):
             "write:metadata", "write:data",
             "register", "create:node",
         ],
-        # logbook entry added by the logbook consumer plan; empty scopes
-        # (logbook has no granular scope model).
+        "logbook": [],  # logbook has no granular scope model
     }
 
     _SESSION_KEY_LIFETIME = 604800  # 7 days, per spec
@@ -288,16 +287,21 @@ class SessionManager(QObject):
         Called by login() once authentication succeeds. Failures are logged,
         never raised — login degrades but does not fail per spec.
 
-        Phase 1 (this plan): Tiled only. Logbook joins in the logbook
-        consumer plan.
+        Mints session keys for Tiled and Logbook. Each service mint is
+        independent: a failure on one service is logged and skipped, leaving
+        the other service's cached key intact.
 
         Synchronous httpx + small N, so serial execution keeps the code
         simple. If N grows beyond a handful of services or any mint ever
         blocks for noticeable wall time, switch to a thread pool here.
         """
+        from lucid.logbook.url import get_logbook_base_url
         from lucid.services.tiled_service import get_tiled_base_url
 
-        urls = {"tiled": get_tiled_base_url().rstrip("/") + "/api/v1"}
+        urls = {
+            "tiled": get_tiled_base_url().rstrip("/") + "/api/v1",
+            "logbook": get_logbook_base_url().rstrip("/") + "/api/v1",
+        }
 
         hostname = self._hostname_for_note()
         sub = (
