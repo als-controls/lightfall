@@ -111,10 +111,10 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
     assert url == "https://tiled.test/api/v1"
     assert bearer == "bearer-xyz"
     assert expires_in == 604800
-    assert "read:metadata" in scopes and "create:apikeys" not in scopes
-    # openid is required by Tiled's ProxiedOIDCAuthenticator on every
-    # request; without it the apikey carries scopes=[] and Tiled 401s.
-    assert "openid" in scopes
+    # Tiled apikey must request `inherit` (a Tiled metascope). Explicit
+    # scopes are rejected because the user's `principal.roles` is empty
+    # for a fresh Keycloak user — see Tiled's generate_apikey validation.
+    assert scopes == ("inherit",) or list(scopes) == ["inherit"]
     assert "lucid" in note
 
 
@@ -231,10 +231,11 @@ def test_mint_all_service_keys_mints_both_services(monkeypatch):
     assert sm.get_api_key("logbook") == "key-for-https://logbook.test/api/v1"
     assert called["https://tiled.test/api/v1"] == "bearer-xyz"
     assert called["https://logbook.test/api/v1"] == "bearer-xyz"
-    # Logbook must be minted with empty scopes; tiled needs read:metadata.
+    # Logbook is minted with empty scopes (no granular model); tiled is
+    # minted with the `inherit` metascope (see _SERVICE_SCOPES comment).
     assert scopes_by_url["https://logbook.test/api/v1"] == ()
     tiled_scopes = scopes_by_url["https://tiled.test/api/v1"]
-    assert "read:metadata" in tiled_scopes
+    assert "inherit" in tiled_scopes
 
 
 def test_mint_logbook_failure_leaves_tiled_intact(monkeypatch):
