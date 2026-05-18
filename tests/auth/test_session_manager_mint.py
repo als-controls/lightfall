@@ -257,3 +257,68 @@ def test_mint_logbook_failure_leaves_tiled_intact(monkeypatch):
 
     assert sm.get_api_key("tiled") == "tiled-secret"
     assert sm.get_api_key("logbook") is None
+
+
+def test_tokens_cleared_after_mint(monkeypatch):
+    """After mint succeeds, the bearer/refresh/id_token are all cleared
+    from the session; the id_token is preserved on the manager slot for
+    later RP-initiated logout.
+    """
+    sm = SessionManager.get_instance()
+    sm._session = Session(
+        user=User(username="tester", attributes={"sub": "kc-sub-1"}),
+        token="bearer-abc",
+        refresh_token="refresh-abc",
+        id_token="id-abc",
+    )
+
+    monkeypatch.setattr(
+        "lucid.auth.session.mint_service_key",
+        lambda *a, **kw: _minted(),
+    )
+    monkeypatch.setattr(
+        "lucid.services.tiled_service.get_tiled_base_url",
+        lambda: "https://tiled.test",
+    )
+    monkeypatch.setattr(
+        "lucid.logbook.url.get_logbook_base_url",
+        lambda: "https://logbook.test",
+    )
+
+    sm._mint_all_service_keys("bearer-abc")
+
+    assert sm._session.token is None
+    assert sm._session.refresh_token is None
+    assert sm._session.id_token is None
+    assert sm._id_token_for_logout == "id-abc"
+
+
+def test_logout_restores_id_token_for_provider(monkeypatch):
+    """SessionManager.logout puts id_token back on the session it hands
+    to provider.logout, so RP-initiated logout works after the post-mint
+    clearing.
+    """
+    import asyncio
+
+    sm = SessionManager.get_instance()
+    sm._session = Session(
+        user=User(username="tester"),
+        token=None,           # already cleared by _mint_all_service_keys
+        refresh_token=None,
+        id_token=None,
+    )
+    sm._id_token_for_logout = "id-stashed"
+
+    captured: dict = {}
+
+    class _StubProvider:
+        async def logout(self, session):
+            captured["id_token"] = session.id_token
+
+    sm._provider = _StubProvider()
+
+    asyncio.run(sm.logout())
+
+    assert captured["id_token"] == "id-stashed"
+    # After logout completes, the slot is cleared
+    assert sm._id_token_for_logout is None

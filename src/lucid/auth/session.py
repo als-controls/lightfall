@@ -183,6 +183,11 @@ class SessionManager(QObject):
         self._service_keys: dict[str, MintedKey] = {}
         self._keys_lock = threading.RLock()
 
+        # Auth-v2: id_token survives mint for RP-initiated logout. Set by
+        # _mint_all_service_keys; consumed by logout(); cleared on logout
+        # completion or on reset().
+        self._id_token_for_logout: str | None = None
+
         # Schedule/cancel refresh when auth state changes — this works
         # regardless of whether login() or direct _session assignment is used
         # (LoginDialog sets _session directly without calling login()).
@@ -207,6 +212,7 @@ class SessionManager(QObject):
         with cls._lock:
             if cls._instance is not None:
                 cls._instance._cancel_refresh_timer()
+                cls._instance._id_token_for_logout = None
                 cls._instance._reconnect_timer.stop()
                 cls._instance.deleteLater()
             cls._instance = None
@@ -331,6 +337,17 @@ class SessionManager(QObject):
                 self._service_keys[service] = minted
             logger.info("session key cached for service={}", service)
 
+        # Bearer + refresh + id_token are no longer used by any consumer
+        # (auth-v2). Preserve id_token for KeycloakAuthProvider.logout, then
+        # discard the rest. Storing on the manager (not Session) makes the
+        # invariant explicit: Session.token is None means "logged in via
+        # auth-v2".
+        if self._session is not None:
+            self._id_token_for_logout = self._session.id_token
+            self._session.token = None
+            self._session.refresh_token = None
+            self._session.id_token = None
+
     @staticmethod
     def _hostname_for_note() -> str:
         """Return the local hostname for mint audit notes; falls back gracefully."""
@@ -423,10 +440,17 @@ class SessionManager(QObject):
             return
 
         if self._provider:
+            # Restore id_token (stashed at mint time) so RP-initiated logout
+            # works after the post-mint clearing. Clear the slot in finally so
+            # a provider exception doesn't leak it.
+            if self._id_token_for_logout and self._session is not None:
+                self._session.id_token = self._id_token_for_logout
             try:
                 await self._provider.logout(self._session)
             except Exception as e:
                 logger.warning("Logout cleanup failed: {}", e)
+            finally:
+                self._id_token_for_logout = None
 
         old_user = self._session.user
         self._session = None
