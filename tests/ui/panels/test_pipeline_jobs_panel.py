@@ -52,3 +52,24 @@ def test_panel_marks_failed(qtbot):
     client.sigJobQueued.emit({"job_id": "j1", "pipeline": "p"})
     client.sigJobFailed.emit({"job_id": "j1", "status": "failed", "error": "boom"})
     assert panel.row(0)["status"] == "failed"
+
+
+def test_panel_ignores_progress_without_job_id(qtbot):
+    client = FakeClient()
+    panel = PipelineJobsPanel(client=client)
+    qtbot.addWidget(panel)
+    # Malformed event: no job_id
+    client.sigJobProgress.emit({"status": "running"})
+    assert panel.row_count() == 0
+
+
+def test_panel_queue_label_reflects_active_jobs(qtbot):
+    client = FakeClient()
+    panel = PipelineJobsPanel(client=client)
+    qtbot.addWidget(panel)
+    client.sigJobQueued.emit({"job_id": "a", "pipeline": "p"})
+    client.sigJobQueued.emit({"job_id": "b", "pipeline": "p"})
+    assert panel._queue_label.text() == "Queue: 2"
+    client.sigJobCompleted.emit({"job_id": "a", "status": "completed",
+                                 "output_run_uids": []})
+    assert panel._queue_label.text() == "Queue: 1"

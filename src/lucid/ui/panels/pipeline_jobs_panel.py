@@ -61,6 +61,13 @@ class PipelineJobsPanel(QWidget):
         for col, key in enumerate(_COLUMNS):
             self._table.item(index, col).setText(str(data.get(key, "")))
 
+    def _refresh_queue_label(self) -> None:
+        active = sum(
+            1 for r in self._rows
+            if r.get("status") in ("queued", "running", "env_building")
+        )
+        self._queue_label.setText(f"Queue: {active}")
+
     def _on_queued(self, evt: Dict[str, Any]) -> None:
         self._add_row({
             "job_id": evt.get("job_id", ""),
@@ -71,19 +78,24 @@ class PipelineJobsPanel(QWidget):
             "outputs": "",
             "output_count": 0,
         })
+        self._refresh_queue_label()
 
     def _on_progress(self, evt: Dict[str, Any]) -> None:
-        idx = self._find_row(evt.get("job_id", ""))
+        job_id = evt.get("job_id", "")
+        if not job_id:
+            return
+        idx = self._find_row(job_id)
         if idx is None:
             self._add_row({
-                "job_id": evt["job_id"], "pipeline": "",
+                "job_id": job_id, "pipeline": "",
                 "input_uid": evt.get("input_run_uid", ""),
                 "status": evt.get("status", ""), "started": "", "outputs": "",
                 "output_count": 0,
             })
-            idx = self._find_row(evt["job_id"])
+            idx = self._find_row(job_id)
         self._rows[idx]["status"] = evt.get("status", self._rows[idx]["status"])
         self._update_row(idx)
+        self._refresh_queue_label()
 
     def _on_completed(self, evt: Dict[str, Any]) -> None:
         idx = self._find_row(evt.get("job_id", ""))
@@ -96,6 +108,7 @@ class PipelineJobsPanel(QWidget):
             "output_count": len(uids),
         })
         self._update_row(idx)
+        self._refresh_queue_label()
 
     def _on_failed(self, evt: Dict[str, Any]) -> None:
         idx = self._find_row(evt.get("job_id", ""))
@@ -103,3 +116,4 @@ class PipelineJobsPanel(QWidget):
             return
         self._rows[idx]["status"] = "failed"
         self._update_row(idx)
+        self._refresh_queue_label()
