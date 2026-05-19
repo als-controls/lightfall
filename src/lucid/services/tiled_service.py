@@ -485,12 +485,49 @@ class TiledService(QObject):
             original_transport_cls = context_mod.Transport
             context_mod.Transport = ProxyTransport
 
+            # 3. Patch tiled.client.stream.connect — Tiled's stream
+            #    Subscription calls websockets.sync.client.connect, which
+            #    does NOT honor SOCKS proxies. Wrap it to open a tunnelled
+            #    socket via python_socks first, then pass it as sock=. For
+            #    HTTP CONNECT proxies, websockets' built-in proxy= arg works
+            #    (the original connect handles it on the passthrough path).
+            import tiled.client.stream as stream_mod
+            from urllib.parse import urlparse
+
+            original_stream_connect = stream_mod.connect
+
+            def proxy_ws_connect(uri, **kwargs):
+                parsed = urlparse(uri)
+                host = parsed.hostname
+                port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+
+                if proxy_url.startswith("socks"):
+                    try:
+                        from python_socks.sync import Proxy
+                        sock = Proxy.from_url(proxy_url).connect(host, port)
+                    except Exception as exc:
+                        logger.error(
+                            "SOCKS connect for WS {} failed: {}", uri, exc
+                        )
+                        raise
+                    kwargs.setdefault("sock", sock)
+                    kwargs.setdefault("server_hostname", host)
+                    if parsed.scheme == "wss":
+                        import ssl
+                        kwargs.setdefault("ssl", ssl.create_default_context())
+                # Non-SOCKS proxies: let upstream websockets handle via proxy= default.
+                return original_stream_connect(uri, **kwargs)
+
+            stream_mod.connect = proxy_ws_connect
+
             logger.info("Patched tiled for proxy: {}", proxy_url)
 
             return {
                 "original_transport_cls": original_transport_cls,
                 "original_httpx_get": original_httpx_get,
                 "context_mod": context_mod,
+                "original_stream_connect": original_stream_connect,
+                "stream_mod": stream_mod,
             }
         except Exception as e:
             import traceback
@@ -511,7 +548,8 @@ class TiledService(QObject):
             context_mod = restore_info["context_mod"]
             context_mod.Transport = restore_info["original_transport_cls"]
             context_mod.httpx.get = restore_info["original_httpx_get"]
-            logger.debug("Restored original tiled Transport and httpx.get")
+            restore_info["stream_mod"].connect = restore_info["original_stream_connect"]
+            logger.debug("Restored original tiled Transport, httpx.get, and stream.connect")
         except Exception:
             pass
 
