@@ -86,14 +86,45 @@ class CameraImageView(QWidget):
         """Called from the camera's receiver thread. Hand off to GUI via Signal."""
         self.frame_received.emit(img)
 
+    @staticmethod
+    def _to_pg(img: np.ndarray) -> np.ndarray:
+        """Reorder axes for pyqtgraph's ImageItem convention: (cols, rows[, channels]).
+
+        pyqtgraph expects:
+          * grayscale : (W, H)        — swap rows/cols with .T
+          * color     : (W, H, C)     — swap only the spatial axes, keep channels last
+
+        A full ``.T`` on a 3-D array produces (C, W, H) which pyqtgraph rejects
+        with "data.shape[2] must be <= 4" when C happens to be 3 or 4 but the
+        spatial dimensions are much larger.
+        """
+        if img.ndim == 3:
+            return img.transpose(1, 0, 2)
+        return img.T
+
+    @staticmethod
+    def _dtype_levels(img: np.ndarray) -> tuple[int, int]:
+        """Return the full display range for the image dtype.
+
+        Using the dtype's natural range (rather than the per-frame min/max) avoids
+        locking in bad levels from an underexposed first frame and prevents tiny
+        noise variations from being stretched to full colour range.
+        """
+        info = np.iinfo(img.dtype) if np.issubdtype(img.dtype, np.integer) else None
+        if info is not None:
+            return info.min, info.max
+        return 0, 1  # float images: assume normalised [0, 1]
+
     def _on_frame_gui(self, img: np.ndarray) -> None:
         """Called on the GUI thread once the signal is dispatched."""
         self._frames_seen += 1
+        pg_img = self._to_pg(img)
+        levels = self._dtype_levels(img)
         if self._frames_seen == 1:
-            self._image_view.setImage(img.T, autoLevels=True, autoRange=True)
+            self._image_view.setImage(pg_img, autoLevels=False, levels=levels, autoRange=True)
         else:
             # ImageView.updateImage() only refreshes display state (no image arg).
             # For per-frame data updates that preserve user pan/zoom/levels, push
             # the array through the underlying ImageItem.
-            self._image_view.getImageItem().setImage(img.T, autoLevels=False)
+            self._image_view.getImageItem().setImage(pg_img, autoLevels=False, levels=levels)
         self._status.setText(f"{self._frames_seen} frames · {img.shape[1]}×{img.shape[0]} · {img.dtype}")
