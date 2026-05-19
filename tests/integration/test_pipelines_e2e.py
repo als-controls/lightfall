@@ -43,6 +43,7 @@ if not os.environ.get("LUCID_INTEGRATION"):
 
 try:
     import nats as nats_lib
+    from lucid_pipelines.executor.env_cache import EnvSpec, kernel_name_for
     from tiled.client import from_uri
 except ImportError as _exc:  # pragma: no cover
     pytest.skip(
@@ -83,8 +84,8 @@ LP_PYTHON = Path(os.environ.get(
 PASSTHROUGH_PKG_DIR = (
     Path(__file__).parent / "_fixtures" / "passthrough_plugin"
 )
-PASSTHROUGH_VERSION = "0.0.1"
-PASSTHROUGH_KERNEL = f"lucid-pipelines:passthrough_pipeline@{PASSTHROUGH_VERSION}"
+PASSTHROUGH_SPEC = EnvSpec("passthrough_pipeline", "0.0.1")
+PASSTHROUGH_KERNEL = kernel_name_for(PASSTHROUGH_SPEC)
 
 INPUT_BEAMLINE_TAG = "beamline:test"
 
@@ -220,7 +221,9 @@ def executor_proc(nats_server, lp_python, passthrough_installed):
     # already installed passthrough into lp_python's venv, and the kernel
     # was registered separately. has_env() only checks the directory
     # shape, so creating it suffices.
-    seeded = env_cache_root / f"passthrough_pipeline@{PASSTHROUGH_VERSION}"
+    seeded = env_cache_root / (
+        f"{PASSTHROUGH_SPEC.package_name}@{PASSTHROUGH_SPEC.version}"
+    )
     (seeded / "Scripts").mkdir(parents=True)
 
     hostname = f"e2e-{uuid.uuid4().hex[:8]}"
