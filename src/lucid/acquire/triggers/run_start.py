@@ -44,4 +44,9 @@ class RunStartTrigger(Trigger):
         if not uid:
             logger.warning("RunStartTrigger: matching start doc has no uid; skipping")
             return
-        self._manager.fire(pipeline=self._pipeline, run_uid=uid, parameters=dict(self._params))
+        self._manager.fire(
+            pipeline=self._pipeline,
+            run_uid=uid,
+            parameters=dict(self._params),
+            input_access_blob=doc.get("access_blob") or {},
+        )

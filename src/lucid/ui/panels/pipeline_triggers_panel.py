@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtWidgets import (
-    QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from lucid.acquire.triggers.filter import FilterPredicate
 from lucid.acquire.triggers.run_end import RunEndTrigger
 from lucid.acquire.triggers.run_start import RunStartTrigger
+from lucid.ui.panels.base import BasePanel, PanelMetadata
 
 
 _COLUMNS = ["type", "filter", "pipeline", "parameter_overrides"]
@@ -83,6 +85,80 @@ class PipelineTriggersPanel(QWidget):
         self._specs.append(spec)
 
     def _open_add_dialog(self) -> None:
-        # Minimal stub. Full implementation should be a proper QDialog with
-        # type/pipeline/filter/parameter fields. Out of MVP scope for Phase 1.
-        pass
+        from lucid.ui.dialogs.add_trigger_dialog import AddTriggerDialog
+
+        dialog = AddTriggerDialog(parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        spec = dialog.spec()
+        if spec is None:
+            return
+        try:
+            self.add_trigger(spec)
+        except Exception as exc:
+            logger.error("PipelineTriggersPanel: add_trigger failed: {}", exc)
+            QMessageBox.critical(self, "Trigger error", str(exc))
+
+
+class _PreferencesTriggerBackend:
+    """Settings backend adapter that maps PipelineTriggersPanel's load/save
+    onto PreferencesManager. The panel persists a single list of trigger
+    specs under the SETTINGS_KEY, which we stash via PreferencesManager.set.
+    """
+
+    def __init__(self, prefs: Any, key: str) -> None:
+        self._prefs = prefs
+        self._key = key
+
+    def load(self) -> List[Dict[str, Any]]:
+        value = self._prefs.get(self._key, [])
+        return list(value) if isinstance(value, list) else []
+
+    def save(self, key: str, value: Any) -> None:
+        self._prefs.set(key, value)
+
+
+class PipelineTriggersDockPanel(BasePanel):
+    """BasePanel wrapper that surfaces PipelineTriggersPanel inside the docking system.
+
+    Pulls the TriggerManager singleton from ServiceRegistry and the
+    PreferencesManager-backed settings backend. Renders a placeholder
+    label when either dependency is unavailable, instead of crashing
+    plug-in load.
+    """
+
+    panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
+        id="lucid.panels.pipeline_triggers",
+        name="Pipeline Triggers",
+        description="Manage automatic pipeline submissions on engine events",
+        icon="zap",
+        category="Acquisition",
+        singleton=True,
+        closable=True,
+        keywords=["pipeline", "trigger", "automatic", "runengine"],
+        default_area="left",
+        sidebar_group="bottom",
+        auto_hide=True,
+        sidebar_order=20,
+    )
+
+    def _setup_ui(self) -> None:
+        from lucid.acquire.triggers.manager import TriggerManager
+        from lucid.core.services import ServiceRegistry
+        from lucid.ui.preferences import PreferencesManager
+
+        services = ServiceRegistry.get_instance()
+        manager = services.get(TriggerManager, None)
+        if manager is None:
+            self._layout.addWidget(
+                QLabel("TriggerManager is not registered.")
+            )
+            return
+        prefs = services.get(PreferencesManager, None) or PreferencesManager.get_instance()
+        backend = _PreferencesTriggerBackend(
+            prefs=prefs, key=PipelineTriggersPanel.SETTINGS_KEY,
+        )
+        self._inner = PipelineTriggersPanel(
+            manager=manager, settings_backend=backend,
+        )
+        self._layout.addWidget(self._inner)

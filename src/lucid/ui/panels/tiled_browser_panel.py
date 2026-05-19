@@ -351,13 +351,17 @@ class TiledBrowserPanel(BasePanel):
         client = self._pipeline_client()
         if client is None:
             return
+        from lucid.auth.session import SessionManager
         from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+        session_manager = SessionManager.get_instance()
+        user_id = session_manager.current_user.attributes.get(
+            "preferred_username", ""
+        )
         dialog = RunPipelineDialog(
             client=client,
             run_uid=record.uid,
             input_access_blob=getattr(record, "access_blob", {}) or {},
-            # TODO: populate user_id from the active session once auth-v2 lands
-            user_id="",
+            user_id=user_id,
             parent=self,
         )
         dialog.exec()

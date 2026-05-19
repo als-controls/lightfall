@@ -26,5 +26,23 @@ def test_manual_trigger_invoke_fires_through_manager():
     trigger.invoke(pipeline="reduce_saxs", run_uid="abc", parameters={"k": 1})
 
     submit.assert_called_once_with(
-        pipeline="reduce_saxs", run_uid="abc", parameters={"k": 1}
+        pipeline="reduce_saxs",
+        run_uid="abc",
+        parameters={"k": 1},
+        input_access_blob={},
+    )
+
+
+def test_manual_trigger_forwards_access_blob():
+    engine = MagicMock(subscribe=MagicMock(return_value=1))
+    submit = MagicMock()
+    mgr = TriggerManager(engine=engine, submit_callable=submit)
+    trigger = ManualTrigger()
+    mgr.add(trigger)
+    blob = {"esaf_id": "BLS-00480-001"}
+    trigger.invoke(
+        pipeline="p", run_uid="r", parameters={}, input_access_blob=blob,
+    )
+    submit.assert_called_once_with(
+        pipeline="p", run_uid="r", parameters={}, input_access_blob=blob,
     )

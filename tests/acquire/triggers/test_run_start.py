@@ -46,6 +46,27 @@ def test_run_start_fires_on_matching_start_doc():
         pipeline="reduce_saxs",
         run_uid="abc",
         parameters={"roi_x": [0, 1024]},
+        input_access_blob={},
+    )
+
+
+def test_run_start_forwards_access_blob_from_start_doc():
+    engine = _FakeEngine()
+    submit = MagicMock()
+    mgr = TriggerManager(engine=engine, submit_callable=submit)
+    mgr.add(RunStartTrigger(
+        filter=FilterPredicate(plan_name="count"),
+        pipeline="p",
+        parameter_overrides={},
+    ))
+    blob = {"esaf_id": "BLS-00480-001"}
+    engine.emit("start", {"uid": "abc", "plan_name": "count", "access_blob": blob})
+
+    submit.assert_called_once_with(
+        pipeline="p",
+        run_uid="abc",
+        parameters={},
+        input_access_blob=blob,
     )
 
 

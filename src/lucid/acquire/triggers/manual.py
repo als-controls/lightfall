@@ -18,7 +18,19 @@ class ManualTrigger(Trigger):
     def detach(self) -> None:
         self._manager = None
 
-    def invoke(self, *, pipeline: str, run_uid: str, parameters: dict[str, Any]) -> None:
+    def invoke(
+        self,
+        *,
+        pipeline: str,
+        run_uid: str,
+        parameters: dict[str, Any],
+        input_access_blob: dict[str, Any] | None = None,
+    ) -> None:
         if self._manager is None:
             raise RuntimeError("ManualTrigger not attached to a TriggerManager")
-        self._manager.fire(pipeline=pipeline, run_uid=run_uid, parameters=parameters)
+        self._manager.fire(
+            pipeline=pipeline,
+            run_uid=run_uid,
+            parameters=parameters,
+            input_access_blob=input_access_blob,
+        )

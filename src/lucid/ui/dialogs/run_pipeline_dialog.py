@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QVBoxLayout, QWidget,
 )
 
+from lucid.utils.threads import QThreadFuture
+
 
 class RunPipelineDialog(QDialog):
     def __init__(
@@ -25,6 +27,7 @@ class RunPipelineDialog(QDialog):
         self._run_uid = run_uid
         self._blob = input_access_blob
         self.user_id = user_id
+        self._submit_future: Optional[QThreadFuture] = None
 
         self.setWindowTitle("Run pipeline...")
         self._pipelines = client.list_available()
@@ -42,6 +45,9 @@ class RunPipelineDialog(QDialog):
         outer.addWidget(self._param_form_container)
         self._param_widgets: Dict[str, QLineEdit] = {}
         self._rebuild_param_form(0)
+
+        self._status_label = QLabel("")
+        outer.addWidget(self._status_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._submit)
@@ -85,19 +91,34 @@ class RunPipelineDialog(QDialog):
         if not pipeline:
             self.reject()
             return
-        # NOTE: client.submit() makes synchronous HTTP (mint_job_key) and
-        # NATS round-trip (ipc.request) calls; can block the Qt main thread
-        # for several seconds on a slow network. Future: run in QThread with
-        # a progress indicator.
-        try:
-            self._client.submit(
-                pipeline=pipeline,
-                input_run_uid=self._run_uid,
-                parameters=self._collect_parameters(),
-                input_access_blob=self._blob,
-                user_id=self.user_id,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Pipeline error", str(exc))
+        if self._submit_future is not None and self._submit_future.isRunning():
+            # Defensive: guard against rapid OK clicks before slots fire.
             return
+        # client.submit() makes a synchronous NATS ipc.request round-trip
+        # that can block the Qt main thread for several seconds on a slow
+        # network. Run it through lucid.utils.threads.QThreadFuture so the
+        # dialog stays responsive; results come back via callback_slot /
+        # except_slot, which Qt marshals onto the main thread.
+        self._ok_button.setEnabled(False)
+        self._status_label.setText("Submitting...")
+        self._submit_future = QThreadFuture(
+            self._client.submit,
+            pipeline=pipeline,
+            input_run_uid=self._run_uid,
+            parameters=self._collect_parameters(),
+            input_access_blob=self._blob,
+            user_id=self.user_id,
+            callback_slot=self._on_submit_success,
+            except_slot=self._on_submit_error,
+            name=f"pipeline_submit_{pipeline}",
+        )
+        self._submit_future.start()
+
+    def _on_submit_success(self, _job_id: Any) -> None:
+        self._status_label.setText("")
         self.accept()
+
+    def _on_submit_error(self, exc: BaseException) -> None:
+        self._status_label.setText("")
+        self._ok_button.setEnabled(True)
+        QMessageBox.critical(self, "Pipeline error", str(exc))

@@ -66,7 +66,25 @@ def test_manager_routes_fire_to_submit_callable():
     submit = MagicMock()
     mgr = TriggerManager(engine=engine, submit_callable=submit)
     mgr.fire(pipeline="reduce_saxs", run_uid="abc", parameters={"k": 1})
-    submit.assert_called_once_with(pipeline="reduce_saxs", run_uid="abc", parameters={"k": 1})
+    submit.assert_called_once_with(
+        pipeline="reduce_saxs",
+        run_uid="abc",
+        parameters={"k": 1},
+        input_access_blob={},
+    )
+
+
+def test_manager_forwards_input_access_blob():
+    engine = _FakeEngine()
+    submit = MagicMock()
+    mgr = TriggerManager(engine=engine, submit_callable=submit)
+    blob = {"esaf_id": "BLS-00480-001", "participants": [{"keycloak_sub": "u1"}]}
+    mgr.fire(
+        pipeline="p", run_uid="r", parameters={}, input_access_blob=blob,
+    )
+    submit.assert_called_once_with(
+        pipeline="p", run_uid="r", parameters={}, input_access_blob=blob,
+    )
 
 
 def test_manager_exposes_engine_subscribe_to_subclasses():

@@ -55,6 +55,18 @@ class TriggerManager:
         self._engine.unsubscribe(token)
         self._engine_tokens.discard(token)
 
-    def fire(self, *, pipeline: str, run_uid: str, parameters: dict[str, Any]) -> None:
+    def fire(
+        self,
+        *,
+        pipeline: str,
+        run_uid: str,
+        parameters: dict[str, Any],
+        input_access_blob: dict[str, Any] | None = None,
+    ) -> None:
         logger.info("TriggerManager: fire pipeline={} run_uid={}", pipeline, run_uid)
-        self._submit(pipeline=pipeline, run_uid=run_uid, parameters=parameters)
+        self._submit(
+            pipeline=pipeline,
+            run_uid=run_uid,
+            parameters=parameters,
+            input_access_blob=input_access_blob or {},
+        )

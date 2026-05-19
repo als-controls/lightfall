@@ -215,6 +215,72 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     connection_manager.load_settings()
     services.register_instance(DeviceConnectionManager, connection_manager)
 
+    # Pipeline client - lazy singleton so IPCService and Tiled URL settings
+    # are read at first request, not at startup.
+    from lucid.acquire.triggers.manager import TriggerManager
+    from lucid.pipelines import PipelineClient
+
+    def _build_pipeline_client() -> PipelineClient:
+        import socket
+
+        from lucid.core.services import ServiceRegistry
+        from lucid.ipc.service import IPCService
+        from lucid.services.tiled_service import get_tiled_base_url
+
+        ipc = ServiceRegistry.get_instance().get(IPCService)
+        session_manager = SessionManager.get_instance()
+        return PipelineClient(
+            ipc=ipc,
+            host=socket.gethostname(),
+            tiled_url=get_tiled_base_url().rstrip("/") + "/api/v1",
+            key_provider=session_manager.get_minted_key,
+        )
+
+    services.register(PipelineClient, _build_pipeline_client)
+
+    def _build_trigger_manager() -> TriggerManager:
+        from lucid.core.services import ServiceRegistry
+
+        def _submit_via_pipeline_client(
+            *,
+            pipeline: str,
+            run_uid: str,
+            parameters: dict,
+            input_access_blob: dict,
+        ) -> None:
+            client = ServiceRegistry.get_instance().get(PipelineClient, None)
+            if client is None:
+                logger.warning(
+                    "TriggerManager: no PipelineClient registered; "
+                    "dropping fire for pipeline={} run_uid={}",
+                    pipeline, run_uid,
+                )
+                return
+            session = SessionManager.get_instance()
+            user_id = session.current_user.attributes.get(
+                "preferred_username", ""
+            )
+            try:
+                client.submit(
+                    pipeline=pipeline,
+                    input_run_uid=run_uid,
+                    parameters=parameters,
+                    input_access_blob=input_access_blob,
+                    user_id=user_id,
+                )
+            except Exception as exc:
+                logger.error(
+                    "TriggerManager: submit failed for pipeline={} run_uid={}: {}",
+                    pipeline, run_uid, exc,
+                )
+
+        return TriggerManager(
+            engine=get_engine(),
+            submit_callable=_submit_via_pipeline_client,
+        )
+
+    services.register(TriggerManager, _build_trigger_manager)
+
     logger.debug("Application services registered")
 
 
