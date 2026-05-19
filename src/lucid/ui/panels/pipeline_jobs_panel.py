@@ -1,13 +1,15 @@
 """Pipeline Jobs dock panel - queue + recent jobs table."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
+from lucid.ui.panels.base import BasePanel, PanelMetadata
 
 
 _COLUMNS = ["job_id", "pipeline", "input_uid", "status", "started", "outputs"]
@@ -117,3 +119,39 @@ class PipelineJobsPanel(QWidget):
         self._rows[idx]["status"] = "failed"
         self._update_row(idx)
         self._refresh_queue_label()
+
+
+class PipelineJobsDockPanel(BasePanel):
+    """BasePanel wrapper that surfaces PipelineJobsPanel inside the docking system.
+
+    Looks up the PipelineClient singleton from the ServiceRegistry at
+    construction time. If the registry has no client (e.g. tests, or a
+    deployment with no IPC), the panel renders a placeholder label
+    instead of crashing.
+    """
+
+    panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
+        id="lucid.panels.pipeline_jobs",
+        name="Pipeline Jobs",
+        description="Queue and recent jobs from the notebook pipeline executor",
+        icon="layers",
+        category="Acquisition",
+        singleton=True,
+        closable=True,
+        keywords=["pipeline", "notebook", "papermill", "jobs", "queue"],
+        default_area="bottom",
+        sidebar_group="top",
+        auto_hide=True,
+        sidebar_order=10,
+    )
+
+    def _setup_ui(self) -> None:
+        from lucid.core.services import ServiceRegistry
+        from lucid.pipelines import PipelineClient
+
+        client = ServiceRegistry.get_instance().get(PipelineClient, None)
+        if client is None:
+            self._layout.addWidget(QLabel("PipelineClient is not registered."))
+            return
+        self._inner = PipelineJobsPanel(client=client)
+        self._layout.addWidget(self._inner)

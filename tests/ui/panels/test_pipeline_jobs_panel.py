@@ -3,7 +3,10 @@ from PySide6.QtCore import QObject, Signal
 
 import pytest
 
-from lucid.ui.panels.pipeline_jobs_panel import PipelineJobsPanel
+from lucid.ui.panels.pipeline_jobs_panel import (
+    PipelineJobsDockPanel,
+    PipelineJobsPanel,
+)
 
 
 class FakeClient(QObject):
@@ -73,3 +76,32 @@ def test_panel_queue_label_reflects_active_jobs(qtbot):
     client.sigJobCompleted.emit({"job_id": "a", "status": "completed",
                                  "output_run_uids": []})
     assert panel._queue_label.text() == "Queue: 1"
+
+
+def test_dock_panel_embeds_inner_when_client_registered(qtbot, monkeypatch):
+    """DockPanel pulls PipelineClient from ServiceRegistry and forwards events."""
+    from lucid.core.services import ServiceRegistry
+    from lucid.pipelines import PipelineClient
+
+    client = FakeClient()
+    registry = ServiceRegistry.get_instance()
+    monkeypatch.setattr(registry, "get", lambda key, default=None:
+                        client if key is PipelineClient else default)
+
+    panel = PipelineJobsDockPanel()
+    qtbot.addWidget(panel)
+    assert hasattr(panel, "_inner")
+    client.sigJobQueued.emit({"job_id": "j1", "pipeline": "p"})
+    assert panel._inner.row_count() == 1
+
+
+def test_dock_panel_shows_placeholder_when_no_client(qtbot, monkeypatch):
+    """No registered PipelineClient renders a placeholder label, not a crash."""
+    from lucid.core.services import ServiceRegistry
+
+    registry = ServiceRegistry.get_instance()
+    monkeypatch.setattr(registry, "get", lambda key, default=None: default)
+
+    panel = PipelineJobsDockPanel()
+    qtbot.addWidget(panel)
+    assert not hasattr(panel, "_inner")
