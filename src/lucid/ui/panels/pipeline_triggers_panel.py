@@ -6,8 +6,8 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from lucid.acquire.triggers.filter import FilterPredicate
@@ -85,9 +85,19 @@ class PipelineTriggersPanel(QWidget):
         self._specs.append(spec)
 
     def _open_add_dialog(self) -> None:
-        # Minimal stub. Full implementation should be a proper QDialog with
-        # type/pipeline/filter/parameter fields. Out of MVP scope for Phase 1.
-        pass
+        from lucid.ui.dialogs.add_trigger_dialog import AddTriggerDialog
+
+        dialog = AddTriggerDialog(parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        spec = dialog.spec()
+        if spec is None:
+            return
+        try:
+            self.add_trigger(spec)
+        except Exception as exc:
+            logger.error("PipelineTriggersPanel: add_trigger failed: {}", exc)
+            QMessageBox.critical(self, "Trigger error", str(exc))
 
 
 class _PreferencesTriggerBackend:

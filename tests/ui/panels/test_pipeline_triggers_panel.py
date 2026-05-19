@@ -132,3 +132,71 @@ def test_dock_panel_shows_placeholder_when_no_manager(qtbot, monkeypatch):
     panel = PipelineTriggersDockPanel()
     qtbot.addWidget(panel)
     assert not hasattr(panel, "_inner")
+
+
+def test_open_add_dialog_calls_add_trigger_on_accept(qtbot, monkeypatch):
+    """Clicking Add..., accepting the dialog, must call panel.add_trigger
+    with the dialog's spec."""
+    from PySide6.QtWidgets import QDialog
+
+    from lucid.ui.dialogs import add_trigger_dialog as atd_mod
+    from lucid.ui.panels import pipeline_triggers_panel as ptp_mod
+
+    backend = MagicMock()
+    backend.load.return_value = []
+    manager = MagicMock()
+    panel = PipelineTriggersPanel(manager=manager, settings_backend=backend)
+    qtbot.addWidget(panel)
+
+    spec = {
+        "type": "run_start",
+        "filter": {"plan_name": "count"},
+        "pipeline": "p",
+        "parameter_overrides": {},
+    }
+
+    class _FakeDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.Accepted
+
+        def spec(self):
+            return spec
+
+    monkeypatch.setattr(atd_mod, "AddTriggerDialog", _FakeDialog)
+    monkeypatch.setattr(ptp_mod, "AddTriggerDialog", _FakeDialog, raising=False)
+
+    panel._open_add_dialog()
+
+    manager.add.assert_called_once()
+    assert panel.row_count() == 1
+
+
+def test_open_add_dialog_does_nothing_on_cancel(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+
+    from lucid.ui.dialogs import add_trigger_dialog as atd_mod
+
+    backend = MagicMock()
+    backend.load.return_value = []
+    manager = MagicMock()
+    panel = PipelineTriggersPanel(manager=manager, settings_backend=backend)
+    qtbot.addWidget(panel)
+
+    class _CancelledDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.Rejected
+
+        def spec(self):
+            return None
+
+    monkeypatch.setattr(atd_mod, "AddTriggerDialog", _CancelledDialog)
+    panel._open_add_dialog()
+
+    manager.add.assert_not_called()
+    assert panel.row_count() == 0
