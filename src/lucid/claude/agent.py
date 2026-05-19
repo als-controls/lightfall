@@ -49,10 +49,12 @@ def _patch_sdk_for_windows_cmdline_limit():
         cmd_limit = 8000
 
         if len(cmd_str) > cmd_limit:
-            # Arguments that support @filepath syntax for file-based input
-            large_args = ["--system-prompt", "--mcp-config", "--agents", "--settings"]
+            # Args the CLI reads natively as a file path (no @ prefix needed)
+            file_path_args = {"--mcp-config", "--settings"}
+            # Args the CLI reads via @file convention
+            atfile_args = {"--system-prompt", "--agents"}
 
-            for arg_name in large_args:
+            for arg_name in file_path_args | atfile_args:
                 try:
                     arg_idx = cmd.index(arg_name)
                     arg_value = cmd[arg_idx + 1]
@@ -71,7 +73,10 @@ def _patch_sdk_for_windows_cmdline_limit():
                         self._temp_files = []
                     self._temp_files.append(temp_file.name)
 
-                    cmd[arg_idx + 1] = f"@{temp_file.name}"
+                    if arg_name in file_path_args:
+                        cmd[arg_idx + 1] = temp_file.name
+                    else:
+                        cmd[arg_idx + 1] = f"@{temp_file.name}"
 
                 except (ValueError, IndexError):
                     pass
