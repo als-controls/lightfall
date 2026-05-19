@@ -204,6 +204,76 @@ def test_login_runs_mint_round_through_asyncio_to_thread(monkeypatch):
     assert sm.get_api_key("tiled") == "login-tiled-key"
 
 
+def test_attach_session_mints_keys_and_transitions_to_authenticated(monkeypatch):
+    """Regression: attach_session must run the mint round.
+
+    LoginDialog previously assigned _session directly and bypassed the
+    mint, leaving every consumer to send anonymous requests. The fix is
+    to route LoginDialog through attach_session, which is responsible
+    for mint + state + signal.
+    """
+    from lucid.auth.session import AuthState
+
+    sm = SessionManager.get_instance()
+    user_changed_seen = []
+    sm.user_changed.connect(lambda u: user_changed_seen.append(u.username))
+
+    monkeypatch.setattr(
+        "lucid.auth.session.mint_service_key",
+        lambda *a, **kw: _minted(secret="attached-key"),
+    )
+    monkeypatch.setattr(
+        "lucid.services.tiled_service.get_tiled_base_url",
+        lambda: "https://tiled.test",
+    )
+    monkeypatch.setattr(
+        "lucid.logbook.url.get_logbook_base_url",
+        lambda: "https://logbook.test",
+    )
+
+    session = Session(
+        user=User(username="tester", attributes={"sub": "kc-sub-1"}),
+        token="bearer-abc",
+        refresh_token="refresh-abc",
+        id_token="id-abc",
+    )
+
+    sm.attach_session(session)
+
+    # Mint ran for both services
+    assert sm.get_api_key("tiled") == "attached-key"
+    assert sm.get_api_key("logbook") == "attached-key"
+
+    # Bearer cleared post-mint (auth-v2 cleanup invariant)
+    assert sm.session.token is None
+    assert sm._id_token_for_logout == "id-abc"
+
+    # State transitioned and signal fired
+    assert sm.state == AuthState.AUTHENTICATED
+    assert "tester" in user_changed_seen
+
+
+def test_attach_session_skips_mint_when_no_bearer(monkeypatch):
+    """A session without a Keycloak bearer (e.g. local-auth path) still
+    transitions to AUTHENTICATED; mint is skipped gracefully.
+    """
+    from lucid.auth.session import AuthState
+
+    sm = SessionManager.get_instance()
+    mint_calls: list = []
+    monkeypatch.setattr(
+        "lucid.auth.session.mint_service_key",
+        lambda *a, **kw: mint_calls.append(a) or _minted(),
+    )
+
+    session = Session(user=User(username="local-user"), token=None)
+    sm.attach_session(session)
+
+    assert mint_calls == []  # no bearer -> no mint attempt
+    assert sm.state == AuthState.AUTHENTICATED
+    assert sm.get_api_key("tiled") is None
+
+
 def test_mint_all_service_keys_mints_both_services(monkeypatch):
     """Both tiled and logbook are minted at login."""
     sm = SessionManager.get_instance()

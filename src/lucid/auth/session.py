@@ -371,6 +371,28 @@ class SessionManager(QObject):
         self._provider = provider
         logger.info("Auth provider set: {}", provider.__class__.__name__)
 
+    def attach_session(self, session: Session) -> None:
+        """Attach an already-authenticated Session.
+
+        Used by both ``login()`` and ``LoginDialog``. Owns the full
+        post-authentication sequence: cache the Session, mint per-service
+        API keys (auth-v2, see _mint_all_service_keys), transition to
+        AUTHENTICATED, and emit user_changed.
+
+        The mint round runs synchronously — this method is meant to be
+        called from a background thread (LoginDialog runs login in a
+        QThreadFuture; ``login()`` wraps the call in ``asyncio.to_thread``).
+        Calling from the GUI thread will briefly block on the mint POSTs.
+
+        Failure of any individual service mint is logged and swallowed.
+        Logging in degrades but does not fail per the auth-v2 spec.
+        """
+        self._session = session
+        if session.token:
+            self._mint_all_service_keys(session.token)
+        self._set_state(AuthState.AUTHENTICATED)
+        self.user_changed.emit(session.user)
+
     async def login(
         self,
         username: str | None = None,
@@ -402,19 +424,10 @@ class SessionManager(QObject):
             )
 
             if session:
-                self._session = session
-
-                # Mint per-service API keys before transitioning to AUTHENTICATED
-                # so the keys are available to any AUTHENTICATED-state listeners.
-                # Failure is non-fatal: individual slots may be empty.
-                if session.token:
-                    import asyncio
-                    await asyncio.to_thread(
-                        self._mint_all_service_keys, session.token
-                    )
-
-                self._set_state(AuthState.AUTHENTICATED)
-                self.user_changed.emit(session.user)
+                # Run attach_session in a worker so the synchronous mint
+                # POSTs do not block this coroutine's event loop.
+                import asyncio
+                await asyncio.to_thread(self.attach_session, session)
                 logger.info("User '{}' authenticated", session.user.username)
 
                 # Exit offline mode if we were in it
