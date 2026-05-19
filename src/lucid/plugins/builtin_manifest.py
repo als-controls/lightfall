@@ -199,6 +199,14 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="agent",
+            name="autonomous_experiment",
+            import_path=(
+                "lucid.plugins.agents.autonomous_experiment:"
+                "AutonomousExperimentAgent"
+            ),
+        ),
+        PluginEntry(
+            type_name="agent",
             name="panel_design",
             import_path="lucid.plugins.agents.panel_design:PanelDesignAgent",
         ),

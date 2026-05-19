@@ -1,8 +1,8 @@
-"""Verify the builtin manifest exposes 10 agent entries (no skill/mcp_tool entries)."""
+"""Verify the builtin manifest exposes 11 agent entries (no skill/mcp_tool entries)."""
 from __future__ import annotations
 
 
-def test_manifest_has_10_agent_entries_and_no_skill_or_mcp_tool_entries():
+def test_manifest_has_11_agent_entries_and_no_skill_or_mcp_tool_entries():
     from lucid.plugins.builtin_manifest import builtin_manifest
 
     type_counts: dict[str, int] = {}
@@ -10,7 +10,7 @@ def test_manifest_has_10_agent_entries_and_no_skill_or_mcp_tool_entries():
         type_counts.setdefault(entry.type_name, 0)
         type_counts[entry.type_name] += 1
 
-    assert type_counts.get("agent") == 10
+    assert type_counts.get("agent") == 11
     assert type_counts.get("skill", 0) == 0
     assert type_counts.get("mcp_tool", 0) == 0
 
@@ -22,7 +22,7 @@ def test_manifest_lists_expected_agent_names():
     assert agent_names == {
         "alignment", "plan_design", "scan_planning", "panel_design", "panel_builder",
         "device_tools", "plan_tools", "engine_tools", "ipython_tools",
-        "ncs_core_tools",
+        "ncs_core_tools", "autonomous_experiment",
     }
     # skill_docs is GONE
     assert "skill_docs" not in agent_names
@@ -42,3 +42,17 @@ def test_manifest_agent_import_paths_resolve():
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         assert issubclass(cls, AgentPlugin), f"{entry.import_path} is not an AgentPlugin"
+
+
+def test_autonomous_experiment_registered():
+    """Focused regression — ensures the new plugin entry can't silently drop."""
+    from lucid.plugins.builtin_manifest import builtin_manifest
+
+    matching = [
+        e for e in builtin_manifest.plugins
+        if e.type_name == "agent" and e.name == "autonomous_experiment"
+    ]
+    assert len(matching) == 1, "exactly one autonomous_experiment agent entry expected"
+    assert matching[0].import_path == (
+        "lucid.plugins.agents.autonomous_experiment:AutonomousExperimentAgent"
+    )
