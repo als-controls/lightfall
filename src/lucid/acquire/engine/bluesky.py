@@ -19,6 +19,15 @@ from lucid.acquire.engine.waiting_hook import WaitingHookBridge
 from lucid.utils.logging import logger
 from lucid.utils.threads import QThreadFuture
 
+# Map Bluesky RunEngine state strings to EngineState
+_RE_STATE_MAP: dict[str, EngineState] = {
+    "idle": EngineState.IDLE,
+    "running": EngineState.RUNNING,
+    "paused": EngineState.PAUSED,
+    "stopping": EngineState.STOPPING,
+    "aborting": EngineState.ABORTING,
+}
+
 if TYPE_CHECKING:
     pass
 
@@ -166,7 +175,7 @@ class BlueskyEngine(BaseEngine):
         self._RE.subscribe(lambda name, doc: self._emit_output(name, doc))
 
         logger.info("[bluesky] RunEngine initialized and ready")
-        self.sigStateChanged.emit("idle")
+        self._set_state(EngineState.IDLE)
 
         # Main processing loop - check for interruption request to allow clean shutdown
         while not QThread.currentThread().isInterruptionRequested():
@@ -214,7 +223,7 @@ class BlueskyEngine(BaseEngine):
                 logger.warning(f"[bluesky] Error in kwargs callable: {ex}")
 
         self.sigStart.emit()
-        self.sigStateChanged.emit("running")
+        self._set_state(EngineState.RUNNING)
         logger.debug(f"[bluesky] Starting plan '{item.name}' with kwargs={kwargs}")
 
         # RE is guaranteed to exist here - created in _process_queue before this method is called
@@ -233,7 +242,9 @@ class BlueskyEngine(BaseEngine):
             self.sigFinish.emit()
         finally:
             self._clear_current_procedure()
-            self.sigStateChanged.emit(self._RE.state if self._RE else "unknown")
+            re_state = self._RE.state if self._RE else "idle"
+            mapped = _RE_STATE_MAP.get(re_state, EngineState.IDLE)
+            self._set_state(mapped)
 
     # === Control Operations ===
 
@@ -250,7 +261,7 @@ class BlueskyEngine(BaseEngine):
             logger.info(f"[bluesky] Pausing plan (defer={defer})")
             self._RE.request_pause(defer)
             self.sigPause.emit()
-            self.sigStateChanged.emit("pausing")
+            self._set_state(EngineState.PAUSED)
 
     def resume(self) -> None:
         """Resume a paused plan."""
@@ -269,19 +280,19 @@ class BlueskyEngine(BaseEngine):
         )
         self._resume_future.start()
         self.sigResume.emit()
-        self.sigStateChanged.emit("running")
+        self._set_state(EngineState.RUNNING)
 
     def _on_resume_finished(self) -> None:
         """Called when resume completes successfully."""
         self.sigFinish.emit()
         if self._RE:
-            self.sigStateChanged.emit(self._RE.state)
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
 
     def _on_resume_error(self, ex: Exception) -> None:
         """Called when resume fails."""
         self.sigException.emit(ex)
         if self._RE:
-            self.sigStateChanged.emit(self._RE.state)
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
 
     def stop(self) -> None:
         """Stop the current plan gracefully (at next checkpoint)."""
@@ -305,7 +316,7 @@ class BlueskyEngine(BaseEngine):
             logger.info(f"[bluesky] Aborting plan: {reason or 'No reason given'}")
             self._RE.abort(reason=reason)
             self.sigAbort.emit()
-            self.sigStateChanged.emit(self._RE.state)
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
 
     def halt(self) -> None:
         """Halt the current plan immediately (emergency stop)."""
@@ -316,7 +327,7 @@ class BlueskyEngine(BaseEngine):
             logger.warning("[bluesky] Halting plan immediately")
             self._RE.halt()
             self.sigAbort.emit()
-            self.sigStateChanged.emit(self._RE.state)
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
 
     # === Bluesky-Specific Methods ===
 
