@@ -179,11 +179,6 @@ builtin_manifest = PluginManifest(
             name="thread_status",
             import_path="lucid.ui.statusbar.plugins.thread_status:ThreadStatusPlugin",
         ),
-        PluginEntry(
-            type_name="statusbar",
-            name="run_engine",
-            import_path="lucid.ui.statusbar.plugins.run_engine_status:RunEngineStatusPlugin",
-        ),
         # Agent plugins (skill prompts and/or MCP tool bags).
         # Each contributes via AgentRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lucid/claude/agent.py.
