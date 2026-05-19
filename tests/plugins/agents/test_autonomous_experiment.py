@@ -231,3 +231,50 @@ def test_configure_surfaces_strict_validation_error():
 
     assert result["success"] is False
     assert "unknown configure field" in result["error"]
+
+
+def test_status_passthrough():
+    agent = AutonomousExperimentAgent()
+    status_tool = _find_tool(agent.create_tools(), "tsuchinoko_status")
+
+    patcher, ipc = _patch_ipc(reply={
+        "status": "ok",
+        "state": "Running",
+        "iteration": 7,
+        "data_count": 14,
+    })
+    with patcher:
+        result = _call(status_tool)
+
+    assert result["success"] is True
+    assert result["state"] == "Running"
+    assert result["iteration"] == 7
+    assert result["data_count"] == 14
+    assert ipc.request.call_args.args[0] == "tsuchinoko.status"
+
+
+def test_pause_resume_stop_hit_distinct_subjects():
+    agent = AutonomousExperimentAgent()
+    tools = agent.create_tools()
+
+    for action, subject in [
+        ("tsuchinoko_pause", "tsuchinoko.experiment.pause"),
+        ("tsuchinoko_resume", "tsuchinoko.experiment.resume"),
+        ("tsuchinoko_stop", "tsuchinoko.experiment.stop"),
+    ]:
+        t = _find_tool(tools, action)
+        patcher, ipc = _patch_ipc(reply={"status": "ok", "state": "Paused"})
+        with patcher:
+            result = _call(t)
+        assert result["success"] is True, action
+        assert ipc.request.call_args.args[0] == subject, action
+
+
+def test_status_timeout_returns_actionable_error():
+    agent = AutonomousExperimentAgent()
+    status_tool = _find_tool(agent.create_tools(), "tsuchinoko_status")
+    patcher, _ = _patch_ipc(reply=None)
+    with patcher:
+        result = _call(status_tool)
+    assert result["success"] is False
+    assert "tsuchinoko.status" in result["error"]

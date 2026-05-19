@@ -144,4 +144,64 @@ def build_tools() -> list[Any]:
             return mcp_result(err, is_error=True)
         return mcp_result({"success": True})
 
-    return [discover, upload_design_code, configure]
+    @tool(
+        name="tsuchinoko_status",
+        description=(
+            "Query Tsuchinoko's current state. Returns "
+            "{state, iteration, data_count}. Use this for textual progress "
+            "checks during a running adaptive experiment."
+        ),
+        input_schema={"type": "object", "properties": {}},
+    )
+    async def status(args: dict) -> dict[str, Any]:
+        from lucid.ipc.service import get_ipc_service
+        if get_ipc_service() is None:
+            return mcp_result(_ipc_error_response(), is_error=True)
+        subject = "tsuchinoko.status"
+        reply = _ipc_request(subject, {}, timeout=5.0)
+        err = _wire_error_response(subject, reply)
+        if err is not None:
+            return mcp_result(err, is_error=True)
+        return mcp_result({
+            "success": True,
+            "state": reply.get("state"),
+            "iteration": reply.get("iteration"),
+            "data_count": reply.get("data_count"),
+        })
+
+    def _make_control(action: str, subject: str, description: str):
+        @tool(
+            name=f"tsuchinoko_{action}",
+            description=description,
+            input_schema={"type": "object", "properties": {}},
+        )
+        async def control(args: dict) -> dict[str, Any]:
+            from lucid.ipc.service import get_ipc_service
+            if get_ipc_service() is None:
+                return mcp_result(_ipc_error_response(), is_error=True)
+            reply = _ipc_request(subject, {}, timeout=5.0)
+            err = _wire_error_response(subject, reply)
+            if err is not None:
+                return mcp_result(err, is_error=True)
+            return mcp_result({
+                "success": True,
+                "state": reply.get("state"),
+            })
+        return control
+
+    pause = _make_control(
+        "pause", "tsuchinoko.experiment.pause",
+        "Pause Tsuchinoko's adaptive loop. The LUCID adaptive_experiment "
+        "plan keeps the run open; new targets stop until tsuchinoko_resume.",
+    )
+    resume = _make_control(
+        "resume", "tsuchinoko.experiment.resume",
+        "Resume a paused Tsuchinoko adaptive loop.",
+    )
+    stop = _make_control(
+        "stop", "tsuchinoko.experiment.stop",
+        "Stop Tsuchinoko's adaptive loop and finalise. The LUCID plan exits "
+        "cleanly once targets stop arriving (configurable timeout).",
+    )
+
+    return [discover, upload_design_code, configure, status, pause, resume, stop]
