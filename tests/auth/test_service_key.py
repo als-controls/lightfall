@@ -105,6 +105,97 @@ def test_revoke_service_key_swallows_errors():
         )
 
 
+def test_mint_service_key_passes_proxy_when_configured(monkeypatch):
+    """Regression: when ProxySettingsProvider returns a proxy URL for the
+    target, mint_service_key passes it to httpx.post as `proxy=`.
+
+    Without this, *.lbl.gov hosts behind the SSH tunnel time out at login
+    because the mint never reaches the server.
+    """
+    monkeypatch.setattr(
+        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
+        staticmethod(lambda url: "socks5://localhost:1080"),
+    )
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "secret": "s" * 64,
+                "first_eight": "ssssssss",
+                "expiration_time": "2026-05-24T20:14:00+00:00",
+                "scopes": ["inherit"],
+                "note": "t",
+            },
+        )
+
+    # Stub httpx.post to capture the kwargs (we can't actually drive a SOCKS
+    # transport from here; we just need to confirm proxy was passed through).
+    import lucid.auth.service_key as mod
+    original_post = mod.httpx.post
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        with httpx.Client(transport=_stub_transport(handler)) as c:
+            return c.post(url, **{k: v for k, v in kwargs.items() if k != "proxy"})
+
+    monkeypatch.setattr(mod.httpx, "post", fake_post)
+
+    mint_service_key(
+        "https://example.lbl.gov/api/v1",
+        "bearer-token-xyz",
+        expires_in=604800,
+        scopes=["inherit"],
+        note="t",
+    )
+
+    assert captured["kwargs"].get("proxy") == "socks5://localhost:1080"
+
+
+def test_mint_service_key_omits_proxy_when_none(monkeypatch):
+    """No proxy configured -> proxy kwarg is not passed to httpx.post."""
+    monkeypatch.setattr(
+        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
+        staticmethod(lambda url: None),
+    )
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "secret": "s" * 64,
+                "first_eight": "ssssssss",
+                "expiration_time": "2026-05-24T20:14:00+00:00",
+                "scopes": ["inherit"],
+                "note": "t",
+            },
+        )
+
+    import lucid.auth.service_key as mod
+
+    def fake_post(url, **kwargs):
+        captured["kwargs"] = kwargs
+        with httpx.Client(transport=_stub_transport(handler)) as c:
+            return c.post(url, **{k: v for k, v in kwargs.items() if k != "proxy"})
+
+    monkeypatch.setattr(mod.httpx, "post", fake_post)
+
+    mint_service_key(
+        "https://internal/api/v1",
+        "bearer-token-xyz",
+        expires_in=604800,
+        scopes=["inherit"],
+        note="t",
+    )
+
+    assert "proxy" not in captured["kwargs"]
+
+
 def test_minted_key_is_expired():
     past = MintedKey(
         secret="x",
