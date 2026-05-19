@@ -130,9 +130,15 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     except Exception:
         pass
 
-    # Check if URL needs proxy (*.lbl.gov → SOCKS proxy)
-    if tiled_url and ".lbl.gov" in tiled_url:
-        proxy_url = "socks5://localhost:1080"
+    # Delegate proxy resolution to ProxySettingsProvider (same as TiledService)
+    # so the plan is consistent with all other Tiled consumers in LUCID and
+    # never sends a proxy URL that isn't actually running.
+    try:
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        if tiled_url:
+            proxy_url = ProxySettingsProvider.should_use_proxy_for_url(tiled_url)
+    except Exception:
+        pass
 
     return tiled_url, tiled_api_key, proxy_url
 
