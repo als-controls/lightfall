@@ -219,7 +219,10 @@ def adaptive_experiment(
             "proxy_url": proxy_url,
             "lucid_prefix": lucid_prefix,
             "motor_names": [m.name for m in motors],
-            "detector_name": detectors[0].name if detectors else "det",
+            "detector_name": (
+                detectors[0].hints.get("fields", [detectors[0].name])[0]
+                if detectors else "det"
+            ),
         })
         # Brief pause for Tsuchinoko to process bind_run before we proceed
         yield from bps.sleep(0.5)
