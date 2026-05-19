@@ -278,3 +278,35 @@ def test_status_timeout_returns_actionable_error():
         result = _call(status_tool)
     assert result["success"] is False
     assert "tsuchinoko.status" in result["error"]
+
+
+def test_references_dir_returns_gpcam_skills_when_importable():
+    pytest.importorskip("gpcam.skills", reason="gpcam not installed")
+    agent = AutonomousExperimentAgent()
+    ref = agent.get_references_dir()
+    assert ref is not None
+    # The path should contain a SKILL.md for at least the experiment-designer skill
+    assert (ref / "experiment-designer" / "SKILL.md").is_file()
+
+
+def test_references_dir_returns_none_when_gpcam_missing(monkeypatch):
+    """When gpcam is not importable, the plugin returns None and the prompt
+    still tells the agent how to recover."""
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "gpcam.skills" or (name == "gpcam" and "skills" in (args[2] if len(args) >= 3 else ())):
+            raise ImportError("simulated missing gpcam")
+        if name.startswith("gpcam"):
+            raise ImportError("simulated missing gpcam")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    import importlib.resources as ir
+    monkeypatch.setattr(ir, "files", lambda *a, **k: (_ for _ in ()).throw(ModuleNotFoundError()))
+
+    agent = AutonomousExperimentAgent()
+    assert agent.get_references_dir() is None
+    # Prompt still mentions the install path
+    assert "pip install gpcam" in agent.get_system_prompt()
