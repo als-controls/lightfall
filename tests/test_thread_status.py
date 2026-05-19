@@ -437,3 +437,53 @@ class TestPluginSignalConnection:
             plugin.connect_signals()
             # sigOutput should still be connected
             mock_engine.sigOutput.connect.assert_called_once()
+
+
+# ======================================================================
+# Plan name in status text
+# ======================================================================
+
+
+class TestPlanNameInStatus:
+    """Tests for plan-name rendering in the status-bar button text."""
+
+    def _make_plugin(self):
+        plugin = ThreadStatusPlugin()
+        plugin._container = plugin.create_widget()
+        return plugin
+
+    def test_start_doc_records_plan_name(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u", "plan_name": "scan", "num_points": 3})
+        assert plugin._scan_plan_name == "scan"
+
+    def test_start_doc_without_plan_name_leaves_none(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u"})
+        assert plugin._scan_plan_name is None
+
+    def test_stop_doc_clears_plan_name(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u", "plan_name": "scan"})
+        plugin._on_document("stop", {"uid": "u"})
+        assert plugin._scan_plan_name is None
+
+    def test_status_text_uses_plan_name_when_known(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u", "plan_name": "grid_scan"})
+        # _on_document calls update() during start
+        assert "grid_scan" in plugin._button.text()
+        assert "Plan 'grid_scan' running" in plugin._button.toolTip()
+
+    def test_status_text_falls_back_when_plan_name_missing(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u"})
+        assert "scanning" in plugin._button.text()
+
+    def test_status_text_with_plan_and_tasks(self, qapp):
+        plugin = self._make_plugin()
+        plugin._on_document("start", {"uid": "u", "plan_name": "rel_scan"})
+        plugin._tracked.add(1)
+        plugin._tracked.add(2)
+        plugin.update()
+        assert "rel_scan + 2 tasks" in plugin._button.text()

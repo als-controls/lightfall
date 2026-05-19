@@ -369,6 +369,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
         self._scan_uid: str | None = None
         self._scan_event_count: int = 0
         self._scan_num_points: int | None = None
+        self._scan_plan_name: str | None = None
 
     @property
     def name(self) -> str:
@@ -405,14 +406,20 @@ class ThreadStatusPlugin(StatusBarPlugin):
             self.set_visible(False)
             return
 
+        scan_label = self._scan_plan_name or "scanning"
+        scan_tooltip = (
+            f"Plan '{self._scan_plan_name}' running"
+            if self._scan_plan_name
+            else "Scan in progress"
+        )
+
         if scanning and count == 0:
-            self.set_text("⏳ scanning")
-            self.set_tooltip("Scan in progress")
+            self.set_text(f"⏳ {scan_label}")
+            self.set_tooltip(scan_tooltip)
         elif scanning and count > 0:
-            self.set_text(f"⏳ scan + {count} task{'s' if count != 1 else ''}")
-            self.set_tooltip(
-                f"Scan in progress, {count} background task{'s' if count != 1 else ''}"
-            )
+            task_suffix = f"{count} task{'s' if count != 1 else ''}"
+            self.set_text(f"⏳ {scan_label} + {task_suffix}")
+            self.set_tooltip(f"{scan_tooltip}, {task_suffix}")
         else:
             self.set_text(f"⏳ {count} task{'s' if count != 1 else ''}")
             self.set_tooltip(f"{count} background task{'s' if count != 1 else ''} running")
@@ -523,6 +530,8 @@ class ThreadStatusPlugin(StatusBarPlugin):
                 except (ValueError, TypeError):
                     num_points = None
             self._scan_num_points = num_points
+            plan_name = doc.get("plan_name")
+            self._scan_plan_name = plan_name if isinstance(plan_name, str) else None
             self._overlay.cancel_scan_removal()
             self._overlay.upsert_scan(0, num_points)
             self.update()
@@ -537,6 +546,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
             self._scan_uid = None
             self._scan_event_count = 0
             self._scan_num_points = None
+            self._scan_plan_name = None
             self.update()
 
     def get_introspection_data(self) -> dict[str, Any]:
