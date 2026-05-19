@@ -44,7 +44,33 @@ def test_run_end_fires_on_stop_when_paired_start_matches():
     # 2) stop doc refers back to abc; the trigger pulls the cached start to filter
     engine.emit("stop", {"uid": "stop1", "run_start": "abc"})
 
-    submit.assert_called_once_with(pipeline="reduce_saxs", run_uid="abc", parameters={})
+    submit.assert_called_once_with(
+        pipeline="reduce_saxs",
+        run_uid="abc",
+        parameters={},
+        input_access_blob={},
+    )
+
+
+def test_run_end_forwards_access_blob_from_cached_start():
+    engine = _FakeEngine()
+    submit = MagicMock()
+    mgr = TriggerManager(engine=engine, submit_callable=submit)
+    mgr.add(RunEndTrigger(
+        filter=FilterPredicate(plan_name="count"),
+        pipeline="p",
+        parameter_overrides={},
+    ))
+    blob = {"esaf_id": "BLS-00480-001"}
+    engine.emit("start", {"uid": "abc", "plan_name": "count", "access_blob": blob})
+    engine.emit("stop", {"uid": "stop1", "run_start": "abc"})
+
+    submit.assert_called_once_with(
+        pipeline="p",
+        run_uid="abc",
+        parameters={},
+        input_access_blob=blob,
+    )
 
 
 def test_run_end_ignores_stop_without_matching_start():
@@ -104,4 +130,9 @@ def test_run_end_lru_evicts_oldest_when_over_capacity(monkeypatch):
 
     # Stop for a still-cached start should fire.
     engine.emit("stop", {"uid": "s_b", "run_start": "b"})
-    submit.assert_called_once_with(pipeline="p", run_uid="b", parameters={})
+    submit.assert_called_once_with(
+        pipeline="p",
+        run_uid="b",
+        parameters={},
+        input_access_blob={},
+    )

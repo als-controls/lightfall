@@ -317,5 +317,11 @@ builtin_manifest = PluginManifest(
             import_path="lucid.ui.panels.plugins.pipeline_jobs_plugin:PipelineJobsPanelPlugin",
             preload=True,
         ),
+        PluginEntry(
+            type_name="panel",
+            name="pipeline_triggers",
+            import_path="lucid.ui.panels.plugins.pipeline_triggers_plugin:PipelineTriggersPanelPlugin",
+            preload=True,
+        ),
     ],
 )

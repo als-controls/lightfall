@@ -66,4 +66,9 @@ class RunEndTrigger(Trigger):
             return
         if not self._filter.matches(start):
             return
-        self._manager.fire(pipeline=self._pipeline, run_uid=start_uid, parameters=dict(self._params))
+        self._manager.fire(
+            pipeline=self._pipeline,
+            run_uid=start_uid,
+            parameters=dict(self._params),
+            input_access_blob=start.get("access_blob") or {},
+        )
