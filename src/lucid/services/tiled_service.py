@@ -485,49 +485,12 @@ class TiledService(QObject):
             original_transport_cls = context_mod.Transport
             context_mod.Transport = ProxyTransport
 
-            # 3. Patch tiled.client.stream.connect — Tiled's stream
-            #    Subscription calls websockets.sync.client.connect, which
-            #    does NOT honor SOCKS proxies. Wrap it to open a tunnelled
-            #    socket via python_socks first, then pass it as sock=. For
-            #    HTTP CONNECT proxies, websockets' built-in proxy= arg works
-            #    (the original connect handles it on the passthrough path).
-            import tiled.client.stream as stream_mod
-            from urllib.parse import urlparse
-
-            original_stream_connect = stream_mod.connect
-
-            def proxy_ws_connect(uri, **kwargs):
-                parsed = urlparse(uri)
-                host = parsed.hostname
-                port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-
-                if proxy_url.startswith("socks"):
-                    try:
-                        from python_socks.sync import Proxy
-                        sock = Proxy.from_url(proxy_url).connect(host, port)
-                    except Exception as exc:
-                        logger.error(
-                            "SOCKS connect for WS {} failed: {}", uri, exc
-                        )
-                        raise
-                    kwargs.setdefault("sock", sock)
-                    kwargs.setdefault("server_hostname", host)
-                    if parsed.scheme == "wss":
-                        import ssl
-                        kwargs.setdefault("ssl", ssl.create_default_context())
-                # Non-SOCKS proxies: let upstream websockets handle via proxy= default.
-                return original_stream_connect(uri, **kwargs)
-
-            stream_mod.connect = proxy_ws_connect
-
             logger.info("Patched tiled for proxy: {}", proxy_url)
 
             return {
                 "original_transport_cls": original_transport_cls,
                 "original_httpx_get": original_httpx_get,
                 "context_mod": context_mod,
-                "original_stream_connect": original_stream_connect,
-                "stream_mod": stream_mod,
             }
         except Exception as e:
             import traceback
@@ -548,8 +511,7 @@ class TiledService(QObject):
             context_mod = restore_info["context_mod"]
             context_mod.Transport = restore_info["original_transport_cls"]
             context_mod.httpx.get = restore_info["original_httpx_get"]
-            restore_info["stream_mod"].connect = restore_info["original_stream_connect"]
-            logger.debug("Restored original tiled Transport, httpx.get, and stream.connect")
+            logger.debug("Restored original tiled Transport and httpx.get")
         except Exception:
             pass
 
@@ -941,3 +903,70 @@ class TiledService(QObject):
             # User logged out - disconnect from Tiled
             logger.info("User logged out, disconnecting from Tiled")
             self.disconnect()
+
+
+def _install_tiled_stream_ws_proxy_patch() -> None:
+    """Install a process-global monkey-patch on tiled.client.stream.connect.
+
+    Tiled's stream Subscription._connect uses websockets.sync.client.connect,
+    which doesn't honor SOCKS proxies (it only supports HTTP-CONNECT proxies
+    via env vars). LUCID's REST path goes through SOCKS via
+    TiledService._patch_tiled_for_proxy, so without this WS-side patch a user
+    outside the LBL network sees REST work and WS time out — which leaks
+    Tiled-issued ephemeral apikeys (each WS attempt mints one and revokes
+    only on success).
+
+    The patch is installed once at module import; the wrapper does a live
+    proxy lookup via ProxySettingsProvider on every call, so it's a no-op
+    when no proxy is configured and adapts to runtime preference changes.
+
+    Idempotent — safe to call multiple times. Subsequent calls do nothing.
+    """
+    import tiled.client.stream as stream_mod
+
+    # Idempotency guard: if our wrapper is already installed, skip.
+    if getattr(stream_mod.connect, "_lucid_socks_patched", False):
+        return
+
+    original_stream_connect = stream_mod.connect
+
+    def proxy_ws_connect(uri, **kwargs):
+        # Live lookup — no stale proxy_url captured in this closure.
+        try:
+            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            proxy_url = ProxySettingsProvider.should_use_proxy_for_url(uri)
+        except Exception as e:
+            logger.warning("WS proxy lookup failed for {}: {}", uri, e)
+            proxy_url = None
+
+        if proxy_url and proxy_url.startswith("socks"):
+            from urllib.parse import urlparse
+            parsed = urlparse(uri)
+            host = parsed.hostname
+            port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+            try:
+                from python_socks.sync import Proxy
+                sock = Proxy.from_url(proxy_url).connect(host, port)
+            except Exception as exc:
+                logger.error(
+                    "SOCKS connect for WS {} failed: {}", uri, exc
+                )
+                raise
+            kwargs.setdefault("sock", sock)
+            kwargs.setdefault("server_hostname", host)
+            if parsed.scheme == "wss":
+                import ssl
+                kwargs.setdefault("ssl", ssl.create_default_context())
+        # Non-SOCKS or no-proxy cases: delegate; websockets handles HTTP
+        # CONNECT proxies via its own proxy= default when HTTPS_PROXY is set.
+        return original_stream_connect(uri, **kwargs)
+
+    # Mark the wrapper so subsequent imports don't double-patch.
+    proxy_ws_connect._lucid_socks_patched = True
+    stream_mod.connect = proxy_ws_connect
+    logger.debug("Installed tiled.client.stream.connect SOCKS-proxy wrapper")
+
+
+# Eagerly install at module import time so any Tiled stream connection in
+# this process honors LUCID's proxy configuration regardless of when it fires.
+_install_tiled_stream_ws_proxy_patch()
