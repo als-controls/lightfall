@@ -119,13 +119,16 @@ def build_tools() -> list[Any]:
     @tool(
         name="tsuchinoko_configure",
         description=(
-            "Send an experiment design to Tsuchinoko. The payload schema is "
-            "documented in the autonomous_experiment skill prompt (parameter_bounds, "
-            "kernel, acquisition_function, prior_mean, noise_function, "
-            "noise_variances, initial_points, training_method, hyperparameters, "
-            "x_out, dimensionality). Unknown keys are an error — fix them before "
-            "retrying. Use 'user:<name>' refs for callables previously uploaded "
-            "via tsuchinoko_upload_design_code."
+            "Send an experiment design to Tsuchinoko. IMPORTANT: configure only "
+            "updates GP parameters — it does NOT reset the iteration counter, "
+            "accumulated data, or run state. Always call tsuchinoko_stop() first "
+            "and wait for Inactive state before configuring a new experiment. "
+            "The payload schema is documented in the autonomous_experiment skill "
+            "prompt (parameter_bounds, kernel, acquisition_function, prior_mean, "
+            "noise_function, noise_variances, initial_points, training_method, "
+            "hyperparameters, x_out, dimensionality). Unknown keys are an error "
+            "— fix them before retrying. Use 'user:<name>' refs for callables "
+            "previously uploaded via tsuchinoko_upload_design_code."
         ),
         input_schema={
             "type": "object",

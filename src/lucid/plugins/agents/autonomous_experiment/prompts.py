@@ -35,7 +35,25 @@ Call `tsuchinoko_discover()`. If the list is empty, tell the user:
 
 …and stop.
 
-### 3. Upload custom callables (if needed)
+### 3. Reset stale state
+
+If Tsuchinoko's state is anything other than `Inactive` (check with
+`tsuchinoko_status()`), a previous experiment left residual state.
+**You must stop it before configuring:**
+
+```
+tsuchinoko_stop()
+# poll tsuchinoko_status() until state == "Inactive"
+```
+
+`configure` only updates GP parameters — it does **not** reset the
+iteration counter, accumulated data, or run state. The full reset
+happens during the `stop → Inactive` transition (clears data) and
+the subsequent `Starting` transition (resets the GP model). Skipping
+this step causes the new plan to connect to a stale engine that
+serves few or no targets, leading to a near-empty run.
+
+### 4. Upload custom callables (if needed)
 
 If the design includes a user-authored acquisition function, kernel,
 prior mean, or noise function, upload each one before configure:
@@ -50,7 +68,7 @@ tsuchinoko_upload_design_code(
 tool returns a ref string of the form `"user:<name>"`; use it in
 configure.
 
-### 4. Configure
+### 5. Configure
 
 `tsuchinoko_configure(payload)` — payload is a dict with these fields
 (omit any that should keep the engine default):
@@ -70,7 +88,7 @@ configure.
 Unknown keys are an error. The configure tool will surface that
 verbatim — fix it before retrying.
 
-### 5. Run
+### 6. Run
 
 Use the existing plan tool:
 
@@ -88,7 +106,7 @@ ncs_run_plan(
 The plan opens a single Bluesky run, hands off Tiled credentials to
 Tsuchinoko via `bind_run`, and drives the move-and-measure loop.
 
-### 6. Monitor
+### 7. Monitor
 
 Tell the user to open the Visualization Panel — the
 `AdaptiveHeatmapVisualization` (posterior mean / variance /
@@ -97,7 +115,7 @@ live as iterations land in the Tiled `adaptive` stream.
 
 For textual progress, call `tsuchinoko_status()`.
 
-### 7. Control
+### 8. Control
 
 `tsuchinoko_pause()`, `tsuchinoko_resume()`, `tsuchinoko_stop()` —
 each takes no arguments. Use `tsuchinoko_stop()` to finalise the
@@ -106,10 +124,13 @@ when targets stop arriving (configurable timeout).
 
 ### Constraints
 
+- **Always stop before reconfiguring.** `tsuchinoko_configure` only
+  updates GP parameters — it does not reset state, data, or the
+  iteration counter. You must call `tsuchinoko_stop()` and wait for
+  `Inactive` before configuring a new experiment, whether the
+  previous one is running, paused, or finished.
 - Do not start a new `adaptive_experiment` before stopping the
   current one — the bind_run handshake is single-occupant.
 - `motors` order in `ncs_run_plan` must match the axes order in
   `parameter_bounds`. Disagreement silently produces nonsense.
-- Never call `tsuchinoko_configure` while the loop is running.
-  Stop first.
 """
