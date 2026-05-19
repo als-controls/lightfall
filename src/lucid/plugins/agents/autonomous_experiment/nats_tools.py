@@ -76,4 +76,72 @@ def build_tools() -> list[Any]:
             return mcp_result({"success": True, "instances": []})
         return mcp_result({"success": True, "instances": [reply]})
 
-    return [discover]
+    @tool(
+        name="tsuchinoko_upload_design_code",
+        description=(
+            "Upload an agent-authored callable (acquisition function, kernel, "
+            "prior mean, or noise function) to the running Tsuchinoko instance. "
+            "Returns the 'user:<name>' ref to use in tsuchinoko_configure. "
+            "Tsuchinoko validates name (^[a-z][a-z0-9_]{0,62}$), kind "
+            "(acquisition|kernel|prior_mean|noise), syntax, and the expected "
+            "callable name before writing the file."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "kind": {
+                    "type": "string",
+                    "enum": ["acquisition", "kernel", "prior_mean", "noise"],
+                },
+                "code": {"type": "string"},
+            },
+            "required": ["name", "kind", "code"],
+        },
+    )
+    async def upload_design_code(args: dict) -> dict[str, Any]:
+        from lucid.ipc.service import get_ipc_service
+        if get_ipc_service() is None:
+            return mcp_result(_ipc_error_response(), is_error=True)
+        subject = "tsuchinoko.experiment.upload_design_code"
+        reply = _ipc_request(subject, {
+            "name": args["name"], "kind": args["kind"], "code": args["code"],
+        }, timeout=5.0)
+        err = _wire_error_response(subject, reply)
+        if err is not None:
+            return mcp_result(err, is_error=True)
+        return mcp_result({
+            "success": True,
+            "ref": reply["ref"],
+            "path": reply.get("path", ""),
+        })
+
+    @tool(
+        name="tsuchinoko_configure",
+        description=(
+            "Send an experiment design to Tsuchinoko. The payload schema is "
+            "documented in the autonomous_experiment skill prompt (parameter_bounds, "
+            "kernel, acquisition_function, prior_mean, noise_function, "
+            "noise_variances, initial_points, training_method, hyperparameters, "
+            "x_out, dimensionality). Unknown keys are an error — fix them before "
+            "retrying. Use 'user:<name>' refs for callables previously uploaded "
+            "via tsuchinoko_upload_design_code."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"payload": {"type": "object"}},
+            "required": ["payload"],
+        },
+    )
+    async def configure(args: dict) -> dict[str, Any]:
+        from lucid.ipc.service import get_ipc_service
+        if get_ipc_service() is None:
+            return mcp_result(_ipc_error_response(), is_error=True)
+        subject = "tsuchinoko.experiment.configure"
+        reply = _ipc_request(subject, args["payload"], timeout=5.0)
+        err = _wire_error_response(subject, reply)
+        if err is not None:
+            return mcp_result(err, is_error=True)
+        return mcp_result({"success": True})
+
+    return [discover, upload_design_code, configure]

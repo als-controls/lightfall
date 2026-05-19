@@ -162,3 +162,72 @@ def test_nats_unavailable_raises_actionable_message():
         result = _call(discover)
     assert result["success"] is False
     assert "Settings" in result["error"] or "IPC" in result["error"]
+
+
+def test_upload_design_code_passthrough():
+    agent = AutonomousExperimentAgent()
+    upload = _find_tool(agent.create_tools(), "tsuchinoko_upload_design_code")
+
+    patcher, ipc = _patch_ipc(reply={
+        "status": "ok",
+        "ref": "user:my_ucb",
+        "path": "/home/.../my_ucb.py",
+    })
+    with patcher:
+        result = _call(upload, {
+            "name": "my_ucb",
+            "kind": "acquisition",
+            "code": "def acquisition_function(x, gp): return 0",
+        })
+
+    assert result["success"] is True
+    assert result["ref"] == "user:my_ucb"
+    # Wire-level subject is the right one
+    assert ipc.request.call_args.args[0] == "tsuchinoko.experiment.upload_design_code"
+
+
+def test_upload_design_code_surfaces_tsuchinoko_error():
+    agent = AutonomousExperimentAgent()
+    upload = _find_tool(agent.create_tools(), "tsuchinoko_upload_design_code")
+
+    patcher, _ = _patch_ipc(reply={"status": "error", "message": "invalid design name 'X'"})
+    with patcher:
+        result = _call(upload, {"name": "X", "kind": "acquisition", "code": ""})
+
+    assert result["success"] is False
+    assert "invalid design name" in result["error"]
+
+
+def test_configure_passthrough():
+    agent = AutonomousExperimentAgent()
+    configure = _find_tool(agent.create_tools(), "tsuchinoko_configure")
+
+    patcher, ipc = _patch_ipc(reply={"status": "ok"})
+    with patcher:
+        result = _call(configure, {"payload": {
+            "parameter_bounds": [[0, 1], [0, 1]],
+            "kernel": "matern_3_2",
+            "acquisition_function": "variance",
+            "initial_points": 12,
+        }})
+
+    assert result["success"] is True
+    assert ipc.request.call_args.args[0] == "tsuchinoko.experiment.configure"
+    # IPCService.request takes the dict directly (no JSON encoding at the call site)
+    sent = ipc.request.call_args.args[1]
+    assert sent["initial_points"] == 12
+
+
+def test_configure_surfaces_strict_validation_error():
+    agent = AutonomousExperimentAgent()
+    configure = _find_tool(agent.create_tools(), "tsuchinoko_configure")
+
+    patcher, _ = _patch_ipc(reply={
+        "status": "error",
+        "message": "unknown configure field(s): ['foo']",
+    })
+    with patcher:
+        result = _call(configure, {"payload": {"foo": 1}})
+
+    assert result["success"] is False
+    assert "unknown configure field" in result["error"]
