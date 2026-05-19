@@ -134,7 +134,14 @@ def test_discover_returns_responder_list_from_request():
     assert result["success"] is True
     assert isinstance(result["instances"], list)
     assert any(i.get("instance_id") == "abc" for i in result["instances"])
-    ipc.request.assert_called()
+    ipc.request.assert_called_once()
+    call = ipc.request.call_args
+    # subject is positional[0]; payload (dict) is positional[1]
+    assert call.args[0] == "_tsuchinoko.discover"
+    assert isinstance(call.args[1], dict)
+    # timeout_ms is a kwarg, in ms
+    assert "timeout_ms" in call.kwargs
+    assert isinstance(call.kwargs["timeout_ms"], int)
 
 
 def test_discover_empty_when_no_responders():

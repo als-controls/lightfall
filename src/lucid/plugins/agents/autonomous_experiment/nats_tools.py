@@ -6,7 +6,6 @@ fields, or ``success: false`` with an ``error`` string).
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from lucid.plugins.agents._mcp_helpers import mcp_result
@@ -17,16 +16,15 @@ def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict |
     """Send a NATS request via the LUCID IPC service.
 
     Returns the decoded reply dict on success, or ``None`` if the
-    broker did not reply within *timeout* (or the IPC service is
-    unavailable). Callers must distinguish ``None`` from
+    broker did not reply within *timeout* seconds (or the IPC service
+    is unavailable). Callers must distinguish ``None`` from
     ``{"status": "error", ...}``.
     """
     from lucid.ipc.service import get_ipc_service
     ipc = get_ipc_service()
     if ipc is None:
         return None
-    encoded = json.dumps(payload).encode()
-    return ipc.request(subject, encoded, timeout=timeout)
+    return ipc.request(subject, payload, timeout_ms=int(timeout * 1000))
 
 
 def _ipc_error_response() -> dict:
