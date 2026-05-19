@@ -148,6 +148,9 @@ testpaths = ["tests"]
 addopts = "-ra -q"
 qt_api = "pyside6"
 asyncio_mode = "auto"
+markers = [
+    "integration: end-to-end tests against live NATS + bcgtiled + Keycloak; opt in with LUCID_INTEGRATION=1",
+]
 
 [tool.coverage.run]
 source = ["src/lucid"]
