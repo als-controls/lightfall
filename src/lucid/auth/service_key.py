@@ -69,15 +69,31 @@ def mint_service_key(
         httpx.HTTPStatusError on a 4xx/5xx from the service.
     """
     url = service_url.rstrip("/") + "/auth/apikey"
+
+    # Route through LUCID's SOCKS5 proxy if the user has one configured for
+    # this URL. *.lbl.gov hosts are typically only reachable via the proxy
+    # from off-network. ProxySettingsProvider is GUI-side; the lazy import
+    # keeps this module usable from headless executors that have no
+    # preferences subsystem loaded.
+    proxy: str | None = None
+    try:
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
+    except Exception:
+        proxy = None
+
     logger.debug(
-        "mint POST url={} scopes={} expires_in={}", url, scopes, expires_in
+        "mint POST url={} scopes={} expires_in={} proxy={}",
+        url, scopes, expires_in, proxy or "<none>",
     )
-    response = httpx.post(
-        url,
-        headers={"Authorization": f"Bearer {bearer_token}"},
-        json={"expires_in": expires_in, "scopes": scopes, "note": note},
-        timeout=timeout,
-    )
+    post_kwargs: dict = {
+        "headers": {"Authorization": f"Bearer {bearer_token}"},
+        "json": {"expires_in": expires_in, "scopes": scopes, "note": note},
+        "timeout": timeout,
+    }
+    if proxy:
+        post_kwargs["proxy"] = proxy
+    response = httpx.post(url, **post_kwargs)
     if response.status_code >= 400:
         # Capture the response body so the caller's log shows the actual
         # server-side rejection reason (not just an opaque "401 Unauthorized").
@@ -134,13 +150,23 @@ def revoke_service_key(
     the original exception.
     """
     url = service_url.rstrip("/") + "/auth/apikey"
+    proxy: str | None = None
     try:
-        response = httpx.delete(
-            url,
-            headers={"Authorization": f"Bearer {bearer_token}"},
-            params={"first_eight": first_eight},
-            timeout=timeout,
-        )
+        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
+    except Exception:
+        proxy = None
+
+    delete_kwargs: dict = {
+        "headers": {"Authorization": f"Bearer {bearer_token}"},
+        "params": {"first_eight": first_eight},
+        "timeout": timeout,
+    }
+    if proxy:
+        delete_kwargs["proxy"] = proxy
+
+    try:
+        response = httpx.delete(url, **delete_kwargs)
         response.raise_for_status()
         logger.info("revoked service key first_eight={}", first_eight)
     except httpx.HTTPError as e:
