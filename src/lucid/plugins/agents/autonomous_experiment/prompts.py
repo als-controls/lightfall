@@ -88,7 +88,24 @@ configure.
 Unknown keys are an error. The configure tool will surface that
 verbatim — fix it before retrying.
 
-### 6. Run
+### 6. Pre-flight: verify motor positions are within bounds
+
+Before launching the plan, read each motor's current position with
+`ncs_read_device(name=<motor>)` and verify it lies inside the
+corresponding `[lo, hi]` from `parameter_bounds`. If any motor is
+outside its bound, **do not start the plan**. Tell the user which
+motor is where, then either:
+
+1. Ask permission to move the motor into range, or
+2. Ask the user to widen `parameter_bounds` and re-run configure
+   (remember: configure requires `tsuchinoko_stop()` → `Inactive`
+   first — see step 3).
+
+Tsuchinoko/gpCAM initialise the GP from the supplied bounds. A motor
+sitting outside its axis bound rejects the first measurement as
+out-of-domain and the run dies before producing any data.
+
+### 7. Run
 
 Use the existing plan tool:
 
@@ -106,7 +123,7 @@ ncs_run_plan(
 The plan opens a single Bluesky run, hands off Tiled credentials to
 Tsuchinoko via `bind_run`, and drives the move-and-measure loop.
 
-### 7. Monitor
+### 8. Monitor
 
 Tell the user to open the Visualization Panel — the
 `AdaptiveHeatmapVisualization` (posterior mean / variance /
@@ -115,7 +132,7 @@ live as iterations land in the Tiled `adaptive` stream.
 
 For textual progress, call `tsuchinoko_status()`.
 
-### 8. Control
+### 9. Control
 
 `tsuchinoko_pause()`, `tsuchinoko_resume()`, `tsuchinoko_stop()` —
 each takes no arguments. Use `tsuchinoko_stop()` to finalise the
@@ -133,4 +150,9 @@ when targets stop arriving (configurable timeout).
   current one — the bind_run handshake is single-occupant.
 - `motors` order in `ncs_run_plan` must match the axes order in
   `parameter_bounds`. Disagreement silently produces nonsense.
+- **Verify motor positions before running.** A motor sitting outside
+  its `parameter_bounds` axis crashes gpCAM at the first iteration —
+  the plan opens a Bluesky run, then dies with no data. Always read
+  each motor with `ncs_read_device` after configure and before
+  `ncs_run_plan`; the plan itself does not validate this.
 """
