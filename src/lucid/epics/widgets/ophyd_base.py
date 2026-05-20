@@ -311,6 +311,12 @@ class OphydWidget(QWidget):
     @Slot()
     def _apply_value_update(self) -> None:
         """Apply the latest value on the Qt main thread."""
+        # A queued _InvokeEvent can outlive the underlying C++ widget (e.g. parent
+        # destroyed between post and dispatch), keeping this Python wrapper alive
+        # while child widgets touched by _update_display() are already gone.
+        from lucid.utils.crash_diagnostics import _is_valid
+        if not _is_valid(self):
+            return
         self._update_display()
         self.value_changed.emit(self._value)
 

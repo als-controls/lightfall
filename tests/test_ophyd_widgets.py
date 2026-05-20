@@ -294,6 +294,20 @@ class TestOphydLineEdit:
         w.show_units = True
         assert w._units_label.isVisibleTo(w)
 
+    def test_apply_value_update_after_child_destroyed(self, qtbot):
+        """Queued ophyd callback must no-op if the inner QLineEdit was deleted
+        between event post and dispatch (shiboken wrapper dead)."""
+        import shiboken6
+
+        w = OphydLineEdit()
+        qtbot.addWidget(w)
+        w._value = 3.14
+        # Force-destroy the inner child the way Qt parent destruction would.
+        shiboken6.delete(w._line_edit)
+        assert not shiboken6.isValid(w._line_edit)
+        # Without the guard this raised RuntimeError from blockSignals().
+        w._apply_value_update()
+
 
 class TestOphydLabel:
     def test_displays_value(self, qtbot):

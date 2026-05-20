@@ -58,6 +58,11 @@ class OphydLineEdit(OphydWidget):
 
     @Slot()
     def _apply_value_update(self) -> None:
+        # See OphydWidget._apply_value_update — same dead-wrapper guard, repeated
+        # here because this override touches self._line_edit before super().
+        from lucid.utils.crash_diagnostics import _is_valid
+        if not _is_valid(self) or not _is_valid(self._line_edit):
+            return
         if self._modified and self._value is not None:
             try:
                 if self._get_widget_value() == self._value:
