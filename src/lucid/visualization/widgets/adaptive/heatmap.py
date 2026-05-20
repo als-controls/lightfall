@@ -513,6 +513,10 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         idx = self._current_index
         targets_client = self._adaptive["targets"]
+        # target_shape is recorded by tsuchinoko's TiledPublisher in the
+        # data_keys metadata (parallels grid_shape for posterior arrays).
+        # Falls back to (-1, 2) for legacy runs that stored raveled pairs.
+        target_shape = self._target_logical_shape()
 
         def do_fetch() -> np.ndarray:
             return fetch_frame(targets_client, idx)
@@ -521,7 +525,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             if idx != self._current_index:
                 return  # Stale
             try:
-                self._apply_target_scatter(targets)
+                self._apply_target_scatter(targets, target_shape)
             except RuntimeError:
                 pass
 
@@ -538,17 +542,57 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         future.finished.connect(lambda f=future: self._image_view._in_flight.discard(f))
         future.start()
 
-    def _apply_target_scatter(self, targets: np.ndarray) -> None:
-        """Apply fetched target data to the scatter plot (main thread)."""
-        if len(targets) > 0:
-            if targets.ndim == 2 and targets.shape[1] >= 2:
-                self._target_scatter.setData(x=targets[:, 0], y=targets[:, 1])
-            elif targets.ndim == 1 and len(targets) >= 2:
-                self._target_scatter.setData(x=[targets[0]], y=[targets[1]])
-            else:
+    def _target_logical_shape(self) -> tuple[int, int] | None:
+        """Return (N_max, D) from descriptor metadata, or None for legacy runs."""
+        if self._adaptive is None:
+            return None
+        try:
+            dk = self._adaptive.metadata.get("data_keys", {})
+            shape = dk.get("targets", {}).get("target_shape")
+            if shape and len(shape) == 2:
+                return (int(shape[0]), int(shape[1]))
+        except Exception:
+            pass
+        return None
+
+    def _apply_target_scatter(
+        self,
+        targets: np.ndarray,
+        target_shape: tuple[int, int] | None,
+    ) -> None:
+        """Apply fetched target data to the scatter plot (main thread).
+
+        The current writer stores a flat ``N_max * D`` vector per
+        iteration with unused rows NaN-padded; ``target_shape`` from
+        the descriptor's data_keys lets us reshape and drop padding.
+        Legacy raveled runs without ``target_shape`` are reshaped as
+        ``(-1, 2)`` since this viz is 2D-only.
+        """
+        if targets is None or targets.size == 0:
+            self._target_scatter.clear()
+            return
+
+        if target_shape is not None:
+            try:
+                arr = np.asarray(targets, dtype=float).reshape(target_shape)
+            except ValueError:
                 self._target_scatter.clear()
+                return
+        elif targets.ndim == 2 and targets.shape[1] >= 2:
+            arr = targets
+        elif targets.ndim == 1 and len(targets) >= 2 and len(targets) % 2 == 0:
+            arr = targets.reshape(-1, 2)
         else:
             self._target_scatter.clear()
+            return
+
+        valid = ~np.isnan(arr[:, :2]).any(axis=1)
+        if not valid.any():
+            self._target_scatter.clear()
+            return
+        xs = arr[valid, 0]
+        ys = arr[valid, 1]
+        self._target_scatter.setData(x=xs, y=ys)
 
     def _refresh_measurement_cache(self) -> None:
         """Fetch measurement overlay data from the primary stream.

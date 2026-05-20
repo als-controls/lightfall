@@ -72,11 +72,22 @@ def _make_adaptive_stream(
     has_var: bool = True,
     has_acq: bool = True,
     has_targets: bool = True,
+    target_n_max: int = 2,
+    target_dim: int = 2,
+    target_valid_per_iter: list[int] | None = None,
+    target_legacy_1d: bool = False,
 ) -> FakeContainer:
     """Build a fake adaptive stream matching the real zarr-array layout.
 
     Children are field-level arrays with shape ``(n_iters, flat_size)``.
     Grid config and data_keys live in ``.metadata``.
+
+    Targets storage parallels the tsuchinoko writer: a flat
+    ``(n_iters, target_n_max * target_dim)`` array with unused rows
+    NaN-padded.  ``target_valid_per_iter[i]`` controls how many rows of
+    iteration ``i`` are populated (defaults to all rows).  Setting
+    ``target_legacy_1d=True`` emits the pre-fix raveled layout
+    (no ``target_shape`` metadata) for the back-compat path.
     """
     flat_size = grid_res * grid_res
     children: dict[str, Any] = {}
@@ -96,10 +107,21 @@ def _make_adaptive_stream(
             np.random.rand(n_iters, flat_size)
         )
     if has_targets:
-        # Each iteration gets a (2, 2) target array → shape (n_iters, 2, 2)
-        children["targets"] = FakeArray(
-            np.random.rand(n_iters, 2, 2) * 50
+        valid_counts = target_valid_per_iter or [target_n_max] * n_iters
+        buf = np.full(
+            (n_iters, target_n_max, target_dim), np.nan, dtype=float,
         )
+        for i, n_valid in enumerate(valid_counts):
+            n_valid = min(int(n_valid), target_n_max)
+            if n_valid > 0:
+                buf[i, :n_valid] = np.random.rand(n_valid, target_dim) * 50
+        flat = buf.reshape(n_iters, target_n_max * target_dim)
+        children["targets"] = FakeArray(flat)
+        if not target_legacy_1d:
+            data_keys["targets"] = {
+                "shape": [target_n_max * target_dim],
+                "target_shape": [target_n_max, target_dim],
+            }
 
     # Grid config stored in metadata.configuration.tsuchinoko.data
     grid_config: dict[str, Any] = {
@@ -468,3 +490,87 @@ class TestClassAttributes:
         )
 
         assert AdaptiveHeatmapVisualization.viz_display_name == "Adaptive Heatmap"
+
+
+class TestTargetOverlay:
+    """_apply_target_scatter handles padded, ragged, and legacy shapes."""
+
+    def _setup(self, qtbot, **stream_kwargs):
+        from lucid.visualization.widgets.adaptive.heatmap import (
+            AdaptiveHeatmapVisualization,
+        )
+
+        w = AdaptiveHeatmapVisualization()
+        qtbot.addWidget(w)
+        adaptive = _make_adaptive_stream(**stream_kwargs)
+        run = _make_run(adaptive)
+        w.set_run(run)
+        w.set_stream("adaptive")
+        return w
+
+    def test_padded_targets_with_full_n_plots_all(self, qtbot):
+        # 3 targets per iter, all valid → 3 points on the scatter
+        w = self._setup(
+            qtbot, n_iters=2, target_n_max=3,
+            target_valid_per_iter=[3, 3],
+        )
+        flat = np.asarray(w._adaptive["targets"][0]).reshape(3, 2)
+        w._apply_target_scatter(flat.ravel(), target_shape=(3, 2))
+
+        data = w._target_scatter.getData()
+        assert len(data[0]) == 3
+        np.testing.assert_allclose(data[0], flat[:, 0])
+        np.testing.assert_allclose(data[1], flat[:, 1])
+
+    def test_padded_targets_with_partial_n_masks_nan_rows(self, qtbot):
+        # N_max=3, only 1 valid row → exactly 1 point rendered
+        w = self._setup(
+            qtbot, n_iters=1, target_n_max=3,
+            target_valid_per_iter=[1],
+        )
+        flat = np.asarray(w._adaptive["targets"][0])
+        w._apply_target_scatter(flat, target_shape=(3, 2))
+
+        data = w._target_scatter.getData()
+        assert len(data[0]) == 1
+        expected = flat.reshape(3, 2)[0]
+        np.testing.assert_allclose([data[0][0], data[1][0]], expected)
+
+    def test_all_nan_iteration_clears_scatter(self, qtbot):
+        w = self._setup(
+            qtbot, n_iters=1, target_n_max=2,
+            target_valid_per_iter=[0],
+        )
+        flat = np.asarray(w._adaptive["targets"][0])
+        w._apply_target_scatter(flat, target_shape=(2, 2))
+
+        data = w._target_scatter.getData()
+        # ScatterPlotItem.getData() returns empty arrays after clear()
+        assert data[0] is None or len(data[0]) == 0
+
+    def test_legacy_1d_raveled_falls_back_to_pairs(self, qtbot):
+        # Legacy: no target_shape metadata, raveled (N*2,) per iteration
+        w = self._setup(
+            qtbot, n_iters=1, target_n_max=3,
+            target_valid_per_iter=[3], target_legacy_1d=True,
+        )
+        # Without metadata we mimic an old run with no NaN padding
+        legacy_flat = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        w._apply_target_scatter(legacy_flat, target_shape=None)
+
+        data = w._target_scatter.getData()
+        assert len(data[0]) == 3
+        np.testing.assert_allclose(data[0], [1.0, 3.0, 5.0])
+        np.testing.assert_allclose(data[1], [2.0, 4.0, 6.0])
+
+    def test_target_logical_shape_reads_descriptor_metadata(self, qtbot):
+        w = self._setup(
+            qtbot, n_iters=1, target_n_max=4, target_dim=2,
+        )
+        assert w._target_logical_shape() == (4, 2)
+
+    def test_target_logical_shape_none_for_legacy(self, qtbot):
+        w = self._setup(
+            qtbot, n_iters=1, target_legacy_1d=True,
+        )
+        assert w._target_logical_shape() is None
