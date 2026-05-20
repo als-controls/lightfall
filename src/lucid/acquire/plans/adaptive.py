@@ -204,7 +204,17 @@ def adaptive_experiment(
     bridge.subscribe("tsuchinoko.targets")
 
     try:
-        md = {"tsuchinoko": {"experiment_id": experiment_id}}
+        # Populate hints.dimensions so downstream viz (e.g.
+        # AdaptiveHeatmap measurement overlay) can locate the motor
+        # fields in the primary stream.
+        dim_hints = [
+            ([m.hints.get("fields", [m.name])[0]], "primary")
+            for m in motors
+        ]
+        md = {
+            "tsuchinoko": {"experiment_id": experiment_id},
+            "hints": {"dimensions": dim_hints},
+        }
         run_uid = yield from bps.open_run(md=md)
 
         # Pull Tiled credentials from LUCID and forward to Tsuchinoko.
