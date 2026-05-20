@@ -45,6 +45,7 @@ dependencies = [
     "h5py>=3.0",
     # epics
     "caproto>=1.1",
+    "netifaces>=0.11",  # required for caproto to enumerate all interfaces on multi-homed hosts
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
