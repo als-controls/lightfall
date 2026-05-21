@@ -72,17 +72,23 @@ class TestWaitingHookBridge:
     """Tests for the WaitingHookBridge class."""
 
     def test_watchable_status_emits_progress(self, bridge, qapp):
-        """Watchable status emits sigDeviceProgress after timer flush."""
+        """Watchable status emits sigDeviceProgress after timer flush.
+
+        ophyd's MoveStatus reports fraction *remaining*; the bridge must
+        invert it so consumers see fraction *complete*. Feeding 0.7
+        remaining (i.e. 30% of the move done) must emit 0.3 complete.
+        """
         received = []
         bridge.sigDeviceProgress.connect(lambda *args: received.append(args))
 
         st = make_watchable_status("motor1")
         bridge({st})
 
-        # Simulate a watch callback from the RE thread
+        # Simulate a watch callback from the RE thread with ophyd-style
+        # fraction-remaining of 0.7 (move is 30% complete).
         assert len(st._watch_cbs) == 1
         st._watch_cbs[0](
-            name="motor1", current=3.0, initial=0.0, target=10.0, fraction=0.3
+            name="motor1", current=3.0, initial=0.0, target=10.0, fraction=0.7
         )
 
         # Process events to let the QTimer fire
@@ -94,7 +100,55 @@ class TestWaitingHookBridge:
         assert current == 3.0
         assert initial == 0.0
         assert target == 10.0
-        assert fraction == 0.3
+        assert fraction == pytest.approx(0.3)
+
+    def test_fraction_inverted_at_move_endpoints(self, bridge, qapp):
+        """Bridge inverts ophyd's fraction-remaining at both endpoints.
+
+        ophyd reports fraction=1.0 at move start and fraction=0.0 at move
+        end; the bridge must emit 0.0 and 1.0 respectively.
+        """
+        received = []
+        bridge.sigDeviceProgress.connect(lambda *args: received.append(args))
+
+        st = make_watchable_status("motor1")
+        bridge({st})
+
+        # Start of move: ophyd fraction-remaining = 1.0.
+        st._watch_cbs[0](
+            name="motor1", current=0.0, initial=0.0, target=10.0, fraction=1.0
+        )
+        process_events_for(qapp, 150)
+        assert received[-1][4] == pytest.approx(0.0)
+
+        # End of move: ophyd fraction-remaining = 0.0.
+        st._watch_cbs[0](
+            name="motor1", current=10.0, initial=0.0, target=10.0, fraction=0.0
+        )
+        process_events_for(qapp, 150)
+        assert received[-1][4] == pytest.approx(1.0)
+
+    def test_fraction_none_emits_indeterminate(self, bridge, qapp):
+        """ophyd sends fraction=None for zero-distance / NaN moves.
+
+        The bridge must treat None as indeterminate (-1) rather than
+        crashing on float(None).
+        """
+        received = []
+        bridge.sigDeviceProgress.connect(lambda *args: received.append(args))
+
+        st = make_watchable_status("motor_zero")
+        bridge({st})
+
+        # initial == target: ophyd computes fraction as None.
+        st._watch_cbs[0](
+            name="motor_zero", current=5.0, initial=5.0, target=5.0, fraction=None
+        )
+
+        process_events_for(qapp, 250)
+
+        assert len(received) >= 1
+        assert received[-1][4] == -1.0
 
     def test_non_watchable_status_emits_indeterminate(self, bridge, qapp):
         """Non-watchable status emits fraction=-1 for indeterminate progress."""
@@ -165,25 +219,28 @@ class TestWaitingHookBridge:
         st = make_watchable_status("motor1")
         bridge({st})
 
-        # Fire multiple watch updates before timer can flush
+        # Fire multiple watch updates before timer can flush. Feed
+        # ophyd-style fraction-remaining ramping 1.0 → 0.0 as the move
+        # progresses from current=0 to current=9.
         for i in range(10):
             st._watch_cbs[0](
                 name="motor1",
                 current=float(i),
                 initial=0.0,
                 target=9.0,
-                fraction=i / 9.0,
+                fraction=1.0 - i / 9.0,
             )
 
         # Only the last value should survive coalescing
         process_events_for(qapp, 250)
 
         # We should have gotten at most a couple of emissions (not 10)
-        # and the final one should have the last value
+        # and the final one should have the last value: current=9.0,
+        # bridge-emitted fraction (complete) ≈ 1.0.
         assert len(received) >= 1
         last = received[-1]
         assert last[1] == 9.0  # current
-        assert abs(last[4] - 1.0) < 0.01  # fraction
+        assert abs(last[4] - 1.0) < 0.01  # fraction complete
 
     def test_multiple_statuses(self, bridge, qapp):
         """Multiple status objects are tracked independently."""
@@ -196,8 +253,9 @@ class TestWaitingHookBridge:
         st2 = make_watchable_status("motor2")
         bridge({st1, st2})
 
-        st1._watch_cbs[0](name="motor1", current=1.0, initial=0.0, target=5.0, fraction=0.2)
-        st2._watch_cbs[0](name="motor2", current=3.0, initial=0.0, target=10.0, fraction=0.3)
+        # ophyd-style fraction-remaining values; bridge inverts on emit.
+        st1._watch_cbs[0](name="motor1", current=1.0, initial=0.0, target=5.0, fraction=0.8)
+        st2._watch_cbs[0](name="motor2", current=3.0, initial=0.0, target=10.0, fraction=0.7)
 
         process_events_for(qapp, 250)
 

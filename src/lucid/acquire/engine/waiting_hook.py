@@ -38,7 +38,13 @@ class WaitingHookBridge(QObject):
         sigDeviceProgress(str, float, float, float, float):
             ``(device_name, current, initial, target, fraction)``
             Emitted (on timer tick) when a status object's ``.watch()``
-            reports progress.  ``fraction = -1`` signals indeterminate.
+            reports progress. ``fraction`` is fraction *complete* in
+            ``[0.0, 1.0]`` (0.0 at move start, 1.0 at move end);
+            ``fraction == -1`` signals indeterminate progress.
+
+            Note: ophyd's ``MoveStatus`` reports fraction *remaining*
+            (1.0 → 0.0); the bridge inverts it so consumers see the
+            conventional fraction-complete semantics.
         sigDeviceFinished(str):
             ``(device_name,)`` — emitted when an individual status completes.
         sigWaitGroupCleared:
@@ -136,7 +142,16 @@ class WaitingHookBridge(QObject):
             current = float(kwargs.get("current", 0))
             initial = float(kwargs.get("initial", 0))
             target = float(kwargs.get("target", 0))
-            fraction = float(kwargs.get("fraction", -1))
+            raw = kwargs.get("fraction", -1)
+            if raw is None:
+                # ophyd MoveStatus sends None for zero-distance / NaN moves.
+                fraction = -1.0
+            else:
+                raw_f = float(raw)
+                # ophyd emits fraction *remaining* (1.0 → 0.0); invert to
+                # fraction *complete* per the sigDeviceProgress contract.
+                # Preserve the -1 indeterminate sentinel as-is.
+                fraction = 1.0 - raw_f if 0.0 <= raw_f <= 1.0 else raw_f
             self._buffer_update(name, current, initial, target, fraction)
 
         return _on_watch
