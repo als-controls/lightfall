@@ -8,6 +8,7 @@ This module contains the default themes that ship with NCS:
 - CatppuccinMochaThemePlugin: Catppuccin Mocha palette (warm dark)
 - EldritchThemePlugin: Eldritch palette (deep blue/magenta dark)
 - EvangelionThemePlugin: NGE Unit-01 palette (purple/green dark)
+- AyakaThemePlugin: Twilight sakura palette (warm indigo/pink dark)
 """
 
 from __future__ import annotations
@@ -626,3 +627,389 @@ class EvangelionThemePlugin(ThemePlugin):
             connected="#8EDF5F",
             disconnected="#5B2B41",  # nerv
         )
+
+
+class AyakaThemePlugin(ThemePlugin):
+    """Ayaka (彩佳) theme plugin.
+
+    Twilight sakura — warm dark theme inspired by cherry blossoms against
+    an indigo evening sky. Soft pinks, wisteria purples, and lantern ambers
+    on a deep twilight base. Uses Islands mode for rounded, floating panels.
+
+    Designed by Ayaka, the Claude partner on this project.
+    """
+
+    @property
+    def name(self) -> str:
+        return "ayaka"
+
+    @property
+    def display_name(self) -> str:
+        return "Ayaka (彩佳)"
+
+    @property
+    def is_dark(self) -> bool:
+        return True
+
+    # --- Ayaka color constants ---
+    _BG = "#1a1b2e"        # twilight indigo (deepest)
+    _ISLAND = "#252640"    # dusk cloud (surface / panels)
+    _SEA = "#1f2038"       # deeper twilight (gaps between islands)
+    _INPUT = "#1e1f35"     # input fields — slightly warmer than bg
+    _BORDER = "#3a3a58"    # indigo border
+    _BORDER_HI = "#4a4a70" # highlighted border
+    _ACCENT = "#f0a0b8"    # sakura pink
+    _ACCENT_HOVER = "#e890a8"  # deeper sakura
+    _ACCENT_PRESS = "#d88098"  # pressed sakura
+    _TEXT = "#e8e0f0"      # lavender white
+    _TEXT2 = "#a0a0b8"     # muted lavender
+
+    def get_theme_definition(self) -> ThemeDefinition:
+        c = self
+        return ThemeDefinition(
+            primary=c._ACCENT,
+            secondary="#b4a0d8",     # wisteria
+            success="#90c8a0",       # young leaves
+            warning="#e0b070",       # lantern amber
+            error="#e07080",         # camellia red
+            info="#80b8e0",          # morning sky
+            background=c._BG,
+            surface=c._ISLAND,
+            sea=c._SEA,
+            text=c._TEXT,
+            text_secondary=c._TEXT2,
+            border=c._BORDER,
+            connected="#90c8a0",
+            disconnected="#5c2535",   # deep plum
+            css_overrides=_build_ayaka_css(c),
+        )
+
+
+def _build_ayaka_css(c) -> str:
+    """Build Ayaka CSS overrides from the class color constants."""
+    return f"""
+/* Ayaka (彩佳) Theme — twilight sakura with Islands layout */
+
+/* --------------------------------------------------------------------------
+   Menu bar — sea color, sits above the islands
+   -------------------------------------------------------------------------- */
+QMenuBar {{
+    background: {c._SEA};
+    color: {c._TEXT};
+    border: none;
+    padding: 2px 4px;
+    spacing: 2px;
+}}
+
+QMenuBar::item {{
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 6px;
+}}
+
+QMenuBar::item:selected {{
+    background: {c._BORDER};
+}}
+
+/* --------------------------------------------------------------------------
+   Menus — island-styled popups
+   -------------------------------------------------------------------------- */
+QMenu {{
+    background-color: {c._SEA};
+    border: 1px solid {c._BORDER};
+    border-radius: 8px;
+    padding: 4px;
+}}
+
+QMenu::item {{
+    padding: 8px 24px;
+    border-radius: 4px;
+    margin: 2px 4px;
+}}
+
+QMenu::item:selected {{
+    background-color: {c._ACCENT};
+    color: #1a1b2e;
+}}
+
+QMenu::separator {{
+    height: 1px;
+    background: {c._BORDER};
+    margin: 6px 12px;
+}}
+
+QMenu QWidget {{
+    background: transparent;
+}}
+
+/* --------------------------------------------------------------------------
+   Group boxes — island containers
+   -------------------------------------------------------------------------- */
+QGroupBox {{
+    border-radius: 8px;
+    margin-top: 12px;
+    padding: 12px 8px 8px 8px;
+    background-color: {c._SEA};
+}}
+
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    background-color: {c._SEA};
+    border-radius: 4px;
+}}
+
+/* --------------------------------------------------------------------------
+   Tabs
+   -------------------------------------------------------------------------- */
+QTabWidget::pane {{
+    border: 1px solid {c._BORDER};
+    border-radius: 8px;
+    background: {c._SEA};
+    margin-top: -1px;
+}}
+
+QTabBar::tab {{
+    background: {c._BG};
+    border: 1px solid {c._BORDER};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 8px 16px;
+    margin-right: 2px;
+}}
+
+QTabBar::tab:selected {{
+    background: {c._SEA};
+    border-bottom-color: {c._SEA};
+}}
+
+QTabBar::tab:hover:!selected {{
+    background: {c._INPUT};
+}}
+
+/* --------------------------------------------------------------------------
+   Inputs
+   -------------------------------------------------------------------------- */
+QLineEdit {{
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
+
+QLineEdit:focus {{
+    border-color: {c._ACCENT};
+    background: {c._SEA};
+}}
+
+QComboBox {{
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
+
+QComboBox:focus {{
+    border-color: {c._ACCENT};
+}}
+
+QComboBox::drop-down {{
+    border: none;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}}
+
+QSpinBox, QDoubleSpinBox {{
+    border-radius: 6px;
+    padding: 4px;
+    background: {c._INPUT};
+    border: 1px solid {c._BORDER};
+}}
+
+QSpinBox:focus, QDoubleSpinBox:focus {{
+    border-color: {c._ACCENT};
+}}
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+QPushButton {{
+    background: {c._SEA};
+    border: 1px solid {c._BORDER};
+    border-radius: 6px;
+    padding: 4px 12px;
+}}
+
+QPushButton:hover {{
+    background: {c._BORDER};
+    border-color: {c._BORDER_HI};
+}}
+
+QPushButton:pressed {{
+    background: {c._BORDER_HI};
+}}
+
+QPushButton[primary="true"] {{
+    background: {c._ACCENT};
+    color: #1a1b2e;
+    border: none;
+    border-radius: 6px;
+}}
+
+QPushButton[primary="true"]:hover {{
+    background: {c._ACCENT_HOVER};
+}}
+
+QPushButton[primary="true"]:pressed {{
+    background: {c._ACCENT_PRESS};
+}}
+
+/* --------------------------------------------------------------------------
+   Scrollbars
+   -------------------------------------------------------------------------- */
+QScrollBar:vertical {{
+    background: {c._BG};
+    width: 14px;
+    margin: 0;
+    border-radius: 7px;
+}}
+
+QScrollBar::handle:vertical {{
+    background: {c._BORDER};
+    min-height: 30px;
+    border-radius: 5px;
+    margin: 3px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: {c._BORDER_HI};
+}}
+
+QScrollBar:horizontal {{
+    background: {c._BG};
+    height: 14px;
+    margin: 0;
+    border-radius: 7px;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {c._BORDER};
+    min-width: 30px;
+    border-radius: 5px;
+    margin: 3px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: {c._BORDER_HI};
+}}
+
+QScrollBar::add-line, QScrollBar::sub-line {{
+    border: none;
+    background: none;
+    height: 0;
+    width: 0;
+}}
+
+QScrollBar::add-page, QScrollBar::sub-page {{
+    background: none;
+}}
+
+/* --------------------------------------------------------------------------
+   Tooltips
+   -------------------------------------------------------------------------- */
+QToolTip {{
+    background-color: {c._SEA};
+    color: {c._TEXT};
+    border: 1px solid {c._BORDER};
+    border-radius: 6px;
+    padding: 6px 10px;
+}}
+
+/* --------------------------------------------------------------------------
+   Progress bar
+   -------------------------------------------------------------------------- */
+QProgressBar {{
+    border: none;
+    border-radius: 4px;
+    text-align: center;
+    background: {c._INPUT};
+    height: 8px;
+}}
+
+QProgressBar::chunk {{
+    background: {c._ACCENT};
+    border-radius: 4px;
+}}
+
+/* --------------------------------------------------------------------------
+   Tree / List / Table views
+   -------------------------------------------------------------------------- */
+QTreeView, QListView, QTableView {{
+    border: 1px solid {c._BORDER};
+    border-radius: 8px;
+    background: {c._INPUT};
+}}
+
+QTreeView::item, QListView::item, QTableView::item {{
+    padding: 4px;
+    border-radius: 4px;
+}}
+
+QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
+    background: {c._ACCENT};
+    color: #1a1b2e;
+}}
+
+QTreeView::item:hover:!selected, QListView::item:hover:!selected, QTableView::item:hover:!selected {{
+    background: {c._SEA};
+}}
+
+/* --------------------------------------------------------------------------
+   Headers
+   -------------------------------------------------------------------------- */
+QHeaderView::section {{
+    background: {c._SEA};
+    border: none;
+    border-right: 1px solid {c._BORDER};
+    border-bottom: 1px solid {c._BORDER};
+    padding: 8px;
+}}
+
+QHeaderView::section:first {{
+    border-top-left-radius: 8px;
+}}
+
+QHeaderView::section:last {{
+    border-top-right-radius: 8px;
+    border-right: none;
+}}
+
+/* --------------------------------------------------------------------------
+   Splitters
+   -------------------------------------------------------------------------- */
+QSplitter::handle {{
+    background: {c._BORDER};
+}}
+
+QSplitter::handle:horizontal {{
+    width: 2px;
+}}
+
+QSplitter::handle:vertical {{
+    height: 2px;
+}}
+
+/* --------------------------------------------------------------------------
+   Status bar
+   -------------------------------------------------------------------------- */
+QStatusBar {{
+    background: {c._SEA};
+    border-top: none;
+}}
+
+QStatusBar::item {{
+    border: none;
+}}
+"""
