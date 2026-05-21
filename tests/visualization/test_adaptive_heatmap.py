@@ -363,8 +363,85 @@ class TestSetField:
         w.set_run(run)
         w.set_stream("adaptive")
 
-        # grid_shape = [8, 8], transposed for col-major → (8, 8)
+        # grid_shape = [Nx, Ny] = [8, 8] → frame_shape (Nx, Ny).
         assert w._frame_shape == (8, 8)
+
+    def test_frame_orientation_axis0_is_x(self, qtbot):
+        """Reshaped frame axis-0 must track grid_x, not grid_y.
+
+        The tsuchinoko writer ravels ``meshgrid(*grids, indexing='ij')``
+        so ``flat[i*Ny + j] = posterior(grid_x[i], grid_y[j])``.  With
+        LazyImageView's col-major axisOrder, the displayed array must
+        have shape ``(Nx, Ny)`` with axis 0 indexing grid_x — otherwise
+        the heatmap appears transposed relative to the scatter overlays.
+        """
+        from lucid.visualization.widgets.adaptive.heatmap import (
+            AdaptiveHeatmapVisualization,
+        )
+
+        N = 5  # grid resolution (square)
+        # Deterministic posterior depends only on the x-index i.
+        # Under the ij-meshgrid convention, position k=i*N+j carries
+        # the value i, so reshape((N, N)) must yield arr[i, j] = i.
+        flat = np.zeros((1, N * N), dtype=float)
+        for i in range(N):
+            for j in range(N):
+                flat[0, i * N + j] = float(i)
+
+        adaptive = _make_adaptive_stream(n_iters=1, grid_res=N)
+        adaptive._children["posterior_mean"] = FakeArray(flat)
+
+        w = AdaptiveHeatmapVisualization()
+        qtbot.addWidget(w)
+        w.set_run(_make_run(adaptive))
+        w.set_stream("adaptive")
+
+        frame = w._image_view._fetch_func(0)
+        assert frame.shape == (N, N)
+        # Axis 0 = grid_x: rows must be constant, varying with i.
+        for i in range(N):
+            assert np.all(frame[i, :] == float(i)), (
+                f"row {i} not constant at {i}: {frame[i, :]}"
+            )
+
+    def test_grid_rect_matches_axes(self, qtbot):
+        """setRect must put grid_x extent on x-axis, grid_y on y-axis.
+
+        ``_make_adaptive_stream`` spans grid_x ∈ [0, 100] and
+        grid_y ∈ [0, 50] — distinct ranges so a swap is detectable.
+        """
+        from lucid.visualization.widgets.adaptive.heatmap import (
+            AdaptiveHeatmapVisualization,
+        )
+
+        adaptive = _make_adaptive_stream(n_iters=1, grid_res=6)
+
+        w = AdaptiveHeatmapVisualization()
+        qtbot.addWidget(w)
+        w.set_run(_make_run(adaptive))
+        w.set_stream("adaptive")
+
+        image_item = w._image_view.imageItem
+        rect = image_item.mapRectToParent(image_item.boundingRect())
+        assert rect.x() == pytest.approx(0.0)
+        assert rect.width() == pytest.approx(100.0)
+        assert rect.y() == pytest.approx(0.0)
+        assert rect.height() == pytest.approx(50.0)
+
+    def test_y_axis_is_positive_up(self, qtbot):
+        """Heatmap uses math-convention Y (positive up).
+
+        pyqtgraph's ``ImageView.__init__`` calls ``view.invertY()``
+        unconditionally; the heatmap viz must undo that so scientific
+        (x, y) motor coordinates display the natural way.
+        """
+        from lucid.visualization.widgets.adaptive.heatmap import (
+            AdaptiveHeatmapVisualization,
+        )
+
+        w = AdaptiveHeatmapVisualization()
+        qtbot.addWidget(w)
+        assert w._image_view.getView().getViewBox().yInverted() is False
 
 
 class TestNewIterationDetection:

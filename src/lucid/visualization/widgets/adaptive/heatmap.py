@@ -89,6 +89,10 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         # Lazy image view (same pattern as ImageStackVisualization)
         self._image_view = LazyImageView()
+        # Adaptive heatmap plots over (x, y) motor coordinates — use
+        # math-convention positive-up Y, not pyqtgraph ImageView's
+        # default image-convention Y-down.
+        self._image_view.getView().invertY(False)
         self._image_view.ui.roiPlot.show()
         self._image_view.ui.roiPlot.setMinimumHeight(80)
         self._image_view.ui.splitter.setSizes([400, 100])
@@ -257,9 +261,11 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             logger.warning("AdaptiveHeatmap: cannot determine grid shape for '{}'", field_name)
             return
 
-        # Transposed frame shape for col-major display (matches the
-        # previous data.T behaviour with the PlotWidget ImageItem).
-        frame_shape = (gs[1], gs[0])
+        # tsuchinoko ravels meshgrid(*grids, indexing="ij") so
+        # flat[i*Ny + j] = posterior(grid_x[i], grid_y[j]).  Reshape to
+        # (Nx, Ny) — LazyImageView's col-major axisOrder already maps
+        # axis 0 to plot-x, so no transpose is needed.
+        frame_shape = (gs[0], gs[1])
         self._frame_shape = frame_shape
 
         # Build a closure that fetches one iteration via server-side
@@ -271,7 +277,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         def fetch_iteration(index: int) -> np.ndarray:
             flat = _fetch_frame(arr_client, index)
-            return flat.reshape(grid_shape).T
+            return flat.reshape(grid_shape)
 
         # Hand off to LazyImageView — the real ArrayClient provides
         # .shape[0] for frame count; fetch_func handles the rest.
