@@ -288,6 +288,10 @@ class QtClaudeAgent(QObject):
             "system_prompt": system_prompt,
             "permission_mode": permission_mode,
             "max_turns": max_turns,
+            # Opus 4.7's CLI default is --thinking-display omitted, which makes
+            # ThinkingBlock.thinking arrive empty. Opt in to summarized text so
+            # the agent panel's thinking boxes have content.
+            "thinking": {"type": "adaptive", "display": "summarized"},
         }
 
         # Add CLI path if provided
