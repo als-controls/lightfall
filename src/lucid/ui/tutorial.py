@@ -71,6 +71,8 @@ class TutorialStep:
         position: Preferred callout position relative to target.
         padding: Extra pixels around the target widget for the cutout.
         target_description: Fallback text if target widget can't be found.
+        on_enter: Optional callable invoked when this step is shown, used
+            for side effects like opening a panel this step will highlight.
     """
 
     target: Callable[[], QWidget | None] | None = None
@@ -79,6 +81,7 @@ class TutorialStep:
     position: CalloutPosition = CalloutPosition.AUTO
     padding: int = 8
     target_description: str = ""
+    on_enter: Callable[[], None] | None = None
 
 
 @dataclass
@@ -272,7 +275,16 @@ class TutorialCallout(QFrame):
         self._back_btn.setVisible(not is_first)
         self._next_btn.setText("Finish" if is_last else "Next")
 
-        # Re-layout to get correct size hint
+        # QFrame.adjustSize() goes through sizeHint(), which doesn't reliably
+        # respect heightForWidth() for word-wrapped QLabels — long messages
+        # then clip at the top/bottom. Force both labels to compute the
+        # correct wrapped height for the width they'll actually be drawn at.
+        content_width = self.MAX_WIDTH - 32  # left+right contentMargins
+        for label in (self._title_label, self._message_label):
+            h = label.heightForWidth(content_width)
+            if h > 0:
+                label.setMinimumHeight(h)
+
         self.adjustSize()
 
 
@@ -385,13 +397,26 @@ class TutorialOverlay(QWidget):
         self._current_step = index
         step = self._tutorial.steps[index]
 
-        # Resolve target widget
-        target_rect = self._resolve_target_rect(step)
+        if step.on_enter is not None:
+            try:
+                step.on_enter()
+            except Exception as e:
+                logger.warning("Tutorial on_enter hook failed: {}", e)
+            # Defer rendering one tick so widgets opened by the hook have
+            # processed their show events and have valid geometry.
+            QTimer.singleShot(0, lambda: self._render_step(index))
+        else:
+            self._render_step(index)
 
-        # Animate spotlight to new position
+    def _render_step(self, index: int) -> None:
+        """Resolve target geometry, animate spotlight, and update the callout."""
+        if self._tutorial is None or index != self._current_step:
+            return
+        step = self._tutorial.steps[index]
+
+        target_rect = self._resolve_target_rect(step)
         self._animate_spotlight(target_rect)
 
-        # Update callout content
         self._callout.set_step(
             title=step.title,
             message=step.message,
@@ -817,6 +842,10 @@ def _build_welcome_tutorial() -> Tutorial:
         window = _find_main_window()
         return window._re_control if window else None
 
+    def _find_profile_avatar() -> QWidget | None:
+        window = _find_main_window()
+        return getattr(window, "_profile_avatar", None) if window else None
+
     def _find_panel_dock(panel_id: str) -> Callable[[], QWidget | None]:
         """Return a callable that finds a panel's dock widget."""
 
@@ -827,6 +856,33 @@ def _build_welcome_tutorial() -> Tutorial:
             return window._docking_manager.get_dock_widget(panel_id)
 
         return finder
+
+    def _open_panel(panel_id: str) -> Callable[[], None]:
+        """Return an on_enter hook that ensures a panel is shown."""
+
+        def opener() -> None:
+            window = _find_main_window()
+            if window is None or window._docking_manager is None:
+                return
+            window._docking_manager.show_panel(panel_id)
+
+        return opener
+
+    def _open_claude_with_example_prompt() -> None:
+        """Show the Claude panel and pre-fill an example prompt for the user."""
+        example_prompt = "Why can't I see anything on the detector?"
+        window = _find_main_window()
+        if window is None or window._docking_manager is None:
+            return
+        window._docking_manager.show_panel("lucid.panels.claude")
+
+        dock = window._docking_manager.get_dock_widget("lucid.panels.claude")
+        panel = dock.widget() if dock is not None else None
+        claude_widget = getattr(panel, "_claude_widget", None)
+        input_field = getattr(claude_widget, "input_field", None)
+        # Don't clobber whatever the user is already typing.
+        if input_field is not None and not input_field.text().strip():
+            input_field.setText(example_prompt)
 
     return Tutorial(
         id="welcome",
@@ -844,6 +900,33 @@ def _build_welcome_tutorial() -> Tutorial:
                     "Use the arrow keys, click Next, or click the "
                     "highlighted area to advance."
                 ),
+            ),
+            # ── Status bar (first thing to point out so users know
+            #    where to find live beamline state) ─────────────────
+            TutorialStep(
+                target=_find_statusbar,
+                title="Status Bar",
+                message=(
+                    "The status bar shows connection state, authentication "
+                    "info, and the current beam/source status. Plugins can "
+                    "add their own status widgets here too."
+                ),
+                position=CalloutPosition.ABOVE,
+                target_description="Status bar",
+            ),
+            # ── Profile picture ────────────────────────────────────
+            TutorialStep(
+                target=_find_profile_avatar,
+                title="Your Profile",
+                message=(
+                    "Your profile picture appears in the top-right corner "
+                    "as a visual indicator of the currently signed-in user. "
+                    "You can set or change it from Tools > Preferences > "
+                    "User Profile."
+                ),
+                position=CalloutPosition.BELOW,
+                padding=4,
+                target_description="Profile avatar",
             ),
             # ── Top-level UI ───────────────────────────────────────
             TutorialStep(
@@ -867,17 +950,6 @@ def _build_welcome_tutorial() -> Tutorial:
                 ),
                 position=CalloutPosition.AUTO,
                 target_description="RunEngine control widget",
-            ),
-            TutorialStep(
-                target=_find_statusbar,
-                title="Status Bar",
-                message=(
-                    "The status bar shows connection state, authentication "
-                    "info, and other indicators. Plugins can add their "
-                    "own status widgets here."
-                ),
-                position=CalloutPosition.ABOVE,
-                target_description="Status bar",
             ),
             # ── Sidebar overview ───────────────────────────────────
             TutorialStep(
@@ -904,6 +976,18 @@ def _build_welcome_tutorial() -> Tutorial:
                 position=CalloutPosition.RIGHT,
                 padding=4,
                 target_description="Logbook Entries sidebar button",
+            ),
+            TutorialStep(
+                target=_find_panel_dock("lucid.panels.logbook"),
+                title="Logbook Panel",
+                message=(
+                    "The Logbook panel shows your current project notebook. "
+                    "Write Markdown notes, tag entries, and keep a running "
+                    "record of your experiment session."
+                ),
+                position=CalloutPosition.AUTO,
+                on_enter=_open_panel("lucid.panels.logbook"),
+                target_description="Logbook dock widget",
             ),
             TutorialStep(
                 target=_find_sidebar_button("lucid.panels.bluesky"),
@@ -977,28 +1061,22 @@ def _build_welcome_tutorial() -> Tutorial:
                 padding=4,
                 target_description="Synoptic sidebar button",
             ),
-            # ── Logbook panel ──────────────────────────────────────
+            # ── Outro: try Claude with a real prompt ──────────────
             TutorialStep(
-                target=_find_panel_dock("lucid.panels.logbook"),
-                title="Logbook Panel",
+                target=_find_panel_dock("lucid.panels.claude"),
+                title="Try the Claude Assistant",
                 message=(
-                    "The Logbook panel shows your current project notebook. "
-                    "Write Markdown notes, tag entries, and keep a running "
-                    "record of your experiment session."
-                ),
-                position=CalloutPosition.AUTO,
-                target_description="Logbook dock widget",
-            ),
-            # ── Outro ─────────────────────────────────────────────
-            TutorialStep(
-                target=None,
-                title="You're all set!",
-                message=(
-                    "That covers the basics. Click any sidebar icon to "
-                    "open its panel and start exploring.\n\n"
-                    "You can restart this tour anytime from\n"
+                    "That covers the basics! To get you started, the "
+                    "Claude Assistant panel is now open with an example "
+                    "prompt:\n\n"
+                    "\"Why can't I see anything on the detector?\"\n\n"
+                    "Click Send (or edit the prompt first) to try it out. "
+                    "You can restart this tour anytime from "
                     "Help > Welcome Tutorial."
                 ),
+                position=CalloutPosition.AUTO,
+                on_enter=_open_claude_with_example_prompt,
+                target_description="Claude Assistant panel",
             ),
         ],
     )
