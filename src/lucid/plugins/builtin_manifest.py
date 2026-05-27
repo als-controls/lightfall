@@ -246,6 +246,13 @@ builtin_manifest = PluginManifest(
             name="ncs_core_tools",
             import_path="lucid.claude.ncs_core_tools:NCSCoreToolPlugin",
         ),
+        # Current-ESAF skill. Beamline read from tiled_beamline preference;
+        # strictly now-only (no date parameter). See plugin docstring.
+        PluginEntry(
+            type_name="agent",
+            name="current_esaf",
+            import_path="lucid.plugins.agents.current_esaf:CurrentEsafAgent",
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
