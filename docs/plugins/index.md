@@ -124,6 +124,16 @@ LUCID's built-in plugins are defined in `lucid.plugins.builtin_manifest`. This m
 
 External packages can provide plugins via entry points. See [External Packages](external-packages.md) for details.
 
+## Audit
+
+Because plugins are distributed as ordinary Python packages in version-controlled repositories, a beamline's customization is auditable with the tools the lab already uses — no separate audit pipeline. The git history of a beamline's plugin repository is the record of what changed, when, and by whom:
+
+- **Review recent changes** — `git log` on the plugin repository.
+- **Roll back a single change** — `git revert <sha>`.
+- **Compare two states** — `git diff <a>..<b>`.
+
+This is the foundation the design-mode workflow builds on: staff-authored interface changes land as commits in the beamline plugin repository, so every change is reviewable and reversible by construction.
+
 ## Quick Links
 
 - [Quickstart Guide](quickstart.md) - Create your first plugin

@@ -49,6 +49,14 @@ The assistant is fully extensible. Beamline scientists can add custom skills and
 
 ---
 
+## Architecture
+
+LUCID is **API-first**: every user-facing surface — panels, devices, and plans — has a programmatic representation that any client can discover and invoke through one uniform interface. The GUI, a script, and the embedded Claude agent are peers against that surface; none has privileged access the others lack. This uniform addressability is what lets a single agent act on panels, devices, and plans without bespoke per-type adapters.
+
+The runtime also participates in a beamline-wide [NATS](ipc-architecture.md) message bus, so external services — autonomous engines, live-analysis processes, and external agents — address the same surface as the GUI. Capabilities are added as [plugins](plugins/index.md) that register against this surface rather than against the renderer, which is why a newly installed plugin becomes agent-addressable automatically. The **Technical Foundation** section below summarizes the underlying stack.
+
+---
+
 ## Plugin Architecture
 
 LUCID's plugin system is designed for real extensibility, not just theming. Nine distinct plugin types cover the full spectrum of customization:
@@ -140,3 +148,31 @@ The architecture emphasizes:
 - **Service registry** — Dependency injection for testability
 - **Document-based data flow** — Bluesky documents from acquisition through storage
 - **Progressive disclosure** — Simple defaults with expert options behind authorization
+
+---
+
+## Supporting Infrastructure
+
+Beyond control and acquisition, LUCID integrates the operational services a beamline depends on day to day.
+
+### Logbook
+
+The logbook is a service the GUI and the embedded agent both publish to, not merely a panel. Entries are created **automatically** on run start and completion — and on error events — through acquisition triggers, and **manually** by staff. Manual entries capture the run UID, the user's identity, and relevant panel state; screenshots from the LUCID viewport can be attached directly.
+
+### Error tracking
+
+LUCID reports errors to a self-hosted, Sentry-compatible **Glitchtip** instance via `sentry-sdk`. The integration hooks Loguru, so anything logged at `ERROR` or above is captured automatically and tagged with the release version and environment. A `before_send` hook scrubs sensitive data before transmission, and the attached user context is limited to the Keycloak username — never the raw token.
+
+### Authorization
+
+Data access is enforced **per entry** through Tiled's `access_blob`. Acquisition emits `tiled_access_tags` in the Bluesky start document; Tiled populates the `nodes.access_blob` JSONB column from those tags and enforces row-level access at read time. Authorization derives from the same Keycloak session that authorizes control operations, so a single identity governs both motor actuation and data retrieval.
+
+---
+
+## Deployment
+
+LUCID is in testing at the **COSMIC-Scattering** beamline at the ALS — a production-class deployment scoped to a single beamline to keep the blast radius small while the platform matures.
+
+Most of the stack runs **once per facility**: Keycloak SSO, the LUCID logbook server, the Tiled server, error tracking, and git hosting for plugin repositories. Each beamline runs its **own** LUCID GUI process, NATS broker, EPICS IOCs, and plugin repository, plus an optional autonomous engine such as Tsuchinoko.
+
+LUCID **coexists** with existing LabVIEW infrastructure: both address the same EPICS process variables over Channel Access, so a beamline can adopt LUCID incrementally and migrate when it is ready rather than on a forced schedule.

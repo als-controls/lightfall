@@ -211,6 +211,17 @@ async def watch_engine_state(nc):
     await nc.subscribe(f"{TOPIC_PREFIX}.state.engine", cb=on_state)
 ```
 
+## Closed-loop
+
+External services participate in closed experimental loops by subscribing to LUCID's event subjects and posting plan-parameter suggestions back through request/reply on the action subjects. The canonical loop:
+
+1. LUCID publishes Bluesky event documents on its event subjects as a scan progresses.
+2. A live-analysis service subscribes and computes a derived signal (a peak metric, an alignment offset, a correlation function).
+3. An autonomous engine consumes the analysis output, evaluates a surrogate model, and posts plan-parameter suggestions to the action subjects.
+4. LUCID re-invokes the plan with the suggested parameters, and the loop closes.
+
+No participant in this loop requires modifications to LUCID's core: each addresses LUCID through the same uniform surface the GUI and the embedded agent use, and each joins or leaves the loop independently. The script below is a minimal implementation of one such participant.
+
 ## Complete Example: Tsuchinoko-Style Client
 
 The following is a self-contained script that connects, authenticates, subscribes to run events,
