@@ -34,7 +34,7 @@ _COLOR_PIXMAP_STATES = SPINNING_STATES | PAUSED_STATES
 _LOGO_SIZE = 24
 _FLASH_DURATION_MS = 1500
 _SPIN_INTERVAL_MS = 33  # ~30 fps
-_SPIN_DEGREES_PER_TICK = 12  # 30 fps * 12 deg = 360 deg/sec
+_SPIN_DEGREES_PER_TICK = -12  # 30 fps * 12 deg = 360 deg/sec
 
 
 def _bake_gray_pixmap(source: QImage) -> QPixmap:
