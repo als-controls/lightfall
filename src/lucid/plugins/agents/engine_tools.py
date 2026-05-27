@@ -27,7 +27,9 @@ def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
     service = ALSBeamStatusService.get_instance()
     if force_refresh:
         service.force_refresh()
-    return {"success": True, **service.get_introspection_data()}
+    data = service.get_introspection_data()
+    data["success"] = True
+    return data
 
 
 class EngineToolsAgent(AgentPlugin):
@@ -498,16 +500,18 @@ class EngineToolsAgent(AgentPlugin):
             description=(
                 "Get ALS storage-ring beam status: ring current (mA), beam/shutter "
                 "availability, energy (GeV), lifetime (hours), beam-position stability, "
-                "and the operations comment. Use this to explain why a beamline diode "
-                "reads no beam (ring dump vs shutter closed vs mis-steering). Set "
-                "force_refresh=true to trigger an immediate poll (values may lag one cycle)."
+                "and the operations comment. Values reflect the most recent completed poll "
+                "(the service polls about every 60 s). Use this to explain why a beamline "
+                "diode reads no beam (ring dump vs shutter closed vs mis-steering). "
+                "force_refresh=true schedules an immediate background poll, but its results "
+                "appear on a SUBSEQUENT call, not this one."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "force_refresh": {
                         "type": "boolean",
-                        "description": "Trigger an immediate background poll before reading.",
+                        "description": "Schedule an immediate background poll. Its result appears on a later call, not this one.",
                         "default": False,
                     },
                 },

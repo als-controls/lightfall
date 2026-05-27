@@ -44,6 +44,7 @@ def test_beam_status_payload_force_refresh(monkeypatch):
     _patch_service(monkeypatch, fake)
     out = et._beam_status_payload(force_refresh=True)
     assert fake.refreshed is True
+    assert out["success"] is True
 
 
 def test_engine_tools_registers_beam_status():
