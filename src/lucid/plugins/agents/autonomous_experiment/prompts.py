@@ -26,6 +26,12 @@ design needs them: `acquisition-functions`, `kernel-designer`,
 `prior-mean-functions`, `noise-functions`, `cost-functions`,
 `gp2scale-advanced`, `multi-task-advanced`.
 
+Tsuchinoko also ships skills for live engine state. Load
+`parameter-tree` (from Tsuchinoko) when the design needs to set
+hyperparameter bounds/initial values, change the training-schedule
+milestones, or read/write any other field not exposed by
+`tsuchinoko.experiment.configure`.
+
 ### 2. Discover Tsuchinoko
 
 Call `tsuchinoko_discover()`. If the list is empty, tell the user:
