@@ -14,6 +14,22 @@ from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
 
 
+def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
+    """Read the ALS beam status via the polling service.
+
+    Values reflect the service's most recent successful poll. ``force_refresh``
+    kicks an immediate background poll; freshly-polled values may not be
+    reflected until that poll completes, so the returned snapshot can lag by
+    one cycle.
+    """
+    from lucid.services.als_beam_status import ALSBeamStatusService
+
+    service = ALSBeamStatusService.get_instance()
+    if force_refresh:
+        service.force_refresh()
+    return {"success": True, **service.get_introspection_data()}
+
+
 class EngineToolsAgent(AgentPlugin):
     """MCP tools for RunEngine control and run data access."""
 
@@ -477,6 +493,39 @@ class EngineToolsAgent(AgentPlugin):
 
             return run_on_main_thread(_show)
 
+        @tool(
+            name="ncs_get_beam_status",
+            description=(
+                "Get ALS storage-ring beam status: ring current (mA), beam/shutter "
+                "availability, energy (GeV), lifetime (hours), beam-position stability, "
+                "and the operations comment. Use this to explain why a beamline diode "
+                "reads no beam (ring dump vs shutter closed vs mis-steering). Set "
+                "force_refresh=true to trigger an immediate poll (values may lag one cycle)."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "force_refresh": {
+                        "type": "boolean",
+                        "description": "Trigger an immediate background poll before reading.",
+                        "default": False,
+                    },
+                },
+            },
+        )
+        async def get_beam_status(args: dict) -> dict[str, Any]:
+            from lucid.claude._internal.threading import run_on_main_thread
+
+            force = args.get("force_refresh", False)
+
+            def _get():
+                try:
+                    return mcp_result(_beam_status_payload(force_refresh=force))
+                except Exception as e:
+                    return mcp_result({"success": False, "error": str(e)}, is_error=True)
+
+            return run_on_main_thread(_get)
+
         return [
             get_run_status,
             pause_plan,
@@ -486,4 +535,5 @@ class EngineToolsAgent(AgentPlugin):
             get_scan_data,
             get_last_run,
             show_run,
+            get_beam_status,
         ]
