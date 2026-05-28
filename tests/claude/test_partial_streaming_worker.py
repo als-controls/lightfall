@@ -117,10 +117,12 @@ def test_thinking_streaming_emits_partial_thinking(qtbot):
         assert worker.wait(3000)
 
 
-def test_assistant_message_does_not_re_emit_text_when_streamed(qtbot):
-    """The full AssistantMessage still arrives after streaming completes.
-    With our suppression, message_received fires zero times for the
-    streamed TextBlock — partial_* already covered it."""
+def test_assistant_message_always_emits_text_in_addition_to_streaming(qtbot):
+    """The worker now always emits message_received for AssistantMessage's
+    TextBlock, even when streaming covered the same text. Dedup is the
+    widget's job — the worker can't predict what the widget actually
+    rendered, and predicting wrong leaves blank cards (the production
+    failure mode that motivated this change)."""
     from claude_agent_sdk.types import AssistantMessage, TextBlock
 
     client = _StreamStubClient()
@@ -141,15 +143,18 @@ def test_assistant_message_does_not_re_emit_text_when_streamed(qtbot):
     worker = PersistentClaudeWorker(client)
     msg_received: list[str] = []
     worker.message_received.connect(msg_received.append)
+    texts: list[tuple[str, str]] = []
+    worker.partial_text.connect(lambda b, d: texts.append((b, d)))
 
     worker.start()
     try:
         qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
         with qtbot.waitSignal(worker.query_completed, timeout=3000):
             worker.send_query("hi")
-        # The streamed text was rendered via partial_text; the full
-        # AssistantMessage echo must not re-emit it.
-        assert msg_received == []
+        # Streaming did its thing AND AssistantMessage emitted as the
+        # canonical fallback that the widget can trust.
+        assert texts == [("msg-1:0", "Hello")]
+        assert msg_received == ["Hello"]
     finally:
         worker.stop()
         assert worker.wait(3000)

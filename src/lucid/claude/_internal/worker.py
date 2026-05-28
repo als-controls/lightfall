@@ -431,39 +431,24 @@ class PersistentClaudeWorker(QThread):
                             return
 
                         if isinstance(block, TextBlock):
-                            # With include_partial_messages=True (Lucid's
-                            # default), text usually arrives as StreamEvent
-                            # content_block_delta and renders live. The full
-                            # AssistantMessage echoes the block; skip to
-                            # avoid double-rendering — but ONLY if we
-                            # actually saw stream events for this query.
-                            # Otherwise (e.g. CLI didn't honor the flag,
-                            # SDK shape changed, hook denied early), emit
-                            # so the chat doesn't go blank.
-                            if self._saw_partial_events:
-                                logger.info(
-                                    "[sdk-stream] TextBlock len={} (streamed; skip)",
-                                    len(block.text or ""),
-                                )
-                            else:
-                                logger.info(
-                                    "[sdk-stream] TextBlock len={} (no stream; emit fallback)",
-                                    len(block.text or ""),
-                                )
-                                self.message_received.emit(block.text)
+                            # Always emit. The widget will suppress its own
+                            # duplicate render if a streaming bubble for
+                            # this turn already shows the text. Doing the
+                            # dedup on the widget side (where we can
+                            # inspect what actually rendered) is safer
+                            # than the worker trying to predict it.
+                            logger.info(
+                                "[sdk-stream] TextBlock len={} -> emit",
+                                len(block.text or ""),
+                            )
+                            self.message_received.emit(block.text)
                         elif isinstance(block, ThinkingBlock):
                             thinking_text = getattr(block, "thinking", "") or ""
-                            if self._saw_partial_events:
-                                logger.info(
-                                    "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
-                                    len(thinking_text),
-                                )
-                            else:
-                                logger.info(
-                                    "[sdk-stream] ThinkingBlock len={} (no stream; emit fallback)",
-                                    len(thinking_text),
-                                )
-                                self.thinking_received.emit(thinking_text)
+                            logger.info(
+                                "[sdk-stream] ThinkingBlock len={} -> emit",
+                                len(thinking_text),
+                            )
+                            self.thinking_received.emit(thinking_text)
                         elif isinstance(block, ToolUseBlock):
                             logger.info(
                                 "[sdk-stream] ToolUseBlock name={} id={}",
