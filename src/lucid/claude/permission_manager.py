@@ -74,6 +74,7 @@ class PermissionManager(QObject):
         "mcp__engine_tools__ncs_get_run_history",
         "mcp__engine_tools__ncs_get_scan_data",
         "mcp__engine_tools__ncs_get_last_run",
+        "mcp__engine_tools__ncs_wait_for_idle",
         # ipython_tools agent
         "mcp__ipython_tools__ncs_ipython_get_namespace",
         # Bare names (fallback for SDK that may dispatch without prefix)

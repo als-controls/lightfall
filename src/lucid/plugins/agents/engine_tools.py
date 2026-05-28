@@ -7,11 +7,134 @@ Provides tools for Claude to interact with the NCS RunEngine:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from lucid.plugins.agent_plugin import AgentPlugin
 from lucid.plugins.agents._mcp_helpers import mcp_result
 from lucid.utils.logging import logger
+
+# Upper bound on ncs_wait_for_idle.timeout_seconds. Long enough for any
+# realistic scan, short enough that a typo can't strand the model for
+# the rest of the session.
+_WAIT_TIMEOUT_MAX_SECONDS = 3600.0
+# Smallest practical poll cadence — prevents busy-spinning if the model
+# passes 0 or a negative number. Crossing to the GUI thread on every
+# tick is cheap but not free.
+_WAIT_POLL_MIN_SECONDS = 0.01
+
+
+def _last_run_payload() -> dict[str, Any] | None:
+    """Return metadata for the most recent Tiled run, or None if unavailable.
+
+    Designed to be called on the GUI thread (it touches ``TiledService``).
+    Errors are swallowed and surfaced as ``None`` — callers embed this in
+    larger payloads and shouldn't fail just because Tiled is down.
+    """
+    try:
+        from lucid.services.tiled_service import TiledService
+
+        service = TiledService.get_instance()
+        if not service.is_connected or service._client is None:
+            return None
+
+        client = service._client
+        keys = [k for k, _ in client.items()]
+        if not keys:
+            return None
+
+        uid = keys[-1]
+        run = client[uid]
+        metadata = run.metadata
+        start = metadata.get("start", {})
+        stop = metadata.get("stop", {})
+        return {
+            "uid": uid,
+            "plan_name": start.get("plan_name", "unknown"),
+            "start_time": start.get("time"),
+            "stop_time": stop.get("time"),
+            "exit_status": stop.get("exit_status", "unknown"),
+            "num_points": stop.get("num_events", {}).get("primary"),
+            "streams": list(run),
+        }
+    except Exception:
+        logger.exception("_last_run_payload failed")
+        return None
+
+
+def _read_engine_state_snapshot() -> tuple[str, bool]:
+    """Return ``(EngineState.name, is_idle)`` for the current engine.
+
+    Runs on the GUI thread via ``run_on_main_thread``. Failures bubble up
+    as a synthetic ``ERROR`` state so the wait loop can report something
+    sensible on timeout instead of looping silently on an exception.
+    """
+    try:
+        from lucid.acquire.engine import get_engine
+
+        engine = get_engine()
+        return engine.state.name, engine.is_idle
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.exception("ncs_wait_for_idle: engine state read failed: {}", exc)
+        return "ERROR", False
+
+
+async def _wait_for_idle_payload(
+    *,
+    timeout_seconds: float = 600.0,
+    poll_interval_seconds: float = 0.5,
+    include_last_run: bool = True,
+) -> dict[str, Any]:
+    """Block until the RunEngine reaches IDLE, the timeout elapses, or cancelled.
+
+    Polls ``engine.is_idle`` on the GUI thread between cooperative
+    ``asyncio.sleep`` calls so the SDK event loop stays responsive (cancel
+    requests can still land, the worker can still drain).
+
+    Returns the response envelope documented in the tool's MCP description.
+    On ``CancelledError`` the exception propagates — callers (the SDK worker)
+    drain the response stream on cancel, so we must not block shutdown by
+    swallowing it.
+    """
+    from lucid.claude._internal.threading import run_on_main_thread
+
+    timeout = max(0.0, min(float(timeout_seconds), _WAIT_TIMEOUT_MAX_SECONDS))
+    interval = max(_WAIT_POLL_MIN_SECONDS, float(poll_interval_seconds))
+
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    last_state = "UNKNOWN"
+    reached_idle = False
+
+    while True:
+        state_name, is_idle = run_on_main_thread(_read_engine_state_snapshot)
+        last_state = state_name
+
+        if is_idle:
+            reached_idle = True
+            break
+
+        elapsed = loop.time() - start
+        if elapsed >= timeout:
+            break
+
+        # Cap sleep so we don't overshoot the deadline on the final tick.
+        remaining = timeout - elapsed
+        await asyncio.sleep(min(interval, remaining))
+
+    elapsed = loop.time() - start
+    last_run: dict[str, Any] | None = None
+    if reached_idle and include_last_run:
+        last_run = run_on_main_thread(_last_run_payload)
+
+    return {
+        "success": True,
+        "reached_idle": reached_idle,
+        "state": last_state,
+        "elapsed_seconds": elapsed,
+        "last_run": last_run,
+        "reason": "" if reached_idle else "timeout",
+    }
 
 
 def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
@@ -496,6 +619,59 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_show)
 
         @tool(
+            name="ncs_wait_for_idle",
+            description=(
+                "Block until the RunEngine returns to IDLE, then return its state "
+                "and (optionally) the most recent run's metadata. Use this to wait "
+                "for a scan to finish before fitting data or running follow-up "
+                "plans. This suspends the model inside the tool call until the "
+                "engine is idle, so prefer it over polling ncs_get_run_status in a "
+                "loop, and over ScheduleWakeup — ScheduleWakeup currently does not "
+                "fire in LUCID's embedded Claude session. "
+                "Defaults: timeout_seconds=600 (max 3600), poll_interval=0.5s."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "timeout_seconds": {
+                        "type": "number",
+                        "description": "Abandon and return reason='timeout' if the engine isn't idle by then. Clamped to [0, 3600].",
+                        "default": 600.0,
+                    },
+                    "poll_interval_seconds": {
+                        "type": "number",
+                        "description": "How often to re-check engine state. Clamped to a minimum of 0.01s.",
+                        "default": 0.5,
+                    },
+                    "include_last_run": {
+                        "type": "boolean",
+                        "description": "When idle, include the most recent run's metadata (uid, plan_name, exit_status, …) so you don't need a second ncs_get_last_run call.",
+                        "default": True,
+                    },
+                },
+            },
+        )
+        async def wait_for_idle(args: dict) -> dict[str, Any]:
+            timeout_seconds = float(args.get("timeout_seconds", 600.0))
+            poll_interval_seconds = float(args.get("poll_interval_seconds", 0.5))
+            include_last_run = bool(args.get("include_last_run", True))
+
+            try:
+                payload = await _wait_for_idle_payload(
+                    timeout_seconds=timeout_seconds,
+                    poll_interval_seconds=poll_interval_seconds,
+                    include_last_run=include_last_run,
+                )
+                return mcp_result(payload)
+            except asyncio.CancelledError:
+                # Propagate cleanly — the SDK worker drains the response
+                # stream on cancel, and we must not block shutdown.
+                raise
+            except Exception as e:
+                logger.exception("ncs_wait_for_idle failed")
+                return mcp_result({"success": False, "error": str(e)}, is_error=True)
+
+        @tool(
             name="ncs_get_beam_status",
             description=(
                 "Get ALS storage-ring beam status: ring current (mA), beam/shutter "
@@ -540,4 +716,5 @@ class EngineToolsAgent(AgentPlugin):
             get_last_run,
             show_run,
             get_beam_status,
+            wait_for_idle,
         ]

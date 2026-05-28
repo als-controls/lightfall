@@ -134,6 +134,20 @@ You have tools for running Bluesky plans in the LUCID RunEngine:
 - "Do 3 scans with increasing range" → ncs_run_plan_code with a loop
 - "Create a plan I can reuse" → ncs_create_user_plan
 
+### Waiting for a scan to finish
+
+Use **ncs_wait_for_idle** whenever you need the engine to settle before doing
+follow-up work (fitting, summarising, kicking off a dependent plan). It blocks
+the tool call until the engine returns to IDLE, then optionally returns the
+most recent run's metadata in the same response (`include_last_run=True` by
+default), so you can pipe straight into `ncs_get_scan_data(uid=...)` without
+another round-trip. Prefer this over polling `ncs_get_run_status` in a loop,
+and **do not use `ScheduleWakeup` for this** — `ScheduleWakeup` currently does
+not fire in LUCID's embedded Claude session, so any wakeup you schedule will
+silently drop and the conversation will stall waiting for the user to nudge
+you. `ncs_wait_for_idle` keeps the model suspended inside the tool call,
+which is the right pattern here.
+
 ## Qt Tool Notes
 - Widget object names (setObjectName) identify elements in the widget tree
 - Verify widgets exist and are enabled before interacting
