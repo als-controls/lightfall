@@ -10,6 +10,28 @@ from PySide6.QtCore import QObject, QThread, Signal
 from lucid.utils.logging import logger
 
 
+def _summarize_sdk_msg(msg: Any) -> dict[str, Any]:
+    """Diagnostic one-line summary of a Claude Agent SDK stream message.
+
+    Used to investigate silent turn-ending bugs: we need to see every
+    ``stop_reason``, ``subtype``, and the shape of content blocks so we
+    can tell whether the loop exited on ``end_turn``, ``pause_turn``, or
+    a malformed tool result. Grep logs for ``[sdk-stream]`` to filter.
+    """
+    info: dict[str, Any] = {"type": type(msg).__name__}
+    for attr in ("stop_reason", "subtype", "session_id", "is_error", "num_turns"):
+        if hasattr(msg, attr):
+            info[attr] = getattr(msg, attr)
+    content = getattr(msg, "content", None)
+    if content is not None:
+        if isinstance(content, list):
+            info["block_types"] = [type(b).__name__ for b in content]
+            info["n_blocks"] = len(content)
+        else:
+            info["content_type"] = type(content).__name__
+    return info
+
+
 class ClaudeWorker(QThread):
     """
     QThread worker that runs Claude Agent SDK async operations.
@@ -77,26 +99,54 @@ class ClaudeWorker(QThread):
             )
 
             # Send the query
+            logger.info(
+                "[sdk-stream] ClaudeWorker query sent prompt_prefix={!r}",
+                self.prompt[:80],
+            )
             await self.client.query(self.prompt)
 
+            exit_reason = "stream_exhausted"
             # Receive and process responses
             async for msg in self.client.receive_response():
+                logger.info("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
                 if self._should_stop:
+                    exit_reason = "should_stop"
                     break
 
                 if isinstance(msg, AssistantMessage):
                     # Process each content block in the message
                     for block in msg.content:
                         if isinstance(block, TextBlock):
+                            logger.info(
+                                "[sdk-stream] TextBlock len={}", len(block.text or "")
+                            )
                             self.message_received.emit(block.text)
 
                         elif isinstance(block, ThinkingBlock):
+                            logger.info(
+                                "[sdk-stream] ThinkingBlock len={}",
+                                len(getattr(block, "thinking", "") or ""),
+                            )
                             self.thinking_received.emit(block.thinking)
 
                         elif isinstance(block, ToolUseBlock):
+                            logger.info(
+                                "[sdk-stream] ToolUseBlock name={} id={}",
+                                block.name,
+                                getattr(block, "id", None),
+                            )
                             self.tool_called.emit(block.name, block.input)
 
                         elif isinstance(block, ToolResultBlock):
+                            content_repr = repr(block.content)
+                            logger.info(
+                                "[sdk-stream] ToolResultBlock id={} is_error={} "
+                                "content_len={} content_preview={!s:.300}",
+                                getattr(block, "tool_use_id", None),
+                                block.is_error,
+                                len(content_repr),
+                                content_repr,
+                            )
                             self.tool_result.emit(
                                 block.tool_use_id,
                                 {"content": block.content, "is_error": block.is_error}
@@ -104,15 +154,24 @@ class ClaudeWorker(QThread):
 
                 elif isinstance(msg, ResultMessage):
                     # Query completed
+                    logger.info(
+                        "[sdk-stream] ResultMessage stop_reason={} subtype={} -> ending turn",
+                        getattr(msg, "stop_reason", None),
+                        getattr(msg, "subtype", None),
+                    )
                     self.result_received.emit({
                         "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
                         "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
                         "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
                     })
                     self.query_completed.emit()
+                    exit_reason = "result_message"
                     break
 
+            logger.info("[sdk-stream] ClaudeWorker loop exit reason={}", exit_reason)
+
         except Exception as e:
+            logger.exception("[sdk-stream] ClaudeWorker query error")
             self.error_occurred.emit(f"Query error: {str(e)}")
 
     def stop(self) -> None:
@@ -320,52 +379,105 @@ class PersistentClaudeWorker(QThread):
             )
 
             # Send the query
+            logger.info(
+                "[sdk-stream] PersistentWorker query sent prompt_prefix={!r}",
+                prompt[:80],
+            )
             await self.client.query(prompt)
 
+            exit_reason = "stream_exhausted"
             # Receive and process responses
             async for msg in self.client.receive_response():
+                logger.info("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
                 # Check for stop or cancel
                 if self._should_stop or self._cancel_requested:
                     if self._cancel_requested:
                         # Drain remaining responses so the stream is clean
                         # for the next query. Silently consume without emitting.
+                        logger.info("[sdk-stream] cancel_requested — draining")
                         await self._drain_response_stream()
                         self.query_cancelled.emit()
+                        exit_reason = "cancel_requested"
+                    else:
+                        exit_reason = "should_stop"
                     break
 
                 if isinstance(msg, AssistantMessage):
                     for block in msg.content:
                         # Check cancel between blocks too
                         if self._cancel_requested:
+                            logger.info("[sdk-stream] cancel mid-block — draining")
                             await self._drain_response_stream()
                             self.query_cancelled.emit()
                             return
 
                         if isinstance(block, TextBlock):
+                            logger.info(
+                                "[sdk-stream] TextBlock len={}", len(block.text or "")
+                            )
                             self.message_received.emit(block.text)
                         elif isinstance(block, ThinkingBlock):
+                            logger.info(
+                                "[sdk-stream] ThinkingBlock len={}",
+                                len(getattr(block, "thinking", "") or ""),
+                            )
                             self.thinking_received.emit(block.thinking)
                         elif isinstance(block, ToolUseBlock):
+                            logger.info(
+                                "[sdk-stream] ToolUseBlock name={} id={}",
+                                block.name,
+                                getattr(block, "id", None),
+                            )
                             self.tool_called.emit(block.name, block.input)
                         elif isinstance(block, ToolResultBlock):
+                            content_repr = repr(block.content)
+                            logger.info(
+                                "[sdk-stream] ToolResultBlock id={} is_error={} "
+                                "content_len={} content_preview={!s:.300}",
+                                getattr(block, "tool_use_id", None),
+                                block.is_error,
+                                len(content_repr),
+                                content_repr,
+                            )
                             self.tool_result.emit(
                                 block.tool_use_id,
                                 {"content": block.content, "is_error": block.is_error}
                             )
+                        else:
+                            logger.info(
+                                "[sdk-stream] unknown block type={}",
+                                type(block).__name__,
+                            )
 
                 elif isinstance(msg, ResultMessage):
+                    logger.info(
+                        "[sdk-stream] ResultMessage stop_reason={} subtype={} -> ending turn",
+                        getattr(msg, "stop_reason", None),
+                        getattr(msg, "subtype", None),
+                    )
                     self.result_received.emit({
                         "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
                         "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
                         "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
                     })
                     self.query_completed.emit()
+                    exit_reason = "result_message"
                     break
+                else:
+                    logger.info(
+                        "[sdk-stream] unhandled msg type={} — loop continues",
+                        type(msg).__name__,
+                    )
+
+            logger.info(
+                "[sdk-stream] PersistentWorker loop exit reason={}", exit_reason
+            )
 
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             error_msg = str(e)
+            logger.exception("[sdk-stream] PersistentWorker query error")
 
             # Detect CLI process death (common on Windows)
             if "stream closed" in error_msg.lower() or "0xC0000005" in error_msg:
@@ -383,19 +495,48 @@ class PersistentClaudeWorker(QThread):
     async def _drain_response_stream(self) -> None:
         """Drain remaining responses from the CLI after cancellation.
 
-        Consumes all pending messages without emitting signals, so the
-        stream is clean for the next query. Uses a timeout to avoid
-        hanging if the CLI is stuck.
+        Consumes pending messages without emitting signals, so the stream
+        is clean for the next query. The whole drain is bounded by a
+        wall-clock timeout: if the CLI does not emit a terminating
+        ``ResultMessage`` after we sent ``interrupt()`` (e.g. it crashed
+        mid-turn), we still return control to the worker loop instead of
+        hanging the cancel path indefinitely.
         """
+        drained = 0
+        # Tight enough that a stuck CLI can't make the UI feel frozen,
+        # generous enough to let a healthy CLI flush its terminating
+        # ResultMessage after an interrupt.
+        drain_timeout_s = 2.0
         try:
             from claude_agent_sdk.types import ResultMessage
 
-            async for msg in self.client.receive_response():
-                # Stop draining on ResultMessage (end of turn) or hard stop
-                if isinstance(msg, ResultMessage) or self._should_stop:
-                    break
+            async def _consume() -> None:
+                nonlocal drained
+                async for msg in self.client.receive_response():
+                    drained += 1
+                    logger.info(
+                        "[sdk-stream] drain msg {}", _summarize_sdk_msg(msg)
+                    )
+                    if isinstance(msg, ResultMessage) or self._should_stop:
+                        return
+
+            await asyncio.wait_for(_consume(), timeout=drain_timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[sdk-stream] drain timed out after {}s ({} messages); "
+                "giving up to keep cancel responsive",
+                drain_timeout_s,
+                drained,
+            )
         except Exception:
-            pass  # Best-effort drain — don't crash on errors
+            # Best-effort drain — log but don't crash on errors. Previously
+            # this was a bare ``pass`` which hid CLI subprocess death and
+            # JSON parse failures during cancellation.
+            logger.exception(
+                "[sdk-stream] drain exception after {} messages", drained
+            )
+        else:
+            logger.info("[sdk-stream] drain complete after {} messages", drained)
 
     def send_query(self, prompt: str) -> None:
         """
@@ -414,10 +555,14 @@ class PersistentClaudeWorker(QThread):
         """
         Request cancellation of the current query.
 
-        This sets a flag that will be checked during response processing.
-        The actual cancellation happens at the next check point (between
-        messages or content blocks). Also cancels any pending permission
-        requests so the query isn't blocked waiting for approval.
+        Sets the cancel flag, releases any pending permission prompt, and —
+        critically — dispatches the SDK's ``interrupt()`` control message on
+        the worker's event loop. Without that interrupt, the worker stays
+        blocked in ``async for msg in client.receive_response()`` until the
+        CLI happens to emit the next message, which can be many seconds
+        while the model is generating or running a tool. ``interrupt()``
+        tells the CLI to end the turn now, so the read unblocks promptly
+        and the flag check at the top of the loop fires.
 
         Returns:
             True if a query was being processed and cancel was requested.
@@ -428,8 +573,37 @@ class PersistentClaudeWorker(QThread):
             # waiting for user approval on a query they want to cancel
             if self._permission_manager is not None:
                 self._permission_manager.cancel_all_pending()
+            self._request_sdk_interrupt()
             return True
         return False
+
+    def _request_sdk_interrupt(self) -> None:
+        """Schedule ``client.interrupt()`` on the worker's event loop.
+
+        Safe to call from any thread. Best-effort: logs and swallows any
+        failure (loop closed, transport gone, control request timeout)
+        because the cancel flag and permission-cancel paths still ensure
+        we terminate eventually; the interrupt just makes it fast.
+        """
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.client.interrupt(), loop
+            )
+        except RuntimeError:
+            # Loop stopped between the check above and the schedule call.
+            return
+
+        def _log_if_failed(fut: Any) -> None:
+            exc = fut.exception()
+            if exc is not None:
+                logger.warning(
+                    "Claude SDK interrupt() raised: {}", exc
+                )
+
+        future.add_done_callback(_log_if_failed)
 
     @property
     def is_processing(self) -> bool:
@@ -440,6 +614,10 @@ class PersistentClaudeWorker(QThread):
         """Stop the worker and close the connection."""
         self._should_stop = True
         self._cancel_requested = True  # Also cancel any current query
+        # If a query is in flight, send interrupt so receive_response()
+        # unblocks promptly instead of waiting on the next CLI message.
+        if self._is_processing:
+            self._request_sdk_interrupt()
         # Signal the shutdown event if we have a loop
         if self._loop and self._shutdown_event:
             try:
