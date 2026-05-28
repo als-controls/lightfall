@@ -411,7 +411,10 @@ class PermissionManager(QObject):
         settings.remove("permission/user_always_allowed")
 
 
-def create_pre_tool_use_hook(permission_manager: PermissionManager):
+def create_pre_tool_use_hook(
+    permission_manager: PermissionManager,
+    require_approval: bool = True,
+):
     """
     Create a PreToolUse hook callback for the Claude Agent SDK.
 
@@ -420,6 +423,11 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
 
     Args:
         permission_manager: The PermissionManager instance
+        require_approval: When True, gate normal tools through the
+            approval UI. When False (e.g. ``permission_mode=
+            bypassPermissions``), skip the gate for normal tools but
+            still force ``AskUserQuestion`` through ``can_use_tool``
+            so the question UI fires.
 
     Returns:
         Async hook callback compatible with HookMatcher.hooks
@@ -444,6 +452,8 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
         # silently dismisses the question without ever asking us.
         # Explicitly returning permissionDecision="ask" forces the SDK
         # to route through can_use_tool where we render the question UI.
+        # This applies regardless of ``require_approval`` — the question
+        # tool is interactive by design.
         if tool_name == "AskUserQuestion":
             return {
                 "hookSpecificOutput": {
@@ -451,6 +461,11 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
                     "permissionDecision": "ask",
                 },
             }
+
+        # When approvals are bypassed, defer to the CLI's permission
+        # rules for all other tools — don't interpose our approval UI.
+        if not require_approval:
+            return {}
 
         # Check auto-approval first
         if permission_manager.is_auto_approved(tool_name):
@@ -486,7 +501,10 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
     return pre_tool_use_hook
 
 
-def create_can_use_tool_callback(permission_manager: PermissionManager):
+def create_can_use_tool_callback(
+    permission_manager: PermissionManager,
+    require_approval: bool = True,
+):
     """
     Create a can_use_tool callback for the Claude Agent SDK.
 
@@ -495,6 +513,9 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
 
     Args:
         permission_manager: The PermissionManager instance
+        require_approval: When True, route normal tools through the
+            approval UI. When False, auto-allow normal tools but still
+            handle ``AskUserQuestion`` via the question UI.
 
     Returns:
         Async callback function compatible with ClaudeAgentOptions.can_use_tool
@@ -554,6 +575,12 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
             return PermissionResultAllow(
                 updated_input={"questions": questions, "answers": answers}
             )
+
+        # If approvals are bypassed, auto-allow non-AskUserQuestion tools.
+        # We're only here because some hook said "ask" (or the CLI's rules
+        # otherwise routed through can_use_tool); honor the bypass intent.
+        if not require_approval:
+            return PermissionResultAllow()
 
         try:
             allowed, message = await permission_manager.request_permission(

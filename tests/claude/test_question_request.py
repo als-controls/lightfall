@@ -159,3 +159,74 @@ async def test_pre_tool_use_hook_forces_ask_for_AskUserQuestion(qtbot):
             "permissionDecision": "ask",
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_use_hook_bypass_mode_still_asks_for_AskUserQuestion(qtbot):
+    """With require_approval=False (bypassPermissions), normal tools fall
+    through to the CLI's auto-allow — but AskUserQuestion must STILL be
+    routed through can_use_tool, because it's an interactive tool, not
+    a permission gate. This was the bug the user hit: their settings
+    had bypassPermissions, so the hook was never registered, so the
+    CLI auto-dismissed AskUserQuestion."""
+    from lucid.claude.permission_manager import (
+        PermissionManager,
+        create_pre_tool_use_hook,
+    )
+
+    pm = PermissionManager()
+    hook = create_pre_tool_use_hook(pm, require_approval=False)
+
+    # AskUserQuestion still forces ask
+    result = await hook(
+        {"tool_name": "AskUserQuestion", "tool_input": {"questions": []}},
+        "tu-1", None,
+    )
+    assert result == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+        },
+    }
+
+    # Normal tool falls through to CLI default (no decision)
+    result = await hook(
+        {"tool_name": "Bash", "tool_input": {"command": "ls"}},
+        "tu-2", None,
+    )
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_can_use_tool_bypass_mode_still_handles_AskUserQuestion(qtbot):
+    """In bypass mode (require_approval=False), normal tools auto-allow,
+    but AskUserQuestion still routes through the question UI."""
+    from claude_agent_sdk import (
+        PermissionResultAllow,
+        ToolPermissionContext,
+    )
+    from lucid.claude.permission_manager import (
+        PermissionManager,
+        create_can_use_tool_callback,
+    )
+
+    pm = PermissionManager()
+    callback = create_can_use_tool_callback(pm, require_approval=False)
+
+    # Normal tool auto-allowed (no question_requested signal needed).
+    result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+    assert isinstance(result, PermissionResultAllow)
+    assert result.updated_input is None
+
+    # AskUserQuestion still goes through the question UI.
+    questions = [{"question": "OK?", "options": [{"label": "Yes"}]}]
+    pm.question_requested.connect(
+        lambda rid, _qs: pm.respond_to_question(rid, {"OK?": "Yes"})
+    )
+    result = await callback(
+        "AskUserQuestion", {"questions": questions}, ToolPermissionContext(),
+    )
+    assert isinstance(result, PermissionResultAllow)
+    assert result.updated_input == {
+        "questions": questions, "answers": {"OK?": "Yes"},
+    }

@@ -251,21 +251,23 @@ class QtClaudeAgent(QObject):
 
         # API key is now optional - CLI can authenticate via OAuth from `claude login`
 
-        # Setup permission manager for tool approval UI
+        # Setup permission manager. ALWAYS created — even with
+        # ``permission_mode="bypassPermissions"`` we still need it for
+        # ``AskUserQuestion`` routing (which is an interactive tool, not
+        # a permission ask, and must always reach the user).
         self._require_approval = require_approval
-        self._permission_manager: PermissionManager | None = None
-
+        self._permission_manager = PermissionManager(
+            parent=self, permission_mode=permission_mode
+        )
+        # Question requests must work regardless of approval mode — AskUserQuestion
+        # is an interactive tool, not a permission gate.
+        self._permission_manager.question_requested.connect(
+            self.question_requested.emit
+        )
         if require_approval:
-            self._permission_manager = PermissionManager(
-                parent=self, permission_mode=permission_mode
-            )
-            # Forward permission requests to our signal
+            # Forward standard permission requests to our signal
             self._permission_manager.permission_requested.connect(
                 self.permission_requested.emit
-            )
-            # Forward question requests to our signal
-            self._permission_manager.question_requested.connect(
-                self.question_requested.emit
             )
 
         # Create MCP tools server with Qt tools
@@ -339,25 +341,33 @@ class QtClaudeAgent(QObject):
             os.environ["ANTHROPIC_BASE_URL"] = self.api_url
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
-        # Add permission callbacks if approval is required
-        if require_approval and self._permission_manager:
-            options_dict["can_use_tool"] = create_can_use_tool_callback(
-                self._permission_manager
-            )
-            # Register PreToolUse hook — this is the primary permission
-            # gate that intercepts ALL tool calls including MCP tools.
-            try:
-                from claude_agent_sdk import HookMatcher
-                options_dict["hooks"] = {
-                    "PreToolUse": [
-                        HookMatcher(
-                            matcher=None,  # match all tools
-                            hooks=[create_pre_tool_use_hook(self._permission_manager)],
-                        )
-                    ],
-                }
-            except ImportError:
-                logger.debug("HookMatcher not available, using can_use_tool only")
+        # Register can_use_tool + PreToolUse hook ALWAYS. They serve two
+        # purposes:
+        # 1. Route ``AskUserQuestion`` to our question UI. This must work
+        #    regardless of ``permission_mode`` — even with
+        #    ``bypassPermissions`` the user wants to see the question.
+        # 2. Gate normal tools through the approval UI when require_approval.
+        #    With require_approval=False (the bypassPermissions path), the
+        #    hook returns ``{}`` for non-AskUserQuestion tools so the CLI's
+        #    auto-allow takes effect.
+        options_dict["can_use_tool"] = create_can_use_tool_callback(
+            self._permission_manager, require_approval=require_approval,
+        )
+        try:
+            from claude_agent_sdk import HookMatcher
+            options_dict["hooks"] = {
+                "PreToolUse": [
+                    HookMatcher(
+                        matcher=None,  # match all tools
+                        hooks=[create_pre_tool_use_hook(
+                            self._permission_manager,
+                            require_approval=require_approval,
+                        )],
+                    )
+                ],
+            }
+        except ImportError:
+            logger.debug("HookMatcher not available, using can_use_tool only")
 
         self.options = ClaudeAgentOptions(**options_dict)
 
