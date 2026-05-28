@@ -253,12 +253,15 @@ class ClaudeAssistantWidget(QWidget):
         self.agent.query_completed.connect(self._on_query_completed)
         self.agent.query_cancelled.connect(self._on_query_cancelled)
 
-        # Permission approval signals
+        # AskUserQuestion is interactive, not a permission gate — always
+        # connect, regardless of approval mode. In bypassPermissions the
+        # user still wants to see clarifying questions; the agent.py
+        # mirror of this asymmetry must be kept in sync with this.
+        self.agent.question_requested.connect(self._on_question_requested)
+
+        # Standard permission approval signals only when approvals required.
         if self._require_approval:
             self.agent.permission_requested.connect(self._on_permission_requested)
-            # AskUserQuestion routes through the same permission manager
-            # but uses its own widget and response API.
-            self.agent.question_requested.connect(self._on_question_requested)
 
         # Partial streaming
         self.agent.partial_block_started.connect(self._on_partial_block_started)
