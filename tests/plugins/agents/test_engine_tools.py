@@ -231,8 +231,11 @@ def _patch_uid_sequence(monkeypatch, before: str | None, after: str | None):
 
 def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
     """Wait actually slept (engine RUNNING -> IDLE) but the last uid is
-    unchanged: the plan never opened a run. status must reflect that and
-    last_run must be None so the agent doesn't fit stale data."""
+    unchanged even after the Tiled-indexing retry: the plan never opened
+    a run. status must reflect that and last_run must be None so the
+    agent doesn't fit stale data."""
+    # Shorten the retry sleep so the test isn't gated on real-time waits.
+    monkeypatch.setattr(et, "_TILED_INDEX_RETRY_S", 0.01, raising=True)
     script = (
         [EngineState.RUNNING, EngineState.RUNNING]
         + [EngineState.RUNNING, EngineState.RUNNING]
@@ -255,6 +258,54 @@ def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
     # Stale run is intentionally suppressed.
     assert result["last_run"] is None
     assert result["reason"] == ""
+
+
+def test_idle_when_tiled_indexes_after_engine_returns(monkeypatch):
+    """Race recovery: the engine flipped back to IDLE just before Tiled
+    finished indexing the new run. The first post-wait uid check sees no
+    change, but after the retry sleep Tiled has the new uid — we must
+    return status='idle' with the new run, NOT a false-positive
+    plan_never_started. This was the symptom for "the first scan thinks
+    it didn't succeed even though it did".
+    """
+    monkeypatch.setattr(et, "_TILED_INDEX_RETRY_S", 0.01, raising=True)
+    script = (
+        [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.IDLE, EngineState.IDLE]
+    )
+    _patch_engine(monkeypatch, _FakeEngine(script))
+
+    calls = {"n": 0}
+
+    def fake_payload():
+        calls["n"] += 1
+        # Call 1: initial snapshot — old uid.
+        # Call 2: immediate after-wait check — Tiled hasn't indexed yet.
+        # Call 3: post-retry check — new run is visible.
+        # Call 4: final last_run fetch — new run.
+        if calls["n"] <= 2:
+            return {"uid": "old-uid", "plan_name": "previous"}
+        return {"uid": "new-uid", "plan_name": "scan", "exit_status": "success"}
+
+    monkeypatch.setattr(et, "_last_run_payload", fake_payload, raising=True)
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.02,
+            include_last_run=True,
+        )
+    )
+
+    assert result["status"] == "idle"
+    assert result["last_run"] is not None
+    assert result["last_run"]["uid"] == "new-uid"
+    # The retry must have happened, otherwise the bug would still be live.
+    assert calls["n"] >= 3, (
+        f"retry never fired — Tiled-indexing race would still be a false "
+        f"positive (_last_run_payload was called {calls['n']} times)"
+    )
 
 
 def test_idle_status_when_new_uid_appears(monkeypatch):

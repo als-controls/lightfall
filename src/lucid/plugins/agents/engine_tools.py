@@ -27,6 +27,11 @@ _WAIT_POLL_MIN_SECONDS = 0.01
 # 50 ms comfortably exceeds the immediate-return case (single GUI hop +
 # loop overhead) without overlapping any realistic polling cadence.
 _PLAN_START_GRACE_S = 0.05
+# How long to wait before re-checking the most-recent Tiled uid when it
+# looks like the plan didn't open a run. Tiled occasionally finishes
+# indexing slightly *after* the engine flips back to IDLE — without this
+# retry, a successful scan can be reported as plan_never_started.
+_TILED_INDEX_RETRY_S = 0.5
 
 
 def _last_run_payload() -> dict[str, Any] | None:
@@ -178,6 +183,14 @@ async def _wait_for_idle_payload(
         # last_run (the original failure mode). The grace window keeps the
         # "engine was already idle on first poll" case classified as idle.
         actually_waited = elapsed > max(interval, _PLAN_START_GRACE_S)
+        if actually_waited and final_uid == initial_uid:
+            # Tiled sometimes finishes indexing the new run shortly *after*
+            # the engine flips back to IDLE. Re-check once after a brief
+            # pause before declaring plan_never_started — otherwise a
+            # genuinely successful scan can be mislabeled and the agent
+            # refuses to fit perfectly good data.
+            await asyncio.sleep(_TILED_INDEX_RETRY_S)
+            final_uid = run_on_main_thread(_most_recent_uid)
         if actually_waited and final_uid == initial_uid:
             status = "plan_never_started"
             last_run = None
