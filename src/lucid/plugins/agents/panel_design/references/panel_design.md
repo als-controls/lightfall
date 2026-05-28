@@ -2,6 +2,13 @@
 
 This document provides the full API reference for designing BasePanel subclasses for the LUCID application.
 
+## see-also
+
+- [`cross_panel_patterns.md`](cross_panel_patterns.md) — recipes for panels
+  that reach beyond their own widgets: dispatching prompts to the Claude
+  Assistant, opening other panels, and reacting to global events (device
+  connect, plan complete).
+
 ## Required Imports
 
 ```python
@@ -208,6 +215,126 @@ def action_set_filter(self, filter_text: str = "", **kwargs) -> bool:
     self._filter_input.setText(filter_text)
     return True
 ```
+
+### The `parameters` dict
+
+The optional `"parameters"` entry declares the keyword arguments Claude may
+pass when invoking the action. It is **advisory metadata**: it is surfaced to
+Claude through `ncs_get_panel_info` so the model knows the shape of the call,
+but the framework does **not** validate it. At invoke time,
+`ncs_invoke_panel_action` passes a free-form `kwargs` object straight through
+`BasePanel.invoke_action(action, **kwargs)` into your `action_<name>(**kwargs)`
+method (see `ui/panels/base.py` and `claude/ncs_core_tools.py`).
+
+- **Keys** are parameter names. They arrive as keyword arguments to the
+  `action_*` method, so they must be valid Python identifiers.
+- **Values** are JSON-Schema type strings — `"string"`, `"integer"`,
+  `"number"`, or `"boolean"`. For a constrained choice, use a nested object:
+  `{"type": "string", "enum": ["absolute", "relative"]}`.
+- **Treat every declared parameter as required.** There is no "optional" flag,
+  and Claude will try to supply everything listed. To make a parameter
+  optional, give the method a default and *omit* it from the dict — undeclared
+  kwargs are still accepted because the handler is called with `**kwargs`.
+
+```python
+def _get_available_actions(self) -> list[dict[str, Any]]:
+    actions = super()._get_available_actions()
+    actions.append({
+        "name": "run_scan",
+        "description": "Start a scan over the named motor",
+        "method": "action_run_scan",
+        "parameters": {
+            "motor": "string",
+            "points": "integer",
+            "mode": {"type": "string", "enum": ["absolute", "relative"]},
+        },
+    })
+    return actions
+
+def action_run_scan(
+    self, motor: str, points: int, mode: str = "absolute", **kwargs
+) -> bool:
+    # `mode` is declared above, so Claude treats it as required. Drop it from
+    # `parameters` (keeping the default here) to make it truly optional.
+    ...
+    return True
+```
+
+## triggering-the-claude-assistant
+
+Some panels want a button that drives an *AI-mediated* procedure — run a skill,
+summarize the current state, draft a logbook note — rather than performing the
+work themselves. The pattern is to dispatch a prompt to the singleton Claude
+Assistant panel (`lucid.panels.claude`), which then runs the relevant skill in
+the chat the user can already see.
+
+Use this when the action is open-ended or best handled by a skill (and when you
+want the conversation visible to the operator). For deterministic, fully
+specified operations, expose an MCP action (see `mcp-introspection-api`) or do
+the work directly in the panel instead.
+
+### Recommended: use `SkillTriggerButton`
+
+`SkillTriggerButton` (`lucid.ui.widgets.skill_trigger_button`) packages the
+whole flow — get-or-open the Claude panel, guard on a busy agent, send the
+prompt, report status — into one drop-in widget. It emits `dispatched(str)`
+on success so you can chain follow-up behavior.
+
+```python
+from lucid.ui.widgets.skill_trigger_button import SkillTriggerButton
+
+btn = SkillTriggerButton(skill_name="Beam Alignment", prompt="Run the beam alignment skill.")
+self._layout.addWidget(btn)
+```
+
+### Manual pattern (for advanced cases)
+
+When you need to collect Claude's reply (as `LogbookPanel` does) rather than
+fire-and-forget, drive the bridge yourself. This mirrors
+`LogbookPanel._get_claude_panel` / `_send_to_claude`:
+
+```python
+from lucid.ui.panels.registry import PanelRegistry
+
+registry = PanelRegistry.get_instance()
+panel = registry.create("lucid.panels.claude")     # get-or-open the singleton
+widget = getattr(panel, "_claude_widget", None)
+if widget is None or not hasattr(widget, "agent"):
+    return
+agent = widget.agent
+if agent.is_busy():                                 # don't interrupt a running query
+    return
+agent.message_received.connect(self._on_claude_message)   # optional: collect reply
+agent.query_completed.connect(self._on_claude_complete)
+panel.action_send_message(prompt)                   # also shows in the chat UI
+```
+
+Agent signals worth knowing:
+
+- `is_busy() -> bool` — `True` while a query is queued or running. Always guard
+  on it before sending.
+- `message_received(str)` — emitted per response chunk. Connect to accumulate
+  Claude's reply.
+- `query_completed()` — emitted once when the query finishes. Disconnect your
+  handlers here (and clear any pending state).
+
+> **Trigger-prompt phrasing.** When writing the prompt, include the target
+> skill's name verbatim and at least one phrase from its "Use this skill
+> when…" description in `SKILL.md`. This maximizes the match-rate over
+> conversational rewordings.
+
+> **Writing a skill that's easy to trigger from a panel.** If your skill is
+> likely to be triggered from a panel button (not just a chat message), make
+> it easy:
+>
+> - Write the "Use this skill when…" description so it contains a short,
+>   action-oriented phrase a panel can put verbatim in its trigger prompt.
+>   Bad: "Use when the operator needs help with X." Good: "Use when the user
+>   asks to run X, perform an X scan, or start an X procedure."
+> - Avoid requiring information the panel can't supply. If the skill needs
+>   operator confirmation of a manual checklist, surface that as the skill's
+>   first interactive step (so the panel can fire-and-forget the prompt and
+>   let the skill handle the dialog).
 
 ## self-registration-pattern
 
@@ -449,7 +576,14 @@ from lucid.ui.toast import ToastManager
 toast = ToastManager.get_instance()
 toast.success("Title", "Message")
 toast.error("Title", "Message")
+```
 
+> **Prefer Qt palette role names** (`palette(text)`, `palette(highlight)`,
+> `palette(mid)`, `palette(window)`) over hex codes in stylesheets — they
+> auto-track theme switches and stay correct in both light and dark mode
+> without an explicit re-style.
+
+```python
 # Theme awareness
 from lucid.ui.theme import ThemeManager
 theme_mgr = ThemeManager.get_instance()
