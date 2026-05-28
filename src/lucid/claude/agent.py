@@ -189,6 +189,10 @@ class QtClaudeAgent(QObject):
     partial_text = Signal(str, str)
     partial_thinking = Signal(str, str)
     partial_block_finished = Signal(str)
+    # Task tool subagent lifecycle
+    task_started = Signal(str, str, str)
+    task_progress = Signal(str, str, dict, str)
+    task_finished = Signal(str, str, str, str, dict)
 
     def __init__(
         self,
@@ -396,6 +400,11 @@ class QtClaudeAgent(QObject):
         self._worker.partial_text.connect(self.partial_text)
         self._worker.partial_thinking.connect(self.partial_thinking)
         self._worker.partial_block_finished.connect(self.partial_block_finished)
+
+        # Task tool subagent forwards
+        self._worker.task_started.connect(self.task_started)
+        self._worker.task_progress.connect(self.task_progress)
+        self._worker.task_finished.connect(self.task_finished)
 
         # Track connection result
         result = {"success": False, "error": None}

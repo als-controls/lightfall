@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
 from lucid.claude.widgets.question_request import QuestionRequestWidget
+from lucid.claude.widgets.task_card import TaskCard
 from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
 
 
@@ -135,6 +136,11 @@ class ClaudeAssistantWidget(QWidget):
         self._pending_question_widgets: dict[str, "QuestionRequestWidget"] = {}
         # block_id -> _StreamingBubble for in-progress streamed text/thinking.
         self._streaming_bubbles: dict[str, _StreamingBubble] = {}
+        # task_id -> TaskCard
+        self._task_cards: dict[str, TaskCard] = {}
+        # tool_use_id -> task_id (so the Task tool's tool_called / tool_result
+        # can be suppressed in favor of the card)
+        self._task_tool_use_ids: dict[str, str] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
 
@@ -259,6 +265,11 @@ class ClaudeAssistantWidget(QWidget):
         self.agent.partial_thinking.connect(self._on_partial_thinking)
         self.agent.partial_block_finished.connect(self._on_partial_block_finished)
 
+        # Task tool subagent progress
+        self.agent.task_started.connect(self._on_task_started)
+        self.agent.task_progress.connect(self._on_task_progress)
+        self.agent.task_finished.connect(self._on_task_finished)
+
     @Slot()
     def _on_send_button_clicked(self) -> None:
         """Handle send/cancel button click."""
@@ -324,6 +335,10 @@ class ClaudeAssistantWidget(QWidget):
         self._pending_question_widgets.clear()
         # Clear any in-progress streaming bubbles
         self._streaming_bubbles.clear()
+        # Clear any task card tracking (the widgets themselves are children
+        # of the chat layout and were already deleted above).
+        self._task_cards.clear()
+        self._task_tool_use_ids.clear()
         self._permission_container.hide()
 
         # Reset busy state
@@ -426,9 +441,44 @@ class ClaudeAssistantWidget(QWidget):
     @Slot(str, dict)
     def _on_tool_called(self, tool_name: str, tool_input: dict) -> None:
         """Handle tool call."""
+        # The Task tool is represented by its own inline card (TaskCard);
+        # the generic "Using tool" notice would duplicate that.
+        if tool_name == "Task":
+            return
         # Simplify tool name for display
         display_name = tool_name.replace("mcp__qt__", "")
         self._append_system_message(f"Using tool: {display_name}")
+
+    @Slot(str, str, str)
+    def _on_task_started(
+        self, task_id: str, description: str, tool_use_id: str
+    ) -> None:
+        card = TaskCard(task_id, description)
+        self._task_cards[task_id] = card
+        if tool_use_id:
+            self._task_tool_use_ids[tool_use_id] = task_id
+        self._add_widget(card)
+
+    @Slot(str, str, dict, str)
+    def _on_task_progress(
+        self, task_id: str, description: str, usage: dict, last_tool: str
+    ) -> None:
+        card = self._task_cards.get(task_id)
+        if card is not None:
+            card.update_progress(description, dict(usage), last_tool)
+
+    @Slot(str, str, str, str, dict)
+    def _on_task_finished(
+        self,
+        task_id: str,
+        status: str,
+        summary: str,
+        output_file: str,
+        usage: dict,
+    ) -> None:
+        card = self._task_cards.get(task_id)
+        if card is not None:
+            card.mark_finished(status, summary, output_file, dict(usage))
 
     @Slot(str)
     def _on_error(self, error: str) -> None:
