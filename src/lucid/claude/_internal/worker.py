@@ -257,6 +257,11 @@ class PersistentClaudeWorker(QThread):
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
     connected = Signal()
+    # Partial streaming (content_block_* events from StreamEvent)
+    partial_block_started = Signal(str, str)  # block_id, kind
+    partial_text = Signal(str, str)           # block_id, delta
+    partial_thinking = Signal(str, str)       # block_id, delta
+    partial_block_finished = Signal(str)      # block_id
 
     def __init__(self, client: Any, initial_prompt: str | None = None, permission_manager: Any | None = None, parent: QObject | None = None):
         """
@@ -372,6 +377,7 @@ class PersistentClaudeWorker(QThread):
             from claude_agent_sdk.types import (
                 AssistantMessage,
                 ResultMessage,
+                StreamEvent,
                 TextBlock,
                 ThinkingBlock,
                 ToolResultBlock,
@@ -449,6 +455,9 @@ class PersistentClaudeWorker(QThread):
                                 type(block).__name__,
                             )
 
+                elif isinstance(msg, StreamEvent):
+                    self._dispatch_stream_event(msg)
+
                 elif isinstance(msg, ResultMessage):
                     logger.info(
                         "[sdk-stream] ResultMessage stop_reason={} subtype={} -> ending turn",
@@ -491,6 +500,37 @@ class PersistentClaudeWorker(QThread):
         finally:
             self._is_processing = False
             self._cancel_requested = False
+
+    def _dispatch_stream_event(self, msg: Any) -> None:
+        """Parse a StreamEvent and emit per-block partial_* signals.
+
+        Block identity is ``{message_uuid}:{event.index}`` so a single
+        assistant message's multiple content blocks (text + tool_use, say)
+        get distinct ids. Non-text/thinking events (tool input JSON deltas,
+        message-level events) are dropped here — the widget renders the
+        canonical ``ToolUseBlock`` etc. from the assembled ``AssistantMessage``.
+        """
+        event = getattr(msg, "event", None) or {}
+        event_type = event.get("type", "")
+        index = event.get("index")
+        if index is None:
+            return
+        block_id = f"{getattr(msg, 'uuid', '')}:{index}"
+
+        if event_type == "content_block_start":
+            block = event.get("content_block", {}) or {}
+            kind = block.get("type", "")
+            if kind in ("text", "thinking"):
+                self.partial_block_started.emit(block_id, kind)
+        elif event_type == "content_block_delta":
+            delta = event.get("delta", {}) or {}
+            dtype = delta.get("type", "")
+            if dtype == "text_delta":
+                self.partial_text.emit(block_id, delta.get("text", ""))
+            elif dtype == "thinking_delta":
+                self.partial_thinking.emit(block_id, delta.get("thinking", ""))
+        elif event_type == "content_block_stop":
+            self.partial_block_finished.emit(block_id)
 
     async def _drain_response_stream(self) -> None:
         """Drain remaining responses from the CLI after cancellation.
