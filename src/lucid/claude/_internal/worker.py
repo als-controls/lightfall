@@ -376,6 +376,12 @@ class PersistentClaudeWorker(QThread):
         """
         self._is_processing = True
         self._cancel_requested = False
+        # Track whether the CLI actually streamed text/thinking blocks for
+        # this query. The AssistantMessage handler uses this to decide
+        # whether to suppress its TextBlock/ThinkingBlock emit (avoiding
+        # double-render) or fall back to emitting (so the chat doesn't go
+        # blank if streaming silently failed for any reason).
+        self._saw_partial_events = False
 
         try:
             from claude_agent_sdk.types import (
@@ -426,19 +432,38 @@ class PersistentClaudeWorker(QThread):
 
                         if isinstance(block, TextBlock):
                             # With include_partial_messages=True (Lucid's
-                            # default), text already arrived as StreamEvent
-                            # content_block_delta and rendered live. The full
-                            # AssistantMessage echoes it; skip to avoid
-                            # double-rendering.
-                            logger.info(
-                                "[sdk-stream] TextBlock len={} (streamed; skip)",
-                                len(block.text or ""),
-                            )
+                            # default), text usually arrives as StreamEvent
+                            # content_block_delta and renders live. The full
+                            # AssistantMessage echoes the block; skip to
+                            # avoid double-rendering — but ONLY if we
+                            # actually saw stream events for this query.
+                            # Otherwise (e.g. CLI didn't honor the flag,
+                            # SDK shape changed, hook denied early), emit
+                            # so the chat doesn't go blank.
+                            if self._saw_partial_events:
+                                logger.info(
+                                    "[sdk-stream] TextBlock len={} (streamed; skip)",
+                                    len(block.text or ""),
+                                )
+                            else:
+                                logger.info(
+                                    "[sdk-stream] TextBlock len={} (no stream; emit fallback)",
+                                    len(block.text or ""),
+                                )
+                                self.message_received.emit(block.text)
                         elif isinstance(block, ThinkingBlock):
-                            logger.info(
-                                "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
-                                len(getattr(block, "thinking", "") or ""),
-                            )
+                            thinking_text = getattr(block, "thinking", "") or ""
+                            if self._saw_partial_events:
+                                logger.info(
+                                    "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
+                                    len(thinking_text),
+                                )
+                            else:
+                                logger.info(
+                                    "[sdk-stream] ThinkingBlock len={} (no stream; emit fallback)",
+                                    len(thinking_text),
+                                )
+                                self.thinking_received.emit(thinking_text)
                         elif isinstance(block, ToolUseBlock):
                             logger.info(
                                 "[sdk-stream] ToolUseBlock name={} id={}",
@@ -549,6 +574,7 @@ class PersistentClaudeWorker(QThread):
             block = event.get("content_block", {}) or {}
             kind = block.get("type", "")
             if kind in ("text", "thinking"):
+                self._saw_partial_events = True
                 self.partial_block_started.emit(block_id, kind)
         elif event_type == "content_block_delta":
             delta = event.get("delta", {}) or {}

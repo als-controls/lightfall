@@ -153,3 +153,70 @@ def test_assistant_message_does_not_re_emit_text_when_streamed(qtbot):
     finally:
         worker.stop()
         assert worker.wait(3000)
+
+
+def test_assistant_message_emits_when_no_stream_events_fired(qtbot):
+    """Defense-in-depth: if no partial events arrived for this query (e.g.
+    the CLI didn't honor --include-partial-messages, or the SDK shape
+    changed and our dispatch didn't match), fall back to emitting from
+    the AssistantMessage so the chat doesn't go blank.
+
+    Pre-fix this test FAILS — the suppression was unconditional, so
+    when zero stream events fired, the assembled AssistantMessage's
+    TextBlock was also suppressed and the user saw an empty card.
+    """
+    from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+    client = _StreamStubClient()
+    # No StreamEvents at all — just the assembled AssistantMessage.
+    client.script([
+        AssistantMessage(
+            content=[TextBlock(text="hello fallback")],
+            model="claude-sonnet-4-6", parent_tool_use_id=None,
+        ),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    msg_received: list[str] = []
+    worker.message_received.connect(msg_received.append)
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        # Streaming silently didn't happen — AssistantMessage must emit so
+        # the widget renders SOMETHING instead of a blank card.
+        assert msg_received == ["hello fallback"]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
+
+
+def test_thinking_fallback_when_no_stream_events_fired(qtbot):
+    """Same defense for thinking blocks."""
+    from claude_agent_sdk.types import AssistantMessage, ThinkingBlock
+
+    client = _StreamStubClient()
+    client.script([
+        AssistantMessage(
+            content=[ThinkingBlock(thinking="pondering…", signature="sig")],
+            model="claude-sonnet-4-6", parent_tool_use_id=None,
+        ),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    thinks: list[str] = []
+    worker.thinking_received.connect(thinks.append)
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        assert thinks == ["pondering…"]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
