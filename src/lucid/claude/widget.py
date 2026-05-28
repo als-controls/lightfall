@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
+from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
 
 
 class HeightForWidthWidget(QWidget):
@@ -129,6 +130,7 @@ class ClaudeAssistantWidget(QWidget):
                 api_url,
                 cli_path,
                 permission_mode=permission_mode,
+                max_turns=ClaudeSettingsProvider.get_max_turns(),
                 additional_system_prompt=additional_system_prompt,
                 require_approval=require_approval,
                 parent=self,

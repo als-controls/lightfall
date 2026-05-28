@@ -385,7 +385,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Max turns spinner
         self._max_turns_spin = QSpinBox()
-        self._max_turns_spin.setRange(1, 100)
+        self._max_turns_spin.setRange(1, 10000)
         self._max_turns_spin.setValue(20)
         self._max_turns_spin.setToolTip(
             "Maximum number of conversation turns before stopping"
