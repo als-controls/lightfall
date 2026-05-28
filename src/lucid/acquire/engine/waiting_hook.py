@@ -8,6 +8,7 @@ suitable for driving progress UI on the main thread.
 
 from __future__ import annotations
 
+import math
 import threading
 from typing import Any
 
@@ -42,9 +43,15 @@ class WaitingHookBridge(QObject):
             ``[0.0, 1.0]`` (0.0 at move start, 1.0 at move end);
             ``fraction == -1`` signals indeterminate progress.
 
-            Note: ophyd's ``MoveStatus`` reports fraction *remaining*
-            (1.0 → 0.0); the bridge inverts it so consumers see the
-            conventional fraction-complete semantics.
+            Note: the bridge derives ``fraction`` from
+            ``abs(current - initial) / abs(target - initial)`` clipped
+            to ``[0, 1]``, *not* from ophyd's ``fraction`` kwarg.
+            ophyd reports ``abs(target - current)/abs(initial - target)``
+            (fraction-remaining), which dips back below 1.0 when the
+            motor overshoots ``target`` during backlash compensation —
+            so a naive inversion makes the bar tick down at the end
+            of a negative move. Distance-traveled saturates at 1.0
+            during overshoot and stays there.
         sigDeviceFinished(str):
             ``(device_name,)`` — emitted when an individual status completes.
         sigWaitGroupCleared:
@@ -142,16 +149,20 @@ class WaitingHookBridge(QObject):
             current = float(kwargs.get("current", 0))
             initial = float(kwargs.get("initial", 0))
             target = float(kwargs.get("target", 0))
-            raw = kwargs.get("fraction", -1)
-            if raw is None:
-                # ophyd MoveStatus sends None for zero-distance / NaN moves.
+            # Distance-traveled / total-distance, clipped to [0, 1].
+            # Stays at 1.0 during backlash overshoot so the bar never
+            # ticks down. See class docstring for why we ignore the
+            # ophyd ``fraction`` kwarg.
+            total = abs(target - initial)
+            travelled = abs(current - initial)
+            if (
+                total == 0
+                or not math.isfinite(total)
+                or not math.isfinite(travelled)
+            ):
                 fraction = -1.0
             else:
-                raw_f = float(raw)
-                # ophyd emits fraction *remaining* (1.0 → 0.0); invert to
-                # fraction *complete* per the sigDeviceProgress contract.
-                # Preserve the -1 indeterminate sentinel as-is.
-                fraction = 1.0 - raw_f if 0.0 <= raw_f <= 1.0 else raw_f
+                fraction = min(travelled / total, 1.0)
             self._buffer_update(name, current, initial, target, fraction)
 
         return _on_watch
