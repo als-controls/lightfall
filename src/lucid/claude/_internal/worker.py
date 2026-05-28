@@ -602,10 +602,6 @@ class PersistentClaudeWorker(QThread):
                 else block.get("thinking", "")
             ) or ""
             if initial:
-                logger.info(
-                    "[sdk-stream] content_block_start initial_{} len={}",
-                    kind, len(initial),
-                )
                 if kind == "text":
                     self.partial_text.emit(block_id, initial)
                 else:

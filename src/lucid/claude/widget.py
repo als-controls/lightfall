@@ -21,7 +21,6 @@ from lucid.claude.widgets.permission_request import PermissionRequestWidget
 from lucid.claude.widgets.question_request import QuestionRequestWidget
 from lucid.claude.widgets.task_card import TaskCard
 from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
-from lucid.utils.logging import logger
 
 
 @dataclass
@@ -389,10 +388,6 @@ class ClaudeAssistantWidget(QWidget):
     @Slot(str, str)
     def _on_partial_block_started(self, block_id: str, kind: str) -> None:
         """Begin a streamed text or thinking bubble."""
-        logger.info(
-            "[widget-stream] partial_block_started block={} kind={}",
-            block_id, kind,
-        )
         if kind == "text":
             frame = self._create_card(
                 "",  # filled in as deltas arrive
@@ -410,10 +405,6 @@ class ClaudeAssistantWidget(QWidget):
         # last widget added to its layout by _create_card.
         label = self._find_body_label(frame)
         if label is None:
-            logger.warning(
-                "[widget-stream] _find_body_label returned None for block={}",
-                block_id,
-            )
             return
         self._streaming_bubbles[block_id] = _StreamingBubble(
             kind=kind, frame=frame, label=label, buffer=""
@@ -422,18 +413,8 @@ class ClaudeAssistantWidget(QWidget):
 
     @Slot(str, str)
     def _on_partial_text(self, block_id: str, delta: str) -> None:
-        logger.info(
-            "[widget-stream] partial_text block={} delta_len={}",
-            block_id, len(delta),
-        )
         bubble = self._streaming_bubbles.get(block_id)
-        if bubble is None:
-            logger.warning(
-                "[widget-stream] partial_text for unknown block_id={}",
-                block_id,
-            )
-            return
-        if bubble.kind != "text":
+        if bubble is None or bubble.kind != "text":
             return
         bubble.buffer += delta
         # Plain text during streaming — markdown render once on finish.
@@ -442,18 +423,8 @@ class ClaudeAssistantWidget(QWidget):
 
     @Slot(str, str)
     def _on_partial_thinking(self, block_id: str, delta: str) -> None:
-        logger.info(
-            "[widget-stream] partial_thinking block={} delta_len={}",
-            block_id, len(delta),
-        )
         bubble = self._streaming_bubbles.get(block_id)
-        if bubble is None:
-            logger.warning(
-                "[widget-stream] partial_thinking for unknown block_id={}",
-                block_id,
-            )
-            return
-        if bubble.kind != "thinking":
+        if bubble is None or bubble.kind != "thinking":
             return
         bubble.buffer += delta
         bubble.label.setText(self._escape_html(bubble.buffer))
@@ -463,15 +434,7 @@ class ClaudeAssistantWidget(QWidget):
     def _on_partial_block_finished(self, block_id: str) -> None:
         bubble = self._streaming_bubbles.pop(block_id, None)
         if bubble is None:
-            logger.info(
-                "[widget-stream] partial_block_finished for unknown block_id={}",
-                block_id,
-            )
             return
-        logger.info(
-            "[widget-stream] partial_block_finished block={} kind={} buffer_len={}",
-            block_id, bubble.kind, len(bubble.buffer),
-        )
         if not bubble.buffer:
             # Empty bubble — no content ever arrived. Remove the ghost
             # card so the AssistantMessage path's card stands alone.
