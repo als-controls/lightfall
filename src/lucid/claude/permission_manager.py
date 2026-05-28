@@ -28,6 +28,7 @@ class PermissionManager(QObject):
 
     # Signals
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    question_requested = Signal(str, list)  # request_id, questions
     auto_approvals_changed = Signal(set)  # Current set of auto-approved tools
 
     # File-edit tools auto-approved when permission_mode == "acceptEdits"
@@ -113,6 +114,12 @@ class PermissionManager(QObject):
         self._pending_loops: dict[str, asyncio.AbstractEventLoop] = {}
         self._responses: dict[str, tuple[bool, str]] = {}  # (allowed, message)
 
+        # Pending AskUserQuestion requests — parallel plumbing to permissions,
+        # but the response is a free-form answers dict, not a (bool, str) pair.
+        self._pending_questions: dict[str, asyncio.Event] = {}
+        self._pending_question_loops: dict[str, asyncio.AbstractEventLoop] = {}
+        self._question_responses: dict[str, dict[str, str] | None] = {}
+
         # Load saved preferences (but validate against whitelist policy)
         self._load_preferences()
 
@@ -197,6 +204,16 @@ class PermissionManager(QObject):
             self._responses[request_id] = (False, "Query cancelled by user")
             loop = self._pending_loops.get(request_id)
             event = self._pending_requests.get(request_id)
+            if loop and event:
+                try:
+                    loop.call_soon_threadsafe(event.set)
+                except RuntimeError:
+                    pass
+        # Also wake pending question requests with a cancel response.
+        for request_id in list(self._pending_questions.keys()):
+            self._question_responses[request_id] = None
+            loop = self._pending_question_loops.get(request_id)
+            event = self._pending_questions.get(request_id)
             if loop and event:
                 try:
                     loop.call_soon_threadsafe(event.set)
@@ -297,6 +314,59 @@ class PermissionManager(QObject):
                 self._pending_requests.pop(request_id, None)
                 self._pending_loops.pop(request_id, None)
                 self._responses.pop(request_id, None)
+
+    async def request_question(
+        self, questions: list[dict[str, Any]]
+    ) -> tuple[bool, dict[str, str]]:
+        """Request the user to answer one or more multi-choice questions.
+
+        Emits ``question_requested`` and waits for a response via
+        ``respond_to_question``. Returns ``(answered, answers)`` where
+        ``answered=False`` means the user cancelled.
+        """
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        event = asyncio.Event()
+
+        self._pending_questions[request_id] = event
+        self._pending_question_loops[request_id] = loop
+
+        self.question_requested.emit(request_id, questions)
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=300)
+        except TimeoutError:
+            self._pending_questions.pop(request_id, None)
+            self._pending_question_loops.pop(request_id, None)
+            self._question_responses.pop(request_id, None)
+            return (False, {})
+
+        self._pending_questions.pop(request_id, None)
+        self._pending_question_loops.pop(request_id, None)
+        answers = self._question_responses.pop(request_id, None)
+        if answers is None:
+            return (False, {})
+        return (True, answers)
+
+    def respond_to_question(
+        self, request_id: str, answers: dict[str, str] | None
+    ) -> None:
+        """Provide answers to a pending question request.
+
+        Pass ``answers=None`` to indicate the user cancelled.
+        """
+        if request_id not in self._pending_questions:
+            return
+        self._question_responses[request_id] = answers
+        loop = self._pending_question_loops.get(request_id)
+        event = self._pending_questions.get(request_id)
+        if loop and event:
+            try:
+                loop.call_soon_threadsafe(event.set)
+            except RuntimeError:
+                self._pending_questions.pop(request_id, None)
+                self._pending_question_loops.pop(request_id, None)
+                self._question_responses.pop(request_id, None)
 
     def has_pending_request(self, request_id: str) -> bool:
         """
