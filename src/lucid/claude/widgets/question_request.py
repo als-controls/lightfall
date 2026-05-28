@@ -108,6 +108,7 @@ class QuestionRequestWidget(QFrame):
             v.addWidget(chip)
 
         q_label = QLabel(text)
+        q_label.setTextFormat(Qt.TextFormat.PlainText)
         q_label.setWordWrap(True)
         v.addWidget(q_label)
 
@@ -215,3 +216,12 @@ class QuestionRequestWidget(QFrame):
         return (
             text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         )
+
+    def keyPressEvent(self, event) -> None:
+        if self._is_resolved:
+            super().keyPressEvent(event)
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self._on_cancel()
+        else:
+            super().keyPressEvent(event)

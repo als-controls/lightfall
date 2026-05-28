@@ -69,3 +69,56 @@ def test_cancel_emits_cancelled(qtbot):
     widget.cancelled.connect(cancelled.append)
     widget.cancel_btn.click()
     assert cancelled == ["rid-3"]
+
+
+def test_question_text_renders_as_plaintext(qtbot):
+    """Model-provided question text must never render as HTML."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    widget = QuestionRequestWidget(
+        "rid-4",
+        [{"question": "<b>NOT BOLD</b>", "options": [{"label": "X"}]}],
+    )
+    qtbot.addWidget(widget)
+
+    labels = widget.findChildren(QLabel)
+    # Find the question label by its text content.
+    question_labels = [
+        lb for lb in labels if lb.text() == "<b>NOT BOLD</b>"
+    ]
+    assert question_labels, "question label not found by text"
+    assert question_labels[0].textFormat() == Qt.TextFormat.PlainText
+
+
+def test_escape_key_cancels(qtbot):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+
+    widget = QuestionRequestWidget(
+        "rid-5", [{"question": "Q?", "options": [{"label": "X"}]}]
+    )
+    qtbot.addWidget(widget)
+    cancelled: list[str] = []
+    widget.cancelled.connect(cancelled.append)
+
+    qtbot.keyClick(widget, Qt.Key.Key_Escape)
+    assert cancelled == ["rid-5"]
+
+
+def test_two_question_widget_pluralizes_header(qtbot):
+    from PySide6.QtWidgets import QLabel
+
+    widget = QuestionRequestWidget(
+        "rid-6",
+        [
+            {"question": "Q1?", "options": [{"label": "A"}]},
+            {"question": "Q2?", "options": [{"label": "B"}]},
+        ],
+    )
+    qtbot.addWidget(widget)
+    labels = widget.findChildren(QLabel)
+    assert any("2 questions" in lb.text() for lb in labels), (
+        "expected pluralized header for multi-question widget"
+    )
