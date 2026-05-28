@@ -262,6 +262,10 @@ class PersistentClaudeWorker(QThread):
     partial_text = Signal(str, str)           # block_id, delta
     partial_thinking = Signal(str, str)       # block_id, delta
     partial_block_finished = Signal(str)      # block_id
+    # Task tool subagent lifecycle (Task*Message)
+    task_started = Signal(str, str, str)            # task_id, description, tool_use_id
+    task_progress = Signal(str, str, dict, str)     # task_id, description, usage, last_tool
+    task_finished = Signal(str, str, str, str, dict)  # task_id, status, summary, output_file, usage
 
     def __init__(self, client: Any, initial_prompt: str | None = None, permission_manager: Any | None = None, parent: QObject | None = None):
         """
@@ -378,6 +382,9 @@ class PersistentClaudeWorker(QThread):
                 AssistantMessage,
                 ResultMessage,
                 StreamEvent,
+                TaskNotificationMessage,
+                TaskProgressMessage,
+                TaskStartedMessage,
                 TextBlock,
                 ThinkingBlock,
                 ToolResultBlock,
@@ -461,6 +468,23 @@ class PersistentClaudeWorker(QThread):
 
                 elif isinstance(msg, StreamEvent):
                     self._dispatch_stream_event(msg)
+
+                elif isinstance(msg, TaskStartedMessage):
+                    self.task_started.emit(
+                        msg.task_id, msg.description, msg.tool_use_id or "",
+                    )
+                elif isinstance(msg, TaskProgressMessage):
+                    self.task_progress.emit(
+                        msg.task_id, msg.description,
+                        dict(msg.usage) if msg.usage else {},
+                        msg.last_tool_name or "",
+                    )
+                elif isinstance(msg, TaskNotificationMessage):
+                    self.task_finished.emit(
+                        msg.task_id, msg.status, msg.summary or "",
+                        msg.output_file or "",
+                        dict(msg.usage) if msg.usage else {},
+                    )
 
                 elif isinstance(msg, ResultMessage):
                     logger.info(
