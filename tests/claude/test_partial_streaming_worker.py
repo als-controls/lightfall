@@ -115,3 +115,41 @@ def test_thinking_streaming_emits_partial_thinking(qtbot):
     finally:
         worker.stop()
         assert worker.wait(3000)
+
+
+def test_assistant_message_does_not_re_emit_text_when_streamed(qtbot):
+    """The full AssistantMessage still arrives after streaming completes.
+    With our suppression, message_received fires zero times for the
+    streamed TextBlock — partial_* already covered it."""
+    from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+    client = _StreamStubClient()
+    client.script([
+        _make_stream_event({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "text"},
+        }),
+        _make_stream_event({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "Hello"},
+        }),
+        _make_stream_event({"type": "content_block_stop", "index": 0}),
+        AssistantMessage(content=[TextBlock(text="Hello")], model="claude-sonnet-4-6", parent_tool_use_id=None),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    msg_received: list[str] = []
+    worker.message_received.connect(msg_received.append)
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        # The streamed text was rendered via partial_text; the full
+        # AssistantMessage echo must not re-emit it.
+        assert msg_received == []
+    finally:
+        worker.stop()
+        assert worker.wait(3000)

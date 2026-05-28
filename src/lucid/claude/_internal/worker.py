@@ -418,16 +418,20 @@ class PersistentClaudeWorker(QThread):
                             return
 
                         if isinstance(block, TextBlock):
+                            # With include_partial_messages=True (Lucid's
+                            # default), text already arrived as StreamEvent
+                            # content_block_delta and rendered live. The full
+                            # AssistantMessage echoes it; skip to avoid
+                            # double-rendering.
                             logger.info(
-                                "[sdk-stream] TextBlock len={}", len(block.text or "")
+                                "[sdk-stream] TextBlock len={} (streamed; skip)",
+                                len(block.text or ""),
                             )
-                            self.message_received.emit(block.text)
                         elif isinstance(block, ThinkingBlock):
                             logger.info(
-                                "[sdk-stream] ThinkingBlock len={}",
+                                "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
                                 len(getattr(block, "thinking", "") or ""),
                             )
-                            self.thinking_received.emit(block.thinking)
                         elif isinstance(block, ToolUseBlock):
                             logger.info(
                                 "[sdk-stream] ToolUseBlock name={} id={}",
