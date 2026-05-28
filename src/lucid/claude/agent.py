@@ -184,6 +184,11 @@ class QtClaudeAgent(QObject):
     result_received = Signal(dict)
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     question_requested = Signal(str, list)  # request_id, questions
+    # Partial streaming
+    partial_block_started = Signal(str, str)
+    partial_text = Signal(str, str)
+    partial_thinking = Signal(str, str)
+    partial_block_finished = Signal(str)
 
     def __init__(
         self,
@@ -311,6 +316,10 @@ class QtClaudeAgent(QObject):
             # ThinkingBlock.thinking arrive empty. Opt in to summarized text so
             # the agent panel's thinking boxes have content.
             "thinking": {"type": "adaptive", "display": "summarized"},
+            # Stream per-token deltas so the chat bubble grows live instead of
+            # waiting for the whole block. The worker translates these into
+            # partial_* signals and the widget appends as they arrive.
+            "include_partial_messages": True,
         }
 
         # Add CLI path if provided
@@ -381,6 +390,12 @@ class QtClaudeAgent(QObject):
         self._worker.query_completed.connect(self.query_completed)
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
+
+        # Partial streaming forwards
+        self._worker.partial_block_started.connect(self.partial_block_started)
+        self._worker.partial_text.connect(self.partial_text)
+        self._worker.partial_thinking.connect(self.partial_thinking)
+        self._worker.partial_block_finished.connect(self.partial_block_finished)
 
         # Track connection result
         result = {"success": False, "error": None}

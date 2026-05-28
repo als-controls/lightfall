@@ -1,5 +1,7 @@
 """ClaudeAssistantWidget - High-level embeddable chat widget."""
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
@@ -18,6 +20,15 @@ from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
 from lucid.claude.widgets.question_request import QuestionRequestWidget
 from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+
+@dataclass
+class _StreamingBubble:
+    """Tracks one in-progress streamed assistant block."""
+    kind: str  # "text" or "thinking"
+    frame: QWidget
+    label: QLabel
+    buffer: str = ""
 
 
 class HeightForWidthWidget(QWidget):
@@ -122,6 +133,8 @@ class ClaudeAssistantWidget(QWidget):
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
         # request_id -> QuestionRequestWidget
         self._pending_question_widgets: dict[str, "QuestionRequestWidget"] = {}
+        # block_id -> _StreamingBubble for in-progress streamed text/thinking.
+        self._streaming_bubbles: dict[str, _StreamingBubble] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
 
@@ -240,6 +253,12 @@ class ClaudeAssistantWidget(QWidget):
             # but uses its own widget and response API.
             self.agent.question_requested.connect(self._on_question_requested)
 
+        # Partial streaming
+        self.agent.partial_block_started.connect(self._on_partial_block_started)
+        self.agent.partial_text.connect(self._on_partial_text)
+        self.agent.partial_thinking.connect(self._on_partial_thinking)
+        self.agent.partial_block_finished.connect(self._on_partial_block_finished)
+
     @Slot()
     def _on_send_button_clicked(self) -> None:
         """Handle send/cancel button click."""
@@ -303,6 +322,8 @@ class ClaudeAssistantWidget(QWidget):
         for widget in self._pending_question_widgets.values():
             widget.deleteLater()
         self._pending_question_widgets.clear()
+        # Clear any in-progress streaming bubbles
+        self._streaming_bubbles.clear()
         self._permission_container.hide()
 
         # Reset busy state
@@ -345,6 +366,62 @@ class ClaudeAssistantWidget(QWidget):
     def _on_thinking(self, thinking: str) -> None:
         """Handle thinking block from Claude."""
         self._append_thinking_message(thinking)
+
+    @Slot(str, str)
+    def _on_partial_block_started(self, block_id: str, kind: str) -> None:
+        """Begin a streamed text or thinking bubble."""
+        if kind == "text":
+            frame = self._create_card(
+                "",  # filled in as deltas arrive
+                accent="#9c27b0",
+                label="Claude",
+                label_color="#9c27b0",
+            )
+        elif kind == "thinking":
+            frame = self._create_card(
+                "", label="Thinking", italic=True, small=True,
+            )
+        else:
+            return
+        # _create_card returns the outer QFrame; the body QLabel is the
+        # last widget added to its layout by _create_card.
+        label = self._find_body_label(frame)
+        if label is None:
+            return
+        self._streaming_bubbles[block_id] = _StreamingBubble(
+            kind=kind, frame=frame, label=label, buffer=""
+        )
+        self._add_widget(frame)
+
+    @Slot(str, str)
+    def _on_partial_text(self, block_id: str, delta: str) -> None:
+        bubble = self._streaming_bubbles.get(block_id)
+        if bubble is None or bubble.kind != "text":
+            return
+        bubble.buffer += delta
+        # Plain text during streaming — markdown render once on finish.
+        bubble.label.setText(self._escape_html(bubble.buffer))
+        self._scroll_to_bottom_if_needed()
+
+    @Slot(str, str)
+    def _on_partial_thinking(self, block_id: str, delta: str) -> None:
+        bubble = self._streaming_bubbles.get(block_id)
+        if bubble is None or bubble.kind != "thinking":
+            return
+        bubble.buffer += delta
+        bubble.label.setText(self._escape_html(bubble.buffer))
+        self._scroll_to_bottom_if_needed()
+
+    @Slot(str)
+    def _on_partial_block_finished(self, block_id: str) -> None:
+        bubble = self._streaming_bubbles.pop(block_id, None)
+        if bubble is None:
+            return
+        if bubble.kind == "text" and bubble.buffer:
+            # One markdown render at end — see spec for the perf rationale.
+            from lucid.claude.markdown import render_markdown
+            bubble.label.setText(render_markdown(bubble.buffer))
+        # thinking stays plaintext (existing widget style).
 
     @Slot(str, dict)
     def _on_tool_called(self, tool_name: str, tool_input: dict) -> None:
@@ -614,6 +691,19 @@ class ClaudeAssistantWidget(QWidget):
 
         card_layout.addWidget(body_label)
         return card
+
+    @staticmethod
+    def _find_body_label(card: QFrame) -> QLabel | None:
+        """Return the last QLabel child of a card built by _create_card —
+        that's the body label _create_card adds last."""
+        labels = card.findChildren(QLabel)
+        return labels[-1] if labels else None
+
+    def _scroll_to_bottom_if_needed(self) -> None:
+        """Defer a scroll-to-bottom; no-op if user has scrolled up."""
+        from PySide6.QtCore import QTimer
+        if self._at_bottom:
+            QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _add_widget(self, widget: QWidget) -> None:
         """Add a widget to the chat layout and scroll to bottom."""
