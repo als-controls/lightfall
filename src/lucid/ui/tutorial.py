@@ -1026,18 +1026,6 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Devices sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.claude"),
-                title="Claude Assistant",
-                message=(
-                    "An AI assistant that understands your beamline. "
-                    "Ask questions about devices, get help writing scan "
-                    "plans, or troubleshoot issues."
-                ),
-                position=CalloutPosition.RIGHT,
-                padding=4,
-                target_description="Claude sidebar button",
-            ),
-            TutorialStep(
                 target=_find_sidebar_button("lucid.panels.visualization"),
                 title="Visualization",
                 message=(
@@ -1060,6 +1048,18 @@ def _build_welcome_tutorial() -> Tutorial:
                 position=CalloutPosition.RIGHT,
                 padding=4,
                 target_description="Synoptic sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lucid.panels.claude"),
+                title="Claude Assistant",
+                message=(
+                    "An AI assistant that understands your beamline. "
+                    "Ask questions about devices, get help writing scan "
+                    "plans, or troubleshoot issues."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Claude sidebar button",
             ),
             # ── Outro: try Claude with a real prompt ──────────────
             TutorialStep(
