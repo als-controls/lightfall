@@ -6,6 +6,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
+from lucid.utils.logging import logger
+
 
 class PermissionManager(QObject):
     """
@@ -430,6 +432,10 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
     ):
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
+        logger.info(
+            "[hook] PreToolUse tool_name={!r} tool_use_id={!r}",
+            tool_name, tool_use_id,
+        )
 
         # AskUserQuestion needs to be handled in can_use_tool (which can
         # return updated_input with the user's answers); a hook can only
@@ -521,6 +527,11 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
         Returns:
             PermissionResult allowing or denying the tool use
         """
+        logger.info(
+            "[can_use_tool] tool_name={!r} input_keys={}",
+            tool_name,
+            list(tool_input.keys()) if isinstance(tool_input, dict) else None,
+        )
         if tool_name == "AskUserQuestion":
             questions = (
                 tool_input.get("questions", [])
