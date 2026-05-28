@@ -562,6 +562,14 @@ class PersistentClaudeWorker(QThread):
         get distinct ids. Non-text/thinking events (tool input JSON deltas,
         message-level events) are dropped here — the widget renders the
         canonical ``ToolUseBlock`` etc. from the assembled ``AssistantMessage``.
+
+        ``self._saw_partial_events`` is set only when actual content is
+        emitted (a non-empty initial content block OR a non-empty delta),
+        NOT merely when a ``content_block_start`` fires. That way, a CLI
+        that opens a block but never delivers content (e.g. summarized-
+        thinking mode batching everything into a single field we don't
+        recognize) leaves the flag False, letting the AssistantMessage
+        handler fall back to emitting the canonical text.
         """
         event = getattr(msg, "event", None) or {}
         event_type = event.get("type", "")
@@ -573,16 +581,39 @@ class PersistentClaudeWorker(QThread):
         if event_type == "content_block_start":
             block = event.get("content_block", {}) or {}
             kind = block.get("type", "")
-            if kind in ("text", "thinking"):
+            if kind not in ("text", "thinking"):
+                return
+            self.partial_block_started.emit(block_id, kind)
+            # Some CLI modes (e.g. thinking={display:summarized}) ship the
+            # whole block content in the start event with no following
+            # deltas. Treat that as a single big delta.
+            initial = (
+                block.get("text", "") if kind == "text"
+                else block.get("thinking", "")
+            ) or ""
+            if initial:
+                logger.info(
+                    "[sdk-stream] content_block_start initial_{} len={}",
+                    kind, len(initial),
+                )
+                if kind == "text":
+                    self.partial_text.emit(block_id, initial)
+                else:
+                    self.partial_thinking.emit(block_id, initial)
                 self._saw_partial_events = True
-                self.partial_block_started.emit(block_id, kind)
         elif event_type == "content_block_delta":
             delta = event.get("delta", {}) or {}
             dtype = delta.get("type", "")
             if dtype == "text_delta":
-                self.partial_text.emit(block_id, delta.get("text", ""))
+                text = delta.get("text", "") or ""
+                if text:
+                    self.partial_text.emit(block_id, text)
+                    self._saw_partial_events = True
             elif dtype == "thinking_delta":
-                self.partial_thinking.emit(block_id, delta.get("thinking", ""))
+                thinking = delta.get("thinking", "") or ""
+                if thinking:
+                    self.partial_thinking.emit(block_id, thinking)
+                    self._saw_partial_events = True
         elif event_type == "content_block_stop":
             self.partial_block_finished.emit(block_id)
 

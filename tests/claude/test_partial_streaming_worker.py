@@ -220,3 +220,105 @@ def test_thinking_fallback_when_no_stream_events_fired(qtbot):
     finally:
         worker.stop()
         assert worker.wait(3000)
+
+
+def test_initial_thinking_text_in_block_start_is_emitted(qtbot):
+    """thinking={display=summarized} ships the whole summary as the
+    initial ``thinking`` field of content_block_start, with no deltas
+    following. The dispatcher must emit it via partial_thinking so the
+    bubble doesn't stay empty."""
+    client = _StreamStubClient()
+    client.script([
+        _make_stream_event({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "thinking",
+                              "thinking": "the whole summary in one shot"},
+        }),
+        _make_stream_event({"type": "content_block_stop", "index": 0}),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    thinks: list[tuple[str, str]] = []
+    worker.partial_thinking.connect(lambda bid, d: thinks.append((bid, d)))
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        assert thinks == [("msg-1:0", "the whole summary in one shot")]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
+
+
+def test_initial_text_in_block_start_is_emitted(qtbot):
+    """If a content_block_start ever ships non-empty initial text (e.g.
+    the CLI batches), emit it via partial_text immediately."""
+    client = _StreamStubClient()
+    client.script([
+        _make_stream_event({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "text", "text": "initial chunk"},
+        }),
+        _make_stream_event({"type": "content_block_stop", "index": 0}),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    texts: list[tuple[str, str]] = []
+    worker.partial_text.connect(lambda bid, d: texts.append((bid, d)))
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        assert texts == [("msg-1:0", "initial chunk")]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
+
+
+def test_block_start_without_content_or_deltas_falls_back_to_AssistantMessage(qtbot):
+    """The exact production failure: content_block_start fires for thinking
+    (so partial_block_started creates a bubble), but no delta follows AND
+    no initial content was shipped. Without this protection the suppression
+    fires (because a block started) and the AssistantMessage's ThinkingBlock
+    is swallowed — user sees a blank thinking card.
+
+    With the fix, _saw_partial_events is only set when actual content is
+    emitted (deltas OR initial content in start), so the AssistantMessage
+    fallback fires and the chat shows something.
+    """
+    from claude_agent_sdk.types import AssistantMessage, ThinkingBlock
+
+    client = _StreamStubClient()
+    client.script([
+        _make_stream_event({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "thinking"},  # NO initial content
+        }),
+        # NO content_block_delta
+        _make_stream_event({"type": "content_block_stop", "index": 0}),
+        AssistantMessage(
+            content=[ThinkingBlock(thinking="full summary text", signature="s")],
+            model="claude-sonnet-4-6", parent_tool_use_id=None,
+        ),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    thinks: list[str] = []
+    worker.thinking_received.connect(thinks.append)
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        assert thinks == ["full summary text"]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
