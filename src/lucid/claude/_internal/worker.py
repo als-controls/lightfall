@@ -382,6 +382,13 @@ class PersistentClaudeWorker(QThread):
         # double-render) or fall back to emitting (so the chat doesn't go
         # blank if streaming silently failed for any reason).
         self._saw_partial_events = False
+        # The Anthropic streaming protocol identifies a content block by
+        # ``(message.id, index)``. ``StreamEvent.uuid`` is a per-event ID
+        # — NOT the per-message ID. We track the current message_id
+        # from ``message_start`` events and use it to build block_ids so
+        # that content_block_start / content_block_delta / content_block_stop
+        # events for the same block correlate.
+        self._current_message_id = ""
 
         try:
             from claude_agent_sdk.types import (
@@ -431,24 +438,33 @@ class PersistentClaudeWorker(QThread):
                             return
 
                         if isinstance(block, TextBlock):
-                            # Always emit. The widget will suppress its own
-                            # duplicate render if a streaming bubble for
-                            # this turn already shows the text. Doing the
-                            # dedup on the widget side (where we can
-                            # inspect what actually rendered) is safer
-                            # than the worker trying to predict it.
-                            logger.info(
-                                "[sdk-stream] TextBlock len={} -> emit",
-                                len(block.text or ""),
-                            )
-                            self.message_received.emit(block.text)
+                            # If we streamed content for this turn, the
+                            # widget already rendered it via partial_text.
+                            # Otherwise emit so the chat doesn't go blank.
+                            if self._saw_partial_events:
+                                logger.info(
+                                    "[sdk-stream] TextBlock len={} (streamed; skip)",
+                                    len(block.text or ""),
+                                )
+                            else:
+                                logger.info(
+                                    "[sdk-stream] TextBlock len={} (no stream; emit)",
+                                    len(block.text or ""),
+                                )
+                                self.message_received.emit(block.text)
                         elif isinstance(block, ThinkingBlock):
                             thinking_text = getattr(block, "thinking", "") or ""
-                            logger.info(
-                                "[sdk-stream] ThinkingBlock len={} -> emit",
-                                len(thinking_text),
-                            )
-                            self.thinking_received.emit(thinking_text)
+                            if self._saw_partial_events:
+                                logger.info(
+                                    "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
+                                    len(thinking_text),
+                                )
+                            else:
+                                logger.info(
+                                    "[sdk-stream] ThinkingBlock len={} (no stream; emit)",
+                                    len(thinking_text),
+                                )
+                                self.thinking_received.emit(thinking_text)
                         elif isinstance(block, ToolUseBlock):
                             logger.info(
                                 "[sdk-stream] ToolUseBlock name={} id={}",
@@ -542,11 +558,12 @@ class PersistentClaudeWorker(QThread):
     def _dispatch_stream_event(self, msg: Any) -> None:
         """Parse a StreamEvent and emit per-block partial_* signals.
 
-        Block identity is ``{message_uuid}:{event.index}`` so a single
-        assistant message's multiple content blocks (text + tool_use, say)
-        get distinct ids. Non-text/thinking events (tool input JSON deltas,
-        message-level events) are dropped here — the widget renders the
-        canonical ``ToolUseBlock`` etc. from the assembled ``AssistantMessage``.
+        Block identity is ``{message_id}:{index}`` where ``message_id`` is
+        the ``message.id`` field carried by the ``message_start`` event.
+        We do NOT use ``StreamEvent.uuid`` — that's a per-event UUID,
+        unique to each stream event, so content_block_start /
+        content_block_delta / content_block_stop events for the same
+        block would all have different uuids and never correlate.
 
         ``self._saw_partial_events`` is set only when actual content is
         emitted (a non-empty initial content block OR a non-empty delta),
@@ -558,10 +575,18 @@ class PersistentClaudeWorker(QThread):
         """
         event = getattr(msg, "event", None) or {}
         event_type = event.get("type", "")
+
+        # Track the active message_id so subsequent content_block_*
+        # events for that message share a block_id prefix.
+        if event_type == "message_start":
+            message = event.get("message", {}) or {}
+            self._current_message_id = message.get("id", "") or ""
+            return
+
         index = event.get("index")
         if index is None:
             return
-        block_id = f"{getattr(msg, 'uuid', '')}:{index}"
+        block_id = f"{self._current_message_id}:{index}"
 
         if event_type == "content_block_start":
             block = event.get("content_block", {}) or {}

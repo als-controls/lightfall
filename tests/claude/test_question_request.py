@@ -133,7 +133,12 @@ async def test_can_use_tool_AskUserQuestion_cancel_denies(qtbot):
 
 
 @pytest.mark.asyncio
-async def test_pre_tool_use_hook_passes_through_AskUserQuestion(qtbot):
+async def test_pre_tool_use_hook_forces_ask_for_AskUserQuestion(qtbot):
+    """Production bug: returning empty dict from the hook lets the SDK
+    fall back to its CLI default, which in headless mode silently
+    dismisses AskUserQuestion without routing through can_use_tool.
+    Explicitly returning permissionDecision="ask" forces the SDK to
+    invoke can_use_tool, where we render the question UI."""
     from lucid.claude.permission_manager import (
         PermissionManager,
         create_pre_tool_use_hook,
@@ -148,5 +153,9 @@ async def test_pre_tool_use_hook_passes_through_AskUserQuestion(qtbot):
         None,
     )
 
-    # Empty dict means "no decision" — SDK falls through to can_use_tool.
-    assert result == {}
+    assert result == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+        },
+    }

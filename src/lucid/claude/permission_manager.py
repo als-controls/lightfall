@@ -431,11 +431,20 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
 
-        # Pass through AskUserQuestion — handled in can_use_tool with
-        # updated_input, which a hook cannot return. An empty dict tells
-        # the SDK "no decision", so it falls through to can_use_tool.
+        # AskUserQuestion needs to be handled in can_use_tool (which can
+        # return updated_input with the user's answers); a hook can only
+        # allow / deny / ask. Returning empty dict ("no decision") lets
+        # the SDK fall back to its CLI default — which in headless mode
+        # silently dismisses the question without ever asking us.
+        # Explicitly returning permissionDecision="ask" forces the SDK
+        # to route through can_use_tool where we render the question UI.
         if tool_name == "AskUserQuestion":
-            return {}
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                },
+            }
 
         # Check auto-approval first
         if permission_manager.is_auto_approved(tool_name):

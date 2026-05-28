@@ -32,9 +32,31 @@ class _StreamStubClient:
         pass
 
 
-def _make_stream_event(event_dict: dict, *, uuid: str = "msg-1") -> StreamEvent:
+def _make_stream_event(event_dict: dict, *, uuid: str = "evt-1") -> StreamEvent:
+    """Make a StreamEvent.
+
+    The ``uuid`` arg defaults to ``"evt-1"`` to make it visually clear in
+    tests that this is the per-EVENT uuid (which the worker no longer uses
+    to key blocks). Block correlation now goes through the message.id
+    field of the ``message_start`` event — see ``_msg_start``.
+    """
     return StreamEvent(
         uuid=uuid, session_id="sess", event=event_dict, parent_tool_use_id=None
+    )
+
+
+def _msg_start(message_id: str = "msg-1") -> StreamEvent:
+    """Stream event opening a new message with the given message.id.
+
+    Production stream events for a single message carry per-event uuids
+    that differ across events. Only ``message_start.event.message.id``
+    is stable across all events of a single assistant message.
+    """
+    return StreamEvent(
+        uuid="evt-start",
+        session_id="sess",
+        event={"type": "message_start", "message": {"id": message_id}},
+        parent_tool_use_id=None,
     )
 
 
@@ -48,19 +70,22 @@ def _result() -> ResultMessage:
 def test_text_streaming_emits_started_text_finished(qtbot):
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 0,
             "content_block": {"type": "text", "text": ""},
-        }),
+        }, uuid="evt-A"),
         _make_stream_event({
             "type": "content_block_delta", "index": 0,
             "delta": {"type": "text_delta", "text": "Hello "},
-        }),
+        }, uuid="evt-B"),
         _make_stream_event({
             "type": "content_block_delta", "index": 0,
             "delta": {"type": "text_delta", "text": "world"},
-        }),
-        _make_stream_event({"type": "content_block_stop", "index": 0}),
+        }, uuid="evt-C"),
+        _make_stream_event(
+            {"type": "content_block_stop", "index": 0}, uuid="evt-D",
+        ),
         _result(),
     ])
 
@@ -90,6 +115,7 @@ def test_text_streaming_emits_started_text_finished(qtbot):
 def test_thinking_streaming_emits_partial_thinking(qtbot):
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 1,
             "content_block": {"type": "thinking"},
@@ -117,16 +143,71 @@ def test_thinking_streaming_emits_partial_thinking(qtbot):
         assert worker.wait(3000)
 
 
-def test_assistant_message_always_emits_text_in_addition_to_streaming(qtbot):
-    """The worker now always emits message_received for AssistantMessage's
-    TextBlock, even when streaming covered the same text. Dedup is the
-    widget's job — the worker can't predict what the widget actually
-    rendered, and predicting wrong leaves blank cards (the production
-    failure mode that motivated this change)."""
+def test_block_id_uses_message_start_id_not_per_event_uuid(qtbot):
+    """Production bug: each ``StreamEvent`` carries its own ``uuid``, NOT
+    the message id. Keying blocks by ``StreamEvent.uuid`` meant
+    ``content_block_start`` and ``content_block_delta`` for the SAME
+    block had different keys, so deltas dropped as "unknown block_id"
+    and the streaming bubble stayed empty.
+
+    With the fix, block correlation goes through ``message.id`` taken
+    from the ``message_start`` event.
+    """
+    client = _StreamStubClient()
+    client.script([
+        _msg_start("msg-XYZ"),
+        # Three events with DIFFERENT per-event uuids — exactly what the
+        # real CLI produces. They must still produce the same block_id.
+        _make_stream_event({
+            "type": "content_block_start", "index": 0,
+            "content_block": {"type": "text"},
+        }, uuid="evt-aaa"),
+        _make_stream_event({
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": "live"},
+        }, uuid="evt-bbb"),
+        _make_stream_event(
+            {"type": "content_block_stop", "index": 0}, uuid="evt-ccc",
+        ),
+        _result(),
+    ])
+
+    worker = PersistentClaudeWorker(client)
+    started: list[tuple[str, str]] = []
+    texts: list[tuple[str, str]] = []
+    finished: list[str] = []
+    worker.partial_block_started.connect(
+        lambda bid, kind: started.append((bid, kind))
+    )
+    worker.partial_text.connect(lambda bid, d: texts.append((bid, d)))
+    worker.partial_block_finished.connect(finished.append)
+
+    worker.start()
+    try:
+        qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
+        with qtbot.waitSignal(worker.query_completed, timeout=3000):
+            worker.send_query("hi")
+        # All three events must use the message_id from message_start,
+        # NOT the per-event StreamEvent.uuid.
+        assert started == [("msg-XYZ:0", "text")]
+        assert texts == [("msg-XYZ:0", "live")]
+        assert finished == ["msg-XYZ:0"]
+    finally:
+        worker.stop()
+        assert worker.wait(3000)
+
+
+def test_assistant_message_skips_emit_when_streaming_covered(qtbot):
+    """When non-empty partial text deltas fired for this query, the
+    AssistantMessage's TextBlock is suppressed (streamed; skip) to
+    avoid double-rendering. Dedup is gated on actual content emission
+    (``_saw_partial_events``), not just block-start, so a CLI that opens
+    a block but never delivers content still falls back to AssistantMessage."""
     from claude_agent_sdk.types import AssistantMessage, TextBlock
 
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 0,
             "content_block": {"type": "text"},
@@ -151,10 +232,10 @@ def test_assistant_message_always_emits_text_in_addition_to_streaming(qtbot):
         qtbot.waitUntil(lambda: worker._is_connected, timeout=3000)
         with qtbot.waitSignal(worker.query_completed, timeout=3000):
             worker.send_query("hi")
-        # Streaming did its thing AND AssistantMessage emitted as the
-        # canonical fallback that the widget can trust.
+        # Streaming delivered the text; the AssistantMessage echo is
+        # suppressed (widget has the canonical streamed text already).
         assert texts == [("msg-1:0", "Hello")]
-        assert msg_received == ["Hello"]
+        assert msg_received == []
     finally:
         worker.stop()
         assert worker.wait(3000)
@@ -234,6 +315,7 @@ def test_initial_thinking_text_in_block_start_is_emitted(qtbot):
     bubble doesn't stay empty."""
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 0,
             "content_block": {"type": "thinking",
@@ -263,6 +345,7 @@ def test_initial_text_in_block_start_is_emitted(qtbot):
     the CLI batches), emit it via partial_text immediately."""
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 0,
             "content_block": {"type": "text", "text": "initial chunk"},
@@ -301,6 +384,7 @@ def test_block_start_without_content_or_deltas_falls_back_to_AssistantMessage(qt
 
     client = _StreamStubClient()
     client.script([
+        _msg_start("msg-1"),
         _make_stream_event({
             "type": "content_block_start", "index": 0,
             "content_block": {"type": "thinking"},  # NO initial content
