@@ -183,6 +183,7 @@ class QtClaudeAgent(QObject):
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    question_requested = Signal(str, list)  # request_id, questions
 
     def __init__(
         self,
@@ -252,6 +253,10 @@ class QtClaudeAgent(QObject):
             # Forward permission requests to our signal
             self._permission_manager.permission_requested.connect(
                 self.permission_requested.emit
+            )
+            # Forward question requests to our signal
+            self._permission_manager.question_requested.connect(
+                self.question_requested.emit
             )
 
         # Create MCP tools server with Qt tools
@@ -517,6 +522,19 @@ class QtClaudeAgent(QObject):
         """
         if self._permission_manager:
             self._permission_manager.respond(request_id, allowed, always, message)
+
+    def respond_to_question(
+        self,
+        request_id: str,
+        answers: dict[str, str] | None,
+    ) -> None:
+        """Provide answers to a pending AskUserQuestion request.
+
+        Pass ``answers=None`` to indicate the user cancelled the question;
+        the agent will reply with a Deny so the model knows.
+        """
+        if self._permission_manager:
+            self._permission_manager.respond_to_question(request_id, answers)
 
     def reset_conversation(self) -> None:
         """Reset the conversation by stopping the worker.

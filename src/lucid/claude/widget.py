@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from lucid.claude.agent import QtClaudeAgent
 from lucid.claude.widgets.permission_request import PermissionRequestWidget
+from lucid.claude.widgets.question_request import QuestionRequestWidget
 from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
 
 
@@ -119,6 +120,8 @@ class ClaudeAssistantWidget(QWidget):
 
         # Track pending permission widgets by request_id
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
+        # request_id -> QuestionRequestWidget
+        self._pending_question_widgets: dict[str, "QuestionRequestWidget"] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
 
@@ -233,6 +236,9 @@ class ClaudeAssistantWidget(QWidget):
         # Permission approval signals
         if self._require_approval:
             self.agent.permission_requested.connect(self._on_permission_requested)
+            # AskUserQuestion routes through the same permission manager
+            # but uses its own widget and response API.
+            self.agent.question_requested.connect(self._on_question_requested)
 
     @Slot()
     def _on_send_button_clicked(self) -> None:
@@ -293,6 +299,10 @@ class ClaudeAssistantWidget(QWidget):
             widget.deleteLater()
         self._pending_permission_widgets.clear()
         self._pending_tool_names.clear()
+        # Clear any pending question widgets
+        for widget in self._pending_question_widgets.values():
+            widget.deleteLater()
+        self._pending_question_widgets.clear()
         self._permission_container.hide()
 
         # Reset busy state
@@ -456,11 +466,51 @@ class ClaudeAssistantWidget(QWidget):
             self._permission_layout.removeWidget(widget)
             widget.deleteLater()
 
-        # Hide container if no more pending requests
-        if not self._pending_permission_widgets:
+        # Hide container if no more pending approvals or questions
+        if (
+            not self._pending_permission_widgets
+            and not self._pending_question_widgets
+        ):
             self._permission_container.hide()
             # Update placeholder to show working state
             self.input_field.setPlaceholderText("Claude is working...")
+
+    @Slot(str, list)
+    def _on_question_requested(
+        self, request_id: str, questions: list
+    ) -> None:
+        """Render an AskUserQuestion in the permission container."""
+        widget = QuestionRequestWidget(request_id, questions)
+        widget.submitted.connect(self._on_question_submitted)
+        widget.cancelled.connect(self._on_question_cancelled)
+        self._pending_question_widgets[request_id] = widget
+        self._permission_layout.addWidget(widget)
+        self._permission_container.show()
+        widget.setFocus()
+
+    @Slot(str, dict)
+    def _on_question_submitted(
+        self, request_id: str, answers: dict
+    ) -> None:
+        self.agent.respond_to_question(request_id, dict(answers))
+        self._cleanup_question_widget(request_id)
+
+    @Slot(str)
+    def _on_question_cancelled(self, request_id: str) -> None:
+        self.agent.respond_to_question(request_id, None)
+        self._cleanup_question_widget(request_id)
+
+    def _cleanup_question_widget(self, request_id: str) -> None:
+        widget = self._pending_question_widgets.pop(request_id, None)
+        if widget is not None:
+            self._permission_layout.removeWidget(widget)
+            widget.deleteLater()
+        # Hide the container only if nothing else is using it.
+        if (
+            not self._pending_permission_widgets
+            and not self._pending_question_widgets
+        ):
+            self._permission_container.hide()
 
     def _format_tool_name(self, name: str) -> str:
         """Format tool name for display (strip MCP prefixes)."""
