@@ -102,6 +102,7 @@ class TaskCard(QFrame):
 
         self.detail_description = QLabel()
         self.detail_description.setWordWrap(True)
+        self.detail_description.setTextFormat(Qt.TextFormat.PlainText)
         d.addWidget(self.detail_description)
 
         self.detail_last_tool = QLabel()
@@ -110,6 +111,7 @@ class TaskCard(QFrame):
 
         self.detail_summary = QLabel()
         self.detail_summary.setWordWrap(True)
+        self.detail_summary.setTextFormat(Qt.TextFormat.PlainText)
         d.addWidget(self.detail_summary)
 
         self.output_link = QLabel()
@@ -183,10 +185,13 @@ class TaskCard(QFrame):
             f"Last tool: {self._escape(self._last_tool)}" if self._last_tool else ""
         )
         self.detail_summary.setText(self._summary)
-        self.output_link.setText(
-            f'<a href="file://{self._output_file}">\U0001f4c4 Open transcript</a>'
-            if self._output_file else ""
-        )
+        if self._output_file:
+            escaped = self._escape(self._output_file)
+            self.output_link.setText(
+                f'<a href="file://{escaped}">\U0001f4c4 Open transcript</a>'
+            )
+        else:
+            self.output_link.setText("")
 
     def _apply_theme_style(self) -> None:
         palette = self.palette()

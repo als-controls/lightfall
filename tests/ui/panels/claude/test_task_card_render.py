@@ -44,3 +44,25 @@ def test_unknown_status_falls_back_to_completed(qtbot):
     qtbot.addWidget(card)
     card.mark_finished("bogus", "", "", {})
     assert card._status == "completed"
+
+
+def test_summary_renders_as_plaintext_not_html(qtbot):
+    """Subagent summary may contain '<' or other HTML-looking chars —
+    must render literally."""
+    from PySide6.QtCore import Qt
+
+    card = TaskCard("t1", "investigating")
+    qtbot.addWidget(card)
+    card.mark_finished("completed", "<b>NOT BOLD</b>", "", {})
+    assert card.detail_summary.textFormat() == Qt.TextFormat.PlainText
+    assert card.detail_summary.text() == "<b>NOT BOLD</b>"
+
+
+def test_output_file_path_is_escaped_in_link(qtbot):
+    """If output_file contained < or > the anchor markup must not break."""
+    card = TaskCard("t1", "investigating")
+    qtbot.addWidget(card)
+    card.mark_finished("completed", "", "/tmp/<weird>.jsonl", {})
+    text = card.output_link.text()
+    assert "/tmp/&lt;weird&gt;.jsonl" in text
+    assert "/tmp/<weird>.jsonl" not in text
