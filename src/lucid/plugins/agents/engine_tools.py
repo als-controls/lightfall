@@ -22,6 +22,11 @@ _WAIT_TIMEOUT_MAX_SECONDS = 3600.0
 # passes 0 or a negative number. Crossing to the GUI thread on every
 # tick is cheap but not free.
 _WAIT_POLL_MIN_SECONDS = 0.01
+# Grace window below which "engine was idle on first poll" rather than
+# "we waited and no run opened" — used by the plan_never_started check.
+# 50 ms comfortably exceeds the immediate-return case (single GUI hop +
+# loop overhead) without overlapping any realistic polling cadence.
+_PLAN_START_GRACE_S = 0.05
 
 
 def _last_run_payload() -> dict[str, Any] | None:
@@ -62,6 +67,23 @@ def _last_run_payload() -> dict[str, Any] | None:
         return None
 
 
+def _most_recent_uid() -> str | None:
+    """Return only the most-recent Tiled key (or None if unavailable).
+
+    Built on top of ``_last_run_payload`` rather than touching Tiled
+    directly so test stubs that patch ``_last_run_payload`` automatically
+    affect this helper too. Used by ``_wait_for_idle_payload`` to snapshot
+    "which run was latest before the wait" so it can distinguish a
+    successful empty wait from a plan that failed before opening a run
+    document.
+    """
+    payload = _last_run_payload()
+    if not payload:
+        return None
+    uid = payload.get("uid")
+    return uid if isinstance(uid, str) and uid else None
+
+
 def _read_engine_state_snapshot() -> tuple[str, bool]:
     """Return ``(EngineState.name, is_idle)`` for the current engine.
 
@@ -91,7 +113,21 @@ async def _wait_for_idle_payload(
     ``asyncio.sleep`` calls so the SDK event loop stays responsive (cancel
     requests can still land, the worker can still drain).
 
-    Returns the response envelope documented in the tool's MCP description.
+    Returns the response envelope documented in the tool's MCP description,
+    including a ``status`` field that distinguishes the three success modes:
+
+    - ``"idle"``               — engine reached IDLE and (when requested)
+                                 a fresh ``last_run`` was returned.
+    - ``"plan_never_started"`` — engine reached IDLE but no new run document
+                                 opened during the wait. The most likely
+                                 cause is a plan that failed validation or
+                                 raised before ``bps.open_run`` (e.g. an
+                                 ``md`` dict with a reserved key of the wrong
+                                 type — issue 7). ``last_run`` is null in
+                                 this case so the caller cannot accidentally
+                                 fit data from a stale prior run.
+    - ``"timeout"``             — wait abandoned without reaching IDLE.
+
     On ``CancelledError`` the exception propagates — callers (the SDK worker)
     drain the response stream on cancel, so we must not block shutdown by
     swallowing it.
@@ -100,6 +136,14 @@ async def _wait_for_idle_payload(
 
     timeout = max(0.0, min(float(timeout_seconds), _WAIT_TIMEOUT_MAX_SECONDS))
     interval = max(_WAIT_POLL_MIN_SECONDS, float(poll_interval_seconds))
+
+    # Snapshot which run was most-recent BEFORE the wait so we can detect a
+    # plan that finished (or failed) without opening a run document.
+    # Skipped when include_last_run=False since the caller has explicitly
+    # told us they don't care about run identity.
+    initial_uid: str | None = (
+        run_on_main_thread(_most_recent_uid) if include_last_run else None
+    )
 
     loop = asyncio.get_event_loop()
     start = loop.time()
@@ -124,8 +168,21 @@ async def _wait_for_idle_payload(
 
     elapsed = loop.time() - start
     last_run: dict[str, Any] | None = None
+    status = "idle" if reached_idle else "timeout"
+
     if reached_idle and include_last_run:
-        last_run = run_on_main_thread(_last_run_payload)
+        final_uid = run_on_main_thread(_most_recent_uid)
+        # If we actually slept (the engine was busy when we arrived) AND
+        # the latest run document didn't change, the submitted plan never
+        # opened a run — we masquerade as success if we return the old
+        # last_run (the original failure mode). The grace window keeps the
+        # "engine was already idle on first poll" case classified as idle.
+        actually_waited = elapsed > max(interval, _PLAN_START_GRACE_S)
+        if actually_waited and final_uid == initial_uid:
+            status = "plan_never_started"
+            last_run = None
+        else:
+            last_run = run_on_main_thread(_last_run_payload)
 
     return {
         "success": True,
@@ -133,6 +190,7 @@ async def _wait_for_idle_payload(
         "state": last_state,
         "elapsed_seconds": elapsed,
         "last_run": last_run,
+        "status": status,
         "reason": "" if reached_idle else "timeout",
     }
 
@@ -621,13 +679,26 @@ class EngineToolsAgent(AgentPlugin):
         @tool(
             name="ncs_wait_for_idle",
             description=(
-                "Block until the RunEngine returns to IDLE, then return its state "
-                "and (optionally) the most recent run's metadata. Use this to wait "
-                "for a scan to finish before fitting data or running follow-up "
-                "plans. This suspends the model inside the tool call until the "
-                "engine is idle, so prefer it over polling ncs_get_run_status in a "
-                "loop, and over ScheduleWakeup — ScheduleWakeup currently does not "
-                "fire in LUCID's embedded Claude session. "
+                "Block until the RunEngine returns to IDLE, then return its state, "
+                "an outcome `status`, and (optionally) the most recent run's "
+                "metadata. Use this to wait for a scan to finish before fitting "
+                "data or running follow-up plans. This suspends the model inside "
+                "the tool call until the engine is idle, so prefer it over polling "
+                "ncs_get_run_status in a loop, and over ScheduleWakeup — "
+                "ScheduleWakeup currently does not fire in LUCID's embedded Claude "
+                "session.\n"
+                "\n"
+                "status values:\n"
+                "  - 'idle'               : engine reached IDLE; `last_run` is the\n"
+                "                           run that just finished.\n"
+                "  - 'plan_never_started' : engine returned to IDLE but no new run\n"
+                "                           document opened during the wait — the\n"
+                "                           submitted plan failed before bps.open_run.\n"
+                "                           `last_run` is null (a stale prior run is\n"
+                "                           intentionally suppressed). Inspect engine\n"
+                "                           logs; do NOT fit any data.\n"
+                "  - 'timeout'            : abandoned without reaching IDLE.\n"
+                "\n"
                 "Defaults: timeout_seconds=600 (max 3600), poll_interval=0.5s."
             ),
             input_schema={

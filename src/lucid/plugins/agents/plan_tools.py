@@ -631,6 +631,7 @@ The code is wrapped in a function and executed — you write the body of a gener
 Pre-imported in the execution namespace:
 - bluesky.plans as bp
 - bluesky.plan_stubs as bps
+- bluesky.preprocessors as bpp   (for @bpp.run_decorator)
 - All devices from the device registry (by name)
 - numpy as np
 
@@ -638,6 +639,37 @@ Example code strings:
   "yield from bp.scan([det], motor1, -5, 5, 21)"
   "yield from bp.count([det], num=5, delay=1.0)"
   "for i in range(3):\\n    yield from bp.scan([det], motor1, -i, i, 11)"
+
+Bluesky run metadata (md={...}) — RESERVED KEYS:
+  Bluesky's document schema enforces strict types for several md keys. If
+  you set one of these with the wrong type, `bps.open_run` raises a
+  validation error and the plan never starts (ncs_wait_for_idle will then
+  return status='plan_never_started' with last_run=null). Reserved keys
+  and their required types:
+    scan_id     : int         (auto-incremented; do not set manually)
+    plan_name   : str         (free-form, but must be a string)
+    time        : float       (seconds since epoch; usually auto)
+    uid         : str         (auto-generated UUID; do not set manually)
+    detectors   : list[str]
+    motors      : list[str]
+  Use NON-reserved keys for human labels:
+    cycle_tag   : "fine_lift_cycle1"
+    note        : "drift study, run 2"
+    label, tag, comment, sample_id, ...
+  Concretely: `md={"scan_id": "lift_cycle1"}` will FAIL — scan_id must be
+  int. Use `md={"cycle_tag": "lift_cycle1", "plan_name": "rel_lift_held"}`
+  instead.
+
+Ad-hoc reads — DO NOT call `bps.trigger_and_read` outside a run:
+  A bare `yield from bps.trigger_and_read([det])` (no `@bpp.run_decorator`
+  and no `bps.open_run`) raises IllegalMessageSequence. Either wrap your
+  reads in `@bpp.run_decorator(md={...})` or use the `quick_read` tool
+  exposed by the reflection_alignment skill, which wraps a single read in
+  a proper run.
+
+After submitting, call `ncs_wait_for_idle(include_last_run=true)` and
+inspect its `status` — 'plan_never_started' means open_run failed and
+there is NO new run document to fit data from.
 
 WARNING: This executes arbitrary code in the RunEngine context. Use with caution.""",
             input_schema={
@@ -677,8 +709,13 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
             try:
                 import bluesky.plan_stubs as bps
                 import bluesky.plans as bp
+                import bluesky.preprocessors as bpp
                 namespace["bp"] = bp
                 namespace["bps"] = bps
+                # bpp.run_decorator is the standard way to wrap per-step
+                # plans in a proper Bluesky run; pre-importing it removes
+                # one common shape of "I forgot to open_run" errors.
+                namespace["bpp"] = bpp
             except ImportError:
                 return {
                     "content": [{

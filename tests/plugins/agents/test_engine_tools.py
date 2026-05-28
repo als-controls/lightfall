@@ -201,3 +201,134 @@ def test_engine_tools_registers_wait_for_idle():
         pytest.skip("claude_agent_sdk not available")
     names = {getattr(t, "name", None) or getattr(t, "__name__", None) for t in tools}
     assert "ncs_wait_for_idle" in names
+
+
+# ---------------------------------------------------------------------------
+# Issue 7: distinguish "engine returned to idle with a fresh run" from
+# "engine returned to idle but the plan failed before bps.open_run". The
+# old code reported reached_idle=True with whichever last_run was on Tiled,
+# which made a failed submission look like a successful empty run.
+# ---------------------------------------------------------------------------
+
+
+def _patch_uid_sequence(monkeypatch, before: str | None, after: str | None):
+    """Stub `_last_run_payload` so the snapshot before the wait sees `before`
+    and the snapshot after the wait sees `after`.
+
+    Implemented as a 2-call sequence — the helper is called twice during a
+    successful wait (once before, once after).
+    """
+    calls = {"n": 0}
+
+    def fake_payload():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"uid": before} if before else None
+        return {"uid": after} if after else None
+
+    monkeypatch.setattr(et, "_last_run_payload", fake_payload, raising=True)
+
+
+def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
+    """Wait actually slept (engine RUNNING -> IDLE) but the last uid is
+    unchanged: the plan never opened a run. status must reflect that and
+    last_run must be None so the agent doesn't fit stale data."""
+    script = (
+        [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.IDLE, EngineState.IDLE]
+    )
+    _patch_engine(monkeypatch, _FakeEngine(script))
+    _patch_uid_sequence(monkeypatch, before="old-uid", after="old-uid")
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.02,
+            include_last_run=True,
+        )
+    )
+
+    assert result["reached_idle"] is True
+    assert result["status"] == "plan_never_started"
+    # Stale run is intentionally suppressed.
+    assert result["last_run"] is None
+    assert result["reason"] == ""
+
+
+def test_idle_status_when_new_uid_appears(monkeypatch):
+    """The good case: a new run opened during the wait → status 'idle' and
+    last_run contains the new run's metadata."""
+    script = (
+        [EngineState.RUNNING, EngineState.RUNNING]
+        + [EngineState.IDLE, EngineState.IDLE]
+    )
+    _patch_engine(monkeypatch, _FakeEngine(script))
+    calls = {"n": 0}
+
+    # Sequence: before-snapshot, after-snapshot, then the final last_run
+    # fetch (when status='idle' the helper makes one more call to populate
+    # the response payload).
+    def fake_payload():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"uid": "old-uid", "plan_name": "previous"}
+        return {"uid": "new-uid", "plan_name": "scan", "exit_status": "success"}
+
+    monkeypatch.setattr(et, "_last_run_payload", fake_payload, raising=True)
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.02,
+            include_last_run=True,
+        )
+    )
+
+    assert result["status"] == "idle"
+    assert result["last_run"] == {
+        "uid": "new-uid",
+        "plan_name": "scan",
+        "exit_status": "success",
+    }
+
+
+def test_already_idle_treated_as_idle_status(monkeypatch):
+    """If the engine was idle on the first poll the elapsed time is below
+    the grace window — we can't distinguish 'plan finished before we asked'
+    from 'no plan was ever submitted', so we default to 'idle' and return
+    whatever last_run Tiled has."""
+    _patch_engine(monkeypatch, _FakeEngine([EngineState.IDLE]))
+    _patch_uid_sequence(monkeypatch, before="some-uid", after="some-uid")
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=1.0,
+            poll_interval_seconds=0.05,
+            include_last_run=True,
+        )
+    )
+
+    assert result["status"] == "idle"
+    assert result["last_run"] is not None
+    assert result["last_run"]["uid"] == "some-uid"
+
+
+def test_timeout_status_set_on_timeout(monkeypatch):
+    """status='timeout' must be set when reached_idle is False; last_run is
+    None regardless of include_last_run."""
+    _patch_engine(monkeypatch, _FakeEngine([EngineState.RUNNING]))
+    _patch_last_run(monkeypatch, None)
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=0.05,
+            poll_interval_seconds=0.02,
+            include_last_run=True,
+        )
+    )
+
+    assert result["reached_idle"] is False
+    assert result["status"] == "timeout"
+    assert result["last_run"] is None
