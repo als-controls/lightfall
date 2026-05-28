@@ -431,6 +431,12 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
 
+        # Pass through AskUserQuestion — handled in can_use_tool with
+        # updated_input, which a hook cannot return. An empty dict tells
+        # the SDK "no decision", so it falls through to can_use_tool.
+        if tool_name == "AskUserQuestion":
+            return {}
+
         # Check auto-approval first
         if permission_manager.is_auto_approved(tool_name):
             return {}  # Empty dict = allow (no override)
@@ -493,6 +499,11 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
         """
         Permission callback that waits for UI approval.
 
+        Special case: ``AskUserQuestion`` is the CLI's built-in clarifying
+        question tool. We render it as a question UI and inject the user's
+        answers via ``updated_input``; ``PermissionResultAllow`` can carry
+        that, hooks cannot, so this is the only place it can be handled.
+
         Args:
             tool_name: Name of the tool
             tool_input: Tool input parameters
@@ -501,6 +512,29 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
         Returns:
             PermissionResult allowing or denying the tool use
         """
+        if tool_name == "AskUserQuestion":
+            questions = (
+                tool_input.get("questions", [])
+                if isinstance(tool_input, dict) else []
+            )
+            if not questions:
+                return PermissionResultDeny(
+                    message="AskUserQuestion called with no questions"
+                )
+            try:
+                answered, answers = await permission_manager.request_question(
+                    questions
+                )
+            except Exception as e:
+                return PermissionResultDeny(
+                    message=f"Question system error: {e}"
+                )
+            if not answered:
+                return PermissionResultDeny(message="User declined to answer")
+            return PermissionResultAllow(
+                updated_input={"questions": questions, "answers": answers}
+            )
+
         try:
             allowed, message = await permission_manager.request_permission(
                 tool_name, tool_input

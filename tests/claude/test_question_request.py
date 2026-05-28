@@ -69,3 +69,84 @@ async def test_cancel_all_pending_wakes_question(qtbot):
     answered, answers = await asyncio.wait_for(task, timeout=1.0)
     assert answered is False
     assert answers == {}
+
+
+@pytest.mark.asyncio
+async def test_can_use_tool_routes_AskUserQuestion_to_request_question(qtbot):
+    from claude_agent_sdk import (
+        PermissionResultAllow,
+        PermissionResultDeny,
+        ToolPermissionContext,
+    )
+    from lucid.claude.permission_manager import (
+        PermissionManager,
+        create_can_use_tool_callback,
+    )
+
+    pm = PermissionManager()
+    callback = create_can_use_tool_callback(pm)
+    questions = [{"question": "Which?", "options": [{"label": "A"}], "multiSelect": False}]
+
+    # Respond before awaiting; we'll connect a signal handler that calls
+    # respond_to_question as soon as the request is emitted.
+    def _auto_answer(request_id: str, _qs: list) -> None:
+        pm.respond_to_question(request_id, {"Which?": "A"})
+
+    pm.question_requested.connect(_auto_answer)
+
+    result = await callback(
+        "AskUserQuestion",
+        {"questions": questions},
+        ToolPermissionContext(),
+    )
+
+    assert isinstance(result, PermissionResultAllow)
+    assert result.updated_input == {
+        "questions": questions,
+        "answers": {"Which?": "A"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_can_use_tool_AskUserQuestion_cancel_denies(qtbot):
+    from claude_agent_sdk import PermissionResultDeny, ToolPermissionContext
+    from lucid.claude.permission_manager import (
+        PermissionManager,
+        create_can_use_tool_callback,
+    )
+
+    pm = PermissionManager()
+    callback = create_can_use_tool_callback(pm)
+
+    def _auto_cancel(request_id: str, _qs: list) -> None:
+        pm.respond_to_question(request_id, None)
+
+    pm.question_requested.connect(_auto_cancel)
+
+    result = await callback(
+        "AskUserQuestion",
+        {"questions": [{"question": "Q?"}]},
+        ToolPermissionContext(),
+    )
+
+    assert isinstance(result, PermissionResultDeny)
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_use_hook_passes_through_AskUserQuestion(qtbot):
+    from lucid.claude.permission_manager import (
+        PermissionManager,
+        create_pre_tool_use_hook,
+    )
+
+    pm = PermissionManager()
+    hook = create_pre_tool_use_hook(pm)
+
+    result = await hook(
+        {"tool_name": "AskUserQuestion", "tool_input": {"questions": []}},
+        "tool_use_id_xyz",
+        None,
+    )
+
+    # Empty dict means "no decision" — SDK falls through to can_use_tool.
+    assert result == {}
