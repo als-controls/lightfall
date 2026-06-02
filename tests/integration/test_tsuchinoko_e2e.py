@@ -1,7 +1,7 @@
-"""Cross-repo end-to-end integration test: LUCID adaptive plan + Tsuchinoko.
+"""Cross-repo end-to-end integration test: Lightfall adaptive plan + Tsuchinoko.
 
 Spawns a real nats-server, creates an in-memory Tiled catalog, runs
-Tsuchinoko Core with RandomInProcess, and drives LUCID's
+Tsuchinoko Core with RandomInProcess, and drives Lightfall's
 ``adaptive_experiment`` plan through a bluesky RunEngine. Validates that
 NATS messages flow correctly and Tiled receives the expected schema.
 
@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 # Guard: skip collection entirely when the integration venv is not active.
-# The normal LUCID venv has a broken tiled[server] install, which causes
+# The normal Lightfall venv has a broken tiled[server] install, which causes
 # ImportError on collection. This guard makes `pytest --collect-only` safe.
 try:
     from tiled.catalog import in_memory as tiled_in_memory
@@ -46,7 +46,7 @@ except ImportError as _exc:
 try:
     from tsuchinoko.adaptive.random_in_process import RandomInProcess
     from tsuchinoko.core import Core, CoreState
-    from tsuchinoko.execution.lucid import LUCIDEngine
+    from tsuchinoko.execution.lightfall import LightfallEngine
     from tsuchinoko.nats.client import NATSClient
     from tsuchinoko.nats.config import NATSConfig
     from tsuchinoko.tiled.reader import TiledReader
@@ -60,7 +60,7 @@ import nats as nats_lib
 from bluesky import RunEngine
 from ophyd.sim import SynAxis, SynSignal
 
-# LUCID (under test)
+# Lightfall (under test)
 # Ensure QApplication exists before any PySide6 QObject/Signal usage
 from PySide6.QtWidgets import QApplication
 
@@ -292,7 +292,7 @@ class _FakeTiledReader:
 
 @pytest.mark.timeout(60)
 class TestAdaptiveLoopE2E:
-    """End-to-end: Tsuchinoko Core + LUCID adaptive_experiment plan."""
+    """End-to-end: Tsuchinoko Core + Lightfall adaptive_experiment plan."""
 
     def test_adaptive_loop_e2e(self, nats_server, tiled_env, fake_ipc):
         """Full adaptive loop: targets flow via NATS, results land in Tiled."""
@@ -310,11 +310,11 @@ class TestAdaptiveLoopE2E:
         # context_managers=[] avoids signal.signal() in non-main thread
         RE = RunEngine({}, context_managers=[])
 
-        # -- Fake Tiled reader for Tsuchinoko's LUCIDEngine ----------------
+        # -- Fake Tiled reader for Tsuchinoko's LightfallEngine ----------------
         fake_reader = _FakeTiledReader()
 
-        # -- LUCIDEngine (Tsuchinoko's execution engine) --------------------
-        lightfall_engine = LUCIDEngine(
+        # -- LightfallEngine (Tsuchinoko's execution engine) --------------------
+        lightfall_engine = LightfallEngine(
             nats_client=None,  # will be set after Core starts
             tiled_reader=fake_reader,
             lightfall_prefix=lightfall_prefix,
@@ -357,7 +357,7 @@ class TestAdaptiveLoopE2E:
         else:
             pytest.fail("Core NATS client did not connect within 10s")
 
-        # Inject the NATSClient into LUCIDEngine before experiment starts
+        # Inject the NATSClient into LightfallEngine before experiment starts
         lightfall_engine._nats_client = core._nats_client
 
         # -- Wire NATS: subscribe to {prefix}.adaptive.measured on behalf
@@ -365,7 +365,7 @@ class TestAdaptiveLoopE2E:
         measured_count = {"n": 0}
 
         def _on_measured(subject, data, reply):
-            """NATS callback: LUCID signals a measurement is done."""
+            """NATS callback: Lightfall signals a measurement is done."""
             measured_count["n"] += data.get("n_new_points", 1)
             lightfall_engine.signal_measurements_ready()
 
@@ -388,7 +388,7 @@ class TestAdaptiveLoopE2E:
         # -- Write TiledPublisher config ------------------------------------
         tiled_publisher.write_config(adaptive_engine)
 
-        # -- Start the LUCID plan FIRST so it subscribes to tsuchinoko.targets
+        # -- Start the Lightfall plan FIRST so it subscribes to tsuchinoko.targets
         #    before Core starts publishing targets. RunEngine needs
         #    context_managers=[] to avoid signal.signal() in non-main thread.
         plan_error = {"exc": None}
@@ -529,12 +529,12 @@ class TestTiledSchemaCanHandle:
 
 @pytest.mark.timeout(10)
 class TestNATSSubjectsMatch:
-    """Verify that LUCID and Tsuchinoko agree on NATS subject names."""
+    """Verify that Lightfall and Tsuchinoko agree on NATS subject names."""
 
     def test_targets_subject(self):
-        """LUCIDEngine publishes to 'tsuchinoko.targets'; plan subscribes same."""
+        """LightfallEngine publishes to 'tsuchinoko.targets'; plan subscribes same."""
         import inspect
-        src = inspect.getsource(LUCIDEngine.update_targets)
+        src = inspect.getsource(LightfallEngine.update_targets)
         assert '"tsuchinoko.targets"' in src
 
         # adaptive_experiment subscribes to "tsuchinoko.targets"

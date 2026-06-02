@@ -4,7 +4,7 @@ Tiny enough that the notebook fits in one cell of real logic. Designed
 for end-to-end smoke tests of the pipelines wiring, not as a useful
 data product.
 """
-from lucid_pipelines.plugin import PipelinePlugin
+from lightfall_pipelines.plugin import PipelinePlugin
 
 
 class PassthroughPipeline(PipelinePlugin):

@@ -3,15 +3,15 @@
 Exercises the full chain against live services:
 
   device-flow Keycloak login  -> bcgtiled /auth/apikey  -> JobMessage on
-  local NATS  -> lucid-pipelines executor subprocess   -> papermill on
+  local NATS  -> lightfall-pipelines executor subprocess   -> papermill on
   the passthrough fixture notebook -> Tiled write with merged access
   tags  -> client reads back the derived run.
 
-Skips collection entirely when ``LUCID_INTEGRATION`` is not set or any
-required tooling (nats-server, the lucid-pipelines venv, ipykernel)
+Skips collection entirely when ``LIGHTFALL_INTEGRATION`` is not set or any
+required tooling (nats-server, the lightfall-pipelines venv, ipykernel)
 is missing. The first successful run will print a Keycloak device-flow
 URL to the test output; the minted 7-day key is then cached at
-``~/.cache/lucid-pipelines/integration-key.json`` for subsequent runs.
+``~/.cache/lightfall-pipelines/integration-key.json`` for subsequent runs.
 
 Output runs are tagged ``beamline:test`` so they can be cleaned up out-
 of-band; the test deliberately does not delete them itself to keep the
@@ -35,15 +35,15 @@ from typing import Any
 import pytest
 
 # Guard: opt-in only.
-if not os.environ.get("LUCID_INTEGRATION"):
+if not os.environ.get("LIGHTFALL_INTEGRATION"):
     pytest.skip(
-        "set LUCID_INTEGRATION=1 to run pipelines e2e tests",
+        "set LIGHTFALL_INTEGRATION=1 to run pipelines e2e tests",
         allow_module_level=True,
     )
 
 try:
     import nats as nats_lib
-    from lucid_pipelines.executor.env_cache import EnvSpec, kernel_name_for
+    from lightfall_pipelines.executor.env_cache import EnvSpec, kernel_name_for
     from tiled.client import from_uri
 except ImportError as _exc:  # pragma: no cover
     pytest.skip(
@@ -64,20 +64,20 @@ NATS_SERVER_BIN = (
 ).replace("\\", "/")
 
 TILED_URL = os.environ.get(
-    "LUCID_INTEGRATION_TILED_URL", "http://bcgtiled.dhcp.lbl.gov:8000",
+    "LIGHTFALL_INTEGRATION_TILED_URL", "http://bcgtiled.dhcp.lbl.gov:8000",
 )
 KEYCLOAK_URL = os.environ.get(
-    "LUCID_INTEGRATION_KEYCLOAK_URL", "https://keycloak.als.lbl.gov",
+    "LIGHTFALL_INTEGRATION_KEYCLOAK_URL", "https://keycloak.als.lbl.gov",
 )
-KEYCLOAK_REALM = os.environ.get("LUCID_INTEGRATION_KEYCLOAK_REALM", "als")
+KEYCLOAK_REALM = os.environ.get("LIGHTFALL_INTEGRATION_KEYCLOAK_REALM", "als")
 KEYCLOAK_CLIENT_ID = os.environ.get(
-    "LUCID_INTEGRATION_DEVICE_CLIENT_ID", "als-tiled-device",
+    "LIGHTFALL_INTEGRATION_DEVICE_CLIENT_ID", "als-tiled-device",
 )
 
 # Lucid-pipelines venv with executor + passthrough plugin installed.
 LP_PYTHON = Path(os.environ.get(
-    "LUCID_PIPELINES_PYTHON",
-    str(Path.home() / "PycharmProjects" / "lucid-pipelines"
+    "LIGHTFALL_PIPELINES_PYTHON",
+    str(Path.home() / "PycharmProjects" / "lightfall-pipelines"
         / ".venv" / "Scripts" / "python.exe"),
 ))
 
@@ -121,24 +121,24 @@ def _wait_port(host: str, port: int, timeout: float) -> None:
 def lp_python() -> Path:
     if not LP_PYTHON.exists():
         pytest.skip(
-            f"lucid-pipelines venv python not at {LP_PYTHON}; set "
-            "LUCID_PIPELINES_PYTHON to override",
+            f"lightfall-pipelines venv python not at {LP_PYTHON}; set "
+            "LIGHTFALL_PIPELINES_PYTHON to override",
         )
     # Sanity-check the venv has everything we need.
     rc = subprocess.run(
-        [str(LP_PYTHON), "-c", "import lucid_pipelines, ipykernel, nats"],
+        [str(LP_PYTHON), "-c", "import lightfall_pipelines, ipykernel, nats"],
         capture_output=True,
     )
     if rc.returncode != 0:
         pytest.skip(
-            f"lucid-pipelines venv missing deps: {rc.stderr.decode()}",
+            f"lightfall-pipelines venv missing deps: {rc.stderr.decode()}",
         )
     return LP_PYTHON
 
 
 @pytest.fixture(scope="session")
 def passthrough_installed(lp_python):
-    """Install the passthrough fixture into the lucid-pipelines venv and
+    """Install the passthrough fixture into the lightfall-pipelines venv and
     register a Jupyter kernel under the executor's expected name."""
     # Editable install so iteration on the fixture is cheap.
     subprocess.check_call(
@@ -195,7 +195,7 @@ def tiled_api_key():
 @pytest.fixture(scope="session")
 def tiled_client(tiled_api_key):
     proxy = (
-        os.environ.get("LUCID_INTEGRATION_PROXY") or "socks5h://localhost:1080"
+        os.environ.get("LIGHTFALL_INTEGRATION_PROXY") or "socks5h://localhost:1080"
     ) if "lbl.gov" in TILED_URL else None
     import httpx
 
@@ -210,7 +210,7 @@ def tiled_client(tiled_api_key):
 
 @pytest.fixture(scope="session")
 def executor_proc(nats_server, lp_python, passthrough_installed):
-    """Spawn the lucid-pipelines executor subprocess."""
+    """Spawn the lightfall-pipelines executor subprocess."""
     tmp = Path(tempfile.mkdtemp(prefix="lightfall_e2e_"))
     notebook_store = tmp / "notebooks"
     env_cache_root = tmp / "envs"
@@ -229,7 +229,7 @@ def executor_proc(nats_server, lp_python, passthrough_installed):
     hostname = f"e2e-{uuid.uuid4().hex[:8]}"
     proc = subprocess.Popen(
         [
-            str(lp_python), "-m", "lucid_pipelines.cli",
+            str(lp_python), "-m", "lightfall_pipelines.cli",
             "--nats", nats_server,
             "--hostname", hostname,
             "--notebook-store", str(notebook_store),

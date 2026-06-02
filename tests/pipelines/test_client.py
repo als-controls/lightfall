@@ -1,4 +1,4 @@
-"""Tests for the LUCID-side PipelineClient (auth-v2)."""
+"""Tests for the Lightfall-side PipelineClient (auth-v2)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

@@ -5,7 +5,7 @@ every request — used by in-process consumers (Lightfall's own data-browser,
 RE callback writers, etc.) that share the singleton SessionManager.
 
 StaticApiKeyAuth captures a literal secret at construction time — used by
-out-of-process consumers (lightfall.exporter executor, lucid-pipelines
+out-of-process consumers (lightfall.exporter executor, lightfall-pipelines
 executor, tsuchinoko executor) that receive the key in their NATS job
 payload and have no SessionManager singleton.
 

@@ -1,4 +1,4 @@
-"""Test LUCID's small alshub-api client."""
+"""Test Lightfall's small alshub-api client."""
 import re
 import pytest
 
