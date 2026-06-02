@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=LUCID
+Name=Lightfall
 GenericName=Control System
 Comment=Lightsource Unified Control Interface Dashboard
-Exec=lucid
-Icon=gov.lbl.als.lucid
+Exec=lightfall
+Icon=gov.lbl.als.lightfall
 Categories=Science;Development;
-StartupWMClass=lucid
+StartupWMClass=lightfall
 Keywords=control;beamline;data;acquisition;
