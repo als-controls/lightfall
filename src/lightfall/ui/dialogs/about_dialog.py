@@ -63,13 +63,13 @@ class AboutDialog(LucidDialog):
 
         # Fallback text if logo couldn't be loaded
         if not logo_loaded:
-            fallback_label = QLabel("LUCID")
+            fallback_label = QLabel("Lightfall")
             fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             fallback_label.setStyleSheet("font-size: 32px; font-weight: bold;")
             layout.addWidget(fallback_label)
 
         # App name (below logo since logo includes text)
-        # Removed since logo already contains "LUCID" text
+        # Removed since logo already contains "Lightfall" text
 
         # Full name
         full_name = QLabel("Lightsource Unified Control Interface Dashboard")

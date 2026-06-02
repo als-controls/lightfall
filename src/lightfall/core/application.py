@@ -222,7 +222,7 @@ class NCSApplication(QObject):
                 type(self._qt_app).__name__,
             )
 
-        self._qt_app.setApplicationName("LUCID")
+        self._qt_app.setApplicationName("Lightfall")
         self._qt_app.setOrganizationName("ALS")
         self._qt_app.setOrganizationDomain("lbl.gov")
         self._qt_app.setDesktopFileName("gov.lbl.als.lightfall")
