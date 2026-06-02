@@ -96,6 +96,7 @@ from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
 from lightfall.ui.preferences import PreferencesManager  # noqa: E402
 from lightfall.ui.theme import ThemeManager  # noqa: E402
 from lightfall.ui.widgets.warning_banner import DismissableWarningBanner  # noqa: E402
+from lightfall.utils.data_migration import migrate_legacy_data_dir  # noqa: E402
 from lightfall.utils.editor_launcher import CodeEditor, is_editor_available  # noqa: E402
 from lightfall.utils.logging import logger  # noqa: E402
 from lightfall.utils.sentry import clear_user as sentry_clear_user  # noqa: E402
@@ -868,6 +869,9 @@ def main() -> int:
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
+    # One-time rebrand migration of the user data directory.
+    migrate_legacy_data_dir()
+
     # Get/create the application singleton
     app = NCSApplication.get_instance()
 
