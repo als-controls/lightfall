@@ -5,7 +5,7 @@ import time
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from lucid.utils.threads import (
+from lightfall.utils.threads import (
     QThreadFuture,
     QThreadFutureIterator,
     get_thread_manager,

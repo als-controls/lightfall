@@ -7,7 +7,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class ClaudeWorker(QThread):

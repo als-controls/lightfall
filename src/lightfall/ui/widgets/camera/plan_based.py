@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QPushButton, QWidget
 
-from lucid.ui.widgets.camera.base import CameraControlWidget
-from lucid.utils.logging import logger
+from lightfall.ui.widgets.camera.base import CameraControlWidget
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -100,7 +100,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
         plan = self._create_acquisition_plan(collect_dark=collect_dark)
 
         try:
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
 
             engine = get_engine()
 
@@ -130,7 +130,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
         Returns:
             A Bluesky plan generator.
         """
-        from lucid.acquire.plans.ncs_plans import simple_acquire
+        from lightfall.acquire.plans.ncs_plans import simple_acquire
 
         # Get current settings from UI
         try:
@@ -159,7 +159,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
     def _subscribe_dark_manager(self) -> None:
         self._unsubscribe_dark_manager()
         try:
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
             engine = get_engine()
             dark_mgr = self._image_view._dark_manager
             self._dark_manager_token = engine.subscribe(dark_mgr)
@@ -169,7 +169,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
     def _unsubscribe_dark_manager(self) -> None:
         if self._dark_manager_token is not None:
             try:
-                from lucid.acquire.engine import get_engine
+                from lightfall.acquire.engine import get_engine
                 get_engine().unsubscribe(self._dark_manager_token)
             except Exception:
                 pass
@@ -178,10 +178,10 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
     def _on_capture_dark(self) -> None:
         if self._device is None:
             return
-        from lucid.acquire.plans.ncs_plans import simple_acquire
+        from lightfall.acquire.plans.ncs_plans import simple_acquire
         plan = simple_acquire(detector=self._device, num_images=1, collect_dark=True)
         try:
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
             get_engine().submit(plan)
         except Exception as e:
             logger.error(f"Failed to capture dark: {e}")

@@ -9,13 +9,13 @@ This package provides:
 - TiledRecordFilterProxy: Filter proxy for Tiled records
 """
 
-from lucid.ui.models.device_tree import (
+from lightfall.ui.models.device_tree import (
     DeviceFilterProxyModel,
     DeviceTreeItem,
     DeviceTreeModel,
     NodeType,
 )
-from lucid.ui.models.thread_model import (
+from lightfall.ui.models.thread_model import (
     ThreadCpuTracker,
     ThreadFilterProxyModel,
     ThreadManagerObserver,
@@ -23,7 +23,7 @@ from lucid.ui.models.thread_model import (
     ThreadStatus,
     ThreadTableModel,
 )
-from lucid.ui.models.tiled_model import (
+from lightfall.ui.models.tiled_model import (
     TiledRecord,
     TiledRecordFilterProxy,
     TiledRecordModel,

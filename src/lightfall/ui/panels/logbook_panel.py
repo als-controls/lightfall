@@ -23,11 +23,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook.client import LogbookClient
-from lucid.logbook.entry_widget import EntryData, EntryWidget
-from lucid.logbook.fragment_widgets import FragmentData, FragmentType
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.utils.logging import logger
+from lightfall.logbook.client import LogbookClient
+from lightfall.logbook.entry_widget import EntryData, EntryWidget
+from lightfall.logbook.fragment_widgets import FragmentData, FragmentType
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.utils.logging import logger
 
 
 class LogbookPanel(BasePanel):
@@ -44,7 +44,7 @@ class LogbookPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.logbook",
+        id="lightfall.panels.logbook",
         name="Logbook",
         description="Experiment logbook for recording notes and viewing system events",
         icon="book-open",
@@ -137,7 +137,7 @@ class LogbookPanel(BasePanel):
 
             # Show/hide guest warning based on current and future auth state
             try:
-                from lucid.auth.session import SessionManager
+                from lightfall.auth.session import SessionManager
                 sm = SessionManager.get_instance()
                 self._update_guest_banner(sm.current_user)
                 sm.user_changed.connect(self._update_guest_banner)
@@ -162,10 +162,10 @@ class LogbookPanel(BasePanel):
     def _connect_entries_panel(self) -> None:
         """Find and connect to the LogbookEntriesPanel sidebar."""
         try:
-            from lucid.ui.panels.registry import PanelRegistry
+            from lightfall.ui.panels.registry import PanelRegistry
 
             registry = PanelRegistry.get_instance()
-            panel = registry.create("lucid.panels.logbook_entries")
+            panel = registry.create("lightfall.panels.logbook_entries")
             if panel is not None:
                 self._entries_panel = panel
                 panel.entry_selected.connect(self._on_entry_selected)
@@ -180,7 +180,7 @@ class LogbookPanel(BasePanel):
     def _update_guest_banner(self, user: Any) -> None:
         """Update guest state and refresh the warning banner."""
         try:
-            from lucid.auth.policy import Role
+            from lightfall.auth.policy import Role
             self._is_guest = user.highest_role == Role.GUEST
         except Exception:
             self._is_guest = True
@@ -251,7 +251,7 @@ class LogbookPanel(BasePanel):
 
     def _start_event_listener(self) -> None:
         try:
-            from lucid.logbook.event_listener import EventListener
+            from lightfall.logbook.event_listener import EventListener
             listener = EventListener.get_instance()
             listener.current_entry_id = self._current_entry_id
             listener.fragment_injected.connect(self._on_fragment_injected)
@@ -269,7 +269,7 @@ class LogbookPanel(BasePanel):
 
         # Update event listener
         try:
-            from lucid.logbook.event_listener import EventListener
+            from lightfall.logbook.event_listener import EventListener
             EventListener.get_instance().current_entry_id = entry_id
         except Exception:
             pass
@@ -449,10 +449,10 @@ class LogbookPanel(BasePanel):
     def _get_claude_panel(self):
         """Find or open the Claude panel. Returns (panel, agent) or (None, None)."""
         try:
-            from lucid.ui.panels.registry import PanelRegistry
+            from lightfall.ui.panels.registry import PanelRegistry
 
             registry = PanelRegistry.get_instance()
-            panel = registry.create("lucid.panels.claude")
+            panel = registry.create("lightfall.panels.claude")
 
             if panel and getattr(panel, "_claude_widget", None) and hasattr(panel._claude_widget, "agent"):
                 return panel, panel._claude_widget.agent

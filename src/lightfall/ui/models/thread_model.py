@@ -25,8 +25,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor
 
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture, thread_manager
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture, thread_manager
 
 if TYPE_CHECKING:
     pass

@@ -22,12 +22,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.services.tiled_service import TiledService
-    from lucid.ui.models.tiled_model import TiledRecord
+    from lightfall.services.tiled_service import TiledService
+    from lightfall.ui.models.tiled_model import TiledRecord
 
 
 # Available export types
@@ -91,15 +91,15 @@ def ping_or_spawn_exporter(
         return True
 
     # No response — spawn a local exporter
-    logger.info("No exporter running, spawning lucid-exporter")
+    logger.info("No exporter running, spawning lightfall-exporter")
     try:
         proc = subprocess.Popen(
-            ["lucid-exporter", "--nats", nats_url],
+            ["lightfall-exporter", "--nats", nats_url],
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        logger.error("lucid-exporter not found on PATH")
+        logger.error("lightfall-exporter not found on PATH")
         return False
 
     # Retry pings — give the spawned process time to connect to NATS
@@ -158,7 +158,7 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
     if ndim == 2:
         return np.asarray(dataset.read())
     elif ndim >= 3:
-        from lucid.utils.tiled_helpers import fetch_frame
+        from lightfall.utils.tiled_helpers import fetch_frame
 
         mid = dataset.shape[0] // 2
         return fetch_frame(dataset, mid)
@@ -292,7 +292,7 @@ class ExportDialog(LucidDialog):
 
     def _load_preview_image(self) -> None:
         """Load a sample frame from the first selected run in a background thread."""
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         self._ok_btn.setEnabled(False)
         self._roi_status.setText("Loading preview...")
@@ -478,7 +478,7 @@ class ExportDialog(LucidDialog):
     def _get_tiled_api_key(self) -> str | None:
         """Get the current Tiled API key from SessionManager's cache."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             return SessionManager.get_instance().get_api_key("tiled")
         except Exception as e:
             logger.debug("Could not get tiled api key: {}", e)
@@ -488,7 +488,7 @@ class ExportDialog(LucidDialog):
     def _get_proxy_url(tiled_url: str) -> str | None:
         """Get proxy URL for the Tiled server, if configured."""
         try:
-            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
             return ProxySettingsProvider.should_use_proxy_for_url(tiled_url)
         except Exception:
             return None
@@ -499,10 +499,10 @@ class ExportDialog(LucidDialog):
         Pings the exporter first. If no response, spawns a local instance.
         The ping/spawn/send flow runs in a background thread.
         """
-        from lucid.core.services import ServiceRegistry
-        from lucid.ipc.service import IPCService
-        from lucid.ui.toast import ToastManager
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.ipc.service import IPCService
+        from lightfall.ui.toast import ToastManager
+        from lightfall.utils.threads import QThreadFuture
 
         toast = ToastManager.get_instance()
         registry = ServiceRegistry.get_instance()
@@ -513,9 +513,9 @@ class ExportDialog(LucidDialog):
             return
 
         hostname = platform.node()
-        job_subject = f"lucid.export.{hostname}"
-        progress_subject = f"lucid.export.{hostname}.progress"
-        ping_subject = f"lucid.export.{hostname}.ping"
+        job_subject = f"lightfall.export.{hostname}"
+        progress_subject = f"lightfall.export.{hostname}.progress"
+        ping_subject = f"lightfall.export.{hostname}.ping"
         nats_url = ipc._nats_url
 
         job_id = message["job_id"]

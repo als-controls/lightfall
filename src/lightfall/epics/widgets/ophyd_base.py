@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, QEvent, QTimer, Signal, Slot
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class OphydWidget(QWidget):
@@ -303,7 +303,7 @@ class OphydWidget(QWidget):
 
     def _on_signal_value(self, value: Any = None, **kwargs: Any) -> None:
         """Ophyd subscription callback -- runs on a background thread."""
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         self._value = self._coerce_scalar(value)
         invoke_in_main_thread(self._apply_value_update)
@@ -314,7 +314,7 @@ class OphydWidget(QWidget):
         # A queued _InvokeEvent can outlive the underlying C++ widget (e.g. parent
         # destroyed between post and dispatch), keeping this Python wrapper alive
         # while child widgets touched by _update_display() are already gone.
-        from lucid.utils.crash_diagnostics import _is_valid
+        from lightfall.utils.crash_diagnostics import _is_valid
         if not _is_valid(self):
             return
         self._update_display()

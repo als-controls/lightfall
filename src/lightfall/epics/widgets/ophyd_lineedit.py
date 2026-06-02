@@ -6,8 +6,8 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QWidget
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class OphydLineEdit(OphydWidget):
@@ -60,7 +60,7 @@ class OphydLineEdit(OphydWidget):
     def _apply_value_update(self) -> None:
         # See OphydWidget._apply_value_update — same dead-wrapper guard, repeated
         # here because this override touches self._line_edit before super().
-        from lucid.utils.crash_diagnostics import _is_valid
+        from lightfall.utils.crash_diagnostics import _is_valid
         if not _is_valid(self) or not _is_valid(self._line_edit):
             return
         if self._modified and self._value is not None:

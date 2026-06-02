@@ -10,10 +10,10 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import BaseEngine
+    from lightfall.acquire.engine.base import BaseEngine
 
 
 class EnginePlugin(PluginType):

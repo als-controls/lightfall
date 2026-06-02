@@ -20,8 +20,8 @@ import nats
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.ipc.trust import TrustManager, TrustState
-from lucid.utils.threads import invoke_in_main_thread
+from lightfall.ipc.trust import TrustManager, TrustState
+from lightfall.utils.threads import invoke_in_main_thread
 
 __all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle", "get_ipc_service"]
 
@@ -255,7 +255,7 @@ class IPCService(QObject):
             })
 
     def _handle_discover(self, subject: str, data: dict, reply: str | None) -> None:
-        """Respond to ``_lucid.discover`` with instance identity and actions."""
+        """Respond to ``_lightfall.discover`` with instance identity and actions."""
         if reply:
             self.reply(reply, {
                 "instance_id": self._instance_id,
@@ -277,7 +277,7 @@ class IPCService(QObject):
             description="List all registered events",
         )
         # Well-known discovery subject (not prefixed)
-        self.subscribe("_lucid.discover", self._handle_discover, main_thread=False)
+        self.subscribe("_lightfall.discover", self._handle_discover, main_thread=False)
 
     # -- Trust & auth --
 
@@ -329,7 +329,7 @@ class IPCService(QObject):
             the auth cleanup plan, coordinated with IPC client updates.
         """
         if approved and session is not None:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
 
             return {
                 "status": "approved",
@@ -692,10 +692,10 @@ class IPCService(QObject):
 def get_ipc_service() -> IPCService | None:
     """Return the application's IPCService instance, or None if unavailable.
 
-    Uses the :class:`~lucid.core.services.ServiceRegistry` singleton to look
+    Uses the :class:`~lightfall.core.services.ServiceRegistry` singleton to look
     up the registered :class:`IPCService`.
     """
-    from lucid.core.services import ServiceRegistry
+    from lightfall.core.services import ServiceRegistry
 
     registry = ServiceRegistry.get_instance()
     return registry.get(IPCService, None)

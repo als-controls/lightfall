@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QCoreApplication, QEvent, QObject
 from PySide6.QtWidgets import QApplication
 
-from lucid.core.services import ServiceRegistry
-from lucid.ipc.service import IPCService
-from lucid.ipc.trust import TrustDialog, TrustManager, TrustState
-from lucid.utils.logging import configure_logging, logger
+from lightfall.core.services import ServiceRegistry
+from lightfall.ipc.service import IPCService
+from lightfall.ipc.trust import TrustDialog, TrustManager, TrustState
+from lightfall.utils.logging import configure_logging, logger
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,9 +70,9 @@ class NCSEvent(QEvent):
 class NCSEventTypes:
     """Standard NCS event types."""
 
-    CONFIG_CHANGED = NCSEvent.register_type("lucid.config.changed")
-    SERVICE_REGISTERED = NCSEvent.register_type("lucid.service.registered")
-    STATE_CHANGED = NCSEvent.register_type("lucid.state.changed")
+    CONFIG_CHANGED = NCSEvent.register_type("lightfall.config.changed")
+    SERVICE_REGISTERED = NCSEvent.register_type("lightfall.service.registered")
+    STATE_CHANGED = NCSEvent.register_type("lightfall.state.changed")
 
 
 class NCSApplication(QObject):
@@ -213,7 +213,7 @@ class NCSApplication(QObject):
         # Create Qt application with Sentry exception capture
         self._qt_app = QApplication.instance()  # type: ignore[assignment]
         if self._qt_app is None:
-            from lucid.utils.sentry import create_sentry_application
+            from lightfall.utils.sentry import create_sentry_application
 
             self._qt_app = create_sentry_application(self._argv)
         else:
@@ -225,10 +225,10 @@ class NCSApplication(QObject):
         self._qt_app.setApplicationName("LUCID")
         self._qt_app.setOrganizationName("ALS")
         self._qt_app.setOrganizationDomain("lbl.gov")
-        self._qt_app.setDesktopFileName("gov.lbl.als.lucid")
+        self._qt_app.setDesktopFileName("gov.lbl.als.lightfall")
 
         # Set application icon
-        from lucid.resources import get_app_icon
+        from lightfall.resources import get_app_icon
 
         app_icon = get_app_icon()
         if not app_icon.isNull():
@@ -249,7 +249,7 @@ class NCSApplication(QObject):
     ) -> None:
         """Register core application services."""
         # Import here to avoid circular imports
-        from lucid.config.manager import ConfigManager
+        from lightfall.config.manager import ConfigManager
 
         # Register ConfigManager
         self._services.register(
@@ -282,7 +282,7 @@ class NCSApplication(QObject):
 
     def _create_ipc_service(self, trust_manager: TrustManager) -> IPCService:
         """Factory that builds a configured :class:`IPCService`."""
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
         nats_url = prefs.get("ipc_nats_url", "")
@@ -328,7 +328,7 @@ class NCSApplication(QObject):
         events so that external IPC clients can track run lifecycle and
         engine state changes.
         """
-        from lucid.acquire.engine import get_engine
+        from lightfall.acquire.engine import get_engine
 
         engine = get_engine()
         ipc = self._services.get(IPCService)
@@ -401,13 +401,13 @@ class NCSApplication(QObject):
         Registers ``commands.plan.run`` and ``commands.plan.abort`` so that
         external IPC clients can submit plans and abort the active run.
         """
-        from lucid.acquire.engine import get_engine
+        from lightfall.acquire.engine import get_engine
 
         engine = get_engine()
         ipc = self._services.get(IPCService)
 
         def handle_plan_run(subject: str, data: dict, reply: str | None) -> None:
-            from lucid.acquire.plans.registry import get_registry
+            from lightfall.acquire.plans.registry import get_registry
 
             plan_name = data.get("plan_name")
             params = data.get("params", {})
@@ -469,7 +469,7 @@ class NCSApplication(QObject):
         can create logbook entries and fragments via the local-first
         :class:`LogbookClient`.
         """
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
 
         ipc = self._services.get(IPCService)
 
@@ -483,7 +483,7 @@ class NCSApplication(QObject):
             # Determine the active logbook ID from the current user
             user_id: str | None = None
             try:
-                from lucid.auth.session import SessionManager
+                from lightfall.auth.session import SessionManager
 
                 sm = SessionManager.get_instance()
                 user = sm.current_user
@@ -538,7 +538,7 @@ class NCSApplication(QObject):
             # Find the agent via the main window widget tree
             agent = None
             if self._main_window:
-                from lucid.claude.widget import ClaudeAssistantWidget
+                from lightfall.claude.widget import ClaudeAssistantWidget
 
                 widget = self._main_window.findChild(ClaudeAssistantWidget)
                 if widget and hasattr(widget, "agent"):
@@ -629,7 +629,7 @@ class NCSApplication(QObject):
     def _get_current_session(self):
         """Return the current :class:`Session` or ``None``."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
 
             sm = SessionManager.get_instance()
             return sm.session
@@ -639,7 +639,7 @@ class NCSApplication(QObject):
     def _get_tiled_url(self) -> str:
         """Return the configured Tiled server URL."""
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             return PreferencesManager.get_instance().get("tiled_url", "")
         except Exception:

@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class OphydLabel(OphydWidget):

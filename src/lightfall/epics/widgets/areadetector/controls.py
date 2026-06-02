@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.combobox import PVComboBox
-from lucid.epics.widgets.lineedit import PVLineEdit
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.epics.widgets.style import (
+from lightfall.epics.widgets.combobox import PVComboBox
+from lightfall.epics.widgets.lineedit import PVLineEdit
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.epics.widgets.style import (
     get_error_color,
     get_success_color,
 )
@@ -285,7 +285,7 @@ class PVAreaDetectorControls(QWidget):
         self._image_mode_combo.pv_name = f"{self._cam_prefix}ImageMode"
 
         # Manual PVs only for acquire control and detector state
-        from lucid.epics.ca.pv import PV
+        from lightfall.epics.ca.pv import PV
 
         pv_fields = {
             "Acquire": "acquire",

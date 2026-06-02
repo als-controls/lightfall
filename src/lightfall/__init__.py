@@ -1,7 +1,7 @@
 """LUCID - Lightsource Unified Control Interface Dashboard for the ALS facility."""
 
 try:
-    from lucid._version import __version__
+    from lightfall._version import __version__
 except ImportError:
     __version__ = "0.0.0.dev0"
 

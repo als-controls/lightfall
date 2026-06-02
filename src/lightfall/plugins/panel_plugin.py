@@ -10,10 +10,10 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 class PanelPlugin(PluginType):
@@ -91,7 +91,7 @@ class PanelPlugin(PluginType):
         """Get the panel ID from the panel class metadata.
 
         Returns:
-            The panel's unique ID (e.g., "lucid.panels.bluesky").
+            The panel's unique ID (e.g., "lightfall.panels.bluesky").
         """
         return self.get_panel_class().panel_metadata.id
 

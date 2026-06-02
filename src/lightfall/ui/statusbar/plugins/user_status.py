@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from lucid.auth.session import SessionManager
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.auth.session import SessionManager
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
 class UserStatusPlugin(StatusBarPlugin):
@@ -23,7 +23,7 @@ class UserStatusPlugin(StatusBarPlugin):
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
-        id="lucid.statusbar.user",
+        id="lightfall.statusbar.user",
         name="User Status",
         description="Shows the current logged-in user",
         priority=10,

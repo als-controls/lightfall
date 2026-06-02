@@ -11,11 +11,11 @@ application startup (via preload=True in the manifest).
 
 from __future__ import annotations
 
-from lucid.ui.panels.plugins.bluesky_plugin import BlueskyPanelPlugin
-from lucid.ui.panels.plugins.device_plugin import DevicePanelPlugin
-from lucid.ui.panels.plugins.documents_plugin import DocumentsPanelPlugin
-from lucid.ui.panels.plugins.logbook_entries_plugin import LogbookEntriesPanelPlugin
-from lucid.ui.panels.plugins.logbook_plugin import LogbookPanelPlugin
+from lightfall.ui.panels.plugins.bluesky_plugin import BlueskyPanelPlugin
+from lightfall.ui.panels.plugins.device_plugin import DevicePanelPlugin
+from lightfall.ui.panels.plugins.documents_plugin import DocumentsPanelPlugin
+from lightfall.ui.panels.plugins.logbook_entries_plugin import LogbookEntriesPanelPlugin
+from lightfall.ui.panels.plugins.logbook_plugin import LogbookPanelPlugin
 
 __all__ = [
     "BlueskyPanelPlugin",
@@ -27,7 +27,7 @@ __all__ = [
 
 # Claude panel (built into LUCID)
 try:
-    from lucid.ui.panels.plugins.claude_plugin import ClaudePanelPlugin  # noqa: F401
+    from lightfall.ui.panels.plugins.claude_plugin import ClaudePanelPlugin  # noqa: F401
 
     __all__.append("ClaudePanelPlugin")
 except ImportError:

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QMenu
 
 if TYPE_CHECKING:
 
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 # TODO: VisualizationMotorMixin currently accesses self._spec (VisualizationSpec)
 # to determine motor fields via dim_fields. VisualizationSpec has been removed as
@@ -276,8 +276,8 @@ class VisualizationMotorMixin:
         Returns:
             Tuple of (ophyd_device, DeviceInfo) or None if not found.
         """
-        from lucid.devices.catalog import DeviceCatalog
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.catalog import DeviceCatalog
+        from lightfall.devices.model import DeviceCategory
 
         catalog = DeviceCatalog.get_instance()
         device_info = catalog.get_device_by_name(field_name)
@@ -341,7 +341,7 @@ class VisualizationMotorMixin:
             True if a scan is in progress.
         """
         try:
-            from lucid.acquire.engine import EngineState, get_engine
+            from lightfall.acquire.engine import EngineState, get_engine
 
             engine = get_engine()
             return engine.state == EngineState.RUNNING
@@ -376,7 +376,7 @@ class VisualizationMotorMixin:
 
         # Show confirmation dialog unless skipped
         if not VisualizationMotorMixin._skip_move_confirmation:
-            from lucid.ui.dialogs.go_to_position_dialog import GoToPositionDialog
+            from lightfall.ui.dialogs.go_to_position_dialog import GoToPositionDialog
 
             dialog = GoToPositionDialog(
                 motor_name=field_name,
@@ -425,7 +425,7 @@ class VisualizationMotorMixin:
 
         # Show confirmation dialog unless skipped
         if not VisualizationMotorMixin._skip_move_confirmation:
-            from lucid.ui.dialogs.go_to_position_dialog import GoToPositionDialog
+            from lightfall.ui.dialogs.go_to_position_dialog import GoToPositionDialog
 
             dialog = GoToPositionDialog(
                 motor_name=f"{x_field}, {y_field}",
@@ -458,7 +458,7 @@ class VisualizationMotorMixin:
             target: Target position.
             device_info: Device metadata.
         """
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         toast = ToastManager.get_instance()
         motor_name = device_info.name
@@ -518,7 +518,7 @@ class VisualizationMotorMixin:
             motor_name: Name of the motor.
             reason: Reason for the failure.
         """
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         toast = ToastManager.get_instance()
         toast.error(f"Cannot move {motor_name}", reason)

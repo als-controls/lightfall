@@ -21,26 +21,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.theater.manager import theater_manager
-from lucid.ui.theater.proxy import TheaterProxy
-from lucid.visualization.base_visualization import BaseVisualization
-from lucid.visualization.fitting.panel import FitPanel
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.theater.manager import theater_manager
+from lightfall.ui.theater.proxy import TheaterProxy
+from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.fitting.panel import FitPanel
 
 
 def _widget_classes() -> list[type[BaseVisualization]]:
     """Import and return all available visualization widget classes."""
-    from lucid.visualization.widgets.adaptive.heatmap import (
+    from lightfall.visualization.widgets.adaptive.heatmap import (
         AdaptiveHeatmapVisualization,
     )
-    from lucid.visualization.widgets.adaptive.plot import (
+    from lightfall.visualization.widgets.adaptive.plot import (
         AdaptivePlotVisualization,
     )
-    from lucid.visualization.widgets.heatmap import HeatmapVisualization
-    from lucid.visualization.widgets.image_stack import ImageStackVisualization
-    from lucid.visualization.widgets.plot_1d import Plot1DVisualization
-    from lucid.visualization.widgets.scatter import ScatterVisualization
-    from lucid.visualization.widgets.table import TableVisualization
+    from lightfall.visualization.widgets.heatmap import HeatmapVisualization
+    from lightfall.visualization.widgets.image_stack import ImageStackVisualization
+    from lightfall.visualization.widgets.plot_1d import Plot1DVisualization
+    from lightfall.visualization.widgets.scatter import ScatterVisualization
+    from lightfall.visualization.widgets.table import TableVisualization
 
     return [
         ImageStackVisualization,
@@ -62,7 +62,7 @@ class VisualizationPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.visualization",
+        id="lightfall.panels.visualization",
         name="Visualization",
         description="Live data visualization during scans",
         icon="chart-line",
@@ -491,7 +491,7 @@ class VisualizationPanel(BasePanel):
             uid = kwargs.get("uid")
             if not uid:
                 raise ValueError("open_run requires 'uid'")
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             client = service._client

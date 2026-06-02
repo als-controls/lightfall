@@ -33,7 +33,7 @@ the response on the friendly id from the public call so that even if the
 schedule endpoint were ever to return more than one event, only the one
 matching "current" leaks out.
 
-LUCID's production stamper (:mod:`lucid.services.access_stamper`) consumes the
+LUCID's production stamper (:mod:`lightfall.services.access_stamper`) consumes the
 same public endpoint to build the ``access_blob`` injected into every Bluesky
 run-start document. This skill surfaces the same lookup to the embedded
 Claude agent for interactive queries, logbook annotation, and debugging the
@@ -48,8 +48,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.utils.logging import logger
 
 #: Production alshub-api base URL, used only when no ``tiled_alshub_url``
 #: preference is set. Matches the default in ``application.yaml``.
@@ -67,7 +67,7 @@ def _read_beamline_config() -> tuple[str | None, str | None]:
     we want subsequent tool calls to reflect that.
     """
     try:
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
     except ImportError:
         # Bare imports during package introspection / out-of-process tests.
         return None, None
@@ -100,7 +100,7 @@ def _read_alshub_api_key() -> str | None:
     """
     # 1. Preferences (LUCID-native channel)
     try:
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
         prefs = PreferencesManager.get_instance()
         key = prefs.get("tiled_alshub_api_key", "") or ""
         if key.strip():
@@ -136,7 +136,7 @@ def _resolve_alshub_proxy(alshub_url: str) -> str | None:
     Returns ``None`` when no proxy applies, ``str`` URL otherwise.
     """
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
         return ProxySettingsProvider.should_use_proxy_for_url(alshub_url)
     except Exception:
         return None
@@ -151,7 +151,7 @@ async def _fetch_active_esaf_lean(
     proxy / timeout behavior matches the stamping path. Returns ``None``
     on 404 ("no ESAF scheduled now"), raises on network/HTTP errors.
     """
-    from lucid.services._alshub_client import AlshubClient
+    from lightfall.services._alshub_client import AlshubClient
 
     proxy = _resolve_alshub_proxy(alshub_url)
     client = AlshubClient(base_url=alshub_url, proxy=proxy)
@@ -359,7 +359,7 @@ the tool itself never accepts a beamline parameter.
         async def get_current_esaf(args: dict) -> dict[str, Any]:
             import httpx
 
-            from lucid.plugins.agents._mcp_helpers import mcp_error, mcp_result
+            from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 
             # Read beamline/alshub URL ONCE per call. Holding them as locals
             # for both the lean and rich paths ensures consistency even if

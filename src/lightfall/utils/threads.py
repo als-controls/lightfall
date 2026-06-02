@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable

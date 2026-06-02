@@ -27,10 +27,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
-from lucid.utils.module_resolver import resolve_module_path
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
+from lightfall.utils.module_resolver import resolve_module_path
 
 
 @dataclass
@@ -248,7 +248,7 @@ class LoggingPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.logging",
+        id="lightfall.panels.logging",
         name="Logging",
         description="View application logs with level filtering",
         icon="scroll",
@@ -476,7 +476,7 @@ class LoggingPanel(BasePanel):
         file_path = resolve_module_path(record.module)
         if file_path is None:
             logger.warning("Could not resolve module path for: {}", record.module)
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             ToastManager.get_instance().warning(
                 "Cannot open location",
@@ -497,7 +497,7 @@ class LoggingPanel(BasePanel):
         if success:
             logger.debug("Opened {}:{} in {}", file_path, record.line, editor.value)
         else:
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             ToastManager.get_instance().error(
                 "Failed to open editor",

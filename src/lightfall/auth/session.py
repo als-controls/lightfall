@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from lucid.auth.policy import Permission, PolicyEngine, Role
-from lucid.auth.service_key import MintedKey, mint_service_key
-from lucid.utils.logging import logger
+from lightfall.auth.policy import Permission, PolicyEngine, Role
+from lightfall.auth.service_key import MintedKey, mint_service_key
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.auth.providers.base import AuthProvider
+    from lightfall.auth.providers.base import AuthProvider
 
 
 class AuthState(Enum):
@@ -172,7 +172,7 @@ class SessionManager(QObject):
         self._offline_mode = False
 
         # Service-key cache (auth-v2): per-(user, service) API keys minted at
-        # login. See docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md.
+        # login. See docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md.
         self._service_keys: dict[str, MintedKey] = {}
         self._keys_lock = threading.RLock()
 
@@ -298,8 +298,8 @@ class SessionManager(QObject):
         simple. If N grows beyond a handful of services or any mint ever
         blocks for noticeable wall time, switch to a thread pool here.
         """
-        from lucid.logbook.url import get_logbook_base_url
-        from lucid.services.tiled_service import get_tiled_base_url
+        from lightfall.logbook.url import get_logbook_base_url
+        from lightfall.services.tiled_service import get_tiled_base_url
 
         urls = {
             "tiled": get_tiled_base_url().rstrip("/") + "/api/v1",
@@ -312,7 +312,7 @@ class SessionManager(QObject):
             if self._session and self._session.user
             else "unknown"
         )
-        note = f"lucid {hostname} {sub}"
+        note = f"lightfall {hostname} {sub}"
 
         for service, url in urls.items():
             scopes = self._SERVICE_SCOPES.get(service, [])
@@ -478,7 +478,7 @@ class SessionManager(QObject):
 
         # Purge synced logbook data so the local DB stays lean
         try:
-            from lucid.logbook.client import LogbookClient
+            from lightfall.logbook.client import LogbookClient
             client = LogbookClient.get_instance()
             if client._initialized:
                 client.purge_synced()
@@ -537,7 +537,7 @@ class SessionManager(QObject):
 
         import asyncio
 
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         async def _reconnect():
             if await self._provider.check_connectivity():

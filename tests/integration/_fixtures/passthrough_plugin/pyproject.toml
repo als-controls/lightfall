@@ -3,18 +3,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lucid-pipelines-test-passthrough"
+name = "lightfall-pipelines-test-passthrough"
 version = "0.0.1"
 description = "Minimal pass-through pipeline used by LUCID e2e tests"
 requires-python = ">=3.11"
 dependencies = [
-    "lucid-pipelines>=0.1.0",
+    "lightfall-pipelines>=0.1.0",
     "numpy>=1.24",
     "scrapbook>=0.5",
     "tiled[client]>=0.2.3",
 ]
 
-[project.entry-points."lucid_pipelines.pipeline"]
+[project.entry-points."lightfall_pipelines.pipeline"]
 passthrough = "passthrough_pipeline:PassthroughPipeline"
 
 [tool.hatch.build.targets.wheel]

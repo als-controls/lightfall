@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     qta = None
 
 if TYPE_CHECKING:
-    from lucid.ui.theater.proxy import TheaterProxy
+    from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TheaterOverlay(QWidget):

@@ -15,7 +15,7 @@ from uuid import UUID
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.project.model import (
+from lightfall.project.model import (
     EntryType,
     Logbook,
     LogbookEntry,

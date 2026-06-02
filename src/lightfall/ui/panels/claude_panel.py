@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.toast import ToastManager
-from lucid.utils.logging import logger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.toast import ToastManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class ReloadBannerWidget(QFrame):
     """Banner widget shown when new plugins are detected.
 
-    Styled similar to the permission request widget from lucid.claude.
+    Styled similar to the permission request widget from lightfall.claude.
     Shows a message about new plugins and a Reload button.
     """
 
@@ -155,7 +155,7 @@ class ClaudePanel(BasePanel):
     """Claude AI Assistant panel.
 
     Embeds a Claude chat interface with MCP tools for:
-    - Qt widget inspection and interaction (from lucid.claude)
+    - Qt widget inspection and interaction (from lightfall.claude)
     - NCS panel management and introspection
     - Plugin-provided tools (Bluesky, devices, etc.)
 
@@ -164,7 +164,7 @@ class ClaudePanel(BasePanel):
     """
 
     panel_metadata = PanelMetadata(
-        id="lucid.panels.claude",
+        id="lightfall.panels.claude",
         name="Claude Assistant",
         description="AI assistant for interacting with the control system",
         icon="mdi6.robot",
@@ -227,8 +227,8 @@ class ClaudePanel(BasePanel):
             PluginLoader instance or None if not available.
         """
         try:
-            from lucid.core.services import ServiceRegistry
-            from lucid.plugins import PluginLoader
+            from lightfall.core.services import ServiceRegistry
+            from lightfall.plugins import PluginLoader
 
             services = ServiceRegistry.get_instance()
             return services.get(PluginLoader)
@@ -327,7 +327,7 @@ class ClaudePanel(BasePanel):
             self._setup_claude_widget()
             self._is_agent_ready = True
         except ImportError as e:
-            self._error_message = f"lucid.claude import failed: {e}"
+            self._error_message = f"lightfall.claude import failed: {e}"
             logger.warning(self._error_message)
             self._setup_error_ui(self._error_message)
         except ValueError as e:
@@ -375,8 +375,8 @@ class ClaudePanel(BasePanel):
 
     def _setup_claude_widget(self) -> None:
         """Setup the Claude assistant widget with extended tools."""
-        from lucid.claude import ClaudeAssistantWidget
-        from lucid.ui.preferences.claude_settings import ClaudeSettingsProvider
+        from lightfall.claude import ClaudeAssistantWidget
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 
         # Check if Claude is configured
         if not ClaudeSettingsProvider.is_configured():
@@ -440,7 +440,7 @@ class ClaudePanel(BasePanel):
         # Inject current user's name
         user_name = ""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             user = SessionManager.get_instance().current_user
             if user and user.display_name and user.display_name != "Guest":
                 user_name = user.display_name
@@ -484,7 +484,7 @@ You are an AI assistant integrated with LUCID, a scientific beamline controls an
 - ncs_list_plans — List all registered plans with parameters (filter by category). Use FIRST to discover available plans and parameter signatures.
 - ncs_run_plan — Run a registered plan by name with parameters (devices resolved automatically)
 - ncs_run_plan_code — Run arbitrary Python code as a Bluesky plan in the RunEngine. Code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
-- ncs_create_user_plan — Create a new user plan file from Python code (saved to ~/lucid/plans/)
+- ncs_create_user_plan — Create a new user plan file from Python code (saved to ~/lightfall/plans/)
 - ncs_get_user_plan — Read back the source code of an existing user plan
 - ncs_delete_user_plan — Remove a user plan file (requires confirm=true)
 
@@ -541,12 +541,12 @@ If Tiled is off, run data cannot be retrieved programmatically.
 LUCID has a built-in shared RunEngine. **NEVER create a new RunEngine.**
 Access it via:
 ```python
-from lucid.acquire import get_engine
+from lightfall.acquire import get_engine
 engine = get_engine()
 ```
 The engine is a QRunEngine (Qt-integrated). To run a Bluesky plan:
 ```python
-from lucid.acquire import get_engine
+from lightfall.acquire import get_engine
 import bluesky.plans as bp
 engine = get_engine()
 engine(bp.scan([det], motor, start, stop, num))

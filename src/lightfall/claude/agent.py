@@ -11,14 +11,14 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 
-from lucid.claude._internal.worker import PersistentClaudeWorker
-from lucid.claude.permission_manager import (
+from lightfall.claude._internal.worker import PersistentClaudeWorker
+from lightfall.claude.permission_manager import (
     PermissionManager,
     create_can_use_tool_callback,
     create_pre_tool_use_hook,
 )
-from lucid.claude.tools import create_qt_tools_server
-from lucid.utils.logging import logger
+from lightfall.claude.tools import create_qt_tools_server
+from lightfall.utils.logging import logger
 
 
 def _patch_sdk_for_windows_cmdline_limit():
@@ -126,7 +126,7 @@ You have tools for running Bluesky plans in the LUCID RunEngine:
 - **ncs_list_plans**: List all registered plans (built-in + user plans). Use this FIRST to discover what's available and see parameter signatures. Optionally filter by category.
 - **ncs_run_plan**: Run a registered plan by name with parameters. Use this when the user wants to run a known plan (e.g., "run a scan", "do a count"). Resolves device names automatically.
 - **ncs_run_plan_code**: Run arbitrary Python code as a plan. Use this when the user needs a custom/ad-hoc plan that isn't in the registry, or wants to compose multiple plans together. The code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
-- **ncs_create_user_plan**: Create a persistent user plan file (saved to ~/lucid/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
+- **ncs_create_user_plan**: Create a persistent user plan file (saved to ~/lightfall/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
 
 ### When to use which:
 - "Run a scan" → ncs_list_plans to check params, then ncs_run_plan
@@ -257,12 +257,12 @@ class QtClaudeAgent(QObject):
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
         # Per-plugin server assembly from AgentRegistry
-        from lucid.claude._session_assembly import (
+        from lightfall.claude._session_assembly import (
             assemble_mcp_servers,
             init_session_plugin_dir,
             materialize_skill,
         )
-        from lucid.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
         enabled = AgentRegistry.get_instance().enabled_plugins()
         agent_servers, agent_allowed = assemble_mcp_servers(enabled)
@@ -270,7 +270,7 @@ class QtClaudeAgent(QObject):
         allowed_tools.extend(agent_allowed)
 
         # Synthesize per-session SDK plugin dir
-        self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lucid_claude_"))
+        self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
         init_session_plugin_dir(self._session_plugin_dir)
         for plugin in enabled:
             materialize_skill(plugin, self._session_plugin_dir)

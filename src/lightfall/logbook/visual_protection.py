@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from lucid.logbook.protection import ProtectedRegion
+    from lightfall.logbook.protection import ProtectedRegion
 
 # Zero-width Unicode markers
 # These characters are invisible but take up a position in the text

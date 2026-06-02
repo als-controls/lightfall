@@ -14,7 +14,7 @@ from loguru import logger
 from ophyd import Device, StatusBase
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 class NCSDevice:
@@ -31,7 +31,7 @@ class NCSDevice:
         info: DeviceInfo metadata from the catalog.
 
     Example:
-        >>> from lucid.devices import DeviceCatalog
+        >>> from lightfall.devices import DeviceCatalog
         >>> catalog = DeviceCatalog.get_instance()
         >>> motor_info = catalog.get_device_by_name("sample_x")
         >>> ncs_motor = NCSDevice(motor_info.ophyd_device, motor_info)
@@ -177,7 +177,7 @@ class NCSDevice:
             return
 
         try:
-            from lucid.logbook import DeviceActionLogger
+            from lightfall.logbook import DeviceActionLogger
 
             action_logger = DeviceActionLogger.get_instance()
             action_logger.record_action(
@@ -210,7 +210,7 @@ class NCSDevice:
             return
 
         try:
-            from lucid.logbook import DeviceActionLogger
+            from lightfall.logbook import DeviceActionLogger
 
             action_logger = DeviceActionLogger.get_instance()
             action_logger.record_move_start(

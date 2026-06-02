@@ -13,10 +13,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.service_key import MintedKey
-from lucid.auth.session import Session, SessionManager, User
-from lucid.settings.user_settings_client import UserSettingsClient
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.service_key import MintedKey
+from lightfall.auth.session import Session, SessionManager, User
+from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 @pytest.fixture(autouse=True)
@@ -82,13 +82,13 @@ def test_login_mints_logbook_key_and_consumer_uses_it(monkeypatch, httpx_mock):
             return _minted("logbook-key-xyz")
         return _minted("tiled-key-xyz")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 

@@ -1,6 +1,6 @@
 """Tests for the main module."""
 
-from lucid.ui import NCSMainWindow
+from lightfall.ui import NCSMainWindow
 
 
 def test_main_window_creation(qapp) -> None:

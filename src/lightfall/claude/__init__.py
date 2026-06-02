@@ -1,5 +1,5 @@
 """
-lucid.claude - Qt/PySide6 integration with Claude Agent SDK (part of LUCID).
+lightfall.claude - Qt/PySide6 integration with Claude Agent SDK (part of LUCID).
 
 This package enables Claude AI to interact with Qt applications through:
 - Visual understanding (screenshots)
@@ -20,7 +20,7 @@ Authentication:
 Example (high-level widget):
     ```python
     from PySide6.QtWidgets import QApplication, QMainWindow
-    from lucid.claude import ClaudeAssistantWidget
+    from lightfall.claude import ClaudeAssistantWidget
 
     app = QApplication([])
     window = QMainWindow()
@@ -31,7 +31,7 @@ Example (high-level widget):
 
 Example (low-level API):
     ```python
-    from lucid.claude import QtClaudeAgent
+    from lightfall.claude import QtClaudeAgent
 
     agent = QtClaudeAgent(target_window=window)
     agent.message_received.connect(lambda msg: print(f"Claude: {msg}"))
@@ -39,10 +39,10 @@ Example (low-level API):
     ```
 """
 
-from lucid.claude.agent import QtClaudeAgent
-from lucid.claude.permission_manager import PermissionManager
-from lucid.claude.widget import ClaudeAssistantWidget
-from lucid.claude.widgets.permission_request import PermissionRequestWidget
+from lightfall.claude.agent import QtClaudeAgent
+from lightfall.claude.permission_manager import PermissionManager
+from lightfall.claude.widget import ClaudeAssistantWidget
+from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 
 __all__ = [
     "QtClaudeAgent",

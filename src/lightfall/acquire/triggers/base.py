@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.acquire.triggers.manager import TriggerManager
+    from lightfall.acquire.triggers.manager import TriggerManager
 
 
 class Trigger(ABC):

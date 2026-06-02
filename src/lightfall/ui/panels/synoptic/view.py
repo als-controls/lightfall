@@ -13,11 +13,11 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.ui.panels.synoptic.models import SynopticViewState, ViewPreset
-from lucid.utils.logging import logger
+from lightfall.ui.panels.synoptic.models import SynopticViewState, ViewPreset
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.synoptic.items import Device2DItem
+    from lightfall.ui.panels.synoptic.items import Device2DItem
 
 
 class SynopticView(QWidget):

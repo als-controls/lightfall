@@ -24,7 +24,7 @@ from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QMouseEvent
 from PySide6.QtWidgets import QFrame, QToolButton, QVBoxLayout, QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -197,7 +197,7 @@ class IconStripSidebar(QFrame):
         """
         # Get theme color for icon
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
             theme_mgr = ThemeManager.get_instance()
             icon_color = theme_mgr.colors.text
         except Exception:
@@ -255,7 +255,7 @@ class IconStripSidebar(QFrame):
         """
         # Get theme color for icon
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
             theme_mgr = ThemeManager.get_instance()
             icon_color = theme_mgr.colors.text
         except Exception:
@@ -416,7 +416,7 @@ class IconStripSidebar(QFrame):
         # Resolve color: use provided color or fall back to theme default
         if not color:
             try:
-                from lucid.ui.theme import ThemeManager
+                from lightfall.ui.theme import ThemeManager
                 theme_mgr = ThemeManager.get_instance()
                 color = theme_mgr.colors.text
             except Exception:

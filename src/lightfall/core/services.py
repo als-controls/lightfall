@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable

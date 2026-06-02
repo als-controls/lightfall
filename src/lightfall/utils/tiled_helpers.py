@@ -27,7 +27,7 @@ def read_events(stream: Any) -> Any | None:
     Returns ``None`` if no readable layout is recognised, with a debug
     log identifying the keys we saw.
     """
-    from lucid.utils.logging import logger
+    from lightfall.utils.logging import logger
 
     if stream is None:
         return None

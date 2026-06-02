@@ -5,13 +5,13 @@ from typing import Any
 
 from PySide6.QtWidgets import QWidget
 
-from lucid.claude._internal.serialization import (
+from lightfall.claude._internal.serialization import (
     find_widget_by_name,
     get_widget_summary,
     serialize_widget,
     serialize_widget_tree,
 )
-from lucid.claude._internal.threading import run_on_main_thread
+from lightfall.claude._internal.threading import run_on_main_thread
 
 
 def create_introspection_tools(target_window: QWidget):

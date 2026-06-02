@@ -17,19 +17,19 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
 
-from lucid.ui.docking.icon_sidebar import IconStripSidebar
-from lucid.ui.docking.state import DockingState
-from lucid.ui.docking.widget import PanelDockWidget
-from lucid.ui.panels.base import PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.utils.logging import logger
+from lightfall.ui.docking.icon_sidebar import IconStripSidebar
+from lightfall.ui.docking.state import DockingState
+from lightfall.ui.docking.widget import PanelDockWidget
+from lightfall.ui.panels.base import PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.utils.logging import logger
 
 # Default sizes for side panels (in pixels)
 LEFT_PANEL_WIDTH = 350
 BOTTOM_PANEL_HEIGHT = 250
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 # Map area names to Qt DockWidgetArea
@@ -394,7 +394,7 @@ class DockingManager(QObject):
 
         # Re-apply theme so new dock widget picks up child selectors
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
             ThemeManager.get_instance().apply_to_application()
         except Exception:
             pass

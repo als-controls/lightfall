@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.ipc.service import IPCService, _Subscription, ActionInfo, EventInfo
+from lightfall.ipc.service import IPCService, _Subscription, ActionInfo, EventInfo
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ class TestMakeHandler:
     def _make_svc(self):
         return IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
 
-    @patch("lucid.ipc.service.invoke_in_main_thread")
+    @patch("lightfall.ipc.service.invoke_in_main_thread")
     def test_handler_dispatches_to_main_thread(self, mock_invoke, qapp):
         svc = self._make_svc()
         callback = MagicMock()
@@ -212,7 +212,7 @@ class TestMakeHandler:
 # ---------------------------------------------------------------------------
 
 
-from lucid.ipc.trust import TrustManager, TrustState
+from lightfall.ipc.trust import TrustManager, TrustState
 
 
 class TestAuthHandshake:
@@ -245,8 +245,8 @@ class TestAuthHandshake:
         legacy ``tiled_token`` field name (auth-v2; see method docstring)."""
         from datetime import UTC, datetime, timedelta
 
-        from lucid.auth.service_key import MintedKey
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.service_key import MintedKey
+        from lightfall.auth.session import SessionManager
 
         SessionManager.reset()
         try:

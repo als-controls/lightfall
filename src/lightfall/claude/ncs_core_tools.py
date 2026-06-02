@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.mainwindow import NCSMainWindow
+    from lightfall.ui.mainwindow import NCSMainWindow
 
 
 class NCSCoreToolPlugin(AgentPlugin):
@@ -73,12 +73,12 @@ class NCSCoreToolPlugin(AgentPlugin):
 
     def _get_panel_registry(self):
         """Get the panel registry."""
-        from lucid.ui.panels.registry import PanelRegistry
+        from lightfall.ui.panels.registry import PanelRegistry
         return PanelRegistry.get_instance()
 
     def _get_session_manager(self):
         """Get the session manager."""
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
         return SessionManager.get_instance()
 
     def create_tools(self) -> list[Any]:
@@ -104,7 +104,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def list_panels(args: dict) -> dict[str, Any]:
             """List available and open panels."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _list():
                 if self._window is None:
@@ -150,7 +150,7 @@ class NCSCoreToolPlugin(AgentPlugin):
                 "properties": {
                     "panel_id": {
                         "type": "string",
-                        "description": "The panel ID to open (e.g., 'lucid.panels.devices')"
+                        "description": "The panel ID to open (e.g., 'lightfall.panels.devices')"
                     }
                 },
                 "required": ["panel_id"]
@@ -158,7 +158,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def open_panel(args: dict) -> dict[str, Any]:
             """Open a panel by ID."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -192,7 +192,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def close_panel(args: dict) -> dict[str, Any]:
             """Close a panel by ID."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -224,7 +224,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def activate_panel(args: dict) -> dict[str, Any]:
             """Activate a panel by ID."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -256,7 +256,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def get_panel_info(args: dict) -> dict[str, Any]:
             """Get detailed panel introspection data."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
 
@@ -298,7 +298,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def invoke_panel_action(args: dict) -> dict[str, Any]:
             """Invoke an action on a panel."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             panel_id = args["panel_id"]
             action = args["action"]
@@ -343,7 +343,7 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def get_application_info(args: dict) -> dict[str, Any]:
             """Get application introspection data."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _get_info():
                 if self._window is None:
@@ -373,14 +373,14 @@ class NCSCoreToolPlugin(AgentPlugin):
         )
         async def set_emotion(args: dict) -> dict[str, Any]:
             """Set the Claude panel's idle icon to express an emotion."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             emotion = args["emotion"]
 
             def _set():
                 if self._window is None:
                     return mcp_result({"success": False, "error": "Main window not available"})
-                panel = self._window.get_panel("lucid.panels.claude")
+                panel = self._window.get_panel("lightfall.panels.claude")
                 if panel is None:
                     return mcp_result({"success": False, "error": "Claude panel not found"})
 

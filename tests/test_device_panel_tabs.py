@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 from PySide6.QtWidgets import QApplication, QTabBar, QTabWidget
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture
@@ -49,10 +49,10 @@ def prefs_manager():
 
 class TestDevicePanelTabs:
     def test_has_tab_widget(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -65,10 +65,10 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_first_two_tabs_unclosable(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -80,11 +80,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_open_device_tab(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
-        from lucid.ui.widgets.device_control import DeviceControlWidget
+        from lightfall.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.widgets.device_control import DeviceControlWidget
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"), \
              patch.object(DeviceControlWidget, "set_items"):
             mock_dc.get_instance.return_value = catalog
@@ -103,11 +103,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_open_device_tab_focuses_existing(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
-        from lucid.ui.widgets.device_control import DeviceControlWidget
+        from lightfall.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.widgets.device_control import DeviceControlWidget
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"), \
              patch.object(DeviceControlWidget, "set_items"):
             mock_dc.get_instance.return_value = catalog
@@ -126,11 +126,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_close_device_tab(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
-        from lucid.ui.widgets.device_control import DeviceControlWidget
+        from lightfall.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.widgets.device_control import DeviceControlWidget
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"), \
              patch.object(DeviceControlWidget, "set_items"):
             mock_dc.get_instance.return_value = catalog

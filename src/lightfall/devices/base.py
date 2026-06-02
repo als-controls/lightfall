@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from lucid.devices.model import (
+    from lightfall.devices.model import (
         DeviceCategory,
         DeviceConfiguration,
         DeviceInfo,

@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine import Engine
+    from lightfall.acquire.engine import Engine
 
 
 class DocumentTreeItem:
@@ -678,7 +678,7 @@ class DocumentStreamWidget(QWidget):
         document_selected(str, dict): Emitted when a document is selected.
 
     Example:
-        >>> from lucid.acquire import get_engine
+        >>> from lightfall.acquire import get_engine
         >>> engine = get_engine()
         >>> widget = DocumentStreamWidget()
         >>> widget.set_engine(engine)

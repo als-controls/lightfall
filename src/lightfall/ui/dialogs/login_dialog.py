@@ -24,13 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.auth.session import AuthState, SessionManager
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.auth.session import AuthState, SessionManager
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from lucid.auth.providers.base import AuthProvider
+    from lightfall.auth.providers.base import AuthProvider
 
 
 class LoginResult(Enum):
@@ -116,7 +116,7 @@ class LoginDialog(LucidDialog):
 
         # Logo (full width, minimal margins)
         try:
-            from lucid.resources import get_logo_pixmap
+            from lightfall.resources import get_logo_pixmap
 
             logo_pixmap = get_logo_pixmap()  # Load at full resolution
             if not logo_pixmap.isNull():
@@ -447,10 +447,10 @@ class LoginDialog(LucidDialog):
         """Perform Keycloak login (runs in background thread)."""
         from datetime import datetime
 
-        from lucid.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
-        from lucid.config import ConfigManager
-        from lucid.core import NCSApplication
-        from lucid.ui.preferences.login_settings import LoginSettingsProvider
+        from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
+        from lightfall.config import ConfigManager
+        from lightfall.core import NCSApplication
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
         # Get Keycloak config
         app = NCSApplication.get_instance()
@@ -522,8 +522,8 @@ class LoginDialog(LucidDialog):
         """Perform local login (runs in background thread)."""
         from datetime import datetime
 
-        from lucid.auth.providers.local import LocalAuthProvider
-        from lucid.ui.preferences.login_settings import LoginSettingsProvider
+        from lightfall.auth.providers.local import LocalAuthProvider
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
         duration = LoginSettingsProvider.get_session_duration()
         provider = LocalAuthProvider(session_duration=duration)
@@ -576,10 +576,10 @@ class LoginDialog(LucidDialog):
         """Create session from current OS identity (runs in background thread)."""
         from datetime import datetime
 
-        from lucid.auth.providers.pam import PamAuthProvider, PamConfig
-        from lucid.config import ConfigManager
-        from lucid.core import NCSApplication
-        from lucid.ui.preferences.login_settings import LoginSettingsProvider
+        from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
+        from lightfall.config import ConfigManager
+        from lightfall.core import NCSApplication
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
         duration = LoginSettingsProvider.get_session_duration()
 
@@ -589,7 +589,7 @@ class LoginDialog(LucidDialog):
             config: ConfigManager = app.services.get(ConfigManager)
             auth_config = config.model.auth.provider
 
-            from lucid.auth.policy import Role as _Role
+            from lightfall.auth.policy import Role as _Role
 
             group_role_map = {}
             for group_name, role_str in auth_config.pam_group_role_map.items():

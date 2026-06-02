@@ -22,7 +22,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 if TYPE_CHECKING:
-    from lucid.devices import DeviceCatalog, DeviceInfo
+    from lightfall.devices import DeviceCatalog, DeviceInfo
 
 
 class NodeType(Enum):
@@ -389,7 +389,7 @@ class DeviceTreeModel(QAbstractItemModel):
 
         # Background value refresh: fetch values off the main thread.
         # Uses ManagedThreadPool for daemon threads + automatic shutdown.
-        from lucid.utils.threads import ManagedThreadPool
+        from lightfall.utils.threads import ManagedThreadPool
 
         self._value_pool = ManagedThreadPool(max_workers=1, name="dev-values")
         self._value_future: Future | None = None
@@ -679,7 +679,7 @@ class DeviceTreeModel(QAbstractItemModel):
         info = item.device_info
         if info is None or info.state is None:
             return False
-        from lucid.devices.model import DeviceStatus
+        from lightfall.devices.model import DeviceStatus
         return info.state.status == DeviceStatus.ERROR
 
     def _on_device_state_changed(self, device_id: str, state: Any) -> None:

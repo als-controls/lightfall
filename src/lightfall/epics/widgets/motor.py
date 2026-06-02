@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.label import PVLabel
-from lucid.epics.widgets.lineedit import PVLineEdit
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.epics.widgets.style import (
+from lightfall.epics.widgets.label import PVLabel
+from lightfall.epics.widgets.lineedit import PVLineEdit
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.epics.widgets.style import (
     get_error_color,
     get_success_color,
     get_warning_color,
@@ -329,7 +329,7 @@ class PVMotor(QWidget):
         if not self._prefix:
             return
 
-        from lucid.epics.ca.pv import PV
+        from lightfall.epics.ca.pv import PV
 
         # PV widgets handle their own connections
         self._rbv_display.pv_name = f"{self._prefix}.RBV"

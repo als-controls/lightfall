@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.widgets.plan_edit_dialog import PlanEditDialog
-from lucid.ui.widgets.queue_view import (
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.widgets.plan_edit_dialog import PlanEditDialog
+from lightfall.ui.widgets.queue_view import (
     QueueModel,
     QueueTableView,
     RecentItem,
@@ -32,10 +32,10 @@ from lucid.ui.widgets.queue_view import (
     RecentStatus,
     RecentTableView,
 )
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import BaseEngine, PrioritizedProcedure
+    from lightfall.acquire.engine.base import BaseEngine, PrioritizedProcedure
 
 
 class RunningHeaderWidget(QFrame):
@@ -200,7 +200,7 @@ class QueuePanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.queue",
+        id="lightfall.panels.queue",
         name="Queue",
         description="Manage the RunEngine queue and view execution history",
         icon="human-queue",
@@ -329,7 +329,7 @@ class QueuePanel(BasePanel):
     def _auto_configure(self) -> None:
         """Auto-configure with the singleton engine."""
         try:
-            from lucid.acquire import get_engine
+            from lightfall.acquire import get_engine
 
             engine = get_engine()
             self.set_engine(engine)
@@ -641,7 +641,7 @@ class QueuePanel(BasePanel):
         # support priority changes. Full kwargs editing would require
         # removing and re-adding the procedure.
 
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         ToastManager.get_instance().success("Changes Saved", "Priority updated")
 
@@ -656,7 +656,7 @@ class QueuePanel(BasePanel):
             return
 
         if self._engine.remove_from_queue(procedure_id):
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             ToastManager.get_instance().info("Removed", "Procedure removed from queue")
 
@@ -677,7 +677,7 @@ class QueuePanel(BasePanel):
         # Submit a copy with same parameters
         # Note: This requires access to the original procedure generator,
         # which may not be easily re-creatable. For now, show a message.
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         ToastManager.get_instance().info(
             "Duplicate",
@@ -692,7 +692,7 @@ class QueuePanel(BasePanel):
 
         count = self._engine.clear_queue()
         if count > 0:
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             ToastManager.get_instance().info(
                 "Queue Cleared", f"Removed {count} procedure(s)"
@@ -724,7 +724,7 @@ class QueuePanel(BasePanel):
         Args:
             item: The recent item to retry.
         """
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         # Retrying requires recreating the plan generator, which isn't
         # straightforward. Show guidance instead.
@@ -740,7 +740,7 @@ class QueuePanel(BasePanel):
         Args:
             item: The recent item to duplicate.
         """
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         ToastManager.get_instance().info(
             "Add to Queue",

@@ -5,7 +5,7 @@ Subclasses pyqtgraph's ImageView to fetch frames on demand via
 Follows the Xi-CAM XArrayView pattern (imageviewmixins.py:172).
 
 Log intensity display follows the same design as
-:class:`~lucid.ui.widgets.camera.image_view.OphydImageView`:
+:class:`~lightfall.ui.widgets.camera.image_view.OphydImageView`:
 
 - The histogram always operates in **real (linear) intensity units**.
 - When log mode is on, ``log1p(frame)`` is displayed on the ImageItem.
@@ -253,7 +253,7 @@ class LazyImageView(pg.ImageView):
         This ensures the histogram always shows the distribution in
         linear intensity units, regardless of log display mode.
         """
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         with log_time("  _set_hist_from_real: nanmin/nanmax", level="DEBUG"):
             lo = float(np.nanmin(real_frame))
@@ -317,7 +317,7 @@ class LazyImageView(pg.ImageView):
         """
         if not self._log_mode or self._applying_log_levels:
             return
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         with log_time("_on_hist_levels_changed (reactive)", level="DEBUG"):
             # pyqtgraph's regionChanged already called imageItem.setLevels
@@ -384,7 +384,7 @@ class LazyImageView(pg.ImageView):
 
     def _update_image_sync(self, autoHistogramRange: bool) -> None:
         """Fetch and apply the current frame on the calling thread."""
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         with log_time("_update_image_sync: _fetch_frame (main thread!)", level="DEBUG"):
             raw_frame = self._fetch_frame(self.currentIndex)
@@ -392,8 +392,8 @@ class LazyImageView(pg.ImageView):
 
     def _update_image_async(self, autoHistogramRange: bool) -> None:
         """Kick off a background fetch; apply on the main thread when done."""
-        from lucid.utils.logging import log_time
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.logging import log_time
+        from lightfall.utils.threads import QThreadFuture
 
         self._fetch_gen += 1
         gen = self._fetch_gen
@@ -438,7 +438,7 @@ class LazyImageView(pg.ImageView):
         self, raw_frame: np.ndarray, autoHistogramRange: bool
     ) -> None:
         """Process and display a fetched frame (called from either thread path)."""
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         with log_time("_apply_fetched_frame: bg_correct", level="DEBUG"):
             real_frame = self._bg_correct_frame(raw_frame)
@@ -479,7 +479,7 @@ class LazyImageView(pg.ImageView):
         Lazy path: returns the BG-corrected (real-unit) frame.
         Eager path: delegates to base class for normal stack processing.
         """
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         if self._client is not None:
             with log_time("getProcessedImage: _fetch_frame (main thread!)", level="DEBUG"):
@@ -503,7 +503,7 @@ class LazyImageView(pg.ImageView):
 
         Always returns real-unit (not log-transformed) extremes.
         """
-        from lucid.utils.logging import log_time
+        from lightfall.utils.logging import log_time
 
         # If called with a real numpy array (single frame), compute directly
         if isinstance(data, np.ndarray):
@@ -576,7 +576,7 @@ class LazyImageView(pg.ImageView):
         if self._fetch_func is not None:
             frame = self._fetch_func(index).astype(np.float64)
         else:
-            from lucid.utils.tiled_helpers import fetch_frame
+            from lightfall.utils.tiled_helpers import fetch_frame
             frame = fetch_frame(self._client, index).astype(np.float64)
 
         # Reshape flattened frames using the known frame shape from metadata

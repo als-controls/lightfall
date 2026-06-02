@@ -25,14 +25,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.synoptic.models import (
+from lightfall.ui.panels.synoptic.models import (
     DeviceSynopticData,
     PrimitiveShape,
     ViewPreset,
 )
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.synoptic.items import Device2DItem
+    from lightfall.ui.panels.synoptic.items import Device2DItem
 
 
 class SynopticPropertyEditor(QWidget):

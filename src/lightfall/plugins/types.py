@@ -21,7 +21,7 @@ def _user_plugin_roots() -> list[Path]:
     """
     home = Path.home()
     roots: list[Path] = []
-    for candidate in (home / "lucid" / "plugins", home / ".lucid" / "plugins"):
+    for candidate in (home / "lightfall" / "plugins", home / ".lightfall" / "plugins"):
         try:
             roots.append(candidate.resolve())
         except (OSError, RuntimeError):
@@ -86,7 +86,7 @@ class PluginType(ABC):
         if not _is_under_user_plugin_dir(module_file):
             return
         try:
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
             UserPluginService.get_instance().enqueue(cls, module_file)
         except Exception:  # noqa: BLE001 — don't crash class definition on plumbing failure
             import logging

@@ -13,11 +13,11 @@ from bluesky import RunEngine
 from bluesky.utils import DuringTask, RunEngineInterrupted
 from PySide6.QtCore import QThread, Signal
 
-from lucid.acquire.engine.base import BaseEngine, PrioritizedProcedure
-from lucid.acquire.engine.state import EngineState
-from lucid.acquire.engine.waiting_hook import WaitingHookBridge
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.acquire.engine.base import BaseEngine, PrioritizedProcedure
+from lightfall.acquire.engine.state import EngineState
+from lightfall.acquire.engine.waiting_hook import WaitingHookBridge
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 # Map Bluesky RunEngine state strings to EngineState
 _RE_STATE_MAP: dict[str, EngineState] = {

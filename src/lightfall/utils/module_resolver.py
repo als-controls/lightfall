@@ -11,26 +11,26 @@ import importlib.util
 from functools import lru_cache
 from pathlib import Path
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 @lru_cache(maxsize=256)
 def resolve_module_path(module_name: str) -> str | None:
     """Resolve a Python module name to its file path.
 
-    Takes a module name like 'lucid.ui.preferences' and returns the
+    Takes a module name like 'lightfall.ui.preferences' and returns the
     absolute file path to the corresponding Python file.
 
     Results are cached to improve performance for repeated lookups.
 
     Args:
-        module_name: Fully qualified module name (e.g., "lucid.ui.preferences").
+        module_name: Fully qualified module name (e.g., "lightfall.ui.preferences").
 
     Returns:
         Absolute file path as a string, or None if the module cannot be resolved.
 
     Example:
-        >>> resolve_module_path("lucid.ui.preferences")
+        >>> resolve_module_path("lightfall.ui.preferences")
         "C:/Users/rp/PycharmProjects/ncs/ncs/src/ncs/ui/preferences/__init__.py"
     """
     try:

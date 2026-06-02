@@ -11,7 +11,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
-from lucid.utils.crash_diagnostics import gui_thread_only
+from lightfall.utils.crash_diagnostics import gui_thread_only
 
 
 class PV(QObject):
@@ -118,7 +118,7 @@ class PV(QObject):
         """
         Blocking connection logic - runs in background thread.
         """
-        from lucid.epics.ca.context import SharedContext
+        from lightfall.epics.ca.context import SharedContext
 
         ctx = SharedContext.get_instance()
         self._caproto_pv = ctx.get_pv(self._pv_name)

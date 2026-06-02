@@ -11,7 +11,7 @@ This module is kept for backward compatibility only.
 from __future__ import annotations
 
 # Re-export from new module for backward compatibility
-from lucid.ui.preferences.tool_settings import (
+from lightfall.ui.preferences.tool_settings import (
     ClaudeToolsSettingsPlugin,
     ToolPluginTableModel,
 )

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QTextDocument
 
-from lucid.logbook.style import (
+from lightfall.logbook.style import (
     get_blockquote_color,
     get_code_background_color,
     get_code_text_color,
@@ -27,7 +27,7 @@ from lucid.logbook.style import (
 )
 
 if TYPE_CHECKING:
-    from lucid.logbook.protection import ProtectionManager
+    from lightfall.logbook.protection import ProtectionManager
 
 
 class ProtectedMarkdownHighlighter(QSyntaxHighlighter):

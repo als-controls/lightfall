@@ -14,8 +14,8 @@ from uuid import UUID
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.devices.base import DeviceBackend
-from lucid.devices.model import (
+from lightfall.devices.base import DeviceBackend
+from lightfall.devices.model import (
     DeviceCategory,
     DeviceConfiguration,
     DeviceInfo,
@@ -230,7 +230,7 @@ class DeviceCatalog(QObject):
             return
 
         try:
-            from lucid.devices.connection_manager import DeviceConnectionManager
+            from lightfall.devices.connection_manager import DeviceConnectionManager
 
             manager = DeviceConnectionManager.get_instance()
             manager.device_connecting.connect(self._on_device_connecting)
@@ -247,7 +247,7 @@ class DeviceCatalog(QObject):
             return
 
         try:
-            from lucid.devices.connection_manager import DeviceConnectionManager
+            from lightfall.devices.connection_manager import DeviceConnectionManager
 
             manager = DeviceConnectionManager.get_instance()
             manager.cancel_all()
@@ -273,7 +273,7 @@ class DeviceCatalog(QObject):
     def _on_device_connected(self, result: Any) -> None:
         """Handle successful device connection from ConnectionManager."""
         try:
-            from lucid.devices.connection_manager import ConnectionResult
+            from lightfall.devices.connection_manager import ConnectionResult
 
             if not isinstance(result, ConnectionResult):
                 return
@@ -300,7 +300,7 @@ class DeviceCatalog(QObject):
     def _on_device_failed(self, result: Any) -> None:
         """Handle failed device connection from ConnectionManager."""
         try:
-            from lucid.devices.connection_manager import ConnectionResult, ConnectionState
+            from lightfall.devices.connection_manager import ConnectionResult, ConnectionState
 
             if not isinstance(result, ConnectionResult):
                 return
@@ -442,7 +442,7 @@ class DeviceCatalog(QObject):
             return False
 
         try:
-            from lucid.devices.connection_manager import DeviceConnectionManager
+            from lightfall.devices.connection_manager import DeviceConnectionManager
 
             manager = DeviceConnectionManager.get_instance()
             manager.connect_device(device, happi_result)
@@ -480,7 +480,7 @@ class DeviceCatalog(QObject):
             return False
 
         try:
-            from lucid.devices.connection_manager import DeviceConnectionManager
+            from lightfall.devices.connection_manager import DeviceConnectionManager
 
             manager = DeviceConnectionManager.get_instance()
             manager.retry_connection(device, happi_result)

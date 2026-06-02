@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.models.device_selection import DeviceSelectionFilterProxy, DeviceSelectionModel
+from lightfall.ui.models.device_selection import DeviceSelectionFilterProxy, DeviceSelectionModel
 
 try:
     from pyqtgraph.parametertree import Parameter
@@ -51,7 +51,7 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from lucid.devices import DeviceCatalog
+    from lightfall.devices import DeviceCatalog
 
 
 # ---------------------------------------------------------------------------

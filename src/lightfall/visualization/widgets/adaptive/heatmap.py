@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.utils.logging import log_time
-from lucid.visualization.base_visualization import BaseVisualization
-from lucid.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
-from lucid.visualization.widgets.lazy_image_view import LazyImageView
-from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
+from lightfall.utils.logging import log_time
+from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
+from lightfall.visualization.widgets.lazy_image_view import LazyImageView
+from lightfall.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 # Fields in priority order — only those actually present are offered.
 _HEATMAP_FIELDS = ["posterior_mean", "posterior_variance", "acquisition_function"]
@@ -270,7 +270,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         # Build a closure that fetches one iteration via server-side
         # slicing (avoids downloading the full chunk).
-        from lucid.utils.tiled_helpers import fetch_frame as _fetch_frame
+        from lightfall.utils.tiled_helpers import fetch_frame as _fetch_frame
 
         arr_client = arr
         grid_shape = gs
@@ -307,7 +307,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         if self._subscription is not None:
             return
 
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         future = QThreadFuture(
             self._fetch_and_apply_new_iterations,
@@ -397,7 +397,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         if self._adaptive is None or not self._field_name:
             return
 
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         old_count = self._n_iterations
 
@@ -514,8 +514,8 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._target_scatter.clear()
             return
 
-        from lucid.utils.threads import QThreadFuture
-        from lucid.utils.tiled_helpers import fetch_frame
+        from lightfall.utils.threads import QThreadFuture
+        from lightfall.utils.tiled_helpers import fetch_frame
 
         idx = self._current_index
         targets_client = self._adaptive["targets"]

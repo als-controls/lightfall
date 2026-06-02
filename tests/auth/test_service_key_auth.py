@@ -4,7 +4,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from lucid.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
+from lightfall.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
 
 
 def test_static_apikey_auth_sets_header():
@@ -27,7 +27,7 @@ def test_service_key_auth_reads_from_session_manager(monkeypatch):
             return "tiled-secret-xyz"
 
     monkeypatch.setattr(
-        "lucid.auth.service_key_auth.SessionManager", _FakeSM
+        "lightfall.auth.service_key_auth.SessionManager", _FakeSM
     )
 
     auth = ServiceKeyAuth("tiled")
@@ -52,7 +52,7 @@ def test_service_key_auth_skips_header_when_no_key(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "lucid.auth.service_key_auth.SessionManager", _FakeSM
+        "lightfall.auth.service_key_auth.SessionManager", _FakeSM
     )
 
     auth = ServiceKeyAuth("logbook")
@@ -90,7 +90,7 @@ def test_service_key_auth_async_flow_reads_from_session_manager(monkeypatch):
         def get_api_key(self, service):
             return "async-tiled-key"
 
-    monkeypatch.setattr("lucid.auth.service_key_auth.SessionManager", _FakeSM)
+    monkeypatch.setattr("lightfall.auth.service_key_auth.SessionManager", _FakeSM)
 
     auth = ServiceKeyAuth("tiled")
     request = httpx.Request("GET", "https://example/data")

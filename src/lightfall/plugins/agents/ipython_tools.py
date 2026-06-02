@@ -13,9 +13,9 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 class IPythonToolsAgent(AgentPlugin):
@@ -55,7 +55,7 @@ class IPythonToolsAgent(AgentPlugin):
         Returns:
             The NCSMainWindow instance or None if not available.
         """
-        from lucid.core.application import NCSApplication
+        from lightfall.core.application import NCSApplication
 
         app = NCSApplication.get_instance()
         return app.main_window if app else None
@@ -69,7 +69,7 @@ class IPythonToolsAgent(AgentPlugin):
         window = self._get_main_window()
         if window is None:
             return None
-        return window.get_panel("lucid.panels.ipython")
+        return window.get_panel("lightfall.panels.ipython")
 
     def _ensure_kernel_ready(self) -> bool:
         """Ensure the IPython kernel is initialized.
@@ -91,7 +91,7 @@ class IPythonToolsAgent(AgentPlugin):
         if window is None:
             return False
 
-        panel = window.add_panel("lucid.panels.ipython")
+        panel = window.add_panel("lightfall.panels.ipython")
         if panel is None:
             return False
 
@@ -99,7 +99,7 @@ class IPythonToolsAgent(AgentPlugin):
         # The kernel stays alive in the background.
         dm = getattr(window, "_docking_manager", None)
         if dm is not None:
-            dm.hide_panel("lucid.panels.ipython")
+            dm.hide_panel("lightfall.panels.ipython")
 
         return panel._kernel_manager is not None
 
@@ -148,7 +148,7 @@ class IPythonToolsAgent(AgentPlugin):
         )
         async def execute_code(args: dict) -> dict[str, Any]:
             """Execute Python code in the IPython console."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             code = args["code"]
             capture_output = args.get("capture_output", True)
@@ -247,7 +247,7 @@ class IPythonToolsAgent(AgentPlugin):
         )
         async def push_variable(args: dict) -> dict[str, Any]:
             """Push a variable to the IPython namespace."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             name = args["name"]
             value_code = args["value_code"]
@@ -327,7 +327,7 @@ class IPythonToolsAgent(AgentPlugin):
         )
         async def get_namespace(args: dict) -> dict[str, Any]:
             """Get IPython namespace information."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             filter_prefix = args.get("filter_prefix", "")
             include_private = args.get("include_private", False)
@@ -389,7 +389,7 @@ class IPythonToolsAgent(AgentPlugin):
         )
         async def clear_console(args: dict) -> dict[str, Any]:
             """Clear the IPython console."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _clear():
                 panel = self._get_ipython_panel()
@@ -417,7 +417,7 @@ class IPythonToolsAgent(AgentPlugin):
         )
         async def reset_kernel(args: dict) -> dict[str, Any]:
             """Reset the IPython kernel."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _reset():
                 panel = self._get_ipython_panel()

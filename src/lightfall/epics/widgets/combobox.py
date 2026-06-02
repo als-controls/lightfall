@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QWidget
 
-from lucid.epics.widgets.base import EpicsWidget
+from lightfall.epics.widgets.base import EpicsWidget
 
 
 class PVComboBox(EpicsWidget):

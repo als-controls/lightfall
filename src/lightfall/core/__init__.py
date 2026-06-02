@@ -1,12 +1,12 @@
 """Core infrastructure for the LUCID application."""
 
-from lucid.core.application import (
+from lightfall.core.application import (
     ApplicationState,
     NCSApplication,
     NCSEvent,
     NCSEventTypes,
 )
-from lucid.core.services import (
+from lightfall.core.services import (
     ServiceAlreadyRegisteredError,
     ServiceNotFoundError,
     ServiceRegistry,

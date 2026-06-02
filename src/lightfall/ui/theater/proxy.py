@@ -60,7 +60,7 @@ class TheaterProxy(QStackedWidget):
             self._expand_btn.setText("\u26f6")
 
         # Register with theater manager
-        from lucid.ui.theater.manager import theater_manager
+        from lightfall.ui.theater.manager import theater_manager
 
         theater_manager.register(self)
 

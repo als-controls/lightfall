@@ -1,8 +1,8 @@
 """Configuration management for NCS."""
 
-from lucid.config.layers import ConfigLayer, ConfigPriority, LayeredConfig
-from lucid.config.manager import ConfigManager
-from lucid.config.schema import (
+from lightfall.config.layers import ConfigLayer, ConfigPriority, LayeredConfig
+from lightfall.config.manager import ConfigManager
+from lightfall.config.schema import (
     AcquisitionConfig,
     BeamlineConfig,
     LoggingConfig,

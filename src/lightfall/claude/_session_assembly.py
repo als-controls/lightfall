@@ -1,6 +1,6 @@
 """Session-time assembly of the SDK plugin directory + per-plugin MCP servers.
 
-Called by lucid.claude.agent (QtClaudeAgent.__init__) at agent-construction
+Called by lightfall.claude.agent (QtClaudeAgent.__init__) at agent-construction
 time. Translates AgentRegistry's enabled plugins into the inputs needed for
 ClaudeAgentOptions.
 """
@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 # Per-SDK constraints
@@ -34,7 +34,7 @@ def init_session_plugin_dir(path: Path) -> Path:
     claude_plugin = path / ".claude-plugin"
     claude_plugin.mkdir(exist_ok=True)
     (claude_plugin / "plugin.json").write_text(
-        json.dumps({"name": "lucid-session", "version": "0.0.0"}),
+        json.dumps({"name": "lightfall-session", "version": "0.0.0"}),
         encoding="utf-8",
     )
     (path / "skills").mkdir(exist_ok=True)

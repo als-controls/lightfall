@@ -7,7 +7,7 @@ import time
 import pytest
 from loguru import logger
 
-from lucid.utils.log_buffer import LogBuffer, get_log_buffer
+from lightfall.utils.log_buffer import LogBuffer, get_log_buffer
 
 
 @pytest.fixture
@@ -87,13 +87,13 @@ def test_name_prefix_filter(buf: LogBuffer) -> None:
     fake = LogBuffer.get_instance()
     from datetime import UTC, datetime
 
-    from lucid.utils.log_buffer import LogRecord
+    from lightfall.utils.log_buffer import LogRecord
 
     fake._records.append(LogRecord(
         timestamp=datetime.now(UTC),
         level="INFO",
         level_no=20,
-        name="lucid.devices.motor",
+        name="lightfall.devices.motor",
         function="move",
         line=10,
         thread="MainThread",
@@ -103,16 +103,16 @@ def test_name_prefix_filter(buf: LogBuffer) -> None:
         timestamp=datetime.now(UTC),
         level="INFO",
         level_no=20,
-        name="lucid.acquire.run",
+        name="lightfall.acquire.run",
         function="start",
         line=20,
         thread="MainThread",
         message="starting run",
     ))
 
-    records = fake.get_records(name_prefix="lucid.devices")
+    records = fake.get_records(name_prefix="lightfall.devices")
     names = [r.name for r in records]
-    assert all(n.startswith("lucid.devices") for n in names)
+    assert all(n.startswith("lightfall.devices") for n in names)
 
 
 def test_max_count_truncates(buf: LogBuffer) -> None:

@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.ui.theme import ThemeManager
-from lucid.ui.toast import ToastManager
-from lucid.utils.logging import logger
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.ui.theme import ThemeManager
+from lightfall.ui.toast import ToastManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.services.als_beam_status import ALSBeamData, ALSBeamStatusService
+    from lightfall.services.als_beam_status import ALSBeamData, ALSBeamStatusService
 
 
 class ALSBeamStatusPlugin(StatusBarPlugin):
@@ -31,7 +31,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
-        id="lucid.statusbar.als_beam",
+        id="lightfall.statusbar.als_beam",
         name="ALS Beam Status",
         description="Shows ALS synchrotron beam current and status",
         priority=45,
@@ -63,7 +63,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
             self._theme_manager = ThemeManager.get_instance()
 
         try:
-            from lucid.services.als_beam_status import ALSBeamStatusService
+            from lightfall.services.als_beam_status import ALSBeamStatusService
 
             service = ALSBeamStatusService.get_instance()
             self._service = service
@@ -89,7 +89,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         self._theme_manager.colors_changed.connect(self.update)
 
         try:
-            from lucid.services.als_beam_status import ALSBeamStatusService
+            from lightfall.services.als_beam_status import ALSBeamStatusService
 
             service = ALSBeamStatusService.get_instance()
             self._service = service
@@ -207,7 +207,7 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         data = super().get_introspection_data()
 
         try:
-            from lucid.services.als_beam_status import ALSBeamStatusService
+            from lightfall.services.als_beam_status import ALSBeamStatusService
 
             service = ALSBeamStatusService.get_instance()
             data.update(service.get_introspection_data())

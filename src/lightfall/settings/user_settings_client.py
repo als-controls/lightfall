@@ -1,4 +1,4 @@
-"""Sync HTTP client for the lucid-logbook /logbook/settings endpoints.
+"""Sync HTTP client for the lightfall-logbook /logbook/settings endpoints.
 
 Used for user-scoped settings that must follow a user across machines
 (profile picture, future user-level prefs). Local-only preferences
@@ -11,9 +11,9 @@ from typing import Any
 
 import httpx
 
-from lucid.auth.service_key_auth import ServiceKeyAuth
-from lucid.logbook.url import get_logbook_base_url
-from lucid.utils.logging import logger
+from lightfall.auth.service_key_auth import ServiceKeyAuth
+from lightfall.logbook.url import get_logbook_base_url
+from lightfall.utils.logging import logger
 
 try:
     from socksio.exceptions import SOCKSError as _SOCKSError
@@ -102,7 +102,7 @@ class UserSettingsClient:
             "auth": self._auth,
         }
         try:
-            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
             proxy_url = ProxySettingsProvider.should_use_proxy_for_url(self._base_url)
             if proxy_url:
                 client_kwargs["proxy"] = proxy_url

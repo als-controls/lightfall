@@ -12,8 +12,8 @@ import queue
 import threading
 from typing import TYPE_CHECKING, Any
 
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass

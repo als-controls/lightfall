@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.state import EngineState
+    from lightfall.acquire.engine.state import EngineState
 
 
 @runtime_checkable

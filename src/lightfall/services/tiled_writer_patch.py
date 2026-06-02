@@ -51,7 +51,7 @@ from bluesky_tiled_plugins.writing.tiled_writer import (
 )
 from tiled.client.base import BaseClient
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 def _override_schema_from_data_keys(

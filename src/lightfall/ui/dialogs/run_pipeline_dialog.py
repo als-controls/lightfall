@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QVBoxLayout, QWidget,
 )
 
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.threads import QThreadFuture
 
 
 class RunPipelineDialog(QDialog):
@@ -96,7 +96,7 @@ class RunPipelineDialog(QDialog):
             return
         # client.submit() makes a synchronous NATS ipc.request round-trip
         # that can block the Qt main thread for several seconds on a slow
-        # network. Run it through lucid.utils.threads.QThreadFuture so the
+        # network. Run it through lightfall.utils.threads.QThreadFuture so the
         # dialog stays responsive; results come back via callback_slot /
         # except_slot, which Qt marshals onto the main thread.
         self._ok_button.setEnabled(False)

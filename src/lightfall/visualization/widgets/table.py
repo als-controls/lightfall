@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class TableVisualization(BaseVisualization):
@@ -187,7 +187,7 @@ class TableVisualization(BaseVisualization):
     # ------------------------------------------------------------------
 
     def _read_events_table(self):
-        from lucid.utils.tiled_helpers import read_events
+        from lightfall.utils.tiled_helpers import read_events
         return read_events(self._stream)
 
     def _reload(self) -> None:

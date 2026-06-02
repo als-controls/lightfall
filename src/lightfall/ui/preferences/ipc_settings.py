@@ -25,15 +25,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-    from lucid.ipc.trust import TrustManager
+    from lightfall.ipc.trust import TrustManager
 
 
 class IPCSettingsPlugin(SettingsPlugin):

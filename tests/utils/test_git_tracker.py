@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid.utils.git_tracker import GitTracker
+from lightfall.utils.git_tracker import GitTracker
 
 
 @pytest.fixture(autouse=True)
@@ -18,8 +18,8 @@ def reset_singleton():
 
 @pytest.fixture
 def repo_root(tmp_path):
-    """A clean ~/lucid/ stand-in."""
-    root = tmp_path / "lucid"
+    """A clean ~/lightfall/ stand-in."""
+    root = tmp_path / "lightfall"
     root.mkdir()
     return root
 
@@ -55,7 +55,7 @@ def test_ensure_repo_sets_local_identity(tracker, repo_root):
     tracker.ensure_repo()
     email = _git(repo_root, "config", "--local", "user.email")
     name = _git(repo_root, "config", "--local", "user.name")
-    assert email == "lucid-agent@als.lbl.gov"
+    assert email == "lightfall-agent@als.lbl.gov"
     assert name == "LUCID Agent"
 
 
@@ -119,7 +119,7 @@ def test_commit_swallows_missing_git_executable(tracker, repo_root, monkeypatch)
     """If git isn't on PATH, commit returns False and does not raise."""
     def boom(*args, **kwargs):
         raise FileNotFoundError("git: command not found")
-    monkeypatch.setattr("lucid.utils.git_tracker.subprocess.run", boom)
+    monkeypatch.setattr("lightfall.utils.git_tracker.subprocess.run", boom)
 
     plugin_file = repo_root / "foo.py"
     plugin_file.write_text("x", encoding="utf-8")
@@ -132,9 +132,9 @@ def test_commit_skips_paths_outside_repo(tracker, repo_root, tmp_path, caplog):
     assert tracker.commit([outside], "msg") is False
 
 
-def test_singleton_uses_home_lucid_by_default(monkeypatch, tmp_path):
+def test_singleton_uses_home_lightfall_by_default(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows
     GitTracker.reset_instance()
     instance = GitTracker.get_instance()
-    assert instance.repo_root == Path.home() / "lucid"
+    assert instance.repo_root == Path.home() / "lightfall"

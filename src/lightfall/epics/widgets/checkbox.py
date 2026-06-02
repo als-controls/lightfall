@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Qt, Signal, Slot
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QWidget
 
-from lucid.epics.widgets.base import EpicsWidget
+from lightfall.epics.widgets.base import EpicsWidget
 
 
 class PVCheckBox(EpicsWidget):

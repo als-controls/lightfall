@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from lucid.plugins.errors import PluginStatus
+from lightfall.plugins.errors import PluginStatus
 
 
 @dataclass

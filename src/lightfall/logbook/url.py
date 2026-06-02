@@ -6,7 +6,7 @@ prefs lookup.
 """
 from __future__ import annotations
 
-DEFAULT_LOGBOOK_URL = "http://bcglucidlogbook.dhcp.lbl.gov"
+DEFAULT_LOGBOOK_URL = "http://bcglightfalllogbook.dhcp.lbl.gov"
 
 
 def _load_pref() -> str | None:
@@ -15,7 +15,7 @@ def _load_pref() -> str | None:
     Returns None on any failure (manager uninitialised, ConfigManager
     missing, etc.). Wrapped so it's trivially monkeypatchable in tests.
     """
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     prefs = PreferencesManager.get_instance()
     return prefs.get("logbook_url", None)
 

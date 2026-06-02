@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ipc.service import IPCService, _ActionHandle
+from lightfall.ipc.service import IPCService, _ActionHandle
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ class TestDiscoverEndpoint:
         svc.subscribe = MagicMock()
         svc.register_meta_endpoints()
         subjects = [call[0][0] for call in svc.subscribe.call_args_list]
-        assert "_lucid.discover" in subjects
+        assert "_lightfall.discover" in subjects
 
     def test_discover_response_matches_meta_actions(self):
         svc = _make_svc(prefix="als.test")
@@ -229,7 +229,7 @@ class TestDiscoverEndpoint:
         svc.register_meta_endpoints()
         svc.register_action("commands.echo", lambda s, d, r: None, description="Echo back", schema={"msg": "str"})
         svc.reply = MagicMock()
-        svc._handle_discover("_lucid.discover", {}, "reply.inbox")
+        svc._handle_discover("_lightfall.discover", {}, "reply.inbox")
         svc.reply.assert_called_once()
         response = svc.reply.call_args[0][1]
         assert response["instance_id"] == "testhost-999"

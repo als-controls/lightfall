@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class DarkFrameManager(QObject):
@@ -127,7 +127,7 @@ class DarkFrameManager(QObject):
 
     def _read_dark_from_tiled(self, run_uid: str, image_field: str) -> None:
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
             service = TiledService.get_instance()
             if not service.is_connected:
                 logger.debug("Tiled not connected — cannot read dark frame")
@@ -157,7 +157,7 @@ class DarkFrameManager(QObject):
         if image_field is None:
             image_field = f"{self._device_name}_image"
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
             service = TiledService.get_instance()
             if not service.is_connected:
                 logger.debug("Tiled not connected — cannot search for historical darks")

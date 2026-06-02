@@ -291,7 +291,7 @@ def safe_call(obj: Any, method_name: str, *args: Any, **kwargs: Any) -> Any:
     destroyed; returns ``None`` in that case rather than crashing.
     """
     if not _is_valid(obj):
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
 
         stack = "".join(traceback.format_stack()[:-1])
         logger.warning(
@@ -319,7 +319,7 @@ def valid_or_skip(obj: Any):
             label.setText("...")
     """
     if not _is_valid(obj):
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
 
         stack = "".join(traceback.format_stack()[:-2])
         logger.warning(
@@ -376,7 +376,7 @@ def _excepthook(exc_type, exc_value, exc_traceback) -> None:
         return
 
     try:
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
 
         logger.opt(exception=(exc_type, exc_value, exc_traceback)).critical(
             "Unhandled exception in main thread: {}", exc_value
@@ -397,7 +397,7 @@ def _threading_excepthook(args) -> None:
         return
 
     try:
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
 
         thread_name = args.thread.name if args.thread is not None else "<unknown>"
         logger.opt(
@@ -421,7 +421,7 @@ def _qt_message_handler(mode: Any, context: Any, message: str) -> None:
     try:
         from PySide6.QtCore import QtMsgType
 
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
 
         # Map QtMsgType -> loguru level.
         level_map = {

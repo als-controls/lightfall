@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from lucid.config.layers import ConfigLayer, ConfigPriority, LayeredConfig
-from lucid.config.schema import NCSConfig
-from lucid.utils.logging import logger
+from lightfall.config.layers import ConfigLayer, ConfigPriority, LayeredConfig
+from lightfall.config.schema import NCSConfig
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

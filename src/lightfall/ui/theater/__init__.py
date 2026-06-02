@@ -2,7 +2,7 @@
 
 Usage with install (existing widget in a layout)::
 
-    from lucid.ui.theater import theater_manager
+    from lightfall.ui.theater import theater_manager
 
     plot = pg.PlotWidget()
     layout.addWidget(plot)
@@ -10,15 +10,15 @@ Usage with install (existing widget in a layout)::
 
 Usage with direct proxy construction::
 
-    from lucid.ui.theater import TheaterProxy
+    from lightfall.ui.theater import TheaterProxy
 
     proxy = TheaterProxy(my_image_view)
     layout.addWidget(proxy)
 """
 
-from lucid.ui.theater.manager import TheaterManager, theater_manager
-from lucid.ui.theater.overlay import TheaterOverlay
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.manager import TheaterManager, theater_manager
+from lightfall.ui.theater.overlay import TheaterOverlay
+from lightfall.ui.theater.proxy import TheaterProxy
 
 __all__ = [
     "TheaterManager",

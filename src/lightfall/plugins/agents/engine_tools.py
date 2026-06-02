@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
@@ -22,7 +22,7 @@ def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
     reflected until that poll completes, so the returned snapshot can lag by
     one cycle.
     """
-    from lucid.services.als_beam_status import ALSBeamStatusService
+    from lightfall.services.als_beam_status import ALSBeamStatusService
 
     service = ALSBeamStatusService.get_instance()
     if force_refresh:
@@ -48,11 +48,11 @@ class EngineToolsAgent(AgentPlugin):
         return "acquisition"
 
     def _get_session_manager(self):
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
         return SessionManager.get_instance()
 
     def _check_device_control_permission(self) -> tuple[bool, str | None]:
-        from lucid.auth.policy import Permission
+        from lightfall.auth.policy import Permission
         session = self._get_session_manager()
         if not session.check_permission(Permission.DEVICE_CONTROL):
             return False, "Permission denied: DEVICE_CONTROL required"
@@ -71,11 +71,11 @@ class EngineToolsAgent(AgentPlugin):
             input_schema={"type": "object", "properties": {}},
         )
         async def get_run_status(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _get():
                 try:
-                    from lucid.acquire.engine import get_engine
+                    from lightfall.acquire.engine import get_engine
                     engine = get_engine()
 
                     result = {
@@ -119,7 +119,7 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def pause_plan(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             defer = args.get("defer", True)
 
@@ -129,7 +129,7 @@ class EngineToolsAgent(AgentPlugin):
                     return mcp_result({"success": False, "error": error}, is_error=True)
 
                 try:
-                    from lucid.acquire.engine import get_engine
+                    from lightfall.acquire.engine import get_engine
                     engine = get_engine()
                     engine.pause(defer=defer)
                     logger.info("Plan pause requested (defer={})", defer)
@@ -149,7 +149,7 @@ class EngineToolsAgent(AgentPlugin):
             input_schema={"type": "object", "properties": {}},
         )
         async def resume_plan(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _resume():
                 has_perm, error = self._check_device_control_permission()
@@ -157,7 +157,7 @@ class EngineToolsAgent(AgentPlugin):
                     return mcp_result({"success": False, "error": error}, is_error=True)
 
                 try:
-                    from lucid.acquire.engine import get_engine
+                    from lightfall.acquire.engine import get_engine
                     engine = get_engine()
                     engine.resume()
                     logger.info("Plan resumed")
@@ -186,7 +186,7 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def abort_plan(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             reason = args.get("reason", "")
 
@@ -196,7 +196,7 @@ class EngineToolsAgent(AgentPlugin):
                     return mcp_result({"success": False, "error": error}, is_error=True)
 
                 try:
-                    from lucid.acquire.engine import get_engine
+                    from lightfall.acquire.engine import get_engine
                     engine = get_engine()
                     engine.abort(reason=reason)
                     logger.info("Plan aborted: {}", reason or "(no reason)")
@@ -225,13 +225,13 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def get_run_history(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             limit = args.get("limit", 10)
 
             def _get():
                 try:
-                    from lucid.services.tiled_service import TiledService
+                    from lightfall.services.tiled_service import TiledService
                     service = TiledService.get_instance()
 
                     if not service.is_connected or service._client is None:
@@ -293,13 +293,13 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def get_scan_data(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             uid = args["uid"]
             max_rows = args.get("max_rows", 50)
 
             def _get():
-                from lucid.services.tiled_service import TiledService
+                from lightfall.services.tiled_service import TiledService
                 service = TiledService.get_instance()
 
                 if not service.is_connected or service._client is None:
@@ -326,7 +326,7 @@ class EngineToolsAgent(AgentPlugin):
                             "uid": uid,
                         })
 
-                    from lucid.utils.tiled_helpers import read_events
+                    from lightfall.utils.tiled_helpers import read_events
                     stream = run["primary"]
                     events = read_events(stream)
 
@@ -378,11 +378,11 @@ class EngineToolsAgent(AgentPlugin):
             input_schema={"type": "object", "properties": {}},
         )
         async def get_last_run(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             def _get():
                 try:
-                    from lucid.services.tiled_service import TiledService
+                    from lightfall.services.tiled_service import TiledService
                     service = TiledService.get_instance()
 
                     if not service.is_connected or service._client is None:
@@ -441,7 +441,7 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def show_run(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             uid = args.get("uid")
             if not uid:
@@ -452,10 +452,10 @@ class EngineToolsAgent(AgentPlugin):
 
             def _show():
                 try:
-                    from lucid.core.services import ServiceRegistry
-                    from lucid.services.tiled_service import TiledService
-                    from lucid.ui.docking import DockingManager
-                    from lucid.ui.panels.visualization_panel import VisualizationPanel
+                    from lightfall.core.services import ServiceRegistry
+                    from lightfall.services.tiled_service import TiledService
+                    from lightfall.ui.docking import DockingManager
+                    from lightfall.ui.panels.visualization_panel import VisualizationPanel
 
                     service = TiledService.get_instance()
                     if not service.is_connected or service._client is None:
@@ -478,7 +478,7 @@ class EngineToolsAgent(AgentPlugin):
                             is_error=True,
                         )
 
-                    viz_panel_id = "lucid.panels.visualization"
+                    viz_panel_id = "lightfall.panels.visualization"
                     dm.show_panel(viz_panel_id)
                     panel = dm.get_panel(viz_panel_id)
                     if not isinstance(panel, VisualizationPanel):
@@ -518,7 +518,7 @@ class EngineToolsAgent(AgentPlugin):
             },
         )
         async def get_beam_status(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             force = args.get("force_refresh", False)
 

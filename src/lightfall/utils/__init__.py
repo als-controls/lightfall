@@ -1,8 +1,8 @@
 """NCS utility modules."""
 
-from lucid.utils.error_collector import ErrorCollector, get_error_collector
-from lucid.utils.logging import configure_logging, log_time
-from lucid.utils.sentry import (
+from lightfall.utils.error_collector import ErrorCollector, get_error_collector
+from lightfall.utils.logging import configure_logging, log_time
+from lightfall.utils.sentry import (
     add_breadcrumb,
     capture_exception,
     capture_message,
@@ -12,7 +12,7 @@ from lucid.utils.sentry import (
     set_tag,
     submit_bug_report,
 )
-from lucid.utils.threads import (
+from lightfall.utils.threads import (
     QThreadFuture,
     QThreadFutureIterator,
     ThreadManager,

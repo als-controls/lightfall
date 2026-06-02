@@ -2,7 +2,7 @@
 Local-first logbook client with optional server sync.
 
 Provides a singleton ``LogbookClient`` that persists logbook data in a local
-SQLite database (``~/.lucid/logbook.db``). All writes go to the local
+SQLite database (``~/.lightfall/logbook.db``). All writes go to the local
 database first (offline-first). Sync to a remote server happens in a
 background thread when configured.
 
@@ -22,9 +22,9 @@ from typing import Any
 
 from PySide6.QtCore import QTimer
 
-from lucid.auth.service_key_auth import ServiceKeyAuth
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture, thread_manager
+from lightfall.auth.service_key_auth import ServiceKeyAuth
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture, thread_manager
 
 try:
     import httpx
@@ -114,7 +114,7 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
         # In prod the apikey carries identity and this header is ignored.
         client_kwargs["headers"] = {"X-User-Id": user_id}
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
         if proxy_url:
             client_kwargs["proxy"] = proxy_url
@@ -268,7 +268,7 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                 cursor = db.execute(
                     "SELECT id, data FROM fragment WHERE kind = 'image'"
                 )
-                image_dir = Path.home() / ".lucid" / "logbook" / "images"
+                image_dir = Path.home() / ".lightfall" / "logbook" / "images"
                 image_dir.mkdir(parents=True, exist_ok=True)
 
                 for _frag_id, data_json in cursor.fetchall():
@@ -340,7 +340,7 @@ class LogbookClient:
 
     def __init__(self) -> None:
         self._db: sqlite3.Connection | None = None
-        self._db_path = Path.home() / ".lucid" / "logbook.db"
+        self._db_path = Path.home() / ".lightfall" / "logbook.db"
         self._server_url: str | None = None
         self._offline_only = False
         self._initialized = False
@@ -413,9 +413,9 @@ class LogbookClient:
         self._initialized = False
 
     def _load_preferences(self) -> None:
-        from lucid.logbook.url import get_logbook_base_url
+        from lightfall.logbook.url import get_logbook_base_url
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
             self._server_url = get_logbook_base_url()
             self._offline_only = prefs.get("logbook_offline_only", False)
@@ -599,7 +599,7 @@ class LogbookClient:
     @property
     def _image_dir(self) -> Path:
         """Local image storage directory."""
-        d = Path.home() / ".lucid" / "logbook" / "images"
+        d = Path.home() / ".lightfall" / "logbook" / "images"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -735,8 +735,8 @@ class LogbookClient:
     def _is_guest_user() -> bool:
         """Check if the current user is a guest (no sync for guests)."""
         try:
-            from lucid.auth.policy import Role
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.policy import Role
+            from lightfall.auth.session import SessionManager
             user = SessionManager.get_instance().current_user
             return user.highest_role == Role.GUEST
         except Exception:
@@ -760,7 +760,7 @@ class LogbookClient:
         # local user_id is still needed downstream to upsert local logbook rows.
         user_id: str | None = None
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             sm = SessionManager.get_instance()
             user = sm.current_user
             if user and user.username:

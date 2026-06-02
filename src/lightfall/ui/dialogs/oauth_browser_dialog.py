@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass

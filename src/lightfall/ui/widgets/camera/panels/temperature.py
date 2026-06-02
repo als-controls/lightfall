@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
-from lucid.utils.logging import logger
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.utils.logging import logger
 
 
 class TemperaturePanel(QGroupBox):

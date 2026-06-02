@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Generator
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
-from lucid.ui.annotations import (
+from lightfall.ui.annotations import (
     Unit, Decimals, Range, Default,
     DeviceFilter, DeviceFilterAny, DeviceDefault,
 )
@@ -20,7 +20,7 @@ Motor = Any
 Detector = Any
 ```
 
-## lucid-ui-annotations
+## lightfall-ui-annotations
 
 These annotations enable automatic UI generation for plan parameters.
 

@@ -23,28 +23,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.auth.policy import Permission
-from lucid.devices import DeviceCatalog
-from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.panels.synoptic.editors import SynopticPropertyEditor, TransformGizmo
-from lucid.ui.panels.synoptic.items import BeamPath2DItem, Device2DItem
-from lucid.ui.panels.synoptic.models import (
+from lightfall.auth.policy import Permission
+from lightfall.devices import DeviceCatalog
+from lightfall.ui.events import DeviceFocusEvent, DeviceSelectEvent
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.ui.panels.synoptic.editors import SynopticPropertyEditor, TransformGizmo
+from lightfall.ui.panels.synoptic.items import BeamPath2DItem, Device2DItem
+from lightfall.ui.panels.synoptic.models import (
     BeamPathSegment,
     DeviceSynopticData,
     ViewPreset,
 )
-from lucid.ui.panels.synoptic.serialization import (
+from lightfall.ui.panels.synoptic.serialization import (
     DeviceSynopticSaver,
     SynopticPersistence,
     get_or_create_device_synoptic_data,
 )
-from lucid.ui.panels.synoptic.view import SynopticView
-from lucid.utils.logging import logger
+from lightfall.ui.panels.synoptic.view import SynopticView
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 class SynopticPanel(BasePanel):
@@ -67,7 +67,7 @@ class SynopticPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.synoptic",
+        id="lightfall.panels.synoptic",
         name="Synoptic",
         description="2D visualization of beamline hardware layout",
         icon="mdi.laser-pointer",
@@ -168,7 +168,7 @@ class SynopticPanel(BasePanel):
     def _init_persistence(self) -> None:
         """Initialize persistence handler and restore state."""
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             self._current_beamline = prefs.get("current_beamline", "default")
@@ -294,7 +294,7 @@ class SynopticPanel(BasePanel):
     def _update_edit_permission(self) -> None:
         """Update edit button visibility based on user permission."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
 
             session = SessionManager.get_instance()
             user = session.current_user
@@ -589,7 +589,7 @@ class SynopticPanel(BasePanel):
         device_name = device_info.name if device_info else None
 
         registry = PanelRegistry.get_instance()
-        device_panel = registry.get_singleton("lucid.panels.devices")
+        device_panel = registry.get_singleton("lightfall.panels.devices")
 
         if device_panel is not None:
             event = DeviceFocusEvent(device_id, device_name)
@@ -629,7 +629,7 @@ class SynopticPanel(BasePanel):
         """
         # Find the Device panel and post event to it
         registry = PanelRegistry.get_instance()
-        device_panel = registry.get_singleton("lucid.panels.devices")
+        device_panel = registry.get_singleton("lightfall.panels.devices")
 
         if device_panel is not None:
             event = DeviceSelectEvent(device_id)

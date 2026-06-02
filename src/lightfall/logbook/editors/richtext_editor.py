@@ -22,18 +22,18 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QTextEdit, QWidget
 
-from lucid.logbook.block_mapper import BlockMapper, BlockProtectionData
-from lucid.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
-from lucid.logbook.style import LogbookStyles
-from lucid.logbook.visual_protection import (
+from lightfall.logbook.block_mapper import BlockMapper, BlockProtectionData
+from lightfall.logbook.position_mapper import MarkdownPositionMapper, PositionMapping
+from lightfall.logbook.style import LogbookStyles
+from lightfall.logbook.visual_protection import (
     PROTECTED_END,
     PROTECTED_START,
     VisualProtectionTracker,
 )
 
 if TYPE_CHECKING:
-    from lucid.logbook.converter import MarkdownConverter
-    from lucid.logbook.protection import ProtectionManager
+    from lightfall.logbook.converter import MarkdownConverter
+    from lightfall.logbook.protection import ProtectionManager
 
 
 class MarkdownEditCommand(QUndoCommand):

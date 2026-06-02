@@ -1,7 +1,7 @@
-"""Tests for the themed pyqtgraph wrapper (`lucid.visualization.pg`).
+"""Tests for the themed pyqtgraph wrapper (`lightfall.visualization.pg`).
 
 The wrapper is a drop-in replacement for ``import pyqtgraph as pg`` that pulls
-default colors from :mod:`lucid.visualization.theme`. It must:
+default colors from :mod:`lightfall.visualization.theme`. It must:
 
 * Re-export the pyqtgraph namespace.
 * Inject palette colors when the caller did not pass an explicit pen/brush.
@@ -23,8 +23,8 @@ pytest.importorskip("PySide6")
 import pyqtgraph as pg  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
 
-from lucid.visualization import pg as themed_pg  # noqa: E402
-from lucid.visualization.theme import (  # noqa: E402
+from lightfall.visualization import pg as themed_pg  # noqa: E402
+from lightfall.visualization.theme import (  # noqa: E402
     DARK_VIZ_COLORS,
     LIGHT_VIZ_COLORS,
 )

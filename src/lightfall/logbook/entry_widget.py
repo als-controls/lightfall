@@ -58,7 +58,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook.fragment_widgets import (
+from lightfall.logbook.fragment_widgets import (
     CollapseMode,
     CollapsibleGroup,
     FragmentData,
@@ -67,7 +67,7 @@ from lucid.logbook.fragment_widgets import (
     ReadonlyFragmentWidget,
     TextFragmentWidget,
 )
-from lucid.logbook.style import is_dark_theme
+from lightfall.logbook.style import is_dark_theme
 
 # ---------------------------------------------------------------------------
 # Lightweight entry data container

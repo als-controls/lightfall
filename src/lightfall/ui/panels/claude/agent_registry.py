@@ -22,10 +22,10 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 DISABLED_PLUGINS_PREF: str = "disabled_tool_plugins"
@@ -88,7 +88,7 @@ class AgentRegistry:
     def _read_list_pref(self, key: str) -> list[str] | None:
         """Read a list-valued preference. Returns None if unset/unreadable."""
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
             value = prefs.get(key)
             if value is None or isinstance(value, list):
@@ -109,7 +109,7 @@ class AgentRegistry:
         if self._legacy_migrated:
             return
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
         except Exception as e:  # noqa: BLE001
             logger.debug("Could not access PreferencesManager for migration: {}", e)

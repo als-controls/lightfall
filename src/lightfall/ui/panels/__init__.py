@@ -10,12 +10,12 @@ This package provides:
 - DocumentsPanel: Panel for viewing Bluesky document streams
 """
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.bluesky_panel import BlueskyPanel
-from lucid.ui.panels.device_panel import DevicePanel
-from lucid.ui.panels.documents_panel import DocumentsPanel
-from lucid.ui.panels.logbook_panel import LogbookPanel
-from lucid.ui.panels.registry import PanelRegistry
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.bluesky_panel import BlueskyPanel
+from lightfall.ui.panels.device_panel import DevicePanel
+from lightfall.ui.panels.documents_panel import DocumentsPanel
+from lightfall.ui.panels.logbook_panel import LogbookPanel
+from lightfall.ui.panels.registry import PanelRegistry
 
 __all__ = [
     "BasePanel",

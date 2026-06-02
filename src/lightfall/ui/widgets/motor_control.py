@@ -22,14 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices.model import DeviceCategory
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.logbook import DeviceActionLogger
-from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
-from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
-from lucid.utils.logging import logger
+from lightfall.devices.model import DeviceCategory
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.logbook import DeviceActionLogger
+from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
+from lightfall.ui.widgets.base_control import BaseControlWidget, register_control_widget
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -134,7 +134,7 @@ class MotorControlWidget(BaseControlWidget):
 
             # Check if device is connecting or needs connection
             if self._motor is None and item.device_info:
-                from lucid.devices.model import DeviceStatus
+                from lightfall.devices.model import DeviceStatus
 
                 state = item.device_info._state
                 if state and state.status == DeviceStatus.CONNECTING:
@@ -164,7 +164,7 @@ class MotorControlWidget(BaseControlWidget):
     def _connect_connection_signals(self) -> None:
         """Connect to DeviceCatalog signals for connection updates."""
         try:
-            from lucid.devices import DeviceCatalog
+            from lightfall.devices import DeviceCatalog
 
             catalog = DeviceCatalog.get_instance()
             catalog.device_connected.connect(self._on_device_connected)
@@ -175,7 +175,7 @@ class MotorControlWidget(BaseControlWidget):
     def _disconnect_connection_signals(self) -> None:
         """Disconnect from DeviceCatalog signals."""
         try:
-            from lucid.devices import DeviceCatalog
+            from lightfall.devices import DeviceCatalog
 
             catalog = DeviceCatalog.get_instance()
             catalog.device_connected.disconnect(self._on_device_connected)
@@ -190,7 +190,7 @@ class MotorControlWidget(BaseControlWidget):
             return
 
         try:
-            from lucid.devices import DeviceCatalog
+            from lightfall.devices import DeviceCatalog
 
             catalog = DeviceCatalog.get_instance()
             if catalog.request_device_connection(self._device_info.id):

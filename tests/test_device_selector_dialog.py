@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import Qt
-from lucid.devices.model import DeviceCategory, DeviceInfo
+from lightfall.devices.model import DeviceCategory, DeviceInfo
 
 
 def _make_device_info(name, category=DeviceCategory.MOTOR):
@@ -33,12 +33,12 @@ class TestDeviceSelectorDialog:
         ])
 
     def test_flat_mode_shows_devices(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         dlg = DeviceSelectorDialog(catalog, show_tree=False)
         assert dlg._proxy.rowCount() == 3
 
     def test_tree_mode_shows_children(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         from PySide6.QtCore import Qt
         dlg = DeviceSelectorDialog(catalog, show_tree=True)
         # Find a motor row (det1 sorts before motor* alphabetically)
@@ -53,12 +53,12 @@ class TestDeviceSelectorDialog:
         assert dlg._proxy.rowCount(motor_idx) >= 2
 
     def test_category_filter(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         dlg = DeviceSelectorDialog(catalog, categories={DeviceCategory.DETECTOR})
         assert dlg._proxy.rowCount() == 1
 
     def test_initial_selection(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         dlg = DeviceSelectorDialog(catalog, initial_selection=["motor1", "det1"])
         paths = dlg.get_selected_paths()
         assert "motor1" in paths
@@ -66,12 +66,12 @@ class TestDeviceSelectorDialog:
         assert "motor2" not in paths
 
     def test_get_selected_paths_empty(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         dlg = DeviceSelectorDialog(catalog)
         assert dlg.get_selected_paths() == []
 
     def test_search_filters_view(self, qapp, catalog):
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
         dlg = DeviceSelectorDialog(catalog)
         dlg._search_edit.setText("det")
         assert dlg._proxy.rowCount() == 1
@@ -79,33 +79,33 @@ class TestDeviceSelectorDialog:
 
 class TestIconResolution:
     def test_explicit_icon(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         assert resolve_button_icon_name(icon="mdi6.engine", categories=None) == "mdi6.engine"
 
     def test_explicit_icon_no_prefix(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         assert resolve_button_icon_name(icon="engine", categories=None) == "mdi6.engine"
 
     def test_auto_from_motor_category(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.MOTOR})
         assert result == "mdi6.engine"
 
     def test_auto_from_detector_category(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.DETECTOR})
         assert result == "mdi6.camera"
 
     def test_auto_from_controller_category(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.CONTROLLER})
         assert result == "mdi6.tune-variant"
 
     def test_multi_category_uses_default(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.MOTOR, DeviceCategory.DETECTOR})
         assert result == "mdi6.microwave"
 
     def test_no_icon_no_category(self, qapp):
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
         assert resolve_button_icon_name(icon=None, categories=None) == "mdi6.microwave"

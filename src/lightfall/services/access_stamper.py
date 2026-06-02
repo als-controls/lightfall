@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from lucid.services._alshub_client import AlshubClient
+from lightfall.services._alshub_client import AlshubClient
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class AccessStamper:
         alshub_client: AlshubClient,
         session_provider: Callable[[], Any],
         settings_provider: Callable[[], Any],
-        version: str = "lucid:dev",
+        version: str = "lightfall:dev",
     ):
         self.beamline = beamline
         self._alshub = alshub_client
@@ -163,7 +163,7 @@ class AccessStamper:
                 "keycloak_sub":  operator_sub,
                 "role":          "operator",
                 "added_at":      _now_iso(),
-                "added_by":      "lucid",
+                "added_by":      "lightfall",
             }],
         }
         if esaf_source != "schedule":

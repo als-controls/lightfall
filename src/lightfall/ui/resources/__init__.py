@@ -1,1 +1,1 @@
-"""Static asset resources (images, icons) bundled with the lucid UI."""
+"""Static asset resources (images, icons) bundled with the lightfall UI."""

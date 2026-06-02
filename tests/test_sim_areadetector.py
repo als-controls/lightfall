@@ -6,8 +6,8 @@ pytest.importorskip("ophyd")
 
 import numpy as np
 
-from lucid.devices.sim.areadetector import SimDetector
-from lucid.devices.sim.plugins import (
+from lightfall.devices.sim.areadetector import SimDetector
+from lightfall.devices.sim.plugins import (
     SimCam,
     SimImagePlugin,
     SimROIPlugin,
@@ -283,8 +283,8 @@ class TestMockBackendIntegration:
 
     def test_sim_det_in_mock_backend(self) -> None:
         """MockBackend should include sim_det device."""
-        from lucid.devices.backends.mock import MockBackend
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.backends.mock import MockBackend
+        from lightfall.devices.model import DeviceCategory
 
         backend = MockBackend()
         backend.connect()
@@ -295,7 +295,7 @@ class TestMockBackendIntegration:
 
     def test_sim_det_ophyd_device_accessible(self) -> None:
         """sim_det ophyd device should be accessible from backend."""
-        from lucid.devices.backends.mock import MockBackend
+        from lightfall.devices.backends.mock import MockBackend
 
         backend = MockBackend()
         backend.connect()
@@ -306,7 +306,7 @@ class TestMockBackendIntegration:
 
     def test_sim_det_motor_responsive_with_backend_motors(self) -> None:
         """sim_det should respond to sample_x/sample_y motors from backend."""
-        from lucid.devices.backends.mock import MockBackend
+        from lightfall.devices.backends.mock import MockBackend
 
         backend = MockBackend()
         backend.connect()

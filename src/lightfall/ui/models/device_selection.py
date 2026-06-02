@@ -13,7 +13,7 @@ from PySide6.QtCore import QAbstractItemModel, QModelIndex, QSortFilterProxyMode
 from PySide6.QtGui import QIcon
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceCategory, DeviceInfo
+    from lightfall.devices.model import DeviceCategory, DeviceInfo
 
 
 # Category -> (QtAwesome icon name, color)

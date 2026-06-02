@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class BeamlineAlignmentAgent(AgentPlugin):

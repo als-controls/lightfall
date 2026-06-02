@@ -8,20 +8,20 @@ Main Components:
 
 from __future__ import annotations
 
-from lucid.visualization.base_visualization import BaseVisualization
-from lucid.visualization.memory import (
+from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.memory import (
     StreamingDecimator,
     auto_decimate,
     decimate_lttb,
     decimate_minmax,
 )
-from lucid.visualization.registry import VisualizationRegistry
-from lucid.visualization.spec import (
+from lightfall.visualization.registry import VisualizationRegistry
+from lightfall.visualization.spec import (
     FieldInfo,
     FieldType,
     VizType,
 )
-from lucid.visualization.theme import (
+from lightfall.visualization.theme import (
     ThemedVisualizationMixin,
     VisualizationColors,
     apply_pyqtgraph_theme,

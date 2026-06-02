@@ -1,4 +1,4 @@
-"""Widgets for lucid.claude UI components."""
+"""Widgets for lightfall.claude UI components."""
 
 from .permission_request import PermissionRequestWidget
 

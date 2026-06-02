@@ -5,7 +5,7 @@ every request — used by in-process consumers (LUCID's own data-browser,
 RE callback writers, etc.) that share the singleton SessionManager.
 
 StaticApiKeyAuth captures a literal secret at construction time — used by
-out-of-process consumers (lucid.exporter executor, lucid-pipelines
+out-of-process consumers (lightfall.exporter executor, lightfall-pipelines
 executor, tsuchinoko executor) that receive the key in their NATS job
 payload and have no SessionManager singleton.
 
@@ -17,7 +17,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import httpx
 
-from lucid.auth.session import SessionManager
+from lightfall.auth.session import SessionManager
 
 
 class ServiceKeyAuth(httpx.Auth):

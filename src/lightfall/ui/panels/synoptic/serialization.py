@@ -10,15 +10,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lucid.ui.panels.synoptic.models import (
+from lightfall.ui.panels.synoptic.models import (
     BeamPathSegment,
     DeviceSynopticData,
     SynopticViewState,
 )
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 SYNOPTIC_METADATA_KEY = "synoptic"
@@ -138,7 +138,7 @@ class SynopticPersistence:
             Saved view state or None if not found.
         """
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             state_dict = prefs.get(self._view_state_key)
@@ -161,7 +161,7 @@ class SynopticPersistence:
             True if saved successfully.
         """
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             prefs.set(self._view_state_key, state.to_dict())
@@ -178,7 +178,7 @@ class SynopticPersistence:
             List of beam path segments.
         """
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             segments_data = prefs.get(self._beam_path_key, [])
@@ -198,7 +198,7 @@ class SynopticPersistence:
             True if saved successfully.
         """
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             segments_data = [seg.to_dict() for seg in segments]
@@ -274,7 +274,7 @@ class DeviceSynopticSaver:
             device_info: Device to persist.
         """
         try:
-            from lucid.devices import DeviceCatalog
+            from lightfall.devices import DeviceCatalog
 
             catalog = DeviceCatalog.get_instance()
             catalog.update_device(device_info)

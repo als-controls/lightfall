@@ -14,11 +14,11 @@ from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
-from lucid.logbook.editors.highlighter import ProtectedMarkdownHighlighter
-from lucid.logbook.style import LogbookStyles
+from lightfall.logbook.editors.highlighter import ProtectedMarkdownHighlighter
+from lightfall.logbook.style import LogbookStyles
 
 if TYPE_CHECKING:
-    from lucid.logbook.protection import ProtectionManager
+    from lightfall.logbook.protection import ProtectionManager
 
 
 class MarkdownEditor(QPlainTextEdit):

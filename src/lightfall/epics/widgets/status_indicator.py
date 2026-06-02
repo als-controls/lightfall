@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QFrame, QWidget
 
 # Fallback colors used when ThemeManager isn't reachable (early init or
-# headless contexts). These match LIGHT_COLORS from lucid.ui.theme.
+# headless contexts). These match LIGHT_COLORS from lightfall.ui.theme.
 _FALLBACK = {
     "off": "#6b7280",
     "on": "#16a34a",
@@ -18,11 +18,11 @@ def _state_colors() -> dict[str, str]:
     """Resolve state -> hex from the active ThemeManager.
 
     Pulls the *vivid* status colors (success/warning/error) rather than the
-    background-tint variants in ``lucid.epics.widgets.style`` so the dot
+    background-tint variants in ``lightfall.epics.widgets.style`` so the dot
     reads clearly on both light and dark themes.
     """
     try:
-        from lucid.ui.theme import ThemeManager
+        from lightfall.ui.theme import ThemeManager
 
         c = ThemeManager.get_instance().colors
         return {
@@ -82,7 +82,7 @@ class StatusIndicator(QFrame):
 
     def _connect_theme_signal(self) -> None:
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             ThemeManager.get_instance().colors_changed.connect(self._update_style)
         except Exception:
@@ -90,7 +90,7 @@ class StatusIndicator(QFrame):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             ThemeManager.get_instance().colors_changed.disconnect(self._update_style)
         except Exception:

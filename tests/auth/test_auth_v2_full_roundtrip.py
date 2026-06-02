@@ -3,7 +3,7 @@
 Single test that walks the production code path:
 - Stubbed Keycloak provider returns a Session with bearer + refresh + id_token.
 - SessionManager.login() mints both tiled and logbook keys, clears tokens.
-- UserSettingsClient.get() sends Apikey header to lucid-logbook.
+- UserSettingsClient.get() sends Apikey header to lightfall-logbook.
 - SessionManager.logout() restores id_token for the provider's RP-initiated
   logout, then clears every credential slot.
 """
@@ -14,10 +14,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.service_key import MintedKey
-from lucid.auth.session import AuthState, Session, SessionManager, User
-from lucid.settings.user_settings_client import UserSettingsClient
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.service_key import MintedKey
+from lightfall.auth.session import AuthState, Session, SessionManager, User
+from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 @pytest.fixture(autouse=True)
@@ -95,13 +95,13 @@ def test_full_auth_v2_roundtrip(monkeypatch, httpx_mock):
             return _minted("logbook-secret-v2")
         return _minted("tiled-secret-v2")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 

@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.config.manager import ConfigManager
+    from lightfall.config.manager import ConfigManager
 
 
 # Beamline-specific preference keys. Single source of truth — manager.py imports this set.
@@ -103,7 +103,7 @@ class LocalPreferenceBackend(PreferenceBackend):
         # Cache the user-portable set for O(1) `owns()` rejection.
         # Imported lazily to avoid a circular import with
         # user_portable_backend (which itself imports nothing from here).
-        from lucid.ui.preferences.user_portable_backend import (
+        from lightfall.ui.preferences.user_portable_backend import (
             USER_PORTABLE_KEYS,
         )
         self._user_portable_keys = USER_PORTABLE_KEYS

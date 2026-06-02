@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication, QProgressBar
 
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
-from lucid.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.image_view import OphydImageView
 
 
 @pytest.fixture()

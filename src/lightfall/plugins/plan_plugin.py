@@ -11,10 +11,10 @@ from abc import abstractmethod
 from collections.abc import Callable, Generator
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
 
 
 class PlanPlugin(PluginType):
@@ -127,7 +127,7 @@ class PlanPlugin(PluginType):
         Returns:
             PlanInfo metadata object.
         """
-        from lucid.acquire.plans.registry import PlanInfo
+        from lightfall.acquire.plans.registry import PlanInfo
 
         return PlanInfo.from_function(
             name=self.name,

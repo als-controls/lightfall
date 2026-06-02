@@ -9,7 +9,7 @@ This module provides a markdown-based experiment logbook widget with:
 - Automatic device action logging
 
 Usage:
-    >>> from lucid.logbook import LogbookWidget
+    >>> from lightfall.logbook import LogbookWidget
     >>> logbook = LogbookWidget()
     >>> logbook.set_content("# My Experiment\\n\\nNotes...")
     >>> logbook.protection_violated.connect(handle_violation)
@@ -21,17 +21,17 @@ Protected regions are defined using HTML comment syntax:
     <!-- /PROTECTED:region-id -->
 
 Device action logging:
-    >>> from lucid.logbook import DeviceActionLogger
+    >>> from lightfall.logbook import DeviceActionLogger
     >>> logger = DeviceActionLogger.get_instance()
     >>> logger.connect_to_control_widget(motor_widget)
     >>> logger.action_recorded.connect(on_action)
 """
 
-from lucid.logbook.action_dialog import ActionGroupDialog
-from lucid.logbook.action_logger import ActionGroup, DeviceAction, DeviceActionLogger
-from lucid.logbook.converter import MarkdownConverter
-from lucid.logbook.protection import ActionGroupInfo, ProtectedRegion, ProtectionManager
-from lucid.logbook.widget import LogbookWidget
+from lightfall.logbook.action_dialog import ActionGroupDialog
+from lightfall.logbook.action_logger import ActionGroup, DeviceAction, DeviceActionLogger
+from lightfall.logbook.converter import MarkdownConverter
+from lightfall.logbook.protection import ActionGroupInfo, ProtectedRegion, ProtectionManager
+from lightfall.logbook.widget import LogbookWidget
 
 __all__ = [
     "ActionGroup",

@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from lucid.exporter.converters import register_converter
-from lucid.exporter.converters.base import Converter
+from lightfall.exporter.converters import register_converter
+from lightfall.exporter.converters.base import Converter
 
 
 @register_converter

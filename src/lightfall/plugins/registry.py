@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from lucid.plugins.errors import PluginStatus
-from lucid.plugins.info import PluginInfo
+from lightfall.plugins.errors import PluginStatus
+from lightfall.plugins.info import PluginInfo
 
 if TYPE_CHECKING:
     pass

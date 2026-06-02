@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict | None:
@@ -20,7 +20,7 @@ def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict |
     is unavailable). Callers must distinguish ``None`` from
     ``{"status": "error", ...}``.
     """
-    from lucid.ipc.service import get_ipc_service
+    from lightfall.ipc.service import get_ipc_service
     ipc = get_ipc_service()
     if ipc is None:
         return None
@@ -68,7 +68,7 @@ def build_tools() -> list[Any]:
         input_schema={"type": "object", "properties": {}},
     )
     async def discover(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         reply = _ipc_request("_tsuchinoko.discover", {}, timeout=2.0)
@@ -100,7 +100,7 @@ def build_tools() -> list[Any]:
         },
     )
     async def upload_design_code(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.experiment.upload_design_code"
@@ -137,7 +137,7 @@ def build_tools() -> list[Any]:
         },
     )
     async def configure(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.experiment.configure"
@@ -157,7 +157,7 @@ def build_tools() -> list[Any]:
         input_schema={"type": "object", "properties": {}},
     )
     async def status(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.status"
@@ -179,7 +179,7 @@ def build_tools() -> list[Any]:
             input_schema={"type": "object", "properties": {}},
         )
         async def control(args: dict) -> dict[str, Any]:
-            from lucid.ipc.service import get_ipc_service
+            from lightfall.ipc.service import get_ipc_service
             if get_ipc_service() is None:
                 return mcp_result(_ipc_error_response(), is_error=True)
             reply = _ipc_request(subject, {}, timeout=5.0)

@@ -13,8 +13,8 @@ from uuid import UUID
 
 from loguru import logger
 
-from lucid.devices.base import DeviceBackend
-from lucid.devices.model import (
+from lightfall.devices.base import DeviceBackend
+from lightfall.devices.model import (
     ConnectionType,
     DeviceCategory,
     DeviceConfiguration,
@@ -332,7 +332,7 @@ class MockBackend(DeviceBackend):
 
         # === Area Detector ===
         try:
-            from lucid.devices.sim.areadetector import SimDetector
+            from lightfall.devices.sim.areadetector import SimDetector
 
             sim_det = SimDetector(
                 name="sim_det",
@@ -345,7 +345,7 @@ class MockBackend(DeviceBackend):
                 name="sim_det",
                 description="Simulated area detector for testing",
                 category=DeviceCategory.DETECTOR,
-                device_class="lucid.devices.sim.areadetector.SimDetector",
+                device_class="lightfall.devices.sim.areadetector.SimDetector",
                 connection_type=ConnectionType.SIMULATED,
                 prefix="sim_det",
                 location="Detector Arm",

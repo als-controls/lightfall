@@ -8,9 +8,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from lucid.acquire.engine.base import BaseEngine
-from lucid.acquire.engine.state import EngineState
-from lucid.utils.logging import logger
+from lightfall.acquire.engine.base import BaseEngine
+from lightfall.acquire.engine.state import EngineState
+from lightfall.utils.logging import logger
 
 __all__ = ["MockEngine"]
 

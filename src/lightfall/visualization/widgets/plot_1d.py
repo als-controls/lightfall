@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class Plot1DVisualization(BaseVisualization):
@@ -201,7 +201,7 @@ class Plot1DVisualization(BaseVisualization):
 
     def _read_events_table(self):
         """Read the data table from the current stream (V3 or V2)."""
-        from lucid.utils.tiled_helpers import read_events
+        from lightfall.utils.tiled_helpers import read_events
         return read_events(self._stream)
 
     def _on_x_changed(self, _: str) -> None:

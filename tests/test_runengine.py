@@ -12,7 +12,7 @@ pytest.importorskip("bluesky")
 
 from PySide6.QtCore import QCoreApplication
 
-from lucid.acquire.engine import (
+from lightfall.acquire.engine import (
     BlueskyEngine,
     EngineState,
     get_engine,
@@ -118,7 +118,7 @@ class TestGetRunEngine:
 
     def test_singleton(self, qapp) -> None:
         """Test that get_engine returns a singleton."""
-        import lucid.acquire.engine as engine_module
+        import lightfall.acquire.engine as engine_module
 
         original = engine_module._engine
         engine_module._engine = None

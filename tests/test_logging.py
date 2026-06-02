@@ -4,7 +4,7 @@ import time
 
 from loguru import logger
 
-from lucid.utils.logging import (
+from lightfall.utils.logging import (
     get_cumulative_stats,
     log_time,
     reset_cumulative_stats,

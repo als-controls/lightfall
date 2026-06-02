@@ -25,14 +25,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-    from lucid.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class ToolPluginTableModel(QAbstractTableModel):
@@ -62,7 +62,7 @@ class ToolPluginTableModel(QAbstractTableModel):
         """
         self.beginResetModel()
         try:
-            from lucid.ui.panels.claude.agent_registry import AgentRegistry
+            from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
             registry = AgentRegistry.get_instance()
             self._plugins = registry.get_plugins()
@@ -338,10 +338,10 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
 
         self._model.refresh()
 
-        from lucid.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
         AgentRegistry.get_instance()._migrate_legacy_pref_if_needed()
 
-        from lucid.ui.panels.claude.agent_registry import (
+        from lightfall.ui.panels.claude.agent_registry import (
             DISABLED_PLUGINS_PREF,
             FORCED_ENABLED_PLUGINS_PREF,
         )
@@ -366,7 +366,7 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
 
         disabled, forced_enabled = self._model.get_overrides()
 
-        from lucid.ui.panels.claude.agent_registry import (
+        from lightfall.ui.panels.claude.agent_registry import (
             DISABLED_PLUGINS_PREF,
             FORCED_ENABLED_PLUGINS_PREF,
         )

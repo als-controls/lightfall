@@ -25,16 +25,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.models.device_tree import (
+from lightfall.ui.models.device_tree import (
     DeviceFilterProxyModel,
     DeviceTreeItem,
     DeviceTreeModel,
     NodeType,
 )
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.catalog import DeviceCatalog
+    from lightfall.devices.catalog import DeviceCatalog
 
 
 class DeviceTreeTab(QWidget):
@@ -295,7 +295,7 @@ class DeviceTreeTab(QWidget):
         return backend is not None and backend.is_editable
 
     def _edit_device(self, device_info) -> None:
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
         if dialog.exec():
             values = dialog.get_values()
@@ -309,8 +309,8 @@ class DeviceTreeTab(QWidget):
             self._catalog.update_device(device_info)
 
     def _add_new_device(self) -> None:
-        from lucid.devices.model import DeviceInfo
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.devices.model import DeviceInfo
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         dialog = DeviceEditDialog(mode="create", parent=self)
         if dialog.exec():
             values = dialog.get_values()
@@ -344,7 +344,7 @@ class DeviceTreeTab(QWidget):
         self._catalog.update_device(device_info)
 
     def _sync_devices(self) -> None:
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
         # Pick up out-of-band edits to the backing store (e.g. someone
         # edited the happi JSON) before retrying connections. Without
         # this, Sync only reconnected the existing cached entries.

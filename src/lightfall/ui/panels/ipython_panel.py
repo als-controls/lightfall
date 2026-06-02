@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.toast import ToastManager
-from lucid.utils.logging import logger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.toast import ToastManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent
@@ -146,7 +146,7 @@ class IPythonPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.ipython",
+        id="lightfall.panels.ipython",
         name="IPython Console",
         description="Interactive Python console with access to application objects",
         icon="terminal",
@@ -206,7 +206,7 @@ class IPythonPanel(BasePanel):
         label = QLabel(
             "IPython console is not available.\n\n"
             "To enable it, install the optional dependencies:\n\n"
-            "    pip install lucid[ipython]\n\n"
+            "    pip install lightfall[ipython]\n\n"
             "Or install directly:\n\n"
             "    pip install qtconsole ipykernel"
         )
@@ -310,7 +310,7 @@ class IPythonPanel(BasePanel):
         from qtconsole.styles import sheet_from_template
 
         try:
-            from lucid.ui.preferences import PreferencesManager
+            from lightfall.ui.preferences import PreferencesManager
             prefs = PreferencesManager.get_instance()
             syntax_style = prefs.get("console_syntax_style", "")
         except Exception:
@@ -319,7 +319,7 @@ class IPythonPanel(BasePanel):
         # Auto-detect from theme if not explicitly set
         if not syntax_style:
             try:
-                from lucid.ui.theme import ThemeManager
+                from lightfall.ui.theme import ThemeManager
                 is_dark = ThemeManager.get_instance().is_dark
             except Exception:
                 is_dark = True
@@ -348,7 +348,7 @@ class IPythonPanel(BasePanel):
         Args:
             kernel: The IPython kernel.
         """
-        from lucid.core.application import NCSApplication
+        from lightfall.core.application import NCSApplication
 
         app = NCSApplication.get_instance()
 

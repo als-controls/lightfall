@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.synoptic.panel import SynopticPanel
+    from lightfall.ui.panels.synoptic.panel import SynopticPanel
 
 __all__ = [
     "SynopticPanel",
@@ -21,7 +21,7 @@ __all__ = [
 def __getattr__(name: str):
     """Lazy import for SynopticPanel."""
     if name == "SynopticPanel":
-        from lucid.ui.panels.synoptic.panel import SynopticPanel
+        from lightfall.ui.panels.synoptic.panel import SynopticPanel
 
         return SynopticPanel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

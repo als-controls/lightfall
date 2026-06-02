@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 _COLUMNS = ["job_id", "pipeline", "input_uid", "status", "started", "outputs"]
@@ -131,7 +131,7 @@ class PipelineJobsDockPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.pipeline_jobs",
+        id="lightfall.panels.pipeline_jobs",
         name="Pipeline Jobs",
         description="Queue and recent jobs from the notebook pipeline executor",
         icon="layers",
@@ -146,8 +146,8 @@ class PipelineJobsDockPanel(BasePanel):
     )
 
     def _setup_ui(self) -> None:
-        from lucid.core.services import ServiceRegistry
-        from lucid.pipelines import PipelineClient
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.pipelines import PipelineClient
 
         client = ServiceRegistry.get_instance().get(PipelineClient, None)
         if client is None:

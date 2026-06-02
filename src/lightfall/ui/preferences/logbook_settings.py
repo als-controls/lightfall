@@ -1,6 +1,6 @@
 """Logbook backend settings plugin.
 
-Configures the connection to the lucid-logbook backend service
+Configures the connection to the lightfall-logbook backend service
 for experiment logbook persistence and sync.
 """
 
@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -39,7 +39,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
 
     Preferences keys:
     - ``logbook_enabled``: bool — whether backend sync is active
-    - ``logbook_url``: str — base URL of the lucid-logbook service
+    - ``logbook_url``: str — base URL of the lightfall-logbook service
     - ``logbook_offline_only``: bool — force offline-only mode (local SQLite only)
     """
 
@@ -85,7 +85,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(self._enabled_check)
 
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("http://bcglucidlogbook.dhcp.lbl.gov:8000")
+        self._url_edit.setPlaceholderText("http://bcglightfalllogbook.dhcp.lbl.gov:8000")
         connection_layout.addRow("Server URL:", self._url_edit)
 
         # Test connection
@@ -100,7 +100,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(test_layout)
 
         desc = QLabel(
-            "The logbook backend (lucid-logbook) stores experiment notes "
+            "The logbook backend (lightfall-logbook) stores experiment notes "
             "and system-generated fragments. When disabled or unreachable, "
             "data is stored locally and synced when the connection is restored."
         )
@@ -166,7 +166,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
             # Use proxy settings if configured
             client_kwargs: dict = {"timeout": 5.0}
             try:
-                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
                 proxy_url = ProxySettingsProvider.should_use_proxy_for_url(url)
                 if proxy_url:
                     client_kwargs["proxy"] = proxy_url
@@ -193,7 +193,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         if self._enabled_check:
             self._enabled_check.setChecked(prefs.get("logbook_enabled", True))
         if self._url_edit:
-            self._url_edit.setText(prefs.get("logbook_url", "http://bcglucidlogbook.dhcp.lbl.gov:8000"))
+            self._url_edit.setText(prefs.get("logbook_url", "http://bcglightfalllogbook.dhcp.lbl.gov:8000"))
         if self._offline_check:
             self._offline_check.setChecked(prefs.get("logbook_offline_only", False))
         if self._status_label:

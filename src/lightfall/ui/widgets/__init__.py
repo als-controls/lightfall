@@ -8,66 +8,66 @@ This module provides widgets for direct device control:
 - Document stream viewer
 
 Usage:
-    from lucid.ui.widgets import DeviceControlWidget, RunEngineControlWidget
+    from lightfall.ui.widgets import DeviceControlWidget, RunEngineControlWidget
 
     # In a panel
     control = DeviceControlWidget()
     control.set_items(selected_tree_items)
 """
 
-from lucid.ui.widgets.base_control import (
+from lightfall.ui.widgets.base_control import (
     BaseControlWidget,
     ControlWidgetRegistry,
     register_control_widget,
 )
-from lucid.ui.widgets.device_control import (
+from lightfall.ui.widgets.device_control import (
     ControlWidgetFactory,
     DeviceControlWidget,
 )
-from lucid.ui.widgets.device_selector import (
+from lightfall.ui.widgets.device_selector import (
     DeviceSelectorDialog,
 )
 
 # Import conditionally since DeviceParameter requires pyqtgraph
 try:
-    from lucid.ui.widgets.device_selector import (
+    from lightfall.ui.widgets.device_selector import (
         DeviceParameter,
         DeviceParameterItem,
     )
 except ImportError:
     DeviceParameter = None  # type: ignore
     DeviceParameterItem = None  # type: ignore
-from lucid.ui.widgets.camera import (
+from lightfall.ui.widgets.camera import (
     CameraControlWidget,
 )
-from lucid.ui.widgets.document_stream import (
+from lightfall.ui.widgets.document_stream import (
     DocumentStreamModel,
     DocumentStreamWidget,
 )
-from lucid.ui.widgets.motor_control import (
+from lightfall.ui.widgets.motor_control import (
     MotorControlWidget,
     MultiMotorControlWidget,
 )
-from lucid.ui.widgets.plan_config import (
+from lightfall.ui.widgets.plan_config import (
     PlanConfigWidget,
     PlanExecutionWidget,
 )
-from lucid.ui.widgets.plan_selector import (
+from lightfall.ui.widgets.plan_selector import (
     PlanFilterProxyModel,
     PlanListModel,
     PlanSelectorWidget,
 )
-from lucid.ui.widgets.runengine_control import (
+from lightfall.ui.widgets.runengine_control import (
     RunEngineControlWidget,
     RunEngineStatusBar,
     SpinnerIndicator,
 )
-from lucid.ui.widgets.signal_control import (
+from lightfall.ui.widgets.signal_control import (
     MultiSignalControlWidget,
     SignalControlWidget,
 )
-from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
-from lucid.ui.widgets.tiled_status import TiledStatusWidget
+from lightfall.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
+from lightfall.ui.widgets.tiled_status import TiledStatusWidget
 
 __all__ = [
     # Base classes

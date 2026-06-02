@@ -17,7 +17,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, QTimer, Signal
 
 if TYPE_CHECKING:
-    from lucid.devices.catalog import DeviceCatalog
+    from lightfall.devices.catalog import DeviceCatalog
 
 
 @dataclass

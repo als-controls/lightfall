@@ -1,6 +1,6 @@
 """Log inspection tool for the embedded Claude agent.
 
-Exposes the in-process :class:`~lucid.utils.log_buffer.LogBuffer` so the
+Exposes the in-process :class:`~lightfall.utils.log_buffer.LogBuffer` so the
 agent can look back at recent log records — typically to investigate
 something unexpected that happened outside its own tool calls.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from lucid.utils.log_buffer import LogBuffer
+from lightfall.utils.log_buffer import LogBuffer
 
 
 _DEFAULT_MAX_COUNT = 50
@@ -85,8 +85,8 @@ def create_logs_tool():
             "name_prefix": {
                 "type": "string",
                 "description": (
-                    "Optional logger-name prefix filter (e.g. 'lucid.devices' "
-                    "or 'lucid.acquire')."
+                    "Optional logger-name prefix filter (e.g. 'lightfall.devices' "
+                    "or 'lightfall.acquire')."
                 ),
             },
             "include_exception": {

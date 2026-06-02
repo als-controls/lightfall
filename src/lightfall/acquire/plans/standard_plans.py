@@ -8,7 +8,7 @@ The raw bp.* plans remain accessible via ncs_run_plan_code and the IPython
 console for power users who need the full flexibility.
 
 Usage:
-    from lucid.acquire.plans.standard_plans import register_standard_plans
+    from lightfall.acquire.plans.standard_plans import register_standard_plans
     register_standard_plans(registry)
 """
 
@@ -19,10 +19,10 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from bluesky import plans as bp
 
-from lucid.ui.annotations import Default, DeviceDefault, DeviceFilter, Unit
+from lightfall.ui.annotations import Default, DeviceDefault, DeviceFilter, Unit
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans.registry import PlanRegistry
+    from lightfall.acquire.plans.registry import PlanRegistry
 
 # Type aliases
 Device = Any
@@ -166,7 +166,7 @@ def register_standard_plans(registry: PlanRegistry) -> None:
     Args:
         registry: PlanRegistry to register plans in.
     """
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
 
     plans_to_register = [
         ("count", count, "count", "Count", ("#2196F3", "C")),

@@ -6,8 +6,8 @@ a UI panel for interactive fitting.
 
 from __future__ import annotations
 
-from lucid.visualization.fitting.base import BaseFitter, FitResult
-from lucid.visualization.fitting.fitters import (
+from lightfall.visualization.fitting.base import BaseFitter, FitResult
+from lightfall.visualization.fitting.fitters import (
     GaussianFitter,
     LinearFitter,
     LorentzianFitter,

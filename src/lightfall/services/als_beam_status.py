@@ -13,8 +13,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 # API endpoint for ALS beam status
 ALS_BEAM_STATUS_URL = "https://controls.als.lbl.gov/als-beamstatus/curvals"
@@ -150,7 +150,7 @@ class ALSBeamStatusService(QObject):
         Returns:
             The proxy URL to use, or None if no proxy needed.
         """
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
         return ProxySettingsProvider.should_use_proxy_for_url(ALS_BEAM_STATUS_URL)
 
@@ -218,7 +218,7 @@ class ALSBeamStatusService(QObject):
         if not self._proxy_toast_shown and _is_proxy_connection_error(error):
             self._proxy_toast_shown = True
             try:
-                from lucid.ui.toast import ToastManager
+                from lightfall.ui.toast import ToastManager
 
                 ToastManager.get_instance().warning(
                     "SOCKS proxy not reachable",

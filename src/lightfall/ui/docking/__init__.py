@@ -9,10 +9,10 @@ This module provides VS Code/PyCharm-like docking with:
 - Theme integration (Islands mode with rounded panels)
 """
 
-from lucid.ui.docking.icon_sidebar import IconStripSidebar
-from lucid.ui.docking.manager import DockingManager
-from lucid.ui.docking.state import DockingState
-from lucid.ui.docking.widget import PanelDockWidget
+from lightfall.ui.docking.icon_sidebar import IconStripSidebar
+from lightfall.ui.docking.manager import DockingManager
+from lightfall.ui.docking.state import DockingState
+from lightfall.ui.docking.widget import PanelDockWidget
 
 __all__ = [
     "DockingManager",

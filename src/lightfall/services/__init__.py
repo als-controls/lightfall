@@ -4,7 +4,7 @@ This module provides application-level services for NCS:
 - TiledService: Manages connection to Tiled data catalog
 
 Usage:
-    from lucid.services import TiledService, TiledConnectionState, TiledAuthMode
+    from lightfall.services import TiledService, TiledConnectionState, TiledAuthMode
 
     service = TiledService.get_instance()
     service.configure(
@@ -16,8 +16,8 @@ Usage:
     # Connection happens automatically when user logs in
 """
 
-from lucid.services.tiled_auth import KeycloakTiledAuth
-from lucid.services.tiled_service import (
+from lightfall.services.tiled_auth import KeycloakTiledAuth
+from lightfall.services.tiled_service import (
     TiledAuthMode,
     TiledConfig,
     TiledConnectionState,

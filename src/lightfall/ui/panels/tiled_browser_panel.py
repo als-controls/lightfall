@@ -23,13 +23,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.services.tiled_service import TiledConnectionState, TiledService
-from lucid.ui.models.tiled_model import TiledRecord, TiledRecordFilterProxy, TiledRecordModel
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.theme import ThemeManager
-from lucid.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.services.tiled_service import TiledConnectionState, TiledService
+from lightfall.ui.models.tiled_model import TiledRecord, TiledRecordFilterProxy, TiledRecordModel
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.theme import ThemeManager
+from lightfall.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass
@@ -54,7 +54,7 @@ class TiledBrowserPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.tiled_browser",
+        id="lightfall.panels.tiled_browser",
         name="Data Browser",
         description="Browse and search data stored in Tiled server",
         icon="database",
@@ -342,8 +342,8 @@ class TiledBrowserPanel(BasePanel):
 
     def _pipeline_client(self):
         """Look up the PipelineClient via the service registry (lazy)."""
-        from lucid.core.services import ServiceRegistry
-        from lucid.pipelines import PipelineClient
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.pipelines import PipelineClient
         return ServiceRegistry.get_instance().get(PipelineClient, None)
 
     def _open_run_pipeline_dialog(self, record: TiledRecord) -> None:
@@ -351,8 +351,8 @@ class TiledBrowserPanel(BasePanel):
         client = self._pipeline_client()
         if client is None:
             return
-        from lucid.auth.session import SessionManager
-        from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+        from lightfall.auth.session import SessionManager
+        from lightfall.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
         session_manager = SessionManager.get_instance()
         user_id = session_manager.current_user.attributes.get(
             "preferred_username", ""
@@ -374,15 +374,15 @@ class TiledBrowserPanel(BasePanel):
 
         logger.info("Opening run {} in visualization", record.uid[:8])
 
-        from lucid.core.services import ServiceRegistry
-        from lucid.ui.docking import DockingManager
-        from lucid.ui.panels.visualization_panel import VisualizationPanel
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.ui.docking import DockingManager
+        from lightfall.ui.panels.visualization_panel import VisualizationPanel
 
         dm = ServiceRegistry.get_instance().get(DockingManager, None)
         if dm is None:
             return
 
-        viz_panel_id = "lucid.panels.visualization"
+        viz_panel_id = "lightfall.panels.visualization"
         dm.show_panel(viz_panel_id)
         panel = dm.get_panel(viz_panel_id)
         if isinstance(panel, VisualizationPanel):
@@ -396,15 +396,15 @@ class TiledBrowserPanel(BasePanel):
 
         logger.info("Opening run {} in documents", record.uid[:8])
 
-        from lucid.core.services import ServiceRegistry
-        from lucid.ui.docking import DockingManager
-        from lucid.ui.panels.documents_panel import DocumentsPanel
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.ui.docking import DockingManager
+        from lightfall.ui.panels.documents_panel import DocumentsPanel
 
         dm = ServiceRegistry.get_instance().get(DockingManager, None)
         if dm is None:
             return
 
-        docs_panel_id = "lucid.panels.documents"
+        docs_panel_id = "lightfall.panels.documents"
         dm.show_panel(docs_panel_id)
         panel = dm.get_panel(docs_panel_id)
         if isinstance(panel, DocumentsPanel):
@@ -434,7 +434,7 @@ class TiledBrowserPanel(BasePanel):
         if not records:
             return
 
-        from lucid.ui.dialogs.export_dialog import ExportDialog
+        from lightfall.ui.dialogs.export_dialog import ExportDialog
 
         dialog = ExportDialog(
             records=records,

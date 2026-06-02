@@ -7,8 +7,8 @@ This package provides:
 - Dark/light mode detection and switching
 """
 
-from lucid.ui.theme.manager import Theme, ThemeColors, ThemeManager
-from lucid.ui.theme.registry import ThemeRegistry
+from lightfall.ui.theme.manager import Theme, ThemeColors, ThemeManager
+from lightfall.ui.theme.registry import ThemeRegistry
 
 __all__ = [
     "Theme",

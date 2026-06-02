@@ -13,11 +13,11 @@ Widgets:
 
 from __future__ import annotations
 
-from lucid.visualization.widgets.heatmap import HeatmapVisualization
-from lucid.visualization.widgets.image_stack import ImageStackVisualization
-from lucid.visualization.widgets.plot_1d import Plot1DVisualization
-from lucid.visualization.widgets.scatter import ScatterVisualization
-from lucid.visualization.widgets.table import TableVisualization
+from lightfall.visualization.widgets.heatmap import HeatmapVisualization
+from lightfall.visualization.widgets.image_stack import ImageStackVisualization
+from lightfall.visualization.widgets.plot_1d import Plot1DVisualization
+from lightfall.visualization.widgets.scatter import ScatterVisualization
+from lightfall.visualization.widgets.table import TableVisualization
 
 __all__ = [
     "TableVisualization",

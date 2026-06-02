@@ -28,9 +28,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon

@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from lucid.auth.session import AuthState, SessionManager
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.ui.theme import ThemeManager
+from lightfall.auth.session import AuthState, SessionManager
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.ui.theme import ThemeManager
 
 
 class AuthStatusPlugin(StatusBarPlugin):
@@ -22,7 +22,7 @@ class AuthStatusPlugin(StatusBarPlugin):
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
-        id="lucid.statusbar.auth",
+        id="lightfall.statusbar.auth",
         name="Auth Status",
         description="Shows authentication state",
         priority=20,

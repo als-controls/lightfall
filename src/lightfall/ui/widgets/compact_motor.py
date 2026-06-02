@@ -21,10 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.utils.logging import logger
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.utils.logging import logger
 
 # Fallback colors when ThemeManager isn't available (e.g. headless tests).
 _FALLBACK_ACTION = "#90caf9"
@@ -32,7 +32,7 @@ _FALLBACK_DANGER = "#F44336"
 _FALLBACK_MUTED = "#9aa0a6"
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 class _ElidedLabel(QLabel):
@@ -296,7 +296,7 @@ class CompactMotorWidget(QWidget):
     def _on_moving_changed(self, value: Any = None, **kwargs: Any) -> None:
         # ophyd callbacks fire on a background thread; bounce back to the
         # GUI thread before touching widgets.
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         invoke_in_main_thread(self._update_status_indicator)
 
@@ -316,7 +316,7 @@ class CompactMotorWidget(QWidget):
         tests, very early init).
         """
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             c = ThemeManager.get_instance().colors
             return c.primary, c.error, c.text_secondary
@@ -325,7 +325,7 @@ class CompactMotorWidget(QWidget):
 
     def _connect_theme_signal(self) -> None:
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             ThemeManager.get_instance().colors_changed.connect(
                 self._apply_themed_styles
@@ -512,7 +512,7 @@ class CompactMotorWidget(QWidget):
     def closeEvent(self, event) -> None:
         self._unbind_signals()
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             ThemeManager.get_instance().colors_changed.disconnect(
                 self._apply_themed_styles

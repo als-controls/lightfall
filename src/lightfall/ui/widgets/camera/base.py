@@ -27,15 +27,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices.model import DeviceCategory
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
-from lucid.ui.widgets.base_control import BaseControlWidget, register_control_widget
-from lucid.ui.widgets.camera.image_view import OphydImageView
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.devices.model import DeviceCategory
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
+from lightfall.ui.widgets.base_control import BaseControlWidget, register_control_widget
+from lightfall.ui.widgets.camera.image_view import OphydImageView
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass
@@ -461,7 +461,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         if self._device is not None:
             self._image_view = OphydImageView(self._device)
             self._image_layout.addWidget(self._image_view)
-            from lucid.ui.theater import theater_manager
+            from lightfall.ui.theater import theater_manager
             theater_manager.install(self._image_view)
 
     def _connect_signals(self) -> None:
@@ -596,7 +596,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
             name: Internal name for the value (e.g., 'acquire_time_rbv')
             value: New value from the signal
         """
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         # Extract scalar from array if needed (some signals return arrays)
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):

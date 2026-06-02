@@ -6,9 +6,9 @@ Available backends:
 - HappiBackend: Happi device database backend (requires happi)
 """
 
-from lucid.devices.backends.bcs import BCSBackend
-from lucid.devices.backends.happi import HappiBackend
-from lucid.devices.backends.mock import MockBackend
+from lightfall.devices.backends.bcs import BCSBackend
+from lightfall.devices.backends.happi import HappiBackend
+from lightfall.devices.backends.mock import MockBackend
 
 __all__ = [
     "BCSBackend",

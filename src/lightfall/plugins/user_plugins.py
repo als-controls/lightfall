@@ -1,6 +1,6 @@
 """Service for loading and managing user-defined plugins with hot-reload.
 
-User plugins are Python files in ~/lucid/plugins/. Plugin classes auto-register
+User plugins are Python files in ~/lightfall/plugins/. Plugin classes auto-register
 via PluginType.__init_subclass__ when defined; UserPluginService tracks
 registrations so that unload + hot-reload work correctly.
 
@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
-from lucid.utils.git_tracker import GitTracker
+from lightfall.utils.git_tracker import GitTracker
 
 if TYPE_CHECKING:
     pass
@@ -51,7 +51,7 @@ class PluginInfo:
 class UserPluginService(QObject):
     """Service for loading user-defined plugins with hot-reload.
 
-    User plugins are Python files in ~/lucid/plugins/ that self-register
+    User plugins are Python files in ~/lightfall/plugins/ that self-register
     with type-specific registries on execution.
 
     Hot-reload warning: Reloading a plugin may cause instability if the
@@ -84,7 +84,7 @@ class UserPluginService(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         """Initialize the user plugin service."""
         super().__init__(parent)
-        self._plugins_dir = Path.home() / "lucid" / "plugins"
+        self._plugins_dir = Path.home() / "lightfall" / "plugins"
         self._loaded_plugins: dict[str, PluginInfo] = {}  # file_path_str -> PluginInfo
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
@@ -138,7 +138,7 @@ class UserPluginService(QObject):
         """Get the user plugins directory path.
 
         Returns:
-            Path to ~/lucid/plugins/
+            Path to ~/lightfall/plugins/
         """
         return self._plugins_dir
 
@@ -273,7 +273,7 @@ class UserPluginService(QObject):
                 logger.warning("Syntax error in {}: {}", path.name, error_msg)
                 self._loaded_plugins[path_str] = PluginInfo(
                     file_path=path,
-                    module_name=f"lucid_user_plugins.{path.stem}",
+                    module_name=f"lightfall_user_plugins.{path.stem}",
                     load_error=error_msg,
                 )
                 self.plugin_error.emit(path_str, error_msg)
@@ -283,13 +283,13 @@ class UserPluginService(QObject):
 
             # Create namespace with standard imports available
             namespace: dict[str, Any] = {
-                "__name__": f"lucid_user_plugins.{path.stem}",
+                "__name__": f"lightfall_user_plugins.{path.stem}",
                 "__file__": str(path),
             }
 
             # Pre-construct PluginInfo so enqueue() can append registrations
             # into it while exec() runs class definitions.
-            module_name = f"lucid_user_plugins.{path.stem}"
+            module_name = f"lightfall_user_plugins.{path.stem}"
             info = PluginInfo(
                 file_path=path,
                 module_name=module_name,
@@ -301,7 +301,7 @@ class UserPluginService(QObject):
             # PluginType.__init_subclass__ falls back to inspect.getfile() which
             # raises TypeError for classes whose module isn't in sys.modules yet,
             # causing the auto-enqueue to silently bail out.
-            stub_module = type(sys)("lucid_user_plugins")  # ModuleType
+            stub_module = type(sys)("lightfall_user_plugins")  # ModuleType
             stub_module.__name__ = module_name
             stub_module.__file__ = str(path)
             stub_module.__loader__ = None
@@ -362,7 +362,7 @@ class UserPluginService(QObject):
             logger.error("Failed to load plugin from {}: {}", path, e)
             self._loaded_plugins[path_str] = PluginInfo(
                 file_path=path,
-                module_name=f"lucid_user_plugins.{path.stem}",
+                module_name=f"lightfall_user_plugins.{path.stem}",
                 load_error=error_msg,
             )
             self.plugin_error.emit(path_str, error_msg)
@@ -446,7 +446,7 @@ class UserPluginService(QObject):
         """
         try:
             if reg.registry_type == "panel":
-                from lucid.ui.panels.registry import PanelRegistry
+                from lightfall.ui.panels.registry import PanelRegistry
 
                 registry = PanelRegistry.get_instance()
                 # Destroy singleton if it exists
@@ -455,7 +455,7 @@ class UserPluginService(QObject):
                 logger.debug("Unregistered panel: {}", reg.key)
 
             elif reg.registry_type in ("agent", "skill", "mcp_tool"):
-                from lucid.ui.panels.claude.agent_registry import AgentRegistry
+                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
                 AgentRegistry.get_instance().unregister(reg.key)
                 logger.debug("Unregistered agent plugin: {}", reg.key)
@@ -498,11 +498,11 @@ class UserPluginService(QObject):
 
         try:
             if registry_type == "agent":
-                from lucid.ui.panels.claude.agent_registry import AgentRegistry
+                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
                 AgentRegistry.get_instance().register(instance)
                 registration_key = plugin_name
             elif registry_type == "panel":
-                from lucid.ui.panels.registry import PanelRegistry
+                from lightfall.ui.panels.registry import PanelRegistry
                 # PanelRegistry.register expects the BasePanel subclass (it reads
                 # panel_metadata off it); the auto-discovered cls is the PanelPlugin
                 # subclass, so route through get_panel_class().
@@ -551,8 +551,8 @@ class UserPluginService(QObject):
         not already tracked from this load (e.g. via a PanelPlugin wrapper),
         and append a registration entry.
         """
-        from lucid.ui.panels.base import BasePanel
-        from lucid.ui.panels.registry import PanelRegistry
+        from lightfall.ui.panels.base import BasePanel
+        from lightfall.ui.panels.registry import PanelRegistry
 
         registry = PanelRegistry.get_instance()
         already_tracked: set[str] = {
@@ -593,7 +593,7 @@ class UserPluginService(QObject):
             Path to the temporary file.
         """
         if self._temp_dir is None:
-            self._temp_dir = Path(tempfile.mkdtemp(prefix="lucid_plugins_"))
+            self._temp_dir = Path(tempfile.mkdtemp(prefix="lightfall_plugins_"))
             logger.debug("Created temp plugins directory: {}", self._temp_dir)
 
         file_path = self._temp_dir / f"{name}.py"

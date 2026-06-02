@@ -21,13 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook.style import (
+from lightfall.logbook.style import (
     get_action_group_background_color,
     get_action_group_border_color,
 )
 
 if TYPE_CHECKING:
-    from lucid.logbook.action_logger import DeviceAction
+    from lightfall.logbook.action_logger import DeviceAction
 
 
 class ActionGroupDialog(QDialog):

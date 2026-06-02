@@ -15,9 +15,9 @@ Components:
 - PlanRegistry: Central registry of available plans
 """
 
-from lucid.acquire.buffer import LiveDataBuffer
-from lucid.acquire.device_wrapper import NCSDevice, wrap_device
-from lucid.acquire.engine import (
+from lightfall.acquire.buffer import LiveDataBuffer
+from lightfall.acquire.device_wrapper import NCSDevice, wrap_device
+from lightfall.acquire.engine import (
     BaseEngine,
     BlueskyEngine,
     Engine,
@@ -28,7 +28,7 @@ from lucid.acquire.engine import (
     reset_engine,
     set_engine,
 )
-from lucid.acquire.signals import (
+from lightfall.acquire.signals import (
     SignalConfiguration,
     SignalDefinition,
     SignalKind,

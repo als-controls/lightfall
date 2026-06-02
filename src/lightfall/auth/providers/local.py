@@ -15,10 +15,10 @@ from typing import Any
 
 import yaml
 
-from lucid.auth.policy import Role
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.session import Session, User
-from lucid.utils.logging import logger
+from lightfall.auth.policy import Role
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.session import Session, User
+from lightfall.utils.logging import logger
 
 
 @dataclass

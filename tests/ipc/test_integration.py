@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.ipc.service import IPCService
+from lightfall.ipc.service import IPCService
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def engine():
 @pytest.fixture()
 def app(engine, ipc):
     """Build an NCSApplication without Qt/NATS and inject fakes."""
-    from lucid.core.application import NCSApplication
+    from lightfall.core.application import NCSApplication
 
     instance = NCSApplication.__new__(NCSApplication)
     instance._services = _FakeServiceRegistry({IPCService: ipc})
@@ -121,7 +121,7 @@ class TestEngineIPCWiring:
     """Tests for _wire_engine_ipc: engine signals -> IPC events."""
 
     def test_run_new_event_published_on_start_doc(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         start_doc = {"uid": "abc-123", "plan_name": "count"}
@@ -133,14 +133,14 @@ class TestEngineIPCWiring:
         )
 
     def test_non_start_docs_do_not_publish_run_new(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         engine.sigOutput.emit("event", {"data": {}})
         ipc.publish.assert_not_called()
 
     def test_run_complete_success_on_finish(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         # Simulate a run start so current_run is populated
@@ -155,7 +155,7 @@ class TestEngineIPCWiring:
         )
 
     def test_run_complete_abort_on_abort(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         engine.sigOutput.emit("start", {"uid": "run-2", "plan_name": "scan"})
@@ -169,7 +169,7 @@ class TestEngineIPCWiring:
         )
 
     def test_run_complete_error_on_exception(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         engine.sigOutput.emit("start", {"uid": "run-3", "plan_name": "scan"})
@@ -183,7 +183,7 @@ class TestEngineIPCWiring:
         )
 
     def test_state_changed_publishes_event(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         engine.sigStateChanged.emit("running")
@@ -194,7 +194,7 @@ class TestEngineIPCWiring:
         )
 
     def test_events_registered_in_catalog(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         assert "runs.new" in ipc._event_catalog
@@ -202,7 +202,7 @@ class TestEngineIPCWiring:
         assert "state.engine" in ipc._event_catalog
 
     def test_finish_with_no_prior_start_uses_empty_run_id(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_engine_ipc()
 
         engine.sigFinish.emit()
@@ -222,7 +222,7 @@ class TestPlanCommandWiring:
     """Tests for _wire_plan_commands: IPC commands -> engine actions."""
 
     def test_plan_run_missing_name_replies_error(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         # Find the handle_plan_run callback
@@ -235,7 +235,7 @@ class TestPlanCommandWiring:
         )
 
     def test_plan_run_missing_name_no_reply_is_noop(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.run")].callback
@@ -245,15 +245,15 @@ class TestPlanCommandWiring:
 
     def test_plan_run_unknown_plan_replies_error(self, app, engine, ipc):
         with (
-            patch("lucid.acquire.engine.get_engine", return_value=engine),
-            patch("lucid.acquire.plans.registry.get_registry") as mock_reg,
+            patch("lightfall.acquire.engine.get_engine", return_value=engine),
+            patch("lightfall.acquire.plans.registry.get_registry") as mock_reg,
         ):
             mock_reg.return_value.get_plan.return_value = None
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.run")].callback
 
-        with patch("lucid.acquire.plans.registry.get_registry") as mock_reg:
+        with patch("lightfall.acquire.plans.registry.get_registry") as mock_reg:
             mock_reg.return_value.get_plan.return_value = None
             handler("als.test.commands.plan.run", {"plan_name": "nonexistent"}, "reply.inbox.2")
 
@@ -268,12 +268,12 @@ class TestPlanCommandWiring:
 
         plan_info = _FakePlanInfo("count", fake_plan)
 
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.run")].callback
 
-        with patch("lucid.acquire.plans.registry.get_registry") as mock_reg:
+        with patch("lightfall.acquire.plans.registry.get_registry") as mock_reg:
             mock_reg.return_value.get_plan.return_value = plan_info
             handler(
                 "als.test.commands.plan.run",
@@ -293,12 +293,12 @@ class TestPlanCommandWiring:
 
         plan_info = _FakePlanInfo("bad", bad_plan)
 
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.run")].callback
 
-        with patch("lucid.acquire.plans.registry.get_registry") as mock_reg:
+        with patch("lightfall.acquire.plans.registry.get_registry") as mock_reg:
             mock_reg.return_value.get_plan.return_value = plan_info
             handler(
                 "als.test.commands.plan.run",
@@ -312,7 +312,7 @@ class TestPlanCommandWiring:
         assert "wrong arg" in payload["message"]
 
     def test_plan_abort_replies_success(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.abort")].callback
@@ -326,7 +326,7 @@ class TestPlanCommandWiring:
     def test_plan_abort_passes_reason(self, app, engine, ipc):
         engine.abort = MagicMock()
 
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.abort")].callback
@@ -337,7 +337,7 @@ class TestPlanCommandWiring:
     def test_plan_abort_failure_replies_error(self, app, engine, ipc):
         engine.abort = MagicMock(side_effect=RuntimeError("not running"))
 
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         handler = ipc._subscriptions[ipc.topic("commands.plan.abort")].callback
@@ -349,7 +349,7 @@ class TestPlanCommandWiring:
         assert "not running" in payload["message"]
 
     def test_actions_registered_in_catalog(self, app, engine, ipc):
-        with patch("lucid.acquire.engine.get_engine", return_value=engine):
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
             app._wire_plan_commands()
 
         assert "commands.plan.run" in ipc._action_catalog
@@ -395,8 +395,8 @@ class TestLogbookIPCIntegration:
         fake_sm = _FakeSessionManager(_FakeUser("testuser"))
 
         with (
-            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=mock_client),
-            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+            patch("lightfall.logbook.client.LogbookClient.get_instance", return_value=mock_client),
+            patch("lightfall.auth.session.SessionManager.get_instance", return_value=fake_sm),
         ):
             app._wire_logbook_ipc()
 
@@ -423,8 +423,8 @@ class TestLogbookIPCIntegration:
         fake_sm = _FakeSessionManager(_FakeUser(username=None))
 
         with (
-            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=MagicMock()),
-            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+            patch("lightfall.logbook.client.LogbookClient.get_instance", return_value=MagicMock()),
+            patch("lightfall.auth.session.SessionManager.get_instance", return_value=fake_sm),
         ):
             app._wire_logbook_ipc()
 
@@ -449,8 +449,8 @@ class TestLogbookIPCIntegration:
         fake_sm = _FakeSessionManager(_FakeUser("testuser"))
 
         with (
-            patch("lucid.logbook.client.LogbookClient.get_instance", return_value=mock_client),
-            patch("lucid.auth.session.SessionManager.get_instance", return_value=fake_sm),
+            patch("lightfall.logbook.client.LogbookClient.get_instance", return_value=mock_client),
+            patch("lightfall.auth.session.SessionManager.get_instance", return_value=fake_sm),
         ):
             app._wire_logbook_ipc()
 
@@ -531,7 +531,7 @@ class TestLogbookIPCRefresh:
     def _make_client(self):
         import sqlite3
 
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
 
         client = LogbookClient.__new__(LogbookClient)
         client._db = None

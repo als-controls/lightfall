@@ -19,10 +19,10 @@ from threading import Event, Thread
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from lucid.auth.policy import Role
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.session import Session, User
-from lucid.utils.logging import logger
+from lightfall.auth.policy import Role
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.session import Session, User
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
@@ -65,7 +65,7 @@ class KeycloakConfig:
             return self.proxy_url if self.proxy_url else None
 
         # Use centralized proxy settings
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
         return ProxySettingsProvider.should_use_proxy_for_url(self.server_url)
 
@@ -327,7 +327,7 @@ class KeycloakAuthProvider(AuthProvider):
             except ImportError as err:
                 raise ImportError(
                     "aiohttp is required for Keycloak authentication. "
-                    "Install with: pip install lucid[keycloak]"
+                    "Install with: pip install lightfall[keycloak]"
                 ) from err
 
             connector = None
@@ -342,7 +342,7 @@ class KeycloakAuthProvider(AuthProvider):
                 except ImportError:
                     logger.warning(
                         "aiohttp-socks not installed, proxy {} will not be used. "
-                        "Install with: pip install lucid[keycloak]",
+                        "Install with: pip install lightfall[keycloak]",
                         proxy_url,
                     )
 
@@ -462,7 +462,7 @@ class KeycloakAuthProvider(AuthProvider):
             - None if embedded browser not available (should fall back)
         """
         try:
-            from lucid.ui.dialogs.oauth_browser_dialog import OAuthBrowserDialog
+            from lightfall.ui.dialogs.oauth_browser_dialog import OAuthBrowserDialog
         except ImportError:
             logger.debug("OAuthBrowserDialog not available, using external browser")
             return None
@@ -483,7 +483,7 @@ class KeycloakAuthProvider(AuthProvider):
             return None
 
         # Import threading utilities
-        from lucid.utils.threads import invoke_in_main_thread, is_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread, is_main_thread
 
         logger.info("Using embedded browser for authentication")
 

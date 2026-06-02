@@ -137,7 +137,7 @@ def _create_motor_controller(pv_prefix: str) -> QWidget | None:
         PVMotor widget instance or None if epics-pyside is not available
     """
     try:
-        from lucid.epics.widgets.motor import PVMotor
+        from lightfall.epics.widgets.motor import PVMotor
         return PVMotor(prefix=pv_prefix)
     except ImportError:
         return None

@@ -10,9 +10,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 class PanelBuilderAgent(AgentPlugin):
@@ -78,7 +78,7 @@ code defines and registers:
 
 ### Creating a Plugin
 
-Use `ncs_create_user_plugin` to write a plugin file to ~/lucid/plugins/.
+Use `ncs_create_user_plugin` to write a plugin file to ~/lightfall/plugins/.
 The plugin is validated (syntax + exec + at least one panel registration
 or concrete AgentPlugin subclass), written to disk, and loaded immediately.
 
@@ -128,7 +128,7 @@ ideas before committing to a persistent plugin.
             return False, f"Syntax error at line {e.lineno}: {e.msg}", []
 
         # 2. Execute in isolated namespace to check for import errors
-        namespace: dict[str, Any] = {"__name__": f"lucid_user_plugins.{name}"}
+        namespace: dict[str, Any] = {"__name__": f"lightfall_user_plugins.{name}"}
         try:
             exec(code, namespace)
         except Exception as e:  # noqa: BLE001
@@ -139,8 +139,8 @@ ideas before committing to a persistent plugin.
         #    - BasePanel subclass with panel_metadata (self-registered via
         #      PanelRegistry.register at module scope — the canonical
         #      user-plugin pattern from the panel_design skill).
-        from lucid.plugins.types import PluginType
-        from lucid.ui.panels.base import BasePanel
+        from lightfall.plugins.types import PluginType
+        from lightfall.ui.panels.base import BasePanel
 
         found_kinds: list[str] = []
         for v in namespace.values():
@@ -202,7 +202,7 @@ ideas before committing to a persistent plugin.
             name="ncs_create_user_plugin",
             description="""Create a LUCID user plugin from Python code.
 
-The plugin will be written to ~/lucid/plugins/ and automatically loaded.
+The plugin will be written to ~/lightfall/plugins/ and automatically loaded.
 The kind of plugin is inferred from what `code` defines:
 
 - A `BasePanel` subclass with `panel_metadata`, self-registered at module
@@ -227,15 +227,15 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout,
 )
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
 
 
 class MyPanel(BasePanel):
     \"\"\"Panel description.\"\"\"
 
     panel_metadata = PanelMetadata(
-        id="lucid.panels.user.my_panel",
+        id="lightfall.panels.user.my_panel",
         name="My Panel",
         description="What this panel does",
         icon="mdi6.icon-name",
@@ -273,11 +273,11 @@ PanelRegistry.get_instance().register(MyPanel, replace=True)
 - DON'T use `qtpy` imports - use `PySide6` directly
 - DON'T override `__init__` - override `_setup_ui()` instead
 - DON'T create `QVBoxLayout(self)` - use inherited `self._layout`
-- DON'T use `lucid.panels.base` - use `lucid.ui.panels.base`
+- DON'T use `lightfall.panels.base` - use `lightfall.ui.panels.base`
 
 ## Accessing Devices:
 ```python
-from lucid.devices.catalog import DeviceCatalog
+from lightfall.devices.catalog import DeviceCatalog
 catalog = DeviceCatalog.get_instance()
 motors = catalog.get_devices_by_category("motor")  # Returns DeviceInfo list
 ```
@@ -285,7 +285,7 @@ motors = catalog.get_devices_by_category("motor")  # Returns DeviceInfo list
 ## Running Bluesky Plans:
 ```python
 import bluesky.plan_stubs as bps
-from lucid.acquire import get_engine
+from lightfall.acquire import get_engine
 
 def my_plan():
     yield from bps.mv(motor, 0)
@@ -319,7 +319,7 @@ engine.submit(my_plan(), description="My plan")
         )
         async def create_user_plugin(args: dict) -> dict[str, Any]:
             """Create a user plugin from Python code."""
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
 
             name = args["name"]
             code = args["code"]
@@ -447,7 +447,7 @@ See that tool's description for the required template.""",
         )
         async def create_temp_plugin(args: dict) -> dict[str, Any]:
             """Create a temporary plugin."""
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
 
             name = args["name"]
             code = args["code"]
@@ -500,7 +500,7 @@ Returns information about each loaded plugin including:
         )
         async def list_user_plugins(args: dict) -> dict[str, Any]:
             """List all user plugins."""
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
 
             try:
                 service = UserPluginService.get_instance()
@@ -542,7 +542,7 @@ Note: Hot-reload may cause instability if panel instances are still open.""",
         )
         async def reload_plugin(args: dict) -> dict[str, Any]:
             """Reload a user plugin."""
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
 
             name = args["name"]
 
@@ -600,7 +600,7 @@ Note: Open panel instances may become unstable.""",
         )
         async def unload_plugin(args: dict) -> dict[str, Any]:
             """Unload a user plugin."""
-            from lucid.plugins.user_plugins import UserPluginService
+            from lightfall.plugins.user_plugins import UserPluginService
 
             name = args["name"]
 

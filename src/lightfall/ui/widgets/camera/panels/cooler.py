@@ -22,11 +22,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
-from lucid.epics.widgets.status_indicator import StatusIndicator
-from lucid.utils.logging import logger
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.utils.logging import logger
 
 # Andor cooler status values
 COOLER_STATUS = {
@@ -214,7 +214,7 @@ class CoolerPanel(QGroupBox):
 
     def _on_status_value(self, value: Any = None, **kwargs: Any) -> None:
         """Handle temperature_status subscription callback (background thread)."""
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:

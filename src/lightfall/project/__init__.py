@@ -8,7 +8,7 @@ This package provides:
 - WelcomeProject: First-launch experience
 """
 
-from lucid.project.model import (
+from lightfall.project.model import (
     Attachment,
     EntrySource,
     EntryType,
@@ -17,8 +17,8 @@ from lucid.project.model import (
     Project,
     ProjectMetadata,
 )
-from lucid.project.service import ProjectService
-from lucid.project.welcome import create_welcome_project, get_welcome_markdown
+from lightfall.project.service import ProjectService
+from lightfall.project.welcome import create_welcome_project, get_welcome_markdown
 
 __all__ = [
     # Models

@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QByteArray, QObject, QSettings, Signal, Slot
 
-from lucid.ui.preferences.backend import BEAMLINE_SPECIFIC_PREFS
-from lucid.utils.logging import logger
+from lightfall.ui.preferences.backend import BEAMLINE_SPECIFIC_PREFS
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QMainWindow
 
-    from lucid.config.manager import ConfigManager
+    from lightfall.config.manager import ConfigManager
 
 # Preferences that are always global (never beamline-specific)
 GLOBAL_ONLY_PREFS = {
@@ -205,9 +205,9 @@ class PreferencesManager(QObject):
 
         # Backend multiplex: user-portable backend takes precedence for
         # keys it owns; local backend handles everything else.
-        from lucid.settings.user_settings_client import UserSettingsClient
-        from lucid.ui.preferences.backend import LocalPreferenceBackend
-        from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+        from lightfall.settings.user_settings_client import UserSettingsClient
+        from lightfall.ui.preferences.backend import LocalPreferenceBackend
+        from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
 
         self._local = LocalPreferenceBackend(config_manager, beamline)
         self._user_portable = UserPortableBackend(

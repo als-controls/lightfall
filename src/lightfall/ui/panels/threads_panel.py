@@ -27,16 +27,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.models.thread_model import (
+from lightfall.ui.models.thread_model import (
     ThreadFilterProxyModel,
     ThreadManagerObserver,
     ThreadRecord,
     ThreadStatus,
     ThreadTableModel,
 )
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.utils.logging import logger
-from lucid.utils.threads import thread_manager
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import thread_manager
 
 if TYPE_CHECKING:
     pass
@@ -221,7 +221,7 @@ class ThreadsPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.threads",
+        id="lightfall.panels.threads",
         name="Threads",
         description="Monitor and manage background threads",
         icon="spider-thread",

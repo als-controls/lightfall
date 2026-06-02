@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 
-from lucid.acquire.engine.state import EngineState
-from lucid.utils.logging import logger
+from lightfall.acquire.engine.state import EngineState
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.toast import ToastManager
+    from lightfall.ui.toast import ToastManager
 
 
 @dataclass(order=True)
@@ -155,7 +155,7 @@ class BaseEngine(QObject):
     def _get_toast_manager(self) -> ToastManager:
         """Get the ToastManager instance (lazy initialization)."""
         if self._toast_manager is None:
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             self._toast_manager = ToastManager.get_instance()
         return self._toast_manager

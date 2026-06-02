@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from lucid.epics.widgets.base import EpicsWidget
+from lightfall.epics.widgets.base import EpicsWidget
 
 
 class PVLabel(EpicsWidget):

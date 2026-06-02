@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LucidDialog
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree

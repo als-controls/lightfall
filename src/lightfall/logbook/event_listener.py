@@ -12,7 +12,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class EventListener(QObject):
@@ -62,7 +62,7 @@ class EventListener(QObject):
 
     def _connect_action_logger(self) -> None:
         try:
-            from lucid.logbook import DeviceActionLogger
+            from lightfall.logbook import DeviceActionLogger
             dal = DeviceActionLogger.get_instance()
             dal.group_closed.connect(self._on_action_group_closed)
             dal.group_updated.connect(self._on_action_group_updated)
@@ -86,7 +86,7 @@ class EventListener(QObject):
         frag_id = str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_DNS, f"action-{group_id}-{len(actions) - 1}"))
 
         # Check if we already logged this one
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
         client = LogbookClient.get_instance()
         existing = client.list_fragments(self._current_entry_id)
         if any(f["id"] == frag_id for f in existing):
@@ -120,7 +120,7 @@ class EventListener(QObject):
 
     def _connect_run_engine(self) -> None:
         try:
-            from lucid.acquire import get_run_engine
+            from lightfall.acquire import get_run_engine
             re = get_run_engine()
             re.sigDocumentYield.connect(self._on_run_document)
             logger.info("EventListener connected to RunEngine")
@@ -131,7 +131,7 @@ class EventListener(QObject):
     def _on_run_document(self, name: str, doc: dict) -> None:
         if not self._current_entry_id:
             return
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
         client = LogbookClient.get_instance()
 
         try:

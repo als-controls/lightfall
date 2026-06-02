@@ -12,7 +12,7 @@ Components:
 - get_engine(): Singleton accessor for the default engine
 
 Example:
-    from lucid.acquire.engine import get_engine, EngineState
+    from lightfall.acquire.engine import get_engine, EngineState
 
     engine = get_engine()
 
@@ -31,12 +31,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.acquire.engine.base import BaseEngine, PrioritizedProcedure
-from lucid.acquire.engine.bluesky import BlueskyEngine
-from lucid.acquire.engine.mock import MockEngine
-from lucid.acquire.engine.protocol import Engine
-from lucid.acquire.engine.state import EngineState
-from lucid.utils.logging import logger
+from lightfall.acquire.engine.base import BaseEngine, PrioritizedProcedure
+from lightfall.acquire.engine.bluesky import BlueskyEngine
+from lightfall.acquire.engine.mock import MockEngine
+from lightfall.acquire.engine.protocol import Engine
+from lightfall.acquire.engine.state import EngineState
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -92,7 +92,7 @@ def get_engine(engine_type: str | None = None, **kwargs: Any) -> BaseEngine:
     global _engine
 
     if _engine is None:
-        from lucid.acquire.engine.registry import EngineRegistry
+        from lightfall.acquire.engine.registry import EngineRegistry
 
         registry = EngineRegistry.get_instance()
 
@@ -100,7 +100,7 @@ def get_engine(engine_type: str | None = None, **kwargs: Any) -> BaseEngine:
         if engine_type is None:
             # Try to get from preferences
             try:
-                from lucid.ui.preferences import PreferencesManager
+                from lightfall.ui.preferences import PreferencesManager
 
                 prefs = PreferencesManager.get_instance()
                 engine_type = prefs.get("engine", registry.default_engine)
@@ -134,7 +134,7 @@ def set_engine(engine: BaseEngine) -> None:
         engine: The engine instance to use globally.
 
     Example:
-        from lucid.acquire.engine import set_engine, MockEngine
+        from lightfall.acquire.engine import set_engine, MockEngine
 
         # Use mock engine for testing
         set_engine(MockEngine())

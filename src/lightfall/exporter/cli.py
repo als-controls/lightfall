@@ -13,7 +13,7 @@ import sys
 def main(argv: list[str] | None = None) -> None:
     """Run the LUCID exporter service."""
     parser = argparse.ArgumentParser(
-        prog="lucid-exporter",
+        prog="lightfall-exporter",
         description="Headless data export service for LUCID",
     )
     parser.add_argument(
@@ -38,9 +38,9 @@ def main(argv: list[str] | None = None) -> None:
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logger = logging.getLogger("lucid.exporter")
+    logger = logging.getLogger("lightfall.exporter")
 
-    from lucid.exporter.service import ExporterService
+    from lightfall.exporter.service import ExporterService
 
     service = ExporterService(nats_url=args.nats, hostname=args.hostname)
 
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> None:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, lambda: asyncio.create_task(service.stop()))
 
-        logger.info("Starting lucid-exporter (hostname=%s, nats=%s)", args.hostname, args.nats)
+        logger.info("Starting lightfall-exporter (hostname=%s, nats=%s)", args.hostname, args.nats)
         try:
             await service.run()
         except KeyboardInterrupt:

@@ -88,7 +88,7 @@ class LiveDataBuffer(QObject):
         descriptor_received(str, dict): Emitted when descriptor arrives.
 
     Example:
-        >>> from lucid.acquire import get_run_engine
+        >>> from lightfall.acquire import get_run_engine
         >>> RE = get_run_engine()
         >>> buffer = LiveDataBuffer(max_points=1000)
         >>> RE.subscribe(buffer)

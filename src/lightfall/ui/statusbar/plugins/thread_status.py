@@ -23,10 +23,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.ui.theme import ThemeManager
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture, thread_manager
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.ui.theme import ThemeManager
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture, thread_manager
 
 
 class _ProgressOverlay(QFrame):
@@ -352,7 +352,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
-        id="lucid.statusbar.threads",
+        id="lightfall.statusbar.threads",
         name="Thread Status",
         description="Shows background task progress",
         priority=5,
@@ -430,7 +430,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
         thread_manager.sigFinished.connect(self._on_finished)
 
         try:
-            from lucid.acquire import get_engine
+            from lightfall.acquire import get_engine
 
             engine = get_engine()
             if hasattr(engine, "waiting_bridge"):
@@ -453,7 +453,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
             pass
 
         try:
-            from lucid.acquire import get_engine
+            from lightfall.acquire import get_engine
 
             engine = get_engine()
             if hasattr(engine, "waiting_bridge"):

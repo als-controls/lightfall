@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.plugins.engine_plugin import EnginePlugin
+from lightfall.plugins.engine_plugin import EnginePlugin
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import BaseEngine
+    from lightfall.acquire.engine.base import BaseEngine
 
 
 class MockEnginePlugin(EnginePlugin):
@@ -50,6 +50,6 @@ class MockEnginePlugin(EnginePlugin):
         Returns:
             A new MockEngine instance.
         """
-        from lucid.acquire.engine.mock import MockEngine
+        from lightfall.acquire.engine.mock import MockEngine
 
         return MockEngine()

@@ -33,8 +33,8 @@ class LucidDialog(QDialog):
 
     def _set_app_icon(self) -> None:
         """Set the window icon from the application icon."""
-        from lucid.resources import get_app_icon
-        from lucid.utils.logging import logger
+        from lightfall.resources import get_app_icon
+        from lightfall.utils.logging import logger
 
         app_icon = get_app_icon()
         if not app_icon.isNull():

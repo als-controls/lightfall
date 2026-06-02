@@ -9,9 +9,9 @@ from typing import Any, ClassVar
 
 from PySide6.QtCore import Slot
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.ui.theme import ThemeManager
-from lucid.utils.logging import logger
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.ui.theme import ThemeManager
+from lightfall.utils.logging import logger
 
 
 class TiledStatusPlugin(StatusBarPlugin):
@@ -25,7 +25,7 @@ class TiledStatusPlugin(StatusBarPlugin):
     """
 
     metadata: ClassVar[StatusBarPluginMetadata] = StatusBarPluginMetadata(
-        id="lucid.statusbar.tiled",
+        id="lightfall.statusbar.tiled",
         name="Tiled Status",
         description="Shows Tiled data catalog connection state",
         priority=40,
@@ -50,7 +50,7 @@ class TiledStatusPlugin(StatusBarPlugin):
             self._theme_manager = ThemeManager.get_instance()
 
         try:
-            from lucid.services.tiled_service import TiledConnectionState, TiledService
+            from lightfall.services.tiled_service import TiledConnectionState, TiledService
 
             service = TiledService.get_instance()
             self._service = service
@@ -77,7 +77,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         self._theme_manager.colors_changed.connect(self.update)
 
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             self._service = service
@@ -103,7 +103,7 @@ class TiledStatusPlugin(StatusBarPlugin):
     @Slot(object, str)
     def _on_connection_changed(self, state, message: str) -> None:
         """Handle connection state change."""
-        from lucid.services.tiled_service import TiledConnectionState
+        from lightfall.services.tiled_service import TiledConnectionState
 
         if state == TiledConnectionState.CONNECTED:
             self._update_display_connected()
@@ -113,7 +113,7 @@ class TiledStatusPlugin(StatusBarPlugin):
             self._update_display_error(message)
         elif state == TiledConnectionState.DISCONNECTED:
             try:
-                from lucid.services.tiled_service import TiledService
+                from lightfall.services.tiled_service import TiledService
 
                 service = TiledService.get_instance()
                 if not service.config.enabled:
@@ -163,7 +163,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         data = super().get_introspection_data()
 
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             data["tiled_enabled"] = service.config.enabled

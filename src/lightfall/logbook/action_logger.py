@@ -16,7 +16,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, QTimer, Signal
 
 if TYPE_CHECKING:
-    from lucid.ui.widgets.base_control import BaseControlWidget
+    from lightfall.ui.widgets.base_control import BaseControlWidget
 
 
 @dataclass

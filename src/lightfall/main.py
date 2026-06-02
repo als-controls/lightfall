@@ -10,14 +10,14 @@ import sys
 # See: https://stackoverflow.com/a/1552105
 if sys.platform == "win32":
     import ctypes
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("gov.lbl.als.lucid")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("gov.lbl.als.lightfall")
 
 # Install crash diagnostics before QApplication is constructed so
 # faulthandler is enabled and Qt environment knobs (QT_LOGGING_RULES) are
 # in place when Qt's logging system is first read. PySide6 is transitively
-# imported by lucid.utils, but importing the package does not construct a
+# imported by lightfall.utils, but importing the package does not construct a
 # QCoreApplication — env vars are still in time.
-from lucid.utils import crash_diagnostics  # noqa: E402
+from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
@@ -82,25 +82,25 @@ _configure_remote_display()
 
 from PySide6.QtCore import Qt  # noqa: E402
 
-from lucid.acquire import get_engine  # noqa: E402
-from lucid.acquire.plans import get_registry as get_plan_registry  # noqa: E402
-from lucid.auth.providers import LocalAuthProvider  # noqa: E402
-from lucid.auth.session import SessionManager  # noqa: E402
-from lucid.config import ConfigManager  # noqa: E402
-from lucid.core import NCSApplication  # noqa: E402
-from lucid.devices import DeviceCatalog  # noqa: E402
-from lucid.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
-from lucid.project import ProjectService, create_welcome_project  # noqa: E402
-from lucid.ui import NCSMainWindow  # noqa: E402
-from lucid.ui.panels.registry import PanelRegistry  # noqa: E402
-from lucid.ui.preferences import PreferencesManager  # noqa: E402
-from lucid.ui.theme import ThemeManager  # noqa: E402
-from lucid.ui.widgets.warning_banner import DismissableWarningBanner  # noqa: E402
-from lucid.utils.editor_launcher import CodeEditor, is_editor_available  # noqa: E402
-from lucid.utils.logging import logger  # noqa: E402
-from lucid.utils.sentry import clear_user as sentry_clear_user  # noqa: E402
-from lucid.utils.sentry import init_sentry  # noqa: E402
-from lucid.utils.sentry import set_user as sentry_set_user  # noqa: E402
+from lightfall.acquire import get_engine  # noqa: E402
+from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
+from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
+from lightfall.auth.session import SessionManager  # noqa: E402
+from lightfall.config import ConfigManager  # noqa: E402
+from lightfall.core import NCSApplication  # noqa: E402
+from lightfall.devices import DeviceCatalog  # noqa: E402
+from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
+from lightfall.project import ProjectService, create_welcome_project  # noqa: E402
+from lightfall.ui import NCSMainWindow  # noqa: E402
+from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
+from lightfall.ui.preferences import PreferencesManager  # noqa: E402
+from lightfall.ui.theme import ThemeManager  # noqa: E402
+from lightfall.ui.widgets.warning_banner import DismissableWarningBanner  # noqa: E402
+from lightfall.utils.editor_launcher import CodeEditor, is_editor_available  # noqa: E402
+from lightfall.utils.logging import logger  # noqa: E402
+from lightfall.utils.sentry import clear_user as sentry_clear_user  # noqa: E402
+from lightfall.utils.sentry import init_sentry  # noqa: E402
+from lightfall.utils.sentry import set_user as sentry_set_user  # noqa: E402
 
 if TYPE_CHECKING:
     pass
@@ -127,7 +127,7 @@ def _setup_auth(config: ConfigManager) -> None:
     if provider_type == "keycloak" and auth_config.provider.server_url:
         # Use Keycloak if configured
         try:
-            from lucid.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
+            from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
 
             kc_config = KeycloakConfig(
                 server_url=auth_config.provider.server_url,
@@ -146,8 +146,8 @@ def _setup_auth(config: ConfigManager) -> None:
     elif provider_type == "pam":
         try:
             # Build group→role map from config if provided
-            from lucid.auth.policy import Role as _Role
-            from lucid.auth.providers.pam import PamAuthProvider, PamConfig
+            from lightfall.auth.policy import Role as _Role
+            from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
 
             group_role_map = {}
             for group_name, role_str in auth_config.provider.pam_group_role_map.items():
@@ -209,7 +209,7 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     services.register_instance(DeviceCatalog, device_catalog)
 
     # Initialize connection manager with settings
-    from lucid.devices.connection_manager import DeviceConnectionManager
+    from lightfall.devices.connection_manager import DeviceConnectionManager
 
     connection_manager = DeviceConnectionManager.get_instance()
     connection_manager.load_settings()
@@ -217,15 +217,15 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
 
     # Pipeline client - lazy singleton so IPCService and Tiled URL settings
     # are read at first request, not at startup.
-    from lucid.acquire.triggers.manager import TriggerManager
-    from lucid.pipelines import PipelineClient
+    from lightfall.acquire.triggers.manager import TriggerManager
+    from lightfall.pipelines import PipelineClient
 
     def _build_pipeline_client() -> PipelineClient:
         import socket
 
-        from lucid.core.services import ServiceRegistry
-        from lucid.ipc.service import IPCService
-        from lucid.services.tiled_service import get_tiled_base_url
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.ipc.service import IPCService
+        from lightfall.services.tiled_service import get_tiled_base_url
 
         ipc = ServiceRegistry.get_instance().get(IPCService)
         session_manager = SessionManager.get_instance()
@@ -239,7 +239,7 @@ def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
     services.register(PipelineClient, _build_pipeline_client)
 
     def _build_trigger_manager() -> TriggerManager:
-        from lucid.core.services import ServiceRegistry
+        from lightfall.core.services import ServiceRegistry
 
         def _submit_via_pipeline_client(
             *,
@@ -302,7 +302,7 @@ def _setup_ca_tunnel() -> None:
 
     gateway = prefs.get("ca_tunnel_gateway", "localhost:5099")
 
-    from lucid.services.ca_tunnel import CATunnelService
+    from lightfall.services.ca_tunnel import CATunnelService
 
     service = CATunnelService.get_instance()
     if service.start(gateway=gateway):
@@ -338,12 +338,12 @@ def _setup_ca_tunnel() -> None:
         def _schedule_retries():
             from PySide6.QtCore import QTimer
 
-            from lucid.utils.threads import QThreadFuture
+            from lightfall.utils.threads import QThreadFuture
 
             delays = [2000, 4000, 8000, 16000, 32000, 64000]  # ms
 
             def _do_reconnect():
-                from lucid.devices import DeviceCatalog
+                from lightfall.devices import DeviceCatalog
 
                 catalog = DeviceCatalog.get_instance()
                 return catalog.reconnect_failed_devices(timeout=5.0)
@@ -469,8 +469,8 @@ def _setup_bluesky(app: NCSApplication) -> None:
     plan_registry = get_plan_registry()
     services.register_instance(type(plan_registry), plan_registry)
 
-    # Load user-defined plans from ~/lucid/plans/
-    from lucid.acquire.plans import UserPlanService
+    # Load user-defined plans from ~/lightfall/plans/
+    from lightfall.acquire.plans import UserPlanService
 
     user_plan_service = UserPlanService.get_instance()
     results = user_plan_service.load_all_plans()
@@ -495,7 +495,7 @@ def _setup_tiled(app: NCSApplication, config: ConfigManager) -> None:
         app: The NCS application instance.
         config: The configuration manager.
     """
-    from lucid.services.tiled_service import TiledAuthMode, TiledService
+    from lightfall.services.tiled_service import TiledAuthMode, TiledService
 
     services = app.services
     prefs = PreferencesManager.get_instance()
@@ -554,13 +554,13 @@ def _setup_plugins(app: NCSApplication) -> None:
     Args:
         app: The LUCID application instance.
     """
-    from lucid.plugins import AgentPlugin, PluginLoader, PluginRegistry
-    from lucid.plugins.builtin_manifest import builtin_manifest
-    from lucid.plugins.controller_plugin import ControllerPlugin
-    from lucid.plugins.engine_plugin import EnginePlugin
-    from lucid.plugins.panel_plugin import PanelPlugin
-    from lucid.plugins.settings_plugin import SettingsPlugin
-    from lucid.plugins.statusbar_plugin import StatusBarPlugin
+    from lightfall.plugins import AgentPlugin, PluginLoader, PluginRegistry
+    from lightfall.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.controller_plugin import ControllerPlugin
+    from lightfall.plugins.engine_plugin import EnginePlugin
+    from lightfall.plugins.panel_plugin import PanelPlugin
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
 
@@ -569,7 +569,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     loader = PluginLoader(registry)
 
     # Register plugin types (theme must be first to load before appearance settings)
-    from lucid.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.theme_plugin import ThemePlugin
 
     loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
@@ -606,16 +606,16 @@ def _setup_plugins(app: NCSApplication) -> None:
 
 
 def _setup_user_plugins(app: NCSApplication) -> None:
-    """Load user-defined plugins from ~/lucid/plugins/.
+    """Load user-defined plugins from ~/lightfall/plugins/.
 
-    User plugins are Python files in ~/lucid/plugins/. Plugin classes
+    User plugins are Python files in ~/lightfall/plugins/. Plugin classes
     auto-register via PluginType.__init_subclass__ when defined, so user
     files do not need explicit Registry.register() calls.
 
     Args:
         app: The LUCID application instance.
     """
-    from lucid.plugins.user_plugins import UserPluginService
+    from lightfall.plugins.user_plugins import UserPluginService
 
     services = app.services
 
@@ -633,7 +633,7 @@ def _setup_user_plugins(app: NCSApplication) -> None:
     services.register_instance(UserPluginService, service)
 
     if user_plugin_count > 0:
-        logger.info("Loaded {} user plugin(s) from ~/lucid/plugins/", user_plugin_count)
+        logger.info("Loaded {} user plugin(s) from ~/lightfall/plugins/", user_plugin_count)
     else:
         logger.debug("No user plugins loaded")
 
@@ -665,9 +665,9 @@ def _show_startup_login(window: NCSMainWindow) -> None:
     Args:
         window: The main window instance (unused, kept for API compatibility).
     """
-    from lucid.resources import get_app_icon
-    from lucid.ui.dialogs import LoginDialog
-    from lucid.ui.dialogs.login_dialog import LoginResult
+    from lightfall.resources import get_app_icon
+    from lightfall.ui.dialogs import LoginDialog
+    from lightfall.ui.dialogs.login_dialog import LoginResult
 
     # Create dialog without parent - gets its own taskbar entry
     dialog = LoginDialog(
@@ -707,7 +707,7 @@ def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
     Args:
         window: The main window instance.
     """
-    from lucid.ui.dialogs import LoginDialog
+    from lightfall.ui.dialogs import LoginDialog
 
     session_manager = SessionManager.get_instance()
 
@@ -723,7 +723,7 @@ def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
 
     # Connect to state changed to detect session expiry and update Sentry context
     def on_state_changed(new_state, old_state) -> None:
-        from lucid.auth.session import AuthState
+        from lightfall.auth.session import AuthState
 
         if new_state == AuthState.AUTHENTICATED:
             # User logged in - set Sentry user context
@@ -814,25 +814,25 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
     # Open Claude panel on the left first (will be a tab)
     claude_dock = None
     claude_panel = window.add_panel(
-        "lucid.panels.claude",
+        "lightfall.panels.claude",
         area=Qt.DockWidgetArea.LeftDockWidgetArea,
     )
     if claude_panel:
-        claude_dock = window._panel_docks.get("lucid.panels.claude")
+        claude_dock = window._panel_docks.get("lightfall.panels.claude")
 
     # Open Bluesky panel on the left
     window.add_panel(
-        "lucid.panels.bluesky",
+        "lightfall.panels.bluesky",
         area=Qt.DockWidgetArea.LeftDockWidgetArea,
     )
-    bluesky_dock = window._panel_docks.get("lucid.panels.bluesky")
+    bluesky_dock = window._panel_docks.get("lightfall.panels.bluesky")
 
     # Open Devices panel - add to left then tabify with Bluesky
     window.add_panel(
-        "lucid.panels.devices",
+        "lightfall.panels.devices",
         area=Qt.DockWidgetArea.LeftDockWidgetArea,
     )
-    devices_dock = window._panel_docks.get("lucid.panels.devices")
+    devices_dock = window._panel_docks.get("lightfall.panels.devices")
 
     # Tabify Claude, Bluesky and Devices (stack as tabs)
     if claude_dock and bluesky_dock:
@@ -846,10 +846,10 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
 
     # Open Logbook panel on the right
     window.add_panel(
-        "lucid.panels.logbook",
+        "lightfall.panels.logbook",
         area=Qt.DockWidgetArea.RightDockWidgetArea,
     )
-    logbook_dock = window._panel_docks.get("lucid.panels.logbook")
+    logbook_dock = window._panel_docks.get("lightfall.panels.logbook")
 
     # Use splitDockWidget to ensure left-right layout
     first_left_dock = claude_dock or bluesky_dock
@@ -892,13 +892,13 @@ def main() -> int:
         logger.warning("Sentry initialization failed or disabled")
 
     # Install error collector to capture recent errors for bug reporting
-    from lucid.utils.error_collector import ErrorCollector
+    from lightfall.utils.error_collector import ErrorCollector
 
     ErrorCollector.get_instance().install()
 
     # Install full-tail log buffer so the embedded agent can look back
     # at recent activity when something unexpected happens.
-    from lucid.utils.log_buffer import LogBuffer
+    from lightfall.utils.log_buffer import LogBuffer
 
     LogBuffer.get_instance().install()
 
@@ -927,7 +927,7 @@ def main() -> int:
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)
 
-    # Load user plugins from ~/lucid/plugins/
+    # Load user plugins from ~/lightfall/plugins/
     _setup_user_plugins(app)
 
     # Setup first launch (welcome project)
@@ -947,7 +947,7 @@ def main() -> int:
     window.setup_default_layout()
 
     # Register built-in tutorials
-    from lucid.ui.tutorial import register_builtin_tutorials
+    from lightfall.ui.tutorial import register_builtin_tutorials
     register_builtin_tutorials()
 
     # Check editor protocol handler (shows warning if PyCharm selected but Toolbox missing)
@@ -1015,7 +1015,7 @@ def main() -> int:
         # 1. Halt any running Bluesky plan immediately so it doesn't
         #    try to read PVs while we're tearing down connections.
         try:
-            import lucid.acquire.engine as _eng_mod
+            import lightfall.acquire.engine as _eng_mod
 
             engine = _eng_mod._engine
             if engine is not None and hasattr(engine, '_RE') and engine._RE is not None:
@@ -1030,7 +1030,7 @@ def main() -> int:
         #    "cannot schedule new futures after shutdown" errors that
         #    happen when data arrives after executor.shutdown().
         try:
-            from lucid.services.ca_tunnel import CATunnelService
+            from lightfall.services.ca_tunnel import CATunnelService
 
             tunnel = CATunnelService.get_instance()
             if tunnel.is_running:
@@ -1050,7 +1050,7 @@ def main() -> int:
         # 4. Shut down managed thread pools (dev-values, etc.)
         #    ThreadManager.shutdown() also does this via aboutToQuit,
         #    but belt-and-suspenders in case ordering varies.
-        from lucid.utils.threads import ManagedThreadPool
+        from lightfall.utils.threads import ManagedThreadPool
 
         ManagedThreadPool.shutdown_all(wait=False)
         logger.debug("Managed thread pools shut down")

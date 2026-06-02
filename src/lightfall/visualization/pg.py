@@ -1,8 +1,8 @@
-"""Themed pyqtgraph drop-in for lucid visualizations.
+"""Themed pyqtgraph drop-in for lightfall visualizations.
 
 Usage in viz widgets::
 
-    from lucid.visualization import pg
+    from lightfall.visualization import pg
 
     self._plot = pg.PlotWidget()
     curve = pg.PlotDataItem(xs, ys)              # picks up theme color
@@ -15,7 +15,7 @@ shadow the originals and inject palette colors when the caller did not pass
 an explicit ``pen`` / ``brush``.
 
 Background, axis, tick, grid, and default text colors are handled globally by
-:func:`lucid.visualization.theme.apply_pyqtgraph_theme`, which the main window
+:func:`lightfall.visualization.theme.apply_pyqtgraph_theme`, which the main window
 calls on startup and on every theme change. On theme change the main window
 also calls :func:`retheme_all`, which walks the weak registry of live themed
 items and re-applies the new palette to those that still use defaults.
@@ -29,7 +29,7 @@ from typing import Any
 import pyqtgraph as _pg
 from pyqtgraph import *  # noqa: F401,F403  -- re-export full namespace
 
-from lucid.visualization.theme import (
+from lightfall.visualization.theme import (
     DARK_VIZ_COLORS,
     VisualizationColors,
     colors_from_theme,
@@ -58,7 +58,7 @@ def _current_colors() -> VisualizationColors:
     headless tooling, early import order).
     """
     try:
-        from lucid.ui.theme import ThemeManager
+        from lightfall.ui.theme import ThemeManager
 
         tm = ThemeManager.get_instance()
         return colors_from_theme(tm.colors, tm.is_dark)

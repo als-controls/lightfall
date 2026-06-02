@@ -5,7 +5,7 @@ A library of PySide6 widgets for interacting with EPICS control system PV channe
 Uses caproto for Channel Access communication.
 """
 
-from lucid.epics.widgets import (
+from lightfall.epics.widgets import (
     EpicsWidget,
     PVAutoWidget,
     PVCheckBox,

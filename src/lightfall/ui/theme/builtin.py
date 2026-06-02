@@ -13,7 +13,7 @@ This module contains the default themes that ship with NCS:
 
 from __future__ import annotations
 
-from lucid.plugins.theme_plugin import ThemeDefinition, ThemePlugin
+from lightfall.plugins.theme_plugin import ThemeDefinition, ThemePlugin
 
 
 class LightThemePlugin(ThemePlugin):

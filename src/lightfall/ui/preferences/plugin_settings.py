@@ -18,16 +18,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.core.services import ServiceRegistry
-from lucid.plugins.registry import PluginRegistry
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.core.services import ServiceRegistry
+from lightfall.plugins.registry import PluginRegistry
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-    from lucid.plugins.info import PluginInfo
+    from lightfall.plugins.info import PluginInfo
 
 
 class PluginTableModel(QAbstractTableModel):

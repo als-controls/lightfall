@@ -18,13 +18,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook import DeviceActionLogger
-from lucid.ui.widgets.base_control import BaseControlWidget
-from lucid.ui.widgets.controller_matcher import ControllerMatch, ControllerMatcher
-from lucid.utils.logging import logger
+from lightfall.logbook import DeviceActionLogger
+from lightfall.ui.widgets.base_control import BaseControlWidget
+from lightfall.ui.widgets.controller_matcher import ControllerMatch, ControllerMatcher
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.models.device_tree import DeviceTreeItem
+    from lightfall.ui.models.device_tree import DeviceTreeItem
 
 
 class NoSelectionWidget(QWidget):

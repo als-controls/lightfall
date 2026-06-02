@@ -11,8 +11,8 @@ from typing import Any
 
 import nats
 
-from lucid.exporter.converters import CONVERTERS, get_converter
-from lucid.exporter.tiled_utils import connect_tiled, get_run
+from lightfall.exporter.converters import CONVERTERS, get_converter
+from lightfall.exporter.tiled_utils import connect_tiled, get_run
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +38,11 @@ class ExporterService:
     """Headless exporter that subscribes to NATS and processes export jobs.
 
     Subscribes to:
-        - ``lucid.export.<hostname>`` — job requests (request/reply)
-        - ``lucid.export.<hostname>.ping`` — health check (request/reply)
+        - ``lightfall.export.<hostname>`` — job requests (request/reply)
+        - ``lightfall.export.<hostname>.ping`` — health check (request/reply)
 
     Publishes to:
-        - ``lucid.export.<hostname>.progress`` — job progress events
+        - ``lightfall.export.<hostname>.progress`` — job progress events
     """
 
     def __init__(self, nats_url: str, hostname: str) -> None:
@@ -54,15 +54,15 @@ class ExporterService:
 
     @property
     def job_subject(self) -> str:
-        return f"lucid.export.{self._hostname}"
+        return f"lightfall.export.{self._hostname}"
 
     @property
     def ping_subject(self) -> str:
-        return f"lucid.export.{self._hostname}.ping"
+        return f"lightfall.export.{self._hostname}.ping"
 
     @property
     def progress_subject(self) -> str:
-        return f"lucid.export.{self._hostname}.progress"
+        return f"lightfall.export.{self._hostname}.progress"
 
     def _parse_job(self, data: dict[str, Any]) -> ExportJob:
         """Parse and validate a job message. Raises on invalid data."""

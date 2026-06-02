@@ -25,9 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -583,7 +583,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             # Use proxy settings if configured
             client_kwargs: dict = {"timeout": 10.0}
             try:
-                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
                 proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
                 if proxy_url:
                     client_kwargs["proxy"] = proxy_url

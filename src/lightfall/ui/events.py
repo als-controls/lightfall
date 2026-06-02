@@ -6,7 +6,7 @@ communication between panels without direct signal connections.
 Usage:
     # Post an event to a specific widget
     from PySide6.QtCore import QCoreApplication
-    from lucid.ui.events import DeviceFocusEvent
+    from lightfall.ui.events import DeviceFocusEvent
 
     event = DeviceFocusEvent(device_id="motor1")
     QCoreApplication.postEvent(target_widget, event)

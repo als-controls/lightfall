@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans import PlanInfo, PlanRegistry
+    from lightfall.acquire.plans import PlanInfo, PlanRegistry
 
 
 def create_plan_icon(color: str, letter: str, size: int = 16) -> QIcon:
@@ -219,7 +219,7 @@ class PlanSelectorWidget(QWidget):
         plan_selected(PlanInfo): Emitted when user selects a plan.
 
     Example:
-        >>> from lucid.acquire.plans import get_registry
+        >>> from lightfall.acquire.plans import get_registry
         >>> registry = get_registry()
         >>> selector = PlanSelectorWidget()
         >>> selector.set_registry(registry)
@@ -305,7 +305,7 @@ class PlanSelectorWidget(QWidget):
 
         # Connect to user plan service for live updates
         try:
-            from lucid.acquire.plans import UserPlanService
+            from lightfall.acquire.plans import UserPlanService
 
             service = UserPlanService.get_instance()
             service.plans_refreshed.connect(self._reload_plans)

@@ -21,7 +21,7 @@ import urllib.parse
 from enum import Enum
 from pathlib import Path
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 # Platform detection
 IS_WINDOWS = sys.platform == "win32"

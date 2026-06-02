@@ -13,7 +13,7 @@ from typing import Any
 
 from PySide6.QtCore import QMetaObject, QObject, Qt, QTimer, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 __all__ = ["WaitingHookBridge"]
 

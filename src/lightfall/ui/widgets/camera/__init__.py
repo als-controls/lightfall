@@ -12,7 +12,7 @@ Widget Hierarchy:
         PlanBasedCameraControlWidget: Uses Bluesky plans for acquisition
 
 Device-specific camera widgets (Andor, PIMTE, etc.) are provided by
-endstation plugin packages (e.g., lucid-endstation-7011).
+endstation plugin packages (e.g., lightfall-endstation-7011).
 
 Mixins:
     TVModeMixin: Adds TV mode (continuous streaming) support
@@ -22,10 +22,10 @@ Panels:
     TemperaturePanel: Temperature display for PIMTE-style cameras
 """
 
-from lucid.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
-from lucid.ui.widgets.camera.image_view import OphydImageView
-from lucid.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
+from lightfall.ui.widgets.camera.base import CameraControlWidget, TVModeMixin
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.camera.plan_based import PlanBasedCameraControlWidget
 
 __all__ = [
     "CameraControlWidget",

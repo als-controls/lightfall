@@ -10,10 +10,10 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.run_end import RunEndTrigger
-from lucid.acquire.triggers.run_start import RunStartTrigger
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.run_end import RunEndTrigger
+from lightfall.acquire.triggers.run_start import RunStartTrigger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 _COLUMNS = ["type", "filter", "pipeline", "parameter_overrides"]
@@ -85,7 +85,7 @@ class PipelineTriggersPanel(QWidget):
         self._specs.append(spec)
 
     def _open_add_dialog(self) -> None:
-        from lucid.ui.dialogs.add_trigger_dialog import AddTriggerDialog
+        from lightfall.ui.dialogs.add_trigger_dialog import AddTriggerDialog
 
         dialog = AddTriggerDialog(parent=self)
         if dialog.exec() != QDialog.Accepted:
@@ -128,7 +128,7 @@ class PipelineTriggersDockPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.pipeline_triggers",
+        id="lightfall.panels.pipeline_triggers",
         name="Pipeline Triggers",
         description="Manage automatic pipeline submissions on engine events",
         icon="zap",
@@ -143,9 +143,9 @@ class PipelineTriggersDockPanel(BasePanel):
     )
 
     def _setup_ui(self) -> None:
-        from lucid.acquire.triggers.manager import TriggerManager
-        from lucid.core.services import ServiceRegistry
-        from lucid.ui.preferences import PreferencesManager
+        from lightfall.acquire.triggers.manager import TriggerManager
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.ui.preferences import PreferencesManager
 
         services = ServiceRegistry.get_instance()
         manager = services.get(TriggerManager, None)

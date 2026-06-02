@@ -43,10 +43,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.mainwindow import NCSMainWindow
+    from lightfall.ui.mainwindow import NCSMainWindow
 
 
 class CalloutPosition(Enum):
@@ -181,7 +181,7 @@ class TutorialCallout(QFrame):
 
     def _setup_style(self) -> None:
         """Apply theme-aware styling."""
-        from lucid.ui.theme import ThemeManager
+        from lightfall.ui.theme import ThemeManager
 
         tm = ThemeManager.get_instance()
         c = tm.colors
@@ -874,9 +874,9 @@ def _build_welcome_tutorial() -> Tutorial:
         window = _find_main_window()
         if window is None or window._docking_manager is None:
             return
-        window._docking_manager.show_panel("lucid.panels.claude")
+        window._docking_manager.show_panel("lightfall.panels.claude")
 
-        dock = window._docking_manager.get_dock_widget("lucid.panels.claude")
+        dock = window._docking_manager.get_dock_widget("lightfall.panels.claude")
         panel = dock.widget() if dock is not None else None
         claude_widget = getattr(panel, "_claude_widget", None)
         input_field = getattr(claude_widget, "input_field", None)
@@ -966,7 +966,7 @@ def _build_welcome_tutorial() -> Tutorial:
             ),
             # ── Individual panel icons ─────────────────────────────
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.logbook_entries"),
+                target=_find_sidebar_button("lightfall.panels.logbook_entries"),
                 title="Logbook Entries",
                 message=(
                     "The logbook is where you record experiment notes, "
@@ -978,7 +978,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Logbook Entries sidebar button",
             ),
             TutorialStep(
-                target=_find_panel_dock("lucid.panels.logbook"),
+                target=_find_panel_dock("lightfall.panels.logbook"),
                 title="Logbook Panel",
                 message=(
                     "The Logbook panel shows your current project notebook. "
@@ -986,11 +986,11 @@ def _build_welcome_tutorial() -> Tutorial:
                     "record of your experiment session."
                 ),
                 position=CalloutPosition.AUTO,
-                on_enter=_open_panel("lucid.panels.logbook"),
+                on_enter=_open_panel("lightfall.panels.logbook"),
                 target_description="Logbook dock widget",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.bluesky"),
+                target=_find_sidebar_button("lightfall.panels.bluesky"),
                 title="Bluesky Plans",
                 message=(
                     "The Bluesky panel is your primary scan interface. "
@@ -1002,7 +1002,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Bluesky sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.tiled_browser"),
+                target=_find_sidebar_button("lightfall.panels.tiled_browser"),
                 title="Data Browser (Tiled)",
                 message=(
                     "Browse and search past experiment data stored in "
@@ -1014,7 +1014,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Tiled Browser sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.devices"),
+                target=_find_sidebar_button("lightfall.panels.devices"),
                 title="Devices",
                 message=(
                     "View and control all beamline devices: motors, "
@@ -1026,7 +1026,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Devices sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.claude"),
+                target=_find_sidebar_button("lightfall.panels.claude"),
                 title="Claude Assistant",
                 message=(
                     "An AI assistant that understands your beamline. "
@@ -1038,7 +1038,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Claude sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.visualization"),
+                target=_find_sidebar_button("lightfall.panels.visualization"),
                 title="Visualization",
                 message=(
                     "Live and post-hoc data visualization. Plots update "
@@ -1050,7 +1050,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Visualization sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lucid.panels.synoptic"),
+                target=_find_sidebar_button("lightfall.panels.synoptic"),
                 title="Synoptic",
                 message=(
                     "A 2D schematic view of the beamline hardware layout. "
@@ -1063,7 +1063,7 @@ def _build_welcome_tutorial() -> Tutorial:
             ),
             # ── Outro: try Claude with a real prompt ──────────────
             TutorialStep(
-                target=_find_panel_dock("lucid.panels.claude"),
+                target=_find_panel_dock("lightfall.panels.claude"),
                 title="Try the Claude Assistant",
                 message=(
                     "That covers the basics! To get you started, the "

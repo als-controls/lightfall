@@ -1,4 +1,4 @@
-"""User-portable preference backend (lucid-logbook via UserSettingsClient).
+"""User-portable preference backend (lightfall-logbook via UserSettingsClient).
 
 Owns the set of keys whose canonical store is the user's logbook
 account (so they follow the user across machines). All I/O is async:
@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.ui.preferences.backend import PreferenceBackend
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.ui.preferences.backend import PreferenceBackend
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 USER_PORTABLE_KEYS: frozenset[str] = frozenset({

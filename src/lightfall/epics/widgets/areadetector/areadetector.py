@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.areadetector.controls import PVAreaDetectorControls
-from lucid.epics.widgets.areadetector.image_view import PVImageView
+from lightfall.epics.widgets.areadetector.controls import PVAreaDetectorControls
+from lightfall.epics.widgets.areadetector.image_view import PVImageView
 
 
 class PVAreaDetector(QWidget):
@@ -141,7 +141,7 @@ class PVAreaDetector(QWidget):
             image_suffix=self._image_suffix,
             max_fps=self._max_fps,
         )
-        from lucid.ui.theater import TheaterProxy
+        from lightfall.ui.theater import TheaterProxy
         self._image_proxy = TheaterProxy(self._image_view)
         splitter.addWidget(self._image_proxy)
 

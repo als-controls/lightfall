@@ -21,7 +21,7 @@ from urllib.parse import urljoin
 import httpx
 
 
-_CACHE_PATH = Path.home() / ".cache" / "lucid-pipelines" / "integration-key.json"
+_CACHE_PATH = Path.home() / ".cache" / "lightfall-pipelines" / "integration-key.json"
 _RENEW_BUFFER = timedelta(days=1)
 
 

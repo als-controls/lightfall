@@ -21,10 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.base_visualization import BaseVisualization
-from lucid.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
-from lucid.visualization.widgets.lazy_image_view import LazyImageView
-from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
+from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
+from lightfall.visualization.widgets.lazy_image_view import LazyImageView
+from lightfall.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 
 class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):

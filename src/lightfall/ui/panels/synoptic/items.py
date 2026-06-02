@@ -12,7 +12,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 
-from lucid.ui.panels.synoptic.models import (
+from lightfall.ui.panels.synoptic.models import (
     BeamPathSegment,
     DeviceSynopticData,
     PrimitiveShape,

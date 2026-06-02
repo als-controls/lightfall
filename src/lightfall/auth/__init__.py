@@ -7,17 +7,17 @@ This package provides:
 - Authentication provider abstraction
 """
 
-from lucid.auth.service_key import (
+from lightfall.auth.service_key import (
     MintedKey,
     mint_service_key,
     revoke_service_key,
 )
-from lucid.auth.policy import (
+from lightfall.auth.policy import (
     Permission,
     PolicyEngine,
     Role,
 )
-from lucid.auth.session import (
+from lightfall.auth.session import (
     AuthState,
     Session,
     SessionManager,

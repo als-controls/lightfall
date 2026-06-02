@@ -20,8 +20,8 @@ from uuid import UUID
 
 from loguru import logger
 
-from lucid.devices.base import DeviceBackend
-from lucid.devices.model import (
+from lightfall.devices.base import DeviceBackend
+from lightfall.devices.model import (
     ConnectionType,
     DeviceCategory,
     DeviceConfiguration,
@@ -228,7 +228,7 @@ class HappiBackend(DeviceBackend):
         try:
             import happi
         except ImportError:
-            logger.error("happi package not installed. Install with: pip install lucid[happi]")
+            logger.error("happi package not installed. Install with: pip install lightfall[happi]")
             return False
 
         try:
@@ -241,7 +241,7 @@ class HappiBackend(DeviceBackend):
                     logger.info("Created new happi JSON database at {}", self._path)
                     # Toast notification (fire-and-forget)
                     try:
-                        from lucid.core.app import LucidApp
+                        from lightfall.core.app import LucidApp
                         app = LucidApp.instance()
                         if app and hasattr(app, "show_notification"):
                             app.show_notification(
@@ -304,7 +304,7 @@ class HappiBackend(DeviceBackend):
         """Start background connections for all devices with pending happi results."""
         import importlib
 
-        from lucid.devices.connection_manager import DeviceConnectionManager
+        from lightfall.devices.connection_manager import DeviceConnectionManager
 
         manager = DeviceConnectionManager.get_instance()
 
@@ -350,7 +350,7 @@ class HappiBackend(DeviceBackend):
 
     def _on_device_connected(self, result: Any) -> None:
         """Handle successful device connection from ConnectionManager."""
-        from lucid.devices.connection_manager import ConnectionResult
+        from lightfall.devices.connection_manager import ConnectionResult
 
         if not isinstance(result, ConnectionResult):
             return
@@ -379,7 +379,7 @@ class HappiBackend(DeviceBackend):
 
     def _on_device_failed(self, result: Any) -> None:
         """Handle failed device connection from ConnectionManager."""
-        from lucid.devices.connection_manager import ConnectionResult, ConnectionState
+        from lightfall.devices.connection_manager import ConnectionResult, ConnectionState
 
         if not isinstance(result, ConnectionResult):
             return

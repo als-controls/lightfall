@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 def resolve_panel_icon(icon_name: str, size: int = 19) -> QIcon:
@@ -46,7 +46,7 @@ def resolve_panel_icon(icon_name: str, size: int = 19) -> QIcon:
 
     # Get theme color for icon
     try:
-        from lucid.ui.theme import ThemeManager
+        from lightfall.ui.theme import ThemeManager
         theme_mgr = ThemeManager.get_instance()
         icon_color = theme_mgr.colors.text
     except Exception:
@@ -116,7 +116,7 @@ class PanelTitleBar(QFrame):
             self._close_btn.setCursor(Qt.CursorShape.ArrowCursor)
             self._close_btn.clicked.connect(self.close_requested.emit)
             try:
-                from lucid.ui.theme import ThemeManager
+                from lightfall.ui.theme import ThemeManager
                 theme_mgr = ThemeManager.get_instance()
                 icon_color = theme_mgr.colors.text_secondary
             except Exception:

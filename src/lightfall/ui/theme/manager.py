@@ -18,10 +18,10 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.theme_plugin import ThemeDefinition, ThemePlugin
+    from lightfall.plugins.theme_plugin import ThemeDefinition, ThemePlugin
 
 
 class Theme(Enum):
@@ -370,7 +370,7 @@ class ThemeManager(QObject):
 
         # Get themes from registry
         try:
-            from lucid.ui.theme.registry import ThemeRegistry
+            from lightfall.ui.theme.registry import ThemeRegistry
 
             registry = ThemeRegistry.get_instance()
             for plugin in registry.get_all():
@@ -402,7 +402,7 @@ class ThemeManager(QObject):
         self._css_overrides = ""
 
         try:
-            from lucid.ui.theme.registry import ThemeRegistry
+            from lightfall.ui.theme.registry import ThemeRegistry
 
             registry = ThemeRegistry.get_instance()
             plugin = registry.get(self._effective_theme_name)
@@ -440,7 +440,7 @@ class ThemeManager(QObject):
 
         # Try to get appropriate theme from registry
         try:
-            from lucid.ui.theme.registry import ThemeRegistry
+            from lightfall.ui.theme.registry import ThemeRegistry
 
             registry = ThemeRegistry.get_instance()
             plugin = registry.get_theme_for_system(is_dark)
@@ -811,7 +811,7 @@ QHeaderView::section {{
 
         # Append docking stylesheet if available
         try:
-            from lucid.ui.docking.theme import generate_docking_stylesheet
+            from lightfall.ui.docking.theme import generate_docking_stylesheet
             base_stylesheet += f"\n{generate_docking_stylesheet(c)}"
         except ImportError:
             pass

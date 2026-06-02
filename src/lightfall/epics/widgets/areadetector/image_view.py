@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.style import (
+from lightfall.epics.widgets.style import (
     get_disconnected_color,
     get_success_color,
 )
@@ -244,7 +244,7 @@ class PVImageView(QWidget):
         if not self._image_prefix:
             return
 
-        from lucid.epics.ca.pv import PV
+        from lightfall.epics.ca.pv import PV
 
         pv_fields = {
             "ArrayData": "array_data",

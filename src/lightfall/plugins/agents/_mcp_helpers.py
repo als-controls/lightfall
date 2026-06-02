@@ -5,7 +5,7 @@ format with a 'content' array containing typed content blocks. These helpers
 ensure consistent formatting across all tool implementations.
 
 Example usage:
-    from lucid.plugins.agents._mcp_helpers import mcp_result, mcp_error
+    from lightfall.plugins.agents._mcp_helpers import mcp_result, mcp_error
 
     async def my_tool(args: dict) -> dict:
         if error_condition:

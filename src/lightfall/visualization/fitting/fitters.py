@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from lucid.visualization.fitting.base import BaseFitter
+from lightfall.visualization.fitting.base import BaseFitter
 
 
 class LinearFitter(BaseFitter):

@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.models.device_tree import DeviceTreeItem
+    from lightfall.ui.models.device_tree import DeviceTreeItem
 
 
 class BaseControlWidget(QWidget):

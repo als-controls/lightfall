@@ -32,8 +32,8 @@ class _StubSession:
 def _reset_prefs(monkeypatch):
     """Patch UserSettingsClient.get_instance() and set up a real
     PreferencesManager backed by a mock ConfigManager."""
-    from lucid.settings import user_settings_client as usc_mod
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.settings import user_settings_client as usc_mod
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_client = MagicMock()
     fake_client.set.return_value = None
@@ -59,7 +59,7 @@ def _reset_prefs(monkeypatch):
 @pytest.fixture
 def stub_session(monkeypatch):
     """Patch SessionManager.get_instance() to return a stub session."""
-    from lucid.auth import session as session_mod
+    from lightfall.auth import session as session_mod
 
     sm = MagicMock()
     sm.session = _StubSession()
@@ -70,7 +70,7 @@ def stub_session(monkeypatch):
 
 
 def test_plugin_metadata():
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -82,7 +82,7 @@ def test_plugin_metadata():
 
 
 def test_create_widget_shows_identity_labels(qtbot, stub_session):
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -100,7 +100,7 @@ def test_create_widget_shows_identity_labels(qtbot, stub_session):
 
 
 def test_orcid_row_hidden_when_absent(qtbot, stub_session):
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -113,7 +113,7 @@ def test_orcid_row_hidden_when_absent(qtbot, stub_session):
 
 
 def test_orcid_row_shown_when_present(qtbot, monkeypatch):
-    from lucid.auth import session as session_mod
+    from lightfall.auth import session as session_mod
     user = _StubUser(attributes={"orcid": "0000-0001-2345-6789"})
     sm = MagicMock()
     sm.session = _StubSession(user=user)
@@ -121,7 +121,7 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
         session_mod.SessionManager, "get_instance", classmethod(lambda cls: sm)
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -136,7 +136,7 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
 def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session):
     """When no profile_image_id is in prefs, load_settings leaves placeholder."""
     # _reset_prefs leaves the cache empty → get("profile_image_id") returns None
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -156,8 +156,8 @@ def test_load_settings_with_image_fetches_bytes(
     image_bytes = _png_bytes_1x1_red()
     fake_client.download_image.return_value = (image_bytes, "image/png")
 
-    from lucid.ui.preferences.manager import PreferencesManager
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -202,7 +202,7 @@ def test_choose_image_happy_path(
         staticmethod(lambda *a, **kw: (str(png_path), "Images (*.png *.jpg *.gif)")),
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -237,7 +237,7 @@ def test_choose_image_rejects_too_large(
         staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -267,7 +267,7 @@ def test_choose_image_rejects_unknown_mime(
         staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -280,8 +280,8 @@ def test_choose_image_rejects_unknown_mime(
 def test_remove_image_clears_setting(qtbot, stub_session):
     """Clicking Remove routes through PreferencesManager.remove; the
     subscription callback clears _loaded_image_id."""
-    from lucid.ui.preferences.manager import PreferencesManager
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 

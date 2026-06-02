@@ -11,8 +11,8 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QWidget
 
-from lucid.epics.widgets.base import EpicsWidget
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.base import EpicsWidget
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class PVLineEdit(EpicsWidget):

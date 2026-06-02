@@ -1,8 +1,8 @@
 """Tests for the ncs_get_beam_status MCP tool helper."""
 from __future__ import annotations
 
-import lucid.plugins.agents.engine_tools as et
-from lucid.services import als_beam_status
+import lightfall.plugins.agents.engine_tools as et
+from lightfall.services import als_beam_status
 
 
 class _FakeService:

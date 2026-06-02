@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LucidDialog
 
 if TYPE_CHECKING:
     pass
@@ -52,7 +52,7 @@ class CreatePlanDialog(LucidDialog):
             parent: Parent widget.
         """
         super().__init__(parent)
-        self._plans_dir = Path.home() / "lucid" / "plans"
+        self._plans_dir = Path.home() / "lightfall" / "plans"
         self._setup_ui()
         self._connect_signals()
 

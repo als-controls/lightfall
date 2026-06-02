@@ -5,7 +5,7 @@ the Tiled-shape /api/v1/auth/apikey endpoint contract documented in the auth-v2
 spec. Used by SessionManager at login to obtain a per-(user, service) API key
 that outlives the Keycloak access token.
 
-Every service implementing the contract (als-tiled today, lucid-logbook next)
+Every service implementing the contract (als-tiled today, lightfall-logbook next)
 accepts the same request shape and returns the same response shape.
 """
 from __future__ import annotations
@@ -77,7 +77,7 @@ def mint_service_key(
     # preferences subsystem loaded.
     proxy: str | None = None
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
     except Exception:
         proxy = None
@@ -152,7 +152,7 @@ def revoke_service_key(
     url = service_url.rstrip("/") + "/auth/apikey"
     proxy: str | None = None
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
         proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
     except Exception:
         proxy = None

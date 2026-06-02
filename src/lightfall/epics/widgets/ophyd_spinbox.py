@@ -1,4 +1,4 @@
-# src/lucid/epics/widgets/ophyd_spinbox.py
+# src/lightfall/epics/widgets/ophyd_spinbox.py
 """OphydSpinBox — numeric spin box for ophyd signal values."""
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QWidget
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class OphydSpinBox(OphydWidget):

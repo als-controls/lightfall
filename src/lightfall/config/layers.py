@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class ConfigPriority(IntEnum):

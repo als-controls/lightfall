@@ -24,19 +24,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.auth.session import AuthState, SessionManager
-from lucid.ui.docking import DockingManager
-from lucid.ui.panels.base import BasePanel
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.preferences import PreferencesDialog, PreferencesManager
-from lucid.ui.statusbar import StatusBarManager
-from lucid.ui.theme import Theme, ThemeManager
-from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-from lucid.ui.widgets.runengine_control import RunEngineControlWidget
-from lucid.utils.logging import logger
+from lightfall.auth.session import AuthState, SessionManager
+from lightfall.ui.docking import DockingManager
+from lightfall.ui.panels.base import BasePanel
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.ui.preferences import PreferencesDialog, PreferencesManager
+from lightfall.ui.statusbar import StatusBarManager
+from lightfall.ui.theme import Theme, ThemeManager
+from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+from lightfall.ui.widgets.runengine_control import RunEngineControlWidget
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.config import ConfigManager
+    from lightfall.config import ConfigManager
 
 
 class NCSMainWindow(QMainWindow):
@@ -246,7 +246,7 @@ class NCSMainWindow(QMainWindow):
         self._docking_manager.initialize()
 
         # Register with service registry so other components can access it
-        from lucid.core.services import ServiceRegistry
+        from lightfall.core.services import ServiceRegistry
         ServiceRegistry.get_instance().register_instance(
             DockingManager, self._docking_manager, replace=True,
         )
@@ -575,9 +575,9 @@ class NCSMainWindow(QMainWindow):
         # Push the same theme into pyqtgraph: globals (background, foreground,
         # axis/tick/grid colors) via setConfigOption, and live themed items
         # (PlotDataItem / ScatterPlotItem / InfiniteLine from
-        # lucid.visualization.pg) via the wrapper's retheme_all().
-        from lucid.visualization import pg as themed_pg
-        from lucid.visualization.theme import apply_pyqtgraph_theme
+        # lightfall.visualization.pg) via the wrapper's retheme_all().
+        from lightfall.visualization import pg as themed_pg
+        from lightfall.visualization.theme import apply_pyqtgraph_theme
 
         apply_pyqtgraph_theme(is_dark=self._theme_manager.is_dark)
         themed_pg.retheme_all()
@@ -666,7 +666,7 @@ class NCSMainWindow(QMainWindow):
         """
         from datetime import datetime
 
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         # Check if user has expiry info
         if not hasattr(user, "expires_at") or user.expires_at is None:
@@ -732,7 +732,7 @@ class NCSMainWindow(QMainWindow):
 
         self._prefs_manager.set("tutorial_welcome_suggested", True)
 
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         toast_manager = ToastManager.get_instance()
         toast_manager.info(
@@ -788,26 +788,26 @@ class NCSMainWindow(QMainWindow):
 
     def _on_welcome_tutorial(self) -> None:
         """Start the welcome tutorial."""
-        from lucid.ui.tutorial import TutorialManager
+        from lightfall.ui.tutorial import TutorialManager
 
         manager = TutorialManager.get_instance()
         manager.start("welcome", self)
 
     def _on_about(self) -> None:
         """Show about dialog."""
-        from lucid.ui.dialogs import show_about_dialog
+        from lightfall.ui.dialogs import show_about_dialog
 
         show_about_dialog(self)
 
     def _on_report_bug(self) -> None:
         """Show bug report dialog."""
-        from lucid.ui.dialogs import report_bug
+        from lightfall.ui.dialogs import report_bug
 
         report_bug(self)
 
     def _on_login(self) -> None:
         """Show login dialog."""
-        from lucid.ui.dialogs import LoginDialog
+        from lightfall.ui.dialogs import LoginDialog
 
         dialog = LoginDialog(self)
         dialog.exec()
@@ -830,7 +830,7 @@ class NCSMainWindow(QMainWindow):
                 return
 
         import asyncio
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         def do_logout() -> None:
             asyncio.run(self._session_manager.logout())
@@ -845,7 +845,7 @@ class NCSMainWindow(QMainWindow):
         barrier.
         """
         try:
-            from lucid.acquire.engine import EngineState, get_engine
+            from lightfall.acquire.engine import EngineState, get_engine
             engine = get_engine()
             return engine is not None and engine.state in (
                 EngineState.RUNNING, EngineState.PAUSED,
@@ -859,7 +859,7 @@ class NCSMainWindow(QMainWindow):
         Args:
             user: The current User object.
         """
-        from lucid.auth.session import ANONYMOUS_USER
+        from lightfall.auth.session import ANONYMOUS_USER
 
         is_authenticated = user.username != ANONYMOUS_USER.username
 

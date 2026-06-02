@@ -19,7 +19,7 @@ from loguru import logger
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 _ITER_RE = re.compile(r"^iter_\d{3}$")
 _STALE_POLL_LIMIT = 3

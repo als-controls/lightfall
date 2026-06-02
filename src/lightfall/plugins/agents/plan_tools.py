@@ -1,7 +1,7 @@
 """MCP tools for user plan management.
 
 Provides tools for Claude to create and manage user-defined Bluesky plans.
-Plans are saved to ~/lucid/plans/ and automatically loaded by the UserPlanService.
+Plans are saved to ~/lightfall/plans/ and automatically loaded by the UserPlanService.
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ import inspect
 import re
 from typing import Any, Union
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.utils.git_tracker import GitTracker
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.utils.git_tracker import GitTracker
+from lightfall.utils.logging import logger
 
 
 class PlanToolsAgent(AgentPlugin):
@@ -40,7 +40,7 @@ class PlanToolsAgent(AgentPlugin):
 
     def _get_catalog(self):
         """Get the device catalog instance."""
-        from lucid.devices import DeviceCatalog
+        from lightfall.devices import DeviceCatalog
 
         return DeviceCatalog.get_instance()
 
@@ -279,14 +279,14 @@ A valid LUCID plan file must:
 ## Type Hints for UI Generation
 
 LUCID auto-generates parameter UI from type hints. Use `typing.Annotated` with
-annotations from `lucid.ui.annotations` for proper device selection widgets.
+annotations from `lightfall.ui.annotations` for proper device selection widgets.
 
 ### Required imports:
 ```python
 from __future__ import annotations
 from typing import Annotated, Any, Generator
 import bluesky.plans as bp
-from lucid.ui.annotations import DeviceFilter, DeviceDefault, Unit, Decimals, Range
+from lightfall.ui.annotations import DeviceFilter, DeviceDefault, Unit, Decimals, Range
 ```
 
 ### Device Parameters (IMPORTANT for device selection UI):
@@ -325,7 +325,7 @@ exposure: Annotated[float, Unit("s"), Range(min=0.001, max=60.0)] = 1.0
 from __future__ import annotations
 from typing import Annotated, Any, Generator
 import bluesky.plans as bp
-from lucid.ui.annotations import DeviceFilter, DeviceDefault, Unit, Range
+from lightfall.ui.annotations import DeviceFilter, DeviceDefault, Unit, Range
 
 def plan(
     detectors: Annotated[list[Any], DeviceFilter(category="detector")],
@@ -355,7 +355,7 @@ def plan(
                             motor_x, x_start, x_stop, num_x)
 ```
 
-Plans are saved to ~/lucid/plans/ and immediately available in the Plan Runner.""",
+Plans are saved to ~/lightfall/plans/ and immediately available in the Plan Runner.""",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -382,7 +382,7 @@ Plans are saved to ~/lucid/plans/ and immediately available in the Plan Runner."
         )
         async def create_user_plan(args: dict) -> dict[str, Any]:
             """Create a user plan from Python code."""
-            from lucid.acquire.plans.user_plans import UserPlanService
+            from lightfall.acquire.plans.user_plans import UserPlanService
 
             name = args["name"]
             code = args["code"]
@@ -483,7 +483,7 @@ Optionally filter by category (e.g., "scan", "count", "alignment", "user").""",
             """List all registered plans."""
             import json
 
-            from lucid.acquire.plans.registry import get_registry
+            from lightfall.acquire.plans.registry import get_registry
 
             registry = get_registry()
             category = args.get("category")
@@ -551,8 +551,8 @@ Example:
             """Run a registered plan by name."""
             import json
 
-            from lucid.acquire.engine import get_engine
-            from lucid.acquire.plans.registry import get_registry
+            from lightfall.acquire.engine import get_engine
+            from lightfall.acquire.plans.registry import get_registry
 
             plan_name = args["plan_name"]
             params = args.get("params", {})
@@ -660,7 +660,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
             import json
             import textwrap
 
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
 
             code = args["code"]
             description = args.get("description", "ad-hoc plan")
@@ -789,8 +789,8 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
         )
         async def get_user_plan(args: dict) -> dict[str, Any]:
             """Read source code of a user plan."""
-            from lucid.acquire.plans.user_plans import UserPlanService
-            from lucid.plugins.agents._mcp_helpers import mcp_result
+            from lightfall.acquire.plans.user_plans import UserPlanService
+            from lightfall.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
 
@@ -835,8 +835,8 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
         )
         async def delete_user_plan(args: dict) -> dict[str, Any]:
             """Delete a user plan."""
-            from lucid.acquire.plans.user_plans import UserPlanService
-            from lucid.plugins.agents._mcp_helpers import mcp_result
+            from lightfall.acquire.plans.user_plans import UserPlanService
+            from lightfall.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
             confirm = args.get("confirm", False)

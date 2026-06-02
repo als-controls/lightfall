@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from lucid.plugins.settings_plugin import SettingsPlugin
+    from lightfall.plugins.settings_plugin import SettingsPlugin
 
 
 class PreferencesDialog(QDialog):
@@ -106,8 +106,8 @@ class PreferencesDialog(QDialog):
 
     def _load_plugins(self) -> None:
         """Load all settings plugins and create their widgets."""
-        from lucid.core.services import ServiceRegistry
-        from lucid.plugins.registry import PluginRegistry
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.plugins.registry import PluginRegistry
 
         try:
             services = ServiceRegistry.get_instance()

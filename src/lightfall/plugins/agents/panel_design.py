@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class PanelDesignAgent(AgentPlugin):
@@ -73,7 +73,7 @@ Expert at designing Qt panel plugins for LUCID with self-registration.
 - User-plugin auto-registration via `PluginType.__init_subclass__`
 - Qt widgets and layout patterns
 
-Key imports: `from lucid.ui.panels.base import BasePanel, PanelMetadata`
+Key imports: `from lightfall.ui.panels.base import BasePanel, PanelMetadata`
 """
 
     def get_system_prompt(self) -> str:

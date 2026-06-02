@@ -23,12 +23,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from lucid.utils.error_collector import ErrorRecord
+    from lightfall.utils.error_collector import ErrorRecord
 
 
 class BugPriority(Enum):
@@ -176,7 +176,7 @@ class BugReportDialog(LucidDialog):
 
     def _load_recent_errors(self) -> None:
         """Load recent errors into the combo box."""
-        from lucid.utils.error_collector import get_error_collector
+        from lightfall.utils.error_collector import get_error_collector
 
         collector = get_error_collector()
         self._errors = collector.get_recent_errors(max_count=20)
@@ -263,7 +263,7 @@ class BugReportDialog(LucidDialog):
 
         # Submit in background thread
         def do_submit() -> str | None:
-            from lucid.utils.sentry import submit_bug_report
+            from lightfall.utils.sentry import submit_bug_report
 
             return submit_bug_report(
                 description=description,
@@ -292,7 +292,7 @@ class BugReportDialog(LucidDialog):
             self.report_submitted.emit(event_id)
 
             # Show success toast
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             toast = ToastManager.get_instance()
             toast.success(
@@ -304,7 +304,7 @@ class BugReportDialog(LucidDialog):
         else:
             # Submission returned None (Sentry not initialized)
             logger.warning("Bug report submission failed: Sentry not initialized")
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
 
             toast = ToastManager.get_instance()
             toast.error(
@@ -327,7 +327,7 @@ class BugReportDialog(LucidDialog):
 
         logger.error("Bug report submission failed: {}", error)
 
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         toast = ToastManager.get_instance()
         toast.error(

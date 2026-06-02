@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.manager import TriggerManager
 
 
 class _FakeEngine:

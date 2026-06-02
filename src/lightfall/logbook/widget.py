@@ -26,14 +26,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook.converter import MarkdownConverter
-from lucid.logbook.editors.markdown_editor import MarkdownEditor
-from lucid.logbook.editors.richtext_editor import RichTextEditor
-from lucid.logbook.protection import ProtectedRegion, ProtectionManager
-from lucid.logbook.style import LogbookStyles
+from lightfall.logbook.converter import MarkdownConverter
+from lightfall.logbook.editors.markdown_editor import MarkdownEditor
+from lightfall.logbook.editors.richtext_editor import RichTextEditor
+from lightfall.logbook.protection import ProtectedRegion, ProtectionManager
+from lightfall.logbook.style import LogbookStyles
 
 if TYPE_CHECKING:
-    from lucid.logbook.action_logger import ActionGroup
+    from lightfall.logbook.action_logger import ActionGroup
 
 
 class LogbookWidget(QWidget):
@@ -566,7 +566,7 @@ class LogbookWidget(QWidget):
         Args:
             action_group: The ActionGroup to insert.
         """
-        from lucid.logbook.action_logger import DeviceActionLogger
+        from lightfall.logbook.action_logger import DeviceActionLogger
 
         logger_instance = DeviceActionLogger.get_instance()
         markdown = logger_instance.format_group_markdown(action_group)
@@ -605,7 +605,7 @@ class LogbookWidget(QWidget):
         Returns:
             True if the region was found and updated, False otherwise.
         """
-        from lucid.logbook.action_logger import DeviceActionLogger
+        from lightfall.logbook.action_logger import DeviceActionLogger
 
         region = self._protection_manager.get_region(region_id)
         if region is None:
@@ -631,8 +631,8 @@ class LogbookWidget(QWidget):
         Args:
             region_id: The ID of the action group region.
         """
-        from lucid.logbook.action_dialog import ActionGroupDialog
-        from lucid.logbook.action_logger import DeviceActionLogger
+        from lightfall.logbook.action_dialog import ActionGroupDialog
+        from lightfall.logbook.action_logger import DeviceActionLogger
 
         # Get the action group info
         info = self._protection_manager.get_action_group_info(region_id)
@@ -674,7 +674,7 @@ class LogbookWidget(QWidget):
         This closes any active action group to prevent it from being
         extended with future device actions.
         """
-        from lucid.logbook.action_logger import DeviceActionLogger
+        from lightfall.logbook.action_logger import DeviceActionLogger
 
         logger_instance = DeviceActionLogger.get_instance()
         logger_instance.close_current_group()

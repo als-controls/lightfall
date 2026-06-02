@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
-    from lucid.ui.theater.overlay import TheaterOverlay
-    from lucid.ui.theater.proxy import TheaterProxy
+    from lightfall.ui.theater.overlay import TheaterOverlay
+    from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TheaterManager:
@@ -51,7 +51,7 @@ class TheaterManager:
         Finds the widget's parent layout and replaces the widget
         at the same index with a new TheaterProxy.
         """
-        from lucid.ui.theater.proxy import TheaterProxy
+        from lightfall.ui.theater.proxy import TheaterProxy
 
         parent = widget.parentWidget()
         if parent is None:
@@ -101,7 +101,7 @@ class TheaterManager:
     def activate(self, proxy: TheaterProxy) -> None:
         """Expand a proxy's widget onto the overlay."""
         if self._overlay is None:
-            from lucid.ui.theater.overlay import TheaterOverlay
+            from lightfall.ui.theater.overlay import TheaterOverlay
 
             parent = proxy.window()
             self._overlay = TheaterOverlay(parent)

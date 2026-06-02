@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.preferences.ipc_settings import IPCSettingsPlugin
+from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
 
 class TestIPCSettingsPlugin:
@@ -54,7 +54,7 @@ class TestDisplayNameField:
             "ipc_display_name": "CMS Hutch",
         }.get(k, d))
         monkeypatch.setattr(
-            "lucid.ui.preferences.ipc_settings.PreferencesManager.get_instance",
+            "lightfall.ui.preferences.ipc_settings.PreferencesManager.get_instance",
             lambda: mock_prefs,
         )
         plugin.load_settings()
@@ -66,7 +66,7 @@ class TestDisplayNameField:
         plugin._display_name_edit.setText("My Hutch")
         mock_prefs = MagicMock()
         monkeypatch.setattr(
-            "lucid.ui.preferences.ipc_settings.PreferencesManager.get_instance",
+            "lightfall.ui.preferences.ipc_settings.PreferencesManager.get_instance",
             lambda: mock_prefs,
         )
         plugin.save_settings()

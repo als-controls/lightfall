@@ -5,8 +5,8 @@ from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from lucid.ui.theater.overlay import TheaterOverlay
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.overlay import TheaterOverlay
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 def _wait_animation(overlay, qtbot):

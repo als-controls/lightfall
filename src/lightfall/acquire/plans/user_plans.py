@@ -1,6 +1,6 @@
 """Service for loading and managing user-defined Bluesky plans.
 
-User plans are Python files in ~/lucid/plans/ that define a `plan` variable
+User plans are Python files in ~/lightfall/plans/ that define a `plan` variable
 which must be a callable (generator function) that can be run by the RunEngine.
 
 Each file corresponds to one plan. The filename (without .py) becomes the plan name.
@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
-from lucid.utils.git_tracker import GitTracker
+from lightfall.utils.git_tracker import GitTracker
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
 
 # Template for new user plans
 PLAN_TEMPLATE = '''"""{{name}} - Custom Bluesky plan.
@@ -60,7 +60,7 @@ def plan(
 class UserPlanService(QObject):
     """Service for loading and managing user-defined plans.
 
-    User plans are loaded from ~/lucid/plans/ directory. Each .py file
+    User plans are loaded from ~/lightfall/plans/ directory. Each .py file
     in this directory that contains a callable `plan` variable is
     registered with the plan registry under the "user" category.
 
@@ -90,7 +90,7 @@ class UserPlanService(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         """Initialize the user plan service."""
         super().__init__(parent)
-        self._plans_dir = Path.home() / "lucid" / "plans"
+        self._plans_dir = Path.home() / "lightfall" / "plans"
         self._loaded_plans: dict[str, Path] = {}  # name -> file path
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
@@ -138,7 +138,7 @@ class UserPlanService(QObject):
         """Get the user plans directory path.
 
         Returns:
-            Path to ~/lucid/plans/
+            Path to ~/lightfall/plans/
         """
         return self._plans_dir
 
@@ -172,7 +172,7 @@ class UserPlanService(QObject):
         Returns:
             List of (path, PlanInfo or Exception) tuples.
         """
-        from lucid.acquire.plans.registry import PlanRegistry
+        from lightfall.acquire.plans.registry import PlanRegistry
 
         results: list[tuple[Path, PlanInfo | Exception]] = []
 
@@ -235,7 +235,7 @@ class UserPlanService(QObject):
         Returns:
             PlanInfo if successful, None otherwise.
         """
-        from lucid.acquire.plans.registry import PlanInfo, PlanRegistry
+        from lightfall.acquire.plans.registry import PlanInfo, PlanRegistry
 
         registry = PlanRegistry.get_instance()
         result = self._load_plan_from_file(path, registry)
@@ -266,7 +266,7 @@ class UserPlanService(QObject):
         try:
             # Load the module
             spec = importlib.util.spec_from_file_location(
-                f"lucid_user_plans.{plan_name}", path
+                f"lightfall_user_plans.{plan_name}", path
             )
             if spec is None or spec.loader is None:
                 logger.warning("Could not load module spec for: {}", path)
@@ -275,7 +275,7 @@ class UserPlanService(QObject):
             module = importlib.util.module_from_spec(spec)
 
             # Add to sys.modules temporarily for imports to work
-            module_name = f"lucid_user_plans.{plan_name}"
+            module_name = f"lightfall_user_plans.{plan_name}"
             sys.modules[module_name] = module
 
             try:
@@ -330,7 +330,7 @@ class UserPlanService(QObject):
         Returns:
             True if unloaded.
         """
-        from lucid.acquire.plans.registry import PlanRegistry
+        from lightfall.acquire.plans.registry import PlanRegistry
 
         if name not in self._loaded_plans:
             return False
@@ -343,7 +343,7 @@ class UserPlanService(QObject):
             self._watcher.removePath(str(path))
 
         # Remove from sys.modules
-        module_name = f"lucid_user_plans.{name}"
+        module_name = f"lightfall_user_plans.{name}"
         if module_name in sys.modules:
             del sys.modules[module_name]
 

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 class DeviceToolsAgent(AgentPlugin):
@@ -42,13 +42,13 @@ class DeviceToolsAgent(AgentPlugin):
 
     def _get_catalog(self):
         """Get the device catalog instance."""
-        from lucid.devices import DeviceCatalog
+        from lightfall.devices import DeviceCatalog
 
         return DeviceCatalog.get_instance()
 
     def _get_session_manager(self):
         """Get the session manager instance."""
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
 
         return SessionManager.get_instance()
 
@@ -58,7 +58,7 @@ class DeviceToolsAgent(AgentPlugin):
         Returns:
             Tuple of (has_permission, error_message).
         """
-        from lucid.auth.policy import Permission
+        from lightfall.auth.policy import Permission
 
         session = self._get_session_manager()
         if not session.check_permission(Permission.DEVICE_CONTROL):
@@ -113,8 +113,8 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def list_devices(args: dict) -> dict[str, Any]:
             """List devices with optional filtering."""
-            from lucid.claude._internal.threading import run_on_main_thread
-            from lucid.devices.model import DeviceCategory
+            from lightfall.claude._internal.threading import run_on_main_thread
+            from lightfall.devices.model import DeviceCategory
 
             category_str = args.get("category")
             beamline = args.get("beamline")
@@ -206,7 +206,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def get_device(args: dict) -> dict[str, Any]:
             """Get detailed device information."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
 
@@ -295,7 +295,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def read_device(args: dict) -> dict[str, Any]:
             """Read current value/position from a device."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             refresh = args.get("refresh", False)
@@ -404,7 +404,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def get_device_state(args: dict) -> dict[str, Any]:
             """Get device state with status and alarms."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             refresh = args.get("refresh", True)
@@ -488,7 +488,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def set_device(args: dict) -> dict[str, Any]:
             """Set a value on a device."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             value = args["value"]
@@ -602,7 +602,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def move_motor(args: dict) -> dict[str, Any]:
             """Move a motor to a position."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
             position = args["position"]
@@ -769,7 +769,7 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def stop_device(args: dict) -> dict[str, Any]:
             """Stop a device."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             device_name = args["name"]
 
@@ -848,8 +848,8 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def get_catalog_info(args: dict) -> dict[str, Any]:
             """Get device catalog information and API hints."""
-            from lucid.claude._internal.threading import run_on_main_thread
-            from lucid.devices.model import DeviceCategory
+            from lightfall.claude._internal.threading import run_on_main_thread
+            from lightfall.devices.model import DeviceCategory
 
             def _get_info():
                 catalog = self._get_catalog()
@@ -910,8 +910,8 @@ class DeviceToolsAgent(AgentPlugin):
                         "ophyd_device property for actual device control."
                     ),
                     "imports": [
-                        "from lucid.devices import DeviceCatalog",
-                        "from lucid.devices.model import DeviceCategory",
+                        "from lightfall.devices import DeviceCatalog",
+                        "from lightfall.devices.model import DeviceCategory",
                     ],
                     "get_catalog": "catalog = DeviceCatalog.get_instance()",
                     "list_motors": "motors = catalog.list_devices(category=DeviceCategory.MOTOR)",
@@ -961,8 +961,8 @@ class DeviceToolsAgent(AgentPlugin):
         )
         async def manage_device(args: dict) -> dict[str, Any]:
             """Manage device catalog entries."""
-            from lucid.claude._internal.threading import run_on_main_thread
-            from lucid.devices.model import DeviceInfo as DI
+            from lightfall.claude._internal.threading import run_on_main_thread
+            from lightfall.devices.model import DeviceInfo as DI
 
             action = args["action"]
             name = args["name"]

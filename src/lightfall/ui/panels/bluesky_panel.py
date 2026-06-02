@@ -22,20 +22,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.acquire.plan_ui import PlanUI, get_plan_ui_class
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.widgets.plan_config import PlanConfigWidget
-from lucid.ui.widgets.plan_selector import PlanSelectorWidget
-from lucid.utils.crash_diagnostics import gui_thread_only
-from lucid.utils.threads import invoke_in_main_thread, is_main_thread
+from lightfall.acquire.plan_ui import PlanUI, get_plan_ui_class
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.widgets.plan_config import PlanConfigWidget
+from lightfall.ui.widgets.plan_selector import PlanSelectorWidget
+from lightfall.utils.crash_diagnostics import gui_thread_only
+from lightfall.utils.threads import invoke_in_main_thread, is_main_thread
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine import Engine
-    from lucid.acquire.plans import PlanInfo
+    from lightfall.acquire.engine import Engine
+    from lightfall.acquire.plans import PlanInfo
 
-from lucid.acquire import get_engine
-from lucid.acquire.plans import PlanRegistry, get_registry
-from lucid.devices import DeviceCatalog
+from lightfall.acquire import get_engine
+from lightfall.acquire.plans import PlanRegistry, get_registry
+from lightfall.devices import DeviceCatalog
 
 
 @gui_thread_only
@@ -45,7 +45,7 @@ def _show_sample_metadata_dialog() -> dict[str, Any] | None:
     Must run on the GUI thread; ``_sample_metadata_pre_submit`` is the
     public entry point that marshals worker-thread callers safely.
     """
-    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+    from lightfall.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 
     dialog = SampleMetadataDialog()
     if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -107,15 +107,15 @@ class BlueskyPanel(BasePanel):
         plan_finished(str, str): Emitted when a plan finishes (name, exit_status).
 
     Example:
-        >>> from lucid.acquire import get_engine
-        >>> from lucid.acquire.plans import get_registry
+        >>> from lightfall.acquire import get_engine
+        >>> from lightfall.acquire.plans import get_registry
         >>> panel = BlueskyPanel()
         >>> panel.set_engine(get_engine())
         >>> panel.set_registry(get_registry())
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.bluesky",
+        id="lightfall.panels.bluesky",
         name="Bluesky",
         description="Select and execute Bluesky plans",
         icon="play",
@@ -210,8 +210,8 @@ class BlueskyPanel(BasePanel):
     @Slot()
     def _on_create_plan(self) -> None:
         """Handle Create Plan action."""
-        from lucid.ui.dialogs import CreatePlanDialog
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.dialogs import CreatePlanDialog
+        from lightfall.ui.toast import ToastManager
 
         dialog = CreatePlanDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -219,14 +219,14 @@ class BlueskyPanel(BasePanel):
             desc = dialog.get_description()
 
             try:
-                from lucid.acquire.plans import UserPlanService
+                from lightfall.acquire.plans import UserPlanService
 
                 service = UserPlanService.get_instance()
                 file_path = service.create_new_plan(name, desc)
 
                 # Open in external editor
-                from lucid.ui.preferences.manager import PreferencesManager
-                from lucid.utils.editor_launcher import (
+                from lightfall.ui.preferences.manager import PreferencesManager
+                from lightfall.utils.editor_launcher import (
                     CodeEditor,
                     get_editor_from_string,
                     open_in_editor,
@@ -250,10 +250,10 @@ class BlueskyPanel(BasePanel):
     @Slot()
     def _on_refresh_plans(self) -> None:
         """Handle Refresh Plans action."""
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.toast import ToastManager
 
         try:
-            from lucid.acquire.plans import UserPlanService
+            from lightfall.acquire.plans import UserPlanService
 
             service = UserPlanService.get_instance()
             service.refresh_plans()
@@ -266,7 +266,7 @@ class BlueskyPanel(BasePanel):
     def _on_open_plans_folder(self) -> None:
         """Handle Open Folder action."""
         try:
-            from lucid.acquire.plans import UserPlanService
+            from lightfall.acquire.plans import UserPlanService
 
             service = UserPlanService.get_instance()
             service.open_plans_folder()

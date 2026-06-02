@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from lucid.services.tiled_writer_patch import TiledWriter
+from lightfall.services.tiled_writer_patch import TiledWriter
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     pass
@@ -30,7 +30,7 @@ def _load_tiled_url_pref() -> str | None:
     Returns None on any failure (manager uninitialised, ConfigManager
     missing, etc.). Wrapped so it's trivially monkeypatchable in tests.
     """
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     prefs = PreferencesManager.get_instance()
     return prefs.get("tiled_url", None)
 
@@ -53,8 +53,8 @@ class _SettingsAdapter:
 
     @property
     def access_override(self):
-        from lucid.ui.preferences.manager import PreferencesManager
-        from lucid.ui.preferences.tiled_settings import access_override_from_prefs
+        from lightfall.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.tiled_settings import access_override_from_prefs
 
         prefs = PreferencesManager.get_instance()
         return access_override_from_prefs(prefs)
@@ -229,7 +229,7 @@ class TiledService(QObject):
             if self._config.auth_mode == TiledAuthMode.API_KEY and self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
             elif self._config.auth_mode == TiledAuthMode.KEYCLOAK:
-                from lucid.auth.service_key_auth import ServiceKeyAuth
+                from lightfall.auth.service_key_auth import ServiceKeyAuth
 
                 kwargs["auth"] = ServiceKeyAuth("tiled")
                 logger.debug("Using Keycloak authentication for Tiled (sync)")
@@ -294,7 +294,7 @@ class TiledService(QObject):
 
         # For Keycloak auth, check if user is authenticated
         if self._config.auth_mode == TiledAuthMode.KEYCLOAK:
-            from lucid.auth.session import AuthState, SessionManager
+            from lightfall.auth.session import AuthState, SessionManager
 
             session_manager = SessionManager.get_instance()
             if session_manager.state != AuthState.AUTHENTICATED:
@@ -336,7 +336,7 @@ class TiledService(QObject):
             Dict with Authorization header, or empty dict if no key is cached.
         """
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
 
             secret = SessionManager.get_instance().get_api_key("tiled")
             if secret:
@@ -357,7 +357,7 @@ class TiledService(QObject):
             Proxy URL or None.
         """
         try:
-            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
             proxy = ProxySettingsProvider.should_use_proxy_for_url(url)
             logger.info(
@@ -533,7 +533,7 @@ class TiledService(QObject):
         if auth_mode == TiledAuthMode.API_KEY and api_key:
             kwargs["api_key"] = api_key
         elif auth_mode == TiledAuthMode.KEYCLOAK:
-            from lucid.auth.service_key_auth import ServiceKeyAuth
+            from lightfall.auth.service_key_auth import ServiceKeyAuth
 
             kwargs["auth"] = ServiceKeyAuth("tiled")
             logger.debug("Using Keycloak authentication for Tiled")
@@ -592,7 +592,7 @@ class TiledService(QObject):
             # Show a toast hint if the error looks like a SOCKS proxy failure
             if self._is_proxy_connection_error(error):
                 try:
-                    from lucid.ui.toast import ToastManager
+                    from lightfall.ui.toast import ToastManager
 
                     ToastManager.get_instance().warning(
                         "SOCKS proxy not reachable",
@@ -658,7 +658,7 @@ class TiledService(QObject):
 
             kwargs = {}
             if auth_mode == "keycloak":
-                from lucid.auth.service_key_auth import ServiceKeyAuth
+                from lightfall.auth.service_key_auth import ServiceKeyAuth
 
                 # Check that we have a token before attempting
                 headers = self._get_auth_headers()
@@ -695,8 +695,8 @@ class TiledService(QObject):
             return
 
         try:
-            from lucid.acquire import get_engine
-            from lucid.services.threaded_tiled_writer import ThreadedTiledWriter
+            from lightfall.acquire import get_engine
+            from lightfall.services.threaded_tiled_writer import ThreadedTiledWriter
 
             engine = get_engine()
 
@@ -712,12 +712,12 @@ class TiledService(QObject):
 
             # Install AccessStamper if beamline + alshub prefs are configured
             try:
-                from lucid.auth.session import SessionManager
-                from lucid.services._alshub_client import AlshubClient
-                from lucid.services.access_stamper import AccessStamper, install_into_run_engine
-                from lucid.ui.preferences.manager import PreferencesManager
+                from lightfall.auth.session import SessionManager
+                from lightfall.services._alshub_client import AlshubClient
+                from lightfall.services.access_stamper import AccessStamper, install_into_run_engine
+                from lightfall.ui.preferences.manager import PreferencesManager
 
-                from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+                from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
                 prefs = PreferencesManager.get_instance()
                 beamline = prefs.get("tiled_beamline", None) or None
@@ -793,7 +793,7 @@ class TiledService(QObject):
         """Unsubscribe TiledWriter from Engine and flush pending documents."""
         if self._subscription_token is not None:
             try:
-                from lucid.acquire import get_engine
+                from lightfall.acquire import get_engine
 
                 engine = get_engine()
                 engine.unsubscribe(self._subscription_token)
@@ -876,7 +876,7 @@ class TiledService(QObject):
         if self._session_connected:
             return
 
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
 
         session_manager = SessionManager.get_instance()
         session_manager.state_changed.connect(self._on_auth_state_changed)
@@ -890,7 +890,7 @@ class TiledService(QObject):
             new_state: New AuthState.
             old_state: Previous AuthState.
         """
-        from lucid.auth.session import AuthState
+        from lightfall.auth.session import AuthState
 
         if self._config.auth_mode != TiledAuthMode.KEYCLOAK:
             return
@@ -925,7 +925,7 @@ def _install_tiled_stream_ws_proxy_patch() -> None:
     import tiled.client.stream as stream_mod
 
     # Idempotency guard: if our wrapper is already installed, skip.
-    if getattr(stream_mod.connect, "_lucid_socks_patched", False):
+    if getattr(stream_mod.connect, "_lightfall_socks_patched", False):
         return
 
     original_stream_connect = stream_mod.connect
@@ -933,7 +933,7 @@ def _install_tiled_stream_ws_proxy_patch() -> None:
     def proxy_ws_connect(uri, **kwargs):
         # Live lookup — no stale proxy_url captured in this closure.
         try:
-            from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+            from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
             proxy_url = ProxySettingsProvider.should_use_proxy_for_url(uri)
         except Exception as e:
             logger.warning("WS proxy lookup failed for {}: {}", uri, e)
@@ -962,7 +962,7 @@ def _install_tiled_stream_ws_proxy_patch() -> None:
         return original_stream_connect(uri, **kwargs)
 
     # Mark the wrapper so subsequent imports don't double-patch.
-    proxy_ws_connect._lucid_socks_patched = True
+    proxy_ws_connect._lightfall_socks_patched = True
     stream_mod.connect = proxy_ws_connect
     logger.debug("Installed tiled.client.stream.connect SOCKS-proxy wrapper")
 

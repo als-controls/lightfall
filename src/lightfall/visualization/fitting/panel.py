@@ -24,11 +24,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.fitting.base import FitResult
-from lucid.visualization.fitting.fitters import get_fitter, list_fitters
+from lightfall.visualization.fitting.base import FitResult
+from lightfall.visualization.fitting.fitters import get_fitter, list_fitters
 
 if TYPE_CHECKING:
-    from lucid.visualization.widgets.plot_1d import Plot1DVisualization
+    from lightfall.visualization.widgets.plot_1d import Plot1DVisualization
 
 
 class FitPanel(QWidget):

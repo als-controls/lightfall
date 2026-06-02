@@ -6,6 +6,6 @@ status bar indicators.
 
 from __future__ import annotations
 
-from lucid.ui.statusbar.manager import StatusBarManager
+from lightfall.ui.statusbar.manager import StatusBarManager
 
 __all__ = ["StatusBarManager"]

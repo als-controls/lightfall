@@ -22,10 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import PrioritizedProcedure
+    from lightfall.acquire.engine.base import PrioritizedProcedure
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree

@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class PlanDesignAgent(AgentPlugin):
@@ -67,7 +67,7 @@ Expert at designing Bluesky plans for LUCID with UI annotations.
 **See `references/plan_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
 - `bluesky.plan_stubs` (bps.*) - movement, timing, reading stubs
 - `bluesky.plans` (bp.*) - scan, grid_scan, count, etc.
-- `lucid.ui.annotations` - Unit, Range, DeviceFilter, etc.
+- `lightfall.ui.annotations` - Unit, Range, DeviceFilter, etc.
 
 Key imports: `from bluesky import plan_stubs as bps, plans as bp`
 """

@@ -6,8 +6,8 @@ from typing import Any
 
 from loguru import logger
 
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.filter import FilterPredicate
 
 
 class RunEndTrigger(Trigger):

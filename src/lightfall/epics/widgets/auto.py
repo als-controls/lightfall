@@ -12,10 +12,10 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.epics.widgets.base import EpicsWidget
-from lucid.epics.widgets.combobox import PVComboBox
-from lucid.epics.widgets.label import PVLabel
-from lucid.epics.widgets.lineedit import PVLineEdit
+from lightfall.epics.widgets.base import EpicsWidget
+from lightfall.epics.widgets.combobox import PVComboBox
+from lightfall.epics.widgets.label import PVLabel
+from lightfall.epics.widgets.lineedit import PVLineEdit
 
 
 class PVAutoWidget(EpicsWidget):
@@ -122,7 +122,7 @@ class PVAutoWidget(EpicsWidget):
         if not self._pv_name:
             return
 
-        from lucid.epics.ca.pv import PV
+        from lightfall.epics.ca.pv import PV
 
         self._pv = PV(self._pv_name, parent=self)
         self._pv.value_changed.connect(self._on_pv_value_changed)

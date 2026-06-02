@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.logbook.style import (
+from lightfall.logbook.style import (
     get_code_background_color,
     is_dark_theme,
 )
@@ -697,7 +697,7 @@ class ImageFragmentWidget(_HoverMixin, QFrame):
 
     def _load_image(self) -> None:
         """Load image from local storage."""
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
 
         client = LogbookClient.get_instance()
         path = client._get_local_image_path(self._image_id)

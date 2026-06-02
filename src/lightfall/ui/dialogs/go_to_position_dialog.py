@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LucidDialog
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget

@@ -10,7 +10,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 
 @dataclass

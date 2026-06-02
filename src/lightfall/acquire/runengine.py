@@ -4,17 +4,17 @@ Deprecated: This module is maintained for backward compatibility.
 Use ncs.acquire.engine instead.
 
 Example (old):
-    from lucid.acquire.runengine import QRunEngine, get_run_engine
+    from lightfall.acquire.runengine import QRunEngine, get_run_engine
     re = get_run_engine()
 
 Example (new):
-    from lucid.acquire import get_engine, BlueskyEngine
+    from lightfall.acquire import get_engine, BlueskyEngine
     engine = get_engine()
 """
 
 from __future__ import annotations
 
-from lucid.acquire.engine import BlueskyEngine, get_engine
+from lightfall.acquire.engine import BlueskyEngine, get_engine
 
 __all__ = ["QRunEngine", "get_run_engine"]
 

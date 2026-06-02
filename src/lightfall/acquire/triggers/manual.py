@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 class ManualTrigger(Trigger):

@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QSpacerItem, QStatusBar, QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.info import PluginInfo
-    from lucid.plugins.loader import PluginLoader
-    from lucid.plugins.statusbar_plugin import StatusBarPlugin
+    from lightfall.plugins.info import PluginInfo
+    from lightfall.plugins.loader import PluginLoader
+    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
 
 
 # Spacing between adjacent status bar entries (pixels). Small enough to
@@ -151,9 +151,9 @@ class StatusBarManager:
         Returns:
             Number of plugins successfully loaded (already-loaded plugins only).
         """
-        from lucid.core import NCSApplication
-        from lucid.plugins.loader import PluginLoader
-        from lucid.plugins.registry import PluginRegistry
+        from lightfall.core import NCSApplication
+        from lightfall.plugins.loader import PluginLoader
+        from lightfall.plugins.registry import PluginRegistry
 
         app = NCSApplication.get_instance()
         services = app.services

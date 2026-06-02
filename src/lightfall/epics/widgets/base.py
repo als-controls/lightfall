@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, QEvent, Signal, Slot
 from PySide6.QtWidgets import QWidget
 
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class EpicsWidget(QWidget):
@@ -131,7 +131,7 @@ class EpicsWidget(QWidget):
         if not self._pv_name:
             return
 
-        from lucid.epics.ca.pv import PV
+        from lightfall.epics.ca.pv import PV
 
         self._pv = PV(self._pv_name, parent=self)
         self._pv.value_changed.connect(self._on_pv_value_changed)

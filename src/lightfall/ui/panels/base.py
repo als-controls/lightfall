@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
-from lucid.auth.policy import Permission
-from lucid.utils.logging import logger
+from lightfall.auth.policy import Permission
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.auth.session import User
+    from lightfall.auth.session import User
 
 
 @dataclass
@@ -32,7 +32,7 @@ class PanelMetadata:
     - UI for displaying panel information
 
     Attributes:
-        id: Unique panel identifier (e.g., "lucid.panels.device").
+        id: Unique panel identifier (e.g., "lightfall.panels.device").
         name: Human-readable panel name.
         description: Detailed description of the panel's purpose.
         icon: Icon name or path.
@@ -117,7 +117,7 @@ class BasePanel(QWidget):
     Example:
         >>> class MyPanel(BasePanel):
         ...     panel_metadata = PanelMetadata(
-        ...         id="lucid.panels.my_panel",
+        ...         id="lightfall.panels.my_panel",
         ...         name="My Panel",
         ...         description="Does something useful",
         ...     )
@@ -129,7 +129,7 @@ class BasePanel(QWidget):
 
     # Class-level metadata - must be defined in subclasses
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.base",
+        id="lightfall.panels.base",
         name="Base Panel",
         description="Abstract base panel",
     )
@@ -336,7 +336,7 @@ class BasePanel(QWidget):
         if cls.panel_metadata.required_permission is None:
             return True
 
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
 
         manager = SessionManager.get_instance()
         return manager.policy_engine.check_permission(

@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QDialog
 
 import pytest
 
-from lucid.ui.dialogs.add_trigger_dialog import AddTriggerDialog
+from lightfall.ui.dialogs.add_trigger_dialog import AddTriggerDialog
 
 
 def test_dialog_renders_lineedit_when_no_pipelines(qtbot):
@@ -65,7 +65,7 @@ def test_dialog_rejects_empty_pipeline(qtbot, monkeypatch):
     captured = {}
     def fake_warning(parent, title, text, *args, **kwargs):
         captured["title"] = title
-    from lucid.ui.dialogs import add_trigger_dialog as mod
+    from lightfall.ui.dialogs import add_trigger_dialog as mod
     monkeypatch.setattr(mod.QMessageBox, "warning", fake_warning)
 
     dialog._on_accept()
@@ -83,7 +83,7 @@ def test_dialog_rejects_invalid_json_overrides(qtbot, monkeypatch):
     captured = {}
     def fake_warning(parent, title, text, *args, **kwargs):
         captured["text"] = text
-    from lucid.ui.dialogs import add_trigger_dialog as mod
+    from lightfall.ui.dialogs import add_trigger_dialog as mod
     monkeypatch.setattr(mod.QMessageBox, "warning", fake_warning)
 
     dialog._on_accept()
@@ -101,7 +101,7 @@ def test_dialog_rejects_non_object_overrides(qtbot, monkeypatch):
     captured = {}
     def fake_warning(parent, title, text, *args, **kwargs):
         captured["text"] = text
-    from lucid.ui.dialogs import add_trigger_dialog as mod
+    from lightfall.ui.dialogs import add_trigger_dialog as mod
     monkeypatch.setattr(mod.QMessageBox, "warning", fake_warning)
 
     dialog._on_accept()

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.theme.manager import ThemeColors
+    from lightfall.ui.theme.manager import ThemeColors
 
 
 @dataclass
@@ -156,7 +156,7 @@ class ThemedVisualizationMixin:
     def _update_viz_colors(self) -> None:
         """Update visualization colors from current theme."""
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             theme = ThemeManager.get_instance()
             self._viz_colors = colors_from_theme(theme.colors, theme.is_dark)
@@ -168,7 +168,7 @@ class ThemedVisualizationMixin:
     def _connect_to_theme_changes(self) -> None:
         """Connect to theme change signals."""
         try:
-            from lucid.ui.theme import ThemeManager
+            from lightfall.ui.theme import ThemeManager
 
             theme = ThemeManager.get_instance()
             theme.colors_changed.connect(self._update_viz_colors)

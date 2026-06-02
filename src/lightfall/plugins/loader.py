@@ -19,17 +19,17 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
-from lucid.plugins.errors import (
+from lightfall.plugins.errors import (
     PluginInitError,
     PluginLoadError,
     PluginNotFoundError,
     PluginStatus,
 )
-from lucid.plugins.info import PluginInfo
-from lucid.plugins.manifest import PluginManifest
-from lucid.plugins.registry import PluginRegistry
-from lucid.plugins.types import PluginType
-from lucid.utils.threads import (
+from lightfall.plugins.info import PluginInfo
+from lightfall.plugins.manifest import PluginManifest
+from lightfall.plugins.registry import PluginRegistry
+from lightfall.plugins.types import PluginType
+from lightfall.utils.threads import (
     QThreadFutureIterator,
     initialize_main_thread_invoker,
     invoke_in_main_thread,
@@ -67,7 +67,7 @@ class PluginLoader(QObject):
         loader.loading_complete.connect(on_plugins_ready)
     """
 
-    ENTRY_POINT_GROUP = "lucid.plugins"
+    ENTRY_POINT_GROUP = "lightfall.plugins"
 
     # Signals
     plugin_loaded = Signal(object)  # PluginInfo
@@ -146,7 +146,7 @@ class PluginLoader(QObject):
 
         Entry point format in pyproject.toml::
 
-            [project.entry-points."lucid.plugins"]
+            [project.entry-points."lightfall.plugins"]
             my_beamline = "my_plugin.manifest:manifest"
 
         Returns:
@@ -204,7 +204,7 @@ class PluginLoader(QObject):
             Set of unique_id strings for disabled plugins.
         """
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             disabled_list = prefs.get("disabled_plugins", [])
@@ -558,7 +558,7 @@ class PluginLoader(QObject):
         """
         if plugin_info.type_name == "plan":
             try:
-                from lucid.acquire.plans.registry import PlanRegistry
+                from lightfall.acquire.plans.registry import PlanRegistry
 
                 plan_registry = PlanRegistry.get_instance()
                 plan_plugin = plugin_info.instance
@@ -586,7 +586,7 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "engine":
             try:
-                from lucid.acquire.engine.registry import EngineRegistry
+                from lightfall.acquire.engine.registry import EngineRegistry
 
                 engine_registry = EngineRegistry.get_instance()
                 engine_plugin = plugin_info.instance
@@ -610,7 +610,7 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "controller":
             try:
-                from lucid.ui.widgets.controller_registry import ControllerPluginRegistry
+                from lightfall.ui.widgets.controller_registry import ControllerPluginRegistry
 
                 controller_registry = ControllerPluginRegistry.get_instance()
                 controller_plugin = plugin_info.instance
@@ -628,8 +628,8 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "agent":
             try:
-                from lucid.ui.panels.claude.agent_registry import AgentRegistry
-                from lucid.plugins.agent_plugin import AgentPlugin
+                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+                from lightfall.plugins.agent_plugin import AgentPlugin
 
                 instance = plugin_info.instance
                 if not isinstance(instance, AgentPlugin):
@@ -645,7 +645,7 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "panel":
             try:
-                from lucid.ui.panels.registry import PanelRegistry
+                from lightfall.ui.panels.registry import PanelRegistry
 
                 panel_registry = PanelRegistry.get_instance()
                 panel_plugin = plugin_info.instance
@@ -663,7 +663,7 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "theme":
             try:
-                from lucid.ui.theme.registry import ThemeRegistry
+                from lightfall.ui.theme.registry import ThemeRegistry
 
                 theme_registry = ThemeRegistry.get_instance()
                 theme_plugin = plugin_info.instance
@@ -678,7 +678,7 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "visualization":
             try:
-                from lucid.visualization.registry import VisualizationRegistry
+                from lightfall.visualization.registry import VisualizationRegistry
 
                 viz_registry = VisualizationRegistry.get_instance()
                 viz_plugin = plugin_info.instance

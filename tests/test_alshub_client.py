@@ -5,7 +5,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_active_esaf_found(httpx_mock):
-    from lucid.services._alshub_client import AlshubClient
+    from lightfall.services._alshub_client import AlshubClient
 
     httpx_mock.add_response(
         url=re.compile(r"https://alshub.example.com/beamlines/4\.0\.2/active-esaf.*"),
@@ -24,7 +24,7 @@ async def test_active_esaf_found(httpx_mock):
 
 @pytest.mark.asyncio
 async def test_active_esaf_404(httpx_mock):
-    from lucid.services._alshub_client import AlshubClient
+    from lightfall.services._alshub_client import AlshubClient
 
     httpx_mock.add_response(
         url=re.compile(r"https://alshub.example.com/beamlines/.*/active-esaf.*"),
@@ -37,7 +37,7 @@ async def test_active_esaf_404(httpx_mock):
 
 @pytest.mark.asyncio
 async def test_active_esaf_unreachable_propagates(httpx_mock):
-    from lucid.services._alshub_client import AlshubClient
+    from lightfall.services._alshub_client import AlshubClient
     import httpx
 
     httpx_mock.add_exception(httpx.ConnectError("boom"))

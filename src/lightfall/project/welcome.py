@@ -7,7 +7,7 @@ project exists.
 
 from __future__ import annotations
 
-from lucid.project.model import (
+from lightfall.project.model import (
     EntrySource,
     EntryType,
     Logbook,

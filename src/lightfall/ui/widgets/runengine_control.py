@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine import Engine
+    from lightfall.acquire.engine import Engine
 
 
 SPINNING_STATES = frozenset({"running", "stopping"})
@@ -83,11 +83,11 @@ def _load_logo_pixmaps() -> tuple[QPixmap, QPixmap, QPixmap]:
     Returns:
         Tuple of (color, gray, red) QPixmaps, all 24x24.
     """
-    resource = files("lucid.ui.resources") / "logo.png"
+    resource = files("lightfall.ui.resources") / "logo.png"
     data = resource.read_bytes()
     raw = QImage.fromData(data, "PNG")
     if raw.isNull():
-        raise RuntimeError("Failed to decode logo.png from lucid.ui.resources")
+        raise RuntimeError("Failed to decode logo.png from lightfall.ui.resources")
     scaled = raw.scaled(
         _LOGO_SIZE,
         _LOGO_SIZE,
@@ -210,7 +210,7 @@ class RunEngineControlWidget(QWidget):
         stop_requested: User clicked stop.
 
     Example:
-        >>> from lucid.acquire import get_engine
+        >>> from lightfall.acquire import get_engine
         >>> engine = get_engine()
         >>> control = RunEngineControlWidget()
         >>> control.set_engine(engine)

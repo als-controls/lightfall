@@ -3,8 +3,8 @@
 import pytest
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from lucid.ui.theater.manager import TheaterManager, theater_manager
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.manager import TheaterManager, theater_manager
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TestTheaterManagerRegister:

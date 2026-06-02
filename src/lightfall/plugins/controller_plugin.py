@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtWidgets import QWidget
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
-    from lucid.ui.models.device_tree import DeviceTreeItem
+    from lightfall.ui.models.device_tree import DeviceTreeItem
 
 
 class ControllerPlugin(PluginType):

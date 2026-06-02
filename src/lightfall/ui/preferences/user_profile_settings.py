@@ -1,4 +1,4 @@
-# src/lucid/ui/preferences/user_profile_settings.py
+# src/lightfall/ui/preferences/user_profile_settings.py
 """Settings plugin for the per-user profile picture (and identity preview).
 
 MVP scope: the user can view their identity (read-only labels), upload a
@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.settings.image_helpers import _fetch_qimage
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.settings.image_helpers import _fetch_qimage
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -129,7 +129,7 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def load_settings(self) -> None:
         """Render the current avatar from PreferencesManager's cache;
         subscribe for live updates so a change elsewhere re-renders this dialog."""
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
         prefs.subscribe("profile_image_id", self._on_image_id_changed)
@@ -138,8 +138,8 @@ class UserProfileSettingsPlugin(SettingsPlugin):
 
     def _on_image_id_changed(self, image_id: str | None) -> None:
         """Called both at dialog open and on any future prefs change."""
-        from lucid.settings.user_settings_client import UserSettingsClient
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.settings.user_settings_client import UserSettingsClient
+        from lightfall.utils.threads import QThreadFuture
 
         if not image_id:
             self._set_placeholder_avatar()
@@ -236,12 +236,12 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         """Upload image blob; route the key/value write through PreferencesManager."""
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.settings.user_settings_client import (
+        from lightfall.settings.user_settings_client import (
             UserSettingsClient,
             UserSettingsError,
         )
-        from lucid.ui.preferences.manager import PreferencesManager
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.ui.preferences.manager import PreferencesManager
+        from lightfall.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
 
@@ -273,7 +273,7 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def _on_remove_clicked(self) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         try:
             PreferencesManager.get_instance().remove("profile_image_id")
@@ -290,7 +290,7 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def _read_identity(self) -> tuple[str, str, str, str | None]:
         """Pull (username, display_name, email, orcid) from the current session."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             sess = SessionManager.get_instance().session
             if sess is None or sess.user is None:
                 return ("(not logged in)", "", "", None)

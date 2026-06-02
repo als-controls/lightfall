@@ -9,11 +9,11 @@ This package provides:
 - Integration with ConfigManager for typed preferences
 """
 
-from lucid.ui.preferences.builtin import AppearanceSettingsPlugin
-from lucid.ui.preferences.device_settings import DeviceSettingsPlugin
-from lucid.ui.preferences.dialog import PreferencesDialog
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
+from lightfall.ui.preferences.builtin import AppearanceSettingsPlugin
+from lightfall.ui.preferences.device_settings import DeviceSettingsPlugin
+from lightfall.ui.preferences.dialog import PreferencesDialog
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
 
 __all__ = [
     "AppearanceSettingsPlugin",

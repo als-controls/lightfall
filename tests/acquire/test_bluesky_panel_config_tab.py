@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 from PySide6.QtWidgets import QTabWidget
 
-from lucid.acquire.plan_ui import PlanUI, plan_with_ui
-from lucid.acquire.plans import PlanInfo
-from lucid.ui.panels.bluesky_panel import BlueskyPanel
-from lucid.ui.widgets.plan_config import PlanConfigWidget
+from lightfall.acquire.plan_ui import PlanUI, plan_with_ui
+from lightfall.acquire.plans import PlanInfo
+from lightfall.ui.panels.bluesky_panel import BlueskyPanel
+from lightfall.ui.widgets.plan_config import PlanConfigWidget
 
 
 def _plan(name: str) -> PlanInfo:

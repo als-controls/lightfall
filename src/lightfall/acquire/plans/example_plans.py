@@ -4,7 +4,7 @@ These plans demonstrate the use of Annotated type hints with LUCID's
 annotation metadata classes for procedural UI generation.
 
 Usage:
-    from lucid.acquire.plans.example_plans import register_example_plans
+    from lightfall.acquire.plans.example_plans import register_example_plans
     register_example_plans(registry)
 """
 
@@ -18,7 +18,7 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import utils as bsu
 
-from lucid.ui.annotations import (
+from lightfall.ui.annotations import (
     Decimals,
     Default,
     DeviceDefault,
@@ -27,7 +27,7 @@ from lucid.ui.annotations import (
 )
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans.registry import PlanRegistry
+    from lightfall.acquire.plans.registry import PlanRegistry
 
 
 # Type aliases for clarity
@@ -961,7 +961,7 @@ def register_example_plans(registry: PlanRegistry) -> None:
     Args:
         registry: PlanRegistry to register plans in.
     """
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
 
     plans_to_register = [
         ("grid_scan_2d_wait", grid_scan_2d_wait, "scan", "2D Grid Scan (Wait)", ("#4CAF50", "G")),

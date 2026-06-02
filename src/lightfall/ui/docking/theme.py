@@ -19,7 +19,7 @@ The QDockWidget has sea bg so rounded corner areas show sea color.
 Widget tree (from dump_dock_tree):
     PanelDockWidget [dock_*]              ← sea bg, border-radius
       QAbstractButton [qt_dockwidget_*]   ← hidden (custom title bar)
-      SomePanel [lucid.panels.*]          ← island bg, bottom rounding
+      SomePanel [lightfall.panels.*]          ← island bg, bottom rounding
       PanelTitleBar [PanelTitleBar]        ← island bg, top rounding
         QLabel [PanelTitleLabel]
         QToolButton [PanelTitleCloseButton]
@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.ui.theme.manager import ThemeColors
+    from lightfall.ui.theme.manager import ThemeColors
 
 # ---------------------------------------------------------------------------
 # Layout constants
@@ -44,7 +44,7 @@ def dump_dock_tree() -> None:
     """Debug helper: print the widget tree inside all QDockWidgets.
 
     Run from LUCID's Python console:
-        from lucid.ui.docking.theme import dump_dock_tree
+        from lightfall.ui.docking.theme import dump_dock_tree
         dump_dock_tree()
     """
     from PySide6.QtWidgets import QApplication, QDockWidget, QWidget

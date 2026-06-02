@@ -1,1 +1,1 @@
-"""Internal implementation details for lucid.claude."""
+"""Internal implementation details for lightfall.claude."""

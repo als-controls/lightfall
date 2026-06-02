@@ -9,10 +9,10 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.engine_plugin import EnginePlugin
+    from lightfall.plugins.engine_plugin import EnginePlugin
 
 
 class EngineRegistry:

@@ -6,7 +6,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from lucid.ui.widgets.observers.camera import CameraBase
+from lightfall.ui.widgets.observers.camera import CameraBase
 
 
 class CameraImageView(QWidget):

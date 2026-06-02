@@ -20,11 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.widgets.compact_motor import CompactMotorWidget
-from lucid.utils.logging import logger
+from lightfall.ui.widgets.compact_motor import CompactMotorWidget
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.catalog import DeviceCatalog
+    from lightfall.devices.catalog import DeviceCatalog
 
 
 class FavoritesTab(QWidget):
@@ -127,7 +127,7 @@ class FavoritesTab(QWidget):
         catalog. No-op if already rendered or the device is missing —
         deferred favorites are picked up when DeviceCatalog.device_added
         eventually fires for them."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         if name in self._widgets:
             return

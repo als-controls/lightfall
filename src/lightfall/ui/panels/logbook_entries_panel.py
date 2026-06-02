@@ -11,8 +11,8 @@ from typing import ClassVar
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
-from lucid.logbook.entry_widget import EntryData, EntryListWidget
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.logbook.entry_widget import EntryData, EntryListWidget
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 class LogbookEntriesPanel(BasePanel):
@@ -32,7 +32,7 @@ class LogbookEntriesPanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.logbook_entries",
+        id="lightfall.panels.logbook_entries",
         name="Entries",
         description="Logbook entry list for navigating experiment entries",
         icon="book-open",

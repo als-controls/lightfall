@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractButton, QLineEdit, QTextEdit, QWidget
 
-from lucid.claude._internal.serialization import find_widget_by_name
-from lucid.claude._internal.threading import run_on_main_thread
+from lightfall.claude._internal.serialization import find_widget_by_name
+from lightfall.claude._internal.threading import run_on_main_thread
 
 
 def create_interaction_tools(target_window: QWidget):

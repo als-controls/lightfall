@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtWidgets import QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.controller_plugin import ControllerPlugin
-    from lucid.ui.models.device_tree import DeviceTreeItem
-    from lucid.ui.widgets.base_control import BaseControlWidget
+    from lightfall.plugins.controller_plugin import ControllerPlugin
+    from lightfall.ui.models.device_tree import DeviceTreeItem
+    from lightfall.ui.widgets.base_control import BaseControlWidget
 
 
 @dataclass
@@ -168,7 +168,7 @@ class ControllerMatcher:
             List of ControllerMatch objects from plugin registry.
         """
         try:
-            from lucid.ui.widgets.controller_registry import ControllerPluginRegistry
+            from lightfall.ui.widgets.controller_registry import ControllerPluginRegistry
 
             registry = ControllerPluginRegistry.get_instance()
             plugin_matches = registry.get_matching_controllers(items)
@@ -199,7 +199,7 @@ class ControllerMatcher:
             List of ControllerMatch objects from legacy registry.
         """
         try:
-            from lucid.ui.widgets.base_control import ControlWidgetRegistry
+            from lightfall.ui.widgets.base_control import ControlWidgetRegistry
 
             registry = ControlWidgetRegistry.get_instance()
             widget_classes = registry.get_matching_widgets(items)
@@ -243,7 +243,7 @@ class ControllerMatcher:
         legacy_info: dict[str, Any] = {"available": False}
 
         try:
-            from lucid.ui.widgets.controller_registry import ControllerPluginRegistry
+            from lightfall.ui.widgets.controller_registry import ControllerPluginRegistry
 
             registry = ControllerPluginRegistry.get_instance()
             plugin_info = {
@@ -254,7 +254,7 @@ class ControllerMatcher:
             pass
 
         try:
-            from lucid.ui.widgets.base_control import ControlWidgetRegistry
+            from lightfall.ui.widgets.base_control import ControlWidgetRegistry
 
             registry = ControlWidgetRegistry.get_instance()
             legacy_info = {

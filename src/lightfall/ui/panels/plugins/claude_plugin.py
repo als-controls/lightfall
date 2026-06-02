@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lucid.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 class ClaudePanelPlugin(PanelPlugin):
@@ -24,6 +24,6 @@ class ClaudePanelPlugin(PanelPlugin):
         return "claude"
 
     def get_panel_class(self) -> type[BasePanel]:
-        from lucid.ui.panels.claude_panel import ClaudePanel
+        from lightfall.ui.panels.claude_panel import ClaudePanel
 
         return ClaudePanel

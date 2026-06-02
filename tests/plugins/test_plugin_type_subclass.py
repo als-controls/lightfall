@@ -14,7 +14,7 @@ def mock_user_service(monkeypatch):
     """Replace UserPluginService.get_instance() with a mock."""
     service = MagicMock()
     monkeypatch.setattr(
-        "lucid.plugins.user_plugins.UserPluginService.get_instance",
+        "lightfall.plugins.user_plugins.UserPluginService.get_instance",
         lambda: service,
     )
     return service
@@ -24,7 +24,7 @@ def mock_user_service(monkeypatch):
 def fake_user_plugin_dir(tmp_path, monkeypatch):
     """Make tmp_path act as the canonical user plugin dir."""
     monkeypatch.setattr(
-        "lucid.plugins.types._user_plugin_roots",
+        "lightfall.plugins.types._user_plugin_roots",
         lambda: [tmp_path.resolve()],
     )
     return tmp_path
@@ -45,7 +45,7 @@ def _write_module(dir_: Path, name: str, body: str) -> Path:
 
 def test_subclass_in_user_dir_enqueues(mock_user_service, fake_user_plugin_dir):
     _, mod = _write_module(fake_user_plugin_dir, "user_one", """
-        from lucid.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.agent_plugin import AgentPlugin
 
         class UserAgent(AgentPlugin):
             @property
@@ -62,7 +62,7 @@ def test_subclass_outside_user_dir_does_not_enqueue(mock_user_service, fake_user
     other_dir = tmp_path.parent / "outside"
     other_dir.mkdir(exist_ok=True)
     _write_module(other_dir, "outside_one", """
-        from lucid.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.agent_plugin import AgentPlugin
 
         class OutsideAgent(AgentPlugin):
             @property
@@ -75,7 +75,7 @@ def test_subclass_outside_user_dir_does_not_enqueue(mock_user_service, fake_user
 
 def test_abstract_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_dir):
     _write_module(fake_user_plugin_dir, "abstract_one", """
-        from lucid.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.agent_plugin import AgentPlugin
 
         class Abstract(AgentPlugin):
             pass
@@ -85,7 +85,7 @@ def test_abstract_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_
 
 def test_main_module_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_dir):
     """Classes defined at REPL (__main__) are skipped."""
-    from lucid.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.agent_plugin import AgentPlugin
 
     # Simulate a class with __module__ == "__main__"
     DynamicClass = type("REPLAgent", (AgentPlugin,), {

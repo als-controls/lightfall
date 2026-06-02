@@ -1,8 +1,8 @@
-"""Auto-commit wrapper around `git` CLI for the user lucid directory.
+"""Auto-commit wrapper around `git` CLI for the user lightfall directory.
 
-Backs the §4 paper claim: every agent-produced change in ``~/lucid/`` becomes
+Backs the §4 paper claim: every agent-produced change in ``~/lightfall/`` becomes
 a commit. Used by both :class:`UserPluginService` and :class:`UserPlanService`
-so that plugins, plans, and any other staff-owned files in ``~/lucid/`` share
+so that plugins, plans, and any other staff-owned files in ``~/lightfall/`` share
 a single linear history.
 
 The tracker is forgiving: missing ``git`` executable, missing identity,
@@ -20,17 +20,17 @@ from loguru import logger
 
 
 class GitTracker:
-    """Singleton wrapping the ``~/lucid/`` git repo."""
+    """Singleton wrapping the ``~/lightfall/`` git repo."""
 
     _instance: ClassVar[GitTracker | None] = None
     _lock = threading.RLock()
 
-    DEFAULT_USER_EMAIL = "lucid-agent@als.lbl.gov"
+    DEFAULT_USER_EMAIL = "lightfall-agent@als.lbl.gov"
     DEFAULT_USER_NAME = "LUCID Agent"
 
     def __init__(self, repo_root: Path | None = None) -> None:
         self.repo_root = (
-            repo_root if repo_root is not None else Path.home() / "lucid"
+            repo_root if repo_root is not None else Path.home() / "lightfall"
         )
 
     @classmethod
@@ -75,7 +75,7 @@ class GitTracker:
         """Set local user.email/name to the LUCID Agent identity if not already configured locally.
 
         Intentionally ignores any global git identity. The §4 paper claim is
-        that agent-produced changes in ``~/lucid/`` are attributable to
+        that agent-produced changes in ``~/lightfall/`` are attributable to
         "LUCID Agent" -- allowing the developer's global identity to leak
         through would muddy that forensic record. A user who deliberately
         sets a different *local* identity via ``git config --local`` is
@@ -83,7 +83,7 @@ class GitTracker:
 
         Each field (user.email and user.name) is checked and set
         independently. If a staff member's existing repo became
-        ``~/lucid/`` and they had only ``user.email`` set locally, we set
+        ``~/lightfall/`` and they had only ``user.email`` set locally, we set
         only the missing ``user.name`` rather than clobbering both.
         """
         existing_email = self._git_config_get_local("user.email")

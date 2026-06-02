@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.plugins.controller_plugin import ControllerPlugin
-    from lucid.ui.models.device_tree import DeviceTreeItem
+    from lightfall.plugins.controller_plugin import ControllerPlugin
+    from lightfall.ui.models.device_tree import DeviceTreeItem
 
 
 class ControllerPluginRegistry:
@@ -22,7 +22,7 @@ class ControllerPluginRegistry:
     provides methods to find applicable controllers for device selections.
 
     Example:
-        >>> from lucid.ui.widgets.controller_registry import ControllerPluginRegistry
+        >>> from lightfall.ui.widgets.controller_registry import ControllerPluginRegistry
         >>> registry = ControllerPluginRegistry.get_instance()
         >>> registry.register(my_controller_plugin)
         >>> matches = registry.get_matching_controllers(selected_items)

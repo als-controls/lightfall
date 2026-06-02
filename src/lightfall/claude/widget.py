@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.claude.agent import QtClaudeAgent
-from lucid.claude.widgets.permission_request import PermissionRequestWidget
+from lightfall.claude.agent import QtClaudeAgent
+from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 
 
 class HeightForWidthWidget(QWidget):
@@ -53,7 +53,7 @@ class ClaudeAssistantWidget(QWidget):
     Example:
         ```python
         from PySide6.QtWidgets import QApplication, QMainWindow
-        from lucid.claude import ClaudeAssistantWidget
+        from lightfall.claude import ClaudeAssistantWidget
 
         app = QApplication([])
         window = QMainWindow()
@@ -582,7 +582,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _append_assistant_message(self, message: str) -> None:
         """Append Claude's message to chat display with markdown rendering."""
-        from lucid.claude.markdown import render_markdown
+        from lightfall.claude.markdown import render_markdown
 
         card = self._create_card(
             render_markdown(message),

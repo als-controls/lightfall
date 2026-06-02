@@ -7,7 +7,7 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget
 
-from lucid.claude._internal.threading import run_on_main_thread
+from lightfall.claude._internal.threading import run_on_main_thread
 
 
 def create_screenshot_tool(target_window: QWidget):

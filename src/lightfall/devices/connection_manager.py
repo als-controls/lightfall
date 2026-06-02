@@ -16,11 +16,11 @@ from uuid import UUID
 
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 class ConnectionState(StrEnum):
@@ -167,7 +167,7 @@ class DeviceConnectionManager(QObject):
     def load_settings(self) -> None:
         """Load settings from PreferencesManager."""
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             self._default_timeout = prefs.get("device_connection_timeout", self.DEFAULT_TIMEOUT)
@@ -183,7 +183,7 @@ class DeviceConnectionManager(QObject):
     def save_settings(self) -> None:
         """Save settings to PreferencesManager."""
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
 
             prefs = PreferencesManager.get_instance()
             prefs.set("device_connection_timeout", self._default_timeout)

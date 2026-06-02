@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
+from lightfall.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree
@@ -36,8 +36,8 @@ except ImportError:
     GroupParameter = None
 
 if TYPE_CHECKING:
-    from lucid.acquire.plans import PlanInfo
-    from lucid.devices import DeviceCatalog
+    from lightfall.acquire.plans import PlanInfo
+    from lightfall.devices import DeviceCatalog
 
 
 # Parameter type categories for special handling
@@ -119,7 +119,7 @@ def _ensure_device_parameter_registered():
     """Ensure the DeviceParameter type is registered with pyqtgraph."""
     if HAS_PYQTGRAPH:
         # Import triggers registration
-        import lucid.ui.widgets.device_selector  # noqa: F401
+        import lightfall.ui.widgets.device_selector  # noqa: F401
 
 
 _ensure_device_parameter_registered()
@@ -154,7 +154,7 @@ def resolve_string_annotation(annotation: Any, func: Callable | None = None) -> 
 
     # Add annotation classes
     try:
-        from lucid.ui.annotations import (
+        from lightfall.ui.annotations import (
             Decimals,
             Default,
             DeviceDefault,
@@ -344,7 +344,7 @@ class PlanConfigWidget(QWidget):
         values_changed(dict): Emitted when any parameter value changes.
 
     Example:
-        >>> from lucid.acquire.plans import get_registry
+        >>> from lightfall.acquire.plans import get_registry
         >>> registry = get_registry()
         >>> plan_info = registry.get_plan("scan")
         >>> config = PlanConfigWidget()
@@ -450,7 +450,7 @@ class PlanConfigWidget(QWidget):
         Returns:
             Parameter specification dict for pyqtgraph Parameter.create().
         """
-        from lucid.ui.annotations import (
+        from lightfall.ui.annotations import (
             Decimals,
             Default,
             DeviceDefault,
@@ -484,8 +484,8 @@ class PlanConfigWidget(QWidget):
         spec: dict[str, Any] = {"name": name}
 
         if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
-            from lucid.devices.model import DeviceCategory as DC
-            from lucid.ui.annotations import DeviceDefault, DeviceIcon
+            from lightfall.devices.model import DeviceCategory as DC
+            from lightfall.ui.annotations import DeviceDefault, DeviceIcon
 
             spec["type"] = "device"
             spec["value"] = []
@@ -787,7 +787,7 @@ class PlanConfigWidget(QWidget):
             return None
 
         # Try user plans first
-        from lucid.acquire.plans.user_plans import UserPlanService
+        from lightfall.acquire.plans.user_plans import UserPlanService
 
         service = UserPlanService.get_instance()
         if self._plan.name in service._loaded_plans:
@@ -802,8 +802,8 @@ class PlanConfigWidget(QWidget):
     @Slot()
     def _on_edit_clicked(self) -> None:
         """Open the plan's source file in the configured external editor."""
-        from lucid.ui.preferences.manager import PreferencesManager
-        from lucid.ui.toast import ToastManager
+        from lightfall.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.toast import ToastManager
 
         if self._plan is None:
             return
@@ -838,7 +838,7 @@ class PlanConfigWidget(QWidget):
         is_valid, errors = self.validate()
         if not is_valid:
             logger.warning(f"Validation failed: {errors}")
-            from lucid.ui.toast import ToastManager
+            from lightfall.ui.toast import ToastManager
             toast = ToastManager.get_instance()
             toast.warning("Missing Parameters", "\n".join(errors))
             return
@@ -865,8 +865,8 @@ class PlanExecutionWidget(QWidget):
     that executes the plan on the RunEngine.
 
     Example:
-        >>> from lucid.acquire import get_run_engine
-        >>> from lucid.acquire.plans import get_registry
+        >>> from lightfall.acquire import get_run_engine
+        >>> from lightfall.acquire.plans import get_registry
         >>> widget = PlanExecutionWidget()
         >>> widget.set_registry(get_registry())
         >>> widget.set_run_engine(get_run_engine())
@@ -887,7 +887,7 @@ class PlanExecutionWidget(QWidget):
 
     def _setup_ui(self) -> None:
         """Set up the user interface."""
-        from lucid.ui.widgets.plan_selector import PlanSelectorWidget
+        from lightfall.ui.widgets.plan_selector import PlanSelectorWidget
 
         layout = QHBoxLayout(self)
 

@@ -34,8 +34,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
-from lucid.utils.logging import logger
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass

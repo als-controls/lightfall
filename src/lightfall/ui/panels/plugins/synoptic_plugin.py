@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lucid.plugins.panel_plugin import PanelPlugin
-from lucid.utils.logging import logger
+from lightfall.plugins.panel_plugin import PanelPlugin
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 class SynopticPanelPlugin(PanelPlugin):
@@ -27,7 +27,7 @@ class SynopticPanelPlugin(PanelPlugin):
 
     def get_panel_class(self) -> type[BasePanel]:
         try:
-            from lucid.ui.panels.synoptic.panel import SynopticPanel
+            from lightfall.ui.panels.synoptic.panel import SynopticPanel
 
             return SynopticPanel
         except ImportError as e:

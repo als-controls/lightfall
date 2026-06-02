@@ -8,7 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class TiledStatusWidget(QLabel):
@@ -51,7 +51,7 @@ class TiledStatusWidget(QLabel):
     def _subscribe_to_service(self) -> None:
         """Subscribe to TiledService connection changes."""
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             service.connection_changed.connect(self._on_connection_changed)
@@ -69,7 +69,7 @@ class TiledStatusWidget(QLabel):
         Args:
             service: TiledService instance.
         """
-        from lucid.services.tiled_service import TiledConnectionState
+        from lightfall.services.tiled_service import TiledConnectionState
 
         if not service.config.enabled:
             self._update_display_disabled()
@@ -90,7 +90,7 @@ class TiledStatusWidget(QLabel):
             state: New TiledConnectionState.
             message: Status message.
         """
-        from lucid.services.tiled_service import TiledConnectionState
+        from lightfall.services.tiled_service import TiledConnectionState
 
         if state == TiledConnectionState.CONNECTED:
             self._update_display_connected()
@@ -101,7 +101,7 @@ class TiledStatusWidget(QLabel):
         elif state == TiledConnectionState.DISCONNECTED:
             # Check if disabled or just disconnected
             try:
-                from lucid.services.tiled_service import TiledService
+                from lightfall.services.tiled_service import TiledService
 
                 service = TiledService.get_instance()
                 if not service.config.enabled:

@@ -20,10 +20,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from lucid.auth.policy import Role
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.session import Session, User
-from lucid.utils.logging import logger
+from lightfall.auth.policy import Role
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.session import Session, User
+from lightfall.utils.logging import logger
 
 # Default mapping from Unix groups to LUCID roles.
 # Deployments can override this via PamConfig.group_role_map.

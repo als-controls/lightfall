@@ -3,7 +3,7 @@ from PySide6.QtCore import QObject, Signal
 
 import pytest
 
-from lucid.ui.panels.pipeline_jobs_panel import (
+from lightfall.ui.panels.pipeline_jobs_panel import (
     PipelineJobsDockPanel,
     PipelineJobsPanel,
 )
@@ -80,8 +80,8 @@ def test_panel_queue_label_reflects_active_jobs(qtbot):
 
 def test_dock_panel_embeds_inner_when_client_registered(qtbot, monkeypatch):
     """DockPanel pulls PipelineClient from ServiceRegistry and forwards events."""
-    from lucid.core.services import ServiceRegistry
-    from lucid.pipelines import PipelineClient
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.pipelines import PipelineClient
 
     client = FakeClient()
     registry = ServiceRegistry.get_instance()
@@ -97,7 +97,7 @@ def test_dock_panel_embeds_inner_when_client_registered(qtbot, monkeypatch):
 
 def test_dock_panel_shows_placeholder_when_no_client(qtbot, monkeypatch):
     """No registered PipelineClient renders a placeholder label, not a crash."""
-    from lucid.core.services import ServiceRegistry
+    from lightfall.core.services import ServiceRegistry
 
     registry = ServiceRegistry.get_instance()
     monkeypatch.setattr(registry, "get", lambda key, default=None: default)

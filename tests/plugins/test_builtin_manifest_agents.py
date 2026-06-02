@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 def test_manifest_has_11_agent_entries_and_no_skill_or_mcp_tool_entries():
-    from lucid.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.builtin_manifest import builtin_manifest
 
     type_counts: dict[str, int] = {}
     for entry in builtin_manifest.plugins:
@@ -16,7 +16,7 @@ def test_manifest_has_11_agent_entries_and_no_skill_or_mcp_tool_entries():
 
 
 def test_manifest_lists_expected_agent_names():
-    from lucid.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.builtin_manifest import builtin_manifest
 
     agent_names = {e.name for e in builtin_manifest.plugins if e.type_name == "agent"}
     assert agent_names == {
@@ -32,8 +32,8 @@ def test_manifest_agent_import_paths_resolve():
     """Each agent's import_path must be importable and yield an AgentPlugin subclass."""
     import importlib
 
-    from lucid.plugins.agent_plugin import AgentPlugin
-    from lucid.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.builtin_manifest import builtin_manifest
 
     for entry in builtin_manifest.plugins:
         if entry.type_name != "agent":
@@ -46,7 +46,7 @@ def test_manifest_agent_import_paths_resolve():
 
 def test_autonomous_experiment_registered():
     """Focused regression — ensures the new plugin entry can't silently drop."""
-    from lucid.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.builtin_manifest import builtin_manifest
 
     matching = [
         e for e in builtin_manifest.plugins
@@ -54,5 +54,5 @@ def test_autonomous_experiment_registered():
     ]
     assert len(matching) == 1, "exactly one autonomous_experiment agent entry expected"
     assert matching[0].import_path == (
-        "lucid.plugins.agents.autonomous_experiment:AutonomousExperimentAgent"
+        "lightfall.plugins.agents.autonomous_experiment:AutonomousExperimentAgent"
     )

@@ -1,7 +1,7 @@
 """TriggerManager — owns a set of configured Triggers, hooks BaseEngine.
 
 The manager is engine-agnostic: it only uses BaseEngine.subscribe() /
-unsubscribe() (`src/lucid/acquire/engine/base.py:396`). Triggers subscribe
+unsubscribe() (`src/lightfall/acquire/engine/base.py:396`). Triggers subscribe
 through the manager so their tokens are tracked centrally.
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 class TriggerManager:

@@ -7,7 +7,7 @@ modifications without package reinstall.
 Example manifest module::
 
     # my_beamline/manifest.py
-    from lucid.plugins import PluginManifest, PluginEntry
+    from lightfall.plugins import PluginManifest, PluginEntry
 
     manifest = PluginManifest(
         name="my-beamline-plans",
@@ -20,7 +20,7 @@ Example manifest module::
 
 Entry point in pyproject.toml::
 
-    [project.entry-points."lucid.plugins"]
+    [project.entry-points."lightfall.plugins"]
     my_beamline = "my_beamline.manifest:manifest"
 """
 
@@ -56,7 +56,7 @@ class PluginEntry:
         PluginEntry(
             type_name="settings",
             name="appearance",
-            import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
+            import_path="lightfall.ui.preferences.builtin:AppearanceSettingsPlugin",
             preload=True,
         )
     """

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.exporter.converters.base import Converter
+    from lightfall.exporter.converters.base import Converter
 
 CONVERTERS: dict[str, type[Converter]] = {}
 
@@ -22,5 +22,5 @@ def get_converter(name: str) -> type[Converter]:
 
 
 # Import converters to trigger registration (nxsas added in Task 2)
-from lucid.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
-from lucid.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401
+from lightfall.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
+from lightfall.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401

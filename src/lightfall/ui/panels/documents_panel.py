@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.widgets.document_stream import DocumentStreamWidget
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.widgets.document_stream import DocumentStreamWidget
 
 if TYPE_CHECKING:
-    from lucid.acquire import QRunEngine
+    from lightfall.acquire import QRunEngine
 
 
 class DocumentsPanel(BasePanel):
@@ -25,13 +25,13 @@ class DocumentsPanel(BasePanel):
     during RunEngine execution in a hierarchical tree view.
 
     Example:
-        >>> from lucid.acquire import get_run_engine
+        >>> from lightfall.acquire import get_run_engine
         >>> panel = DocumentsPanel()
         >>> panel.set_run_engine(get_run_engine())
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.documents",
+        id="lightfall.panels.documents",
         name="Documents",
         description="View Bluesky document streams during acquisition",
         icon="receipt",
@@ -73,7 +73,7 @@ class DocumentsPanel(BasePanel):
     def _auto_configure(self) -> None:
         """Auto-configure with RunEngine singleton."""
         try:
-            from lucid.acquire import get_run_engine
+            from lightfall.acquire import get_run_engine
             re = get_run_engine()
             self.set_run_engine(re)
         except Exception as e:

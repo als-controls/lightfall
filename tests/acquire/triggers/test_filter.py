@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.filter import FilterPredicate
 
 
 def test_filter_plan_name_exact_match():

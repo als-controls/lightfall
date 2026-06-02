@@ -18,16 +18,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices import DeviceCatalog
-from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
-from lucid.ui.models.device_tree import DeviceTreeItem
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.ui.widgets.device_control import DeviceControlWidget
-from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-from lucid.ui.widgets.favorites_tab import FavoritesTab
-from lucid.utils.logging import logger
+from lightfall.devices import DeviceCatalog
+from lightfall.ui.events import DeviceFocusEvent, DeviceSelectEvent
+from lightfall.ui.models.device_tree import DeviceTreeItem
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.widgets.device_control import DeviceControlWidget
+from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+from lightfall.ui.widgets.favorites_tab import FavoritesTab
+from lightfall.utils.logging import logger
 
 
 class DevicePanel(BasePanel):
@@ -40,7 +40,7 @@ class DevicePanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.devices",
+        id="lightfall.panels.devices",
         name="Devices",
         description="View and manage control system devices",
         icon="mdi.microwave",
@@ -128,7 +128,7 @@ class DevicePanel(BasePanel):
         device_id = str(item.device_info.id)
         device_name = item.device_info.name
         registry = PanelRegistry.get_instance()
-        synoptic_panel = registry.get_singleton("lucid.panels.synoptic")
+        synoptic_panel = registry.get_singleton("lightfall.panels.synoptic")
         if synoptic_panel is not None:
             event = DeviceFocusEvent(device_id, device_name)
             QCoreApplication.postEvent(synoptic_panel, event)

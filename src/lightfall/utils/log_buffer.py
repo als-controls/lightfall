@@ -164,7 +164,7 @@ class LogBuffer:
                 given, the more restrictive one wins.
             contains: Case-insensitive substring filter on the message.
             name_prefix: Return only records whose logger name starts
-                with this prefix (e.g. ``"lucid.devices"``).
+                with this prefix (e.g. ``"lightfall.devices"``).
             max_count: Cap on returned records. None = unbounded.
         """
         min_level_no = _LEVEL_NO.get(level.upper(), 0) if level else 0

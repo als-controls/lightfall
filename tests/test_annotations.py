@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 import pytest
 
-from lucid.ui.annotations import (
+from lightfall.ui.annotations import (
     Decimals,
     Default,
     DeviceDefault,
@@ -15,8 +15,8 @@ from lucid.ui.annotations import (
     Range,
     Unit,
 )
-from lucid.acquire.plans import PlanInfo
-from lucid.ui.widgets.plan_config import extract_annotated_metadata
+from lightfall.acquire.plans import PlanInfo
+from lightfall.ui.widgets.plan_config import extract_annotated_metadata
 
 
 class TestExtractAnnotatedMetadata:
@@ -112,7 +112,7 @@ class TestPlanConfigBuildParamSpec:
     @pytest.fixture
     def config_widget(self, qapp):
         """Create a PlanConfigWidget instance."""
-        from lucid.ui.widgets.plan_config import PlanConfigWidget
+        from lightfall.ui.widgets.plan_config import PlanConfigWidget
 
         widget = PlanConfigWidget()
         return widget
@@ -208,7 +208,7 @@ class TestPlanConfigBuildParamSpec:
 
     def test_device_param_with_filter(self, config_widget):
         """DeviceFilter annotation creates device parameter with categories."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         def plan(
             motor: Annotated[Any, DeviceFilter(category="motor")],
@@ -227,7 +227,7 @@ class TestPlanConfigBuildParamSpec:
 
     def test_device_param_with_multi_category(self, config_widget):
         """DeviceFilter with set category creates multi-category filter."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         def plan(
             devices: Annotated[list, DeviceFilter(category={"motor", "controller"})],
@@ -246,7 +246,7 @@ class TestPlanConfigBuildParamSpec:
 
     def test_device_param_with_icon(self, config_widget):
         """DeviceIcon annotation sets icon on parameter spec."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         def plan(
             motor: Annotated[Any, DeviceFilter(category="motor"), DeviceIcon("mdi6.engine")],
@@ -277,7 +277,7 @@ class TestPlanConfigBuildParamSpec:
 
     def test_device_param_with_filter_any(self, config_widget):
         """DeviceFilterAny annotation extracts categories."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         def plan(
             axis: Annotated[Any, DeviceFilterAny(
@@ -320,14 +320,14 @@ class TestDeviceIcon:
 
     def test_device_icon_stores_name(self):
         """DeviceIcon stores the icon name."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         icon = DeviceIcon("mdi6.engine")
         assert icon.name == "mdi6.engine"
 
     def test_device_icon_is_frozen(self):
         """DeviceIcon is immutable."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         icon = DeviceIcon("mdi6.engine")
         with pytest.raises(AttributeError):
@@ -339,21 +339,21 @@ class TestDeviceFilterMultiCategory:
 
     def test_category_as_string(self):
         """DeviceFilter.category accepts a string (backwards compatible)."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter(category="motor")
         assert flt.category == "motor"
 
     def test_category_as_set(self):
         """DeviceFilter.category accepts a set of strings."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter(category={"motor", "controller"})
         assert flt.category == {"motor", "controller"}
 
     def test_category_default_none(self):
         """DeviceFilter.category defaults to None."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter()
         assert flt.category is None

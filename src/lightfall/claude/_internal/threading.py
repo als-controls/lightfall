@@ -1,6 +1,6 @@
 """Thread-safe utilities for Qt widget access from background threads.
 
-Thin wrapper around lucid.utils.threads for backward compatibility.
+Thin wrapper around lightfall.utils.threads for backward compatibility.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QApplication
 
-from lucid.utils.threads import invoke_in_main_thread, is_main_thread
+from lightfall.utils.threads import invoke_in_main_thread, is_main_thread
 
 
 def run_on_main_thread(func: Callable[..., Any], *args: Any) -> Any:

@@ -5,8 +5,8 @@ This package contains authentication provider implementations:
 - KeycloakAuthProvider: Production OIDC provider using Keycloak
 """
 
-from lucid.auth.providers.base import AuthProvider
-from lucid.auth.providers.local import LocalAuthProvider
+from lightfall.auth.providers.base import AuthProvider
+from lightfall.auth.providers.local import LocalAuthProvider
 
 __all__ = [
     "AuthProvider",
@@ -15,7 +15,7 @@ __all__ = [
 
 # Keycloak provider available if dependencies are installed
 try:
-    from lucid.auth.providers.keycloak import KeycloakAuthProvider  # noqa: F401
+    from lightfall.auth.providers.keycloak import KeycloakAuthProvider  # noqa: F401
 
     __all__.append("KeycloakAuthProvider")
 except ImportError:
@@ -23,7 +23,7 @@ except ImportError:
 
 # PAM provider available on Linux with python-pam installed
 try:
-    from lucid.auth.providers.pam import PamAuthProvider  # noqa: F401
+    from lightfall.auth.providers.pam import PamAuthProvider  # noqa: F401
 
     __all__.append("PamAuthProvider")
 except ImportError:

@@ -11,7 +11,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 
 class AgentPlugin(PluginType):
@@ -25,7 +25,7 @@ class AgentPlugin(PluginType):
     - an in-process MCP server (if create_tools() returns tools), registered
       as mcp_servers[plugin.name] with namespace mcp__<plugin.name>__*.
 
-    See docs/superpowers/specs/2026-04-25-lucid-sdk-native-plugins-design.md.
+    See docs/superpowers/specs/2026-04-25-lightfall-sdk-native-plugins-design.md.
     """
 
     type_name: ClassVar[str] = "agent"

@@ -18,7 +18,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor
 
-from lucid.ui.theme import ThemeManager
+from lightfall.ui.theme import ThemeManager
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget

@@ -18,9 +18,9 @@ from bluesky import plan_stubs as bps
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton
 
-from lucid.acquire.plan_ui import PlanState, PlanUI, plan_with_ui
-from lucid.ui.annotations import DeviceFilter
-from lucid.utils.logging import logger
+from lightfall.acquire.plan_ui import PlanState, PlanUI, plan_with_ui
+from lightfall.ui.annotations import DeviceFilter
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     Motor = Any
@@ -115,8 +115,8 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     proxy_url = None
 
     try:
-        from lucid.core.services import ServiceRegistry
-        from lucid.services.tiled_service import TiledService
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.services.tiled_service import TiledService
         registry = ServiceRegistry.get_instance()
         ts = registry.get(TiledService, None)
         if ts and ts.config:
@@ -125,7 +125,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
         pass
 
     try:
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
         tiled_api_key = SessionManager.get_instance().get_api_key("tiled")
     except Exception:
         pass
@@ -134,7 +134,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     # so the plan is consistent with all other Tiled consumers in LUCID and
     # never sends a proxy URL that isn't actually running.
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
         if tiled_url:
             proxy_url = ProxySettingsProvider.should_use_proxy_for_url(tiled_url)
     except Exception:
@@ -143,10 +143,10 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
     return tiled_url, tiled_api_key, proxy_url
 
 
-def _get_lucid_prefix() -> str:
+def _get_lightfall_prefix() -> str:
     """Pull the NATS topic prefix from LUCID's IPCService."""
     try:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         ipc = get_ipc_service()
         if ipc and ipc._topic_prefix:
             return ipc._topic_prefix
@@ -185,8 +185,8 @@ def adaptive_experiment(
     Yields:
         Bluesky plan messages.
     """
-    from lucid.acquire.nats_bridge import NATSPlanBridge
-    from lucid.ipc.service import get_ipc_service
+    from lightfall.acquire.nats_bridge import NATSPlanBridge
+    from lightfall.ipc.service import get_ipc_service
 
     # Reset module-level state for this run
     _state.stop_requested = False
@@ -197,7 +197,7 @@ def adaptive_experiment(
     if ipc is None:
         raise RuntimeError("NATS not available \u2014 adaptive plan requires IPC")
 
-    lucid_prefix = _get_lucid_prefix()
+    lightfall_prefix = _get_lightfall_prefix()
     experiment_id = str(uuid.uuid4())
 
     bridge = NATSPlanBridge(ipc)
@@ -227,7 +227,7 @@ def adaptive_experiment(
             "tiled_url": tiled_url,
             "tiled_api_key": tiled_api_key,
             "proxy_url": proxy_url,
-            "lucid_prefix": lucid_prefix,
+            "lightfall_prefix": lightfall_prefix,
             "motor_names": [m.name for m in motors],
             "detector_name": (
                 detectors[0].hints.get("fields", [detectors[0].name])[0]
@@ -270,13 +270,13 @@ def adaptive_experiment(
                 yield from bps.trigger_and_read(list(motors) + list(detectors), name="primary")
 
                 if not exhaust_first:
-                    bridge.publish(f"{lucid_prefix}.adaptive.measured", {
+                    bridge.publish(f"{lightfall_prefix}.adaptive.measured", {
                         "iteration": iteration,
                         "n_new_points": 1,
                     })
 
             if exhaust_first and not _state.stop_requested:
-                bridge.publish(f"{lucid_prefix}.adaptive.measured", {
+                bridge.publish(f"{lightfall_prefix}.adaptive.measured", {
                     "iteration": iteration,
                     "n_new_points": len(targets),
                 })

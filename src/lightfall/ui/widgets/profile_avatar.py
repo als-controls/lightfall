@@ -20,11 +20,11 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from lucid.settings.image_helpers import _fetch_qimage
-from lucid.settings.user_settings_client import UserSettingsClient
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.settings.image_helpers import _fetch_qimage
+from lightfall.settings.user_settings_client import UserSettingsClient
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 
 _AVATAR_PX = 28

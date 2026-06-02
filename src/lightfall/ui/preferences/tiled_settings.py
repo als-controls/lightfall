@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -251,7 +251,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         ``.claims`` attribute — the previous code was dead).
         """
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
 
             session = SessionManager.get_instance().session
             if not session or not session.user:
@@ -314,7 +314,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         QCoreApplication.processEvents()
 
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             success, message = service.test_connection(url, api_key, auth_mode=auth_mode)
@@ -408,7 +408,7 @@ class TiledSettingsPlugin(SettingsPlugin):
 
         # Update the TiledService with new configuration
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             service.configure(

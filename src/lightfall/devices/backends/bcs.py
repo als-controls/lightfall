@@ -15,8 +15,8 @@ from uuid import UUID
 
 from loguru import logger
 
-from lucid.devices.base import DeviceBackend
-from lucid.devices.model import (
+from lightfall.devices.base import DeviceBackend
+from lightfall.devices.model import (
     ConnectionType,
     DeviceCategory,
     DeviceConfiguration,

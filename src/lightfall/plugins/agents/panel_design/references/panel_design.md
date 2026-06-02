@@ -16,25 +16,25 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QGroupBox, QTableWidget, QTableWidgetItem,
     QSplitter, QScrollArea, QFrame, QSizePolicy,
 )
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.utils.logging import logger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.utils.logging import logger
 ```
 
 ## user-plugin-architecture
 
 LUCID has two distinct ways to create panel plugins. Understanding which to use is critical.
 
-### User Plugins (~/lucid/plugins/)
+### User Plugins (~/lightfall/plugins/)
 
 **This is what YOU should use.** User plugins directly subclass `BasePanel`:
 
 ```python
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
 
 class MyPanel(BasePanel):
-    panel_metadata = PanelMetadata(id="lucid.panels.user.my_panel", ...)
+    panel_metadata = PanelMetadata(id="lightfall.panels.user.my_panel", ...)
     def _setup_ui(self) -> None: ...
 
 # Self-register at module load time
@@ -52,13 +52,13 @@ Key points:
 Built-in plugins use a **two-layer pattern** you should NOT copy:
 
 ```python
-# File: lucid/ui/panels/plugins/device_plugin.py
+# File: lightfall/ui/panels/plugins/device_plugin.py
 class DevicePanelPlugin(PanelPlugin):  # <-- Plugin wrapper
     def get_panel_class(self) -> type[BasePanel]:
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
         return DevicePanel
 
-# File: lucid/ui/panels/device_panel.py
+# File: lightfall/ui/panels/device_panel.py
 class DevicePanel(BasePanel):  # <-- Actual panel
     panel_metadata = PanelMetadata(...)
 ```
@@ -92,7 +92,7 @@ PanelRegistry.get_instance().register(MyPanel, replace=True)
 ```python
 @dataclass
 class PanelMetadata:
-    id: str                              # Unique ID, e.g., "lucid.panels.user.my_panel"
+    id: str                              # Unique ID, e.g., "lightfall.panels.user.my_panel"
     name: str                            # Display name in menus
     description: str = ""                # Tooltip/help text
     icon: str = ""                       # Icon name (mdi.icon-name or path)
@@ -232,16 +232,16 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QWidget,
 )
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.utils.logging import logger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.utils.logging import logger
 
 
 class MyCustomPanel(BasePanel):
     """A custom panel that shows a greeting."""
 
     panel_metadata = PanelMetadata(
-        id="lucid.panels.user.my_custom",
+        id="lightfall.panels.user.my_custom",
         name="My Custom Panel",
         description="A simple panel showing a personalized greeting",
         icon="mdi.hand-wave",
@@ -343,11 +343,11 @@ PanelRegistry.get_instance().register(MyCustomPanel, replace=True)
 
 ## file-conventions
 
-User plugins are stored in: `~/lucid/plugins/`
+User plugins are stored in: `~/lightfall/plugins/`
 
 Naming conventions:
 - Filename: lowercase with underscores (e.g., `my_panel.py`)
-- Panel ID: `lucid.panels.user.<name>` (e.g., `lucid.panels.user.my_panel`)
+- Panel ID: `lightfall.panels.user.<name>` (e.g., `lightfall.panels.user.my_panel`)
 - Class name: PascalCase ending in Panel (e.g., `MyPanel`)
 
 ## qt-layout-tips
@@ -429,8 +429,8 @@ widget with status dot, readback, jog/abs toggle, setpoint entry, go, and stop.
 It handles ophyd subscription, units, and motion state internally.
 
 ```python
-from lucid.ui.widgets.compact_motor import CompactMotorWidget
-from lucid.devices import DeviceCatalog
+from lightfall.ui.widgets.compact_motor import CompactMotorWidget
+from lightfall.devices import DeviceCatalog
 
 catalog = DeviceCatalog.get_instance()
 info = catalog.get_device_by_name("sample_x")
@@ -441,29 +441,29 @@ self._layout.addWidget(widget)
 The `ophyd_obj` may be `None` initially; call `widget.set_motor(...)` once
 the device finishes connecting (e.g. from `DeviceCatalog.device_connected`).
 
-## lucid-services
+## lightfall-services
 
 ```python
 # Toast notifications
-from lucid.ui.toast import ToastManager
+from lightfall.ui.toast import ToastManager
 toast = ToastManager.get_instance()
 toast.success("Title", "Message")
 toast.error("Title", "Message")
 
 # Theme awareness
-from lucid.ui.theme import ThemeManager
+from lightfall.ui.theme import ThemeManager
 theme_mgr = ThemeManager.get_instance()
 is_dark = theme_mgr.is_dark
 
 # Preferences
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.manager import PreferencesManager
 prefs = PreferencesManager.get_instance()
 value = prefs.get("key", default)
 prefs.set("key", value)
 
 # Device catalog
-from lucid.devices import DeviceCatalog
-from lucid.devices.model import DeviceCategory
+from lightfall.devices import DeviceCatalog
+from lightfall.devices.model import DeviceCategory
 
 catalog = DeviceCatalog.get_instance()
 # list_devices returns DeviceInfo objects
@@ -487,8 +487,8 @@ objects which wrap ophyd devices with metadata and state tracking.
 ### Listing and Searching Devices
 
 ```python
-from lucid.devices import DeviceCatalog
-from lucid.devices.model import DeviceCategory, DeviceInfo
+from lightfall.devices import DeviceCatalog
+from lightfall.devices.model import DeviceCategory, DeviceInfo
 
 catalog = DeviceCatalog.get_instance()
 

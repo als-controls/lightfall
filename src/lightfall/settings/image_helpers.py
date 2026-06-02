@@ -1,4 +1,4 @@
-"""Pure helpers shared across UI code that displays lucid-logbook image
+"""Pure helpers shared across UI code that displays lightfall-logbook image
 artifacts (profile picture, fragment images, etc.).
 
 Keep this module dependency-free of QWidget — it must be safe to import
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QImage
 
 if TYPE_CHECKING:
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 def _fetch_qimage(client: "UserSettingsClient", image_id: str) -> QImage:

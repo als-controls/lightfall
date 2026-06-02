@@ -1,7 +1,7 @@
 """Executor-side Tiled connection helpers.
 
-Used by lucid.exporter. Constructs a ``tiled.client`` with
-:class:`~lucid.auth.service_key_auth.StaticApiKeyAuth` so the executor
+Used by lightfall.exporter. Constructs a ``tiled.client`` with
+:class:`~lightfall.auth.service_key_auth.StaticApiKeyAuth` so the executor
 authenticates with the LUCID session API key it received in the NATS job
 payload.
 """
@@ -13,7 +13,7 @@ from typing import Any
 
 from tiled.client import from_uri
 
-from lucid.auth.service_key_auth import StaticApiKeyAuth
+from lightfall.auth.service_key_auth import StaticApiKeyAuth
 
 logger = logging.getLogger(__name__)
 

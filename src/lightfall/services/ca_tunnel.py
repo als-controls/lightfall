@@ -27,7 +27,7 @@ import struct
 import threading
 from typing import ClassVar
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 # CA protocol constants
 CA_PROTO_SEARCH = 6
@@ -221,7 +221,7 @@ class CATunnelService:
         try:
             user = self._pad(getpass.getuser().encode() + b"\0")
         except Exception:
-            user = self._pad(b"lucid\0")
+            user = self._pad(b"lightfall\0")
         msgs = struct.pack(">HHHHII", 20, len(host), 0, 0, 0, 0) + host
         msgs += struct.pack(">HHHHII", 21, len(user), 0, 0, 0, 0) + user
         return msgs

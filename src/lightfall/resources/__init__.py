@@ -12,7 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 # Cache for loaded pixmaps (path -> pixmap)
 _pixmap_cache: dict[str, QPixmap] = {}

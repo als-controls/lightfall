@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+from lightfall.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
 
 
 def test_dialog_lists_pipelines(qtbot):
@@ -59,7 +59,7 @@ def test_dialog_shows_error_on_submit_exception(qtbot, monkeypatch):
         captured["text"] = text
         return None
 
-    from lucid.ui.dialogs import run_pipeline_dialog as mod
+    from lightfall.ui.dialogs import run_pipeline_dialog as mod
     monkeypatch.setattr(mod.QMessageBox, "critical", fake_critical)
 
     dialog._submit()

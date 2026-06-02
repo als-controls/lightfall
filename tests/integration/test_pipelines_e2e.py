@@ -3,15 +3,15 @@
 Exercises the full chain against live services:
 
   device-flow Keycloak login  -> bcgtiled /auth/apikey  -> JobMessage on
-  local NATS  -> lucid-pipelines executor subprocess   -> papermill on
+  local NATS  -> lightfall-pipelines executor subprocess   -> papermill on
   the passthrough fixture notebook -> Tiled write with merged access
   tags  -> client reads back the derived run.
 
 Skips collection entirely when ``LUCID_INTEGRATION`` is not set or any
-required tooling (nats-server, the lucid-pipelines venv, ipykernel)
+required tooling (nats-server, the lightfall-pipelines venv, ipykernel)
 is missing. The first successful run will print a Keycloak device-flow
 URL to the test output; the minted 7-day key is then cached at
-``~/.cache/lucid-pipelines/integration-key.json`` for subsequent runs.
+``~/.cache/lightfall-pipelines/integration-key.json`` for subsequent runs.
 
 Output runs are tagged ``beamline:test`` so they can be cleaned up out-
 of-band; the test deliberately does not delete them itself to keep the
@@ -43,7 +43,7 @@ if not os.environ.get("LUCID_INTEGRATION"):
 
 try:
     import nats as nats_lib
-    from lucid_pipelines.executor.env_cache import EnvSpec, kernel_name_for
+    from lightfall_pipelines.executor.env_cache import EnvSpec, kernel_name_for
     from tiled.client import from_uri
 except ImportError as _exc:  # pragma: no cover
     pytest.skip(
@@ -77,7 +77,7 @@ KEYCLOAK_CLIENT_ID = os.environ.get(
 # Lucid-pipelines venv with executor + passthrough plugin installed.
 LP_PYTHON = Path(os.environ.get(
     "LUCID_PIPELINES_PYTHON",
-    str(Path.home() / "PycharmProjects" / "lucid-pipelines"
+    str(Path.home() / "PycharmProjects" / "lightfall-pipelines"
         / ".venv" / "Scripts" / "python.exe"),
 ))
 
@@ -121,24 +121,24 @@ def _wait_port(host: str, port: int, timeout: float) -> None:
 def lp_python() -> Path:
     if not LP_PYTHON.exists():
         pytest.skip(
-            f"lucid-pipelines venv python not at {LP_PYTHON}; set "
+            f"lightfall-pipelines venv python not at {LP_PYTHON}; set "
             "LUCID_PIPELINES_PYTHON to override",
         )
     # Sanity-check the venv has everything we need.
     rc = subprocess.run(
-        [str(LP_PYTHON), "-c", "import lucid_pipelines, ipykernel, nats"],
+        [str(LP_PYTHON), "-c", "import lightfall_pipelines, ipykernel, nats"],
         capture_output=True,
     )
     if rc.returncode != 0:
         pytest.skip(
-            f"lucid-pipelines venv missing deps: {rc.stderr.decode()}",
+            f"lightfall-pipelines venv missing deps: {rc.stderr.decode()}",
         )
     return LP_PYTHON
 
 
 @pytest.fixture(scope="session")
 def passthrough_installed(lp_python):
-    """Install the passthrough fixture into the lucid-pipelines venv and
+    """Install the passthrough fixture into the lightfall-pipelines venv and
     register a Jupyter kernel under the executor's expected name."""
     # Editable install so iteration on the fixture is cheap.
     subprocess.check_call(
@@ -210,8 +210,8 @@ def tiled_client(tiled_api_key):
 
 @pytest.fixture(scope="session")
 def executor_proc(nats_server, lp_python, passthrough_installed):
-    """Spawn the lucid-pipelines executor subprocess."""
-    tmp = Path(tempfile.mkdtemp(prefix="lucid_e2e_"))
+    """Spawn the lightfall-pipelines executor subprocess."""
+    tmp = Path(tempfile.mkdtemp(prefix="lightfall_e2e_"))
     notebook_store = tmp / "notebooks"
     env_cache_root = tmp / "envs"
     notebook_store.mkdir()
@@ -229,7 +229,7 @@ def executor_proc(nats_server, lp_python, passthrough_installed):
     hostname = f"e2e-{uuid.uuid4().hex[:8]}"
     proc = subprocess.Popen(
         [
-            str(lp_python), "-m", "lucid_pipelines.cli",
+            str(lp_python), "-m", "lightfall_pipelines.cli",
             "--nats", nats_server,
             "--hostname", hostname,
             "--notebook-store", str(notebook_store),
@@ -271,7 +271,7 @@ async def _ping_executor(nats_url: str, hostname: str) -> None:
     nc = await nats_lib.connect(nats_url)
     try:
         await nc.request(
-            f"lucid.pipeline.{hostname}.list", b"{}", timeout=1,
+            f"lightfall.pipeline.{hostname}.list", b"{}", timeout=1,
         )
     finally:
         await nc.drain()
@@ -347,8 +347,8 @@ async def _run_happy_path(
     tiled_client: Any,
 ) -> None:
     nc = await nats_lib.connect(nats_url)
-    progress_subject = f"lucid.pipeline.{hostname}.progress"
-    job_subject = f"lucid.pipeline.{hostname}"
+    progress_subject = f"lightfall.pipeline.{hostname}.progress"
+    job_subject = f"lightfall.pipeline.{hostname}"
 
     completed: asyncio.Future = asyncio.get_event_loop().create_future()
 

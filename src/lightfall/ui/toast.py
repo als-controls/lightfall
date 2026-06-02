@@ -15,8 +15,8 @@ from pyqttoast import Toast, ToastPosition, ToastPreset
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 
-from lucid.ui.theme import Theme, ThemeManager
-from lucid.utils.logging import logger
+from lightfall.ui.theme import Theme, ThemeManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget

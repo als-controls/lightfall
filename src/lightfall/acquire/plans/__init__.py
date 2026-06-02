@@ -9,8 +9,8 @@ This module provides:
 - UserPlanService: Service for user-defined plans
 """
 
-from lucid.acquire.plans.ncs_plans import rel_scan_1d, scan_1d
-from lucid.acquire.plans.registry import (
+from lightfall.acquire.plans.ncs_plans import rel_scan_1d, scan_1d
+from lightfall.acquire.plans.registry import (
     PLAN_CATEGORY_ICONS,
     ParameterInfo,
     PlanInfo,
@@ -19,7 +19,7 @@ from lucid.acquire.plans.registry import (
     get_registry,
     name_to_display_name,
 )
-from lucid.acquire.plans.user_plans import UserPlanService
+from lightfall.acquire.plans.user_plans import UserPlanService
 
 __all__ = [
     # Registry

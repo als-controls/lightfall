@@ -6,7 +6,7 @@ parameter editor renders inputs for plan functions.
 
 Usage:
     from typing import Annotated
-    from lucid.ui.annotations import Unit, Decimals, Range, DeviceFilter
+    from lightfall.ui.annotations import Unit, Decimals, Range, DeviceFilter
 
     def scan(
         energy: Annotated[float, Unit("eV"), Range(0, 10000)],

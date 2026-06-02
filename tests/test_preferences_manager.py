@@ -28,7 +28,7 @@ def config_manager():
 def _patch_user_settings_client(monkeypatch):
     """Replace UserSettingsClient.get_instance() with a MagicMock so the
     UserPortableBackend can be constructed without real HTTP."""
-    from lucid.settings import user_settings_client as usc_mod
+    from lightfall.settings import user_settings_client as usc_mod
 
     fake = MagicMock()
     fake.set.return_value = None
@@ -44,7 +44,7 @@ def _patch_user_settings_client(monkeypatch):
 
 @pytest.fixture
 def prefs_manager(qapp, config_manager):
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     PreferencesManager.reset()
     mgr = PreferencesManager(config_manager=config_manager)
     yield mgr

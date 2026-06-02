@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.utils.logging import logger
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.auth.session import User
+    from lightfall.auth.session import User
 
 
 class PanelRegistry(QObject):
@@ -39,14 +39,14 @@ class PanelRegistry(QObject):
     Entry Point Registration:
         Plugin panels can be registered via pyproject.toml:
         ```toml
-        [project.entry-points."lucid.panels"]
+        [project.entry-points."lightfall.panels"]
         my_panel = "my_plugin.panels:MyPanel"
         ```
 
     Example:
         >>> registry = PanelRegistry.get_instance()
         >>> registry.register(MyPanel)
-        >>> panel = registry.create("lucid.panels.my_panel")
+        >>> panel = registry.create("lightfall.panels.my_panel")
         >>> available = registry.list_available(user)
     """
 
@@ -144,10 +144,10 @@ class PanelRegistry(QObject):
         count = 0
 
         # Import built-in panels
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
-        from lucid.ui.panels.device_panel import DevicePanel
-        from lucid.ui.panels.documents_panel import DocumentsPanel
-        from lucid.ui.panels.logbook_panel import LogbookPanel
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.documents_panel import DocumentsPanel
+        from lightfall.ui.panels.logbook_panel import LogbookPanel
 
         builtin_panels = [
             LogbookPanel,
@@ -156,12 +156,12 @@ class PanelRegistry(QObject):
             DocumentsPanel,
         ]
 
-        # Try to import Claude panel (lucid.claude)
+        # Try to import Claude panel (lightfall.claude)
         try:
-            from lucid.ui.panels.claude_panel import ClaudePanel
+            from lightfall.ui.panels.claude_panel import ClaudePanel
             builtin_panels.append(ClaudePanel)
         except ImportError:
-            logger.debug("Claude panel not available (lucid.claude not available)")
+            logger.debug("Claude panel not available (lightfall.claude not available)")
 
         for panel_class in builtin_panels:
             try:
@@ -194,11 +194,11 @@ class PanelRegistry(QObject):
 
         try:
             # Python 3.10+ style
-            eps = entry_points(group="lucid.panels")
+            eps = entry_points(group="lightfall.panels")
         except TypeError:
             # Fallback for older Python
             all_eps = entry_points()
-            eps = all_eps.get("lucid.panels", [])
+            eps = all_eps.get("lightfall.panels", [])
 
         for ep in eps:
             try:

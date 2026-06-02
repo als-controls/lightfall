@@ -9,14 +9,14 @@ This package provides:
 - DeviceMetricsCollector: Device monitoring and health tracking
 """
 
-from lucid.devices.base import DeviceBackend
-from lucid.devices.catalog import DeviceCatalog
-from lucid.devices.connection_manager import (
+from lightfall.devices.base import DeviceBackend
+from lightfall.devices.catalog import DeviceCatalog
+from lightfall.devices.connection_manager import (
     ConnectionResult,
     ConnectionState,
     DeviceConnectionManager,
 )
-from lucid.devices.model import (
+from lightfall.devices.model import (
     ConnectionType,
     DeviceCategory,
     DeviceConfiguration,
@@ -26,7 +26,7 @@ from lucid.devices.model import (
     DeviceStatus,
     MaintenanceRecord,
 )
-from lucid.devices.monitoring import DeviceHealth, DeviceMetric, DeviceMetricsCollector
+from lightfall.devices.monitoring import DeviceHealth, DeviceMetric, DeviceMetricsCollector
 
 __all__ = [
     # Catalog

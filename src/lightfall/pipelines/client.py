@@ -1,4 +1,4 @@
-"""PipelineClient - LUCID-side client for the lucid-pipelines NATS service.
+"""PipelineClient - LUCID-side client for the lightfall-pipelines NATS service.
 
 Responsibilities:
 - Read the cached Tiled API key from SessionManager (auth-v2 minted at login).
@@ -18,14 +18,14 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 if TYPE_CHECKING:
-    from lucid.auth.service_key import MintedKey
+    from lightfall.auth.service_key import MintedKey
 
 
 class PipelineClient(QObject):
-    """In-process LUCID client; pairs 1:1 with a running `lucid-pipelines` executor.
+    """In-process LUCID client; pairs 1:1 with a running `lightfall-pipelines` executor.
 
     `host` is the executor hostname; subjects are built as
-    `lucid.pipeline.{host}[.suffix]`.
+    `lightfall.pipeline.{host}[.suffix]`.
     """
 
     sigJobQueued = Signal(dict)
@@ -54,15 +54,15 @@ class PipelineClient(QObject):
 
     @property
     def _submit_subject(self) -> str:
-        return f"lucid.pipeline.{self._host}"
+        return f"lightfall.pipeline.{self._host}"
 
     @property
     def _list_subject(self) -> str:
-        return f"lucid.pipeline.{self._host}.list"
+        return f"lightfall.pipeline.{self._host}.list"
 
     @property
     def _progress_subject(self) -> str:
-        return f"lucid.pipeline.{self._host}.progress"
+        return f"lightfall.pipeline.{self._host}.progress"
 
     # -- public API --------------------------------------------------------
 
@@ -110,7 +110,7 @@ class PipelineClient(QObject):
             "pipeline": pipeline,
             "parameters": parameters,
             "user_id": user_id,
-            "requested_by": f"lucid@{socket.gethostname()}",
+            "requested_by": f"lightfall@{socket.gethostname()}",
             "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
 

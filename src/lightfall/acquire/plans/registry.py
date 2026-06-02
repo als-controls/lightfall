@@ -524,7 +524,7 @@ def create_default_registry() -> PlanRegistry:
 
     # Register NCS wrapper plans (typed alternatives to raw bluesky builtins)
     try:
-        from lucid.acquire.plans.ncs_plans import register_ncs_plans
+        from lightfall.acquire.plans.ncs_plans import register_ncs_plans
 
         register_ncs_plans(registry)
         logger.info(f"Registered {len(registry)} NCS plans")

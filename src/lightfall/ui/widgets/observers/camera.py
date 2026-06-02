@@ -1,6 +1,6 @@
 """Observer-camera abstraction for non-ophyd hardware (e.g., GigE Vision).
 
-For ophyd-backed area detectors, see lucid.ui.widgets.camera (the ophyd-flavored peer).
+For ophyd-backed area detectors, see lightfall.ui.widgets.camera (the ophyd-flavored peer).
 """
 from __future__ import annotations
 

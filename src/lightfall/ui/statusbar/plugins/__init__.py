@@ -11,12 +11,12 @@ Provides the default status bar indicators:
 
 from __future__ import annotations
 
-from lucid.ui.statusbar.plugins.als_beam_status import ALSBeamStatusPlugin
-from lucid.ui.statusbar.plugins.auth_status import AuthStatusPlugin
-from lucid.ui.statusbar.plugins.connection_status import ConnectionStatusPlugin
-from lucid.ui.statusbar.plugins.thread_status import ThreadStatusPlugin
-from lucid.ui.statusbar.plugins.tiled_status import TiledStatusPlugin
-from lucid.ui.statusbar.plugins.user_status import UserStatusPlugin
+from lightfall.ui.statusbar.plugins.als_beam_status import ALSBeamStatusPlugin
+from lightfall.ui.statusbar.plugins.auth_status import AuthStatusPlugin
+from lightfall.ui.statusbar.plugins.connection_status import ConnectionStatusPlugin
+from lightfall.ui.statusbar.plugins.thread_status import ThreadStatusPlugin
+from lightfall.ui.statusbar.plugins.tiled_status import TiledStatusPlugin
+from lightfall.ui.statusbar.plugins.user_status import UserStatusPlugin
 
 __all__ = [
     "UserStatusPlugin",

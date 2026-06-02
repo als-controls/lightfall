@@ -130,16 +130,16 @@ def init_sentry(
 def _get_release_version() -> str | None:
     """Get the application release version."""
     try:
-        from lucid._version import __version__
+        from lightfall._version import __version__
 
-        return f"lucid@{__version__}"
+        return f"lightfall@{__version__}"
     except ImportError:
         pass
 
     try:
         from importlib.metadata import version
 
-        return f"lucid@{version('lucid')}"
+        return f"lightfall@{version('lightfall')}"
     except Exception:
         pass
 
@@ -158,10 +158,10 @@ def _get_proxy_for_sentry(dsn: str) -> str | None:
     Returns:
         Proxy URL if configured, None otherwise.
     """
-    from lucid.utils.logging import logger
+    from lightfall.utils.logging import logger
 
     try:
-        from lucid.ui.preferences.proxy_settings import ProxySettingsProvider
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
         proxy_url = ProxySettingsProvider.should_use_proxy_for_url(dsn)
         if proxy_url:
@@ -323,8 +323,8 @@ def _is_from_bluesky_plan(tb: Any) -> bool:
         # Check for bluesky package frames (plan execution internals)
         if "/bluesky/" in filename or "\\bluesky\\" in filename:
             return True
-        # Check for user plans in lucid
-        if "/lucid/acquire/plans/" in filename or "\\lucid\\acquire\\plans\\" in filename:
+        # Check for user plans in lightfall
+        if "/lightfall/acquire/plans/" in filename or "\\lightfall\\acquire\\plans\\" in filename:
             return True
 
     return False
@@ -600,7 +600,7 @@ def sentry_slot(*args, **kwargs):
 
     Example::
 
-        from lucid.utils.sentry import sentry_slot
+        from lightfall.utils.sentry import sentry_slot
 
         class MyWidget(QWidget):
             @sentry_slot()
@@ -623,7 +623,7 @@ def sentry_slot(*args, **kwargs):
 
     from PySide6.QtCore import Slot
 
-    from lucid.utils.logging import logger
+    from lightfall.utils.logging import logger
 
     def decorator(func):
         @wraps(func)

@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
@@ -48,7 +48,7 @@ RESERVED_FIELDS = frozenset(
     }
 )
 
-_SETTINGS_KEY = "lucid.dialogs.sample_metadata.v1"
+_SETTINGS_KEY = "lightfall.dialogs.sample_metadata.v1"
 
 # Default values per type for new ScalableGroup children.
 _DEFAULT_VALUES: dict[str, Any] = {
@@ -251,7 +251,7 @@ class SampleMetadataDialog(LucidDialog):
         (including when Tiled is unavailable).
         """
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             if not service.is_connected or service._client is None:

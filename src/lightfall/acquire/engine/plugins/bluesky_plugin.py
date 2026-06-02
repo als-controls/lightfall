@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.plugins.engine_plugin import EnginePlugin
+from lightfall.plugins.engine_plugin import EnginePlugin
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import BaseEngine
+    from lightfall.acquire.engine.base import BaseEngine
 
 
 class BlueskyEnginePlugin(EnginePlugin):
@@ -51,6 +51,6 @@ class BlueskyEnginePlugin(EnginePlugin):
         Returns:
             A new BlueskyEngine instance.
         """
-        from lucid.acquire.engine.bluesky import BlueskyEngine
+        from lightfall.acquire.engine.bluesky import BlueskyEngine
 
         return BlueskyEngine(**kwargs)

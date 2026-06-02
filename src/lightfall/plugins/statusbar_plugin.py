@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QToolButton
 
-from lucid.plugins.types import PluginType
+from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
@@ -30,7 +30,7 @@ class StatusBarPluginMetadata:
     """Metadata for a status bar plugin.
 
     Attributes:
-        id: Unique identifier (e.g., "lucid.statusbar.user").
+        id: Unique identifier (e.g., "lightfall.statusbar.user").
         name: Human-readable display name.
         description: Description of what the indicator shows.
         priority: Sort order (lower = further left in status bar).
@@ -82,7 +82,7 @@ class StatusBarPlugin(PluginType):
 
         class MyStatusPlugin(StatusBarPlugin):
             metadata = StatusBarPluginMetadata(
-                id="lucid.statusbar.my_status",
+                id="lightfall.statusbar.my_status",
                 name="My Status",
                 priority=50,
             )

@@ -10,13 +10,13 @@ import numpy as np
 from ophyd import Component, Device
 from ophyd.status import Status
 
-from lucid.devices.sim.generators import (
+from lightfall.devices.sim.generators import (
     AnimatedPatternGenerator,
     ImageGenerator,
     MotorResponsiveGenerator,
     StaticPatternGenerator,
 )
-from lucid.devices.sim.plugins import (
+from lightfall.devices.sim.plugins import (
     SimCam,
     SimImagePlugin,
     SimROIPlugin,

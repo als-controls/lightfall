@@ -11,7 +11,7 @@ This allows modifying plugins without reinstalling packages.
 Example manifest in a plugin package::
 
     # my_beamline/manifest.py
-    from lucid.plugins import PluginManifest, PluginEntry
+    from lightfall.plugins import PluginManifest, PluginEntry
 
     manifest = PluginManifest(
         name="beamline-7.0.1.1",
@@ -23,7 +23,7 @@ Example manifest in a plugin package::
 
 Entry point in pyproject.toml::
 
-    [project.entry-points."lucid.plugins"]
+    [project.entry-points."lightfall.plugins"]
     my_beamline = "my_beamline.manifest:manifest"
 
 Plugin Types
@@ -35,7 +35,7 @@ that plugins must implement:
 
 Example plan plugin::
 
-    from lucid.plugins import PlanPlugin
+    from lightfall.plugins import PlanPlugin
 
     class MyScanPlan(PlanPlugin):
         @property
@@ -53,8 +53,8 @@ Usage
 -----
 The plugin system is typically used via the ServiceRegistry::
 
-    from lucid.core.services import ServiceRegistry
-    from lucid.plugins import PluginRegistry, PluginLoader, PlanPlugin
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.plugins import PluginRegistry, PluginLoader, PlanPlugin
 
     services = ServiceRegistry.get_instance()
 
@@ -76,8 +76,8 @@ The plugin system is typically used via the ServiceRegistry::
     loader.start_loading()  # Background loading
 """
 
-from lucid.plugins.controller_plugin import ControllerPlugin
-from lucid.plugins.errors import (
+from lightfall.plugins.controller_plugin import ControllerPlugin
+from lightfall.plugins.errors import (
     PluginError,
     PluginInitError,
     PluginLoadError,
@@ -85,15 +85,15 @@ from lucid.plugins.errors import (
     PluginStatus,
     PluginTypeNotFoundError,
 )
-from lucid.plugins.info import PluginInfo
-from lucid.plugins.loader import PluginLoader
-from lucid.plugins.manifest import PluginEntry, PluginManifest
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.panel_plugin import PanelPlugin
-from lucid.plugins.plan_plugin import PlanPlugin
-from lucid.plugins.registry import PluginRegistry
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.plugins.types import PluginType
+from lightfall.plugins.info import PluginInfo
+from lightfall.plugins.loader import PluginLoader
+from lightfall.plugins.manifest import PluginEntry, PluginManifest
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.registry import PluginRegistry
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.plugins.types import PluginType
 
 __all__ = [
     # Core classes

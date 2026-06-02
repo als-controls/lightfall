@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 
-from lucid.ui.annotations import DeviceFilter, Range, Unit
+from lightfall.ui.annotations import DeviceFilter, Range, Unit
 
 if TYPE_CHECKING:
     pass
@@ -87,7 +87,7 @@ def _resolve_target_field(
     if target_field in available:
         return target_field
 
-    from lucid.utils.logging import logger
+    from lightfall.utils.logging import logger
 
     for suffix in ("_val", "_value", "_intensity"):
         candidate = f"{target_field}{suffix}"
@@ -524,7 +524,7 @@ def tune_centroid_2d(
 
 def _register(registry, name, func, category, display_name, icon):
     """Helper to register a plan with display metadata."""
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
 
     plan_info = PlanInfo.from_function(name=name, func=func, category=category)
     plan_info.display_name = display_name
@@ -577,11 +577,11 @@ def register_ncs_plans(registry) -> None:
 
     # Adaptive experiment (Tsuchinoko coordination)
     try:
-        from lucid.acquire.plans.adaptive import adaptive_experiment
+        from lightfall.acquire.plans.adaptive import adaptive_experiment
 
         registry.register(
             "adaptive_experiment", adaptive_experiment, category="scan"
         )
     except ImportError as e:
-        from lucid.utils.logging import logger
+        from lightfall.utils.logging import logger
         logger.debug(f"Could not register adaptive_experiment: {e}")

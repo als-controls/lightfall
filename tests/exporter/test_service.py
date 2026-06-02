@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lucid.exporter.service import ExporterService
+from lightfall.exporter.service import ExporterService
 
 
 class TestExporterService:
@@ -19,9 +19,9 @@ class TestExporterService:
 
     def test_subject_names(self):
         svc = ExporterService(nats_url="nats://localhost:4222", hostname="tsuru")
-        assert svc.job_subject == "lucid.export.tsuru"
-        assert svc.ping_subject == "lucid.export.tsuru.ping"
-        assert svc.progress_subject == "lucid.export.tsuru.progress"
+        assert svc.job_subject == "lightfall.export.tsuru"
+        assert svc.ping_subject == "lightfall.export.tsuru.ping"
+        assert svc.progress_subject == "lightfall.export.tsuru.progress"
 
 
 class TestJobDispatch:

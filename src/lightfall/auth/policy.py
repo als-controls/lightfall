@@ -12,12 +12,12 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from lucid.auth.session import User
+    from lightfall.auth.session import User
 
 
 class Permission(Enum):
