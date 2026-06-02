@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lucid"
+name = "lightfall"
 dynamic = ["version"]
 description = "LUCID - Lightsource Unified Control Interface Dashboard"
 readme = "README.md"
@@ -17,7 +17,7 @@ keywords = [
     "data-acquisition",
     "scientific-instruments",
     "beamline",
-    "lucid",
+    "lightfall",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -85,16 +85,16 @@ docs = [
 ]
 
 [project.scripts]
-lucid = "lucid.main:cli"
-lucid-exporter = "lucid.exporter.cli:main"
+lightfall = "lightfall.main:cli"
+lightfall-exporter = "lightfall.exporter.cli:main"
 
 [project.gui-scripts]
-lucid-gui = "lucid.main:cli"
+lightfall-gui = "lightfall.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/als-computing/lucid"
-Documentation = "https://als-computing.github.io/lucid"
-Repository = "https://github.com/als-computing/lucid"
+Homepage = "https://github.com/als-computing/lightfall"
+Documentation = "https://als-computing.github.io/lightfall"
+Repository = "https://github.com/als-computing/lightfall"
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -104,7 +104,7 @@ source = "vcs"
 fallback-version = "0.0.0.dev0"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/lucid/_version.py"
+version-file = "src/lightfall/_version.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -112,10 +112,10 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lucid"]
+packages = ["src/lightfall"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/lucid/ui/resources/logo.png" = "lucid/ui/resources/logo.png"
+"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"
 
 [tool.ruff]
 line-length = 100
@@ -136,7 +136,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["lucid"]
+known-first-party = ["lightfall"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -154,7 +154,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/lucid"]
+source = ["src/lightfall"]
 branch = true
 
 [tool.coverage.report]
@@ -176,13 +176,13 @@ url = "https://als.lbl.gov"
 author = "ALS Controls Team"
 author_email = "controls@lbl.gov"
 
-[tool.briefcase.app.lucid]
-formal_name = "LUCID"
+[tool.briefcase.app.lightfall]
+formal_name = "Lightfall"
 description = "Advanced Light Source Control System"
 long_description = """LUCID is a modern, unified control system for scientific
 data acquisition and hardware controls at the Advanced Light Source facility."""
-icon = "resources/lucid"
-sources = ["src/lucid"]
+icon = "resources/lightfall"
+sources = ["src/lightfall"]
 requires = [
     # Core UI
     "PySide6>=6.6",
@@ -233,12 +233,12 @@ requires = [
     "claude-agent-sdk>=0.2.82",
 ]
 
-[tool.briefcase.app.lucid.macOS]
+[tool.briefcase.app.lightfall.macOS]
 requires = []
 
-[tool.briefcase.app.lucid.windows]
+[tool.briefcase.app.lightfall.windows]
 requires = []
 
-[tool.briefcase.app.lucid.linux]
+[tool.briefcase.app.lightfall.linux]
 requires = []
 system_requires = []
