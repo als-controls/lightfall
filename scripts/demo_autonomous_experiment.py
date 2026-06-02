@@ -72,10 +72,10 @@ try:
     # started during app boot. For a headless smoke test we instantiate
     # directly. If IPCService gains a `from_config()` / `start_headless()`
     # convenience later, prefer that.
-    from lucid.ipc.service import IPCService
+    from lightfall.ipc.service import IPCService
     ipc = IPCService(
         nats_url="nats://localhost:4222",
-        topic_prefix="lucid-demo",
+        topic_prefix="lightfall-demo",
         # TODO: wire any other constructor args the current IPCService
         # signature requires (auth token, TLS config, etc.). Check
         # `IPCService.__init__` and pass the smoke-test equivalents.
@@ -124,7 +124,7 @@ try:
 
     det = SynSignal(name="det", func=_det_func)
 
-    from lucid.acquire.plans.adaptive import adaptive_experiment
+    from lightfall.acquire.plans.adaptive import adaptive_experiment
     RE = RunEngine({})
     print("       Running adaptive_experiment plan (timeout=30s)...")
     RE(adaptive_experiment(detectors=[det], motors=[m1, m2], timeout=30.0))
@@ -135,7 +135,7 @@ try:
     print("[5/5] Checking Tiled adaptive stream...")
     # TODO: source the Tiled URL the same way LUCID does at runtime. Two
     # options to wire here:
-    #   a) Pull from lucid settings (lucid.ui.preferences.tiled_settings or
+    #   a) Pull from lightfall settings (lightfall.ui.preferences.tiled_settings or
     #      similar) and use tiled.client.from_uri with whatever auth LUCID
     #      currently sends.
     #   b) Accept an env var like LUCID_TILED_URL and skip auth (only

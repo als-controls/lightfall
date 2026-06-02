@@ -1,14 +1,14 @@
-# Lightfall → Lightfall Rebrand Implementation Plan
+# LUCID → Lightfall Rebrand Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename the product "Lightfall" to "Lightfall" across all of its repositories — code identifiers, directories, and GitLab project paths — while keeping "NCS" as the GitLab group/initiative name and dropping the old acronym expansion.
+**Goal:** Rename the product "LUCID" to "Lightfall" across all of its repositories — code identifiers, directories, and GitLab project paths — while keeping "NCS" as the GitLab group/initiative name and dropping the old acronym expansion.
 
-**Architecture:** Approach A — one atomic coordinated sweep. The core distribution (`lightfall` → `lightfall`), its plugin-discovery entry-point group (`lightfall.plugins` → `lightfall.plugins`), and every dependent plugin flip together in a single pass so plugin discovery never breaks. Renames use `git mv` to preserve history; bulk identifier changes use guarded `sed` sweeps; non-mechanical points (entry-point group constant, display strings, data-dir migration, logos, pyproject metadata) get targeted edits. GitLab projects are renamed server-side via API last, after local verification.
+**Architecture:** Approach A — one atomic coordinated sweep. The core distribution (`lucid` → `lightfall`), its plugin-discovery entry-point group (`lucid.plugins` → `lightfall.plugins`), and every dependent plugin flip together in a single pass so plugin discovery never breaks. Renames use `git mv` to preserve history; bulk identifier changes use guarded `sed` sweeps; non-mechanical points (entry-point group constant, display strings, data-dir migration, logos, pyproject metadata) get targeted edits. GitLab projects are renamed server-side via API last, after local verification.
 
 **Tech Stack:** Python (hatch + hatch-vcs), `importlib.metadata` entry points, PySide6, pytest; reveal.js decks; LaTeX paper; GitLab REST API v4 over a SOCKS proxy (`localhost:1080`).
 
-**Spec:** `docs/superpowers/specs/2026-06-02-lightfall-to-lightfall-rebrand-design.md`
+**Spec:** `docs/superpowers/specs/2026-06-02-lucid-to-lightfall-rebrand-design.md`
 
 ---
 
@@ -18,22 +18,22 @@
 - **Branch:** in every repo, work on `rebrand/lightfall` (the core repo `ncs/ncs` is already on it).
 - **Never touch:** `.venv/`, `.venv-linux/`, `build/`, `dist/`, `*.egg-info/`, `.mypy_cache/`, `__pycache__/`, `_version.py` (hatch-vcs generated), `.git/`.
 - **Intentional retained literals (do NOT rename):**
-  - `client_id` default `"Lightfall"` in `src/lightfall/config/schema.py`.
-  - Sentry `project_name = "Lightfall"` in `pyproject.toml` `[tool.sentry]`/config.
-  - `lightfall-pipelines` / `lightfall_pipelines.pipeline` (separate, uncloned framework — only in `lightfall-endstation-7011`).
-- **Case handling:** a lowercase substring sweep of `lightfall` → `lightfall` correctly covers `lightfall`, `lightfall_x` (snake), `lightfall-x` (kebab), and `lightfall.plugins` (dotted). Uppercase `Lightfall` is handled by *targeted* edits only (never blanket-swept), so the retained `"Lightfall"` literals survive.
+  - `client_id` default `"LUCID"` in `src/lucid/config/schema.py`.
+  - Sentry `project_name = "LUCID"` in `pyproject.toml` `[tool.sentry]`/config.
+  - `lucid-pipelines` / `lucid_pipelines.pipeline` (separate, uncloned framework — only in `lucid-endstation-7011`).
+- **Case handling:** a lowercase substring sweep of `lucid` → `lightfall` correctly covers `lucid`, `lucid_x` (snake), `lucid-x` (kebab), and `lucid.plugins` (dotted). Uppercase `LUCID` is handled by *targeted* edits only (never blanket-swept), so the retained `"LUCID"` literals survive.
 - **Reusable sweep helper** (used by multiple tasks below):
 
 ```bash
-# lightfall_sweep <dir> : lowercase substring rename across text sources, excluding generated/binary
-lightfall_sweep() {
+# lucid_sweep <dir> : lowercase substring rename across text sources, excluding generated/binary
+lucid_sweep() {
   local root="$1"
   grep -rIl --exclude-dir={.git,.venv,.venv-linux,build,dist,.mypy_cache,__pycache__} \
     --include='*.py' --include='*.toml' --include='*.cfg' --include='*.ini' \
     --include='*.md' --include='*.txt' --include='*.json' --include='*.yml' --include='*.yaml' \
     --include='*.desktop' --include='*.html' --include='*.tex' --include='*.bib' --include='Makefile' \
-    'lightfall' "$root" | grep -v '_version.py' | while read -r f; do
-      sed -i 's/lightfall/lightfall/g' "$f"
+    'lucid' "$root" | grep -v '_version.py' | while read -r f; do
+      sed -i 's/lucid/lightfall/g' "$f"
   done
 }
 ```
@@ -42,30 +42,30 @@ lightfall_sweep() {
 
 ---
 
-## Phase 1 — Core (`ncs/ncs`, distribution `lightfall` → `lightfall`)
+## Phase 1 — Core (`ncs/ncs`, distribution `lucid` → `lightfall`)
 
 Working dir: `/c/Users/rp/PycharmProjects/ncs/ncs` (already on branch `rebrand/lightfall`).
 
 ### Task 1: Rename the package directory (history-preserving)
 
-**Files:** Move `src/lightfall/` → `src/lightfall/`
+**Files:** Move `src/lucid/` → `src/lightfall/`
 
 - [ ] **Step 1: Move the package with git**
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git mv src/lightfall src/lightfall
+git mv src/lucid src/lightfall
 ```
 
 - [ ] **Step 2: Verify the move staged cleanly**
 
 Run: `git status --short | head`
-Expected: renames `R  src/lightfall/... -> src/lightfall/...` (no `D`/`A` churn for unchanged files).
+Expected: renames `R  src/lucid/... -> src/lightfall/...` (no `D`/`A` churn for unchanged files).
 
 - [ ] **Step 3: Commit the bare move (keeps history readable)**
 
 ```bash
-git commit -q -m "refactor: git mv src/lightfall -> src/lightfall (no content change)"
+git commit -q -m "refactor: git mv src/lucid -> src/lightfall (no content change)"
 ```
 
 ### Task 2: Sweep import paths and identifiers in source + tests
@@ -76,24 +76,24 @@ git commit -q -m "refactor: git mv src/lightfall -> src/lightfall (no content ch
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-lightfall_sweep src/lightfall
-lightfall_sweep tests
+lucid_sweep src/lightfall
+lucid_sweep tests
 ```
 
-- [ ] **Step 2: Re-protect the intentional `"Lightfall"` literals were untouched**
+- [ ] **Step 2: Re-protect the intentional `"LUCID"` literals were untouched**
 
-Run: `grep -rn '"Lightfall"' src/lightfall/config/schema.py`
-Expected: `client_id` default still reads `"Lightfall"` (uppercase sweep was never run, so this is intact). If absent, restore it.
+Run: `grep -rn '"LUCID"' src/lightfall/config/schema.py`
+Expected: `client_id` default still reads `"LUCID"` (uppercase sweep was never run, so this is intact). If absent, restore it.
 
-- [ ] **Step 3: Verify no stray lowercase `lightfall` import remains**
+- [ ] **Step 3: Verify no stray lowercase `lucid` import remains**
 
-Run: `grep -rn 'lightfall' src/lightfall tests --include='*.py' | grep -v '"Lightfall"\|_version.py'`
+Run: `grep -rn 'lucid' src/lightfall tests --include='*.py' | grep -v '"LUCID"\|_version.py'`
 Expected: no matches (empty output).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A && git commit -q -m "refactor: rewrite lightfall -> lightfall imports/identifiers in src+tests"
+git add -A && git commit -q -m "refactor: rewrite lucid -> lightfall imports/identifiers in src+tests"
 ```
 
 ### Task 3: Update `pyproject.toml`
@@ -104,48 +104,48 @@ git add -A && git commit -q -m "refactor: rewrite lightfall -> lightfall imports
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-sed -i 's/lightfall/lightfall/g' pyproject.toml
+sed -i 's/lucid/lightfall/g' pyproject.toml
 ```
 
-- [ ] **Step 2: Restore the Sentry project name (must stay `"Lightfall"`)**
+- [ ] **Step 2: Restore the Sentry project name (must stay `"LUCID"`)**
 
 Find the Sentry project_name line and set it back:
 
 ```bash
-sed -i 's/project_name = "Lightfall"/project_name = "Lightfall"/' pyproject.toml
+sed -i 's/project_name = "Lightfall"/project_name = "LUCID"/' pyproject.toml
 ```
 
 - [ ] **Step 3: Verify the manifest reads correctly**
 
 Run: `grep -nE 'name =|\[project.scripts\]|gui-scripts|version-file|packages =|known-first-party|briefcase.app|formal_name|icon|project_name|force-include|Homepage|Repository' pyproject.toml`
-Expected: `name = "lightfall"`; scripts `lightfall`, `lightfall-exporter`; `lightfall-gui`; `version-file = "src/lightfall/_version.py"`; `packages = ["src/lightfall"]`; `known-first-party = ["lightfall"]`; `[tool.briefcase.app.lightfall]`; `formal_name = "Lightfall"`; `icon = "resources/lightfall"`; force-include `"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"`; **`project_name = "Lightfall"`** (retained); URLs now `.../lightfall`.
+Expected: `name = "lightfall"`; scripts `lightfall`, `lightfall-exporter`; `lightfall-gui`; `version-file = "src/lightfall/_version.py"`; `packages = ["src/lightfall"]`; `known-first-party = ["lightfall"]`; `[tool.briefcase.app.lightfall]`; `formal_name = "Lightfall"`; `icon = "resources/lightfall"`; force-include `"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"`; **`project_name = "LUCID"`** (retained); URLs now `.../lightfall`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add pyproject.toml && git commit -q -m "build: rename distribution lightfall -> lightfall; keep Sentry project_name"
+git add pyproject.toml && git commit -q -m "build: rename distribution lucid -> lightfall; keep Sentry project_name"
 ```
 
 ### Task 4: Flip the plugin-discovery entry-point group
 
 **Files:** Modify `src/lightfall/plugins/loader.py` (the `ENTRY_POINT_GROUP` constant + docstring), and docstring examples in `src/lightfall/plugins/manifest.py` and `src/lightfall/plugins/__init__.py`.
 
-> Note: the Task-2 sweep already turned `"lightfall.plugins"` into `"lightfall.plugins"` everywhere. This task **verifies** the critical constant rather than editing blindly.
+> Note: the Task-2 sweep already turned `"lucid.plugins"` into `"lightfall.plugins"` everywhere. This task **verifies** the critical constant rather than editing blindly.
 
 - [ ] **Step 1: Verify the entry-point group constant flipped**
 
 Run: `grep -rn 'ENTRY_POINT_GROUP\|entry-points."' src/lightfall/plugins/loader.py src/lightfall/plugins/manifest.py src/lightfall/plugins/__init__.py`
 Expected: `ENTRY_POINT_GROUP = "lightfall.plugins"` and all docstring examples read `[project.entry-points."lightfall.plugins"]`.
 
-- [ ] **Step 2: Confirm no `lightfall.plugins` group string survives anywhere**
+- [ ] **Step 2: Confirm no `lucid.plugins` group string survives anywhere**
 
-Run: `grep -rn 'lightfall.plugins' src/lightfall`
+Run: `grep -rn 'lucid.plugins' src/lightfall`
 Expected: no matches.
 
 - [ ] **Step 3: Commit (only if Step 1/2 required a fix; otherwise skip)**
 
 ```bash
-git add -A && git commit -q -m "refactor: plugin entry-point group lightfall.plugins -> lightfall.plugins"
+git add -A && git commit -q -m "refactor: plugin entry-point group lucid.plugins -> lightfall.plugins"
 ```
 
 ### Task 5: Rename icon/desktop/logo resources
@@ -156,16 +156,16 @@ git add -A && git commit -q -m "refactor: plugin entry-point group lightfall.plu
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git mv resources/lightfall.icns resources/lightfall.icns
-git mv resources/lightfall.ico  resources/lightfall.ico
-git mv resources/lightfall.png  resources/lightfall.png
-git mv resources/gov.lbl.als.lightfall.desktop resources/gov.lbl.als.lightfall.desktop
+git mv resources/lucid.icns resources/lightfall.icns
+git mv resources/lucid.ico  resources/lightfall.ico
+git mv resources/lucid.png  resources/lightfall.png
+git mv resources/gov.lbl.als.lucid.desktop resources/gov.lbl.als.lightfall.desktop
 ```
 
 - [ ] **Step 2: Verify the desktop file's internal fields were swept (Task 3 covers `*.desktop`)**
 
-Run: `grep -niE 'name|exec|icon|lightfall|lightfall' resources/gov.lbl.als.lightfall.desktop`
-Expected: `Exec`/`Icon`/`Name` reference `lightfall`; no `lightfall` remains.
+Run: `grep -niE 'name|exec|icon|lucid|lightfall' resources/gov.lbl.als.lightfall.desktop`
+Expected: `Exec`/`Icon`/`Name` reference `lightfall`; no `lucid` remains.
 
 - [ ] **Step 3: Replace the in-app wordmark logo with the new Lightfall logo**
 
@@ -186,21 +186,21 @@ git add -A && git commit -q -m "assets: rename app icons/desktop to lightfall; s
 - [ ] **Step 1: Change the Qt application name only**
 
 ```bash
-sed -i 's/setApplicationName("Lightfall")/setApplicationName("Lightfall")/' src/lightfall/core/application.py
+sed -i 's/setApplicationName("LUCID")/setApplicationName("Lightfall")/' src/lightfall/core/application.py
 ```
 
-- [ ] **Step 2: Verify the two retained `"Lightfall"` literals are still present and untouched**
+- [ ] **Step 2: Verify the two retained `"LUCID"` literals are still present and untouched**
 
-Run: `grep -rn '"Lightfall"' src/lightfall`
+Run: `grep -rn '"LUCID"' src/lightfall`
 Expected: exactly the `client_id` default in `config/schema.py` (and any Sentry usage that reads the kept project name). The `setApplicationName` line now reads `"Lightfall"`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A && git commit -q -m "feat: display application name as Lightfall (keep Lightfall OIDC client_id)"
+git add -A && git commit -q -m "feat: display application name as Lightfall (keep LUCID OIDC client_id)"
 ```
 
-### Task 7: First-launch data-dir migration `~/lightfall` → `~/lightfall` (TDD)
+### Task 7: First-launch data-dir migration `~/lucid` → `~/lightfall` (TDD)
 
 **Files:**
 - Create: `src/lightfall/utils/data_migration.py`
@@ -219,7 +219,7 @@ from lightfall.utils.data_migration import migrate_legacy_data_dir
 
 def test_migrates_when_only_legacy_exists(tmp_path):
     home = tmp_path
-    legacy = home / "lightfall"
+    legacy = home / "lucid"
     legacy.mkdir()
     (legacy / "plans").mkdir()
     (legacy / "plans" / "scan.py").write_text("# plan")
@@ -233,13 +233,13 @@ def test_migrates_when_only_legacy_exists(tmp_path):
 
 def test_no_op_when_new_exists(tmp_path):
     home = tmp_path
-    (home / "lightfall").mkdir()
+    (home / "lucid").mkdir()
     (home / "lightfall").mkdir()
 
     moved = migrate_legacy_data_dir(home)
 
     assert moved is False
-    assert (home / "lightfall").exists()  # left untouched; new dir wins
+    assert (home / "lucid").exists()  # left untouched; new dir wins
 
 
 def test_no_op_when_nothing_exists(tmp_path):
@@ -255,7 +255,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.utils.data_m
 
 ```python
 # src/lightfall/utils/data_migration.py
-"""One-time migration of the user data directory from the legacy Lightfall name."""
+"""One-time migration of the user data directory from the legacy LUCID name."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -264,13 +264,13 @@ from loguru import logger
 
 
 def migrate_legacy_data_dir(home: Path | None = None) -> bool:
-    """Move ``~/lightfall`` to ``~/lightfall`` once, if only the legacy dir exists.
+    """Move ``~/lucid`` to ``~/lightfall`` once, if only the legacy dir exists.
 
     Returns True if a migration was performed, False otherwise. No-ops (and
     leaves both in place) if the new directory already exists.
     """
     home = home or Path.home()
-    legacy = home / "lightfall"
+    legacy = home / "lucid"
     current = home / "lightfall"
     if current.exists() or not legacy.exists():
         return False
@@ -298,12 +298,12 @@ from lightfall.utils.data_migration import migrate_legacy_data_dir
 - [ ] **Step 6: Verify the suite still passes and the dotfile path was also renamed**
 
 Run: `$PY -m pytest tests/utils/test_data_migration.py -v && grep -rn '"\.lightfall"\|/ "lightfall"' src/lightfall/plugins/types.py`
-Expected: tests pass; `types.py` references `lightfall` / `.lightfall` (not `lightfall`).
+Expected: tests pass; `types.py` references `lightfall` / `.lightfall` (not `lucid`).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A && git commit -q -m "feat: migrate ~/lightfall -> ~/lightfall data dir on first launch"
+git add -A && git commit -q -m "feat: migrate ~/lucid -> ~/lightfall data dir on first launch"
 ```
 
 ### Task 8: Docs, CLAUDE.md, and NCS-as-app fixes (by judgment)
@@ -314,14 +314,14 @@ git add -A && git commit -q -m "feat: migrate ~/lightfall -> ~/lightfall data di
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-lightfall_sweep docs
-for f in CLAUDE.md README.md features.md plan.md todo.md; do [ -f "$f" ] && sed -i 's/lightfall/lightfall/g' "$f"; done
+lucid_sweep docs
+for f in CLAUDE.md README.md features.md plan.md todo.md; do [ -f "$f" ] && sed -i 's/lucid/lightfall/g' "$f"; done
 ```
 
-- [ ] **Step 2: Fix uppercase "Lightfall" in prose (decks/docs use the proper-noun form)**
+- [ ] **Step 2: Fix uppercase "LUCID" in prose (decks/docs use the proper-noun form)**
 
 ```bash
-grep -rIl --exclude-dir={.git,.venv} 'Lightfall' docs CLAUDE.md README.md features.md plan.md todo.md 2>/dev/null | while read -r f; do sed -i 's/Lightfall/Lightfall/g' "$f"; done
+grep -rIl --exclude-dir={.git,.venv} 'LUCID' docs CLAUDE.md README.md features.md plan.md todo.md 2>/dev/null | while read -r f; do sed -i 's/LUCID/Lightfall/g' "$f"; done
 ```
 
 - [ ] **Step 3: Fix NCS-as-app misuse by judgment (do NOT blanket-replace NCS)**
@@ -365,11 +365,11 @@ Expected: a list (may be just core/built-ins until plugins are migrated); **no e
 - [ ] **Step 3: Run the core test suite**
 
 Run: `$PY -m pytest -q`
-Expected: passing (same pass/fail baseline as before the rename; investigate any new failures referencing `lightfall`).
+Expected: passing (same pass/fail baseline as before the rename; investigate any new failures referencing `lucid`).
 
 - [ ] **Step 4: Confirm no unexpected residual references**
 
-Run: `grep -rIn 'lightfall' src/lightfall tests pyproject.toml | grep -v '"Lightfall"\|_version.py'`
+Run: `grep -rIn 'lucid' src/lightfall tests pyproject.toml | grep -v '"LUCID"\|_version.py'`
 Expected: empty.
 
 ---
@@ -392,74 +392,74 @@ Five repos, identical mechanics. For each, substitute from this table:
 
 | `$DIR` (local + GitLab project) | `$PKG` (snake package) | New dir / project | New `$PKG` |
 |---|---|---|---|
-| `lightfall-deck` | `lightfall_deck` | `lightfall-deck` | `lightfall_deck` |
-| `lightfall-dev-plugins` | `lightfall_dev_plugins` | `lightfall-dev-plugins` | `lightfall_dev_plugins` |
-| `lightfall-endstation-cms` | `lightfall_endstation_cms` | `lightfall-endstation-cms` | `lightfall_endstation_cms` |
-| `lightfall-endstation-7011` | `lightfall_endstation_7011` | `lightfall-endstation-7011` | `lightfall_endstation_7011` |
-| `lightfall-logbook` | (no `src/lightfall_*` pkg; text only) | `lightfall-logbook` | — |
+| `lucid-deck` | `lucid_deck` | `lightfall-deck` | `lightfall_deck` |
+| `lucid-dev-plugins` | `lucid_dev_plugins` | `lightfall-dev-plugins` | `lightfall_dev_plugins` |
+| `lucid-endstation-cms` | `lucid_endstation_cms` | `lightfall-endstation-cms` | `lightfall_endstation_cms` |
+| `lucid-endstation-7011` | `lucid_endstation_7011` | `lightfall-endstation-7011` | `lightfall_endstation_7011` |
+| `lucid-logbook` | (no `src/lucid_*` pkg; text only) | `lightfall-logbook` | — |
 
 ### Task 11–15: Rename each plugin repo
 
-Run these tasks once **per repo** (set `R=lightfall-deck`, etc.). `lightfall-logbook` has no Python package dir — skip the `git mv src/...` step for it.
+Run these tasks once **per repo** (set `R=lucid-deck`, etc.). `lucid-logbook` has no Python package dir — skip the `git mv src/...` step for it.
 
 - [ ] **Step 1: Branch and move the package directory**
 
 ```bash
-R=lightfall-deck            # <-- change per repo
-PKG=lightfall_deck          # <-- change per repo
+R=lucid-deck            # <-- change per repo
+PKG=lucid_deck          # <-- change per repo
 cd /c/Users/rp/PycharmProjects/ncs/$R
 git checkout -b rebrand/lightfall
-NEWPKG=$(echo "$PKG" | sed 's/lightfall/lightfall/')
+NEWPKG=$(echo "$PKG" | sed 's/lucid/lightfall/')
 [ -d "src/$PKG" ] && git mv "src/$PKG" "src/$NEWPKG" && git commit -q -m "refactor: git mv src/$PKG -> src/$NEWPKG"
 ```
 
 - [ ] **Step 2: Sweep source, tests, docs, and pyproject**
 
 ```bash
-lightfall_sweep src 2>/dev/null; lightfall_sweep tests 2>/dev/null; lightfall_sweep docs 2>/dev/null
-sed -i 's/lightfall/lightfall/g' pyproject.toml
-[ -f README.md ] && sed -i 's/lightfall/lightfall/g; s/Lightfall/Lightfall/g' README.md
+lucid_sweep src 2>/dev/null; lucid_sweep tests 2>/dev/null; lucid_sweep docs 2>/dev/null
+sed -i 's/lucid/lightfall/g' pyproject.toml
+[ -f README.md ] && sed -i 's/lucid/lightfall/g; s/LUCID/Lightfall/g' README.md
 ```
 
-- [ ] **Step 3: (ONLY for `lightfall-endstation-7011`) restore the out-of-scope `lightfall-pipelines` names**
+- [ ] **Step 3: (ONLY for `lucid-endstation-7011`) restore the out-of-scope `lucid-pipelines` names**
 
 ```bash
-sed -i 's/lightfall-pipelines/lightfall-pipelines/g; s/lightfall_pipelines/lightfall_pipelines/g' pyproject.toml
-grep -rln 'lightfall_pipelines\|lightfall-pipelines' src 2>/dev/null | while read -r f; do sed -i 's/lightfall_pipelines/lightfall_pipelines/g; s/lightfall-pipelines/lightfall-pipelines/g' "$f"; done
+sed -i 's/lightfall-pipelines/lucid-pipelines/g; s/lightfall_pipelines/lucid_pipelines/g' pyproject.toml
+grep -rln 'lightfall_pipelines\|lightfall-pipelines' src 2>/dev/null | while read -r f; do sed -i 's/lightfall_pipelines/lucid_pipelines/g; s/lightfall-pipelines/lucid-pipelines/g' "$f"; done
 ```
 
-Verify: `grep -n 'pipelines' pyproject.toml` → dependency reads `lightfall-pipelines`, entry-point group reads `lightfall_pipelines.pipeline`; the plugin's own group reads `lightfall.plugins`.
+Verify: `grep -n 'pipelines' pyproject.toml` → dependency reads `lucid-pipelines`, entry-point group reads `lucid_pipelines.pipeline`; the plugin's own group reads `lightfall.plugins`.
 
 - [ ] **Step 4: Verify the manifest**
 
 Run: `grep -nE 'name =|dependencies|entry-points|version-file|packages =' pyproject.toml`
-Expected: `name = "lightfall-<x>"`; `dependencies` include `"lightfall"` (NOT `"lightfall"`); entry-point group `[project.entry-points."lightfall.plugins"]` with name `lightfall_<x>`; `version-file`/`packages` reference `src/lightfall_<x>`.
+Expected: `name = "lightfall-<x>"`; `dependencies` include `"lightfall"` (NOT `"lucid"`); entry-point group `[project.entry-points."lightfall.plugins"]` with name `lightfall_<x>`; `version-file`/`packages` reference `src/lightfall_<x>`.
 
 - [ ] **Step 5: Verify no residual (except allowed pipelines in 7011)**
 
-Run: `grep -rIn 'lightfall' . --include='*.py' --include='*.toml' --include='*.md' | grep -v '\.venv\|_version.py\|lightfall-pipelines\|lightfall_pipelines'`
+Run: `grep -rIn 'lucid' . --include='*.py' --include='*.toml' --include='*.md' | grep -v '\.venv\|_version.py\|lucid-pipelines\|lucid_pipelines'`
 Expected: empty.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A && git commit -q -m "refactor: rebrand $R -> ${R/lightfall/lightfall} (lightfall -> lightfall)"
+git add -A && git commit -q -m "refactor: rebrand $R -> ${R/lucid/lightfall} (lucid -> lightfall)"
 ```
 
 ---
 
-## Phase 4 — Decks (`lightfall-pitch`, `lightfall-present`)
+## Phase 4 — Decks (`lucid-pitch`, `lucid-present`)
 
-Working dirs: `/c/Users/rp/workspace/lightfall-pitch`, `/c/Users/rp/workspace/lightfall-present`.
+Working dirs: `/c/Users/rp/workspace/lucid-pitch`, `/c/Users/rp/workspace/lucid-present`.
 
 ### Task 16: Swap deck logos and rebrand text
 
-Run once per deck (`D=lightfall-pitch`, then `D=lightfall-present`):
+Run once per deck (`D=lucid-pitch`, then `D=lucid-present`):
 
 - [ ] **Step 1: Branch and replace the logo with the Lightfall wordmark**
 
 ```bash
-D=lightfall-pitch          # <-- change per deck
+D=lucid-pitch          # <-- change per deck
 cd /c/Users/rp/workspace/$D
 git checkout -b rebrand/lightfall
 cp /c/Users/rp/Downloads/logo.png logo.png
@@ -468,14 +468,14 @@ cp /c/Users/rp/Downloads/logo.png logo.png
 - [ ] **Step 2: Rebrand text and drop the acronym expansion**
 
 ```bash
-for f in index.html README.md rebuttal.md; do [ -f "$f" ] && sed -i 's/Lightfall/Lightfall/g; s/lightfall/lightfall/g' "$f"; done
-[ -d docs ] && lightfall_sweep docs
+for f in index.html README.md rebuttal.md; do [ -f "$f" ] && sed -i 's/LUCID/Lightfall/g; s/lucid/lightfall/g' "$f"; done
+[ -d docs ] && lucid_sweep docs
 grep -rni 'Unified Control Interface Dashboard\|Lightsource Unified' . && echo "REMOVE these expansions" || echo "no acronym expansion"
 ```
 
 - [ ] **Step 3: Verify and commit**
 
-Run: `grep -rni 'lightfall' . | grep -v '\.git'`
+Run: `grep -rni 'lucid' . | grep -v '\.git'`
 Expected: empty (or only intentional). Then:
 
 ```bash
@@ -484,24 +484,24 @@ git add -A && git commit -q -m "rebrand: Lightfall logo + text for $D; drop acro
 
 ---
 
-## Phase 5 — Paper (`lightfall-publication`)
+## Phase 5 — Paper (`lucid-publication`)
 
-Working dir: `/c/Users/rp/workspace/lightfall-publication`. Draft → rename outright.
+Working dir: `/c/Users/rp/workspace/lucid-publication`. Draft → rename outright.
 
 ### Task 17: Rebrand the paper
 
 - [ ] **Step 1: Branch and sweep all LaTeX/bib/docs**
 
 ```bash
-cd /c/Users/rp/workspace/lightfall-publication
+cd /c/Users/rp/workspace/lucid-publication
 git checkout -b rebrand/lightfall
-grep -rIl --exclude-dir=.git 'Lightfall\|lightfall' . | grep -vE '\.png$|\.pdf$|\.jpg$' | while read -r f; do sed -i 's/Lightfall/Lightfall/g; s/lightfall/lightfall/g' "$f"; done
+grep -rIl --exclude-dir=.git 'LUCID\|lucid' . | grep -vE '\.png$|\.pdf$|\.jpg$' | while read -r f; do sed -i 's/LUCID/Lightfall/g; s/lucid/lightfall/g' "$f"; done
 ```
 
 - [ ] **Step 2: Drop the acronym expansion in prose**
 
 Run: `grep -rni 'Unified Control Interface Dashboard\|Lightsource Unified\|\\\\ac' content *.tex`
-Expected: remove the expansion wording / any `\acro{Lightfall}{...}` definition; the name stands alone as "Lightfall".
+Expected: remove the expansion wording / any `\acro{LUCID}{...}` definition; the name stands alone as "Lightfall".
 
 - [ ] **Step 3: Build the paper to confirm it still compiles**
 
@@ -511,7 +511,7 @@ Expected: PDF builds with no new errors; "Lightfall" appears in title/abstract.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A && git commit -q -m "rebrand: Lightfall -> Lightfall throughout the paper; drop acronym"
+git add -A && git commit -q -m "rebrand: LUCID -> Lightfall throughout the paper; drop acronym"
 ```
 
 ---
@@ -524,8 +524,8 @@ git add -A && git commit -q -m "rebrand: Lightfall -> Lightfall throughout the p
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs
-for d in ncs lightfall-deck lightfall-dev-plugins lightfall-endstation-cms lightfall-endstation-7011 lightfall-logbook; do
-  case "$d" in ncs) new=lightfall;; *) new=${d/lightfall/lightfall};; esac
+for d in ncs lucid-deck lucid-dev-plugins lucid-endstation-cms lucid-endstation-7011 lucid-logbook; do
+  case "$d" in ncs) new=lightfall;; *) new=${d/lucid/lightfall};; esac
   [ -d "$d" ] && mv "$d" "$new" && echo "renamed $d -> $new"
 done
 ```
@@ -535,7 +535,7 @@ done
 
 ```bash
 cd /c/Users/rp/workspace
-for d in lightfall-publication lightfall-pitch lightfall-present; do mv "$d" "${d/lightfall/lightfall}"; done
+for d in lucid-publication lucid-pitch lucid-present; do mv "$d" "${d/lucid/lightfall}"; done
 ```
 
 - [ ] **Step 3: Reinstall all editable packages into the shared venv**
@@ -563,7 +563,7 @@ for p in lightfall lightfall-deck lightfall-dev-plugins lightfall-endstation-cms
   [ -d "$p" ] && (cd "$p" && echo "== $p ==" && $PY -m pytest -q 2>&1 | tail -3)
 done
 ```
-Expected: each suite at its pre-rename baseline; no new failures referencing `lightfall`.
+Expected: each suite at its pre-rename baseline; no new failures referencing `lucid`.
 
 - [ ] **Step 6: Smoke-launch the app**
 
@@ -576,12 +576,12 @@ Expected: launches / prints help; window+app name read "Lightfall".
 
 - [ ] **Step 1: Update the path index entries**
 
-Change the quick-index lines so `lightfall-publication`, `lightfall-pitch`, `lightfall-present` (workspace) and the `ncs` PycharmProjects entry reflect the new names (`lightfall-*`; main app dir `ncs` → `lightfall`). Keep "NCS" where it names the umbrella/group. (This file is outside the repos; edit directly, no commit.)
+Change the quick-index lines so `lucid-publication`, `lucid-pitch`, `lucid-present` (workspace) and the `ncs` PycharmProjects entry reflect the new names (`lightfall-*`; main app dir `ncs` → `lightfall`). Keep "NCS" where it names the umbrella/group. (This file is outside the repos; edit directly, no commit.)
 
 - [ ] **Step 2: Verify**
 
-Run: `grep -ni 'lightfall' /c/Users/rp/.claude/CLAUDE.md`
-Expected: no stale `lightfall-*` paths (acronyms/initiative refs to NCS remain).
+Run: `grep -ni 'lucid' /c/Users/rp/.claude/CLAUDE.md`
+Expected: no stale `lucid-*` paths (acronyms/initiative refs to NCS remain).
 
 ---
 
@@ -600,7 +600,7 @@ curl -s --socks5-hostname localhost:1080 -H "PRIVATE-TOKEN: $GLPAT" \
   "https://git.als.lbl.gov/api/v4/groups/ncs/projects?per_page=100" \
   | $PY -c "import sys,json; [print(p['id'], p['path']) for p in json.load(sys.stdin)]"
 ```
-Expected: a list mapping ids → paths for `ncs`, `lightfall-deck`, `lightfall-dev-plugins`, `lightfall-endstation-cms`, `lightfall-endstation-7011`, `lightfall-logbook`, `lightfall-publication`, `lightfall-pitch`, `lightfall-present`.
+Expected: a list mapping ids → paths for `ncs`, `lucid-deck`, `lucid-dev-plugins`, `lucid-endstation-cms`, `lucid-endstation-7011`, `lucid-logbook`, `lucid-publication`, `lucid-pitch`, `lucid-present`.
 
 - [ ] **Step 2: Rename each project (path + name)**
 
@@ -612,7 +612,7 @@ curl -s --socks5-hostname localhost:1080 -X PUT -H "PRIVATE-TOKEN: $GLPAT" \
   "https://git.als.lbl.gov/api/v4/projects/<id>" \
   --data-urlencode "name=<NEWPATH>" --data-urlencode "path=<NEWPATH>" >/dev/null && echo "renamed <id> -> <NEWPATH>"
 ```
-Mapping: `ncs`→`lightfall`, `lightfall-deck`→`lightfall-deck`, `lightfall-dev-plugins`→`lightfall-dev-plugins`, `lightfall-endstation-cms`→`lightfall-endstation-cms`, `lightfall-endstation-7011`→`lightfall-endstation-7011`, `lightfall-logbook`→`lightfall-logbook`, `lightfall-publication`→`lightfall-publication`, `lightfall-pitch`→`lightfall-pitch`, `lightfall-present`→`lightfall-present`. (`ncs-viz-heuristics-tests` is **not** renamed.)
+Mapping: `ncs`→`lightfall`, `lucid-deck`→`lightfall-deck`, `lucid-dev-plugins`→`lightfall-dev-plugins`, `lucid-endstation-cms`→`lightfall-endstation-cms`, `lucid-endstation-7011`→`lightfall-endstation-7011`, `lucid-logbook`→`lightfall-logbook`, `lucid-publication`→`lightfall-publication`, `lucid-pitch`→`lightfall-pitch`, `lucid-present`→`lightfall-present`. (`ncs-viz-heuristics-tests` is **not** renamed.)
 
 - [ ] **Step 3: Update local remotes**
 
@@ -630,7 +630,7 @@ git -C lightfall remote remove upstream 2>/dev/null; git -C lightfall remote add
 git -C lightfall remote set-url origin "https://git.als.lbl.gov/ncs/lightfall.git"
 ```
 
-For `lightfall-deck`/`lightfall-deck` and `lightfall-endstation-cms`/`lightfall-endstation-cms` (which had **no** remote): the `git remote add origin` above covers them — confirm the GitLab project actually exists from Step 1 first.
+For `lucid-deck`/`lightfall-deck` and `lucid-endstation-cms`/`lightfall-endstation-cms` (which had **no** remote): the `git remote add origin` above covers them — confirm the GitLab project actually exists from Step 1 first.
 
 - [ ] **Step 4: Update the workspace repo remotes (preserve the embedded token on publication)**
 
@@ -640,7 +640,7 @@ git -C lightfall-pitch   remote set-url origin "https://git.als.lbl.gov/ncs/ligh
 git -C lightfall-present remote set-url origin "https://git.als.lbl.gov/ncs/lightfall-present.git"
 # publication: keep oauth2:<token>@ userinfo, change only the path
 OLD=$(git -C lightfall-publication remote get-url origin)
-NEW=$(echo "$OLD" | sed 's#/ncs/lightfall-publication\.git#/ncs/lightfall-publication.git#')
+NEW=$(echo "$OLD" | sed 's#/ncs/lucid-publication\.git#/ncs/lightfall-publication.git#')
 git -C lightfall-publication remote set-url origin "$NEW"
 ```
 
@@ -656,7 +656,7 @@ Expected: each push succeeds against the renamed remote.
 - [ ] **Step 6: Verify remotes resolve and CI/badge paths are clean**
 
 Run: `for d in /c/Users/rp/PycharmProjects/ncs/lightfall* /c/Users/rp/workspace/lightfall-*; do git -C "$d" remote get-url origin; done`
-Expected: all URLs under `ncs/lightfall*`. Then grep each repo's `.gitlab-ci.yml` / README badges for stale `lightfall` paths and fix in a follow-up commit if present.
+Expected: all URLs under `ncs/lightfall*`. Then grep each repo's `.gitlab-ci.yml` / README badges for stale `lucid` paths and fix in a follow-up commit if present.
 
 ---
 
@@ -666,16 +666,16 @@ Expected: all URLs under `ncs/lightfall*`. Then grep each repo's `.gitlab-ci.yml
 
 - [ ] **Step 1: Update MemoryGraph project memories**
 
-Update the `type=project` memories for the Lightfall/NCS projects to reflect the Lightfall name and new repo paths (search `tags=["project"]`, then `update_memory`). Add a `general` memory noting the rebrand date (2026-06-02) and that NCS remains the group name. Keep token references in `TOOLS.md` only.
+Update the `type=project` memories for the LUCID/NCS projects to reflect the Lightfall name and new repo paths (search `tags=["project"]`, then `update_memory`). Add a `general` memory noting the rebrand date (2026-06-02) and that NCS remains the group name. Keep token references in `TOOLS.md` only.
 
 - [ ] **Step 2: Final residual audit across everything**
 
 ```bash
-grep -rIn 'Lightfall\|lightfall' /c/Users/rp/PycharmProjects/ncs/lightfall* /c/Users/rp/workspace/lightfall-* \
+grep -rIn 'LUCID\|lucid' /c/Users/rp/PycharmProjects/ncs/lightfall* /c/Users/rp/workspace/lightfall-* \
   --include='*.py' --include='*.toml' --include='*.md' --include='*.tex' \
-  | grep -v '\.venv\|_version.py\|lightfall-pipelines\|lightfall_pipelines\|"Lightfall"' | head -40
+  | grep -v '\.venv\|_version.py\|lucid-pipelines\|lucid_pipelines\|"LUCID"' | head -40
 ```
-Expected: empty, or only deliberately retained items (the two `"Lightfall"` literals, the `lightfall-pipelines` framework).
+Expected: empty, or only deliberately retained items (the two `"LUCID"` literals, the `lucid-pipelines` framework).
 
 ---
 
@@ -686,5 +686,5 @@ Expected: empty, or only deliberately retained items (the two `"Lightfall"` lite
 - §4 plugin-discovery interface → Task 4 + the Task 18.4 gate.
 - §5 sequencing → Phases 1→7 order; dir rename + reinstall in Phase 6 precedes remote rename in Phase 7.
 - §6 GitLab procedure (token, SOCKS, publication token preservation, no-remote repos, `ncs` upstream URL) → Task 20.
-- §7 risks: OIDC/Sentry retained literals (Conventions + Tasks 2.2/3.2/6.2), data-dir migration (Task 7), github-URL strings (Task 3 sweeps `[project.urls]` to lightfall paths), lightfall-pipelines exclusion (Task 11–15 Step 3), CI/badges (Task 20.6), briefcase app id (Task 3/5), generated `_version.py` excluded everywhere.
+- §7 risks: OIDC/Sentry retained literals (Conventions + Tasks 2.2/3.2/6.2), data-dir migration (Task 7), github-URL strings (Task 3 sweeps `[project.urls]` to lightfall paths), lucid-pipelines exclusion (Task 11–15 Step 3), CI/badges (Task 20.6), briefcase app id (Task 3/5), generated `_version.py` excluded everywhere.
 - §8 verification checklist → Tasks 9, 18.4–18.6, 20.6, 21.2.
