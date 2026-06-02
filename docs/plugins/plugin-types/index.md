@@ -1,6 +1,6 @@
 # Plugin Type Reference
 
-This section provides detailed documentation for each plugin type in LUCID.
+This section provides detailed documentation for each plugin type in Lightfall.
 
 ## Overview
 

@@ -12,7 +12,7 @@ Use `EnginePlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.engine_plugin import EnginePlugin
+from lightfall.plugins.engine_plugin import EnginePlugin
 ```
 
 ## Class Attributes
@@ -86,7 +86,7 @@ def engine_description(self) -> str:
 Engine plugins create `BaseEngine` subclasses. The engine interface includes:
 
 ```python
-from lucid.acquire.engine.base import BaseEngine, EngineState
+from lightfall.acquire.engine.base import BaseEngine, EngineState
 
 class MyEngine(BaseEngine):
     """Custom execution engine."""
@@ -135,7 +135,7 @@ from typing import Any, Generator
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.acquire.engine.base import BaseEngine, EngineState
+from lightfall.acquire.engine.base import BaseEngine, EngineState
 
 
 class CustomEngine(BaseEngine, QObject):
@@ -219,10 +219,10 @@ class CustomEngine(BaseEngine, QObject):
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.plugins.engine_plugin import EnginePlugin
+from lightfall.plugins.engine_plugin import EnginePlugin
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine.base import BaseEngine
+    from lightfall.acquire.engine.base import BaseEngine
 
 
 class CustomEnginePlugin(EnginePlugin):
@@ -259,7 +259,7 @@ PluginEntry(
 
 ## Built-in Engines
 
-LUCID includes these engines by default:
+Lightfall includes these engines by default:
 
 | Engine | Description |
 |--------|-------------|
@@ -287,7 +287,7 @@ class MockEnginePlugin(EnginePlugin):
         return "Simulated engine for testing without hardware."
 
     def create_engine(self, **kwargs) -> BaseEngine:
-        from lucid.acquire.engine.mock import MockEngine
+        from lightfall.acquire.engine.mock import MockEngine
         return MockEngine(
             delay=kwargs.get("delay", 0.1),  # Simulated delay per step
             noise=kwargs.get("noise", 0.01),  # Simulated noise level
@@ -300,7 +300,7 @@ Users select the active engine in preferences. The selected engine name is store
 
 ```python
 # Getting the active engine
-from lucid.acquire.engine.registry import EngineRegistry
+from lightfall.acquire.engine.registry import EngineRegistry
 
 registry = EngineRegistry.get_instance()
 engine = registry.get_active_engine()

@@ -7,7 +7,7 @@ This document provides complete reference for plugin manifests and entry points.
 A `PluginEntry` defines a single plugin within a manifest.
 
 ```python
-from lucid.plugins import PluginEntry
+from lightfall.plugins import PluginEntry
 
 entry = PluginEntry(
     type_name="settings",
@@ -35,7 +35,7 @@ The `import_path` must be in the format `module.path:ClassName`:
 ```python
 # Correct
 "my_package.plugins.settings:MySettingsPlugin"
-"lucid.ui.preferences.builtin:AppearanceSettingsPlugin"
+"lightfall.ui.preferences.builtin:AppearanceSettingsPlugin"
 
 # Incorrect - missing class name
 "my_package.plugins.settings"
@@ -62,7 +62,7 @@ Plugins with `preload=True` are loaded synchronously before the main window:
 PluginEntry(
     type_name="theme",
     name="light",
-    import_path="lucid.ui.theme.builtin:LightThemePlugin",
+    import_path="lightfall.ui.theme.builtin:LightThemePlugin",
     preload=True,
 )
 
@@ -70,7 +70,7 @@ PluginEntry(
 PluginEntry(
     type_name="settings",
     name="appearance",
-    import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
+    import_path="lightfall.ui.preferences.builtin:AppearanceSettingsPlugin",
     preload=True,
 )
 ```
@@ -85,7 +85,7 @@ Use preload for:
 A `PluginManifest` groups multiple `PluginEntry` objects from a single source.
 
 ```python
-from lucid.plugins import PluginManifest, PluginEntry
+from lightfall.plugins import PluginManifest, PluginEntry
 
 manifest = PluginManifest(
     name="my-beamline-plugins",
@@ -135,13 +135,13 @@ types = manifest.get_plugin_types()
 External packages register manifests via Python entry points in `pyproject.toml`:
 
 ```toml
-[project.entry-points."lucid.plugins"]
+[project.entry-points."lightfall.plugins"]
 my_beamline = "my_beamline.manifest:manifest"
 ```
 
 ### Entry Point Group
 
-All LUCID plugin manifests use the group `lucid.plugins`.
+All Lightfall plugin manifests use the group `lightfall.plugins`.
 
 ### Entry Point Format
 
@@ -150,7 +150,7 @@ All LUCID plugin manifests use the group `lucid.plugins`.
 
 ```toml
 # Format: name = "module.path:variable_name"
-[project.entry-points."lucid.plugins"]
+[project.entry-points."lightfall.plugins"]
 my_plugins = "my_package.manifest:manifest"
 other_plugins = "my_package.other:other_manifest"
 ```
@@ -159,7 +159,7 @@ other_plugins = "my_package.other:other_manifest"
 
 ```python
 # my_package/manifest.py
-from lucid.plugins import PluginManifest, PluginEntry
+from lightfall.plugins import PluginManifest, PluginEntry
 
 manifest = PluginManifest(
     name="my-package",
@@ -175,7 +175,7 @@ manifest = PluginManifest(
 On startup, `PluginLoader` discovers manifests:
 
 1. Load the built-in manifest directly
-2. Discover entry points in group `lucid.plugins`
+2. Discover entry points in group `lightfall.plugins`
 3. Load each entry point to get its `PluginManifest`
 4. Process all plugin entries from all manifests
 5. Queue plugins for loading
@@ -184,7 +184,7 @@ On startup, `PluginLoader` discovers manifests:
 # Simplified discovery code
 from importlib.metadata import entry_points
 
-eps = entry_points(group="lucid.plugins")
+eps = entry_points(group="lightfall.plugins")
 for ep in eps:
     manifest = ep.load()  # Returns PluginManifest instance
     for entry in manifest.plugins:
@@ -217,16 +217,16 @@ my_beamline/
 [project]
 name = "my-beamline"
 version = "1.0.0"
-dependencies = ["lucid"]
+dependencies = ["lightfall"]
 
-[project.entry-points."lucid.plugins"]
+[project.entry-points."lightfall.plugins"]
 my_beamline = "my_beamline.manifest:manifest"
 ```
 
 ### manifest.py
 
 ```python
-from lucid.plugins import PluginManifest, PluginEntry
+from lightfall.plugins import PluginManifest, PluginEntry
 
 manifest = PluginManifest(
     name="my-beamline",

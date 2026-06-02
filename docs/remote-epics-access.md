@@ -1,6 +1,6 @@
 # Remote EPICS Access via CA Tunnel
 
-*How LUCID connects to beamline EPICS IOCs from anywhere.*
+*How Lightfall connects to beamline EPICS IOCs from anywhere.*
 
 ## The Problem
 
@@ -44,9 +44,9 @@ TCP to a single endpoint."
             [UDP broadcast on 192.168.10.0/24]
 ```
 
-### 2. CA Tunnel (client-side, built into LUCID)
+### 2. CA Tunnel (client-side, built into Lightfall)
 
-LUCID's `CATunnelService` runs locally on the user's machine. It solves
+Lightfall's `CATunnelService` runs locally on the user's machine. It solves
 the "CA needs UDP but SSH only does TCP" problem with a relay:
 
 ```
@@ -177,11 +177,11 @@ puts, gets — all through the encrypted SSH tunnel.
    ssh -D 1080 -L 5099:localhost:5099 rp@suzume.lbl.gov
    ```
 
-2. **LUCID settings** (Settings → Devices → Connection Settings):
+2. **Lightfall settings** (Settings → Devices → Connection Settings):
    - Enable "CA tunnel for remote access"
    - Gateway address: `localhost:5099`
 
-3. **Restart LUCID**. Devices connect automatically.
+3. **Restart Lightfall**. Devices connect automatically.
 
 ## Limitations
 
@@ -216,6 +216,6 @@ infrastructure. The WebSocket PV Bridge is the long-term answer.
 
 ## Files
 
-- `src/lucid/services/ca_tunnel.py` — CATunnelService implementation
-- `src/lucid/main.py` — Tunnel startup, timeout patching, auto-retry
-- `src/lucid/ui/preferences/device_settings.py` — Settings UI
+- `src/lightfall/services/ca_tunnel.py` — CATunnelService implementation
+- `src/lightfall/main.py` — Tunnel startup, timeout patching, auto-retry
+- `src/lightfall/ui/preferences/device_settings.py` — Settings UI

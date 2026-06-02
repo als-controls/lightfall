@@ -72,7 +72,7 @@ class AboutDialog(LucidDialog):
         # Removed since logo already contains "Lightfall" text
 
         # Full name
-        full_name = QLabel("Lightsource Unified Control Interface Dashboard")
+        full_name = QLabel("Advanced Light Source Control System")
         full_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         full_name.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(full_name)

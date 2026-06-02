@@ -64,7 +64,7 @@ Both contribute to the final start document with no conflict.
 
 ## Component 2: SampleMetadataDialog
 
-New file: `lucid/ui/dialogs/sample_metadata_dialog.py`
+New file: `lightfall/ui/dialogs/sample_metadata_dialog.py`
 
 ### Layout
 
@@ -95,11 +95,11 @@ New file: `lucid/ui/dialogs/sample_metadata_dialog.py`
 
 ### Persistence
 
-Uses `QSettings` key `lucid.dialogs.sample_metadata.v1` to save/restore the ScalableGroup state (field definitions and values). Restored on dialog construction.
+Uses `QSettings` key `lightfall.dialogs.sample_metadata.v1` to save/restore the ScalableGroup state (field definitions and values). Restored on dialog construction.
 
 ### Subclasses LucidDialog
 
-Inherits from `lucid.ui.dialogs.base.LucidDialog` for consistent window icon behavior.
+Inherits from `lightfall.ui.dialogs.base.LucidDialog` for consistent window icon behavior.
 
 ## Component 3: Integration & wiring
 
@@ -132,7 +132,7 @@ The existing `_entry_to_record` in `tiled_browser_panel.py` already reads `sampl
 
 | File | Action | Description |
 |------|--------|-------------|
-| `lucid/acquire/engine/base.py` | Modify | Add pre-submit callable registry and `skip_pre_submit` to submit/__call__ |
-| `lucid/ui/dialogs/sample_metadata_dialog.py` | Create | SampleMetadataDialog with ScalableGroup, duplicate check, force button |
-| `lucid/ui/dialogs/__init__.py` | Modify | Export SampleMetadataDialog |
+| `lightfall/acquire/engine/base.py` | Modify | Add pre-submit callable registry and `skip_pre_submit` to submit/__call__ |
+| `lightfall/ui/dialogs/sample_metadata_dialog.py` | Create | SampleMetadataDialog with ScalableGroup, duplicate check, force button |
+| `lightfall/ui/dialogs/__init__.py` | Modify | Export SampleMetadataDialog |
 | App startup / engine wiring | Modify | Register the sample metadata pre-submit callable on the engine |

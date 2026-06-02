@@ -14,7 +14,7 @@
 
 ## File Structure
 
-- **Modify:** `src/lucid/ui/panels/bluesky_panel.py`
+- **Modify:** `src/lightfall/ui/panels/bluesky_panel.py`
   - Drop the `QSplitter(Vertical)` from `_setup_ui`; put `PlanSelectorWidget` directly into the "Plans" tab.
   - Add `_show_plan_config(plan_info)` helper.
   - Route `_on_plan_selected` and `select_plan` through it.
@@ -29,7 +29,7 @@ No new files in `src/`. No public API changes other than UX behavior.
 ## Task 1: Restructure `_setup_ui` — remove splitter, eager-construct `PlanConfigWidget`
 
 **Files:**
-- Modify: `src/lucid/ui/panels/bluesky_panel.py:111-149`
+- Modify: `src/lightfall/ui/panels/bluesky_panel.py:111-149`
 - Test: `tests/acquire/test_plan_ui_integration.py` (existing `test_initial_one_tab`, `test_panel_has_tab_widget`)
 
 This is a refactor with behavior preserved at the "still one tab on init" level. After this task, no Config tab is created yet on selection — that's Task 3.
@@ -44,7 +44,7 @@ Expected: 5 tests pass.
 
 - [ ] **Step 2: Modify `_setup_ui` to drop the splitter**
 
-In `src/lucid/ui/panels/bluesky_panel.py`, replace the body of `_setup_ui` (currently lines 111–149) with:
+In `src/lightfall/ui/panels/bluesky_panel.py`, replace the body of `_setup_ui` (currently lines 111–149) with:
 
 ```python
     def _setup_ui(self) -> None:
@@ -98,7 +98,7 @@ Also delete the now-unused `_running_plan_tab_index` initialization. Replace any
 
 - [ ] **Step 3: Update `_maybe_create_plan_ui` and `_on_plan_ui_finished` to use `indexOf`**
 
-Replace `src/lucid/ui/panels/bluesky_panel.py:411-436`:
+Replace `src/lightfall/ui/panels/bluesky_panel.py:411-436`:
 
 ```python
     def _maybe_create_plan_ui(self, plan_info: PlanInfo) -> None:
@@ -138,7 +138,7 @@ Expected: All 5 existing tests still pass. `test_initial_one_tab` still sees `co
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/ncs && git add src/lucid/ui/panels/bluesky_panel.py
+cd ~/PycharmProjects/ncs/ncs && git add src/lightfall/ui/panels/bluesky_panel.py
 git commit -m "refactor(bluesky-panel): hoist PlanConfigWidget out of Plans tab splitter
 
 Plans tab now contains only PlanSelectorWidget. PlanConfigWidget is
@@ -151,7 +151,7 @@ in the next commit. Replace _running_plan_tab_index with indexOf lookups."
 ## Task 2: Add `_show_plan_config` helper with full lifecycle
 
 **Files:**
-- Modify: `src/lucid/ui/panels/bluesky_panel.py` (add new method)
+- Modify: `src/lightfall/ui/panels/bluesky_panel.py` (add new method)
 - Create: `tests/acquire/test_bluesky_panel_config_tab.py`
 
 We put new tests in a sibling file rather than appending to `test_plan_ui_integration.py` so the Config-tab tests have a clear home. Existing tests stay where they are.
@@ -170,10 +170,10 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QTabWidget
 
-from lucid.acquire.plan_ui import PlanUI, plan_with_ui
-from lucid.acquire.plans import PlanInfo
-from lucid.ui.panels.bluesky_panel import BlueskyPanel
-from lucid.ui.widgets.plan_config import PlanConfigWidget
+from lightfall.acquire.plan_ui import PlanUI, plan_with_ui
+from lightfall.acquire.plans import PlanInfo
+from lightfall.ui.panels.bluesky_panel import BlueskyPanel
+from lightfall.ui.widgets.plan_config import PlanConfigWidget
 
 
 def _plan(name: str) -> PlanInfo:
@@ -220,7 +220,7 @@ Expected: FAIL — `tab_widget.count()` is still 1 because `_on_plan_selected` c
 
 - [ ] **Step 3: Add `_show_plan_config` and wire `_on_plan_selected`**
 
-In `src/lucid/ui/panels/bluesky_panel.py`, add the new helper just before `_on_plan_selected`:
+In `src/lightfall/ui/panels/bluesky_panel.py`, add the new helper just before `_on_plan_selected`:
 
 ```python
     def _show_plan_config(self, plan_info: PlanInfo) -> None:
@@ -247,7 +247,7 @@ In `src/lucid/ui/panels/bluesky_panel.py`, add the new helper just before `_on_p
         self._tab_widget.setCurrentWidget(self._plan_config)
 ```
 
-Replace the body of `_on_plan_selected` (currently `src/lucid/ui/panels/bluesky_panel.py:373-382`):
+Replace the body of `_on_plan_selected` (currently `src/lightfall/ui/panels/bluesky_panel.py:373-382`):
 
 ```python
     @Slot(object)
@@ -350,7 +350,7 @@ Expected: 5 PASS. `test_adds_tab_for_plan_with_ui` still sees `count() == 2` bec
 - [ ] **Step 8: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/ncs && git add src/lucid/ui/panels/bluesky_panel.py tests/acquire/test_bluesky_panel_config_tab.py
+cd ~/PycharmProjects/ncs/ncs && git add src/lightfall/ui/panels/bluesky_panel.py tests/acquire/test_bluesky_panel_config_tab.py
 git commit -m "feat(bluesky-panel): open plans in dedicated Config tab
 
 Double-clicking a plan now opens its parameter UI in a 'Config: <plan>'
@@ -364,7 +364,7 @@ re-selecting the same plan only switches focus."
 ## Task 3: Route MCP `select_plan` through `_show_plan_config`
 
 **Files:**
-- Modify: `src/lucid/ui/panels/bluesky_panel.py:352-369` (the `select_plan` method)
+- Modify: `src/lightfall/ui/panels/bluesky_panel.py:352-369` (the `select_plan` method)
 - Test: `tests/acquire/test_bluesky_panel_config_tab.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -399,7 +399,7 @@ Expected: FAIL — `tab_widget.count()` is 1 because `select_plan` calls `set_pl
 
 - [ ] **Step 3: Update `select_plan` to use `_show_plan_config`**
 
-Replace the body of `select_plan` in `src/lucid/ui/panels/bluesky_panel.py`:
+Replace the body of `select_plan` in `src/lightfall/ui/panels/bluesky_panel.py`:
 
 ```python
     def select_plan(self, plan_name: str) -> bool:
@@ -441,7 +441,7 @@ Expected: 10 PASS (5 in `test_plan_ui_integration.py`, 5 in `test_bluesky_panel_
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/ncs && git add src/lucid/ui/panels/bluesky_panel.py tests/acquire/test_bluesky_panel_config_tab.py
+cd ~/PycharmProjects/ncs/ncs && git add src/lightfall/ui/panels/bluesky_panel.py tests/acquire/test_bluesky_panel_config_tab.py
 git commit -m "feat(bluesky-panel): MCP select_plan opens Config tab
 
 Programmatic plan selection via the MCP introspection API now produces
@@ -457,10 +457,10 @@ and switches focus."
 
 The unit tests cover the state transitions but don't exercise the actual Qt rendering. Per `CLAUDE.md` and project memory, UI changes need a real run-through.
 
-- [ ] **Step 1: Launch LUCID**
+- [ ] **Step 1: Launch Lightfall**
 
 ```bash
-cd ~/PycharmProjects/ncs/ncs && .venv/Scripts/python -m lucid
+cd ~/PycharmProjects/ncs/ncs && .venv/Scripts/python -m lightfall
 ```
 
 - [ ] **Step 2: Verify initial state**

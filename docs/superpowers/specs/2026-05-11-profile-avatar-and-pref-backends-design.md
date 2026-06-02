@@ -7,7 +7,7 @@
 
 Two related problems:
 
-1. **Visible:** LUCID lets a user upload a profile picture from the
+1. **Visible:** Lightfall lets a user upload a profile picture from the
    Preferences dialog, but there is no glanceable indicator that the
    user is signed in or which user. The profile picture should appear
    in the menubar corner, next to the RunEngine controls, and update
@@ -30,7 +30,7 @@ knows nothing about how it's stored.
 
 - Introduce a `PreferenceBackend` ABC and split storage into two
   concrete backends: `LocalPreferenceBackend` (YAML via `ConfigManager`)
-  and `UserPortableBackend` (lucid-logbook via `UserSettingsClient`).
+  and `UserPortableBackend` (lightfall-logbook via `UserSettingsClient`).
 - Replace `PreferencesManager`'s coarse `preference_changed` signal with
   a topic-gated `subscribe(key, slot)` / `unsubscribe(key, slot)` API.
 - Add a `ProfileAvatarWidget` in the menubar corner, right of the
@@ -44,8 +44,8 @@ Out of scope:
 
 - Consolidating the two paths reaching `/logbook/images`
   (`UserSettingsClient.upload_image`/`download_image` vs. raw httpx in
-  `lucid.logbook.client._run_sync`). Noted as future work.
-- Cross-machine preference invalidation (two LUCID instances under one
+  `lightfall.logbook.client._run_sync`). Noted as future work.
+- Cross-machine preference invalidation (two Lightfall instances under one
   account observing each other's writes). Noted as future work.
 
 ## Architecture
@@ -89,7 +89,7 @@ the GUI thread via the future's `callback_slot`.
 ## The `PreferenceBackend` ABC
 
 ```python
-# src/lucid/ui/preferences/backend.py
+# src/lightfall/ui/preferences/backend.py
 from abc import abstractmethod
 from typing import Any
 from PySide6.QtCore import QObject, Signal
@@ -157,7 +157,7 @@ behavior plus its `preference_changed` emit calls.
 ### `UserPortableBackend`
 
 ```python
-# src/lucid/ui/preferences/user_portable_backend.py
+# src/lightfall/ui/preferences/user_portable_backend.py
 USER_PORTABLE_KEYS: frozenset[str] = frozenset({"profile_image_id"})
 ```
 
@@ -189,7 +189,7 @@ will not clobber a write that is in flight.
 ## PreferencesManager refactor
 
 ```python
-# src/lucid/ui/preferences/manager.py
+# src/lightfall/ui/preferences/manager.py
 class _Topic(QObject):
     """One signal per subscribed key. Created lazily."""
     changed = Signal(object)  # value (None on removal)
@@ -275,7 +275,7 @@ Notes:
 ## ProfileAvatarWidget
 
 ```
-src/lucid/ui/widgets/profile_avatar.py
+src/lightfall/ui/widgets/profile_avatar.py
 ```
 
 - `QWidget` subclass, fixed size (28x28 px), circular crop via
@@ -292,7 +292,7 @@ src/lucid/ui/widgets/profile_avatar.py
     will populate later and the subscription will fire.
 - `_fetch_and_swap(image_id)` uses the same `QThreadFuture +
   _fetch_qimage` helper currently in `user_profile_settings.py` (moved
-  to a shared location: `lucid.settings.image_helpers._fetch_qimage`).
+  to a shared location: `lightfall.settings.image_helpers._fetch_qimage`).
 - Tracks `self._loaded_image_id`; short-circuits if an incoming
   `image_id` equals the current one.
 
@@ -345,7 +345,7 @@ slot.
 
 ## UserProfileSettingsPlugin migration
 
-`src/lucid/ui/preferences/user_profile_settings.py`:
+`src/lightfall/ui/preferences/user_profile_settings.py`:
 
 - `load_settings`: replace
   `UserSettingsClient.get_instance().get("profile_image_id", default=None)`
@@ -415,13 +415,13 @@ Touched tests:
 
 | File | Action |
 |---|---|
-| `src/lucid/ui/preferences/backend.py` | new — `PreferenceBackend` ABC + `LocalPreferenceBackend` |
-| `src/lucid/ui/preferences/user_portable_backend.py` | new — `UserPortableBackend` + `USER_PORTABLE_KEYS` |
-| `src/lucid/ui/preferences/manager.py` | edit — multiplex backends, `subscribe`/`unsubscribe`/`_Topic`, drop `preference_changed`, add `refresh_user_portable_keys` |
-| `src/lucid/settings/image_helpers.py` | new — extracts the `_fetch_qimage` helper currently in `user_profile_settings.py` so the avatar widget can reuse it |
-| `src/lucid/ui/widgets/profile_avatar.py` | new — `ProfileAvatarWidget` |
-| `src/lucid/ui/mainwindow.py` | edit — corner widget wraps RE controls + avatar; theme listener uses `subscribe`; post-login `refresh_user_portable_keys` |
-| `src/lucid/ui/preferences/user_profile_settings.py` | edit — `PreferencesManager` for set/remove/get; subscribe to `"profile_image_id"`; drop the manual re-load callback |
+| `src/lightfall/ui/preferences/backend.py` | new — `PreferenceBackend` ABC + `LocalPreferenceBackend` |
+| `src/lightfall/ui/preferences/user_portable_backend.py` | new — `UserPortableBackend` + `USER_PORTABLE_KEYS` |
+| `src/lightfall/ui/preferences/manager.py` | edit — multiplex backends, `subscribe`/`unsubscribe`/`_Topic`, drop `preference_changed`, add `refresh_user_portable_keys` |
+| `src/lightfall/settings/image_helpers.py` | new — extracts the `_fetch_qimage` helper currently in `user_profile_settings.py` so the avatar widget can reuse it |
+| `src/lightfall/ui/widgets/profile_avatar.py` | new — `ProfileAvatarWidget` |
+| `src/lightfall/ui/mainwindow.py` | edit — corner widget wraps RE controls + avatar; theme listener uses `subscribe`; post-login `refresh_user_portable_keys` |
+| `src/lightfall/ui/preferences/user_profile_settings.py` | edit — `PreferencesManager` for set/remove/get; subscribe to `"profile_image_id"`; drop the manual re-load callback |
 | `tests/test_preference_backend.py` | new |
 | `tests/test_user_portable_backend.py` | new |
 | `tests/test_preferences_manager.py` | edit |
@@ -446,16 +446,16 @@ Touched tests:
    `image_url`) plus internal-only key/value methods used by
    `UserPortableBackend`. Renaming is intentionally out of scope here;
    doing it cleanly requires unifying with the parallel httpx caller
-   in `lucid.logbook.client._run_sync` first.
+   in `lightfall.logbook.client._run_sync` first.
 
 ## Future work
 
 - Consolidate the two callers of `/logbook/images` (`UserSettingsClient`
-  vs. raw httpx in `lucid.logbook.client._run_sync`) under a shared
-  `lucid.logbook.blob_client`. Then rename `UserSettingsClient` to
+  vs. raw httpx in `lightfall.logbook.client._run_sync`) under a shared
+  `lightfall.logbook.blob_client`. Then rename `UserSettingsClient` to
   reflect its remaining responsibility.
 - Cross-instance preference change notification (server-pushed or
-  poll-based) so two LUCID processes under one account see each other's
+  poll-based) so two Lightfall processes under one account see each other's
   preference writes.
 - Schema-driven `USER_PORTABLE_KEYS` so new keys can be added without
   editing the backend module.

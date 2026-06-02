@@ -1,11 +1,11 @@
-# LUCID Auth v2 — Logbook Consumer Migration
+# Lightfall Auth v2 — Logbook Consumer Migration
 
-> **Per-repo plan executed via superpowers:subagent-driven-development.** This is Step 6 in the [coordination plan](2026-05-17-lucid-auth-v2-coordination.md). The lucid-logbook server's mint endpoint shipped in lucid-logbook MR !5 and is deployed on `bcglucidlogbook.dhcp.lbl.gov` at HEAD `1002b24` (2026-05-18). With the server in place, the LUCID-side consumers cut over to API keys.
+> **Per-repo plan executed via superpowers:subagent-driven-development.** This is Step 6 in the [coordination plan](2026-05-17-lightfall-auth-v2-coordination.md). The lightfall-logbook server's mint endpoint shipped in lightfall-logbook MR !5 and is deployed on `bcglightfalllogbook.dhcp.lbl.gov` at HEAD `1002b24` (2026-05-18). With the server in place, the Lightfall-side consumers cut over to API keys.
 
-**Goal:** Replace every `SessionAuth` (Keycloak Bearer) consumer that talks to the logbook backend with `ServiceKeyAuth("logbook")`. Mint a logbook session key at login alongside the existing tiled key. End state: no LUCID code path reads `session.token` for logbook traffic.
+**Goal:** Replace every `SessionAuth` (Keycloak Bearer) consumer that talks to the logbook backend with `ServiceKeyAuth("logbook")`. Mint a logbook session key at login alongside the existing tiled key. End state: no Lightfall code path reads `session.token` for logbook traffic.
 
-**Spec:** `docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md`
-**Coordination:** `docs/superpowers/plans/2026-05-17-lucid-auth-v2-coordination.md` (§6)
+**Spec:** `docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md`
+**Coordination:** `docs/superpowers/plans/2026-05-17-lightfall-auth-v2-coordination.md` (§6)
 **Branch:** `feature/auth-v2-logbook-consumer` off `feature/notebook-pipelines-impl` @ `96457b1`
 
 ---
@@ -13,7 +13,7 @@
 ## Why now
 
 - Step 1-5 done. Tiled side fully migrated. Logbook server mint endpoint deployed.
-- After this plan: every consumer of lucid-logbook authenticates with `Authorization: Apikey <secret>`. The Keycloak bearer becomes unused on the wire (refresh machinery still alive — deleted in Step 7).
+- After this plan: every consumer of lightfall-logbook authenticates with `Authorization: Apikey <secret>`. The Keycloak bearer becomes unused on the wire (refresh machinery still alive — deleted in Step 7).
 - Sequenced before Step 7 (auth cleanup) because that plan deletes `SessionAuth` and the refresh timer; both still load-bearing until this plan lands.
 
 ## What ships
@@ -29,15 +29,15 @@
 - `SessionAuth` class is **not** deleted (Step 7).
 - The bearer-refresh timer is **not** removed (Step 7).
 - `session.token` is **not** discarded post-mint (Step 7).
-- No change to `lucid-logbook` server (already deployed).
+- No change to `lightfall-logbook` server (already deployed).
 
 ## Files touched
 
 | File | Change |
 | ---- | ------ |
-| `src/lucid/auth/session.py` | Add `"logbook": []` to `_SERVICE_SCOPES`; extend `urls` dict in `_mint_all_service_keys` with the logbook entry. |
-| `src/lucid/logbook/client.py` | Replace `SessionAuth(user_id=user_id)` with `ServiceKeyAuth("logbook")`; drop `auth_token` parameter from `_run_sync` and the harvest block in `_do_sync`. |
-| `src/lucid/settings/user_settings_client.py` | Replace `SessionAuth()` with `ServiceKeyAuth("logbook")`. |
+| `src/lightfall/auth/session.py` | Add `"logbook": []` to `_SERVICE_SCOPES`; extend `urls` dict in `_mint_all_service_keys` with the logbook entry. |
+| `src/lightfall/logbook/client.py` | Replace `SessionAuth(user_id=user_id)` with `ServiceKeyAuth("logbook")`; drop `auth_token` parameter from `_run_sync` and the harvest block in `_do_sync`. |
+| `src/lightfall/settings/user_settings_client.py` | Replace `SessionAuth()` with `ServiceKeyAuth("logbook")`. |
 | `tests/auth/test_auth_v2_login_mints_logbook.py` | New integration test (see Task 4). |
 | `tests/test_user_settings_client.py` | If pytest-httpx fixtures match on Authorization header, verify Apikey shape. (Likely no changes — existing tests don't assert auth header.) |
 | `tests/test_logbook_url.py` | No changes expected; URL helper unchanged. |
@@ -46,7 +46,7 @@
 
 ### Task 1 — Add `logbook` to SessionManager mint round
 
-Modify `src/lucid/auth/session.py`:
+Modify `src/lightfall/auth/session.py`:
 
 1. Update `_SERVICE_SCOPES`:
    ```python
@@ -61,8 +61,8 @@ Modify `src/lucid/auth/session.py`:
    ```
 2. Update `_mint_all_service_keys`:
    ```python
-   from lucid.logbook.url import get_logbook_base_url
-   from lucid.services.tiled_service import get_tiled_base_url
+   from lightfall.logbook.url import get_logbook_base_url
+   from lightfall.services.tiled_service import get_tiled_base_url
 
    urls = {
        "tiled": get_tiled_base_url().rstrip("/") + "/api/v1",
@@ -79,9 +79,9 @@ Commit: `feat(auth): mint logbook session key at login`
 
 ### Task 2 — Switch LogbookClient to ServiceKeyAuth("logbook")
 
-Modify `src/lucid/logbook/client.py`:
+Modify `src/lightfall/logbook/client.py`:
 
-1. Remove import `from lucid.auth.httpx_auth import SessionAuth`. Add `from lucid.auth.service_key_auth import ServiceKeyAuth`.
+1. Remove import `from lightfall.auth.httpx_auth import SessionAuth`. Add `from lightfall.auth.service_key_auth import ServiceKeyAuth`.
 2. Change `_run_sync` signature: drop the `auth_token` parameter (3rd positional). Update the inner `client_kwargs["auth"] = SessionAuth(user_id=user_id)` to `client_kwargs["auth"] = ServiceKeyAuth("logbook")`. Drop the `user_id` passthrough to the auth header — logbook now identifies the user via the apikey record. `user_id` is still needed for the logbook-row upsert in the pull phase; keep it as a separate parameter.
 3. Change `_do_sync`: delete the `auth_token` harvest block (`session.token` read). Keep the `user_id` harvest. Drop `auth_token` from the `QThreadFuture(_run_sync, ..., auth_token, user_id, ...)` invocation.
 
@@ -91,9 +91,9 @@ Commit: `feat(logbook): switch sync client to ServiceKeyAuth`
 
 ### Task 3 — Switch UserSettingsClient to ServiceKeyAuth("logbook")
 
-Modify `src/lucid/settings/user_settings_client.py`:
+Modify `src/lightfall/settings/user_settings_client.py`:
 
-1. Replace `from lucid.auth.httpx_auth import SessionAuth` with `from lucid.auth.service_key_auth import ServiceKeyAuth`.
+1. Replace `from lightfall.auth.httpx_auth import SessionAuth` with `from lightfall.auth.service_key_auth import ServiceKeyAuth`.
 2. Change `self._auth = SessionAuth()` → `self._auth = ServiceKeyAuth("logbook")`.
 
 **Tests:** Existing 30+ tests in `tests/test_user_settings_client.py` should pass unchanged. Add one new test:
@@ -113,7 +113,7 @@ Commit: `test(auth): integration test for login mints logbook key`
 
 After the four code tasks land + pass review:
 
-1. Update `~/.claude/projects/C--Users-rp-workspace/memory/project_lucid_auth_v2.md`:
+1. Update `~/.claude/projects/C--Users-rp-workspace/memory/project_lightfall_auth_v2.md`:
    - Mark Step 6 done.
    - Update "Next plans" list to leave only Step 7.
    - Update "Open MRs" list with the new MR for this plan.
@@ -141,10 +141,10 @@ Expected: all previously-passing tests still pass; new tests pass. No regression
 
 ## Deployment notes
 
-This plan is LUCID-side only — picks up via `pip install -e .` on each workstation. No server deploy needed (lucid-logbook already updated). After this plan merges:
+This plan is Lightfall-side only — picks up via `pip install -e .` on each workstation. No server deploy needed (lightfall-logbook already updated). After this plan merges:
 
-- Users running a fresh LUCID build: get a logbook apikey at login; old bearer never used.
-- Users still on a pre-Step-6 build: still send Bearer; lucid-logbook accepts both via its `CombinedAuthMiddleware`. No coordinated cutover required.
+- Users running a fresh Lightfall build: get a logbook apikey at login; old bearer never used.
+- Users still on a pre-Step-6 build: still send Bearer; lightfall-logbook accepts both via its `CombinedAuthMiddleware`. No coordinated cutover required.
 
 ## Rollback
 
@@ -155,5 +155,5 @@ If the plan is reverted: LogbookClient + UserSettingsClient revert to SessionAut
 ## Verifications
 
 After all tasks land:
-- `grep -rn 'SessionAuth' src/lucid/` should match only `src/lucid/auth/httpx_auth.py` (the class itself, deleted in Step 7).
-- `grep -rn 'session\.token' src/lucid/` should match only `src/lucid/auth/session.py` (mint round + refresh machinery, both deleted in Step 7) and `src/lucid/auth/providers/keycloak.py` (Keycloak provider, the only legit reader).
+- `grep -rn 'SessionAuth' src/lightfall/` should match only `src/lightfall/auth/httpx_auth.py` (the class itself, deleted in Step 7).
+- `grep -rn 'session\.token' src/lightfall/` should match only `src/lightfall/auth/session.py` (mint round + refresh machinery, both deleted in Step 7) and `src/lightfall/auth/providers/keycloak.py` (Keycloak provider, the only legit reader).

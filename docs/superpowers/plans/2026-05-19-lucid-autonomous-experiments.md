@@ -1,21 +1,21 @@
-# LUCID Autonomous Experiments Implementation Plan
+# Lightfall Autonomous Experiments Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wire LUCID's embedded Claude agent to Tsuchinoko's NATS surface so the agent can design (via gpCAM skills), launch (via existing `adaptive_experiment` plan), and monitor (via existing adaptive viz widgets) end-to-end autonomous experiments.
+**Goal:** Wire Lightfall's embedded Claude agent to Tsuchinoko's NATS surface so the agent can design (via gpCAM skills), launch (via existing `adaptive_experiment` plan), and monitor (via existing adaptive viz widgets) end-to-end autonomous experiments.
 
-**Architecture:** Two repos. Tsuchinoko (`LUCID-refactor` branch) gets a typed `experiment.configure` payload and a new `experiment.upload_design_code` action that lands agent-authored Python in `~/.tsuchinoko/user_designs/<kind>/<name>.py`. LUCID (`feature/autonomous-experiment-agent`) gets one new `AutonomousExperimentAgent` AgentPlugin carrying a stub prompt, a lazy reference to `gpcam.skills/`, and five MCP tools over the existing `tsuchinoko.*` subjects.
+**Architecture:** Two repos. Tsuchinoko (`Lightfall-refactor` branch) gets a typed `experiment.configure` payload and a new `experiment.upload_design_code` action that lands agent-authored Python in `~/.tsuchinoko/user_designs/<kind>/<name>.py`. Lightfall (`feature/autonomous-experiment-agent`) gets one new `AutonomousExperimentAgent` AgentPlugin carrying a stub prompt, a lazy reference to `gpcam.skills/`, and five MCP tools over the existing `tsuchinoko.*` subjects.
 
-**Tech Stack:** Python 3.12+, `nats-py`, `claude-agent-sdk`, `pytest`, gpCAM (optional runtime dep on LUCID side).
+**Tech Stack:** Python 3.12+, `nats-py`, `claude-agent-sdk`, `pytest`, gpCAM (optional runtime dep on Lightfall side).
 
-**Spec:** `docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md`
 
 ---
 
 ## Repos and branches
 
-- **Tsuchinoko:** `~/PycharmProjects/tsuchinoko`, branch `LUCID-refactor`. Phase A lands here. Open MR titled `feat(nats): typed configure schema + upload_design_code` against `LUCID-refactor` (or its upstream merge target).
-- **LUCID:** `~/PycharmProjects/ncs/ncs`, branch `feature/autonomous-experiment-agent` (already created at spec commit `a589859`). Phase B lands here.
+- **Tsuchinoko:** `~/PycharmProjects/tsuchinoko`, branch `Lightfall-refactor`. Phase A lands here. Open MR titled `feat(nats): typed configure schema + upload_design_code` against `Lightfall-refactor` (or its upstream merge target).
+- **Lightfall:** `~/PycharmProjects/ncs/ncs`, branch `feature/autonomous-experiment-agent` (already created at spec commit `a589859`). Phase B lands here.
 
 **Deploy order:** Phase A → Phase B. Reverse breaks because Phase B sends configure keys old Tsuchinoko rejects under strict validation.
 
@@ -23,7 +23,7 @@
 
 ## File map
 
-**Tsuchinoko (`LUCID-refactor` branch):**
+**Tsuchinoko (`Lightfall-refactor` branch):**
 - Create: `tsuchinoko/nats/user_designs.py` — name validation + filesystem layout + resolver.
 - Modify: `tsuchinoko/nats/service.py` — replace `_handle_configure`; add `_handle_upload_design_code`; extend `ACTIONS`.
 - Create: `tests/test_user_designs.py` — unit tests for resolver.
@@ -32,12 +32,12 @@
 - Create: `docs/design/2026-05-19-phase5-rich-configure.md` — tsuchinoko-side design doc.
 - Create: `docs/plans/2026-05-19-phase5-rich-configure.md` — short pointer plan.
 
-**LUCID (`feature/autonomous-experiment-agent`):**
-- Create: `src/lucid/plugins/agents/autonomous_experiment/__init__.py`
-- Create: `src/lucid/plugins/agents/autonomous_experiment/plugin.py`
-- Create: `src/lucid/plugins/agents/autonomous_experiment/prompts.py`
-- Create: `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`
-- Modify: `src/lucid/plugins/builtin_manifest.py` — one new `PluginEntry`.
+**Lightfall (`feature/autonomous-experiment-agent`):**
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/__init__.py`
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/plugin.py`
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/prompts.py`
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`
+- Modify: `src/lightfall/plugins/builtin_manifest.py` — one new `PluginEntry`.
 - Create: `tests/plugins/agents/test_autonomous_experiment.py`
 - Create: `scripts/demo_autonomous_experiment.py`
 
@@ -45,11 +45,11 @@
 
 # Phase A — Tsuchinoko-side changes
 
-All paths below are relative to `~/PycharmProjects/tsuchinoko`. Switch to `LUCID-refactor` before starting:
+All paths below are relative to `~/PycharmProjects/tsuchinoko`. Switch to `Lightfall-refactor` before starting:
 
 ```bash
 cd ~/PycharmProjects/tsuchinoko
-git checkout LUCID-refactor
+git checkout Lightfall-refactor
 git pull --ff-only
 git checkout -b feature/typed-configure-and-upload
 ```
@@ -743,7 +743,7 @@ Expected: 5 passed.
 .venv/Scripts/python -m pytest tests/ -x --ignore=tests/test_gui.py
 ```
 
-Expected: no new failures vs the baseline of `LUCID-refactor`. Pre-existing skips (e.g. tests needing a real NATS server) remain skipped.
+Expected: no new failures vs the baseline of `Lightfall-refactor`. Pre-existing skips (e.g. tests needing a real NATS server) remain skipped.
 
 - [ ] **Step 6: Commit**
 
@@ -760,7 +760,7 @@ git commit -m "feat(nats): typed experiment.configure with strict validation and
 - Create: `docs/design/2026-05-19-phase5-rich-configure.md`
 - Create: `docs/plans/2026-05-19-phase5-rich-configure.md`
 
-Short docs that reference the canonical LUCID spec rather than re-stating it.
+Short docs that reference the canonical Lightfall spec rather than re-stating it.
 
 - [ ] **Step 1: Write the design doc**
 
@@ -771,11 +771,11 @@ Short docs that reference the canonical LUCID spec rather than re-stating it.
 
 **Status:** Implemented
 **Date:** 2026-05-19
-**Canonical spec:** `ncs/docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md`
+**Canonical spec:** `ncs/docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md`
 
 ## Summary
 
-Two NATS-side changes that let the LUCID embedded Claude agent drive
+Two NATS-side changes that let the Lightfall embedded Claude agent drive
 end-to-end autonomous experiments:
 
 1. **`experiment.configure`** grows from `{parameter_bounds}` into a
@@ -814,8 +814,8 @@ by the existing IPC design (TLS, no broker creds).
 
 ## References
 
-- LUCID canonical spec: `ncs/docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md`
-- LUCID implementation plan: `ncs/docs/superpowers/plans/2026-05-19-lucid-autonomous-experiments.md`
+- Lightfall canonical spec: `ncs/docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md`
+- Lightfall implementation plan: `ncs/docs/superpowers/plans/2026-05-19-lightfall-autonomous-experiments.md`
 - Previous phase: `docs/design/2026-04-12-phase2-nats-integration.md`
 ```
 
@@ -826,8 +826,8 @@ by the existing IPC design (TLS, no broker creds).
 ```markdown
 # Phase 5 — Implementation Plan
 
-Tracked in the LUCID repo:
-`ncs/docs/superpowers/plans/2026-05-19-lucid-autonomous-experiments.md`
+Tracked in the Lightfall repo:
+`ncs/docs/superpowers/plans/2026-05-19-lightfall-autonomous-experiments.md`
 
 Tsuchinoko-side tasks land first (Phase A of that plan), in this
 order:
@@ -836,12 +836,12 @@ order:
 2. `experiment.upload_design_code` handler + `tests/test_nats_upload_design_code.py`
 3. Typed `experiment.configure` + `tests/test_nats_configure_extended.py`
 4. This design doc + this plan doc
-5. MR against `LUCID-refactor` titled
+5. MR against `Lightfall-refactor` titled
    `feat(nats): typed configure schema + upload_design_code`
 
-Deploy this MR before LUCID's `feature/autonomous-experiment-agent`
+Deploy this MR before Lightfall's `feature/autonomous-experiment-agent`
 branch — strict validation in the new configure means old Tsuchinoko
-would reject payloads sent by the new LUCID plugin.
+would reject payloads sent by the new Lightfall plugin.
 ```
 
 - [ ] **Step 3: Commit**
@@ -865,7 +865,7 @@ git commit -m "docs(nats): phase 5 — rich configure + upload_design_code"
 .venv/Scripts/python -m pytest tests/ -x --ignore=tests/test_gui.py
 ```
 
-Expected: all the new tests pass; no regressions vs `LUCID-refactor` baseline.
+Expected: all the new tests pass; no regressions vs `Lightfall-refactor` baseline.
 
 - [ ] **Step 2: Push the branch**
 
@@ -876,14 +876,14 @@ git push -u origin feature/typed-configure-and-upload
 - [ ] **Step 3: Open an MR**
 
 Title: `feat(nats): typed configure schema + upload_design_code`
-Target: `LUCID-refactor`
+Target: `Lightfall-refactor`
 Description (paste in):
 
 ```
-Implements Phase A of the LUCID Autonomous Experiments work.
+Implements Phase A of the Lightfall Autonomous Experiments work.
 
-Canonical spec: ncs/docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md
-Plan:           ncs/docs/superpowers/plans/2026-05-19-lucid-autonomous-experiments.md
+Canonical spec: ncs/docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md
+Plan:           ncs/docs/superpowers/plans/2026-05-19-lightfall-autonomous-experiments.md
 
 Changes:
 - New tsuchinoko/nats/user_designs.py — validation, persistence, resolver
@@ -891,8 +891,8 @@ Changes:
 - experiment.configure now accepts a typed payload (strict validation)
 - user:<name> refs resolved at configure-time
 
-Deploy before LUCID feature/autonomous-experiment-agent. Strict
-validation means old Tsuchinoko would reject the new LUCID plugin's
+Deploy before Lightfall feature/autonomous-experiment-agent. Strict
+validation means old Tsuchinoko would reject the new Lightfall plugin's
 payloads.
 ```
 
@@ -900,7 +900,7 @@ payloads.
 
 ---
 
-# Phase B — LUCID-side AgentPlugin
+# Phase B — Lightfall-side AgentPlugin
 
 All paths below are relative to `~/PycharmProjects/ncs/ncs`. The feature branch already exists from the spec commit:
 
@@ -912,8 +912,8 @@ git checkout feature/autonomous-experiment-agent
 ## Task B.1: Plugin scaffolding (package + class shell)
 
 **Files:**
-- Create: `src/lucid/plugins/agents/autonomous_experiment/__init__.py`
-- Create: `src/lucid/plugins/agents/autonomous_experiment/plugin.py`
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/__init__.py`
+- Create: `src/lightfall/plugins/agents/autonomous_experiment/plugin.py`
 - Test: `tests/plugins/agents/test_autonomous_experiment.py`
 
 - [ ] **Step 1: Write the failing tests (plugin metadata only)**
@@ -926,7 +926,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.plugins.agents.autonomous_experiment import (
+from lightfall.plugins.agents.autonomous_experiment import (
     AutonomousExperimentAgent,
 )
 
@@ -954,19 +954,19 @@ def test_plugin_reports_has_prompt_and_tools():
 .venv\Scripts\python.exe -m pytest tests/plugins/agents/test_autonomous_experiment.py -x
 ```
 
-Expected: `ImportError: cannot import name 'AutonomousExperimentAgent' from 'lucid.plugins.agents.autonomous_experiment'`.
+Expected: `ImportError: cannot import name 'AutonomousExperimentAgent' from 'lightfall.plugins.agents.autonomous_experiment'`.
 
 - [ ] **Step 3: Create the package shell**
 
-`src/lucid/plugins/agents/autonomous_experiment/__init__.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/__init__.py`:
 
 ```python
 """Autonomous Experiment agent plugin.
 
-Bridges LUCID's embedded Claude agent to Tsuchinoko's NATS surface
+Bridges Lightfall's embedded Claude agent to Tsuchinoko's NATS surface
 for designing and running GP-driven adaptive experiments.
 
-Spec: docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md
+Spec: docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md
 """
 from __future__ import annotations
 
@@ -975,7 +975,7 @@ from .plugin import AutonomousExperimentAgent
 __all__ = ["AutonomousExperimentAgent"]
 ```
 
-`src/lucid/plugins/agents/autonomous_experiment/plugin.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/plugin.py`:
 
 ```python
 """AutonomousExperimentAgent AgentPlugin."""
@@ -984,7 +984,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class AutonomousExperimentAgent(AgentPlugin):
@@ -1042,7 +1042,7 @@ class AutonomousExperimentAgent(AgentPlugin):
 
 - [ ] **Step 4: Add minimal `prompts.STUB` and a stub `build_tools` so imports resolve**
 
-`src/lucid/plugins/agents/autonomous_experiment/prompts.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/prompts.py`:
 
 ```python
 """System-prompt text for the AutonomousExperimentAgent."""
@@ -1051,10 +1051,10 @@ from __future__ import annotations
 STUB = "(stub — filled in Task B.2)"
 ```
 
-`src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`:
 
 ```python
-"""MCP tools that bridge the LUCID embedded agent to Tsuchinoko's NATS surface.
+"""MCP tools that bridge the Lightfall embedded agent to Tsuchinoko's NATS surface.
 
 Filled in across Tasks B.3 – B.5.
 """
@@ -1078,7 +1078,7 @@ Expected: 2 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "feat(agents): autonomous_experiment plugin scaffolding"
 ```
 
@@ -1087,7 +1087,7 @@ git commit -m "feat(agents): autonomous_experiment plugin scaffolding"
 ## Task B.2: Stub prompt content
 
 **Files:**
-- Modify: `src/lucid/plugins/agents/autonomous_experiment/prompts.py`
+- Modify: `src/lightfall/plugins/agents/autonomous_experiment/prompts.py`
 - Test: extend `tests/plugins/agents/test_autonomous_experiment.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -1142,7 +1142,7 @@ Expected: assertion failure (the placeholder stub has none of these).
 
 - [ ] **Step 3: Replace `prompts.STUB`**
 
-`src/lucid/plugins/agents/autonomous_experiment/prompts.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/prompts.py`:
 
 ```python
 """System-prompt text for the AutonomousExperimentAgent."""
@@ -1159,10 +1159,10 @@ Do not improvise around it — each step relies on the previous one.
 
 Load gpCAM's `experiment-designer` skill from this plugin's references
 and follow its conversation flow. If you cannot see that skill, gpCAM
-is not installed in LUCID's environment — tell the user:
+is not installed in Lightfall's environment — tell the user:
 
 > "I can't see the gpCAM design skills. Install gpCAM with
-> `pip install gpcam` in the LUCID environment and restart LUCID,
+> `pip install gpcam` in the Lightfall environment and restart Lightfall,
 > then ask me again."
 
 …and stop. Do not proceed with `tsuchinoko_*` tools before the user
@@ -1248,7 +1248,7 @@ For textual progress, call `tsuchinoko_status()`.
 
 `tsuchinoko_pause()`, `tsuchinoko_resume()`, `tsuchinoko_stop()` —
 each takes no arguments. Use `tsuchinoko_stop()` to finalise the
-experiment from the Tsuchinoko side; the LUCID plan exits cleanly
+experiment from the Tsuchinoko side; the Lightfall plan exits cleanly
 when targets stop arriving (configurable timeout).
 
 ### Constraints
@@ -1273,7 +1273,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment/prompts.py tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment/prompts.py tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "feat(agents): autonomous_experiment stub prompt"
 ```
 
@@ -1282,7 +1282,7 @@ git commit -m "feat(agents): autonomous_experiment stub prompt"
 ## Task B.3: NATS request helper + `tsuchinoko_discover` tool
 
 **Files:**
-- Modify: `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`
+- Modify: `src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`
 - Test: extend `tests/plugins/agents/test_autonomous_experiment.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1297,7 +1297,7 @@ def _patch_ipc(reply):
     """Patch get_ipc_service to return a stub IPC with .request → *reply*."""
     ipc = MagicMock()
     ipc.request = MagicMock(return_value=reply)
-    return patch("lucid.ipc.service.get_ipc_service", return_value=ipc), ipc
+    return patch("lightfall.ipc.service.get_ipc_service", return_value=ipc), ipc
 
 
 def _find_tool(tools, name):
@@ -1348,7 +1348,7 @@ def test_discover_empty_when_no_responders():
 def test_nats_unavailable_raises_actionable_message():
     agent = AutonomousExperimentAgent()
     discover = _find_tool(agent.create_tools(), "tsuchinoko_discover")
-    with patch("lucid.ipc.service.get_ipc_service", return_value=None):
+    with patch("lightfall.ipc.service.get_ipc_service", return_value=None):
         result = _call(discover)
     assert result["success"] is False
     assert "Settings" in result["error"] or "IPC" in result["error"]
@@ -1372,10 +1372,10 @@ Expected: `AssertionError: tool 'tsuchinoko_discover' not in [<object>]` (placeh
 
 - [ ] **Step 3: Replace `nats_tools.py` with the shared helper + discover tool**
 
-`src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`:
+`src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`:
 
 ```python
-"""MCP tools that bridge the LUCID embedded agent to Tsuchinoko's NATS surface.
+"""MCP tools that bridge the Lightfall embedded agent to Tsuchinoko's NATS surface.
 
 All tools share a single request helper. Each tool is stateless and
 returns a dict shaped for the agent SDK (`success`, plus tool-specific
@@ -1386,19 +1386,19 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from lucid.plugins.agents._mcp_helpers import mcp_result
-from lucid.utils.logging import logger
+from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.utils.logging import logger
 
 
 def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict | None:
-    """Send a NATS request via the LUCID IPC service.
+    """Send a NATS request via the Lightfall IPC service.
 
     Returns the decoded reply dict on success, or ``None`` if the
     broker did not reply within *timeout* (or the IPC service is
     unavailable). Callers must distinguish ``None`` from
     ``{"status": "error", ...}``.
     """
-    from lucid.ipc.service import get_ipc_service
+    from lightfall.ipc.service import get_ipc_service
     ipc = get_ipc_service()
     if ipc is None:
         return None
@@ -1409,7 +1409,7 @@ def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict |
 def _ipc_error_response() -> dict:
     return {
         "success": False,
-        "error": "LUCID IPC is not running; enable it in Settings → IPC and retry.",
+        "error": "Lightfall IPC is not running; enable it in Settings → IPC and retry.",
     }
 
 
@@ -1447,7 +1447,7 @@ def build_tools() -> list[Any]:
         input_schema={"type": "object", "properties": {}},
     )
     async def discover(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         reply = _ipc_request("_tsuchinoko.discover", {}, timeout=2.0)
@@ -1469,7 +1469,7 @@ Expected: 6 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "feat(agents): NATS helper + tsuchinoko_discover tool"
 ```
 
@@ -1478,7 +1478,7 @@ git commit -m "feat(agents): NATS helper + tsuchinoko_discover tool"
 ## Task B.4: `tsuchinoko_upload_design_code` + `tsuchinoko_configure`
 
 **Files:**
-- Modify: `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`
+- Modify: `src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`
 - Test: extend `tests/plugins/agents/test_autonomous_experiment.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1566,7 +1566,7 @@ Expected: discovery passes; the four new tests fail because the tools don't exis
 
 - [ ] **Step 3: Add the two tools to `build_tools()`**
 
-In `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`, append two new tools inside `build_tools()`, immediately above `return [discover]`. Then change the return line.
+In `src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`, append two new tools inside `build_tools()`, immediately above `return [discover]`. Then change the return line.
 
 ```python
     @tool(
@@ -1593,7 +1593,7 @@ In `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`, append two ne
         },
     )
     async def upload_design_code(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.experiment.upload_design_code"
@@ -1627,7 +1627,7 @@ In `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`, append two ne
         },
     )
     async def configure(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.experiment.configure"
@@ -1651,7 +1651,7 @@ Expected: 10 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "feat(agents): tsuchinoko_upload_design_code + tsuchinoko_configure tools"
 ```
 
@@ -1660,7 +1660,7 @@ git commit -m "feat(agents): tsuchinoko_upload_design_code + tsuchinoko_configur
 ## Task B.5: `tsuchinoko_status` + pause/resume/stop tools
 
 **Files:**
-- Modify: `src/lucid/plugins/agents/autonomous_experiment/nats_tools.py`
+- Modify: `src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py`
 - Test: extend `tests/plugins/agents/test_autonomous_experiment.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1738,7 +1738,7 @@ Inside `build_tools()` in `nats_tools.py`, before the return statement:
         input_schema={"type": "object", "properties": {}},
     )
     async def status(args: dict) -> dict[str, Any]:
-        from lucid.ipc.service import get_ipc_service
+        from lightfall.ipc.service import get_ipc_service
         if get_ipc_service() is None:
             return mcp_result(_ipc_error_response(), is_error=True)
         subject = "tsuchinoko.status"
@@ -1760,7 +1760,7 @@ Inside `build_tools()` in `nats_tools.py`, before the return statement:
             input_schema={"type": "object", "properties": {}},
         )
         async def control(args: dict) -> dict[str, Any]:
-            from lucid.ipc.service import get_ipc_service
+            from lightfall.ipc.service import get_ipc_service
             if get_ipc_service() is None:
                 return mcp_result(_ipc_error_response(), is_error=True)
             reply = _ipc_request(subject, {}, timeout=5.0)
@@ -1775,7 +1775,7 @@ Inside `build_tools()` in `nats_tools.py`, before the return statement:
 
     pause = _make_control(
         "pause", "tsuchinoko.experiment.pause",
-        "Pause Tsuchinoko's adaptive loop. The LUCID adaptive_experiment "
+        "Pause Tsuchinoko's adaptive loop. The Lightfall adaptive_experiment "
         "plan keeps the run open; new targets stop until tsuchinoko_resume.",
     )
     resume = _make_control(
@@ -1784,7 +1784,7 @@ Inside `build_tools()` in `nats_tools.py`, before the return statement:
     )
     stop = _make_control(
         "stop", "tsuchinoko.experiment.stop",
-        "Stop Tsuchinoko's adaptive loop and finalise. The LUCID plan exits "
+        "Stop Tsuchinoko's adaptive loop and finalise. The Lightfall plan exits "
         "cleanly once targets stop arriving (configurable timeout).",
     )
 ```
@@ -1806,7 +1806,7 @@ Expected: 13 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment/nats_tools.py tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "feat(agents): tsuchinoko_status + pause/resume/stop tools"
 ```
 
@@ -1893,7 +1893,7 @@ Expected: 15 passed (one possibly skipped if gpcam not installed locally).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/autonomous_experiment/plugin.py tests/plugins/agents/test_autonomous_experiment.py
+git add src/lightfall/plugins/agents/autonomous_experiment/plugin.py tests/plugins/agents/test_autonomous_experiment.py
 git commit -m "test(agents): cover both branches of get_references_dir"
 ```
 
@@ -1902,7 +1902,7 @@ git commit -m "test(agents): cover both branches of get_references_dir"
 ## Task B.7: Register in `builtin_manifest.py`
 
 **Files:**
-- Modify: `src/lucid/plugins/builtin_manifest.py` — add one `PluginEntry` between scan_planning and panel_design.
+- Modify: `src/lightfall/plugins/builtin_manifest.py` — add one `PluginEntry` between scan_planning and panel_design.
 - Test: `tests/plugins/test_builtin_manifest_agents.py` (existing — add an assertion).
 
 - [ ] **Step 1: Write the failing test**
@@ -1911,7 +1911,7 @@ In `tests/plugins/test_builtin_manifest_agents.py`, add (or extend the existing 
 
 ```python
 def test_autonomous_experiment_registered():
-    from lucid.plugins.builtin_manifest import builtin_plugin_entries
+    from lightfall.plugins.builtin_manifest import builtin_plugin_entries
     names = [e.name for e in builtin_plugin_entries() if e.type_name == "agent"]
     assert "autonomous_experiment" in names
 
@@ -1920,7 +1920,7 @@ def test_autonomous_experiment_registered():
         if e.type_name == "agent" and e.name == "autonomous_experiment"
     )
     assert entry.import_path == (
-        "lucid.plugins.agents.autonomous_experiment:AutonomousExperimentAgent"
+        "lightfall.plugins.agents.autonomous_experiment:AutonomousExperimentAgent"
     )
 ```
 
@@ -1936,14 +1936,14 @@ Expected: `'autonomous_experiment' not in names`.
 
 - [ ] **Step 3: Add the entry**
 
-In `src/lucid/plugins/builtin_manifest.py`, immediately after the `scan_planning` entry (around line ~200, between `scan_planning` and `panel_design`):
+In `src/lightfall/plugins/builtin_manifest.py`, immediately after the `scan_planning` entry (around line ~200, between `scan_planning` and `panel_design`):
 
 ```python
         PluginEntry(
             type_name="agent",
             name="autonomous_experiment",
             import_path=(
-                "lucid.plugins.agents.autonomous_experiment:"
+                "lightfall.plugins.agents.autonomous_experiment:"
                 "AutonomousExperimentAgent"
             ),
         ),
@@ -1968,7 +1968,7 @@ Expected: passes; the loader resolves the new entry without exception.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/plugins/builtin_manifest.py tests/plugins/test_builtin_manifest_agents.py
+git add src/lightfall/plugins/builtin_manifest.py tests/plugins/test_builtin_manifest_agents.py
 git commit -m "feat(agents): register autonomous_experiment in builtin manifest"
 ```
 
@@ -1989,9 +1989,9 @@ Not a CI test — this lives under `scripts/` and is documented as the verificat
 """End-to-end smoke test for the autonomous-experiment agent integration.
 
 Prerequisites (manual):
-- Both LUCID and Tsuchinoko venvs installed.
+- Both Lightfall and Tsuchinoko venvs installed.
 - nats-server binary on PATH (or $NATS_SERVER_BIN set).
-- gpcam importable in LUCID's environment.
+- gpcam importable in Lightfall's environment.
 
 What this script does:
 1. Optionally start a local nats-server (NATS_TEST_AUTOSTART=1).
@@ -2001,7 +2001,7 @@ What this script does:
 4. Tail the resulting Tiled run for the `adaptive` stream and assert
    at least three `iter_NNN` containers landed.
 
-Run from the LUCID venv:
+Run from the Lightfall venv:
 
     .venv\\Scripts\\python.exe scripts\\demo_autonomous_experiment.py
 """
@@ -2035,8 +2035,8 @@ time.sleep(3.0)
 
 try:
     # 3. Walk the demo flow
-    from lucid.ipc.service import get_ipc_service, start_ipc_service
-    start_ipc_service(nats_url="nats://localhost:4222", topic_prefix="lucid-demo")
+    from lightfall.ipc.service import get_ipc_service, start_ipc_service
+    start_ipc_service(nats_url="nats://localhost:4222", topic_prefix="lightfall-demo")
     time.sleep(1.0)
 
     ipc = get_ipc_service()
@@ -2069,13 +2069,13 @@ try:
     m2 = SynAxis(name="m2")
     det = SynSignal(name="det", func=lambda: float(np.exp(-(m1.read()["m1"]["value"]**2 + m2.read()["m2"]["value"]**2))))
 
-    from lucid.acquire.plans.adaptive import adaptive_experiment
+    from lightfall.acquire.plans.adaptive import adaptive_experiment
     RE = RunEngine({})
     RE(adaptive_experiment(detectors=[det], motors=[m1, m2], timeout=30.0))
 
-    # 4. Assert adaptive stream landed (open the LUCID-configured Tiled
+    # 4. Assert adaptive stream landed (open the Lightfall-configured Tiled
     # catalog and check). Use the existing helper:
-    from lucid.acquire.tiled import get_default_client
+    from lightfall.acquire.tiled import get_default_client
     client = get_default_client()
     last = next(iter(client.values()))
     adaptive = last["adaptive"]
@@ -2144,10 +2144,10 @@ Title: `feat(agents): autonomous-experiment agent — gpCAM design + Tsuchinoko 
 Body:
 
 ```
-Implements Phase B of LUCID Autonomous Experiments.
+Implements Phase B of Lightfall Autonomous Experiments.
 
-Spec: docs/superpowers/specs/2026-05-19-lucid-autonomous-experiments-design.md
-Plan: docs/superpowers/plans/2026-05-19-lucid-autonomous-experiments.md
+Spec: docs/superpowers/specs/2026-05-19-lightfall-autonomous-experiments-design.md
+Plan: docs/superpowers/plans/2026-05-19-lightfall-autonomous-experiments.md
 
 Adds one new AgentPlugin (`autonomous_experiment`) that:
 - Carries a short stub prompt for the workflow.
@@ -2160,7 +2160,7 @@ Together with the existing `adaptive_experiment` plan and the
 this completes the end-to-end demo: agent designs, agent starts,
 visualisation panel displays.
 
-Depends on Phase A in tsuchinoko `LUCID-refactor`. Merge Phase A first
+Depends on Phase A in tsuchinoko `Lightfall-refactor`. Merge Phase A first
 and deploy Tsuchinoko before merging this PR.
 ```
 
@@ -2168,9 +2168,9 @@ and deploy Tsuchinoko before merging this PR.
 
 # Self-review
 
-**Spec coverage check** (against `2026-05-19-lucid-autonomous-experiments-design.md`):
+**Spec coverage check** (against `2026-05-19-lightfall-autonomous-experiments-design.md`):
 
-- §Components/LUCID-side — Tasks B.1–B.6 cover the package layout, plugin class, prompt, tools, gpcam-aware references.
+- §Components/Lightfall-side — Tasks B.1–B.6 cover the package layout, plugin class, prompt, tools, gpcam-aware references.
 - §Components/Tsuchinoko-side — Tasks A.1–A.3 cover the resolver, upload_design_code, typed configure.
 - §End-to-end demo flow — Task B.8 exercises all seven workflow steps end-to-end.
 - §Error handling table — covered: NATS unavailable (`test_nats_unavailable…`), no responders (`test_discover_empty_when_no_responders`), strict validation (`test_configure_surfaces_strict_validation_error`), upload syntax/missing-callable/name-validation (Phase A tests), timeout (`test_status_timeout_returns_actionable_error`).
@@ -2193,7 +2193,7 @@ and deploy Tsuchinoko before merging this PR.
 
 This plan has two phases; Phase A blocks Phase B's smoke test (Task B.8) but not Phase B's unit work (Tasks B.1–B.7). A reasonable schedule:
 
-1. Implement and ship Phase A (Tasks A.1–A.5) as one MR on the Tsuchinoko `LUCID-refactor` branch.
-2. While Phase A is in review, implement Tasks B.1–B.7 on the LUCID feature branch.
+1. Implement and ship Phase A (Tasks A.1–A.5) as one MR on the Tsuchinoko `Lightfall-refactor` branch.
+2. While Phase A is in review, implement Tasks B.1–B.7 on the Lightfall feature branch.
 3. After Phase A merges and Tsuchinoko is redeployed wherever it runs, execute Task B.8 (the smoke script) and confirm it prints OK.
-4. Open the LUCID PR (Task B.9).
+4. Open the Lightfall PR (Task B.9).

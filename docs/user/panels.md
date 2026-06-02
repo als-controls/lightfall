@@ -1,6 +1,6 @@
 # Using Panels
 
-LUCID uses a flexible dockable panel system. Panels can be rearranged, tabbed together, or floated as separate windows. This guide describes each panel and how to use it.
+Lightfall uses a flexible dockable panel system. Panels can be rearranged, tabbed together, or floated as separate windows. This guide describes each panel and how to use it.
 
 ## Managing Panels
 
@@ -21,7 +21,7 @@ Panels can be customized to fit your workflow:
 
 ### Saving Layout
 
-Your panel layout is saved automatically when you close LUCID. To explicitly save or restore layouts:
+Your panel layout is saved automatically when you close Lightfall. To explicitly save or restore layouts:
 
 - **File** > **Save Layout** - Save current arrangement
 - **File** > **Restore Default Layout** - Reset to default
@@ -107,7 +107,7 @@ System-generated entries are protected from editing. User notes can be edited fr
 
 **Features**:
 - Chat interface with Claude AI
-- Understands LUCID context and capabilities
+- Understands Lightfall context and capabilities
 - Can control panels and devices via MCP tools
 - Provides help and explanations
 - Executes multi-step procedures
@@ -137,7 +137,7 @@ See [Claude Assistant](claude-assistant.md) for detailed usage.
 
 **Features**:
 - Full IPython REPL
-- Direct access to LUCID objects (`main_window`, `app`)
+- Direct access to Lightfall objects (`main_window`, `app`)
 - Widget targeting mode (select UI elements for inspection)
 - Command history
 

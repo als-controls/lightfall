@@ -12,7 +12,7 @@ Use `ThemePlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.theme_plugin import ThemePlugin, ThemeDefinition
+from lightfall.plugins.theme_plugin import ThemePlugin, ThemeDefinition
 ```
 
 ## Class Attributes
@@ -112,7 +112,7 @@ class ThemeDefinition:
 ```python
 """Custom dark theme plugin."""
 
-from lucid.plugins.theme_plugin import ThemePlugin, ThemeDefinition
+from lightfall.plugins.theme_plugin import ThemePlugin, ThemeDefinition
 
 
 class BeamlineDarkTheme(ThemePlugin):
@@ -160,7 +160,7 @@ class BeamlineDarkTheme(ThemePlugin):
 ```python
 """Custom light theme plugin."""
 
-from lucid.plugins.theme_plugin import ThemePlugin, ThemeDefinition
+from lightfall.plugins.theme_plugin import ThemePlugin, ThemeDefinition
 
 
 class BeamlineLightTheme(ThemePlugin):
@@ -204,7 +204,7 @@ class BeamlineLightTheme(ThemePlugin):
 ```python
 """Theme with custom CSS overrides."""
 
-from lucid.plugins.theme_plugin import ThemePlugin, ThemeDefinition
+from lightfall.plugins.theme_plugin import ThemePlugin, ThemeDefinition
 
 
 class CustomStyledTheme(ThemePlugin):
@@ -273,7 +273,7 @@ PluginEntry(
 
 ## Built-in Themes
 
-LUCID includes these themes by default:
+Lightfall includes these themes by default:
 
 | Theme | Type | Description |
 |-------|------|-------------|

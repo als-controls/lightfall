@@ -4,7 +4,7 @@
 
 **Goal:** Add a generic "theater mode" that lets any QWidget expand into an animated overlay covering the main window, then collapse back — primarily for PyQtGraph plots and ImageViews.
 
-**Architecture:** Three classes in `lucid/ui/theater/`: TheaterProxy (QStackedWidget wrapper with hover expand button), TheaterOverlay (dimmed backdrop + expanded widget), TheaterManager (singleton coordinator). The proxy holds the widget normally; on expand, the overlay takes it via reparenting; on collapse, the proxy gets it back. Animated open/close with parallel geometry + opacity transitions.
+**Architecture:** Three classes in `lightfall/ui/theater/`: TheaterProxy (QStackedWidget wrapper with hover expand button), TheaterOverlay (dimmed backdrop + expanded widget), TheaterManager (singleton coordinator). The proxy holds the widget normally; on expand, the overlay takes it via reparenting; on collapse, the proxy gets it back. Animated open/close with parallel geometry + opacity transitions.
 
 **Tech Stack:** PySide6 (QStackedWidget, QPropertyAnimation, QParallelAnimationGroup, Property), qtawesome for icons, pytest-qt for testing.
 
@@ -15,7 +15,7 @@
 ## File Structure
 
 ```
-src/lucid/ui/theater/
+src/lightfall/ui/theater/
 ├── __init__.py      # Package exports: TheaterProxy, TheaterOverlay, TheaterManager, theater_manager
 ├── proxy.py         # TheaterProxy(QStackedWidget) — wraps widget, hover button, page switching
 ├── overlay.py       # TheaterOverlay(QWidget) — dimmed backdrop, expanded widget, animations
@@ -34,9 +34,9 @@ tests/theater/
 ## Task 1: Package skeleton + TheaterProxy core
 
 **Files:**
-- Create: `src/lucid/ui/theater/__init__.py`
-- Create: `src/lucid/ui/theater/proxy.py`
-- Create: `src/lucid/ui/theater/manager.py` (stub only — needed for proxy auto-registration)
+- Create: `src/lightfall/ui/theater/__init__.py`
+- Create: `src/lightfall/ui/theater/proxy.py`
+- Create: `src/lightfall/ui/theater/manager.py` (stub only — needed for proxy auto-registration)
 - Create: `tests/theater/__init__.py`
 - Create: `tests/theater/conftest.py`
 - Create: `tests/theater/test_proxy.py`
@@ -45,12 +45,12 @@ tests/theater/
 
 Create the theater package directory and a minimal manager stub so the proxy can import it.
 
-`src/lucid/ui/theater/__init__.py`:
+`src/lightfall/ui/theater/__init__.py`:
 ```python
 """Theater mode — widget expansion overlay."""
 ```
 
-`src/lucid/ui/theater/manager.py`:
+`src/lightfall/ui/theater/manager.py`:
 ```python
 """TheaterManager — singleton coordinator for theater mode."""
 
@@ -59,7 +59,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.ui.theater.proxy import TheaterProxy
+    from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TheaterManager:
@@ -117,7 +117,7 @@ def parent_widget(qtbot):
 @pytest.fixture(autouse=True)
 def _reset_theater_manager():
     """Reset the theater manager singleton between tests."""
-    from lucid.ui.theater.manager import theater_manager
+    from lightfall.ui.theater.manager import theater_manager
 
     theater_manager._proxies.clear()
     theater_manager._overlay = None
@@ -134,7 +134,7 @@ def _reset_theater_manager():
 
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TestTheaterProxyCore:
@@ -195,7 +195,7 @@ class TestTheaterProxyCore:
         assert proxy.count() == 2  # target re-inserted
 
     def test_auto_registers_with_manager(self, qtbot):
-        from lucid.ui.theater.manager import theater_manager
+        from lightfall.ui.theater.manager import theater_manager
 
         target = QWidget()
         qtbot.addWidget(target)
@@ -214,7 +214,7 @@ Expected: FAIL — `ModuleNotFoundError` because `proxy.py` does not exist yet.
 
 - [ ] **Step 5: Implement TheaterProxy core**
 
-`src/lucid/ui/theater/proxy.py`:
+`src/lightfall/ui/theater/proxy.py`:
 ```python
 """TheaterProxy — QStackedWidget wrapper for theater mode."""
 
@@ -263,7 +263,7 @@ class TheaterProxy(QStackedWidget):
         self._expand_btn.clicked.connect(self.expand_requested.emit)
 
         # Register with theater manager
-        from lucid.ui.theater.manager import theater_manager
+        from lightfall.ui.theater.manager import theater_manager
 
         theater_manager.register(self)
 
@@ -294,7 +294,7 @@ Expected: All 6 tests PASS.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/theater/__init__.py src/lucid/ui/theater/proxy.py src/lucid/ui/theater/manager.py tests/theater/__init__.py tests/theater/conftest.py tests/theater/test_proxy.py
+git add src/lightfall/ui/theater/__init__.py src/lightfall/ui/theater/proxy.py src/lightfall/ui/theater/manager.py tests/theater/__init__.py tests/theater/conftest.py tests/theater/test_proxy.py
 git commit -m "feat(theater): TheaterProxy core — page switching and widget handoff"
 ```
 
@@ -303,7 +303,7 @@ git commit -m "feat(theater): TheaterProxy core — page switching and widget ha
 ## Task 2: TheaterProxy hover expand button
 
 **Files:**
-- Modify: `src/lucid/ui/theater/proxy.py`
+- Modify: `src/lightfall/ui/theater/proxy.py`
 - Modify: `tests/theater/test_proxy.py`
 
 - [ ] **Step 1: Write failing tests for hover button**
@@ -398,7 +398,7 @@ Expected: FAIL — `enterEvent`/`leaveEvent`/`resizeEvent` not yet implemented.
 
 - [ ] **Step 3: Implement hover button behavior**
 
-Add these methods to the `TheaterProxy` class in `src/lucid/ui/theater/proxy.py`:
+Add these methods to the `TheaterProxy` class in `src/lightfall/ui/theater/proxy.py`:
 
 After the `__init__` method, update the button styling and icon:
 ```python
@@ -448,7 +448,7 @@ Expected: All 12 tests PASS.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/theater/proxy.py tests/theater/test_proxy.py
+git add src/lightfall/ui/theater/proxy.py tests/theater/test_proxy.py
 git commit -m "feat(theater): TheaterProxy hover expand button"
 ```
 
@@ -457,7 +457,7 @@ git commit -m "feat(theater): TheaterProxy hover expand button"
 ## Task 3: TheaterOverlay — structure, backdrop, and activate/deactivate
 
 **Files:**
-- Create: `src/lucid/ui/theater/overlay.py`
+- Create: `src/lightfall/ui/theater/overlay.py`
 - Create: `tests/theater/test_overlay.py`
 
 - [ ] **Step 1: Write failing tests for overlay core**
@@ -470,8 +470,8 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from lucid.ui.theater.overlay import TheaterOverlay
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.overlay import TheaterOverlay
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TestTheaterOverlayCore:
@@ -588,7 +588,7 @@ Expected: FAIL — `overlay.py` does not exist yet.
 
 - [ ] **Step 3: Implement TheaterOverlay**
 
-`src/lucid/ui/theater/overlay.py`:
+`src/lightfall/ui/theater/overlay.py`:
 ```python
 """TheaterOverlay — fullscreen expansion overlay with dimmed backdrop."""
 
@@ -615,7 +615,7 @@ except ImportError:  # pragma: no cover
     qta = None
 
 if TYPE_CHECKING:
-    from lucid.ui.theater.proxy import TheaterProxy
+    from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TheaterOverlay(QWidget):
@@ -868,7 +868,7 @@ Expected: All 7 tests PASS.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/theater/overlay.py tests/theater/test_overlay.py
+git add src/lightfall/ui/theater/overlay.py tests/theater/test_overlay.py
 git commit -m "feat(theater): TheaterOverlay — backdrop, activate/deactivate with animation"
 ```
 
@@ -1163,7 +1163,7 @@ git commit -m "test(theater): animation behavior verification tests"
 ## Task 7: TheaterManager
 
 **Files:**
-- Modify: `src/lucid/ui/theater/manager.py`
+- Modify: `src/lightfall/ui/theater/manager.py`
 - Create: `tests/theater/test_manager.py`
 
 - [ ] **Step 1: Write failing tests for TheaterManager**
@@ -1175,8 +1175,8 @@ git commit -m "test(theater): animation behavior verification tests"
 import pytest
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from lucid.ui.theater.manager import TheaterManager, theater_manager
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.manager import TheaterManager, theater_manager
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TestTheaterManagerRegister:
@@ -1348,7 +1348,7 @@ Expected: FAIL — `install`, `uninstall`, `is_active` not yet implemented.
 
 - [ ] **Step 3: Implement full TheaterManager**
 
-Replace the stub `src/lucid/ui/theater/manager.py` with the full implementation:
+Replace the stub `src/lightfall/ui/theater/manager.py` with the full implementation:
 
 ```python
 """TheaterManager — singleton coordinator for theater mode."""
@@ -1360,8 +1360,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
-    from lucid.ui.theater.overlay import TheaterOverlay
-    from lucid.ui.theater.proxy import TheaterProxy
+    from lightfall.ui.theater.overlay import TheaterOverlay
+    from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TheaterManager:
@@ -1392,7 +1392,7 @@ class TheaterManager:
         Finds the widget's parent layout and replaces the widget
         at the same index with a new TheaterProxy.
         """
-        from lucid.ui.theater.proxy import TheaterProxy
+        from lightfall.ui.theater.proxy import TheaterProxy
 
         parent = widget.parentWidget()
         if parent is None:
@@ -1442,7 +1442,7 @@ class TheaterManager:
     def activate(self, proxy: TheaterProxy) -> None:
         """Expand a proxy's widget onto the overlay."""
         if self._overlay is None:
-            from lucid.ui.theater.overlay import TheaterOverlay
+            from lightfall.ui.theater.overlay import TheaterOverlay
 
             parent = proxy.window()
             self._overlay = TheaterOverlay(parent)
@@ -1481,7 +1481,7 @@ Expected: All tests PASS (proxy: 12, overlay: 18, manager: 11).
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/theater/manager.py tests/theater/test_manager.py
+git add src/lightfall/ui/theater/manager.py tests/theater/test_manager.py
 git commit -m "feat(theater): TheaterManager — install, uninstall, activate delegation"
 ```
 
@@ -1490,7 +1490,7 @@ git commit -m "feat(theater): TheaterManager — install, uninstall, activate de
 ## Task 8: Package exports and integration test
 
 **Files:**
-- Modify: `src/lucid/ui/theater/__init__.py`
+- Modify: `src/lightfall/ui/theater/__init__.py`
 - Modify: `tests/theater/test_manager.py`
 
 - [ ] **Step 1: Write integration test**
@@ -1560,13 +1560,13 @@ class TestTheaterIntegration:
 
 - [ ] **Step 2: Update package exports**
 
-`src/lucid/ui/theater/__init__.py`:
+`src/lightfall/ui/theater/__init__.py`:
 ```python
 """Theater mode — generic widget expansion overlay.
 
 Usage with install (existing widget in a layout)::
 
-    from lucid.ui.theater import theater_manager
+    from lightfall.ui.theater import theater_manager
 
     plot = pg.PlotWidget()
     layout.addWidget(plot)
@@ -1574,15 +1574,15 @@ Usage with install (existing widget in a layout)::
 
 Usage with direct proxy construction::
 
-    from lucid.ui.theater import TheaterProxy
+    from lightfall.ui.theater import TheaterProxy
 
     proxy = TheaterProxy(my_image_view)
     layout.addWidget(proxy)
 """
 
-from lucid.ui.theater.manager import TheaterManager, theater_manager
-from lucid.ui.theater.overlay import TheaterOverlay
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.manager import TheaterManager, theater_manager
+from lightfall.ui.theater.overlay import TheaterOverlay
+from lightfall.ui.theater.proxy import TheaterProxy
 
 __all__ = [
     "TheaterManager",
@@ -1600,7 +1600,7 @@ Expected: All tests PASS.
 
 - [ ] **Step 4: Verify imports work from the package**
 
-Run: `cd ~/PycharmProjects/ncs/ncs && python -c "from lucid.ui.theater import TheaterProxy, TheaterOverlay, TheaterManager, theater_manager; print('OK')"  `
+Run: `cd ~/PycharmProjects/ncs/ncs && python -c "from lightfall.ui.theater import TheaterProxy, TheaterOverlay, TheaterManager, theater_manager; print('OK')"  `
 
 Expected: `OK`
 
@@ -1608,6 +1608,6 @@ Expected: `OK`
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/theater/__init__.py tests/theater/test_manager.py
+git add src/lightfall/ui/theater/__init__.py tests/theater/test_manager.py
 git commit -m "feat(theater): package exports and integration tests"
 ```

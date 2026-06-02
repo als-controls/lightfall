@@ -892,10 +892,10 @@ def _build_welcome_tutorial() -> Tutorial:
             # ── Intro ──────────────────────────────────────────────
             TutorialStep(
                 target=None,
-                title="Welcome to LUCID",
+                title="Welcome to Lightfall",
                 message=(
-                    "LUCID is the Lightsource Unified Control Interface "
-                    "Dashboard for beamline controls.\n\n"
+                    "Lightfall is the control system for beamline "
+                    "controls.\n\n"
                     "This quick tour will show you around the interface. "
                     "Use the arrow keys, click Next, or click the "
                     "highlighted area to advance."

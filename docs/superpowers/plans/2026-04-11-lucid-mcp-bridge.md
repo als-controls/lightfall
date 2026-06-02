@@ -1,25 +1,25 @@
-# LUCID MCP Bridge Implementation Plan
+# Lightfall MCP Bridge Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a standalone MCP server that bridges Claude Code to running LUCID instances via NATS, plus the LUCID-side changes needed for instance discovery.
+**Goal:** Build a standalone MCP server that bridges Claude Code to running Lightfall instances via NATS, plus the Lightfall-side changes needed for instance discovery.
 
-**Architecture:** Two-repo change. LUCID gets instance identity and a `_lucid.discover` endpoint. A new `lucid-mcp-bridge` repo houses a FastMCP server with three dynamic tools (`list_instances`, `list_actions`, `execute_action`) that relay to LUCID over NATS.
+**Architecture:** Two-repo change. Lightfall gets instance identity and a `_lightfall.discover` endpoint. A new `lightfall-mcp-bridge` repo houses a FastMCP server with three dynamic tools (`list_instances`, `list_actions`, `execute_action`) that relay to Lightfall over NATS.
 
 **Tech Stack:** Python, nats-py, fastmcp, hatch, pytest, pytest-asyncio
 
-**Spec:** `docs/superpowers/specs/2026-04-11-lucid-mcp-bridge-design.md`
+**Spec:** `docs/superpowers/specs/2026-04-11-lightfall-mcp-bridge-design.md`
 
 **Repos:**
-- LUCID (Tasks 1-3): `~/PycharmProjects/ncs/ncs/`
-- Bridge (Tasks 4-10): `~/PycharmProjects/lucid-mcp-bridge/`
+- Lightfall (Tasks 1-3): `~/PycharmProjects/ncs/ncs/`
+- Bridge (Tasks 4-10): `~/PycharmProjects/lightfall-mcp-bridge/`
 
 ---
 
 ### Task 1: Add instance identity to IPCService
 
 **Files:**
-- Modify: `src/lucid/ipc/service.py`
+- Modify: `src/lightfall/ipc/service.py`
 - Test: `tests/ipc/test_service.py`
 
 **Context:** IPCService currently has no identity. We add `instance_id` (auto-generated `{hostname}-{pid}`) and `display_name` (optional, user-set). Both are included in `meta.actions` and `meta.events` responses so the bridge can identify which instance replied.
@@ -57,7 +57,7 @@ Expected: FAIL — `instance_id` and `display_name` don't exist yet.
 
 - [ ] **Step 3: Implement instance identity on IPCService**
 
-In `src/lucid/ipc/service.py`, add imports at top:
+In `src/lightfall/ipc/service.py`, add imports at top:
 
 ```python
 import os
@@ -147,7 +147,7 @@ Expected: FAIL — responses don't include identity fields yet.
 
 - [ ] **Step 7: Update meta handlers to include identity**
 
-In `src/lucid/ipc/service.py`, replace `_handle_meta_actions`:
+In `src/lightfall/ipc/service.py`, replace `_handle_meta_actions`:
 
 ```python
 def _handle_meta_actions(
@@ -193,19 +193,19 @@ Expected: All existing tests still pass. Some tests that check `_handle_meta_act
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ipc/service.py tests/ipc/test_service.py tests/ipc/test_actions.py
+git add src/lightfall/ipc/service.py tests/ipc/test_service.py tests/ipc/test_actions.py
 git commit -m "feat(ipc): add instance identity to IPCService and meta responses"
 ```
 
 ---
 
-### Task 2: Add `_lucid.discover` subscription
+### Task 2: Add `_lightfall.discover` subscription
 
 **Files:**
-- Modify: `src/lucid/ipc/service.py`
+- Modify: `src/lightfall/ipc/service.py`
 - Test: `tests/ipc/test_actions.py`
 
-**Context:** The bridge needs to discover all LUCID instances on the NATS bus. Each instance subscribes to the well-known `_lucid.discover` subject (not prefixed) and replies with its identity + action list. This is a broadcast query pattern.
+**Context:** The bridge needs to discover all Lightfall instances on the NATS bus. Each instance subscribes to the well-known `_lightfall.discover` subject (not prefixed) and replies with its identity + action list. This is a broadcast query pattern.
 
 - [ ] **Step 1: Write test for discover handler registration and response**
 
@@ -213,7 +213,7 @@ Append to `tests/ipc/test_actions.py`:
 
 ```python
 class TestDiscoverEndpoint:
-    """IPCService subscribes to _lucid.discover for instance discovery."""
+    """IPCService subscribes to _lightfall.discover for instance discovery."""
 
     def test_discover_handler_registered(self):
         svc = _make_ipc(prefix="als.test")
@@ -221,7 +221,7 @@ class TestDiscoverEndpoint:
         svc.register_meta_endpoints()
 
         subjects = [call[0][0] for call in svc.subscribe.call_args_list]
-        assert "_lucid.discover" in subjects
+        assert "_lightfall.discover" in subjects
 
     def test_discover_response_matches_meta_actions(self):
         svc = _make_ipc(prefix="als.test")
@@ -237,7 +237,7 @@ class TestDiscoverEndpoint:
             schema={"msg": "str"},
         )
 
-        svc._handle_discover("_lucid.discover", {}, "reply.inbox")
+        svc._handle_discover("_lightfall.discover", {}, "reply.inbox")
 
         svc.reply.assert_called_once()
         response = svc.reply.call_args[0][1]
@@ -254,13 +254,13 @@ Expected: FAIL — `_handle_discover` and the subscription don't exist yet.
 
 - [ ] **Step 3: Implement discover handler and subscription**
 
-In `src/lucid/ipc/service.py`, add the handler method near the other meta handlers:
+In `src/lightfall/ipc/service.py`, add the handler method near the other meta handlers:
 
 ```python
 def _handle_discover(
     self, subject: str, data: dict, reply: str | None
 ) -> None:
-    """Respond to ``_lucid.discover`` with instance identity and actions."""
+    """Respond to ``_lightfall.discover`` with instance identity and actions."""
     if reply:
         self.reply(reply, {
             "instance_id": self._instance_id,
@@ -275,7 +275,7 @@ In `register_meta_endpoints`, add at the end:
 ```python
 # Well-known discovery subject (not prefixed)
 self.subscribe(
-    "_lucid.discover", self._handle_discover, main_thread=False
+    "_lightfall.discover", self._handle_discover, main_thread=False
 )
 ```
 
@@ -293,8 +293,8 @@ Expected: All pass.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ipc/service.py tests/ipc/test_actions.py
-git commit -m "feat(ipc): add _lucid.discover endpoint for instance discovery"
+git add src/lightfall/ipc/service.py tests/ipc/test_actions.py
+git commit -m "feat(ipc): add _lightfall.discover endpoint for instance discovery"
 ```
 
 ---
@@ -302,7 +302,7 @@ git commit -m "feat(ipc): add _lucid.discover endpoint for instance discovery"
 ### Task 3: Add Display Name field to IPCSettingsPlugin
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/ipc_settings.py`
+- Modify: `src/lightfall/ui/preferences/ipc_settings.py`
 - Test: `tests/ipc/test_settings.py`
 
 **Context:** The `display_name` is user-configured via a new text field in the IPC settings panel. Stored as preference key `ipc_display_name`.
@@ -333,7 +333,7 @@ class TestDisplayNameField:
             "ipc_display_name": "CMS Hutch",
         }.get(k, d))
         monkeypatch.setattr(
-            "lucid.ui.preferences.ipc_settings.PreferencesManager.get_instance",
+            "lightfall.ui.preferences.ipc_settings.PreferencesManager.get_instance",
             lambda: mock_prefs,
         )
 
@@ -347,7 +347,7 @@ class TestDisplayNameField:
 
         mock_prefs = MagicMock()
         monkeypatch.setattr(
-            "lucid.ui.preferences.ipc_settings.PreferencesManager.get_instance",
+            "lightfall.ui.preferences.ipc_settings.PreferencesManager.get_instance",
             lambda: mock_prefs,
         )
 
@@ -363,7 +363,7 @@ Expected: FAIL — `_display_name_edit` doesn't exist yet.
 
 - [ ] **Step 3: Add display name field to the plugin**
 
-In `src/lucid/ui/preferences/ipc_settings.py`:
+In `src/lightfall/ui/preferences/ipc_settings.py`:
 
 Add `self._display_name_edit: QLineEdit | None = None` to `__init__`.
 
@@ -400,25 +400,25 @@ Expected: All pass.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/preferences/ipc_settings.py tests/ipc/test_settings.py
+git add src/lightfall/ui/preferences/ipc_settings.py tests/ipc/test_settings.py
 git commit -m "feat(ipc): add display name field to IPC settings"
 ```
 
 ---
 
-### Task 4: Scaffold the lucid-mcp-bridge repository
+### Task 4: Scaffold the lightfall-mcp-bridge repository
 
 **Files:**
-- Create: `~/PycharmProjects/lucid-mcp-bridge/pyproject.toml`
-- Create: `~/PycharmProjects/lucid-mcp-bridge/.claude-plugin/plugin.json`
-- Create: `~/PycharmProjects/lucid-mcp-bridge/.mcp.json`
-- Create: `~/PycharmProjects/lucid-mcp-bridge/src/lucid_bridge/__init__.py`
-- Create: `~/PycharmProjects/lucid-mcp-bridge/LICENSE`
+- Create: `~/PycharmProjects/lightfall-mcp-bridge/pyproject.toml`
+- Create: `~/PycharmProjects/lightfall-mcp-bridge/.claude-plugin/plugin.json`
+- Create: `~/PycharmProjects/lightfall-mcp-bridge/.mcp.json`
+- Create: `~/PycharmProjects/lightfall-mcp-bridge/src/lightfall_bridge/__init__.py`
+- Create: `~/PycharmProjects/lightfall-mcp-bridge/LICENSE`
 
 - [ ] **Step 1: Create directory structure**
 
 ```bash
-mkdir -p ~/PycharmProjects/lucid-mcp-bridge/{.claude-plugin,src/lucid_bridge,tests,skills/setup}
+mkdir -p ~/PycharmProjects/lightfall-mcp-bridge/{.claude-plugin,src/lightfall_bridge,tests,skills/setup}
 ```
 
 - [ ] **Step 2: Create pyproject.toml**
@@ -429,9 +429,9 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lucid-mcp-bridge"
+name = "lightfall-mcp-bridge"
 dynamic = ["version"]
-description = "MCP server bridging Claude Code to LUCID via NATS"
+description = "MCP server bridging Claude Code to Lightfall via NATS"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.10"
@@ -451,7 +451,7 @@ dev = [
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lucid_bridge"]
+packages = ["src/lightfall_bridge"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -464,15 +464,15 @@ testpaths = ["tests"]
 
 ```json
 {
-  "name": "lucid-mcp-bridge",
-  "description": "Bridge Claude Code to running LUCID beamline control instances via NATS",
+  "name": "lightfall-mcp-bridge",
+  "description": "Bridge Claude Code to running Lightfall beamline control instances via NATS",
   "version": "0.1.0",
   "author": {
     "name": "ALS Beamline Controls",
     "email": "controls@als.lbl.gov"
   },
   "license": "BSD-3-Clause",
-  "keywords": ["lucid", "nats", "beamline", "ipc"]
+  "keywords": ["lightfall", "nats", "beamline", "ipc"]
 }
 ```
 
@@ -480,17 +480,17 @@ testpaths = ["tests"]
 
 ```json
 {
-  "lucid": {
+  "lightfall": {
     "command": "python",
-    "args": ["-m", "lucid_bridge", "--nats-url", "nats://localhost:4222"]
+    "args": ["-m", "lightfall_bridge", "--nats-url", "nats://localhost:4222"]
   }
 }
 ```
 
-- [ ] **Step 5: Create src/lucid_bridge/__init__.py**
+- [ ] **Step 5: Create src/lightfall_bridge/__init__.py**
 
 ```python
-"""MCP server bridging Claude Code to LUCID via NATS."""
+"""MCP server bridging Claude Code to Lightfall via NATS."""
 ```
 
 - [ ] **Step 6: Create LICENSE**
@@ -500,7 +500,7 @@ Use BSD-3-Clause. Copy the standard BSD-3-Clause text with copyright holder "The
 - [ ] **Step 7: Initialize git repo and create venv**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
+cd ~/PycharmProjects/lightfall-mcp-bridge
 git init
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"
@@ -509,9 +509,9 @@ python -m venv .venv
 - [ ] **Step 8: Initial commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
+cd ~/PycharmProjects/lightfall-mcp-bridge
 git add .
-git commit -m "chore: scaffold lucid-mcp-bridge repo"
+git commit -m "chore: scaffold lightfall-mcp-bridge repo"
 ```
 
 ---
@@ -519,10 +519,10 @@ git commit -m "chore: scaffold lucid-mcp-bridge repo"
 ### Task 5: Implement NATS lifespan and `list_instances` tool
 
 **Files:**
-- Create: `src/lucid_bridge/server.py`
+- Create: `src/lightfall_bridge/server.py`
 - Create: `tests/test_tools.py`
 
-**Context:** The server uses a FastMCP lifespan to manage the NATS connection. `list_instances` does a scatter-gather broadcast to `_lucid.discover`, collecting responses over a 2-second window.
+**Context:** The server uses a FastMCP lifespan to manage the NATS connection. `list_instances` does a scatter-gather broadcast to `_lightfall.discover`, collecting responses over a 2-second window.
 
 - [ ] **Step 1: Write unit test for BridgeState and prefix resolution**
 
@@ -535,7 +535,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid_bridge.server import BridgeState, resolve_prefix
+from lightfall_bridge.server import BridgeState, resolve_prefix
 
 
 class TestBridgeState:
@@ -565,15 +565,15 @@ class TestResolvePrefix:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
-Expected: FAIL — `lucid_bridge.server` doesn't exist yet.
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
+Expected: FAIL — `lightfall_bridge.server` doesn't exist yet.
 
 - [ ] **Step 3: Implement BridgeState, resolve_prefix, and list_instances**
 
-Create `src/lucid_bridge/server.py`:
+Create `src/lightfall_bridge/server.py`:
 
 ```python
-"""FastMCP server bridging Claude Code to LUCID via NATS."""
+"""FastMCP server bridging Claude Code to Lightfall via NATS."""
 
 from __future__ import annotations
 
@@ -588,7 +588,7 @@ from fastmcp.server.lifespan import lifespan
 
 logger = logging.getLogger(__name__)
 
-DISCOVER_SUBJECT = "_lucid.discover"
+DISCOVER_SUBJECT = "_lightfall.discover"
 DISCOVER_TIMEOUT = 2.0
 REQUEST_TIMEOUT = 5.0
 AUTH_TIMEOUT = 10.0
@@ -610,7 +610,7 @@ def resolve_prefix(prefix: str, default: str) -> str:
     if not result:
         raise ValueError(
             "No prefix specified. Use list_instances to discover "
-            "available LUCID instances, or set --default-prefix."
+            "available Lightfall instances, or set --default-prefix."
         )
     return result
 
@@ -633,14 +633,14 @@ def create_server(nats_url: str, default_prefix: str = "") -> FastMCP:
             if nc:
                 await nc.drain()
 
-    mcp = FastMCP("LUCID Bridge", lifespan=nats_lifespan)
+    mcp = FastMCP("Lightfall Bridge", lifespan=nats_lifespan)
 
     def _get_state(ctx: Context) -> BridgeState:
         return ctx.lifespan_context["bridge"]
 
     @mcp.tool
     async def list_instances(ctx: Context) -> str:
-        """Discover LUCID instances on the NATS bus.
+        """Discover Lightfall instances on the NATS bus.
 
         Broadcasts to all instances and collects responses over a
         2-second window. Returns a JSON array of discovered instances.
@@ -684,14 +684,14 @@ def create_server(nats_url: str, default_prefix: str = "") -> FastMCP:
 
 - [ ] **Step 4: Run unit tests to verify they pass**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
-git add src/lucid_bridge/server.py tests/test_tools.py
+cd ~/PycharmProjects/lightfall-mcp-bridge
+git add src/lightfall_bridge/server.py tests/test_tools.py
 git commit -m "feat: add BridgeState, resolve_prefix, and list_instances tool"
 ```
 
@@ -700,7 +700,7 @@ git commit -m "feat: add BridgeState, resolve_prefix, and list_instances tool"
 ### Task 6: Implement `list_actions` tool with caching
 
 **Files:**
-- Modify: `src/lucid_bridge/server.py`
+- Modify: `src/lightfall_bridge/server.py`
 - Modify: `tests/test_tools.py`
 
 - [ ] **Step 1: Write unit test for action cache behavior**
@@ -740,20 +740,20 @@ class TestActionCache:
 
 - [ ] **Step 2: Run tests to verify they pass**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestActionCache -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestActionCache -v`
 Expected: PASS (3 tests) — these test BridgeState which already exists.
 
 - [ ] **Step 3: Implement `list_actions` tool**
 
-In `src/lucid_bridge/server.py`, inside `create_server()`, after the `list_instances` tool, add:
+In `src/lightfall_bridge/server.py`, inside `create_server()`, after the `list_instances` tool, add:
 
 ```python
     @mcp.tool
     async def list_actions(prefix: str = "", ctx: Context = None) -> str:
-        """Get available actions from a specific LUCID instance.
+        """Get available actions from a specific Lightfall instance.
 
         Args:
-            prefix: Topic prefix of the LUCID instance (e.g. "als.7011").
+            prefix: Topic prefix of the Lightfall instance (e.g. "als.7011").
                     Falls back to the configured default prefix.
         """
         state = _get_state(ctx)
@@ -773,7 +773,7 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, after the `list_insta
             data = json.loads(msg.data)
         except nats.errors.TimeoutError:
             return json.dumps({
-                "error": f"No response from '{target}' — LUCID instance "
+                "error": f"No response from '{target}' — Lightfall instance "
                          f"may be offline. Timeout: {REQUEST_TIMEOUT}s"
             })
         except Exception as exc:
@@ -788,14 +788,14 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, after the `list_insta
 
 - [ ] **Step 4: Run full test suite**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/ -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/ -v`
 Expected: All pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
-git add src/lucid_bridge/server.py tests/test_tools.py
+cd ~/PycharmProjects/lightfall-mcp-bridge
+git add src/lightfall_bridge/server.py tests/test_tools.py
 git commit -m "feat: add list_actions tool with action metadata caching"
 ```
 
@@ -804,7 +804,7 @@ git commit -m "feat: add list_actions tool with action metadata caching"
 ### Task 7: Implement `execute_action` tool with auth handshake
 
 **Files:**
-- Modify: `src/lucid_bridge/server.py`
+- Modify: `src/lightfall_bridge/server.py`
 - Modify: `tests/test_tools.py`
 
 - [ ] **Step 1: Write unit tests for auth state tracking**
@@ -830,7 +830,7 @@ class TestAuthState:
 
 class TestFormatExecuteResponse:
     def test_with_cached_metadata(self):
-        from lucid_bridge.server import format_execute_response
+        from lightfall_bridge.server import format_execute_response
 
         cache = [
             {"subject": "commands.echo", "description": "Echo", "schema": {"msg": "str"}},
@@ -846,7 +846,7 @@ class TestFormatExecuteResponse:
         assert result["response"] == {"echoed": "hello"}
 
     def test_without_cached_metadata(self):
-        from lucid_bridge.server import format_execute_response
+        from lightfall_bridge.server import format_execute_response
 
         result = format_execute_response(
             action="commands.unknown",
@@ -860,12 +860,12 @@ class TestFormatExecuteResponse:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestFormatExecuteResponse -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestFormatExecuteResponse -v`
 Expected: FAIL — `format_execute_response` doesn't exist yet.
 
 - [ ] **Step 3: Implement format_execute_response helper**
 
-In `src/lucid_bridge/server.py`, add at module level (before `create_server`):
+In `src/lightfall_bridge/server.py`, add at module level (before `create_server`):
 
 ```python
 def format_execute_response(
@@ -873,7 +873,7 @@ def format_execute_response(
     response: dict,
     action_cache: list[dict],
 ) -> dict:
-    """Wrap a LUCID response with cached action metadata."""
+    """Wrap a Lightfall response with cached action metadata."""
     match = next(
         (a for a in action_cache if a.get("subject") == action),
         None,
@@ -888,12 +888,12 @@ def format_execute_response(
 
 - [ ] **Step 4: Run format tests to verify they pass**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestFormatExecuteResponse -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py::TestFormatExecuteResponse -v`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Implement execute_action tool with auth**
 
-In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actions`:
+In `src/lightfall_bridge/server.py`, inside `create_server()`, add after `list_actions`:
 
 ```python
     async def _ensure_auth(state: BridgeState, target: str) -> str | None:
@@ -903,8 +903,8 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
             return None
         if auth == "denied":
             return (
-                f"LUCID instance at '{target}' denied access. "
-                "Approve the trust prompt in LUCID to continue."
+                f"Lightfall instance at '{target}' denied access. "
+                "Approve the trust prompt in Lightfall to continue."
             )
         # First contact — do handshake
         subject = f"{target}.auth.request"
@@ -918,7 +918,7 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
         except nats.errors.TimeoutError:
             return (
                 f"Auth handshake timed out for '{target}'. "
-                "Check that LUCID is running and respond to the trust prompt."
+                "Check that Lightfall is running and respond to the trust prompt."
             )
         except Exception as exc:
             return f"Auth handshake failed: {exc}"
@@ -931,8 +931,8 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
             reason = data.get("reason", "denied by operator")
             state.auth_state[target] = "denied"
             return (
-                f"LUCID instance at '{target}' denied access: {reason}. "
-                "Approve the trust prompt in LUCID to continue."
+                f"Lightfall instance at '{target}' denied access: {reason}. "
+                "Approve the trust prompt in Lightfall to continue."
             )
 
     @mcp.tool
@@ -942,12 +942,12 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
         prefix: str = "",
         ctx: Context = None,
     ) -> str:
-        """Execute an action on a LUCID instance.
+        """Execute an action on a Lightfall instance.
 
         Args:
             action: Action subject suffix (e.g. "commands.plan.run").
             params: JSON payload to send with the action. Defaults to {}.
-            prefix: Topic prefix of the LUCID instance. Falls back to default.
+            prefix: Topic prefix of the Lightfall instance. Falls back to default.
         """
         state = _get_state(ctx)
         if state.nc is None:
@@ -971,7 +971,7 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
             response = json.loads(msg.data)
         except nats.errors.TimeoutError:
             return json.dumps({
-                "error": f"No response from '{target}' — LUCID instance "
+                "error": f"No response from '{target}' — Lightfall instance "
                          f"may be offline. Timeout: {REQUEST_TIMEOUT}s"
             })
         except json.JSONDecodeError:
@@ -989,7 +989,7 @@ In `src/lucid_bridge/server.py`, inside `create_server()`, add after `list_actio
 
 - [ ] **Step 6: Add auth handshake to list_actions**
 
-Per the spec, auth triggers on both `list_actions` and `execute_action`. In `src/lucid_bridge/server.py`, update the `list_actions` tool to call `_ensure_auth` before the meta request. Add this block after the `resolve_prefix` call and before the `nc.request`:
+Per the spec, auth triggers on both `list_actions` and `execute_action`. In `src/lightfall_bridge/server.py`, update the `list_actions` tool to call `_ensure_auth` before the meta request. Add this block after the `resolve_prefix` call and before the `nc.request`:
 
 ```python
         # Auth handshake
@@ -1000,14 +1000,14 @@ Per the spec, auth triggers on both `list_actions` and `execute_action`. In `src
 
 - [ ] **Step 7: Run full unit test suite**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_tools.py -v`
 Expected: All pass.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
-git add src/lucid_bridge/server.py tests/test_tools.py
+cd ~/PycharmProjects/lightfall-mcp-bridge
+git add src/lightfall_bridge/server.py tests/test_tools.py
 git commit -m "feat: add execute_action tool with auth handshake"
 ```
 
@@ -1016,25 +1016,25 @@ git commit -m "feat: add execute_action tool with auth handshake"
 ### Task 8: Implement CLI entry point
 
 **Files:**
-- Create: `src/lucid_bridge/__main__.py`
+- Create: `src/lightfall_bridge/__main__.py`
 
 - [ ] **Step 1: Create __main__.py**
 
 ```python
-"""Entry point for ``python -m lucid_bridge``."""
+"""Entry point for ``python -m lightfall_bridge``."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 
-from lucid_bridge.server import create_server
+from lightfall_bridge.server import create_server
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="lucid-bridge",
-        description="MCP server bridging Claude Code to LUCID via NATS",
+        prog="lightfall-bridge",
+        description="MCP server bridging Claude Code to Lightfall via NATS",
     )
     parser.add_argument(
         "--nats-url",
@@ -1044,7 +1044,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--default-prefix",
         default="",
-        help="Default topic prefix for LUCID instance (e.g. als.7011)",
+        help="Default topic prefix for Lightfall instance (e.g. als.7011)",
     )
     args = parser.parse_args(argv)
 
@@ -1061,31 +1061,31 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Verify the module is importable**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -c "from lucid_bridge.__main__ import main; print('OK')"`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -c "from lightfall_bridge.__main__ import main; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 3: Verify --help works**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m lucid_bridge --help`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m lightfall_bridge --help`
 Expected: Help text showing `--nats-url` and `--default-prefix`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
-git add src/lucid_bridge/__main__.py
-git commit -m "feat: add CLI entry point for python -m lucid_bridge"
+cd ~/PycharmProjects/lightfall-mcp-bridge
+git add src/lightfall_bridge/__main__.py
+git commit -m "feat: add CLI entry point for python -m lightfall_bridge"
 ```
 
 ---
 
-### Task 9: Integration tests with mock LUCID responder
+### Task 9: Integration tests with mock Lightfall responder
 
 **Files:**
 - Create: `tests/conftest.py`
 - Create: `tests/test_integration.py`
 
-**Context:** Integration tests run against a real NATS server (localhost:4222). A mock LUCID responder subscribes to a test prefix and responds to meta/command/auth subjects. Tests are skipped if NATS is unavailable.
+**Context:** Integration tests run against a real NATS server (localhost:4222). A mock Lightfall responder subscribes to a test prefix and responds to meta/command/auth subjects. Tests are skipped if NATS is unavailable.
 
 - [ ] **Step 1: Create conftest.py with NATS fixtures**
 
@@ -1127,13 +1127,13 @@ async def nats_available(nats_url):
 
 
 @pytest_asyncio.fixture
-async def mock_lucid(nats_url, nats_available):
-    """A mock LUCID instance on a unique prefix."""
+async def mock_lightfall(nats_url, nats_available):
+    """A mock Lightfall instance on a unique prefix."""
     nc = await nats.connect(nats_url)
     prefix = f"test.{uuid.uuid4().hex[:8]}"
 
     instance_id = f"mock-{uuid.uuid4().hex[:6]}"
-    display_name = "Mock LUCID"
+    display_name = "Mock Lightfall"
     actions = [
         {
             "subject": "commands.echo",
@@ -1171,7 +1171,7 @@ async def mock_lucid(nats_url, nats_available):
 
     subs = [
         await nc.subscribe(f"{prefix}.meta.actions", cb=handle_meta),
-        await nc.subscribe("_lucid.discover", cb=handle_discover),
+        await nc.subscribe("_lightfall.discover", cb=handle_discover),
         await nc.subscribe(f"{prefix}.commands.echo", cb=handle_echo),
         await nc.subscribe(f"{prefix}.auth.request", cb=handle_auth),
     ]
@@ -1201,7 +1201,7 @@ import json
 import pytest
 import pytest_asyncio
 
-from lucid_bridge.server import BridgeState, create_server
+from lightfall_bridge.server import BridgeState, create_server
 
 import nats
 
@@ -1217,14 +1217,14 @@ async def bridge_state(nats_url, nats_available):
 
 class TestListInstances:
     @pytest.mark.asyncio
-    async def test_discovers_mock_instance(self, mock_lucid, bridge_state):
-        """list_instances should find the mock LUCID responder."""
+    async def test_discovers_mock_instance(self, mock_lightfall, bridge_state):
+        """list_instances should find the mock Lightfall responder."""
         import asyncio
 
         nc = bridge_state.nc
         inbox = nc.new_inbox()
         sub = await nc.subscribe(inbox)
-        await nc.publish("_lucid.discover", b"{}", reply=inbox)
+        await nc.publish("_lightfall.discover", b"{}", reply=inbox)
 
         responses = []
         deadline = asyncio.get_event_loop().time() + 2.0
@@ -1240,7 +1240,7 @@ class TestListInstances:
         await sub.unsubscribe()
 
         prefixes = [r["prefix"] for r in responses]
-        assert mock_lucid["prefix"] in prefixes
+        assert mock_lightfall["prefix"] in prefixes
 
     @pytest.mark.asyncio
     async def test_no_instances_returns_empty(self, bridge_state):
@@ -1265,8 +1265,8 @@ class TestListInstances:
 
 class TestListActions:
     @pytest.mark.asyncio
-    async def test_fetches_actions_from_mock(self, mock_lucid, bridge_state):
-        prefix = mock_lucid["prefix"]
+    async def test_fetches_actions_from_mock(self, mock_lightfall, bridge_state):
+        prefix = mock_lightfall["prefix"]
         nc = bridge_state.nc
 
         msg = await nc.request(
@@ -1274,7 +1274,7 @@ class TestListActions:
         )
         data = json.loads(msg.data)
 
-        assert data["instance_id"] == mock_lucid["instance_id"]
+        assert data["instance_id"] == mock_lightfall["instance_id"]
         assert data["prefix"] == prefix
         assert len(data["actions"]) == 1
         assert data["actions"][0]["subject"] == "commands.echo"
@@ -1282,8 +1282,8 @@ class TestListActions:
 
 class TestExecuteAction:
     @pytest.mark.asyncio
-    async def test_echo_round_trip(self, mock_lucid, bridge_state):
-        prefix = mock_lucid["prefix"]
+    async def test_echo_round_trip(self, mock_lightfall, bridge_state):
+        prefix = mock_lightfall["prefix"]
         nc = bridge_state.nc
 
         payload = json.dumps({"message": "hello"}).encode()
@@ -1297,8 +1297,8 @@ class TestExecuteAction:
 
 class TestAuthHandshake:
     @pytest.mark.asyncio
-    async def test_auth_approved(self, mock_lucid, bridge_state):
-        prefix = mock_lucid["prefix"]
+    async def test_auth_approved(self, mock_lightfall, bridge_state):
+        prefix = mock_lightfall["prefix"]
         nc = bridge_state.nc
 
         payload = json.dumps({
@@ -1315,20 +1315,20 @@ class TestAuthHandshake:
 
 - [ ] **Step 3: Run integration tests**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_integration.py -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/test_integration.py -v`
 Expected: PASS if NATS is running (from earlier in this session), SKIP otherwise.
 
 - [ ] **Step 4: Run full test suite**
 
-Run: `cd ~/PycharmProjects/lucid-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/ -v`
+Run: `cd ~/PycharmProjects/lightfall-mcp-bridge && .venv/Scripts/python.exe -m pytest tests/ -v`
 Expected: All pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
+cd ~/PycharmProjects/lightfall-mcp-bridge
 git add tests/conftest.py tests/test_integration.py
-git commit -m "test: add integration tests with mock LUCID responder"
+git commit -m "test: add integration tests with mock Lightfall responder"
 ```
 
 ---
@@ -1346,29 +1346,29 @@ Create `skills/setup/SKILL.md`:
 ```markdown
 ---
 name: setup
-description: Set up the LUCID MCP bridge — verify NATS connectivity, discover LUCID instances, and configure the default prefix. Use when the user says "connect to LUCID", "set up LUCID bridge", or after first installing this plugin.
+description: Set up the Lightfall MCP bridge — verify NATS connectivity, discover Lightfall instances, and configure the default prefix. Use when the user says "connect to Lightfall", "set up Lightfall bridge", or after first installing this plugin.
 ---
 
-# LUCID Bridge Setup
+# Lightfall Bridge Setup
 
-Guide the user through connecting Claude Code to a running LUCID instance.
+Guide the user through connecting Claude Code to a running Lightfall instance.
 
 ## Steps
 
-1. **Check NATS connectivity.** Use the `lucid__list_instances` tool. If it returns a connection error, ask the user to verify:
+1. **Check NATS connectivity.** Use the `lightfall__list_instances` tool. If it returns a connection error, ask the user to verify:
    - NATS server is running (e.g. `nats-server -p 4222`)
    - The `--nats-url` in `.mcp.json` matches their NATS server address
 
-2. **Discover LUCID instances.** If `list_instances` returns results, show the user which instances are on the bus (display name, prefix, action count). If empty, LUCID may not be running or may not have IPC enabled — ask them to check LUCID's IPC settings (Settings > IPC > Server URL).
+2. **Discover Lightfall instances.** If `list_instances` returns results, show the user which instances are on the bus (display name, prefix, action count). If empty, Lightfall may not be running or may not have IPC enabled — ask them to check Lightfall's IPC settings (Settings > IPC > Server URL).
 
-3. **Test communication.** Run `lucid__list_actions` with the chosen prefix. This triggers the trust handshake — tell the user to watch for the trust prompt in LUCID and approve it.
+3. **Test communication.** Run `lightfall__list_actions` with the chosen prefix. This triggers the trust handshake — tell the user to watch for the trust prompt in Lightfall and approve it.
 
 4. **Configure default prefix.** If there's only one instance, suggest updating `.mcp.json` to include `--default-prefix` so the user doesn't have to specify it on every call:
    ```json
    {
-     "lucid": {
+     "lightfall": {
        "command": "python",
-       "args": ["-m", "lucid_bridge", "--nats-url", "nats://localhost:4222", "--default-prefix", "als.7011"]
+       "args": ["-m", "lightfall_bridge", "--nats-url", "nats://localhost:4222", "--default-prefix", "als.7011"]
      }
    }
    ```
@@ -1378,9 +1378,9 @@ Guide the user through connecting Claude Code to a running LUCID instance.
 ## Troubleshooting
 
 - **"Cannot connect to NATS"** — NATS server isn't running or URL is wrong.
-- **"No response from..."** — LUCID isn't running, IPC is disabled, or prefix is wrong.
-- **"Auth handshake timed out"** — Trust prompt appeared in LUCID but wasn't answered within 10 seconds. Ask the user to try again and approve the prompt.
-- **"denied access"** — Operator denied the trust prompt. Ask them to approve it, or check LUCID's trusted apps list in Settings > IPC.
+- **"No response from..."** — Lightfall isn't running, IPC is disabled, or prefix is wrong.
+- **"Auth handshake timed out"** — Trust prompt appeared in Lightfall but wasn't answered within 10 seconds. Ask the user to try again and approve the prompt.
+- **"denied access"** — Operator denied the trust prompt. Ask them to approve it, or check Lightfall's trusted apps list in Settings > IPC.
 ```
 
 - [ ] **Step 2: Create README.md**
@@ -1388,19 +1388,19 @@ Guide the user through connecting Claude Code to a running LUCID instance.
 Create `README.md`:
 
 ```markdown
-# lucid-mcp-bridge
+# lightfall-mcp-bridge
 
-MCP server that bridges [Claude Code](https://claude.ai/claude-code) to running [LUCID](https://git.als.lbl.gov/ncs/ncs) beamline control instances via [NATS](https://nats.io/).
+MCP server that bridges [Claude Code](https://claude.ai/claude-code) to running [Lightfall](https://git.als.lbl.gov/ncs/ncs) beamline control instances via [NATS](https://nats.io/).
 
 ## What it does
 
 Provides three MCP tools:
 
-- **`list_instances`** — Discover LUCID instances on the NATS bus
+- **`list_instances`** — Discover Lightfall instances on the NATS bus
 - **`list_actions`** — Get available actions from a specific instance
 - **`execute_action`** — Invoke an action (run plans, abort, query state, etc.)
 
-Actions are discovered dynamically — the bridge never needs updating when LUCID adds new capabilities.
+Actions are discovered dynamically — the bridge never needs updating when Lightfall adds new capabilities.
 
 ## Installation
 
@@ -1414,19 +1414,19 @@ Add to your Claude Code MCP config (`.mcp.json` or settings):
 
 ```json
 {
-  "lucid": {
+  "lightfall": {
     "command": "python",
-    "args": ["-m", "lucid_bridge", "--nats-url", "nats://localhost:4222"]
+    "args": ["-m", "lightfall_bridge", "--nats-url", "nats://localhost:4222"]
   }
 }
 ```
 
-Optional: `--default-prefix als.7011` to set a default LUCID instance.
+Optional: `--default-prefix als.7011` to set a default Lightfall instance.
 
 ## Requirements
 
 - A running NATS server (local or remote)
-- A running LUCID instance with IPC enabled
+- A running Lightfall instance with IPC enabled
 
 ## Development
 
@@ -1443,7 +1443,7 @@ Integration tests require a NATS server at `localhost:4222` and are skipped othe
 - [ ] **Step 3: Commit**
 
 ```bash
-cd ~/PycharmProjects/lucid-mcp-bridge
+cd ~/PycharmProjects/lightfall-mcp-bridge
 git add skills/setup/SKILL.md README.md
 git commit -m "docs: add setup skill and README"
 ```

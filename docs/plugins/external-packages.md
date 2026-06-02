@@ -1,6 +1,6 @@
 # External Plugin Packages
 
-This guide covers creating standalone Python packages that provide LUCID plugins. This is the recommended approach for beamline-specific customizations.
+This guide covers creating standalone Python packages that provide Lightfall plugins. This is the recommended approach for beamline-specific customizations.
 
 ## When to Use External Packages
 
@@ -47,10 +47,10 @@ build-backend = "hatchling.build"
 [project]
 name = "my-beamline-plugins"
 version = "1.0.0"
-description = "LUCID plugins for beamline 7.0.1.1"
+description = "Lightfall plugins for beamline 7.0.1.1"
 requires-python = ">=3.11"
 dependencies = [
-    "lucid>=1.0.0",  # Depend on LUCID
+    "lightfall>=1.0.0",  # Depend on Lightfall
 ]
 
 [project.optional-dependencies]
@@ -60,7 +60,7 @@ dev = [
 ]
 
 # Register plugin manifest via entry point
-[project.entry-points."lucid.plugins"]
+[project.entry-points."lightfall.plugins"]
 my_beamline = "my_beamline.manifest:manifest"
 
 [tool.hatch.build.targets.wheel]
@@ -74,7 +74,7 @@ Create `src/my_beamline/manifest.py`:
 ```python
 """Plugin manifest for beamline 7.0.1.1."""
 
-from lucid.plugins import PluginManifest, PluginEntry
+from lightfall.plugins import PluginManifest, PluginEntry
 
 manifest = PluginManifest(
     name="beamline-7.0.1.1",
@@ -134,8 +134,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
 
 
 class BeamlineConfigPlugin(SettingsPlugin):
@@ -202,7 +202,7 @@ class BeamlineConfigPlugin(SettingsPlugin):
 
 from typing import Any, Callable, Generator
 
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 
 
 class GridScanPlan(PlanPlugin):
@@ -261,7 +261,7 @@ class GridScanPlan(PlanPlugin):
 
 from PySide6.QtWidgets import QWidget
 
-from lucid.plugins.controller_plugin import ControllerPlugin
+from lightfall.plugins.controller_plugin import ControllerPlugin
 
 
 class SlitControllerPlugin(ControllerPlugin):
@@ -345,15 +345,15 @@ def test_plugins_importable():
         assert plugin_class is not None
 ```
 
-### Test with LUCID
+### Test with Lightfall
 
 ```python
 # tests/test_integration.py
-"""Integration tests with LUCID."""
+"""Integration tests with Lightfall."""
 
 import pytest
-from lucid.plugins.loader import PluginLoader
-from lucid.plugins.registry import PluginRegistry
+from lightfall.plugins.loader import PluginLoader
+from lightfall.plugins.registry import PluginRegistry
 
 
 @pytest.fixture
@@ -378,13 +378,13 @@ def test_manifest_discovery(loader):
 
 ## Version Compatibility
 
-### Specifying LUCID Version
+### Specifying Lightfall Version
 
-In `pyproject.toml`, specify compatible LUCID versions:
+In `pyproject.toml`, specify compatible Lightfall versions:
 
 ```toml
 dependencies = [
-    "lucid>=1.0.0,<2.0.0",  # Compatible with LUCID 1.x
+    "lightfall>=1.0.0,<2.0.0",  # Compatible with Lightfall 1.x
 ]
 ```
 
@@ -396,7 +396,7 @@ Use feature detection for optional features:
 def get_plan_function(self):
     # Check for new API
     try:
-        from lucid.acquire.plans import enhanced_scan
+        from lightfall.acquire.plans import enhanced_scan
         return enhanced_scan
     except ImportError:
         # Fall back to standard scan

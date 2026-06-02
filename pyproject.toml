@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lightfall"
 dynamic = ["version"]
-description = "LUCID - Lightsource Unified Control Interface Dashboard"
+description = "Lightfall - control system for the ALS facility"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.11"
@@ -179,7 +179,7 @@ author_email = "controls@lbl.gov"
 [tool.briefcase.app.lightfall]
 formal_name = "Lightfall"
 description = "Advanced Light Source Control System"
-long_description = """LUCID is a modern, unified control system for scientific
+long_description = """Lightfall is a modern, unified control system for scientific
 data acquisition and hardware controls at the Advanced Light Source facility."""
 icon = "resources/lightfall"
 sources = ["src/lightfall"]

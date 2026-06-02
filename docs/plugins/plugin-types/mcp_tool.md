@@ -12,7 +12,7 @@ Use `MCPToolPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.mcp_tool import MCPToolPlugin
+from lightfall.plugins.mcp_tool import MCPToolPlugin
 ```
 
 ## Class Attributes
@@ -108,7 +108,7 @@ async def my_tool(args: dict) -> dict:
 ```python
 """Device control tools for Claude assistant."""
 
-from lucid.plugins.mcp_tool import MCPToolPlugin
+from lightfall.plugins.mcp_tool import MCPToolPlugin
 
 
 class DeviceToolPlugin(MCPToolPlugin):
@@ -129,7 +129,7 @@ class DeviceToolPlugin(MCPToolPlugin):
     def _get_device_manager(self):
         """Lazy load the device manager."""
         if self._device_manager is None:
-            from lucid.devices.manager import DeviceManager
+            from lightfall.devices.manager import DeviceManager
             self._device_manager = DeviceManager.get_instance()
         return self._device_manager
 
@@ -244,7 +244,7 @@ class DeviceToolPlugin(MCPToolPlugin):
 ```python
 """Tools for accessing experiment data."""
 
-from lucid.plugins.mcp_tool import MCPToolPlugin
+from lightfall.plugins.mcp_tool import MCPToolPlugin
 
 
 class DataToolPlugin(MCPToolPlugin):
@@ -276,7 +276,7 @@ class DataToolPlugin(MCPToolPlugin):
             }
         )
         async def get_recent_scans(args: dict) -> dict:
-            from lucid.data.catalog import get_catalog
+            from lightfall.data.catalog import get_catalog
 
             limit = args.get("limit", 10)
             catalog = get_catalog()
@@ -312,7 +312,7 @@ class DataToolPlugin(MCPToolPlugin):
             }
         )
         async def get_scan_data(args: dict) -> dict:
-            from lucid.data.catalog import get_catalog
+            from lightfall.data.catalog import get_catalog
 
             uid = args["scan_uid"]
             columns = args.get("columns")

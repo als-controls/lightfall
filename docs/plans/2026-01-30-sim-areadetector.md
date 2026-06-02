@@ -13,17 +13,17 @@
 ## Task 1: Create Package Structure
 
 **Files:**
-- Create: `src/lucid/devices/sim/__init__.py`
-- Create: `src/lucid/devices/sim/generators.py`
+- Create: `src/lightfall/devices/sim/__init__.py`
+- Create: `src/lightfall/devices/sim/generators.py`
 
 **Step 1: Create the sim package directory and __init__.py**
 
 ```python
-# src/lucid/devices/sim/__init__.py
+# src/lightfall/devices/sim/__init__.py
 """Simulated ophyd devices for testing and development."""
 
-from lucid.devices.sim.areadetector import SimDetector
-from lucid.devices.sim.plugins import (
+from lightfall.devices.sim.areadetector import SimDetector
+from lightfall.devices.sim.plugins import (
     SimCam,
     SimImagePlugin,
     SimROIPlugin,
@@ -44,7 +44,7 @@ __all__ = [
 **Step 2: Create generators.py with base classes**
 
 ```python
-# src/lucid/devices/sim/generators.py
+# src/lightfall/devices/sim/generators.py
 """Image generators for SimDetector."""
 
 from __future__ import annotations
@@ -273,7 +273,7 @@ class MotorResponsiveGenerator(ImageGenerator):
 **Step 3: Commit**
 
 ```bash
-git add src/lucid/devices/sim/
+git add src/lightfall/devices/sim/
 git commit -m "feat(sim): add image generators for SimDetector
 
 Add base ImageGenerator class and three implementations:
@@ -289,7 +289,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ## Task 2: Create Plugin Components
 
 **Files:**
-- Create: `src/lucid/devices/sim/plugins.py`
+- Create: `src/lightfall/devices/sim/plugins.py`
 - Test: `tests/test_sim_areadetector.py`
 
 **Step 1: Write failing test for SimCam**
@@ -306,7 +306,7 @@ class TestSimCam:
 
     def test_cam_has_acquire_signal(self):
         """SimCam should have an acquire signal."""
-        from lucid.devices.sim.plugins import SimCam
+        from lightfall.devices.sim.plugins import SimCam
 
         cam = SimCam(name="test_cam")
         assert hasattr(cam, "acquire")
@@ -314,7 +314,7 @@ class TestSimCam:
 
     def test_cam_has_image_settings(self):
         """SimCam should have image size and type settings."""
-        from lucid.devices.sim.plugins import SimCam
+        from lightfall.devices.sim.plugins import SimCam
 
         cam = SimCam(name="test_cam")
         assert cam.size_x.get() == 256
@@ -323,7 +323,7 @@ class TestSimCam:
 
     def test_cam_has_acquisition_settings(self):
         """SimCam should have exposure and timing settings."""
-        from lucid.devices.sim.plugins import SimCam
+        from lightfall.devices.sim.plugins import SimCam
 
         cam = SimCam(name="test_cam")
         assert cam.acquire_time.get() == 0.1
@@ -340,7 +340,7 @@ Expected: FAIL with "ModuleNotFoundError" or "ImportError"
 **Step 3: Write SimCam implementation**
 
 ```python
-# src/lucid/devices/sim/plugins.py
+# src/lightfall/devices/sim/plugins.py
 """Plugin components for SimDetector."""
 
 from __future__ import annotations
@@ -437,7 +437,7 @@ class TestSimImagePlugin:
 
     def test_image_plugin_has_array_data(self):
         """SimImagePlugin should have array_data signal."""
-        from lucid.devices.sim.plugins import SimImagePlugin
+        from lightfall.devices.sim.plugins import SimImagePlugin
 
         plugin = SimImagePlugin(name="test_image")
         assert hasattr(plugin, "array_data")
@@ -445,7 +445,7 @@ class TestSimImagePlugin:
 
     def test_image_plugin_has_size_signals(self):
         """SimImagePlugin should report array dimensions."""
-        from lucid.devices.sim.plugins import SimImagePlugin
+        from lightfall.devices.sim.plugins import SimImagePlugin
 
         plugin = SimImagePlugin(name="test_image")
         assert plugin.array_size_x.get() == 256
@@ -457,7 +457,7 @@ class TestSimStatsPlugin:
 
     def test_stats_plugin_has_statistics(self):
         """SimStatsPlugin should have all stat signals."""
-        from lucid.devices.sim.plugins import SimStatsPlugin
+        from lightfall.devices.sim.plugins import SimStatsPlugin
 
         plugin = SimStatsPlugin(name="test_stats")
         assert hasattr(plugin, "min_value")
@@ -473,7 +473,7 @@ class TestSimROIPlugin:
 
     def test_roi_plugin_has_bounds(self):
         """SimROIPlugin should have ROI bounds."""
-        from lucid.devices.sim.plugins import SimROIPlugin
+        from lightfall.devices.sim.plugins import SimROIPlugin
 
         plugin = SimROIPlugin(name="test_roi")
         assert plugin.min_x.get() == 0
@@ -487,7 +487,7 @@ class TestSimTransformPlugin:
 
     def test_transform_plugin_has_controls(self):
         """SimTransformPlugin should have transform controls."""
-        from lucid.devices.sim.plugins import SimTransformPlugin
+        from lightfall.devices.sim.plugins import SimTransformPlugin
 
         plugin = SimTransformPlugin(name="test_trans")
         assert plugin.rotation.get() == 0
@@ -503,7 +503,7 @@ Expected: All PASS
 **Step 7: Commit**
 
 ```bash
-git add src/lucid/devices/sim/plugins.py tests/test_sim_areadetector.py
+git add src/lightfall/devices/sim/plugins.py tests/test_sim_areadetector.py
 git commit -m "feat(sim): add plugin components for SimDetector
 
 Add five plugin Device classes:
@@ -521,7 +521,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ## Task 3: Create SimDetector Device
 
 **Files:**
-- Create: `src/lucid/devices/sim/areadetector.py`
+- Create: `src/lightfall/devices/sim/areadetector.py`
 - Modify: `tests/test_sim_areadetector.py`
 
 **Step 1: Write failing test for SimDetector structure**
@@ -534,7 +534,7 @@ class TestSimDetector:
 
     def test_detector_has_all_components(self):
         """SimDetector should have all plugin components."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
 
         det = SimDetector(name="test_det")
         assert hasattr(det, "cam")
@@ -545,7 +545,7 @@ class TestSimDetector:
 
     def test_detector_trigger_returns_status(self):
         """trigger() should return an ophyd Status."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
 
         det = SimDetector(name="test_det")
         status = det.trigger()
@@ -555,7 +555,7 @@ class TestSimDetector:
 
     def test_detector_generates_image_on_trigger(self):
         """Triggering should populate image.array_data."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -576,7 +576,7 @@ Expected: FAIL with "ModuleNotFoundError"
 **Step 3: Write SimDetector implementation**
 
 ```python
-# src/lucid/devices/sim/areadetector.py
+# src/lightfall/devices/sim/areadetector.py
 """Simulated area detector for testing without EPICS."""
 
 from __future__ import annotations
@@ -589,13 +589,13 @@ import numpy as np
 from ophyd import Component, Device
 from ophyd.status import Status
 
-from lucid.devices.sim.generators import (
+from lightfall.devices.sim.generators import (
     AnimatedPatternGenerator,
     ImageGenerator,
     MotorResponsiveGenerator,
     StaticPatternGenerator,
 )
-from lucid.devices.sim.plugins import (
+from lightfall.devices.sim.plugins import (
     SimCam,
     SimImagePlugin,
     SimROIPlugin,
@@ -916,7 +916,7 @@ Expected: All PASS
 **Step 5: Commit**
 
 ```bash
-git add src/lucid/devices/sim/areadetector.py tests/test_sim_areadetector.py
+git add src/lightfall/devices/sim/areadetector.py tests/test_sim_areadetector.py
 git commit -m "feat(sim): add SimDetector device class
 
 Full-featured simulated area detector with:
@@ -945,7 +945,7 @@ class TestSimDetectorPatterns:
 
     def test_static_gradient_pattern(self):
         """Static gradient pattern should produce horizontal gradient."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -960,7 +960,7 @@ class TestSimDetectorPatterns:
 
     def test_animated_pattern_changes(self):
         """Animated pattern should change between frames."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -978,7 +978,7 @@ class TestSimDetectorPatterns:
 
     def test_motor_responsive_pattern(self):
         """Motor-responsive pattern should change with motor position."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         from ophyd.sim import SynAxis
         import numpy as np
 
@@ -1012,7 +1012,7 @@ class TestSimDetectorStats:
 
     def test_stats_computed_on_trigger(self):
         """Stats should be computed after trigger."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
 
         det = SimDetector(name="test_det")
         det.stats.enable.set(1)
@@ -1025,7 +1025,7 @@ class TestSimDetectorStats:
 
     def test_centroid_computed(self):
         """Centroid should be computed for gaussian pattern."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
 
         det = SimDetector(name="test_det")
         det.cam.pattern_mode.set("static")
@@ -1045,7 +1045,7 @@ class TestSimDetectorTransforms:
 
     def test_rotation_90(self):
         """90-degree rotation should work."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -1070,7 +1070,7 @@ class TestSimDetectorTransforms:
 
     def test_flip_x(self):
         """Horizontal flip should reverse columns."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -1096,7 +1096,7 @@ class TestSimDetectorROI:
 
     def test_roi_extracts_region(self):
         """ROI should extract specified region."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
         import numpy as np
 
         det = SimDetector(name="test_det")
@@ -1138,7 +1138,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ## Task 5: Integrate with MockBackend
 
 **Files:**
-- Modify: `src/lucid/devices/backends/mock.py`
+- Modify: `src/lightfall/devices/backends/mock.py`
 - Modify: `tests/test_sim_areadetector.py`
 
 **Step 1: Write failing integration test**
@@ -1151,8 +1151,8 @@ class TestMockBackendIntegration:
 
     def test_sim_det_in_mock_backend(self):
         """MockBackend should include sim_det device."""
-        from lucid.devices.backends.mock import MockBackend
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.backends.mock import MockBackend
+        from lightfall.devices.model import DeviceCategory
 
         backend = MockBackend()
         backend.connect()
@@ -1163,8 +1163,8 @@ class TestMockBackendIntegration:
 
     def test_sim_det_ophyd_device_accessible(self):
         """sim_det ophyd device should be accessible from backend."""
-        from lucid.devices.backends.mock import MockBackend
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.backends.mock import MockBackend
+        from lightfall.devices.sim.areadetector import SimDetector
 
         backend = MockBackend()
         backend.connect()
@@ -1175,7 +1175,7 @@ class TestMockBackendIntegration:
 
     def test_sim_det_motor_responsive_with_backend_motors(self):
         """sim_det should respond to sample_x/sample_y motors from backend."""
-        from lucid.devices.backends.mock import MockBackend
+        from lightfall.devices.backends.mock import MockBackend
         import numpy as np
 
         backend = MockBackend()
@@ -1208,12 +1208,12 @@ Expected: FAIL with "sim_det not in names"
 
 **Step 3: Modify MockBackend to include SimDetector**
 
-Add the following to `src/lucid/devices/backends/mock.py` at the end of `_create_simulated_devices()` method (before `logger.debug`):
+Add the following to `src/lightfall/devices/backends/mock.py` at the end of `_create_simulated_devices()` method (before `logger.debug`):
 
 ```python
         # === Area Detector ===
         try:
-            from lucid.devices.sim.areadetector import SimDetector
+            from lightfall.devices.sim.areadetector import SimDetector
 
             sim_det = SimDetector(
                 name="sim_det",
@@ -1226,7 +1226,7 @@ Add the following to `src/lucid/devices/backends/mock.py` at the end of `_create
                 name="sim_det",
                 description="Simulated area detector for testing",
                 category=DeviceCategory.CAMERA,
-                device_class="lucid.devices.sim.areadetector.SimDetector",
+                device_class="lightfall.devices.sim.areadetector.SimDetector",
                 connection_type=ConnectionType.SIMULATED,
                 prefix="sim_det",
                 location="Detector Arm",
@@ -1252,7 +1252,7 @@ Expected: All PASS
 **Step 5: Commit**
 
 ```bash
-git add src/lucid/devices/backends/mock.py tests/test_sim_areadetector.py
+git add src/lightfall/devices/backends/mock.py tests/test_sim_areadetector.py
 git commit -m "feat(mock): integrate SimDetector into MockBackend
 
 MockBackend now automatically creates a sim_det area detector
@@ -1279,7 +1279,7 @@ class TestBlueskyIntegration:
     @pytest.fixture
     def sim_det(self):
         """Create a SimDetector for testing."""
-        from lucid.devices.sim.areadetector import SimDetector
+        from lightfall.devices.sim.areadetector import SimDetector
 
         det = SimDetector(name="sim_det")
         det.cam.acquire_time.set(0.001)  # Fast acquisitions
@@ -1374,24 +1374,24 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ## Task 7: Update Package __init__.py
 
 **Files:**
-- Modify: `src/lucid/devices/sim/__init__.py`
+- Modify: `src/lightfall/devices/sim/__init__.py`
 
 **Step 1: Verify __init__.py exports are correct**
 
 The __init__.py was created in Task 1. Verify it can be imported:
 
-Run: `python -c "from lucid.devices.sim import SimDetector; print('OK')"`
+Run: `python -c "from lightfall.devices.sim import SimDetector; print('OK')"`
 Expected: "OK"
 
 If import fails, fix the __init__.py to handle missing dependencies gracefully:
 
 ```python
-# src/lucid/devices/sim/__init__.py
+# src/lightfall/devices/sim/__init__.py
 """Simulated ophyd devices for testing and development."""
 
 try:
-    from lucid.devices.sim.areadetector import SimDetector
-    from lucid.devices.sim.plugins import (
+    from lightfall.devices.sim.areadetector import SimDetector
+    from lightfall.devices.sim.plugins import (
         SimCam,
         SimImagePlugin,
         SimROIPlugin,
@@ -1417,7 +1417,7 @@ except ImportError as e:
 **Step 2: Commit if changes needed**
 
 ```bash
-git add src/lucid/devices/sim/__init__.py
+git add src/lightfall/devices/sim/__init__.py
 git commit -m "fix(sim): handle import errors gracefully in __init__
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
@@ -1453,11 +1453,11 @@ This plan implements a SimDetector with:
 - Support for Bluesky plans
 
 **Files created:**
-- `src/lucid/devices/sim/__init__.py`
-- `src/lucid/devices/sim/generators.py`
-- `src/lucid/devices/sim/plugins.py`
-- `src/lucid/devices/sim/areadetector.py`
+- `src/lightfall/devices/sim/__init__.py`
+- `src/lightfall/devices/sim/generators.py`
+- `src/lightfall/devices/sim/plugins.py`
+- `src/lightfall/devices/sim/areadetector.py`
 - `tests/test_sim_areadetector.py`
 
 **Files modified:**
-- `src/lucid/devices/backends/mock.py`
+- `src/lightfall/devices/backends/mock.py`

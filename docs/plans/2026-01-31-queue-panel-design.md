@@ -48,12 +48,12 @@ The `QueuePanel` provides a comprehensive interface for managing the Bluesky Run
 
 | File | Purpose |
 |------|---------|
-| `lucid/acquire/engine/base.py` | Queue management methods in BaseEngine |
-| `lucid/acquire/engine/bluesky.py` | BlueskyEngine queue integration |
-| `lucid/ui/widgets/queue_view.py` | QueueModel, RecentModel, and views |
-| `lucid/ui/widgets/plan_edit_dialog.py` | Dialog for editing queue items |
-| `lucid/ui/panels/queue.py` | Main QueuePanel implementation |
-| `lucid/ui/panels/plugins/queue_plugin.py` | Panel plugin registration |
+| `lightfall/acquire/engine/base.py` | Queue management methods in BaseEngine |
+| `lightfall/acquire/engine/bluesky.py` | BlueskyEngine queue integration |
+| `lightfall/ui/widgets/queue_view.py` | QueueModel, RecentModel, and views |
+| `lightfall/ui/widgets/plan_edit_dialog.py` | Dialog for editing queue items |
+| `lightfall/ui/panels/queue.py` | Main QueuePanel implementation |
+| `lightfall/ui/panels/plugins/queue_plugin.py` | Panel plugin registration |
 
 ## Engine API Additions
 

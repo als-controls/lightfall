@@ -1,9 +1,7 @@
-"""LUCIDApplication - Central application singleton.
+"""NCSApplication - Central application singleton.
 
 This module provides the main application class that coordinates
 initialization, manages services, and controls the application lifecycle.
-
-LUCID: Lightsource Unified Control Interface Dashboard
 """
 
 from __future__ import annotations

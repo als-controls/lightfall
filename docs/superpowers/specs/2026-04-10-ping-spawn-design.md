@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add request/reply capability to LUCID's IPCService and use it to ping the local exporter before sending jobs. If no exporter is running, spawn one on demand.
+Add request/reply capability to Lightfall's IPCService and use it to ping the local exporter before sending jobs. If no exporter is running, spawn one on demand.
 
 ## Goals
 
@@ -51,7 +51,7 @@ Replace the current fire-and-forget `ipc.publish()` in `_send_to_exporter` with 
 3. **If None** → spawn exporter subprocess:
    ```python
    proc = subprocess.Popen(
-       ["lucid-exporter", "--nats", nats_url],
+       ["lightfall-exporter", "--nats", nats_url],
        stderr=subprocess.PIPE,
        stdout=subprocess.DEVNULL,
    )
@@ -65,11 +65,11 @@ The entire flow runs in a `QThreadFuture` so the dialog (already closed via `sel
 
 ## NATS URL Discovery
 
-The export dialog needs to know the NATS URL to pass to the spawned exporter. It reads this from the existing IPCService instance: `ipc._nats_url`. This is a private attribute but acceptable since the dialog and IPC service are both internal LUCID code.
+The export dialog needs to know the NATS URL to pass to the spawned exporter. It reads this from the existing IPCService instance: `ipc._nats_url`. This is a private attribute but acceptable since the dialog and IPC service are both internal Lightfall code.
 
 ## No Exporter Changes
 
-The exporter already handles ping requests on `lucid.export.<hostname>.ping` (implemented in Task 3). No changes needed.
+The exporter already handles ping requests on `lightfall.export.<hostname>.ping` (implemented in Task 3). No changes needed.
 
 ## Testing
 

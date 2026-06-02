@@ -1,4 +1,4 @@
-"""LUCID - Lightsource Unified Control Interface Dashboard for the ALS facility."""
+"""Lightfall - control system for the ALS facility."""
 
 try:
     from lightfall._version import __version__

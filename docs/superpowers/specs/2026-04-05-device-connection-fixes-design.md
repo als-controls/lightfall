@@ -95,11 +95,11 @@ if device.ophyd_device is not None:
 
 | File | Change |
 |------|--------|
-| `ncs/src/lucid/devices/connection_manager.py` | Add two-phase `connect_all` with `_instantiate_all()` + parallel wait |
-| `ncs/src/lucid/devices/backends/happi.py` | Call new two-phase method from `_start_background_connections()` |
-| `ncs/src/lucid/ui/widgets/camera/base.py` | Move `_connect_signals()` body to `QThreadFuture` |
-| `ncs/src/lucid/ui/panels/device_panel.py` | Merge Refresh/Reconnect into single Sync button |
-| `ncs/src/lucid/ui/models/device_tree.py` | Fix `beginInsertRows`/`endInsertRows` ordering |
+| `ncs/src/lightfall/devices/connection_manager.py` | Add two-phase `connect_all` with `_instantiate_all()` + parallel wait |
+| `ncs/src/lightfall/devices/backends/happi.py` | Call new two-phase method from `_start_background_connections()` |
+| `ncs/src/lightfall/ui/widgets/camera/base.py` | Move `_connect_signals()` body to `QThreadFuture` |
+| `ncs/src/lightfall/ui/panels/device_panel.py` | Merge Refresh/Reconnect into single Sync button |
+| `ncs/src/lightfall/ui/models/device_tree.py` | Fix `beginInsertRows`/`endInsertRows` ordering |
 
 ## Testing Notes
 

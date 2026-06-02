@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restructure the LUCID Devices panel from a tree-with-detail-splitter to a tabbed interface with Favorites, All, and dynamic device controller tabs.
+**Goal:** Restructure the Lightfall Devices panel from a tree-with-detail-splitter to a tabbed interface with Favorites, All, and dynamic device controller tabs.
 
 **Architecture:** DevicePanel becomes a thin coordinator owning a QTabWidget. Three new widgets handle the heavy lifting: DeviceTreeTab (the "All" tree view), FavoritesTab (compact motor widgets), and CompactMotorWidget (single motor row). Favorites persist per-beamline via PreferencesManager.
 
@@ -17,7 +17,7 @@
 The standalone compact motor control row. No dependencies on the panel restructure — can be built and tested in isolation.
 
 **Files:**
-- Create: `ncs/src/lucid/ui/widgets/compact_motor.py`
+- Create: `ncs/src/lightfall/ui/widgets/compact_motor.py`
 - Test: `ncs/tests/test_compact_motor.py`
 
 - [ ] **Step 1: Write the failing test for CompactMotorWidget**
@@ -33,7 +33,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def mock_motor():
 
 class TestCompactMotorWidget:
     def test_creation(self, qapp, mock_device_info, mock_motor):
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         widget = CompactMotorWidget(
             device_info=mock_device_info,
@@ -90,7 +90,7 @@ class TestCompactMotorWidget:
         widget.close()
 
     def test_jog_abs_toggle(self, qapp, mock_device_info, mock_motor):
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         widget = CompactMotorWidget(
             device_info=mock_device_info,
@@ -112,7 +112,7 @@ class TestCompactMotorWidget:
         widget.close()
 
     def test_abs_move(self, qapp, mock_device_info, mock_motor):
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         widget = CompactMotorWidget(
             device_info=mock_device_info,
@@ -125,7 +125,7 @@ class TestCompactMotorWidget:
         widget.close()
 
     def test_jog_move(self, qapp, mock_device_info, mock_motor):
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         widget = CompactMotorWidget(
             device_info=mock_device_info,
@@ -142,7 +142,7 @@ class TestCompactMotorWidget:
         widget.close()
 
     def test_stop(self, qapp, mock_device_info, mock_motor):
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         widget = CompactMotorWidget(
             device_info=mock_device_info,
@@ -154,7 +154,7 @@ class TestCompactMotorWidget:
 
     def test_no_motor_shows_connecting(self, qapp, mock_device_info):
         """When ophyd_obj is None, widget should show connecting state."""
-        from lucid.ui.widgets.compact_motor import CompactMotorWidget
+        from lightfall.ui.widgets.compact_motor import CompactMotorWidget
 
         mock_device_info._state.status = DeviceStatus.CONNECTING
         widget = CompactMotorWidget(
@@ -169,12 +169,12 @@ class TestCompactMotorWidget:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/Scripts/python.exe -m pytest ncs/tests/test_compact_motor.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'lucid.ui.widgets.compact_motor'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'lightfall.ui.widgets.compact_motor'`
 
 - [ ] **Step 3: Implement CompactMotorWidget**
 
 ```python
-# ncs/src/lucid/ui/widgets/compact_motor.py
+# ncs/src/lightfall/ui/widgets/compact_motor.py
 """Compact motor control widget for favorites display.
 
 Provides a single horizontal row with motor name, readback,
@@ -195,11 +195,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.utils.logging import logger
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceInfo
+    from lightfall.devices.model import DeviceInfo
 
 
 class CompactMotorWidget(QWidget):
@@ -444,7 +444,7 @@ Expected: All 6 tests PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/widgets/compact_motor.py tests/test_compact_motor.py && git commit -m "feat: add CompactMotorWidget for favorites tab"
+cd ncs && git add src/lightfall/ui/widgets/compact_motor.py tests/test_compact_motor.py && git commit -m "feat: add CompactMotorWidget for favorites tab"
 ```
 
 ---
@@ -454,7 +454,7 @@ cd ncs && git add src/lucid/ui/widgets/compact_motor.py tests/test_compact_motor
 The favorites tab widget that manages a vertical list of CompactMotorWidgets. Depends on Task 1.
 
 **Files:**
-- Create: `ncs/src/lucid/ui/widgets/favorites_tab.py`
+- Create: `ncs/src/lightfall/ui/widgets/favorites_tab.py`
 - Test: `ncs/tests/test_favorites_tab.py`
 
 - [ ] **Step 1: Write the failing test for FavoritesTab**
@@ -469,7 +469,7 @@ from uuid import uuid4
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
 
 
 @pytest.fixture
@@ -508,7 +508,7 @@ def mock_catalog():
 
 class TestFavoritesTab:
     def test_empty_state(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         tab = FavoritesTab(catalog=mock_catalog)
         # Should show placeholder text
@@ -517,7 +517,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_add_favorite(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         info = _make_motor_info("motor_1")
         mock_catalog.get_device.return_value = info
@@ -530,7 +530,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_remove_favorite(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         info = _make_motor_info("motor_1")
         mock_catalog.get_device.return_value = info
@@ -545,7 +545,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_is_favorite(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         info = _make_motor_info("motor_1")
         mock_catalog.get_device.return_value = info
@@ -561,7 +561,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_duplicate_add_is_noop(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         info = _make_motor_info("motor_1")
         mock_catalog.get_device.return_value = info
@@ -573,7 +573,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_get_favorite_ids(self, qapp, mock_catalog):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
 
         info1 = _make_motor_info("motor_1")
         info2 = _make_motor_info("motor_2")
@@ -599,12 +599,12 @@ class TestFavoritesTab:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/Scripts/python.exe -m pytest ncs/tests/test_favorites_tab.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'lucid.ui.widgets.favorites_tab'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'lightfall.ui.widgets.favorites_tab'`
 
 - [ ] **Step 3: Implement FavoritesTab**
 
 ```python
-# ncs/src/lucid/ui/widgets/favorites_tab.py
+# ncs/src/lightfall/ui/widgets/favorites_tab.py
 """Favorites tab widget for the Devices panel.
 
 Displays a vertical list of CompactMotorWidgets for favorited devices.
@@ -622,12 +622,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.widgets.compact_motor import CompactMotorWidget
-from lucid.utils.logging import logger
+from lightfall.ui.widgets.compact_motor import CompactMotorWidget
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.devices.catalog import DeviceCatalog
-    from lucid.devices.model import DeviceCategory
+    from lightfall.devices.catalog import DeviceCatalog
+    from lightfall.devices.model import DeviceCategory
 
 
 class FavoritesTab(QWidget):
@@ -740,7 +740,7 @@ class FavoritesTab(QWidget):
 
     def _add_widget(self, device_id: str) -> None:
         """Create and add a CompactMotorWidget for a device."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         info = self._catalog.get_device(device_id)
         if info is None:
@@ -818,7 +818,7 @@ Expected: All 6 tests PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/widgets/favorites_tab.py tests/test_favorites_tab.py && git commit -m "feat: add FavoritesTab widget for favorites management"
+cd ncs && git add src/lightfall/ui/widgets/favorites_tab.py tests/test_favorites_tab.py && git commit -m "feat: add FavoritesTab widget for favorites management"
 ```
 
 ---
@@ -828,7 +828,7 @@ cd ncs && git add src/lucid/ui/widgets/favorites_tab.py tests/test_favorites_tab
 Extract the tree view and its toolbar/search/filter from DevicePanel into a standalone widget. Depends on nothing new.
 
 **Files:**
-- Create: `ncs/src/lucid/ui/widgets/device_tree_tab.py`
+- Create: `ncs/src/lightfall/ui/widgets/device_tree_tab.py`
 - Test: `ncs/tests/test_device_tree_tab.py`
 
 - [ ] **Step 1: Write the failing test for DeviceTreeTab**
@@ -844,8 +844,8 @@ import pytest
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture
@@ -885,7 +885,7 @@ def _make_catalog_with_motors():
 
 class TestDeviceTreeTab:
     def test_creation(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
 
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -897,7 +897,7 @@ class TestDeviceTreeTab:
         tab.close()
 
     def test_signals_exist(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
 
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -910,7 +910,7 @@ class TestDeviceTreeTab:
         tab.close()
 
     def test_search_filters_tree(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
 
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -926,12 +926,12 @@ class TestDeviceTreeTab:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/Scripts/python.exe -m pytest ncs/tests/test_device_tree_tab.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'lucid.ui.widgets.device_tree_tab'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'lightfall.ui.widgets.device_tree_tab'`
 
 - [ ] **Step 3: Implement DeviceTreeTab**
 
 ```python
-# ncs/src/lucid/ui/widgets/device_tree_tab.py
+# ncs/src/lightfall/ui/widgets/device_tree_tab.py
 """Device tree tab widget for the Devices panel.
 
 Contains the tree view, toolbar, and search/filter UI previously
@@ -959,18 +959,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.models.device_tree import (
+from lightfall.ui.models.device_tree import (
     DeviceFilterProxyModel,
     DeviceTreeItem,
     DeviceTreeModel,
     NodeType,
 )
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QPoint
 
-    from lucid.devices.catalog import DeviceCatalog
+    from lightfall.devices.catalog import DeviceCatalog
 
 
 class DeviceTreeTab(QWidget):
@@ -1296,7 +1296,7 @@ class DeviceTreeTab(QWidget):
         return backend is not None and backend.is_editable
 
     def _edit_device(self, device_info) -> None:
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
         if dialog.exec():
@@ -1311,8 +1311,8 @@ class DeviceTreeTab(QWidget):
             self._catalog.update_device(device_info)
 
     def _add_new_device(self) -> None:
-        from lucid.devices.model import DeviceInfo
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.devices.model import DeviceInfo
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="create", parent=self)
         if dialog.exec():
@@ -1352,7 +1352,7 @@ class DeviceTreeTab(QWidget):
 
     def _sync_devices(self) -> None:
         """Retry failed connections and refresh the tree."""
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         for backend in self._catalog.backends.values():
             if hasattr(backend, "reset_failed_devices"):
@@ -1455,7 +1455,7 @@ Expected: All 3 tests PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/widgets/device_tree_tab.py tests/test_device_tree_tab.py && git commit -m "feat: extract DeviceTreeTab from DevicePanel"
+cd ncs && git add src/lightfall/ui/widgets/device_tree_tab.py tests/test_device_tree_tab.py && git commit -m "feat: extract DeviceTreeTab from DevicePanel"
 ```
 
 ---
@@ -1465,11 +1465,11 @@ cd ncs && git add src/lucid/ui/widgets/device_tree_tab.py tests/test_device_tree
 One-line change to register the new beamline-specific preference key.
 
 **Files:**
-- Modify: `ncs/src/lucid/ui/preferences/manager.py:27-32`
+- Modify: `ncs/src/lightfall/ui/preferences/manager.py:27-32`
 
 - [ ] **Step 1: Add device_favorites to BEAMLINE_SPECIFIC_PREFS**
 
-In `ncs/src/lucid/ui/preferences/manager.py`, add `"device_favorites"` to the `BEAMLINE_SPECIFIC_PREFS` set:
+In `ncs/src/lightfall/ui/preferences/manager.py`, add `"device_favorites"` to the `BEAMLINE_SPECIFIC_PREFS` set:
 
 ```python
 # Change line 27-32 from:
@@ -1493,7 +1493,7 @@ BEAMLINE_SPECIFIC_PREFS = {
 - [ ] **Step 2: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/preferences/manager.py && git commit -m "feat: add device_favorites as beamline-specific preference"
+cd ncs && git add src/lightfall/ui/preferences/manager.py && git commit -m "feat: add device_favorites as beamline-specific preference"
 ```
 
 ---
@@ -1503,7 +1503,7 @@ cd ncs && git add src/lucid/ui/preferences/manager.py && git commit -m "feat: ad
 The core restructure — replace DevicePanel's layout with a QTabWidget and wire up all the sub-widgets. Depends on Tasks 1-4.
 
 **Files:**
-- Modify: `ncs/src/lucid/ui/panels/device_panel.py` (full rewrite)
+- Modify: `ncs/src/lightfall/ui/panels/device_panel.py` (full rewrite)
 - Test: `ncs/tests/test_device_panel_tabs.py`
 
 - [ ] **Step 1: Write the failing test for the tabbed DevicePanel**
@@ -1518,8 +1518,8 @@ from uuid import uuid4
 import pytest
 from PySide6.QtWidgets import QApplication, QTabBar, QTabWidget
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture
@@ -1561,11 +1561,11 @@ def prefs_manager():
 
 class TestDevicePanelTabs:
     def test_has_tab_widget(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -1579,11 +1579,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_first_two_tabs_unclosable(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -1597,11 +1597,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_open_device_tab(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -1622,11 +1622,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_open_device_tab_focuses_existing(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -1648,11 +1648,11 @@ class TestDevicePanelTabs:
         panel.close()
 
     def test_close_device_tab(self, qapp, prefs_manager):
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         catalog, info = _make_catalog()
-        with patch("lucid.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
-             patch("lucid.ui.panels.device_panel.PreferencesManager") as mock_pm, \
+        with patch("lightfall.ui.panels.device_panel.DeviceCatalog") as mock_dc, \
+             patch("lightfall.ui.panels.device_panel.PreferencesManager") as mock_pm, \
              patch.object(DeviceTreeModel, "_poll_value_refresh"):
             mock_dc.get_instance.return_value = catalog
             mock_pm.get_instance.return_value = prefs_manager
@@ -1683,7 +1683,7 @@ Expected: FAIL (DevicePanel doesn't have `_tabs`, `_tree_tab`, etc.)
 
 - [ ] **Step 3: Rewrite DevicePanel as tab coordinator**
 
-Replace the entire `ncs/src/lucid/ui/panels/device_panel.py` with the new tabbed implementation. The `DeviceOverviewWidget` class is removed (no longer needed). The key changes:
+Replace the entire `ncs/src/lightfall/ui/panels/device_panel.py` with the new tabbed implementation. The `DeviceOverviewWidget` class is removed (no longer needed). The key changes:
 
 - `_setup_ui` creates a `QTabWidget` with Favorites (tab 0) and All (tab 1)
 - Hides close buttons on tabs 0 and 1
@@ -1698,7 +1698,7 @@ Replace the entire `ncs/src/lucid/ui/panels/device_panel.py` with the new tabbed
 - Preserves introspection API and panel actions
 
 ```python
-# ncs/src/lucid/ui/panels/device_panel.py
+# ncs/src/lightfall/ui/panels/device_panel.py
 """Device management panel for NCS.
 
 Provides a tabbed panel for viewing and managing devices:
@@ -1719,16 +1719,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices import DeviceCatalog
-from lucid.ui.events import DeviceFocusEvent, DeviceSelectEvent
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.ui.widgets.device_control import DeviceControlWidget
-from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-from lucid.ui.widgets.favorites_tab import FavoritesTab
-from lucid.utils.logging import logger
+from lightfall.devices import DeviceCatalog
+from lightfall.ui.events import DeviceFocusEvent, DeviceSelectEvent
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.widgets.device_control import DeviceControlWidget
+from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+from lightfall.ui.widgets.favorites_tab import FavoritesTab
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -1744,7 +1744,7 @@ class DevicePanel(BasePanel):
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.devices",
+        id="lightfall.panels.devices",
         name="Devices",
         description="View and manage control system devices",
         icon="mdi.microwave",
@@ -2010,7 +2010,7 @@ Expected: Existing tests still PASS (they test model/editing, not panel layout)
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/panels/device_panel.py tests/test_device_panel_tabs.py && git commit -m "feat: rebuild DevicePanel as tabbed interface with Favorites, All, and device controller tabs"
+cd ncs && git add src/lightfall/ui/panels/device_panel.py tests/test_device_panel_tabs.py && git commit -m "feat: rebuild DevicePanel as tabbed interface with Favorites, All, and device controller tabs"
 ```
 
 ---
@@ -2033,7 +2033,7 @@ Expected: No new failures introduced
 
 - [ ] **Step 3: Launch the app and verify visually**
 
-Run: `.venv/Scripts/python.exe -m lucid`
+Run: `.venv/Scripts/python.exe -m lightfall`
 
 Verify:
 1. Device panel shows Favorites tab first, All tab second

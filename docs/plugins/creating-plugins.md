@@ -1,6 +1,6 @@
 # Creating Plugins
 
-This guide provides detailed steps for creating LUCID plugins of any type.
+This guide provides detailed steps for creating Lightfall plugins of any type.
 
 ## Plugin Creation Process
 
@@ -22,10 +22,10 @@ Select the plugin type that matches your goal:
 
 ### 2. Create the Plugin Class
 
-All plugins inherit from a base class in `lucid.plugins`:
+All plugins inherit from a base class in `lightfall.plugins`:
 
 ```python
-from lucid.plugins.<type>_plugin import <Type>Plugin
+from lightfall.plugins.<type>_plugin import <Type>Plugin
 
 class MyPlugin(<Type>Plugin):
     @property
@@ -58,13 +58,13 @@ def display_name(self) -> str:
 
 #### Option A: Built-in Manifest (Development)
 
-For plugins being developed within LUCID, add to `builtin_manifest.py`:
+For plugins being developed within Lightfall, add to `builtin_manifest.py`:
 
 ```python
 PluginEntry(
     type_name="settings",
     name="my_plugin",
-    import_path="lucid.ui.preferences.my_plugin:MyPlugin",
+    import_path="lightfall.ui.preferences.my_plugin:MyPlugin",
 ),
 ```
 
@@ -74,7 +74,7 @@ For plugins in separate packages, use entry points. See [External Packages](exte
 
 ### 5. Test the Plugin
 
-1. Start LUCID
+1. Start Lightfall
 2. Verify the plugin loads (check logs for errors)
 3. Test the plugin's functionality
 
@@ -88,7 +88,7 @@ Plugins often need access to application services. Import them lazily to avoid c
 class MyPlugin(SettingsPlugin):
     def save_settings(self) -> None:
         # Import inside method to avoid circular imports
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
         prefs.set("my_key", self._value)
@@ -113,12 +113,12 @@ Use `TYPE_CHECKING` for type hints that would cause circular imports:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 class MyPanelPlugin(PanelPlugin):
     def get_panel_class(self) -> type[BasePanel]:
         # Import here to defer loading
-        from lucid.ui.panels.my_panel import MyPanel
+        from lightfall.ui.panels.my_panel import MyPanel
         return MyPanel
 ```
 
@@ -143,7 +143,7 @@ def create_widget(self, parent: QWidget | None = None) -> QWidget:
 ### SettingsPlugin
 
 ```python
-from lucid.plugins.settings_plugin import SettingsPlugin
+from lightfall.plugins.settings_plugin import SettingsPlugin
 
 class MySettingsPlugin(SettingsPlugin):
     @property
@@ -166,7 +166,7 @@ class MySettingsPlugin(SettingsPlugin):
 ### PanelPlugin
 
 ```python
-from lucid.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
 
 class MyPanelPlugin(PanelPlugin):
     @property
@@ -181,7 +181,7 @@ class MyPanelPlugin(PanelPlugin):
 ### PlanPlugin
 
 ```python
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 
 class MyScanPlugin(PlanPlugin):
     @property
@@ -204,7 +204,7 @@ class MyScanPlugin(PlanPlugin):
 ### ThemePlugin
 
 ```python
-from lucid.plugins.theme_plugin import ThemePlugin, ThemeDefinition
+from lightfall.plugins.theme_plugin import ThemePlugin, ThemeDefinition
 
 class MyThemePlugin(ThemePlugin):
     @property

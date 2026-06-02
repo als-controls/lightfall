@@ -1,6 +1,6 @@
 # Plugin System Overview
 
-LUCID's plugin system enables extending the application with custom functionality without modifying core code. Plugins are discovered automatically via Python entry points and loaded using a manifest-based system.
+Lightfall's plugin system enables extending the application with custom functionality without modifying core code. Plugins are discovered automatically via Python entry points and loaded using a manifest-based system.
 
 ## Architecture
 
@@ -39,7 +39,7 @@ The plugin system consists of:
 
 ## Plugin Types
 
-LUCID supports 9 plugin types, each serving a specific purpose:
+Lightfall supports 9 plugin types, each serving a specific purpose:
 
 | Type | Base Class | Purpose | Singleton |
 |------|------------|---------|-----------|
@@ -79,7 +79,7 @@ Plugins with `preload=True` are loaded synchronously before the main window is c
 PluginEntry(
     type_name="settings",
     name="appearance",
-    import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
+    import_path="lightfall.ui.preferences.builtin:AppearanceSettingsPlugin",
     preload=True,  # Load before main window
 )
 ```
@@ -89,7 +89,7 @@ PluginEntry(
 Plugins are declared in manifests, which are collections of `PluginEntry` objects:
 
 ```python
-from lucid.plugins import PluginManifest, PluginEntry
+from lightfall.plugins import PluginManifest, PluginEntry
 
 manifest = PluginManifest(
     name="my-beamline-plugins",
@@ -112,7 +112,7 @@ manifest = PluginManifest(
 
 ### Built-in Manifest
 
-LUCID's built-in plugins are defined in `lucid.plugins.builtin_manifest`. This manifest is loaded directly by the application and contains core plugins like:
+Lightfall's built-in plugins are defined in `lightfall.plugins.builtin_manifest`. This manifest is loaded directly by the application and contains core plugins like:
 
 - Theme plugins (light, slate, darkblue, islands)
 - Settings plugins (appearance, devices, claude, etc.)

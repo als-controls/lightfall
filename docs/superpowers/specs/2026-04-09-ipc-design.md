@@ -2,16 +2,16 @@
 
 ## Motivation
 
-LUCID needs to communicate with external tools in a distributed beamline
+Lightfall needs to communicate with external tools in a distributed beamline
 environment. Use cases include:
 
 - **Tsuchinoko** sending measurement targets and receiving notifications when
   new data is acquired
 - **Data processing apps** subscribing to run IDs and pulling data from Tiled
-- **Configuration tools** controlling LUCID actions remotely
+- **Configuration tools** controlling Lightfall actions remotely
 - **Claude agent** receiving messages from external services
 
-The vision is a beamline-wide message bus where LUCID is one participant among
+The vision is a beamline-wide message bus where Lightfall is one participant among
 many — not the center. Components communicate openly through a shared broker
 using topic-based pub/sub and request/reply patterns.
 
@@ -41,7 +41,7 @@ provides subscription, publishing, action registration, and trust management.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ LUCID                                               │
+│ Lightfall                                               │
 │                                                     │
 │  ┌─────────────┐    ┌──────────────────────────┐    │
 │  │ Settings     │───▶│ IPCService               │    │
@@ -81,7 +81,7 @@ provides subscription, publishing, action registration, and trust management.
 - TLS always enabled — auth tokens transit the wire
 - Auto-reconnect with backoff (nats-py native behavior)
 - Connection status exposed via `sigConnectionChanged` Qt signal
-- LUCID operates normally when NATS is unreachable — IPC is optional
+- Lightfall operates normally when NATS is unreachable — IPC is optional
 - No NATS credentials required — TLS for transport security, trust prompts
   for application-level auth
 
@@ -94,7 +94,7 @@ provides subscription, publishing, action registration, and trust management.
   `invoke_in_main_thread()` by default
 - Components can opt into background dispatch with `main_thread=False`
 
-Implementation should evaluate `lucid.utils.threads` (`QThreadFuture`,
+Implementation should evaluate `lightfall.utils.threads` (`QThreadFuture`,
 `QThreadFutureIterator`, `invoke_in_main_thread`) as threading primitives
 rather than rolling new ones.
 
@@ -205,7 +205,7 @@ ipc.register_event(
 ```
 
 This does not create a subscription — it only adds the event to the catalog
-so external clients can discover what LUCID publishes.
+so external clients can discover what Lightfall publishes.
 
 ### Discovery Endpoints
 
@@ -254,7 +254,7 @@ Two built-in meta actions, always registered by IPCService itself:
    ```
 
 2. IPCService receives it and triggers a trust dialog in the UI:
-   > **tsuchinoko v1.2.0** wants to connect to LUCID. Trust this application?
+   > **tsuchinoko v1.2.0** wants to connect to Lightfall. Trust this application?
    >
    > [Trust for this session] [Deny]
 
@@ -283,13 +283,13 @@ bus cannot observe the token, even without NATS-level ACLs.
 ### Token Refresh
 
 Trusted apps re-request tokens when they expire by sending another request to
-`{prefix}.auth.request`. LUCID auto-approves already-trusted apps without
+`{prefix}.auth.request`. Lightfall auto-approves already-trusted apps without
 re-prompting the user. This puts clients in control of when they need a fresh
 token.
 
 ### Trust State
 
-- Session-scoped: trusted app set is in-memory, cleared on LUCID restart
+- Session-scoped: trusted app set is in-memory, cleared on Lightfall restart
 - Revocable: user can revoke trust from the settings UI
 - Auto-deny list: denied apps are auto-denied for the session
 
@@ -354,14 +354,14 @@ Two documents must be delivered alongside the implementation:
 ### 1. Internal Architecture Doc
 
 - IPCService structure, lifecycle, and ServiceRegistry integration
-- How to register new actions and events from within LUCID components
+- How to register new actions and events from within Lightfall components
 - Threading model and callback dispatch
 - Trust handshake internals
 - How SettingsPlugin config flows into the connection
 
 ### 2. External Client Integration Guide
 
-Standalone — readers should not need to understand LUCID internals.
+Standalone — readers should not need to understand Lightfall internals.
 
 - Connecting to the NATS bus (URL, TLS)
 - The trust handshake protocol (request, approval/denial, token re-request)

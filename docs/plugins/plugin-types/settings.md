@@ -12,7 +12,7 @@ Use `SettingsPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.settings_plugin import SettingsPlugin
+from lightfall.plugins.settings_plugin import SettingsPlugin
 ```
 
 ## Class Attributes
@@ -196,8 +196,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
 
 
 class BeamlineSettingsPlugin(SettingsPlugin):
@@ -312,7 +312,7 @@ For settings that must apply before the main window (e.g., theme):
 PluginEntry(
     type_name="settings",
     name="appearance",
-    import_path="lucid.ui.preferences.builtin:AppearanceSettingsPlugin",
+    import_path="lightfall.ui.preferences.builtin:AppearanceSettingsPlugin",
     preload=True,  # Load before main window
 ),
 ```
@@ -322,7 +322,7 @@ PluginEntry(
 `PreferencesManager` is the standard way to store settings:
 
 ```python
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.manager import PreferencesManager
 
 prefs = PreferencesManager.get_instance()
 

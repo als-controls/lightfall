@@ -1,6 +1,6 @@
 # Claude Assistant
 
-LUCID includes an integrated Claude AI assistant that understands the application and can help with experiments, answer questions, and even control panels through natural language.
+Lightfall includes an integrated Claude AI assistant that understands the application and can help with experiments, answer questions, and even control panels through natural language.
 
 ## Getting Started
 
@@ -16,7 +16,7 @@ The Claude assistant requires an API key:
 2. Enter your Anthropic API key
 3. Optionally configure model selection and other settings
 
-Alternatively, set the `ANTHROPIC_API_KEY` environment variable before launching LUCID.
+Alternatively, set the `ANTHROPIC_API_KEY` environment variable before launching Lightfall.
 
 ## Using the Assistant
 
@@ -33,7 +33,7 @@ Type your message in the input area and press Enter to send. Claude responds in 
 
 ### Natural Language Control
 
-Claude can control LUCID through integrated tools. Instead of navigating menus, you can ask Claude to perform actions:
+Claude can control Lightfall through integrated tools. Instead of navigating menus, you can ask Claude to perform actions:
 
 **Panel Management**:
 - "Open the Devices panel"
@@ -59,7 +59,7 @@ Claude has access to tools that let it:
 2. **Inspect Widgets**: Examine UI components and their properties
 3. **Query Devices**: Access device information from the catalog
 4. **Understand Plans**: Explain available plans and their parameters
-5. **Provide Help**: Answer questions about LUCID features and procedures
+5. **Provide Help**: Answer questions about Lightfall features and procedures
 
 ### What Claude Cannot Do
 
@@ -91,7 +91,7 @@ When a skill is enabled, simply ask Claude about topics in that domain. For exam
 ```
 You: How do I run a 2D scan?
 
-Claude: To run a 2D scan (grid scan) in LUCID:
+Claude: To run a 2D scan (grid scan) in Lightfall:
 
 1. Open the Bluesky panel from View > Panels > Bluesky
 2. Search for "grid_scan" in the plan selector
@@ -166,7 +166,7 @@ Claude can explain concepts and procedures:
 
 ### Use for Learning
 
-Claude is useful for learning LUCID's features:
+Claude is useful for learning Lightfall's features:
 
 - "What can I do with the Logbook panel?"
 - "Show me all the keyboard shortcuts"

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add image support to LUCID's logbook — clipboard paste, file picker button, and programmatic API — with bidirectional sync between client and server.
+**Goal:** Add image support to Lightfall's logbook — clipboard paste, file picker button, and programmatic API — with bidirectional sync between client and server.
 
 **Architecture:** New `image` fragment kind stored as files on disk (both client and server), referenced by UUID in fragment metadata. Dedicated REST endpoints for image upload/download. Sync protocol extended with image push/pull phases around the existing metadata sync.
 
@@ -14,7 +14,7 @@
 
 ## File Map
 
-### Backend (`lucid-logbook/src/lucid_logbook/`)
+### Backend (`lightfall-logbook/src/lightfall_logbook/`)
 
 | File | Action | Responsibility |
 |------|--------|---------------|
@@ -23,7 +23,7 @@
 | `api.py` | Modify | Add `ImageController` with upload/download/delete endpoints; extend fragment delete to clean up images |
 | `app.py` | Modify | Register `ImageController`, configure image storage path |
 
-### Backend tests (`lucid-logbook/tests/`)
+### Backend tests (`lightfall-logbook/tests/`)
 
 | File | Action | Responsibility |
 |------|--------|---------------|
@@ -31,7 +31,7 @@
 | `test_image_api.py` | Create | Image upload/download/delete endpoint tests |
 | `test_image_fragment_lifecycle.py` | Create | Fragment-with-image creation + cascade delete |
 
-### Frontend (`ncs/src/lucid/logbook/`)
+### Frontend (`ncs/src/lightfall/logbook/`)
 
 | File | Action | Responsibility |
 |------|--------|---------------|
@@ -40,7 +40,7 @@
 | `entry_widget.py` | Modify | Handle `IMAGE` fragment type in `_rebuild_fragments()` |
 | `event_listener.py` | No change | (programmatic insertion goes through `LogbookClient.add_image()` directly) |
 
-### Frontend UI (`ncs/src/lucid/ui/panels/`)
+### Frontend UI (`ncs/src/lightfall/ui/panels/`)
 
 | File | Action | Responsibility |
 |------|--------|---------------|
@@ -51,9 +51,9 @@
 ## Task 1: Backend — Image file storage utility
 
 **Files:**
-- Create: `lucid-logbook/src/lucid_logbook/image_store.py`
-- Create: `lucid-logbook/tests/conftest.py`
-- Create: `lucid-logbook/tests/test_image_store.py`
+- Create: `lightfall-logbook/src/lightfall_logbook/image_store.py`
+- Create: `lightfall-logbook/tests/conftest.py`
+- Create: `lightfall-logbook/tests/test_image_store.py`
 
 - [ ] **Step 1: Write test for saving an image**
 
@@ -61,7 +61,7 @@
 # tests/test_image_store.py
 import pytest
 from pathlib import Path
-from lucid_logbook.image_store import ImageStore
+from lightfall_logbook.image_store import ImageStore
 
 
 @pytest.fixture
@@ -96,13 +96,13 @@ def _make_minimal_png() -> bytes:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_store.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid_logbook.image_store'`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_store.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall_logbook.image_store'`
 
 - [ ] **Step 3: Implement ImageStore**
 
 ```python
-# lucid-logbook/src/lucid_logbook/image_store.py
+# lightfall-logbook/src/lightfall_logbook/image_store.py
 """Server-side image file storage."""
 from __future__ import annotations
 
@@ -223,14 +223,14 @@ def test_delete_missing_returns_false(store: ImageStore):
 
 - [ ] **Step 5: Run all tests**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_store.py -v`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_store.py -v`
 Expected: All PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
-git add src/lucid_logbook/image_store.py tests/conftest.py tests/test_image_store.py
+cd ~/PycharmProjects/ncs/lightfall-logbook
+git add src/lightfall_logbook/image_store.py tests/conftest.py tests/test_image_store.py
 git commit -m "feat(logbook): add ImageStore for server-side image file storage"
 ```
 
@@ -239,9 +239,9 @@ git commit -m "feat(logbook): add ImageStore for server-side image file storage"
 ## Task 2: Backend — Image upload/download/delete API endpoints
 
 **Files:**
-- Modify: `lucid-logbook/src/lucid_logbook/api.py` (add ImageController after SearchController, ~line 314)
-- Modify: `lucid-logbook/src/lucid_logbook/app.py` (register ImageController, ~line 40)
-- Create: `lucid-logbook/tests/test_image_api.py`
+- Modify: `lightfall-logbook/src/lightfall_logbook/api.py` (add ImageController after SearchController, ~line 314)
+- Modify: `lightfall-logbook/src/lightfall_logbook/app.py` (register ImageController, ~line 40)
+- Create: `lightfall-logbook/tests/test_image_api.py`
 
 - [ ] **Step 1: Write test for image upload endpoint**
 
@@ -252,7 +252,7 @@ import struct
 import zlib
 from pathlib import Path
 from litestar.testing import AsyncTestClient
-from lucid_logbook.app import create_app
+from lightfall_logbook.app import create_app
 
 
 def _make_minimal_png() -> bytes:
@@ -360,7 +360,7 @@ async def test_upload_rejects_unsupported_type(client):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_api.py -v`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_api.py -v`
 Expected: FAIL — no ImageController registered, 404 on `/logbook/images`
 
 - [ ] **Step 3: Add ImageController to api.py**
@@ -373,7 +373,7 @@ from litestar.response import Response
 from litestar.datastructures import UploadFile
 from litestar.enums import RequestEncodingType
 from litestar.params import Body
-from lucid_logbook.image_store import ImageStore, ImageStoreError
+from lightfall_logbook.image_store import ImageStore, ImageStoreError
 
 # --- Add ImageController after SearchController ---
 
@@ -432,7 +432,7 @@ Modify `app.py` `create_app()`:
 
 ```python
 # Add import at top
-from lucid_logbook.image_store import ImageStore
+from lightfall_logbook.image_store import ImageStore
 
 # In create_app(), add ImageController to route_handlers:
 route_handlers=[health_check, LogbookController, SearchController, ImageController]
@@ -446,14 +446,14 @@ Also add `from pathlib import Path` and `import os` to imports if not already pr
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_api.py -v`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_api.py -v`
 Expected: All PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
-git add src/lucid_logbook/api.py src/lucid_logbook/app.py tests/test_image_api.py
+cd ~/PycharmProjects/ncs/lightfall-logbook
+git add src/lightfall_logbook/api.py src/lightfall_logbook/app.py tests/test_image_api.py
 git commit -m "feat(logbook): add image upload/download/delete API endpoints"
 ```
 
@@ -462,8 +462,8 @@ git commit -m "feat(logbook): add image upload/download/delete API endpoints"
 ## Task 3: Backend — Cascade image delete when image fragment is deleted
 
 **Files:**
-- Modify: `lucid-logbook/src/lucid_logbook/api.py` (~line 237, `delete_fragment` method)
-- Create: `lucid-logbook/tests/test_image_fragment_lifecycle.py`
+- Modify: `lightfall-logbook/src/lightfall_logbook/api.py` (~line 237, `delete_fragment` method)
+- Create: `lightfall-logbook/tests/test_image_fragment_lifecycle.py`
 
 - [ ] **Step 1: Write test for cascade delete**
 
@@ -474,7 +474,7 @@ import struct
 import zlib
 from pathlib import Path
 from litestar.testing import AsyncTestClient
-from lucid_logbook.app import create_app
+from lightfall_logbook.app import create_app
 
 
 def _make_minimal_png() -> bytes:
@@ -554,7 +554,7 @@ async def test_deleting_image_fragment_removes_image_file(client, image_dir: Pat
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_fragment_lifecycle.py -v`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_fragment_lifecycle.py -v`
 Expected: FAIL — fragment delete currently rejects non-text kinds (`kind != "text"` check at line ~251 of api.py), and does not clean up image files.
 
 - [ ] **Step 3: Modify delete_fragment to handle image fragments**
@@ -589,14 +589,14 @@ async def delete_fragment(
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd ~/PycharmProjects/ncs/lucid-logbook && python -m pytest tests/test_image_fragment_lifecycle.py tests/test_image_api.py tests/test_image_store.py -v`
+Run: `cd ~/PycharmProjects/ncs/lightfall-logbook && python -m pytest tests/test_image_fragment_lifecycle.py tests/test_image_api.py tests/test_image_store.py -v`
 Expected: All PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
-git add src/lucid_logbook/api.py tests/test_image_fragment_lifecycle.py
+cd ~/PycharmProjects/ncs/lightfall-logbook
+git add src/lightfall_logbook/api.py tests/test_image_fragment_lifecycle.py
 git commit -m "feat(logbook): cascade image file delete when image fragment is deleted"
 ```
 
@@ -605,8 +605,8 @@ git commit -m "feat(logbook): cascade image file delete when image fragment is d
 ## Task 4: Frontend — Add IMAGE fragment type and local image storage helpers
 
 **Files:**
-- Modify: `ncs/src/lucid/logbook/fragment_widgets.py` (~line 52, FragmentType enum)
-- Modify: `ncs/src/lucid/logbook/client.py` (~line 42, schema; new methods after line ~482)
+- Modify: `ncs/src/lightfall/logbook/fragment_widgets.py` (~line 52, FragmentType enum)
+- Modify: `ncs/src/lightfall/logbook/client.py` (~line 42, schema; new methods after line ~482)
 
 - [ ] **Step 1: Add IMAGE to FragmentType enum**
 
@@ -639,13 +639,13 @@ In `client.py`, add a property and helper methods to `LogbookClient` (after the 
 @property
 def _image_dir(self) -> Path:
     """Local image storage directory."""
-    d = Path.home() / ".lucid" / "logbook" / "images"
+    d = Path.home() / ".lightfall" / "logbook" / "images"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 def _save_image_locally(self, image_id: str, data: bytes, mime_type: str) -> Path:
     """Save image bytes to local storage, return the file path."""
-    from lucid_logbook.image_store import ALLOWED_MIME_TYPES
+    from lightfall_logbook.image_store import ALLOWED_MIME_TYPES
 
     ext = ALLOWED_MIME_TYPES.get(mime_type, ".png")
     path = self._image_dir / f"{image_id}{ext}"
@@ -654,7 +654,7 @@ def _save_image_locally(self, image_id: str, data: bytes, mime_type: str) -> Pat
 
 def _get_local_image_path(self, image_id: str) -> Path | None:
     """Find a locally stored image by ID, or None if not present."""
-    from lucid_logbook.image_store import ALLOWED_MIME_TYPES
+    from lightfall_logbook.image_store import ALLOWED_MIME_TYPES
 
     for ext in ALLOWED_MIME_TYPES.values():
         path = self._image_dir / f"{image_id}{ext}"
@@ -729,7 +729,7 @@ def add_image(
     width = qimg.width() if not qimg.isNull() else 0
     height = qimg.height() if not qimg.isNull() else 0
 
-    from lucid_logbook.image_store import ALLOWED_MIME_TYPES
+    from lightfall_logbook.image_store import ALLOWED_MIME_TYPES
     ext = ALLOWED_MIME_TYPES.get(mime_type, ".png")
     filename = f"{image_id}{ext}"
 
@@ -762,14 +762,14 @@ def add_image(
 
 - [ ] **Step 5: Verify it loads without errors**
 
-Run: `cd ~/PycharmProjects/ncs && python -c "from lucid.logbook.fragment_widgets import FragmentType; print(FragmentType.IMAGE)"`
+Run: `cd ~/PycharmProjects/ncs && python -c "from lightfall.logbook.fragment_widgets import FragmentType; print(FragmentType.IMAGE)"`
 Expected: `image`
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/logbook/fragment_widgets.py src/lucid/logbook/client.py
+git add src/lightfall/logbook/fragment_widgets.py src/lightfall/logbook/client.py
 git commit -m "feat(logbook): add IMAGE fragment type, local storage helpers, and add_image() API"
 ```
 
@@ -778,7 +778,7 @@ git commit -m "feat(logbook): add IMAGE fragment type, local storage helpers, an
 ## Task 5: Frontend — Extend sync protocol for image push/pull
 
 **Files:**
-- Modify: `ncs/src/lucid/logbook/client.py` (~line 77, `_run_sync` function)
+- Modify: `ncs/src/lightfall/logbook/client.py` (~line 77, `_run_sync` function)
 
 - [ ] **Step 1: Add image push phase to _run_sync()**
 
@@ -850,10 +850,10 @@ for frag_id, data_json in cursor.fetchall():
     if existing and existing[0] == "synced":
         continue
     # Check if file exists on disk already
-    from lucid_logbook.image_store import ALLOWED_MIME_TYPES
+    from lightfall_logbook.image_store import ALLOWED_MIME_TYPES
     mime_type = data.get("mime_type", "image/png")
     ext = ALLOWED_MIME_TYPES.get(mime_type, ".png")
-    image_dir = Path.home() / ".lucid" / "logbook" / "images"
+    image_dir = Path.home() / ".lightfall" / "logbook" / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
     local_path = image_dir / f"{image_id}{ext}"
 
@@ -885,14 +885,14 @@ db.commit()
 
 - [ ] **Step 3: Test sync manually**
 
-Run: `cd ~/PycharmProjects/ncs && python -c "from lucid.logbook.client import LogbookClient; print('sync module loads OK')"`
+Run: `cd ~/PycharmProjects/ncs && python -c "from lightfall.logbook.client import LogbookClient; print('sync module loads OK')"`
 Expected: `sync module loads OK`
 
 - [ ] **Step 4: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/logbook/client.py
+git add src/lightfall/logbook/client.py
 git commit -m "feat(logbook): extend sync protocol with image push/pull phases"
 ```
 
@@ -901,7 +901,7 @@ git commit -m "feat(logbook): extend sync protocol with image push/pull phases"
 ## Task 6: Frontend — ImageFragmentWidget
 
 **Files:**
-- Modify: `ncs/src/lucid/logbook/fragment_widgets.py` (add new class after `ReadonlyFragmentWidget`, ~line 619)
+- Modify: `ncs/src/lightfall/logbook/fragment_widgets.py` (add new class after `ReadonlyFragmentWidget`, ~line 619)
 
 - [ ] **Step 1: Add ImageFragmentWidget class**
 
@@ -970,7 +970,7 @@ class ImageFragmentWidget(QFrame):
 
     def _load_image(self) -> None:
         """Load image from local storage."""
-        from lucid.logbook.client import LogbookClient
+        from lightfall.logbook.client import LogbookClient
 
         client = LogbookClient.instance()
         path = client._get_local_image_path(self._image_id)
@@ -1043,14 +1043,14 @@ from PySide6.QtGui import QPixmap
 
 - [ ] **Step 3: Verify the widget loads**
 
-Run: `cd ~/PycharmProjects/ncs && python -c "from lucid.logbook.fragment_widgets import ImageFragmentWidget; print('OK')"`
+Run: `cd ~/PycharmProjects/ncs && python -c "from lightfall.logbook.fragment_widgets import ImageFragmentWidget; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 4: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/logbook/fragment_widgets.py
+git add src/lightfall/logbook/fragment_widgets.py
 git commit -m "feat(logbook): add ImageFragmentWidget with thumbnail, caption, and full-size viewer"
 ```
 
@@ -1059,14 +1059,14 @@ git commit -m "feat(logbook): add ImageFragmentWidget with thumbnail, caption, a
 ## Task 7: Frontend — Wire ImageFragmentWidget into EntryWidget
 
 **Files:**
-- Modify: `ncs/src/lucid/logbook/entry_widget.py` (~line 394, `_rebuild_fragments`)
+- Modify: `ncs/src/lightfall/logbook/entry_widget.py` (~line 394, `_rebuild_fragments`)
 
 - [ ] **Step 1: Import ImageFragmentWidget**
 
 At the top of `entry_widget.py`, add to the imports from `fragment_widgets`:
 
 ```python
-from lucid.logbook.fragment_widgets import (
+from lightfall.logbook.fragment_widgets import (
     FragmentData,
     FragmentType,
     TextFragmentWidget,
@@ -1105,14 +1105,14 @@ image_added = Signal(str, str)  # entry_id, fragment_id
 
 - [ ] **Step 4: Verify it loads**
 
-Run: `cd ~/PycharmProjects/ncs && python -c "from lucid.logbook.entry_widget import EntryWidget; print('OK')"`
+Run: `cd ~/PycharmProjects/ncs && python -c "from lightfall.logbook.entry_widget import EntryWidget; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/logbook/entry_widget.py
+git add src/lightfall/logbook/entry_widget.py
 git commit -m "feat(logbook): wire ImageFragmentWidget into EntryWidget fragment rendering"
 ```
 
@@ -1121,7 +1121,7 @@ git commit -m "feat(logbook): wire ImageFragmentWidget into EntryWidget fragment
 ## Task 8: Frontend — Add Image button and clipboard paste in LogbookPanel
 
 **Files:**
-- Modify: `ncs/src/lucid/ui/panels/logbook_panel.py`
+- Modify: `ncs/src/lightfall/ui/panels/logbook_panel.py`
 
 - [ ] **Step 1: Add image button to the panel toolbar**
 
@@ -1234,14 +1234,14 @@ No additional wiring needed — the signals connected in Task 7 already route th
 
 - [ ] **Step 5: Verify it loads**
 
-Run: `cd ~/PycharmProjects/ncs && python -c "from lucid.ui.panels.logbook_panel import LogbookPanel; print('OK')"`
+Run: `cd ~/PycharmProjects/ncs && python -c "from lightfall.ui.panels.logbook_panel import LogbookPanel; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/logbook_panel.py
+git add src/lightfall/ui/panels/logbook_panel.py
 git commit -m "feat(logbook): add image button and clipboard paste support to LogbookPanel"
 ```
 

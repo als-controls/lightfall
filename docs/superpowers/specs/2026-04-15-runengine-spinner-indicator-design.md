@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-15
 **Status:** Design
-**Scope:** `ncs/src/lucid/ui/widgets/runengine_control.py`
+**Scope:** `ncs/src/lightfall/ui/widgets/runengine_control.py`
 
 ## Summary
 
@@ -23,11 +23,11 @@ visually to the ALS facility.
 
 - **Source:** `C:\Users\rp\PycharmProjects\control-system-management\csm-frontend\public\logo.png`
   (290 KB, transparent background)
-- **Destination:** `ncs/src/lucid/ui/resources/logo.png`
-- **Loading:** `importlib.resources.files("lucid.ui.resources") / "logo.png"`,
+- **Destination:** `ncs/src/lightfall/ui/resources/logo.png`
+- **Loading:** `importlib.resources.files("lightfall.ui.resources") / "logo.png"`,
   read as bytes and loaded into a `QPixmap` via `loadFromData`. Works in
   editable installs and packaged builds.
-- **Packaging:** Ensure `lucid.ui.resources` is included as package data in
+- **Packaging:** Ensure `lightfall.ui.resources` is included as package data in
   `ncs/pyproject.toml` (add to `[tool.hatch.build.targets.wheel]` package
   inclusion if not already implicit).
 
@@ -155,13 +155,13 @@ if state in ("aborting", "panicked"):
 
 ## Files Changed
 
-- **New:** `ncs/src/lucid/ui/resources/__init__.py` (empty, marks package)
-- **New:** `ncs/src/lucid/ui/resources/logo.png` (copied)
-- **Modified:** `ncs/src/lucid/ui/widgets/runengine_control.py`
+- **New:** `ncs/src/lightfall/ui/resources/__init__.py` (empty, marks package)
+- **New:** `ncs/src/lightfall/ui/resources/logo.png` (copied)
+- **Modified:** `ncs/src/lightfall/ui/widgets/runengine_control.py`
   - Replace `StatusIndicator` class with `SpinnerIndicator`
   - Update imports (remove unused `QColor`, keep `QPainter`, add `QPixmap`, `QImage`, `QTimer`)
   - Wire `sigException` and extend `_on_state_changed` for flash triggers
-- **Modified:** `ncs/pyproject.toml` — include `lucid.ui.resources` package data if needed
+- **Modified:** `ncs/pyproject.toml` — include `lightfall.ui.resources` package data if needed
 
 ## Testing
 

@@ -5,11 +5,11 @@
 
 ## Overview
 
-Add the ability to edit, add, delete, enable, and disable devices in LUCID through both a GUI context menu + edit dialog and an MCP tool. Changes persist to the backend (starting with happi JSON). Non-editable backends (e.g., BCS) hide editing UI.
+Add the ability to edit, add, delete, enable, and disable devices in Lightfall through both a GUI context menu + edit dialog and an MCP tool. Changes persist to the backend (starting with happi JSON). Non-editable backends (e.g., BCS) hide editing UI.
 
 ## Motivation
 
-The device panel currently lists devices but provides no way to modify their configurations. Users must drop to the happi CLI or edit JSON by hand. This feature brings device management into the LUCID UI and makes it accessible to the Claude agent via MCP.
+The device panel currently lists devices but provides no way to modify their configurations. Users must drop to the happi CLI or edit JSON by hand. This feature brings device management into the Lightfall UI and makes it accessible to the Claude agent via MCP.
 
 ---
 

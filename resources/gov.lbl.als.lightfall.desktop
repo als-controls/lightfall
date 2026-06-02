@@ -2,7 +2,7 @@
 Type=Application
 Name=Lightfall
 GenericName=Control System
-Comment=Lightsource Unified Control Interface Dashboard
+Comment=Control system for the ALS facility
 Exec=lightfall
 Icon=gov.lbl.als.lightfall
 Categories=Science;Development;

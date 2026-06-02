@@ -13,4 +13,4 @@ plugins
 
 | Module | Description |
 |--------|-------------|
-| [Plugin Types](plugins.md) | Base classes for extending LUCID |
+| [Plugin Types](plugins.md) | Base classes for extending Lightfall |

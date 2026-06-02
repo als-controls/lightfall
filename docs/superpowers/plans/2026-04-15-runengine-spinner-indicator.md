@@ -15,29 +15,29 @@
 ## File Structure
 
 **New files:**
-- `ncs/src/lucid/ui/resources/__init__.py` — empty marker so the directory is a Python package and `importlib.resources` can find it
-- `ncs/src/lucid/ui/resources/logo.png` — copied from `C:\Users\rp\PycharmProjects\control-system-management\csm-frontend\public\logo.png`
+- `ncs/src/lightfall/ui/resources/__init__.py` — empty marker so the directory is a Python package and `importlib.resources` can find it
+- `ncs/src/lightfall/ui/resources/logo.png` — copied from `C:\Users\rp\PycharmProjects\control-system-management\csm-frontend\public\logo.png`
 - `ncs/tests/test_spinner_indicator.py` — unit tests for the new widget
 
 **Modified files:**
-- `ncs/src/lucid/ui/widgets/runengine_control.py` — replace `StatusIndicator` class with `SpinnerIndicator`; wire `sigException` and extend `_on_state_changed` in `RunEngineControlWidget`
-- `ncs/pyproject.toml` — ensure `*.png` files under `src/lucid` are included in the wheel
+- `ncs/src/lightfall/ui/widgets/runengine_control.py` — replace `StatusIndicator` class with `SpinnerIndicator`; wire `sigException` and extend `_on_state_changed` in `RunEngineControlWidget`
+- `ncs/pyproject.toml` — ensure `*.png` files under `src/lightfall` are included in the wheel
 
 ---
 
 ## Task 1: Set up the resources package and copy the logo asset
 
 **Files:**
-- Create: `ncs/src/lucid/ui/resources/__init__.py`
-- Create: `ncs/src/lucid/ui/resources/logo.png` (copy from external path)
+- Create: `ncs/src/lightfall/ui/resources/__init__.py`
+- Create: `ncs/src/lightfall/ui/resources/logo.png` (copy from external path)
 - Modify: `ncs/pyproject.toml` (add force-include for PNG files)
 
 - [ ] **Step 1: Create the resources package marker**
 
-Create `ncs/src/lucid/ui/resources/__init__.py` with this exact content:
+Create `ncs/src/lightfall/ui/resources/__init__.py` with this exact content:
 
 ```python
-"""Static asset resources (images, icons) bundled with the lucid UI."""
+"""Static asset resources (images, icons) bundled with the lightfall UI."""
 ```
 
 - [ ] **Step 2: Copy the logo PNG into the resources directory**
@@ -45,13 +45,13 @@ Create `ncs/src/lucid/ui/resources/__init__.py` with this exact content:
 Run from the repo root (`C:/Users/rp/PycharmProjects/ncs`):
 
 ```bash
-cp "C:/Users/rp/PycharmProjects/control-system-management/csm-frontend/public/logo.png" "ncs/src/lucid/ui/resources/logo.png"
+cp "C:/Users/rp/PycharmProjects/control-system-management/csm-frontend/public/logo.png" "ncs/src/lightfall/ui/resources/logo.png"
 ```
 
 Verify the file exists and is ~290 KB:
 
 ```bash
-ls -la ncs/src/lucid/ui/resources/logo.png
+ls -la ncs/src/lightfall/ui/resources/logo.png
 ```
 
 Expected: file present, size around 290362 bytes.
@@ -62,17 +62,17 @@ Hatchling by default includes Python source but may skip binary asset files. Mak
 
 ```toml
 [tool.hatch.build.targets.wheel]
-packages = ["src/lucid"]
+packages = ["src/lightfall"]
 ```
 
 Replace with:
 
 ```toml
 [tool.hatch.build.targets.wheel]
-packages = ["src/lucid"]
+packages = ["src/lightfall"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/lucid/ui/resources/logo.png" = "lucid/ui/resources/logo.png"
+"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"
 ```
 
 - [ ] **Step 4: Verify the asset can be discovered via importlib.resources**
@@ -80,7 +80,7 @@ packages = ["src/lucid"]
 Run this one-liner from the repo root:
 
 ```bash
-C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -c "from importlib.resources import files; p = files('lucid.ui.resources') / 'logo.png'; print(p, p.is_file(), p.read_bytes()[:8])"
+C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -c "from importlib.resources import files; p = files('lightfall.ui.resources') / 'logo.png'; print(p, p.is_file(), p.read_bytes()[:8])"
 ```
 
 Expected output: prints the resolved path, `True`, and the PNG magic bytes `b'\x89PNG\r\n\x1a\n'`.
@@ -88,7 +88,7 @@ Expected output: prints the resolved path, `True`, and the PNG magic bytes `b'\x
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/resources/__init__.py src/lucid/ui/resources/logo.png pyproject.toml
+cd ncs && git add src/lightfall/ui/resources/__init__.py src/lightfall/ui/resources/logo.png pyproject.toml
 git commit -m "Add ALS logo asset and resources package for UI widgets"
 ```
 
@@ -111,7 +111,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtGui import QImage
 
-from lucid.ui.widgets.runengine_control import SpinnerIndicator
+from lightfall.ui.widgets.runengine_control import SpinnerIndicator
 
 
 @pytest.fixture
@@ -206,11 +206,11 @@ git commit -m "Add failing tests for SpinnerIndicator pixmap baking"
 ## Task 3: Implement SpinnerIndicator pixmap baking
 
 **Files:**
-- Modify: `ncs/src/lucid/ui/widgets/runengine_control.py:28-77` (replace `StatusIndicator` class)
+- Modify: `ncs/src/lightfall/ui/widgets/runengine_control.py:28-77` (replace `StatusIndicator` class)
 
 - [ ] **Step 1: Add a helper module-level function for the per-pixel transform**
 
-In `ncs/src/lucid/ui/widgets/runengine_control.py`, find the existing imports block (lines 7-22) and replace it with this expanded version:
+In `ncs/src/lightfall/ui/widgets/runengine_control.py`, find the existing imports block (lines 7-22) and replace it with this expanded version:
 
 ```python
 """RunEngine control widget for state management.
@@ -238,7 +238,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from lucid.acquire.engine import Engine
+    from lightfall.acquire.engine import Engine
 
 
 SPINNING_STATES = frozenset({"running", "stopping"})
@@ -304,11 +304,11 @@ def _load_logo_pixmaps() -> tuple[QPixmap, QPixmap, QPixmap]:
     Returns:
         Tuple of (color, gray, red) QPixmaps, all 24x24.
     """
-    resource = files("lucid.ui.resources") / "logo.png"
+    resource = files("lightfall.ui.resources") / "logo.png"
     data = resource.read_bytes()
     raw = QImage.fromData(data, "PNG")
     if raw.isNull():
-        raise RuntimeError("Failed to decode logo.png from lucid.ui.resources")
+        raise RuntimeError("Failed to decode logo.png from lightfall.ui.resources")
     scaled = raw.scaled(
         _LOGO_SIZE,
         _LOGO_SIZE,
@@ -423,7 +423,7 @@ Expected: all 5 tests in `TestPixmapBaking` pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/widgets/runengine_control.py
+cd ncs && git add src/lightfall/ui/widgets/runengine_control.py
 git commit -m "Implement SpinnerIndicator with pre-baked color/gray/red pixmaps"
 ```
 
@@ -563,11 +563,11 @@ git commit -m "Add tests for SpinnerIndicator error flash behavior"
 ## Task 6: Wire SpinnerIndicator into RunEngineControlWidget
 
 **Files:**
-- Modify: `ncs/src/lucid/ui/widgets/runengine_control.py` (`RunEngineControlWidget` class)
+- Modify: `ncs/src/lightfall/ui/widgets/runengine_control.py` (`RunEngineControlWidget` class)
 
 - [ ] **Step 1: Replace StatusIndicator usage with SpinnerIndicator**
 
-In `ncs/src/lucid/ui/widgets/runengine_control.py`, find the `_setup_ui` method of `RunEngineControlWidget` and locate the line:
+In `ncs/src/lightfall/ui/widgets/runengine_control.py`, find the `_setup_ui` method of `RunEngineControlWidget` and locate the line:
 
 ```python
         self._status_indicator = StatusIndicator()
@@ -668,7 +668,7 @@ Replace with:
 - [ ] **Step 6: Smoke-test the import**
 
 ```bash
-C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -c "from lucid.ui.widgets.runengine_control import RunEngineControlWidget, SpinnerIndicator; print('OK')"
+C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -c "from lightfall.ui.widgets.runengine_control import RunEngineControlWidget, SpinnerIndicator; print('OK')"
 ```
 
 Expected: prints `OK`. Any `ImportError` or `AttributeError` here means a typo in the wiring.
@@ -684,7 +684,7 @@ Expected: all 16 tests pass (5 + 7 + 4).
 - [ ] **Step 8: Commit**
 
 ```bash
-cd ncs && git add src/lucid/ui/widgets/runengine_control.py
+cd ncs && git add src/lightfall/ui/widgets/runengine_control.py
 git commit -m "Wire SpinnerIndicator into RunEngineControlWidget with exception flash"
 ```
 
@@ -694,16 +694,16 @@ git commit -m "Wire SpinnerIndicator into RunEngineControlWidget with exception 
 
 This is a UI feature; type checks and unit tests confirm the wiring is correct, but the visual behavior (spin smoothness, color appearance, flash timing) needs eyeballs.
 
-- [ ] **Step 1: Launch the LUCID app**
+- [ ] **Step 1: Launch the Lightfall app**
 
 ```bash
-C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/lucid.exe
+C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/lightfall.exe
 ```
 
 Or, if that script is not on the PATH yet:
 
 ```bash
-C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -m lucid.main
+C:/Users/rp/PycharmProjects/ncs/.venv/Scripts/python.exe -m lightfall.main
 ```
 
 - [ ] **Step 2: Verify idle state**

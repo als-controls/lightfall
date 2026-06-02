@@ -1,6 +1,6 @@
 # Logbook Image Support
 
-Add image support to LUCID's logbook system — both backend (lucid-logbook) and frontend (LUCID Qt app). Users can paste images from clipboard or add them via a button, and code can insert images programmatically.
+Add image support to Lightfall's logbook system — both backend (lightfall-logbook) and frontend (Lightfall Qt app). Users can paste images from clipboard or add them via a button, and code can insert images programmatically.
 
 ## Use Cases
 
@@ -36,7 +36,7 @@ Fragment (kind=image):
 
 ### Local image storage
 
-Path: `~/.lucid/logbook/images/{image_id}.{ext}`
+Path: `~/.lightfall/logbook/images/{image_id}.{ext}`
 
 ### Server image storage
 
@@ -56,7 +56,7 @@ Tracks whether each image file has been uploaded to or downloaded from the serve
 
 ## Backend API
 
-New endpoints on lucid-logbook (Litestar):
+New endpoints on lightfall-logbook (Litestar):
 
 ### `POST /logbook/images`
 
@@ -161,7 +161,7 @@ def add_image(
 ```
 
 - Normalizes all input types to PNG bytes
-- Saves to local image directory (`~/.lucid/logbook/images/`)
+- Saves to local image directory (`~/.lightfall/logbook/images/`)
 - Creates image fragment in local DB with `sync_status='pending'`
 - Inserts `pending_upload` row in `image_sync`
 - Returns the new fragment ID

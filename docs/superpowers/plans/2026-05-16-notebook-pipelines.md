@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship LUCID notebook pipelines: a headless executor consumes NATS jobs, runs pip-installed `PipelinePlugin` packages via Papermill in per-package venvs, writes derived runs to Tiled with auto-stamped provenance; LUCID-side glue mints job-scoped Tiled API keys, manages user-configured triggers, and surfaces the feature in three UI panels.
+**Goal:** Ship Lightfall notebook pipelines: a headless executor consumes NATS jobs, runs pip-installed `PipelinePlugin` packages via Papermill in per-package venvs, writes derived runs to Tiled with auto-stamped provenance; Lightfall-side glue mints job-scoped Tiled API keys, manages user-configured triggers, and surfaces the feature in three UI panels.
 
-**Architecture:** Two repositories. **`lucid-pipelines`** (new, at `~/PycharmProjects/lucid-pipelines/`) — the SDK + executor that pipeline authors and ops install; no PySide6 dependency. **`lucid` (ncs/ncs)** — adds `lucid.auth.mint_job_key`, the trigger framework, `lucid.pipelines.PipelineClient`, and three UI surfaces. The wire format between them is NATS request/reply on `lucid.pipeline.<host>` topics. End-to-end work uses Tiled's per-user API-key endpoint (delivered in Plan A `~/PycharmProjects/als-tiled/docs/superpowers/plans/2026-05-16-user-scoped-api-keys.md`) as a precondition.
+**Architecture:** Two repositories. **`lightfall-pipelines`** (new, at `~/PycharmProjects/lightfall-pipelines/`) — the SDK + executor that pipeline authors and ops install; no PySide6 dependency. **`lightfall` (ncs/ncs)** — adds `lightfall.auth.mint_job_key`, the trigger framework, `lightfall.pipelines.PipelineClient`, and three UI surfaces. The wire format between them is NATS request/reply on `lightfall.pipeline.<host>` topics. End-to-end work uses Tiled's per-user API-key endpoint (delivered in Plan A `~/PycharmProjects/als-tiled/docs/superpowers/plans/2026-05-16-user-scoped-api-keys.md`) as a precondition.
 
-**Tech Stack:** Python 3.11+, PySide6 6.6+ (LUCID side only), nats-py, papermill, scrapbook, jupyter_client, tiled[client], bluesky[tiled], pytest + pytest-asyncio + pytest-qt.
+**Tech Stack:** Python 3.11+, PySide6 6.6+ (Lightfall side only), nats-py, papermill, scrapbook, jupyter_client, tiled[client], bluesky[tiled], pytest + pytest-asyncio + pytest-qt.
 
 **Spec reference:** `~/PycharmProjects/ncs/ncs/docs/superpowers/specs/2026-05-15-notebook-pipelines-design.md`.
 
@@ -16,13 +16,13 @@
 
 ## File structure
 
-### New repository: `~/PycharmProjects/lucid-pipelines/`
+### New repository: `~/PycharmProjects/lightfall-pipelines/`
 
 ```
-lucid-pipelines/
+lightfall-pipelines/
 ├── pyproject.toml                    # hatch + hatch-vcs; [project.optional-dependencies] for executor extra
 ├── README.md
-├── src/lucid_pipelines/
+├── src/lightfall_pipelines/
 │   ├── __init__.py                   # __version__ re-export
 │   ├── plugin.py                     # PipelinePlugin ABC, discover()
 │   ├── notebook.py                   # TiledWriter wrapper, get_input_run, get_provenance, bootstrap-cell helpers
@@ -33,7 +33,7 @@ lucid-pipelines/
 │   │   ├── runner.py                 # PapermillRunner (in-memory exec + scrapbook harvest)
 │   │   ├── notebook_store.py         # NotebookStore (disk-write + Tiled-pointer)
 │   │   └── service.py                # PipelineService (NATS subscribe + queue + dispatch + idempotency)
-│   └── cli.py                        # `lucid-pipelines` console-script
+│   └── cli.py                        # `lightfall-pipelines` console-script
 └── tests/
     ├── conftest.py
     ├── test_plugin.py
@@ -56,7 +56,7 @@ lucid-pipelines/
 
 ```
 ncs/ncs/
-├── src/lucid/
+├── src/lightfall/
 │   ├── auth/
 │   │   └── job_key.py                # NEW: mint_job_key() helper
 │   ├── acquire/
@@ -68,7 +68,7 @@ ncs/ncs/
 │   │       ├── run_start.py          # RunStartTrigger
 │   │       ├── run_end.py            # RunEndTrigger
 │   │       └── manual.py             # ManualTrigger
-│   ├── pipelines/                    # NEW directory (LUCID-side)
+│   ├── pipelines/                    # NEW directory (Lightfall-side)
 │   │   ├── __init__.py
 │   │   └── client.py                 # PipelineClient (mint, submit, track, revoke)
 │   └── ui/
@@ -104,39 +104,39 @@ als-saxs/
 
 ---
 
-## STAGE 1 — LUCID-side shared primitives
+## STAGE 1 — Lightfall-side shared primitives
 
-### Task 1: `lucid.auth.mint_job_key()` helper
+### Task 1: `lightfall.auth.mint_job_key()` helper
 
 **Files:**
-- Create: `src/lucid/auth/job_key.py`
+- Create: `src/lightfall/auth/job_key.py`
 - Create: `tests/auth/test_job_key.py`
-- Modify: `src/lucid/auth/__init__.py` (export `mint_job_key`)
+- Modify: `src/lightfall/auth/__init__.py` (export `mint_job_key`)
 
-- [ ] **Step 1: Confirm `lucid.auth` exists and find the session-token accessor**
+- [ ] **Step 1: Confirm `lightfall.auth` exists and find the session-token accessor**
 
-Run: `ls src/lucid/auth/ && grep -n "session\|token\|bearer" src/lucid/auth/*.py | head -20`
+Run: `ls src/lightfall/auth/ && grep -n "session\|token\|bearer" src/lightfall/auth/*.py | head -20`
 
-Identify how to obtain the current Keycloak access token. Common path: `lucid.auth.session_manager.SessionManager.get_current_token()`. Note the exact accessor for use in `job_key.py`.
+Identify how to obtain the current Keycloak access token. Common path: `lightfall.auth.session_manager.SessionManager.get_current_token()`. Note the exact accessor for use in `job_key.py`.
 
 - [ ] **Step 2: Write the failing tests**
 
 Create `tests/auth/test_job_key.py`:
 
 ```python
-"""Tests for lucid.auth.job_key.mint_job_key()."""
+"""Tests for lightfall.auth.job_key.mint_job_key()."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 import pytest
 
-from lucid.auth.job_key import MintedJobKey, mint_job_key
+from lightfall.auth.job_key import MintedJobKey, mint_job_key
 
 
 @pytest.fixture
 def mock_httpx_post():
     """Patch httpx.post to return a canned Tiled apikey response."""
-    with patch("lucid.auth.job_key.httpx.post") as mock:
+    with patch("lightfall.auth.job_key.httpx.post") as mock:
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = {
@@ -144,7 +144,7 @@ def mock_httpx_post():
             "first_eight": "ab12cd34",
             "expiration_time": "2026-05-17T20:14:00Z",
             "scopes": ["read:metadata", "read:data", "write:metadata", "write:data"],
-            "note": "lucid pipeline reduce_saxs",
+            "note": "lightfall pipeline reduce_saxs",
         }
         response.raise_for_status.return_value = None
         mock.return_value = response
@@ -157,7 +157,7 @@ def test_mint_job_key_returns_secret_and_expiry(mock_httpx_post):
         bearer_token="fake-keycloak-token",
         lifetime=86400,
         scopes=["read:metadata", "read:data", "write:metadata", "write:data"],
-        note="lucid pipeline reduce_saxs",
+        note="lightfall pipeline reduce_saxs",
     )
     assert isinstance(result, MintedJobKey)
     assert result.secret.startswith("ab12cd34")
@@ -181,11 +181,11 @@ def test_mint_job_key_posts_to_correct_url(mock_httpx_post):
 
 
 def test_revoke_calls_delete():
-    with patch("lucid.auth.job_key.httpx.delete") as mock_del:
+    with patch("lightfall.auth.job_key.httpx.delete") as mock_del:
         resp = MagicMock(status_code=200)
         resp.raise_for_status.return_value = None
         mock_del.return_value = resp
-        from lucid.auth.job_key import revoke_job_key
+        from lightfall.auth.job_key import revoke_job_key
         revoke_job_key("https://tiled.test/api/v1", "bearer-tok", first_eight="ab12cd34")
         args, kwargs = mock_del.call_args
         assert args[0] == "https://tiled.test/api/v1/auth/apikey"
@@ -197,17 +197,17 @@ def test_revoke_calls_delete():
 
 Run: `.venv/Scripts/python -m pytest tests/auth/test_job_key.py -v`
 
-Expected: ImportError on `from lucid.auth.job_key import ...` because the module doesn't exist yet.
+Expected: ImportError on `from lightfall.auth.job_key import ...` because the module doesn't exist yet.
 
-- [ ] **Step 4: Implement `lucid.auth.job_key`**
+- [ ] **Step 4: Implement `lightfall.auth.job_key`**
 
-Create `src/lucid/auth/job_key.py`:
+Create `src/lightfall/auth/job_key.py`:
 
 ```python
 """Job-scoped Tiled API key minting.
 
 Provides `mint_job_key()` and `revoke_job_key()` — thin wrappers over Tiled's
-standard /api/v1/auth/apikey endpoint. Used by lucid-pipelines (and tsuchinoko
+standard /api/v1/auth/apikey endpoint. Used by lightfall-pipelines (and tsuchinoko
 and any future headless workload) to obtain a short-lived API key that
 outlives the user's Keycloak access token.
 
@@ -295,12 +295,12 @@ def revoke_job_key(
     logger.info("revoked job key first_eight={}", first_eight)
 ```
 
-- [ ] **Step 5: Export from `lucid.auth.__init__`**
+- [ ] **Step 5: Export from `lightfall.auth.__init__`**
 
-Open `src/lucid/auth/__init__.py` and add:
+Open `src/lightfall/auth/__init__.py` and add:
 
 ```python
-from lucid.auth.job_key import MintedJobKey, mint_job_key, revoke_job_key
+from lightfall.auth.job_key import MintedJobKey, mint_job_key, revoke_job_key
 
 __all__ = [..., "MintedJobKey", "mint_job_key", "revoke_job_key"]
 ```
@@ -314,11 +314,11 @@ Expected: 3 PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lucid/auth/job_key.py src/lucid/auth/__init__.py tests/auth/test_job_key.py
+git add src/lightfall/auth/job_key.py src/lightfall/auth/__init__.py tests/auth/test_job_key.py
 git commit -m "feat(auth): mint_job_key() for short-lived Tiled API keys
 
 Thin wrapper over Tiled's POST/DELETE /api/v1/auth/apikey. Used by
-lucid-pipelines, tsuchinoko, and any future headless workload to escape
+lightfall-pipelines, tsuchinoko, and any future headless workload to escape
 the Keycloak access-token refresh treadmill. Requires Plan A's
 create:apikeys grant in als-tiled."
 ```
@@ -328,17 +328,17 @@ create:apikeys grant in als-tiled."
 ### Task 2: Trigger framework — base ABC + filter predicate + manager
 
 **Files:**
-- Create: `src/lucid/acquire/triggers/__init__.py`
-- Create: `src/lucid/acquire/triggers/base.py`
-- Create: `src/lucid/acquire/triggers/filter.py`
-- Create: `src/lucid/acquire/triggers/manager.py`
+- Create: `src/lightfall/acquire/triggers/__init__.py`
+- Create: `src/lightfall/acquire/triggers/base.py`
+- Create: `src/lightfall/acquire/triggers/filter.py`
+- Create: `src/lightfall/acquire/triggers/manager.py`
 - Create: `tests/acquire/triggers/test_base.py`
 - Create: `tests/acquire/triggers/test_filter.py`
 - Create: `tests/acquire/triggers/test_manager.py`
 
 - [ ] **Step 1: Inspect `BaseEngine.subscribe()` shape**
 
-Run: `grep -n "def subscribe\|def emit\|_subscribers" src/lucid/acquire/engine/base.py | head -20`
+Run: `grep -n "def subscribe\|def emit\|_subscribers" src/lightfall/acquire/engine/base.py | head -20`
 
 Confirm callbacks have the signature `(name: str, doc: dict) -> Any` and `subscribe()` returns a token (int).
 
@@ -352,7 +352,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.filter import FilterPredicate
 
 
 def test_filter_plan_name_exact_match():
@@ -400,7 +400,7 @@ Expected: ImportError.
 
 - [ ] **Step 4: Implement `FilterPredicate`**
 
-Create `src/lucid/acquire/triggers/filter.py`:
+Create `src/lightfall/acquire/triggers/filter.py`:
 
 ```python
 """Filter predicates for trigger matching.
@@ -458,7 +458,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 def test_trigger_is_abstract():
@@ -485,8 +485,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.manager import TriggerManager
 
 
 class _FakeEngine:
@@ -569,7 +569,7 @@ Expected: ImportError on missing modules.
 
 - [ ] **Step 8: Implement `Trigger` ABC**
 
-Create `src/lucid/acquire/triggers/base.py`:
+Create `src/lightfall/acquire/triggers/base.py`:
 
 ```python
 """Trigger abstract base class.
@@ -584,7 +584,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.acquire.triggers.manager import TriggerManager
+    from lightfall.acquire.triggers.manager import TriggerManager
 
 
 class Trigger(ABC):
@@ -601,13 +601,13 @@ class Trigger(ABC):
 
 - [ ] **Step 9: Implement `TriggerManager`**
 
-Create `src/lucid/acquire/triggers/manager.py`:
+Create `src/lightfall/acquire/triggers/manager.py`:
 
 ```python
 """TriggerManager — owns a set of configured Triggers, hooks BaseEngine.
 
 The manager is engine-agnostic: it only uses BaseEngine.subscribe() /
-unsubscribe() (`src/lucid/acquire/engine/base.py:396`). Triggers subscribe
+unsubscribe() (`src/lightfall/acquire/engine/base.py:396`). Triggers subscribe
 through the manager so their tokens are tracked centrally.
 """
 from __future__ import annotations
@@ -616,7 +616,7 @@ from typing import Any, Callable, Dict, List, Set
 
 from loguru import logger
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 class TriggerManager:
@@ -668,13 +668,13 @@ class TriggerManager:
 
 - [ ] **Step 10: Add `__init__.py`**
 
-Create `src/lucid/acquire/triggers/__init__.py`:
+Create `src/lightfall/acquire/triggers/__init__.py`:
 
 ```python
 """Trigger framework — engine-agnostic dispatch for pipeline submissions."""
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.manager import TriggerManager
 
 __all__ = ["Trigger", "FilterPredicate", "TriggerManager"]
 ```
@@ -688,7 +688,7 @@ Expected: all PASS.
 - [ ] **Step 12: Commit**
 
 ```bash
-git add src/lucid/acquire/triggers/ tests/acquire/triggers/
+git add src/lightfall/acquire/triggers/ tests/acquire/triggers/
 git commit -m "feat(acquire/triggers): base ABC + FilterPredicate + TriggerManager
 
 Engine-agnostic trigger framework hooked into BaseEngine.subscribe().
@@ -701,13 +701,13 @@ start_doc_match). Concrete subclasses land in Task 3."
 ### Task 3: Concrete triggers — RunStartTrigger / RunEndTrigger / ManualTrigger
 
 **Files:**
-- Create: `src/lucid/acquire/triggers/run_start.py`
-- Create: `src/lucid/acquire/triggers/run_end.py`
-- Create: `src/lucid/acquire/triggers/manual.py`
+- Create: `src/lightfall/acquire/triggers/run_start.py`
+- Create: `src/lightfall/acquire/triggers/run_end.py`
+- Create: `src/lightfall/acquire/triggers/manual.py`
 - Create: `tests/acquire/triggers/test_run_start.py`
 - Create: `tests/acquire/triggers/test_run_end.py`
 - Create: `tests/acquire/triggers/test_manual.py`
-- Modify: `src/lucid/acquire/triggers/__init__.py` (re-export the three concrete classes)
+- Modify: `src/lightfall/acquire/triggers/__init__.py` (re-export the three concrete classes)
 
 - [ ] **Step 1: Write failing tests for `RunStartTrigger`**
 
@@ -719,9 +719,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.manager import TriggerManager
-from lucid.acquire.triggers.run_start import RunStartTrigger
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.run_start import RunStartTrigger
 
 
 class _FakeEngine:
@@ -821,9 +821,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.manager import TriggerManager
-from lucid.acquire.triggers.run_end import RunEndTrigger
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.run_end import RunEndTrigger
 
 
 class _FakeEngine:
@@ -903,8 +903,8 @@ Create `tests/acquire/triggers/test_manual.py`:
 """Tests for ManualTrigger."""
 from unittest.mock import MagicMock
 
-from lucid.acquire.triggers.manager import TriggerManager
-from lucid.acquire.triggers.manual import ManualTrigger
+from lightfall.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.manual import ManualTrigger
 
 
 def test_manual_trigger_does_not_subscribe_engine():
@@ -938,7 +938,7 @@ Expected: ImportErrors on missing modules.
 
 - [ ] **Step 5: Implement `RunStartTrigger`**
 
-Create `src/lucid/acquire/triggers/run_start.py`:
+Create `src/lightfall/acquire/triggers/run_start.py`:
 
 ```python
 """RunStartTrigger — fires on engine `start` docs matching a filter."""
@@ -948,8 +948,8 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.filter import FilterPredicate
 
 
 class RunStartTrigger(Trigger):
@@ -992,7 +992,7 @@ class RunStartTrigger(Trigger):
 
 - [ ] **Step 6: Implement `RunEndTrigger`**
 
-Create `src/lucid/acquire/triggers/run_end.py`:
+Create `src/lightfall/acquire/triggers/run_end.py`:
 
 ```python
 """RunEndTrigger — fires on engine `stop` docs whose paired `start` matches a filter."""
@@ -1003,8 +1003,8 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.filter import FilterPredicate
 
 
 class RunEndTrigger(Trigger):
@@ -1068,7 +1068,7 @@ class RunEndTrigger(Trigger):
 
 - [ ] **Step 7: Implement `ManualTrigger`**
 
-Create `src/lucid/acquire/triggers/manual.py`:
+Create `src/lightfall/acquire/triggers/manual.py`:
 
 ```python
 """ManualTrigger — invoked from the Data Browser, no engine subscription."""
@@ -1076,7 +1076,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 class ManualTrigger(Trigger):
@@ -1099,16 +1099,16 @@ class ManualTrigger(Trigger):
 
 - [ ] **Step 8: Re-export from `__init__.py`**
 
-Update `src/lucid/acquire/triggers/__init__.py`:
+Update `src/lightfall/acquire/triggers/__init__.py`:
 
 ```python
 """Trigger framework — engine-agnostic dispatch for pipeline submissions."""
-from lucid.acquire.triggers.base import Trigger
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.manager import TriggerManager
-from lucid.acquire.triggers.manual import ManualTrigger
-from lucid.acquire.triggers.run_end import RunEndTrigger
-from lucid.acquire.triggers.run_start import RunStartTrigger
+from lightfall.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.manual import ManualTrigger
+from lightfall.acquire.triggers.run_end import RunEndTrigger
+from lightfall.acquire.triggers.run_start import RunStartTrigger
 
 __all__ = [
     "Trigger",
@@ -1129,7 +1129,7 @@ Expected: all 18+ PASS.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/lucid/acquire/triggers/ tests/acquire/triggers/
+git add src/lightfall/acquire/triggers/ tests/acquire/triggers/
 git commit -m "feat(acquire/triggers): RunStart, RunEnd, Manual concrete triggers
 
 RunStartTrigger and RunEndTrigger subscribe through TriggerManager to
@@ -1141,14 +1141,14 @@ Browser context menu."
 
 ---
 
-## STAGE 2 — `lucid-pipelines` SDK + executor (new repository)
+## STAGE 2 — `lightfall-pipelines` SDK + executor (new repository)
 
-### Task 4: Initialize the `lucid-pipelines` repository
+### Task 4: Initialize the `lightfall-pipelines` repository
 
 **Files:**
-- Create directory: `~/PycharmProjects/lucid-pipelines/`
+- Create directory: `~/PycharmProjects/lightfall-pipelines/`
 - Create: `pyproject.toml`, `README.md`, `.gitignore`, `LICENSE`
-- Create: `src/lucid_pipelines/__init__.py`
+- Create: `src/lightfall_pipelines/__init__.py`
 - Create: `tests/__init__.py` (empty)
 
 This task uses the `python-package-setup` skill where helpful, but the core artifacts are listed concretely below.
@@ -1158,8 +1158,8 @@ This task uses the `python-package-setup` skill where helpful, but the core arti
 Run from `~/PycharmProjects/`:
 
 ```bash
-mkdir -p lucid-pipelines/{src/lucid_pipelines/executor,tests/fixtures}
-cd lucid-pipelines
+mkdir -p lightfall-pipelines/{src/lightfall_pipelines/executor,tests/fixtures}
+cd lightfall-pipelines
 git init
 ```
 
@@ -1173,9 +1173,9 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lucid-pipelines"
+name = "lightfall-pipelines"
 dynamic = ["version"]
-description = "SDK + headless executor for LUCID notebook data-processing pipelines"
+description = "SDK + headless executor for Lightfall notebook data-processing pipelines"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.11"
@@ -1202,13 +1202,13 @@ dev = [
 ]
 
 [project.scripts]
-lucid-pipelines = "lucid_pipelines.cli:main"
+lightfall-pipelines = "lightfall_pipelines.cli:main"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/lucid_pipelines/_version.py"
+version-file = "src/lightfall_pipelines/_version.py"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -1218,13 +1218,13 @@ testpaths = ["tests"]
 - [ ] **Step 3: Write `README.md`**
 
 ```markdown
-# lucid-pipelines
+# lightfall-pipelines
 
-SDK + headless executor for LUCID notebook data-processing pipelines.
+SDK + headless executor for Lightfall notebook data-processing pipelines.
 
 - **SDK** (default install): `PipelinePlugin` base class, notebook-side
   `TiledWriter` wrapper, provenance/parent-uid auto-stamping.
-- **Executor** (`pip install lucid-pipelines[executor]`): headless service
+- **Executor** (`pip install lightfall-pipelines[executor]`): headless service
   that subscribes to NATS, discovers installed pipeline plugins, runs
   notebooks via Papermill, writes derived data to Tiled.
 
@@ -1244,33 +1244,33 @@ __pycache__/
 .coverage
 dist/
 build/
-src/lucid_pipelines/_version.py
+src/lightfall_pipelines/_version.py
 ```
 
 `LICENSE`: BSD-3-Clause text (copy from `~/PycharmProjects/ncs/ncs/LICENSE` if compatible).
 
 - [ ] **Step 5: Create the package skeleton**
 
-`src/lucid_pipelines/__init__.py`:
+`src/lightfall_pipelines/__init__.py`:
 
 ```python
-"""LUCID notebook pipelines — SDK + executor."""
+"""Lightfall notebook pipelines — SDK + executor."""
 try:
-    from lucid_pipelines._version import version as __version__
+    from lightfall_pipelines._version import version as __version__
 except ImportError:
     __version__ = "unknown"
 
 __all__ = ["__version__"]
 ```
 
-`src/lucid_pipelines/executor/__init__.py`: empty file.
+`src/lightfall_pipelines/executor/__init__.py`: empty file.
 
 `tests/__init__.py`: empty file.
 
 - [ ] **Step 6: Bootstrap a dev venv and install**
 
 ```bash
-cd ~/PycharmProjects/lucid-pipelines
+cd ~/PycharmProjects/lightfall-pipelines
 python -m venv .venv
 .venv/Scripts/python -m pip install -e .[dev,executor]
 .venv/Scripts/python -m pytest tests/ -v
@@ -1282,11 +1282,11 @@ Expected: pytest runs but reports "no tests collected" — that's fine; the next
 
 ```bash
 git add .
-git commit -m "chore: initialize lucid-pipelines package
+git commit -m "chore: initialize lightfall-pipelines package
 
-SDK + executor for LUCID notebook pipelines. Hatch + hatch-vcs;
+SDK + executor for Lightfall notebook pipelines. Hatch + hatch-vcs;
 executor extras gate nats-py/papermill/jupyter_client behind
-`pip install lucid-pipelines[executor]` so notebook-author installs
+`pip install lightfall-pipelines[executor]` so notebook-author installs
 stay light."
 ```
 
@@ -1295,13 +1295,13 @@ stay light."
 ### Task 5: `PipelinePlugin` base class + entry-point discovery
 
 **Files:**
-- Create: `src/lucid_pipelines/plugin.py`
+- Create: `src/lightfall_pipelines/plugin.py`
 - Create: `tests/test_plugin.py`
 - Create: `tests/fixtures/echo_pipeline/pyproject.toml`
 - Create: `tests/fixtures/echo_pipeline/src/echo_pipeline/__init__.py`
 - Create: `tests/fixtures/echo_pipeline/src/echo_pipeline/echo.ipynb`
 
-Work in `~/PycharmProjects/lucid-pipelines/`.
+Work in `~/PycharmProjects/lightfall-pipelines/`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1313,7 +1313,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid_pipelines.plugin import PipelinePlugin, discover
+from lightfall_pipelines.plugin import PipelinePlugin, discover
 
 
 def test_plugin_class_required_fields_enforced():
@@ -1350,7 +1350,7 @@ def test_discover_finds_installed_fixture(install_echo_fixture):
 
 def test_discover_returns_empty_when_none_installed(monkeypatch):
     monkeypatch.setattr(
-        "lucid_pipelines.plugin.entry_points",
+        "lightfall_pipelines.plugin.entry_points",
         lambda group: [],
     )
     assert discover() == []
@@ -1370,7 +1370,7 @@ name = "echo-pipeline"
 version = "0.0.1"
 dependencies = []
 
-[project.entry-points."lucid_pipelines.pipeline"]
+[project.entry-points."lightfall_pipelines.pipeline"]
 echo = "echo_pipeline:EchoPipeline"
 
 [tool.hatch.build.targets.wheel]
@@ -1380,7 +1380,7 @@ packages = ["src/echo_pipeline"]
 Create `tests/fixtures/echo_pipeline/src/echo_pipeline/__init__.py`:
 
 ```python
-from lucid_pipelines.plugin import PipelinePlugin
+from lightfall_pipelines.plugin import PipelinePlugin
 
 
 class EchoPipeline(PipelinePlugin):
@@ -1434,11 +1434,11 @@ def install_echo_fixture():
 
 Run: `.venv/Scripts/python -m pytest tests/test_plugin.py -v`
 
-Expected: ImportError on `lucid_pipelines.plugin`.
+Expected: ImportError on `lightfall_pipelines.plugin`.
 
 - [ ] **Step 5: Implement `PipelinePlugin` and `discover()`**
 
-Create `src/lucid_pipelines/plugin.py`:
+Create `src/lightfall_pipelines/plugin.py`:
 
 ```python
 """PipelinePlugin ABC + entry-point discovery."""
@@ -1505,7 +1505,7 @@ class PipelinePlugin(abc.ABC):
         }
 
 
-_ENTRY_POINT_GROUP = "lucid_pipelines.pipeline"
+_ENTRY_POINT_GROUP = "lightfall_pipelines.pipeline"
 
 
 def discover() -> List[PipelinePlugin]:
@@ -1528,16 +1528,16 @@ Expected: 4 PASS. (The `install_echo_fixture` test takes a few seconds for the p
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lucid_pipelines/plugin.py tests/test_plugin.py tests/fixtures/ tests/conftest.py
+git add src/lightfall_pipelines/plugin.py tests/test_plugin.py tests/fixtures/ tests/conftest.py
 git commit -m "feat(plugin): PipelinePlugin ABC + entry-point discovery"
 ```
 
 ---
 
-### Task 6: `lucid_pipelines.notebook.TiledWriter` wrapper
+### Task 6: `lightfall_pipelines.notebook.TiledWriter` wrapper
 
 **Files:**
-- Create: `src/lucid_pipelines/notebook.py`
+- Create: `src/lightfall_pipelines/notebook.py`
 - Create: `tests/test_notebook.py`
 
 - [ ] **Step 1: Inspect bluesky's `TiledWriter` constructor**
@@ -1560,7 +1560,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid_pipelines.notebook import (
+from lightfall_pipelines.notebook import (
     TiledWriter,
     get_provenance,
     get_input_access_blob,
@@ -1571,12 +1571,12 @@ from lucid_pipelines.notebook import (
 def patch_env(monkeypatch):
     monkeypatch.setenv("TILED_URL", "https://t.test/api/v1")
     monkeypatch.setenv("TILED_API_KEY", "secret")
-    monkeypatch.setenv("LUCID_INPUT_RUN_UID", "raw-uid")
-    monkeypatch.setenv("LUCID_INPUT_ACCESS_BLOB", json.dumps({
+    monkeypatch.setenv("Lightfall_INPUT_RUN_UID", "raw-uid")
+    monkeypatch.setenv("Lightfall_INPUT_ACCESS_BLOB", json.dumps({
         "tags": ["esaf:12345", "beamline:bl1"],
         "owner": "rpandolfi",
     }))
-    monkeypatch.setenv("LUCID_PIPELINE_PROVENANCE", json.dumps({
+    monkeypatch.setenv("Lightfall_PIPELINE_PROVENANCE", json.dumps({
         "pipeline_name": "reduce_saxs",
         "pipeline_package": "als-saxs-pipelines",
         "pipeline_package_version": "0.4.1",
@@ -1609,7 +1609,7 @@ def test_tiled_writer_stamps_parent_and_provenance(patch_env):
             if name == "start":
                 sub_md.append(doc)
 
-    with patch("lucid_pipelines.notebook._BlueskyTiledWriter", FakeBlueskyTW):
+    with patch("lightfall_pipelines.notebook._BlueskyTiledWriter", FakeBlueskyTW):
         client = MagicMock()
         tw = TiledWriter(client)
         tw("start", {"plan_name": "count", "uid": "out-uid"})
@@ -1633,7 +1633,7 @@ def test_tiled_writer_merges_output_tags(patch_env):
             if name == "start":
                 sub_md.append(doc)
 
-    with patch("lucid_pipelines.notebook._BlueskyTiledWriter", FakeBlueskyTW):
+    with patch("lightfall_pipelines.notebook._BlueskyTiledWriter", FakeBlueskyTW):
         client = MagicMock()
         tw = TiledWriter(client, output_tags=["saxs", "reduced"])
         tw("start", {"plan_name": "x", "uid": "u"})
@@ -1648,11 +1648,11 @@ def test_tiled_writer_merges_output_tags(patch_env):
 
 Run: `.venv/Scripts/python -m pytest tests/test_notebook.py -v`
 
-Expected: ImportError on `lucid_pipelines.notebook`.
+Expected: ImportError on `lightfall_pipelines.notebook`.
 
 - [ ] **Step 4: Implement `notebook.py`**
 
-Create `src/lucid_pipelines/notebook.py`:
+Create `src/lightfall_pipelines/notebook.py`:
 
 ```python
 """Notebook-author helpers.
@@ -1663,7 +1663,7 @@ access_blob tags + plugin output_tags into the start doc's
 `tiled_access_tags` field. This is the one-line replacement notebook
 authors use:
 
-    from lucid_pipelines.notebook import TiledWriter
+    from lightfall_pipelines.notebook import TiledWriter
     tw = TiledWriter(client)
     # subscribe to RunEngine, or call tw(name, doc) directly
 """
@@ -1687,18 +1687,18 @@ def get_input_run():
     """Return a tiled client positioned at the input run."""
     url = os.environ["TILED_URL"]
     key = os.environ["TILED_API_KEY"]
-    uid = os.environ["LUCID_INPUT_RUN_UID"]
+    uid = os.environ["Lightfall_INPUT_RUN_UID"]
     client = from_uri(url, api_key=key)
     return client[uid]
 
 
 def get_input_access_blob() -> Dict[str, Any]:
-    raw = _env("LUCID_INPUT_ACCESS_BLOB")
+    raw = _env("Lightfall_INPUT_ACCESS_BLOB")
     return json.loads(raw) if raw else {}
 
 
 def get_provenance() -> Dict[str, Any]:
-    raw = _env("LUCID_PIPELINE_PROVENANCE")
+    raw = _env("Lightfall_PIPELINE_PROVENANCE")
     return json.loads(raw) if raw else {}
 
 
@@ -1722,7 +1722,7 @@ class TiledWriter:
     ) -> None:
         self._inner = _BlueskyTiledWriter(client, **kwargs)
         self._output_tags = list(output_tags or [])
-        self._parent_uid = _env("LUCID_INPUT_RUN_UID")
+        self._parent_uid = _env("Lightfall_INPUT_RUN_UID")
         self._provenance = get_provenance()
         self._input_blob = get_input_access_blob()
 
@@ -1766,16 +1766,16 @@ Expected: 4 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_pipelines/notebook.py tests/test_notebook.py
+git add src/lightfall_pipelines/notebook.py tests/test_notebook.py
 git commit -m "feat(notebook): TiledWriter wrapper auto-stamps provenance + parent_uid"
 ```
 
 ---
 
-### Task 7: `lucid_pipelines.messages` — JobMessage / ProgressEvent dataclasses + serde
+### Task 7: `lightfall_pipelines.messages` — JobMessage / ProgressEvent dataclasses + serde
 
 **Files:**
-- Create: `src/lucid_pipelines/messages.py`
+- Create: `src/lightfall_pipelines/messages.py`
 - Create: `tests/test_messages.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1788,7 +1788,7 @@ from __future__ import annotations
 
 import json
 
-from lucid_pipelines.messages import JobMessage, ProgressEvent, JobReply
+from lightfall_pipelines.messages import JobMessage, ProgressEvent, JobReply
 
 
 def test_job_message_roundtrip():
@@ -1802,7 +1802,7 @@ def test_job_message_roundtrip():
         pipeline="reduce_saxs",
         parameters={"k": 1},
         user_id="rpandolfi",
-        requested_by="lucid@h",
+        requested_by="lightfall@h",
         submitted_at="2026-05-15T20:00:00Z",
     )
     blob = m.to_json()
@@ -1842,10 +1842,10 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `messages.py`**
 
-Create `src/lucid_pipelines/messages.py`:
+Create `src/lightfall_pipelines/messages.py`:
 
 ```python
-"""NATS wire-format dataclasses for lucid-pipelines.
+"""NATS wire-format dataclasses for lightfall-pipelines.
 
 JobMessage, JobReply, ProgressEvent — JSON serialized; pydantic-free
 to keep the executor's startup time low.
@@ -1926,7 +1926,7 @@ Expected: 4 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_pipelines/messages.py tests/test_messages.py
+git add src/lightfall_pipelines/messages.py tests/test_messages.py
 git commit -m "feat(messages): JobMessage/JobReply/ProgressEvent wire-format dataclasses"
 ```
 
@@ -1935,7 +1935,7 @@ git commit -m "feat(messages): JobMessage/JobReply/ProgressEvent wire-format dat
 ### Task 8: `EnvCache` — per-package venv builder
 
 **Files:**
-- Create: `src/lucid_pipelines/executor/env_cache.py`
+- Create: `src/lightfall_pipelines/executor/env_cache.py`
 - Create: `tests/test_env_cache.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1951,7 +1951,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid_pipelines.executor.env_cache import EnvCache, EnvSpec
+from lightfall_pipelines.executor.env_cache import EnvCache, EnvSpec
 
 
 @pytest.fixture
@@ -1974,8 +1974,8 @@ def test_build_env_invokes_venv_and_pip(cache_dir):
     spec = EnvSpec("pkg", "1.0")
     cache = EnvCache(cache_dir)
 
-    with patch("lucid_pipelines.executor.env_cache.subprocess.check_call") as run, \
-         patch("lucid_pipelines.executor.env_cache.shutil.which", return_value=None):
+    with patch("lightfall_pipelines.executor.env_cache.subprocess.check_call") as run, \
+         patch("lightfall_pipelines.executor.env_cache.shutil.which", return_value=None):
         cache.build(spec)
 
     calls = [c.args[0] for c in run.call_args_list]
@@ -1987,8 +1987,8 @@ def test_build_env_invokes_venv_and_pip(cache_dir):
 def test_build_prefers_uv_when_available(cache_dir):
     spec = EnvSpec("pkg", "1.0")
     cache = EnvCache(cache_dir)
-    with patch("lucid_pipelines.executor.env_cache.subprocess.check_call") as run, \
-         patch("lucid_pipelines.executor.env_cache.shutil.which", return_value="/usr/bin/uv"):
+    with patch("lightfall_pipelines.executor.env_cache.subprocess.check_call") as run, \
+         patch("lightfall_pipelines.executor.env_cache.shutil.which", return_value="/usr/bin/uv"):
         cache.build(spec)
     calls = [" ".join(c.args[0]) for c in run.call_args_list]
     assert any("uv venv" in c for c in calls)
@@ -2011,7 +2011,7 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `env_cache.py`**
 
-Create `src/lucid_pipelines/executor/env_cache.py`:
+Create `src/lightfall_pipelines/executor/env_cache.py`:
 
 ```python
 """Per-package venv cache for the executor.
@@ -2089,7 +2089,7 @@ Expected: 5 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_pipelines/executor/env_cache.py tests/test_env_cache.py
+git add src/lightfall_pipelines/executor/env_cache.py tests/test_env_cache.py
 git commit -m "feat(executor): EnvCache — per-package venv with uv-accelerated builds"
 ```
 
@@ -2098,7 +2098,7 @@ git commit -m "feat(executor): EnvCache — per-package venv with uv-accelerated
 ### Task 9: `PapermillRunner` — in-memory notebook execution + scrapbook harvest
 
 **Files:**
-- Create: `src/lucid_pipelines/executor/runner.py`
+- Create: `src/lightfall_pipelines/executor/runner.py`
 - Create: `tests/test_runner.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -2114,7 +2114,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid_pipelines.executor.runner import PapermillRunner, RunResult
+from lightfall_pipelines.executor.runner import PapermillRunner, RunResult
 
 
 @pytest.fixture
@@ -2125,7 +2125,7 @@ def fake_notebook(tmp_path):
 
 
 def test_runner_invokes_papermill_with_parameters(fake_notebook, tmp_path):
-    with patch("lucid_pipelines.executor.runner.papermill") as pm:
+    with patch("lightfall_pipelines.executor.runner.papermill") as pm:
         pm.execute_notebook.return_value = None
         runner = PapermillRunner()
         runner.run(
@@ -2144,8 +2144,8 @@ def test_runner_invokes_papermill_with_parameters(fake_notebook, tmp_path):
 def test_runner_harvests_scrapbook_output_uids(fake_notebook, tmp_path):
     fake_scraps = {"output_run_uids": MagicMock(data=["u1", "u2"])}
     fake_nb = MagicMock(scraps=fake_scraps)
-    with patch("lucid_pipelines.executor.runner.papermill") as pm, \
-         patch("lucid_pipelines.executor.runner.sb") as sb:
+    with patch("lightfall_pipelines.executor.runner.papermill") as pm, \
+         patch("lightfall_pipelines.executor.runner.sb") as sb:
         pm.execute_notebook.return_value = None
         sb.read_notebook.return_value = fake_nb
         runner = PapermillRunner()
@@ -2161,7 +2161,7 @@ def test_runner_harvests_scrapbook_output_uids(fake_notebook, tmp_path):
 
 
 def test_runner_returns_failed_on_exception(fake_notebook, tmp_path):
-    with patch("lucid_pipelines.executor.runner.papermill") as pm:
+    with patch("lightfall_pipelines.executor.runner.papermill") as pm:
         pm.execute_notebook.side_effect = RuntimeError("boom")
         runner = PapermillRunner()
         result = runner.run(
@@ -2181,7 +2181,7 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `runner.py`**
 
-Create `src/lucid_pipelines/executor/runner.py`:
+Create `src/lightfall_pipelines/executor/runner.py`:
 
 ```python
 """PapermillRunner — executes a single notebook job."""
@@ -2271,7 +2271,7 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_pipelines/executor/runner.py tests/test_runner.py
+git add src/lightfall_pipelines/executor/runner.py tests/test_runner.py
 git commit -m "feat(executor): PapermillRunner — execute + scrapbook harvest"
 ```
 
@@ -2280,7 +2280,7 @@ git commit -m "feat(executor): PapermillRunner — execute + scrapbook harvest"
 ### Task 10: `NotebookStore` — write executed notebook + register Tiled pointer
 
 **Files:**
-- Create: `src/lucid_pipelines/executor/notebook_store.py`
+- Create: `src/lightfall_pipelines/executor/notebook_store.py`
 - Create: `tests/test_notebook_store.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -2297,7 +2297,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid_pipelines.executor.notebook_store import NotebookStore
+from lightfall_pipelines.executor.notebook_store import NotebookStore
 
 
 def test_path_for_namespaces_by_input_uid(tmp_path):
@@ -2338,7 +2338,7 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `notebook_store.py`**
 
-Create `src/lucid_pipelines/executor/notebook_store.py`:
+Create `src/lightfall_pipelines/executor/notebook_store.py`:
 
 ```python
 """Filesystem-backed storage for executed notebooks.
@@ -2405,7 +2405,7 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_pipelines/executor/notebook_store.py tests/test_notebook_store.py
+git add src/lightfall_pipelines/executor/notebook_store.py tests/test_notebook_store.py
 git commit -m "feat(executor): NotebookStore — disk write + Tiled pointer registration"
 ```
 
@@ -2414,7 +2414,7 @@ git commit -m "feat(executor): NotebookStore — disk write + Tiled pointer regi
 ### Task 11: `PipelineService` — NATS subscribe + queue + dispatch + idempotency
 
 **Files:**
-- Create: `src/lucid_pipelines/executor/service.py`
+- Create: `src/lightfall_pipelines/executor/service.py`
 - Create: `tests/test_service.py`
 
 This is the biggest single module. ~250 lines.
@@ -2433,8 +2433,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lucid_pipelines.executor.service import PipelineService
-from lucid_pipelines.messages import JobMessage
+from lightfall_pipelines.executor.service import PipelineService
+from lightfall_pipelines.messages import JobMessage
 
 
 def _job(job_id="j1", pipeline="echo") -> dict:
@@ -2448,7 +2448,7 @@ def _job(job_id="j1", pipeline="echo") -> dict:
         "pipeline": pipeline,
         "parameters": {},
         "user_id": "u",
-        "requested_by": "lucid@h",
+        "requested_by": "lightfall@h",
         "submitted_at": "2026-05-15T20:00:00Z",
     }
 
@@ -2533,22 +2533,22 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `service.py`**
 
-Create `src/lucid_pipelines/executor/service.py`:
+Create `src/lightfall_pipelines/executor/service.py`:
 
 ```python
 """PipelineService — headless NATS-subscribing job dispatcher.
 
-Mirrors `lucid.exporter.service.ExporterService` (`~/PycharmProjects/ncs/ncs/
-src/lucid/exporter/service.py`). One service per host. Subscribes to:
+Mirrors `lightfall.exporter.service.ExporterService` (`~/PycharmProjects/ncs/ncs/
+src/lightfall/exporter/service.py`). One service per host. Subscribes to:
 
-  lucid.pipeline.<host>           request/reply, job submission
-  lucid.pipeline.<host>.ping      request/reply, health
-  lucid.pipeline.<host>.list      request/reply, discovered pipelines + schemas
-  lucid.pipeline.<host>.refresh   request/reply, re-scan entry points
+  lightfall.pipeline.<host>           request/reply, job submission
+  lightfall.pipeline.<host>.ping      request/reply, health
+  lightfall.pipeline.<host>.list      request/reply, discovered pipelines + schemas
+  lightfall.pipeline.<host>.refresh   request/reply, re-scan entry points
 
 Publishes to:
 
-  lucid.pipeline.<host>.progress  pub/sub, ProgressEvent per state change
+  lightfall.pipeline.<host>.progress  pub/sub, ProgressEvent per state change
 """
 from __future__ import annotations
 
@@ -2564,11 +2564,11 @@ from typing import Any, Dict, Optional
 import nats
 from loguru import logger
 
-from lucid_pipelines.executor.env_cache import EnvCache, EnvSpec
-from lucid_pipelines.executor.notebook_store import NotebookStore
-from lucid_pipelines.executor.runner import PapermillRunner
-from lucid_pipelines.messages import JobMessage, JobReply, ProgressEvent
-from lucid_pipelines.plugin import PipelinePlugin, discover
+from lightfall_pipelines.executor.env_cache import EnvCache, EnvSpec
+from lightfall_pipelines.executor.notebook_store import NotebookStore
+from lightfall_pipelines.executor.runner import PapermillRunner
+from lightfall_pipelines.messages import JobMessage, JobReply, ProgressEvent
+from lightfall_pipelines.plugin import PipelinePlugin, discover
 
 
 _IDEMPOTENCY_LRU_SIZE = 1024
@@ -2600,23 +2600,23 @@ class PipelineService:
 
     @property
     def job_subject(self) -> str:
-        return f"lucid.pipeline.{self._hostname}"
+        return f"lightfall.pipeline.{self._hostname}"
 
     @property
     def ping_subject(self) -> str:
-        return f"lucid.pipeline.{self._hostname}.ping"
+        return f"lightfall.pipeline.{self._hostname}.ping"
 
     @property
     def list_subject(self) -> str:
-        return f"lucid.pipeline.{self._hostname}.list"
+        return f"lightfall.pipeline.{self._hostname}.list"
 
     @property
     def refresh_subject(self) -> str:
-        return f"lucid.pipeline.{self._hostname}.refresh"
+        return f"lightfall.pipeline.{self._hostname}.refresh"
 
     @property
     def progress_subject(self) -> str:
-        return f"lucid.pipeline.{self._hostname}.progress"
+        return f"lightfall.pipeline.{self._hostname}.progress"
 
     # -- plugins -----------------------------------------------------------
 
@@ -2721,10 +2721,10 @@ class PipelineService:
         if not self._env_cache.has_env(spec):
             await asyncio.to_thread(self._env_cache.build, spec)
 
-        kernel_name = f"lucid-pipelines:{spec.package_name}@{spec.version}"
+        kernel_name = f"lightfall-pipelines:{spec.package_name}@{spec.version}"
         env = _build_kernel_env(job, plugin)
         notebook_src = plugin.notebook_path()
-        out_tmp = Path(f"/tmp/lucid-pipelines-{job.job_id}.ipynb")
+        out_tmp = Path(f"/tmp/lightfall-pipelines-{job.job_id}.ipynb")
 
         result = await asyncio.to_thread(
             self._runner.run,
@@ -2800,15 +2800,15 @@ def _build_kernel_env(job: JobMessage, plugin: PipelinePlugin) -> Dict[str, str]
     return {
         "TILED_URL": job.tiled_url,
         "TILED_API_KEY": job.api_key,
-        "LUCID_INPUT_RUN_UID": job.input_run_uid,
-        "LUCID_INPUT_ACCESS_BLOB": json.dumps(job.input_access_blob),
-        "LUCID_PIPELINE_PROVENANCE": json.dumps({
+        "Lightfall_INPUT_RUN_UID": job.input_run_uid,
+        "Lightfall_INPUT_ACCESS_BLOB": json.dumps(job.input_access_blob),
+        "Lightfall_PIPELINE_PROVENANCE": json.dumps({
             "pipeline_name": plugin.name,
             "pipeline_package": plugin.package_name,
             "pipeline_package_version": _get_installed_version(plugin.package_name),
             "python_executable": plugin.python_executable or "",
         }),
-        "LUCID_OUTPUT_TAGS": json.dumps(plugin.output_tags),
+        "Lightfall_OUTPUT_TAGS": json.dumps(plugin.output_tags),
     }
 ```
 
@@ -2821,16 +2821,16 @@ Expected: 4 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_pipelines/executor/service.py tests/test_service.py
+git add src/lightfall_pipelines/executor/service.py tests/test_service.py
 git commit -m "feat(executor): PipelineService — NATS dispatch with idempotency LRU"
 ```
 
 ---
 
-### Task 12: `lucid-pipelines` CLI + console-script entrypoint
+### Task 12: `lightfall-pipelines` CLI + console-script entrypoint
 
 **Files:**
-- Create: `src/lucid_pipelines/cli.py`
+- Create: `src/lightfall_pipelines/cli.py`
 - Create: `tests/test_cli.py`
 
 - [ ] **Step 1: Write failing test**
@@ -2838,10 +2838,10 @@ git commit -m "feat(executor): PipelineService — NATS dispatch with idempotenc
 Create `tests/test_cli.py`:
 
 ```python
-"""Tests for the lucid-pipelines CLI."""
+"""Tests for the lightfall-pipelines CLI."""
 from unittest.mock import patch, AsyncMock
 
-from lucid_pipelines.cli import build_parser, main
+from lightfall_pipelines.cli import build_parser, main
 
 
 def test_parser_accepts_required_args():
@@ -2857,8 +2857,8 @@ def test_parser_accepts_required_args():
 
 
 def test_main_constructs_and_runs_service():
-    with patch("lucid_pipelines.cli.PipelineService") as Svc, \
-         patch("lucid_pipelines.cli.asyncio.run") as run:
+    with patch("lightfall_pipelines.cli.PipelineService") as Svc, \
+         patch("lightfall_pipelines.cli.asyncio.run") as run:
         svc = Svc.return_value
         svc.run = AsyncMock()
         main([
@@ -2877,10 +2877,10 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement `cli.py`**
 
-Create `src/lucid_pipelines/cli.py`:
+Create `src/lightfall_pipelines/cli.py`:
 
 ```python
-"""`lucid-pipelines` console-script entrypoint."""
+"""`lightfall-pipelines` console-script entrypoint."""
 from __future__ import annotations
 
 import argparse
@@ -2890,12 +2890,12 @@ import platform
 import sys
 from typing import List, Optional
 
-from lucid_pipelines.executor.service import PipelineService
+from lightfall_pipelines.executor.service import PipelineService
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="lucid-pipelines",
-                                description="Headless notebook-pipeline executor for LUCID")
+    p = argparse.ArgumentParser(prog="lightfall-pipelines",
+                                description="Headless notebook-pipeline executor for Lightfall")
     p.add_argument("--nats", required=True, help="NATS URL (nats://host:port)")
     p.add_argument("--hostname", default=platform.node(),
                    help="hostname used to build NATS topic prefix")
@@ -2933,20 +2933,20 @@ Expected: 2 PASS.
 
 - [ ] **Step 5: Verify console-script is wired up**
 
-Run: `.venv/Scripts/lucid-pipelines --help`
+Run: `.venv/Scripts/lightfall-pipelines --help`
 
 Expected: prints the argparse help — confirms the `[project.scripts]` entry point in `pyproject.toml` resolves to `cli.main`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_pipelines/cli.py tests/test_cli.py
-git commit -m "feat(cli): lucid-pipelines console-script entrypoint"
+git add src/lightfall_pipelines/cli.py tests/test_cli.py
+git commit -m "feat(cli): lightfall-pipelines console-script entrypoint"
 ```
 
 ---
 
-### Task 13: Publish `lucid-pipelines` 0.1.0 + tag
+### Task 13: Publish `lightfall-pipelines` 0.1.0 + tag
 
 **Files:**
 - None (release task)
@@ -2960,7 +2960,7 @@ Expected: all tests PASS.
 - [ ] **Step 2: Tag the release**
 
 ```bash
-cd ~/PycharmProjects/lucid-pipelines
+cd ~/PycharmProjects/lightfall-pipelines
 git tag -a v0.1.0 -m "Initial release: SDK + executor"
 ```
 
@@ -2972,7 +2972,7 @@ git tag -a v0.1.0 -m "Initial release: SDK + executor"
 ls dist/
 ```
 
-Expected: `dist/lucid_pipelines-0.1.0-py3-none-any.whl` and source dist.
+Expected: `dist/lightfall_pipelines-0.1.0-py3-none-any.whl` and source dist.
 
 - [ ] **Step 4: Publish to the deployment-targeted package index**
 
@@ -2988,31 +2988,31 @@ For local-only development testing, skip publishing — use `pip install -e .` p
 
 ---
 
-## STAGE 3 — LUCID-side integration (in `ncs/ncs`)
+## STAGE 3 — Lightfall-side integration (in `ncs/ncs`)
 
-For these tasks, **switch back to the LUCID worktree** at `~/PycharmProjects/ncs/ncs/`, branch `feature/notebook-pipelines-spec` (or create `feature/notebook-pipelines-impl` if you'd rather keep spec and impl separate).
+For these tasks, **switch back to the Lightfall worktree** at `~/PycharmProjects/ncs/ncs/`, branch `feature/notebook-pipelines-spec` (or create `feature/notebook-pipelines-impl` if you'd rather keep spec and impl separate).
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
 git checkout -b feature/notebook-pipelines-impl feature/notebook-pipelines-spec
 ```
 
-Add `lucid-pipelines` as a dev dep so the SDK base classes import:
+Add `lightfall-pipelines` as a dev dep so the SDK base classes import:
 
 ```bash
-.venv/Scripts/python -m pip install -e ~/PycharmProjects/lucid-pipelines
+.venv/Scripts/python -m pip install -e ~/PycharmProjects/lightfall-pipelines
 ```
 
-### Task 14: `lucid.pipelines.PipelineClient`
+### Task 14: `lightfall.pipelines.PipelineClient`
 
 **Files:**
-- Create: `src/lucid/pipelines/__init__.py`
-- Create: `src/lucid/pipelines/client.py`
+- Create: `src/lightfall/pipelines/__init__.py`
+- Create: `src/lightfall/pipelines/client.py`
 - Create: `tests/pipelines/test_client.py`
 
-- [ ] **Step 1: Inspect `lucid.ipc.service.IPCService`**
+- [ ] **Step 1: Inspect `lightfall.ipc.service.IPCService`**
 
-Run: `grep -n "def request\|def publish\|def subscribe" src/lucid/ipc/service.py | head -15`
+Run: `grep -n "def request\|def publish\|def subscribe" src/lightfall/ipc/service.py | head -15`
 
 Confirm the request/reply API; the client uses it to send job messages.
 
@@ -3021,7 +3021,7 @@ Confirm the request/reply API; the client uses it to send job messages.
 Create `tests/pipelines/test_client.py`:
 
 ```python
-"""Tests for the LUCID-side PipelineClient."""
+"""Tests for the Lightfall-side PipelineClient."""
 from __future__ import annotations
 
 import json
@@ -3030,18 +3030,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtCore import QObject
 
-from lucid.pipelines.client import PipelineClient
+from lightfall.pipelines.client import PipelineClient
 
 
 @pytest.fixture
 def mock_ipc():
     ipc = MagicMock()
-    ipc.topic = lambda suffix: f"lucid.pipeline.testhost.{suffix}" if suffix else "lucid.pipeline.testhost"
+    ipc.topic = lambda suffix: f"lightfall.pipeline.testhost.{suffix}" if suffix else "lightfall.pipeline.testhost"
     return ipc
 
 
 def test_client_mints_key_and_submits(mock_ipc, qtbot):
-    with patch("lucid.pipelines.client.mint_job_key") as mint:
+    with patch("lightfall.pipelines.client.mint_job_key") as mint:
         mint.return_value = MagicMock(
             secret="hex"*16,
             first_eight="hexhexhe",
@@ -3066,7 +3066,7 @@ def test_client_mints_key_and_submits(mock_ipc, qtbot):
     args, kwargs = mock_ipc.request.call_args
     subject = args[0]
     payload = json.loads(args[1])
-    assert subject == "lucid.pipeline.testhost"
+    assert subject == "lightfall.pipeline.testhost"
     assert payload["pipeline"] == "reduce_saxs"
     assert payload["api_key"].startswith("hex")
 
@@ -3082,7 +3082,7 @@ def test_client_emits_signal_on_progress_event(mock_ipc, qtbot):
 
     # Simulate IPCService delivering a progress event
     client._on_progress(
-        subject="lucid.pipeline.testhost.progress",
+        subject="lightfall.pipeline.testhost.progress",
         data={
             "job_id": "j1", "status": "running", "detail": "x",
             "input_run_uid": "raw", "output_run_uids": [],
@@ -3101,22 +3101,22 @@ Expected: ImportError.
 
 - [ ] **Step 4: Implement `client.py`**
 
-Create `src/lucid/pipelines/__init__.py`:
+Create `src/lightfall/pipelines/__init__.py`:
 
 ```python
-"""LUCID-side notebook-pipeline integration."""
-from lucid.pipelines.client import PipelineClient
+"""Lightfall-side notebook-pipeline integration."""
+from lightfall.pipelines.client import PipelineClient
 
 __all__ = ["PipelineClient"]
 ```
 
-Create `src/lucid/pipelines/client.py`:
+Create `src/lightfall/pipelines/client.py`:
 
 ```python
-"""PipelineClient — LUCID-side client for the lucid-pipelines NATS service.
+"""PipelineClient — Lightfall-side client for the lightfall-pipelines NATS service.
 
 Responsibilities:
-- Mint a job-scoped Tiled API key via `lucid.auth.mint_job_key()`.
+- Mint a job-scoped Tiled API key via `lightfall.auth.mint_job_key()`.
 - Build a JobMessage and dispatch over IPCService request/reply.
 - Subscribe to progress events; re-emit as Qt signals.
 - Revoke the API key after the job terminates (best-effort).
@@ -3132,11 +3132,11 @@ from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.auth.job_key import mint_job_key, revoke_job_key
+from lightfall.auth.job_key import mint_job_key, revoke_job_key
 
 
 class PipelineClient(QObject):
-    """In-process LUCID client; pairs 1:1 with a running `lucid-pipelines` executor."""
+    """In-process Lightfall client; pairs 1:1 with a running `lightfall-pipelines` executor."""
 
     sigJobQueued = Signal(dict)
     sigJobProgress = Signal(dict)
@@ -3191,7 +3191,7 @@ class PipelineClient(QObject):
             bearer_token=bearer,
             lifetime=self._default_lifetime,
             scopes=self._default_scopes,
-            note=f"lucid pipeline {pipeline} job {job_id[:8]}",
+            note=f"lightfall pipeline {pipeline} job {job_id[:8]}",
         )
         self._active_keys[job_id] = minted.first_eight
 
@@ -3205,11 +3205,11 @@ class PipelineClient(QObject):
             "pipeline": pipeline,
             "parameters": parameters,
             "user_id": user_id,
-            "requested_by": f"lucid@{socket.gethostname()}",
+            "requested_by": f"lightfall@{socket.gethostname()}",
             "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
 
-        subject = self._ipc.topic(None) if hasattr(self._ipc, "topic") else "lucid.pipeline"
+        subject = self._ipc.topic(None) if hasattr(self._ipc, "topic") else "lightfall.pipeline"
         if subject is None or subject == "":
             subject = self._ipc.topic("")
         self._ipc.request(subject, json.dumps(payload).encode("utf-8"))
@@ -3248,7 +3248,7 @@ Expected: 2 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/pipelines/ tests/pipelines/test_client.py
+git add src/lightfall/pipelines/ tests/pipelines/test_client.py
 git commit -m "feat(pipelines): PipelineClient — mint, submit, revoke, Qt signals"
 ```
 
@@ -3257,15 +3257,15 @@ git commit -m "feat(pipelines): PipelineClient — mint, submit, revoke, Qt sign
 ### Task 15: Data Browser context-menu integration
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py` (add context-menu entry)
-- Create: `src/lucid/ui/dialogs/run_pipeline_dialog.py`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py` (add context-menu entry)
+- Create: `src/lightfall/ui/dialogs/run_pipeline_dialog.py`
 - Create: `tests/ui/dialogs/test_run_pipeline_dialog.py`
 
 This task wires up the user-facing "Run pipeline…" action on a Data Browser run row.
 
 - [ ] **Step 1: Locate the Tiled Browser's existing context-menu code**
 
-Run: `grep -n "contextMenu\|customContextMenu\|QMenu\|actionAt" src/lucid/ui/panels/tiled_browser_panel.py | head -20`
+Run: `grep -n "contextMenu\|customContextMenu\|QMenu\|actionAt" src/lightfall/ui/panels/tiled_browser_panel.py | head -20`
 
 Identify the existing context-menu builder (likely `_build_context_menu` or similar).
 
@@ -3279,7 +3279,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+from lightfall.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
 
 
 def test_dialog_lists_pipelines(qtbot):
@@ -3313,7 +3313,7 @@ def test_dialog_submits_via_client(qtbot):
 
 - [ ] **Step 3: Implement the dialog**
 
-Create `src/lucid/ui/dialogs/run_pipeline_dialog.py`:
+Create `src/lightfall/ui/dialogs/run_pipeline_dialog.py`:
 
 ```python
 """Run Pipeline dialog — picker + parameter form + submit."""
@@ -3420,7 +3420,7 @@ Expected: 2 PASS.
 
 - [ ] **Step 5: Add the context-menu entry to the Tiled Browser**
 
-Open `src/lucid/ui/panels/tiled_browser_panel.py`, find the existing context-menu builder (from Step 1's grep), and add:
+Open `src/lightfall/ui/panels/tiled_browser_panel.py`, find the existing context-menu builder (from Step 1's grep), and add:
 
 ```python
 def _add_run_pipeline_action(self, menu, record):
@@ -3428,7 +3428,7 @@ def _add_run_pipeline_action(self, menu, record):
     action.triggered.connect(lambda: self._open_run_pipeline_dialog(record))
 
 def _open_run_pipeline_dialog(self, record):
-    from lucid.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
+    from lightfall.ui.dialogs.run_pipeline_dialog import RunPipelineDialog
     client = self._pipeline_client_provider()       # injected at panel init
     dialog = RunPipelineDialog(
         client=client,
@@ -3454,17 +3454,17 @@ In the context-menu builder, call `_add_run_pipeline_action(menu, record)` after
 
 - [ ] **Step 6: Wire the provider at panel construction in the main window**
 
-Find where `TiledBrowserPanel` is constructed (`grep -n "TiledBrowserPanel(" src/lucid/`). Add the `pipeline_client_provider=lambda: self._pipeline_client` argument; instantiate `self._pipeline_client` somewhere in the main window's setup that has access to `ipc`, the Tiled URL, and a bearer-token accessor.
+Find where `TiledBrowserPanel` is constructed (`grep -n "TiledBrowserPanel(" src/lightfall/`). Add the `pipeline_client_provider=lambda: self._pipeline_client` argument; instantiate `self._pipeline_client` somewhere in the main window's setup that has access to `ipc`, the Tiled URL, and a bearer-token accessor.
 
 - [ ] **Step 7: Smoke-test in the running app**
 
-Run the LUCID app. Right-click a run in the Tiled browser. Confirm "Run pipeline…" appears and opens the dialog. (Picker may be empty if no executor is running with installed plugins.)
+Run the Lightfall app. Right-click a run in the Tiled browser. Confirm "Run pipeline…" appears and opens the dialog. (Picker may be empty if no executor is running with installed plugins.)
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lucid/ui/dialogs/run_pipeline_dialog.py tests/ui/dialogs/ \
-        src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/dialogs/run_pipeline_dialog.py tests/ui/dialogs/ \
+        src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "feat(ui): Run pipeline… context-menu action + RunPipelineDialog"
 ```
 
@@ -3473,7 +3473,7 @@ git commit -m "feat(ui): Run pipeline… context-menu action + RunPipelineDialog
 ### Task 16: Pipeline Jobs dock panel
 
 **Files:**
-- Create: `src/lucid/ui/panels/pipeline_jobs_panel.py`
+- Create: `src/lightfall/ui/panels/pipeline_jobs_panel.py`
 - Create: `tests/ui/panels/test_pipeline_jobs_panel.py`
 
 - [ ] **Step 1: Write a failing widget test**
@@ -3486,7 +3486,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.panels.pipeline_jobs_panel import PipelineJobsPanel
+from lightfall.ui.panels.pipeline_jobs_panel import PipelineJobsPanel
 
 
 def test_panel_adds_row_on_queued(qtbot):
@@ -3536,7 +3536,7 @@ Use `FakeClient()` instead of MagicMock and emit via `client.sigJobQueued.emit({
 
 - [ ] **Step 2: Implement the panel**
 
-Create `src/lucid/ui/panels/pipeline_jobs_panel.py`:
+Create `src/lightfall/ui/panels/pipeline_jobs_panel.py`:
 
 ```python
 """Pipeline Jobs dock panel — queue + recent jobs table."""
@@ -3652,14 +3652,14 @@ Run: `.venv/Scripts/python -m pytest tests/ui/panels/test_pipeline_jobs_panel.py
 
 Expected: 3 PASS.
 
-- [ ] **Step 4: Register the panel with LUCID's panel registry**
+- [ ] **Step 4: Register the panel with Lightfall's panel registry**
 
-Find LUCID's panel plugin registry (probably `lucid.plugins.panel_plugin` or `builtin_manifest.py`) and add the `PipelineJobsPanel` to the discoverable set. Pattern follows existing dock panels.
+Find Lightfall's panel plugin registry (probably `lightfall.plugins.panel_plugin` or `builtin_manifest.py`) and add the `PipelineJobsPanel` to the discoverable set. Pattern follows existing dock panels.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/panels/pipeline_jobs_panel.py tests/ui/panels/test_pipeline_jobs_panel.py
+git add src/lightfall/ui/panels/pipeline_jobs_panel.py tests/ui/panels/test_pipeline_jobs_panel.py
 git commit -m "feat(ui): Pipeline Jobs dock panel — queue + recent jobs table"
 ```
 
@@ -3668,14 +3668,14 @@ git commit -m "feat(ui): Pipeline Jobs dock panel — queue + recent jobs table"
 ### Task 17: Pipeline Triggers settings panel
 
 **Files:**
-- Create: `src/lucid/ui/panels/pipeline_triggers_panel.py`
+- Create: `src/lightfall/ui/panels/pipeline_triggers_panel.py`
 - Create: `tests/ui/panels/test_pipeline_triggers_panel.py`
 
-This panel exposes the `TriggerManager`'s configured triggers, lets the user add/edit/delete them, and persists via LUCID's settings backend.
+This panel exposes the `TriggerManager`'s configured triggers, lets the user add/edit/delete them, and persists via Lightfall's settings backend.
 
-- [ ] **Step 1: Locate LUCID's settings backend**
+- [ ] **Step 1: Locate Lightfall's settings backend**
 
-Run: `grep -rn "settings\.\|SettingsBackend\|QSettings" src/lucid/settings/ | head -15`
+Run: `grep -rn "settings\.\|SettingsBackend\|QSettings" src/lightfall/settings/ | head -15`
 
 Identify the read/write API for user-facing preferences.
 
@@ -3689,7 +3689,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.panels.pipeline_triggers_panel import PipelineTriggersPanel
+from lightfall.ui.panels.pipeline_triggers_panel import PipelineTriggersPanel
 
 
 def test_panel_loads_existing_triggers(qtbot):
@@ -3719,7 +3719,7 @@ def test_panel_adds_new_trigger(qtbot):
 
 - [ ] **Step 3: Implement the panel**
 
-Create `src/lucid/ui/panels/pipeline_triggers_panel.py`:
+Create `src/lightfall/ui/panels/pipeline_triggers_panel.py`:
 
 ```python
 """Pipeline Triggers settings panel."""
@@ -3733,9 +3733,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from lucid.acquire.triggers.filter import FilterPredicate
-from lucid.acquire.triggers.run_end import RunEndTrigger
-from lucid.acquire.triggers.run_start import RunStartTrigger
+from lightfall.acquire.triggers.filter import FilterPredicate
+from lightfall.acquire.triggers.run_end import RunEndTrigger
+from lightfall.acquire.triggers.run_start import RunStartTrigger
 
 
 _COLUMNS = ["type", "filter", "pipeline", "parameter_overrides"]
@@ -3810,14 +3810,14 @@ Run: `.venv/Scripts/python -m pytest tests/ui/panels/test_pipeline_triggers_pane
 
 Expected: 2 PASS.
 
-- [ ] **Step 5: Wire into the LUCID settings UI**
+- [ ] **Step 5: Wire into the Lightfall settings UI**
 
 Add an entry in the settings/preferences dialog that opens this panel. Pattern follows existing settings panels.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/ui/panels/pipeline_triggers_panel.py tests/ui/panels/test_pipeline_triggers_panel.py
+git add src/lightfall/ui/panels/pipeline_triggers_panel.py tests/ui/panels/test_pipeline_triggers_panel.py
 git commit -m "feat(ui): Pipeline Triggers settings panel"
 ```
 
@@ -3844,7 +3844,7 @@ Create `tests/integration/test_pipeline_e2e.py`:
 """End-to-end test for notebook pipelines.
 
 Boots: local nats-server (Docker or system binary), bcgtiled-style Tiled
-instance with ALSAccessPolicy + an api-key-creating user, the lucid-pipelines
+instance with ALSAccessPolicy + an api-key-creating user, the lightfall-pipelines
 executor against a fixture plugin, and a PipelineClient. Submits one job;
 asserts the output run lands in Tiled with correct provenance + parent_uid.
 """
@@ -3860,7 +3860,7 @@ from pathlib import Path
 import pytest
 
 # Skip the whole module if either dependency is unavailable.
-pytest.importorskip("lucid_pipelines")
+pytest.importorskip("lightfall_pipelines")
 pytest.importorskip("nats")
 
 
@@ -3878,8 +3878,8 @@ def nats_server():
 
 @pytest.fixture(scope="session")
 def fixture_plugin_installed(tmp_path_factory):
-    """Install the echo-pipeline fixture from lucid-pipelines into the test env."""
-    fixture_root = Path(os.environ["LUCID_PIPELINES_ROOT"]) / "tests" / "fixtures" / "echo_pipeline"
+    """Install the echo-pipeline fixture from lightfall-pipelines into the test env."""
+    fixture_root = Path(os.environ["Lightfall_PIPELINES_ROOT"]) / "tests" / "fixtures" / "echo_pipeline"
     subprocess.check_call(["pip", "install", "-e", str(fixture_root)])
     yield
     subprocess.check_call(["pip", "uninstall", "-y", "echo-pipeline"])
@@ -3888,7 +3888,7 @@ def fixture_plugin_installed(tmp_path_factory):
 @pytest.fixture
 def executor_proc(nats_server, fixture_plugin_installed, tmp_path):
     proc = subprocess.Popen([
-        "lucid-pipelines",
+        "lightfall-pipelines",
         "--nats", nats_server,
         "--hostname", "testhost",
         "--notebook-store", str(tmp_path / "runs"),
@@ -3925,7 +3925,7 @@ The full body of this test is sizable; given the existing tsuchinoko e2e test in
 
 Run: `.venv/Scripts/python -m pytest tests/integration/test_pipeline_e2e.py -v`
 
-Expected: PASS, or SKIPPED if nats-server / lucid-pipelines / tiled not available in the env.
+Expected: PASS, or SKIPPED if nats-server / lightfall-pipelines / tiled not available in the env.
 
 - [ ] **Step 4: Commit**
 
@@ -3958,7 +3958,7 @@ git init
 
 ALS SAXS beamline plugins. Multi-package monorepo:
 
-- `packages/als-saxs-pipelines/` — notebook pipelines (lucid_pipelines.pipeline entry points)
+- `packages/als-saxs-pipelines/` — notebook pipelines (lightfall_pipelines.pipeline entry points)
 
 (Future additions: panels, agents.)
 ```
@@ -3973,19 +3973,19 @@ build-backend = "hatchling.build"
 [project]
 name = "als-saxs-pipelines"
 dynamic = ["version"]
-description = "SAXS beamline notebook pipelines for LUCID"
+description = "SAXS beamline notebook pipelines for Lightfall"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.11"
 dependencies = [
-    "lucid-pipelines>=0.1",
+    "lightfall-pipelines>=0.1",
     "numpy>=1.26",
     "scipy>=1.11",
     "pyFAI>=2024.1",
     "scrapbook>=0.5",
 ]
 
-[project.entry-points."lucid_pipelines.pipeline"]
+[project.entry-points."lightfall_pipelines.pipeline"]
 reduce_saxs = "als_saxs_pipelines.reduce:ReduceSaxsPipeline"
 
 [tool.hatch.version]
@@ -4000,7 +4000,7 @@ source = "vcs"
 
 ```python
 """Reduce SAXS pipeline — azimuthal integration via pyFAI."""
-from lucid_pipelines.plugin import PipelinePlugin
+from lightfall_pipelines.plugin import PipelinePlugin
 
 
 class ReduceSaxsPipeline(PipelinePlugin):
@@ -4020,7 +4020,7 @@ class ReduceSaxsPipeline(PipelinePlugin):
 
 `packages/als-saxs-pipelines/src/als_saxs_pipelines/reduce.ipynb` — a real notebook that:
 
-1. Imports the LUCID bootstrap (`from lucid_pipelines.notebook import TiledWriter, get_input_run`)
+1. Imports the Lightfall bootstrap (`from lightfall_pipelines.notebook import TiledWriter, get_input_run`)
 2. Reads the input run's primary detector stream
 3. Runs pyFAI azimuthal integration on each frame
 4. Writes a derived run via `TiledWriter`
@@ -4059,7 +4059,7 @@ Expected: PASS.
 - [ ] **Step 8: Verify discovery from a fresh venv**
 
 ```bash
-python -c "from lucid_pipelines.plugin import discover; print([p.name for p in discover()])"
+python -c "from lightfall_pipelines.plugin import discover; print([p.name for p in discover()])"
 ```
 
 Expected output: `['reduce_saxs']` (plus anything else installed in the env).
@@ -4082,12 +4082,12 @@ Verify before declaring Plan B complete:
 - [ ] **Spec coverage:** Each of the spec's 4 stages and 13 deliverables maps to a numbered task here. (Stage 1 → Tasks 1–3; Stage 2 → Tasks 4–13; Stage 3 → Tasks 14–17; Stage 4 → Tasks 18–19.)
 - [ ] **No placeholders:** Search for "TBD", "TODO", "implement later" in this doc. Replace any with concrete content or remove.
 - [ ] **Type consistency:** `JobMessage` fields used in Task 11 match those defined in Task 7. `MintedJobKey` fields used in Task 14 match Task 1's dataclass. `PipelinePlugin` class attributes used in Task 5's fixture match the ABC's declared attrs.
-- [ ] **Test commands:** All `.venv/Scripts/python -m pytest` invocations are correct for the target repo (lucid-pipelines tests live in `~/PycharmProjects/lucid-pipelines/`, LUCID tests in `~/PycharmProjects/ncs/ncs/`).
+- [ ] **Test commands:** All `.venv/Scripts/python -m pytest` invocations are correct for the target repo (lightfall-pipelines tests live in `~/PycharmProjects/lightfall-pipelines/`, Lightfall tests in `~/PycharmProjects/ncs/ncs/`).
 - [ ] **Cross-task references:** Task 11's PipelineService uses Task 7's JobMessage, Task 8's EnvCache, Task 9's PapermillRunner, Task 10's NotebookStore, Task 5's PipelinePlugin/discover — all defined.
 
 ## Completion criteria
 
-- [ ] All unit tests pass in both `lucid-pipelines` and `ncs/ncs` repos.
+- [ ] All unit tests pass in both `lightfall-pipelines` and `ncs/ncs` repos.
 - [ ] The end-to-end test (Task 18) passes against `bcgtiled` + local NATS.
 - [ ] The reference `als-saxs-pipelines` package installs and is discovered by the executor.
-- [ ] Manual smoke test: launch LUCID, right-click a real run in the Tiled browser, select "Run pipeline… → reduce_saxs", verify the Pipeline Jobs panel shows queued → running → completed and the output run appears in Tiled with correct provenance.
+- [ ] Manual smoke test: launch Lightfall, right-click a real run in the Tiled browser, select "Run pipeline… → reduce_saxs", verify the Pipeline Jobs panel shows queued → running → completed and the output run appears in Tiled with correct provenance.

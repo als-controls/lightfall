@@ -15,8 +15,8 @@
 ### Task 1: Add entry-created callback to LogbookClient
 
 **Files:**
-- Modify: `src/lucid/logbook/client.py`
-- Modify: `src/lucid/ui/panels/logbook_panel.py`
+- Modify: `src/lightfall/logbook/client.py`
+- Modify: `src/lightfall/ui/panels/logbook_panel.py`
 - Test: `tests/ipc/test_integration.py`
 
 - [ ] **Step 1: Write test for the callback**
@@ -98,7 +98,7 @@ class TestLogbookIPCRefresh:
 Add the necessary import at the top of the file if not present:
 
 ```python
-from lucid.logbook.client import LogbookClient
+from lightfall.logbook.client import LogbookClient
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -108,7 +108,7 @@ Expected: FAIL — `_on_entry_created_callback` attribute doesn't exist.
 
 - [ ] **Step 3: Add callback to LogbookClient**
 
-In `src/lucid/logbook/client.py`:
+In `src/lightfall/logbook/client.py`:
 
 In `__init__` (line 366), after `self._on_sync_restored_callback`, add:
 
@@ -141,7 +141,7 @@ Expected: PASS (2 tests)
 
 - [ ] **Step 5: Wire the callback in LogbookPanel**
 
-In `src/lucid/ui/panels/logbook_panel.py`, in `_deferred_init` (after line 141 where `_on_sync_restored_callback` is set), add:
+In `src/lightfall/ui/panels/logbook_panel.py`, in `_deferred_init` (after line 141 where `_on_sync_restored_callback` is set), add:
 
 ```python
 self._client.set_on_entry_created_callback(self._on_ipc_entry_created)
@@ -183,6 +183,6 @@ Expected: All pass.
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/logbook/client.py src/lucid/ui/panels/logbook_panel.py tests/ipc/test_integration.py
+git add src/lightfall/logbook/client.py src/lightfall/ui/panels/logbook_panel.py tests/ipc/test_integration.py
 git commit -m "fix(logbook): refresh panel when entries are created via IPC"
 ```

@@ -5,7 +5,7 @@
 
 ## Goal
 
-Integrate Bluesky RunEngine's `waiting_hook` with the existing ThreadStatusPlugin in LUCID's status bar. This surfaces two levels of progress:
+Integrate Bluesky RunEngine's `waiting_hook` with the existing ThreadStatusPlugin in Lightfall's status bar. This surfaces two levels of progress:
 
 1. **Device-level progress** — per-device movement/trigger status from `StatusBase.watch()` callbacks (e.g., "motor1: 45.2/100.0 mm")
 2. **Scan-level progress** — overall event count from document stream (e.g., "Scan: 45/200 events")
@@ -32,7 +32,7 @@ _ProgressOverlay (popup with per-device progress bars)
 
 ## Component 1: WaitingHookBridge
 
-**File:** `ncs/src/lucid/acquire/engine/waiting_hook.py`
+**File:** `ncs/src/lightfall/acquire/engine/waiting_hook.py`
 
 A `QObject` subclass that acts as the `RE.waiting_hook` callable.
 
@@ -75,7 +75,7 @@ The `.watch()` callbacks fire from the RE thread, potentially at high frequency.
 
 ## Component 2: ThreadStatusPlugin Extension
 
-**File:** `ncs/src/lucid/ui/statusbar/plugins/thread_status.py`
+**File:** `ncs/src/lightfall/ui/statusbar/plugins/thread_status.py`
 
 ### Overlay Changes
 
@@ -126,7 +126,7 @@ thread_manager.sigProgress.connect(self._on_progress)
 thread_manager.sigFinished.connect(self._on_finished)
 
 # New — RunEngine waiting_hook
-from lucid.acquire import get_engine
+from lightfall.acquire import get_engine
 engine = get_engine()
 if hasattr(engine, 'waiting_bridge'):
     bridge = engine.waiting_bridge
@@ -164,6 +164,6 @@ When `sigDeviceFinished` fires for a device:
 
 | File | Change |
 |------|--------|
-| `ncs/src/lucid/acquire/engine/waiting_hook.py` | **New** — WaitingHookBridge class |
-| `ncs/src/lucid/acquire/engine/bluesky.py` | Create bridge in `__init__`, install in `_process_queue`, expose property |
-| `ncs/src/lucid/ui/statusbar/plugins/thread_status.py` | Add device/scan tracking to overlay and plugin |
+| `ncs/src/lightfall/acquire/engine/waiting_hook.py` | **New** — WaitingHookBridge class |
+| `ncs/src/lightfall/acquire/engine/bluesky.py` | Create bridge in `__init__`, install in `_process_queue`, expose property |
+| `ncs/src/lightfall/ui/statusbar/plugins/thread_status.py` | Add device/scan tracking to overlay and plugin |

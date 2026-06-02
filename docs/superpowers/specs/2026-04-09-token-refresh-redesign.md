@@ -2,7 +2,7 @@
 
 ## Problem
 
-LUCID's Keycloak access token refresh has been broken despite six fix attempts.
+Lightfall's Keycloak access token refresh has been broken despite six fix attempts.
 The current design has two independent refresh paths — a timer in `SessionManager`
 and an on-demand path in `KeycloakTiledAuth` — that race each other. Both can
 call Keycloak's token endpoint with the same refresh token simultaneously. With
@@ -142,9 +142,9 @@ In `SessionManager.logout()`:
 
 | File | Change |
 |------|--------|
-| `src/lucid/auth/session.py` | Replace polling timer with calculated one-shot; add `_schedule_refresh`, `_do_scheduled_refresh`; remove `_check_session_expiry`; add state fields; update `login`/`logout` |
-| `src/lucid/services/tiled_auth.py` | Remove `_refresh_token_sync`; simplify `sync_auth_flow` and `async_auth_flow` to only check for already-refreshed token |
-| `src/lucid/utils/threads.py` | Safe repr in error logging |
+| `src/lightfall/auth/session.py` | Replace polling timer with calculated one-shot; add `_schedule_refresh`, `_do_scheduled_refresh`; remove `_check_session_expiry`; add state fields; update `login`/`logout` |
+| `src/lightfall/services/tiled_auth.py` | Remove `_refresh_token_sync`; simplify `sync_auth_flow` and `async_auth_flow` to only check for already-refreshed token |
+| `src/lightfall/utils/threads.py` | Safe repr in error logging |
 
 ## Testing
 

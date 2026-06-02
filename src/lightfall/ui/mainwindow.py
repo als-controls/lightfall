@@ -98,7 +98,7 @@ class NCSMainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         """Configure window properties."""
-        self.setWindowTitle("LUCID - Lightsource Unified Control Interface Dashboard")
+        self.setWindowTitle("Lightfall")
         self.setMinimumSize(1024, 768)
 
         # Enable dock nesting and tabbing

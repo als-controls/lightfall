@@ -12,7 +12,7 @@ Use `PlanPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 ```
 
 ## Class Attributes
@@ -81,7 +81,7 @@ Get `PlanInfo` for registration. Usually not overridden.
 
 ```python
 def get_plan_info(self) -> PlanInfo:
-    from lucid.acquire.plans.registry import PlanInfo
+    from lightfall.acquire.plans.registry import PlanInfo
     return PlanInfo.from_function(
         name=self.name,
         func=self.get_plan_function(),
@@ -128,7 +128,7 @@ def my_plan(motor, start, stop, num):
 
 from typing import Any, Callable, Generator
 
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 
 
 class GridScanPlan(PlanPlugin):
@@ -196,7 +196,7 @@ class GridScanPlan(PlanPlugin):
 
 import bluesky.plan_stubs as bps
 
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 
 
 class AlignmentPlan(PlanPlugin):
@@ -248,7 +248,7 @@ class AlignmentPlan(PlanPlugin):
 ```python
 """Adaptive scan that adjusts based on results."""
 
-from lucid.plugins.plan_plugin import PlanPlugin
+from lightfall.plugins.plan_plugin import PlanPlugin
 
 
 class AdaptiveScanPlan(PlanPlugin):

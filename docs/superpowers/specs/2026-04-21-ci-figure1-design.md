@@ -1,7 +1,7 @@
-# LUCID Paper — CI-generated Figure 1 (Design Spec)
+# Lightfall Paper — CI-generated Figure 1 (Design Spec)
 
 **Date:** 2026-04-21
-**Repo:** `git.als.lbl.gov/ncs/lucid-publication` (local clone: `~/workspace/lucid-publication/`)
+**Repo:** `git.als.lbl.gov/ncs/lightfall-publication` (local clone: `~/workspace/lightfall-publication/`)
 **Status:** Design approved 2026-04-21. Next: implementation plan (writing-plans).
 
 ---
@@ -63,4 +63,4 @@ Keeps local `make figures` fast (honors timestamps). Forces CI — the only plac
 
 ## 6. Followup (post-merge)
 
-- Update project memory (`project_lucid_publication.md`): replace the line "`figures/arch.pdf` is committed (generated but not gitignored) so Overleaf can see it without plantuml" with the new reality (gitignored; CI-authoritative; Overleaf won't render Figure 1 without local PlantUML).
+- Update project memory (`project_lightfall_publication.md`): replace the line "`figures/arch.pdf` is committed (generated but not gitignored) so Overleaf can see it without plantuml" with the new reality (gitignored; CI-authoritative; Overleaf won't render Figure 1 without local PlantUML).

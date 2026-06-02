@@ -1,12 +1,12 @@
 # Preferences
 
-LUCID provides extensive customization through the Preferences dialog. Access it via **Edit** > **Preferences** or `Ctrl+,`.
+Lightfall provides extensive customization through the Preferences dialog. Access it via **Edit** > **Preferences** or `Ctrl+,`.
 
 ## Preference Categories
 
 ### Appearance
 
-Customize the visual appearance of LUCID.
+Customize the visual appearance of Lightfall.
 
 **Theme**: Select from available themes:
 - **System**: Follow your operating system's light/dark setting
@@ -22,7 +22,7 @@ Changes apply immediately for preview. Click **OK** to save or **Cancel** to rev
 
 ### Device Backend
 
-Configure how LUCID connects to hardware devices.
+Configure how Lightfall connects to hardware devices.
 
 **Backend Selection**:
 
@@ -57,9 +57,9 @@ Configure data storage and retrieval.
 **Authentication Mode**:
 - **None**: No authentication
 - **API Key**: Use configured API key
-- **Keycloak**: Use your LUCID login credentials
+- **Keycloak**: Use your Lightfall login credentials
 
-When using Keycloak authentication, your LUCID session credentials are automatically used for Tiled access.
+When using Keycloak authentication, your Lightfall session credentials are automatically used for Tiled access.
 
 ---
 
@@ -91,7 +91,7 @@ Configure the external editor for user plans.
 - **VSCode**: Visual Studio Code
 - **PyCharm**: JetBrains PyCharm
 
-**Protocol Handler**: LUCID uses URL protocols to open files in your editor. Ensure your editor's protocol handler is installed:
+**Protocol Handler**: Lightfall uses URL protocols to open files in your editor. Ensure your editor's protocol handler is installed:
 
 - VSCode: Usually automatic with installation
 - PyCharm: Requires JetBrains Toolbox for the protocol handler
@@ -126,9 +126,9 @@ Preferences are stored in standard locations:
 
 | Platform | Location |
 |----------|----------|
-| Windows | `%APPDATA%\lucid\` |
-| macOS | `~/Library/Preferences/lucid/` |
-| Linux | `~/.config/lucid/` |
+| Windows | `%APPDATA%\lightfall\` |
+| macOS | `~/Library/Preferences/lightfall/` |
+| Linux | `~/.config/lightfall/` |
 
 Two types of data are stored:
 
@@ -149,9 +149,9 @@ These overrides ensure consistent configuration across all workstations at a bea
 
 To reset all preferences to defaults:
 
-1. Close LUCID
+1. Close Lightfall
 2. Delete the preference files from the storage location above
-3. Restart LUCID
+3. Restart Lightfall
 
 **Note**: This also resets window layouts and panel positions.
 
