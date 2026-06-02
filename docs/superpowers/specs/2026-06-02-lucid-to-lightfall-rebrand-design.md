@@ -144,16 +144,14 @@ Special cases:
 
 1. **Plugin-discovery break** — flipping `lucid.plugins`→`lightfall.plugins` must be atomic
    across core + plugins. *Mitigation:* Approach A + the §4 verification gate.
-2. **OIDC `client_id` default `"LUCID"`** (`config/schema.py`) — likely registered at the
-   IdP (RAC2 / ALS auth). Renaming the string can break authentication. *Mitigation:*
-   **Confirm with the auth provider before changing.** Default to keeping `client_id="LUCID"`
-   (or coordinating an IdP update) — flagged for Ron's decision.
-3. **Sentry `project_name = "LUCID"`** — a Sentry project may exist under that name.
-   Renaming the string without renaming the Sentry project splits/loses event grouping.
-   *Mitigation:* rename the Sentry project in the Sentry UI, or keep the mapping — flagged.
-4. **User data path `~/lucid/` → `~/lightfall/`** — existing local plans/prefs won't migrate.
-   *Mitigation:* one-time migration shim (rename dir on first launch if old exists) or
-   document a manual move. Low impact (pre-release).
+2. **OIDC `client_id` default `"LUCID"`** (`config/schema.py`) — **RESOLVED: keep as `"LUCID"`.**
+   Not exposed anywhere user-facing; leaving it avoids any IdP-coordination risk. This is an
+   *intentional retained* `"LUCID"` literal (allow-listed in the residual-grep check).
+3. **Sentry `project_name = "LUCID"`** — **RESOLVED: keep as `"LUCID"`.** Not exposed; leaving
+   it avoids splitting Sentry event grouping. Intentional retained literal (allow-listed).
+4. **User data path `~/lucid/` → `~/lightfall/`** — **RESOLVED: add a one-time first-launch
+   migration.** On startup, if `~/lightfall` does not exist but `~/lucid` does, move/rename it
+   (and log the migration). Then use `~/lightfall` going forward.
 5. **Stale `github.com/als-computing/lucid` URLs** in pyproject `[project.urls]` — the real
    home is the GitLab `ncs` group. *Mitigation:* point URLs at the GitLab `ncs/lightfall`
    paths; do **not** create a GitHub repo. Flag the discrepancy.
@@ -174,13 +172,15 @@ Special cases:
 - [ ] `entry_points(group="lightfall.plugins")` lists all five plugins; no `lucid.plugins` remains.
 - [ ] `pytest` passes in each repo.
 - [ ] App launches via `lightfall-gui`; window/app name reads "Lightfall".
-- [ ] Residual-reference grep (`-i lucid`, excluding `.venv`, history, generated files, and the
-      allowed `lucid-pipelines`) returns only intentional matches.
+- [ ] Residual-reference grep (`-i lucid`, excluding `.venv`, history, generated files) returns
+      only intentional matches: `lucid-pipelines`/`lucid_pipelines.pipeline` (out of scope),
+      the OIDC `client_id="LUCID"` default, and the Sentry `project_name="LUCID"`.
+- [ ] First-launch data-dir migration moves `~/lucid` → `~/lightfall` when only the old exists.
 - [ ] Decks render with the new logo; paper builds via `make`.
 - [ ] All local remotes resolve to `ncs/lightfall-*`; pushes succeed.
 
-## 9. Open items for Ron
+## 9. Resolved decisions (was: open items)
 
-- **OIDC `client_id`** (risk #2): keep `"LUCID"`, or coordinate an IdP rename to `"Lightfall"`?
-- **Sentry project** (risk #3): rename the Sentry project too, or leave the DSN/project mapping?
-- **App data dir** (risk #4): add a first-launch migration from `~/lucid`, or leave it?
+- **OIDC `client_id`** (risk #2): **keep `"LUCID"`** — not exposed, no IdP coordination needed.
+- **Sentry `project_name`** (risk #3): **keep `"LUCID"`** — not exposed.
+- **App data dir** (risk #4): **add a first-launch `~/lucid` → `~/lightfall` migration.**
