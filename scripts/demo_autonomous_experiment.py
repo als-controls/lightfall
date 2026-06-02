@@ -3,10 +3,10 @@
 This is a MANUAL verification script. It is not run by CI.
 
 Prerequisites:
-- Both LUCID and Tsuchinoko venvs installed.
+- Both Lightfall and Tsuchinoko venvs installed.
 - nats-server binary on PATH (or NATS_SERVER_BIN env var pointing at it).
-- A Tiled server reachable at $LUCID_TILED_URL (or use the default LUCID setting).
-- gpcam importable in LUCID's environment if the agent should load the
+- A Tiled server reachable at $Lightfall_TILED_URL (or use the default Lightfall setting).
+- gpcam importable in Lightfall's environment if the agent should load the
   experiment-designer skill (this script does NOT exercise the agent -- it
   drives the wire surface directly).
 
@@ -19,7 +19,7 @@ Flow:
 5. Assert at least three iter_NNN containers landed in the run's
    adaptive stream.
 
-Run (from the LUCID repo root, with .venv-integration active or .venv if
+Run (from the Lightfall repo root, with .venv-integration active or .venv if
 your default venv has bluesky + tiled + tsuchinoko installed):
 
     .venv/Scripts/python.exe scripts/demo_autonomous_experiment.py
@@ -68,7 +68,7 @@ try:
     # -----------------------------------------------------------------------
     # 3. Stand up a headless IPCService
     # -----------------------------------------------------------------------
-    # NOTE: In a normal LUCID GUI session the singleton is constructed and
+    # NOTE: In a normal Lightfall GUI session the singleton is constructed and
     # started during app boot. For a headless smoke test we instantiate
     # directly. If IPCService gains a `from_config()` / `start_headless()`
     # convenience later, prefer that.
@@ -133,16 +133,16 @@ try:
     # 5. Tail the adaptive stream
     # -----------------------------------------------------------------------
     print("[5/5] Checking Tiled adaptive stream...")
-    # TODO: source the Tiled URL the same way LUCID does at runtime. Two
+    # TODO: source the Tiled URL the same way Lightfall does at runtime. Two
     # options to wire here:
     #   a) Pull from lightfall settings (lightfall.ui.preferences.tiled_settings or
-    #      similar) and use tiled.client.from_uri with whatever auth LUCID
+    #      similar) and use tiled.client.from_uri with whatever auth Lightfall
     #      currently sends.
-    #   b) Accept an env var like LUCID_TILED_URL and skip auth (only
+    #   b) Accept an env var like Lightfall_TILED_URL and skip auth (only
     #      acceptable against a dev catalog).
-    tiled_url = os.environ.get("LUCID_TILED_URL")
+    tiled_url = os.environ.get("Lightfall_TILED_URL")
     if not tiled_url:
-        print("       NOTE: $LUCID_TILED_URL not set -- skipping adaptive-stream check.")
+        print("       NOTE: $Lightfall_TILED_URL not set -- skipping adaptive-stream check.")
         print("       Demo wire flow completed successfully through configure + plan run.")
     else:
         from tiled.client import from_uri

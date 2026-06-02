@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lightfall-pipelines-test-passthrough"
 version = "0.0.1"
-description = "Minimal pass-through pipeline used by LUCID e2e tests"
+description = "Minimal pass-through pipeline used by Lightfall e2e tests"
 requires-python = ">=3.11"
 dependencies = [
     "lightfall-pipelines>=0.1.0",

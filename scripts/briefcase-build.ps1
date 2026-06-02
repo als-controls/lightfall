@@ -1,4 +1,4 @@
-# Build LUCID native application using Briefcase
+# Build Lightfall native application using Briefcase
 # This script orchestrates the full build: wheels -> create -> build
 #Requires -Version 5.1
 
@@ -10,7 +10,7 @@ $NcsDir = Split-Path -Parent $ScriptDir
 Push-Location $NcsDir
 try {
     Write-Host "=========================================="
-    Write-Host "LUCID Briefcase Build"
+    Write-Host "Lightfall Briefcase Build"
     Write-Host "=========================================="
     Write-Host ""
 

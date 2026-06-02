@@ -1,6 +1,6 @@
 # Bluesky Plan Design API Reference
 
-This document provides the full API reference for designing Bluesky plans with LUCID UI annotations.
+This document provides the full API reference for designing Bluesky plans with Lightfall UI annotations.
 
 ## Required Imports
 

@@ -1,6 +1,6 @@
-# LUCID Panel Design API Reference
+# Lightfall Panel Design API Reference
 
-This document provides the full API reference for designing BasePanel subclasses for the LUCID application.
+This document provides the full API reference for designing BasePanel subclasses for the Lightfall application.
 
 ## Required Imports
 
@@ -23,7 +23,7 @@ from lightfall.utils.logging import logger
 
 ## user-plugin-architecture
 
-LUCID has two distinct ways to create panel plugins. Understanding which to use is critical.
+Lightfall has two distinct ways to create panel plugins. Understanding which to use is critical.
 
 ### User Plugins (~/lightfall/plugins/)
 
@@ -223,7 +223,7 @@ The `replace=True` is REQUIRED for hot-reload support.
 ## complete-example
 
 ```python
-"""My custom panel for LUCID."""
+"""My custom panel for Lightfall."""
 from __future__ import annotations
 
 from typing import Any
