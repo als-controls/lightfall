@@ -1,1 +1,1 @@
-# Image resources for LUCID
+# Image resources for Lightfall

@@ -47,7 +47,7 @@ class AuthProviderConfig(BaseModel):
     # Linux system auth settings
     pam_group_role_map: dict[str, str] = Field(
         default_factory=dict,
-        description="Unix group → LUCID role mapping (e.g. {'ncs-admin': 'admin'})",
+        description="Unix group → Lightfall role mapping (e.g. {'ncs-admin': 'admin'})",
     )
 
 

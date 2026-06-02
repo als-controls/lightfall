@@ -1,4 +1,4 @@
-"""MCP tools that bridge the LUCID embedded agent to Tsuchinoko's NATS surface.
+"""MCP tools that bridge the Lightfall embedded agent to Tsuchinoko's NATS surface.
 
 All tools share a single request helper. Each tool is stateless and
 returns a dict shaped for the agent SDK (``success``, plus tool-specific
@@ -13,7 +13,7 @@ from lightfall.utils.logging import logger
 
 
 def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict | None:
-    """Send a NATS request via the LUCID IPC service.
+    """Send a NATS request via the Lightfall IPC service.
 
     Returns the decoded reply dict on success, or ``None`` if the
     broker did not reply within *timeout* seconds (or the IPC service
@@ -30,7 +30,7 @@ def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict |
 def _ipc_error_response() -> dict:
     return {
         "success": False,
-        "error": "LUCID IPC is not running; enable it in Settings → IPC and retry.",
+        "error": "Lightfall IPC is not running; enable it in Settings → IPC and retry.",
     }
 
 
@@ -194,7 +194,7 @@ def build_tools() -> list[Any]:
 
     pause = _make_control(
         "pause", "tsuchinoko.experiment.pause",
-        "Pause Tsuchinoko's adaptive loop. The LUCID adaptive_experiment "
+        "Pause Tsuchinoko's adaptive loop. The Lightfall adaptive_experiment "
         "plan keeps the run open; new targets stop until tsuchinoko_resume.",
     )
     resume = _make_control(
@@ -203,7 +203,7 @@ def build_tools() -> list[Any]:
     )
     stop = _make_control(
         "stop", "tsuchinoko.experiment.stop",
-        "Stop Tsuchinoko's adaptive loop and finalise. The LUCID plan exits "
+        "Stop Tsuchinoko's adaptive loop and finalise. The Lightfall plan exits "
         "cleanly once targets stop arriving (configurable timeout).",
     )
 

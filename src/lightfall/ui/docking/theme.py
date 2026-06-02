@@ -43,7 +43,7 @@ GAP = 3              # sea gap around islands (margin, px)
 def dump_dock_tree() -> None:
     """Debug helper: print the widget tree inside all QDockWidgets.
 
-    Run from LUCID's Python console:
+    Run from Lightfall's Python console:
         from lightfall.ui.docking.theme import dump_dock_tree
         dump_dock_tree()
     """

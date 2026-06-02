@@ -1,4 +1,4 @@
-"""Base dialog class for LUCID.
+"""Base dialog class for Lightfall.
 
 Provides a QDialog subclass that automatically sets the application icon.
 """
@@ -17,7 +17,7 @@ class LucidDialog(QDialog):
     """Base dialog class that automatically sets the application icon.
 
     On Windows, dialogs without a parent don't inherit the application's
-    window icon for the taskbar. This base class ensures all LUCID dialogs
+    window icon for the taskbar. This base class ensures all Lightfall dialogs
     display the correct icon.
 
     Example:

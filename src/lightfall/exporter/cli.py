@@ -1,4 +1,4 @@
-"""CLI entry point for the LUCID exporter service."""
+"""CLI entry point for the Lightfall exporter service."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Run the LUCID exporter service."""
+    """Run the Lightfall exporter service."""
     parser = argparse.ArgumentParser(
         prog="lightfall-exporter",
-        description="Headless data export service for LUCID",
+        description="Headless data export service for Lightfall",
     )
     parser.add_argument(
         "--nats",

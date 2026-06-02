@@ -2,7 +2,7 @@
 
 Used by lightfall.exporter. Constructs a ``tiled.client`` with
 :class:`~lightfall.auth.service_key_auth.StaticApiKeyAuth` so the executor
-authenticates with the LUCID session API key it received in the NATS job
+authenticates with the Lightfall session API key it received in the NATS job
 payload.
 """
 
@@ -27,7 +27,7 @@ def connect_tiled(
 
     Args:
         url: Tiled server URL.
-        api_key: Optional LUCID-minted Tiled API key secret. When None, the
+        api_key: Optional Lightfall-minted Tiled API key secret. When None, the
             client is anonymous.
         proxy_url: Optional SOCKS/HTTP proxy URL (e.g.
             ``socks5://localhost:1080``).

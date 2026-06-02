@@ -148,7 +148,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._auth_mode_combo = QComboBox()
         self._auth_mode_combo.addItem("None", "none")
         self._auth_mode_combo.addItem("API Key", "api_key")
-        self._auth_mode_combo.addItem("Keycloak (use LUCID session)", "keycloak")
+        self._auth_mode_combo.addItem("Keycloak (use Lightfall session)", "keycloak")
         self._auth_mode_combo.currentIndexChanged.connect(self._on_auth_mode_changed)
         connection_layout.addRow("Authentication:", self._auth_mode_combo)
 

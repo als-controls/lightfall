@@ -1,4 +1,4 @@
-"""Main window for the LUCID application.
+"""Main window for the Lightfall application.
 
 Provides the primary application window with:
 - Dock-based panel system
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 class NCSMainWindow(QMainWindow):
     """
-    Main application window for LUCID.
+    Main application window for Lightfall.
 
     NCSMainWindow provides:
     - Menu bar with standard and custom menus
@@ -187,7 +187,7 @@ class NCSMainWindow(QMainWindow):
         help_menu.addSeparator()
 
         # About action
-        about_action = QAction("&About LUCID", self)
+        about_action = QAction("&About Lightfall", self)
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
@@ -736,7 +736,7 @@ class NCSMainWindow(QMainWindow):
 
         toast_manager = ToastManager.get_instance()
         toast_manager.info(
-            "New to LUCID?",
+            "New to Lightfall?",
             "Take a quick tour of the interface via Help > Welcome Tutorial.",
             duration=60000,
         )

@@ -1,4 +1,4 @@
-"""Fragment-based logbook panel for LUCID.
+"""Fragment-based logbook panel for Lightfall.
 
 Split-pane layout: entry list (sidebar) + EntryWidget (fragment view),
 backed by the offline-first ``LogbookClient`` (synchronous SQLite).

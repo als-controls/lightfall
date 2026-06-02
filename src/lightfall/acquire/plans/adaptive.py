@@ -102,9 +102,9 @@ class AdaptiveExperimentPanel(PlanUI):
 
 
 def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
-    """Pull Tiled URL, API key, and proxy URL from LUCID services.
+    """Pull Tiled URL, API key, and proxy URL from Lightfall services.
 
-    The API key is the LUCID-minted Tiled session key sourced from
+    The API key is the Lightfall-minted Tiled session key sourced from
     :class:`SessionManager`'s per-service cache.
 
     Returns:
@@ -131,7 +131,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
         pass
 
     # Delegate proxy resolution to ProxySettingsProvider (same as TiledService)
-    # so the plan is consistent with all other Tiled consumers in LUCID and
+    # so the plan is consistent with all other Tiled consumers in Lightfall and
     # never sends a proxy URL that isn't actually running.
     try:
         from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
@@ -144,7 +144,7 @@ def _get_tiled_credentials() -> tuple[str, str | None, str | None]:
 
 
 def _get_lightfall_prefix() -> str:
-    """Pull the NATS topic prefix from LUCID's IPCService."""
+    """Pull the NATS topic prefix from Lightfall's IPCService."""
     try:
         from lightfall.ipc.service import get_ipc_service
         ipc = get_ipc_service()
@@ -169,8 +169,8 @@ def adaptive_experiment(
     and signals back when each point is measured. Opens a single bluesky
     Run for the entire experiment.
 
-    Tiled credentials and LUCID's NATS prefix are pulled automatically
-    from LUCID's services and forwarded to Tsuchinoko via the
+    Tiled credentials and Lightfall's NATS prefix are pulled automatically
+    from Lightfall's services and forwarded to Tsuchinoko via the
     ``bind_run`` NATS handshake.
 
     Args:
@@ -217,10 +217,10 @@ def adaptive_experiment(
         }
         run_uid = yield from bps.open_run(md=md)
 
-        # Pull Tiled credentials from LUCID and forward to Tsuchinoko.
+        # Pull Tiled credentials from Lightfall and forward to Tsuchinoko.
         # NOTE: payload field renamed auth_token → tiled_api_key as part of
-        # LUCID Auth v2. Tsuchinoko-side cutover is committed at 817408d on
-        # the LUCID-refactor branch; adaptive jobs work once both sides deploy.
+        # Lightfall Auth v2. Tsuchinoko-side cutover is committed at 817408d on
+        # the Lightfall-refactor branch; adaptive jobs work once both sides deploy.
         tiled_url, tiled_api_key, proxy_url = _get_tiled_credentials()
         bridge.publish("tsuchinoko.experiment.bind_run", {
             "run_uid": run_uid,

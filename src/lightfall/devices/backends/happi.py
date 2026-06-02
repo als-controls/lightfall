@@ -456,9 +456,9 @@ class HappiBackend(DeviceBackend):
         elif isinstance(item, dict):
             metadata = dict(item)
 
-        # Read LUCID-specific fields from extraneous or metadata
+        # Read Lightfall-specific fields from extraneous or metadata
         extraneous = getattr(item, "extraneous", {}) or {}
-        # prefix may be a native happi field OR stored in extraneous (LUCID write-through)
+        # prefix may be a native happi field OR stored in extraneous (Lightfall write-through)
         prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
         display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
         icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
@@ -774,7 +774,7 @@ class HappiBackend(DeviceBackend):
         """Add a device to the happi database and persist to JSON.
 
         Creates a HappiItem with the device's metadata and stores
-        LUCID-specific fields (display_name, icon_override, group)
+        Lightfall-specific fields (display_name, icon_override, group)
         in the item's extraneous dict.
         """
         if self._client is None:
@@ -808,7 +808,7 @@ class HappiBackend(DeviceBackend):
                 except Exception:
                     pass
                 item.extraneous[attr] = value
-            # Store LUCID-specific fields as extraneous metadata
+            # Store Lightfall-specific fields as extraneous metadata
             if device.display_name:
                 item.extraneous["display_name"] = device.display_name
             if device.icon_override:
@@ -867,7 +867,7 @@ class HappiBackend(DeviceBackend):
                     pass
                 item.extraneous[attr] = value
 
-            # LUCID-specific fields in extraneous
+            # Lightfall-specific fields in extraneous
             item.extraneous["display_name"] = device.display_name or ""
             item.extraneous["icon_override"] = device.icon_override or ""
             item.extraneous["group"] = device.group or ""

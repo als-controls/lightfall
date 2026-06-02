@@ -2,7 +2,7 @@
 
 This provider creates a session based on the current Linux user's
 identity — no password required. Unix group membership is mapped
-to LUCID roles.
+to Lightfall roles.
 
 Intended for deployments like NSLS-II where facility-wide Linux accounts
 are synced across machines and the user is already authenticated at the
@@ -25,7 +25,7 @@ from lightfall.auth.providers.base import AuthProvider
 from lightfall.auth.session import Session, User
 from lightfall.utils.logging import logger
 
-# Default mapping from Unix groups to LUCID roles.
+# Default mapping from Unix groups to Lightfall roles.
 # Deployments can override this via PamConfig.group_role_map.
 DEFAULT_GROUP_ROLE_MAP: dict[str, Role] = {
     "ncs-developer": Role.DEVELOPER,
@@ -41,7 +41,7 @@ class PamConfig:
     """Configuration for the system account auth provider.
 
     Attributes:
-        group_role_map: Unix group name → LUCID Role mapping.
+        group_role_map: Unix group name → Lightfall Role mapping.
             All matching groups contribute roles.
         default_role: Role assigned when no group matches.
         session_duration: How long sessions remain valid.
@@ -103,7 +103,7 @@ class PamAuthProvider(AuthProvider):
     Authentication provider using the current Linux system identity.
 
     Trusts that the user is already authenticated at the OS level
-    (SSH, console login, 2FA, etc.) and creates a LUCID session from
+    (SSH, console login, 2FA, etc.) and creates a Lightfall session from
     their Unix username and group membership. No password is required.
 
     Example:
@@ -128,7 +128,7 @@ class PamAuthProvider(AuthProvider):
         return False
 
     def _resolve_roles(self, unix_groups: set[str]) -> set[Role]:
-        """Map Unix groups to LUCID roles."""
+        """Map Unix groups to Lightfall roles."""
         roles: set[Role] = set()
         for group_name, role in self._config.group_role_map.items():
             if group_name in unix_groups:

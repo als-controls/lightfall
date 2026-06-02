@@ -1,1 +1,1 @@
-"""LUCID Exporter — headless data export service."""
+"""Lightfall Exporter — headless data export service."""

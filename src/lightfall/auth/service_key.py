@@ -47,7 +47,7 @@ def mint_service_key(
     note: str,
     timeout: float = 10.0,
 ) -> MintedKey:
-    """Mint a user-scoped API key for a LUCID-protected service.
+    """Mint a user-scoped API key for a Lightfall-protected service.
 
     Args:
         service_url: Base URL of the service's API root
@@ -70,7 +70,7 @@ def mint_service_key(
     """
     url = service_url.rstrip("/") + "/auth/apikey"
 
-    # Route through LUCID's SOCKS5 proxy if the user has one configured for
+    # Route through Lightfall's SOCKS5 proxy if the user has one configured for
     # this URL. *.lbl.gov hosts are typically only reachable via the proxy
     # from off-network. ProxySettingsProvider is GUI-side; the lazy import
     # keeps this module usable from headless executors that have no

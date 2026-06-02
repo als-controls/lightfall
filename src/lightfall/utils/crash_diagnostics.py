@@ -1,4 +1,4 @@
-"""Crash diagnostics for LUCID.
+"""Crash diagnostics for Lightfall.
 
 Hardens the application against silent native crashes by capturing as much
 context as possible at fault time:

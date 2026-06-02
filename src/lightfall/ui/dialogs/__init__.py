@@ -1,4 +1,4 @@
-"""UI dialogs for LUCID.
+"""UI dialogs for Lightfall.
 
 This module provides modal dialogs for the application.
 """

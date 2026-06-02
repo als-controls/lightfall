@@ -1,7 +1,7 @@
 """Plan design skill plugin.
 
 Provides Claude with expertise for designing Bluesky plans with
-LUCID UI annotations for procedural UI generation.
+Lightfall UI annotations for procedural UI generation.
 
 Full API documentation is shipped as references/plan_design.md alongside
 the SKILL.md and surfaced lazily by the SDK's deferred Skill tool.
@@ -21,7 +21,7 @@ class PlanDesignAgent(AgentPlugin):
     This skill provides Claude with deep expertise for:
     - Bluesky plan_stubs (bps) for low-level building blocks
     - Standard Bluesky plans (bp) for high-level scan patterns
-    - LUCID UI annotations for procedural UI generation
+    - Lightfall UI annotations for procedural UI generation
     - Best practices for plan composition and error handling
 
     Full API documentation is in references/plan_design.md (loaded by
@@ -41,7 +41,7 @@ class PlanDesignAgent(AgentPlugin):
     @property
     def description(self) -> str:
         """Return description of this skill's capabilities."""
-        return "Expertise in designing Bluesky plans with LUCID UI annotations"
+        return "Expertise in designing Bluesky plans with Lightfall UI annotations"
 
     @property
     def category(self) -> str:
@@ -62,7 +62,7 @@ class PlanDesignAgent(AgentPlugin):
         """Return brief hint for system prompt (full docs are on-demand)."""
         return """## Bluesky Plan Design
 
-Expert at designing Bluesky plans for LUCID with UI annotations.
+Expert at designing Bluesky plans for Lightfall with UI annotations.
 
 **See `references/plan_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
 - `bluesky.plan_stubs` (bps.*) - movement, timing, reading stubs

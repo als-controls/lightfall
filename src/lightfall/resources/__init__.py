@@ -1,4 +1,4 @@
-"""LUCID application resources.
+"""Lightfall application resources.
 
 This package contains static assets like images and icons.
 Use the helper functions to load resources in a platform-independent way.
@@ -31,7 +31,7 @@ def get_resource_path(filename: str) -> Path:
 
 
 def get_logo_pixmap(size: int | None = None) -> QPixmap:
-    """Get the LUCID logo as a QPixmap.
+    """Get the Lightfall logo as a QPixmap.
 
     Args:
         size: Optional size to scale the logo to (maintains aspect ratio).
@@ -83,7 +83,7 @@ _app_icon: QIcon | None = None
 
 
 def get_app_icon() -> QIcon:
-    """Get the LUCID application icon.
+    """Get the Lightfall application icon.
 
     Uses .ico format on Windows for best taskbar compatibility,
     .png on other platforms.

@@ -6,7 +6,7 @@ service name. Existing call sites (``KeycloakTiledAuth()``, ``isinstance(x,
 KeycloakTiledAuth)``, subclassing) all keep working.
 
 This shim WILL be deleted in the auth cleanup plan once no in-tree code
-imports the old name. Internal LUCID code should import ServiceKeyAuth
+imports the old name. Internal Lightfall code should import ServiceKeyAuth
 from lightfall.auth.service_key_auth directly going forward.
 """
 from __future__ import annotations

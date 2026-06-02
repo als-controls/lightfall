@@ -125,7 +125,7 @@ class TrustDialog(QDialog):
 
         version_str = f" v{app_version}" if app_version else ""
         message = (
-            f"{app_name}{version_str} wants to connect to LUCID.\n"
+            f"{app_name}{version_str} wants to connect to Lightfall.\n"
             "Trust this application for this session?"
         )
         label = QLabel(message)

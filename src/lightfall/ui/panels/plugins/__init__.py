@@ -25,7 +25,7 @@ __all__ = [
     "LogbookPanelPlugin",
 ]
 
-# Claude panel (built into LUCID)
+# Claude panel (built into Lightfall)
 try:
     from lightfall.ui.panels.plugins.claude_plugin import ClaudePanelPlugin  # noqa: F401
 

@@ -1,6 +1,6 @@
 """CA search relay for remote EPICS access through SSH tunnels.
 
-When LUCID connects to a remote CA Gateway via SSH tunnel, caproto
+When Lightfall connects to a remote CA Gateway via SSH tunnel, caproto
 needs UDP for PV name search — but SSH only tunnels TCP. This service
 relays UDP CA search requests to the gateway over a persistent TCP
 connection, rewrites FOUND responses to point at localhost, and

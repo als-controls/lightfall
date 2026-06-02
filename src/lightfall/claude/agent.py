@@ -105,7 +105,7 @@ You also have general Qt inspection and interaction tools as a fallback:
 - find_widget: Locate widgets by object name
 - click_widget: Click buttons and interactive widgets
 - type_text: Enter text into input fields
-- get_recent_logs: Read recent log records from the running LUCID process. Use this when something unexpected happened outside your own tool calls (e.g., a panel didn't update as expected, a plan failed, a device went offline). Defaults to WARNING+ in the last two minutes; widen the filter (e.g., level="DEBUG", since_seconds=600) only when narrower scopes don't surface the issue.
+- get_recent_logs: Read recent log records from the running Lightfall process. Use this when something unexpected happened outside your own tool calls (e.g., a panel didn't update as expected, a plan failed, a device went offline). Defaults to WARNING+ in the last two minutes; widen the filter (e.g., level="DEBUG", since_seconds=600) only when narrower scopes don't surface the issue.
 
 ## Tool Selection Guidelines
 
@@ -121,7 +121,7 @@ You also have general Qt inspection and interaction tools as a fallback:
 
 ## Plan Execution Tools
 
-You have tools for running Bluesky plans in the LUCID RunEngine:
+You have tools for running Bluesky plans in the Lightfall RunEngine:
 
 - **ncs_list_plans**: List all registered plans (built-in + user plans). Use this FIRST to discover what's available and see parameter signatures. Optionally filter by category.
 - **ncs_run_plan**: Run a registered plan by name with parameters. Use this when the user wants to run a known plan (e.g., "run a scan", "do a count"). Resolves device names automatically.

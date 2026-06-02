@@ -1,4 +1,4 @@
-"""PanelDockWidget - QDockWidget specialized for LUCID panels.
+"""PanelDockWidget - QDockWidget specialized for Lightfall panels.
 
 Wraps panels in QDockWidget with proper icon, title, and feature
 configuration based on panel metadata.
@@ -129,7 +129,7 @@ class PanelTitleBar(QFrame):
 
 
 class PanelDockWidget(QDockWidget):
-    """QDockWidget specialized for LUCID panels.
+    """QDockWidget specialized for Lightfall panels.
 
     Wraps a BasePanel in a QDockWidget with:
     - Icon from panel metadata

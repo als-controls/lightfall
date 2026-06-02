@@ -268,9 +268,9 @@ class PlanToolsAgent(AgentPlugin):
 
         @tool(
             name="ncs_create_user_plan",
-            description="""Create a LUCID user plan from Python code.
+            description="""Create a Lightfall user plan from Python code.
 
-A valid LUCID plan file must:
+A valid Lightfall plan file must:
 - Be valid Python syntax
 - Export a callable named `plan` (generator function)
 - Include a module docstring describing the plan
@@ -278,7 +278,7 @@ A valid LUCID plan file must:
 
 ## Type Hints for UI Generation
 
-LUCID auto-generates parameter UI from type hints. Use `typing.Annotated` with
+Lightfall auto-generates parameter UI from type hints. Use `typing.Annotated` with
 annotations from `lightfall.ui.annotations` for proper device selection widgets.
 
 ### Required imports:
@@ -463,7 +463,7 @@ Plans are saved to ~/lightfall/plans/ and immediately available in the Plan Runn
 
         @tool(
             name="ncs_list_plans",
-            description="""List all registered plans available in the LUCID plan registry.
+            description="""List all registered plans available in the Lightfall plan registry.
 
 Returns plan names, categories, descriptions, and parameter signatures.
 Use this to discover what plans are available before running one with ncs_run_plan.
@@ -521,7 +521,7 @@ Optionally filter by category (e.g., "scan", "count", "alignment", "user").""",
 
         @tool(
             name="ncs_run_plan",
-            description="""Run a registered plan from the LUCID plan registry by name.
+            description="""Run a registered plan from the Lightfall plan registry by name.
 
 Use ncs_list_plans first to see available plans and their parameters.
 The plan is submitted to the RunEngine queue and executed asynchronously.
@@ -621,7 +621,7 @@ Example:
 
         @tool(
             name="ncs_run_plan_code",
-            description="""Run arbitrary Python code as a Bluesky plan in the LUCID RunEngine.
+            description="""Run arbitrary Python code as a Bluesky plan in the Lightfall RunEngine.
 
 The code string is executed in an isolated namespace with common imports available.
 The code MUST define a generator (using yield from) that produces Bluesky messages.

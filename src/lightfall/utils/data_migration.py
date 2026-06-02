@@ -1,4 +1,4 @@
-"""One-time migration of the user data directory from the legacy LUCID name."""
+"""One-time migration of the user data directory from the legacy Lightfall name."""
 from __future__ import annotations
 
 from pathlib import Path

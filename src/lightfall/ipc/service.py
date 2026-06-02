@@ -1,4 +1,4 @@
-"""NATS-based IPC service for LUCID.
+"""NATS-based IPC service for Lightfall.
 
 Provides a Qt-integrated wrapper around nats-py that handles connection
 lifecycle, topic routing, pub/sub, and request/reply patterns.

@@ -175,7 +175,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>LUCID - {title}</title>
+    <title>Lightfall - {title}</title>
     <meta charset="utf-8">
     <style>
         * {{
@@ -235,7 +235,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         <div class="icon">{icon}</div>
         <h1>{title}</h1>
         <p class="message">{message}</p>
-        <p class="hint" id="close-hint">You can close this tab and return to LUCID.</p>
+        <p class="hint" id="close-hint">You can close this tab and return to Lightfall.</p>
     </div>
     <script>
         // Try to close the window after a brief delay

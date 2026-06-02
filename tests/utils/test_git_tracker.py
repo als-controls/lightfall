@@ -56,7 +56,7 @@ def test_ensure_repo_sets_local_identity(tracker, repo_root):
     email = _git(repo_root, "config", "--local", "user.email")
     name = _git(repo_root, "config", "--local", "user.name")
     assert email == "lightfall-agent@als.lbl.gov"
-    assert name == "LUCID Agent"
+    assert name == "Lightfall Agent"
 
 
 def test_ensure_repo_preserves_partial_existing_local_identity(repo_root):
@@ -72,7 +72,7 @@ def test_ensure_repo_preserves_partial_existing_local_identity(repo_root):
     tracker.ensure_repo()
     assert _git(repo_root, "config", "--local", "user.email") == "staff@als.lbl.gov"
     # name should now be the default
-    assert _git(repo_root, "config", "--local", "user.name") == "LUCID Agent"
+    assert _git(repo_root, "config", "--local", "user.name") == "Lightfall Agent"
 
 
 def test_commit_creates_commit_with_message(tracker, repo_root):

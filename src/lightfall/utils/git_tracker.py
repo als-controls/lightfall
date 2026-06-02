@@ -26,7 +26,7 @@ class GitTracker:
     _lock = threading.RLock()
 
     DEFAULT_USER_EMAIL = "lightfall-agent@als.lbl.gov"
-    DEFAULT_USER_NAME = "LUCID Agent"
+    DEFAULT_USER_NAME = "Lightfall Agent"
 
     def __init__(self, repo_root: Path | None = None) -> None:
         self.repo_root = (
@@ -72,11 +72,11 @@ class GitTracker:
             return False
 
     def _ensure_local_identity(self) -> None:
-        """Set local user.email/name to the LUCID Agent identity if not already configured locally.
+        """Set local user.email/name to the Lightfall Agent identity if not already configured locally.
 
         Intentionally ignores any global git identity. The §4 paper claim is
         that agent-produced changes in ``~/lightfall/`` are attributable to
-        "LUCID Agent" -- allowing the developer's global identity to leak
+        "Lightfall Agent" -- allowing the developer's global identity to leak
         through would muddy that forensic record. A user who deliberately
         sets a different *local* identity via ``git config --local`` is
         still respected.

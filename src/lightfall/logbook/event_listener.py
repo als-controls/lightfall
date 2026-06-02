@@ -1,7 +1,7 @@
 """
 Event-based fragment injection service.
 
-Listens to LUCID system events (device changes, RunEngine documents) and
+Listens to Lightfall system events (device changes, RunEngine documents) and
 creates readonly fragments in the current logbook entry via ``LogbookClient``.
 """
 
@@ -16,7 +16,7 @@ from lightfall.utils.logging import logger
 
 
 class EventListener(QObject):
-    """Singleton that bridges LUCID events → logbook readonly fragments.
+    """Singleton that bridges Lightfall events → logbook readonly fragments.
 
     Call :meth:`start` after the ``LogbookClient`` is initialised.
 

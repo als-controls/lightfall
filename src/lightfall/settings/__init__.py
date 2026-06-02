@@ -1,1 +1,1 @@
-"""User-scoped settings (server-backed) for LUCID."""
+"""User-scoped settings (server-backed) for Lightfall."""

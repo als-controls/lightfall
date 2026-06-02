@@ -1,4 +1,4 @@
-"""PipelineClient - LUCID-side client for the lightfall-pipelines NATS service.
+"""PipelineClient - Lightfall-side client for the lucid-pipelines NATS service.
 
 Responsibilities:
 - Read the cached Tiled API key from SessionManager (auth-v2 minted at login).
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class PipelineClient(QObject):
-    """In-process LUCID client; pairs 1:1 with a running `lightfall-pipelines` executor.
+    """In-process Lightfall client; pairs 1:1 with a running `lucid-pipelines` executor.
 
     `host` is the executor hostname; subjects are built as
     `lightfall.pipeline.{host}[.suffix]`.

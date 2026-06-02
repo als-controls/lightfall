@@ -1,4 +1,4 @@
-"""User interface components for LUCID.
+"""User interface components for Lightfall.
 
 This package provides:
 - Main window and common UI components

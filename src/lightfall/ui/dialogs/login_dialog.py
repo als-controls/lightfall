@@ -1,4 +1,4 @@
-"""Login dialog for LUCID authentication.
+"""Login dialog for Lightfall authentication.
 
 Provides a modal dialog for users to authenticate via Keycloak
 or a local development account.
@@ -150,7 +150,7 @@ class LoginDialog(LucidDialog):
                 "or continue as a guest with limited access."
             )
         else:
-            header_text = "Welcome to LUCID"
+            header_text = "Welcome to Lightfall"
             default_message = (
                 "Please log in to access all features, or continue as a guest "
                 "with limited access."

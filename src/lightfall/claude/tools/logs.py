@@ -43,7 +43,7 @@ def create_logs_tool():
     @tool(
         name="get_recent_logs",
         description=(
-            "Read recent log records captured from the running LUCID process. "
+            "Read recent log records captured from the running Lightfall process. "
             "Useful for investigating something unexpected that happened outside "
             "your own tool calls (background tasks, plan execution, device IO, "
             "Qt event handlers). The buffer holds the most recent records at "

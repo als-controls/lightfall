@@ -33,7 +33,7 @@ the response on the friendly id from the public call so that even if the
 schedule endpoint were ever to return more than one event, only the one
 matching "current" leaks out.
 
-LUCID's production stamper (:mod:`lightfall.services.access_stamper`) consumes the
+Lightfall's production stamper (:mod:`lightfall.services.access_stamper`) consumes the
 same public endpoint to build the ``access_blob`` injected into every Bluesky
 run-start document. This skill surfaces the same lookup to the embedded
 Claude agent for interactive queries, logbook annotation, and debugging the
@@ -87,18 +87,18 @@ def _read_alshub_api_key() -> str | None:
 
     Lookup order:
 
-    1. ``tiled_alshub_api_key`` preference (the LUCID-native channel).
+    1. ``tiled_alshub_api_key`` preference (the Lightfall-native channel).
     2. ``ALSHUB_API_KEY`` environment variable (the ops-friendly channel —
        set in shell profile, systemd unit, deployment script, etc.).
     3. Best-effort regex parse of ``~/.bashrc`` (defensive fallback for
-       operators who put the key in their shell profile but launched LUCID
+       operators who put the key in their shell profile but launched Lightfall
        from a non-interactive shell that didn't source it). Reads only;
        never writes the key anywhere.
 
     Returns ``None`` if no key is configured. Callers must treat ``None``
     as "use the public endpoint only" rather than fabricating a request.
     """
-    # 1. Preferences (LUCID-native channel)
+    # 1. Preferences (Lightfall-native channel)
     try:
         from lightfall.ui.preferences.manager import PreferencesManager
         prefs = PreferencesManager.get_instance()
@@ -131,7 +131,7 @@ def _read_alshub_api_key() -> str | None:
 def _resolve_alshub_proxy(alshub_url: str) -> str | None:
     """Resolve the configured proxy (if any) for ``alshub_url``.
 
-    Honors LUCID's shared Network Proxy settings — the same lookup
+    Honors Lightfall's shared Network Proxy settings — the same lookup
     ``tiled_service`` uses when constructing the production ``AlshubClient``.
     Returns ``None`` when no proxy applies, ``str`` URL otherwise.
     """
@@ -221,7 +221,7 @@ async def _fetch_active_esaf_full(
 
 class CurrentEsafAgent(AgentPlugin):
     """Skill telling the embedded Claude agent how to retrieve the ESAF that
-    is active *right now* at the beamline configured in LUCID's Tiled
+    is active *right now* at the beamline configured in Lightfall's Tiled
     settings.
 
     Contributes one MCP tool (``get_current_esaf``) plus a system-prompt
@@ -313,7 +313,7 @@ constraint is structural, not stylistic.
 
 This skill always operates on whatever beamline is currently set in
 `Preferences → Tiled → Beamline`. To use it at a different beamline,
-change the preference (or restart LUCID against a different config) —
+change the preference (or restart Lightfall against a different config) —
 the tool itself never accepts a beamline parameter.
 """
 
@@ -330,7 +330,7 @@ the tool itself never accepts a beamline parameter.
             name="get_current_esaf",
             description=(
                 "Return the ESAF active RIGHT NOW at the beamline configured "
-                "in LUCID's Tiled preferences. Calls alshub-api and returns "
+                "in Lightfall's Tiled preferences. Calls alshub-api and returns "
                 "the lean ActiveEsaf payload by default, or the full Event "
                 "with PI/Participants/Description if include_details=True. "
                 "Returns null when no ESAF is scheduled at this instant. "

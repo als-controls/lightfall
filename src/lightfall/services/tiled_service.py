@@ -722,7 +722,7 @@ class TiledService(QObject):
                 prefs = PreferencesManager.get_instance()
                 beamline = prefs.get("tiled_beamline", None) or None
                 alshub_url = prefs.get("tiled_alshub_url", None) or None
-                # Honor LUCID's shared Network Proxy settings (global on/off
+                # Honor Lightfall's shared Network Proxy settings (global on/off
                 # plus auto-detect for *.lbl.gov). Returns None when no proxy
                 # is configured for this URL.
                 alshub_proxy = (
@@ -730,7 +730,7 @@ class TiledService(QObject):
                     if alshub_url else None
                 )
                 if beamline and alshub_url:
-                    # `engine` here is LUCID's BaseEngine wrapper. The bluesky
+                    # `engine` here is Lightfall's BaseEngine wrapper. The bluesky
                     # RunEngine that actually executes plans (and reads
                     # `.preprocessors`) lives at `engine.RE`. Installing on the
                     # wrapper would silently no-op because `wrapper(plan)` calls
@@ -910,7 +910,7 @@ def _install_tiled_stream_ws_proxy_patch() -> None:
 
     Tiled's stream Subscription._connect uses websockets.sync.client.connect,
     which doesn't honor SOCKS proxies (it only supports HTTP-CONNECT proxies
-    via env vars). LUCID's REST path goes through SOCKS via
+    via env vars). Lightfall's REST path goes through SOCKS via
     TiledService._patch_tiled_for_proxy, so without this WS-side patch a user
     outside the LBL network sees REST work and WS time out — which leaks
     Tiled-issued ephemeral apikeys (each WS attempt mints one and revokes
@@ -968,5 +968,5 @@ def _install_tiled_stream_ws_proxy_patch() -> None:
 
 
 # Eagerly install at module import time so any Tiled stream connection in
-# this process honors LUCID's proxy configuration regardless of when it fires.
+# this process honors Lightfall's proxy configuration regardless of when it fires.
 _install_tiled_stream_ws_proxy_patch()

@@ -1,11 +1,11 @@
-"""httpx.Auth adapters for LUCID's per-service API keys.
+"""httpx.Auth adapters for Lightfall's per-service API keys.
 
 ServiceKeyAuth pulls the current API key from SessionManager's cache on
-every request — used by in-process consumers (LUCID's own data-browser,
+every request — used by in-process consumers (Lightfall's own data-browser,
 RE callback writers, etc.) that share the singleton SessionManager.
 
 StaticApiKeyAuth captures a literal secret at construction time — used by
-out-of-process consumers (lightfall.exporter executor, lightfall-pipelines
+out-of-process consumers (lightfall.exporter executor, lucid-pipelines
 executor, tsuchinoko executor) that receive the key in their NATS job
 payload and have no SessionManager singleton.
 

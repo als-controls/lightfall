@@ -169,7 +169,7 @@ class DevicePanel(BasePanel):
         """Apply a change to device_favorites from the preference layer.
 
         Fires when the user-portable backend's post-login refresh learns
-        the user's saved list (or when another LUCID instance updates it
+        the user's saved list (or when another Lightfall instance updates it
         once cross-instance notifications are wired up). The manager
         rewrites a user-portable None into the local fallback for this
         key, so a list (possibly empty) always arrives here.

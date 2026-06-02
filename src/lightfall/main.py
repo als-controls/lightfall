@@ -1,4 +1,4 @@
-"""Main entry point for the LUCID application."""
+"""Main entry point for the Lightfall application."""
 
 from __future__ import annotations
 
@@ -553,7 +553,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     any UI is shown.
 
     Args:
-        app: The LUCID application instance.
+        app: The Lightfall application instance.
     """
     from lightfall.plugins import AgentPlugin, PluginLoader, PluginRegistry
     from lightfall.plugins.builtin_manifest import builtin_manifest
@@ -614,7 +614,7 @@ def _setup_user_plugins(app: NCSApplication) -> None:
     files do not need explicit Registry.register() calls.
 
     Args:
-        app: The LUCID application instance.
+        app: The Lightfall application instance.
     """
     from lightfall.plugins.user_plugins import UserPluginService
 
@@ -673,7 +673,7 @@ def _show_startup_login(window: NCSMainWindow) -> None:
     # Create dialog without parent - gets its own taskbar entry
     dialog = LoginDialog(
         parent=None,
-        title="Welcome to LUCID",
+        title="Welcome to Lightfall",
         allow_guest=True,
         show_on_expiry=False,
     )
@@ -864,7 +864,7 @@ def _setup_default_panels(window: NCSMainWindow) -> None:
 
 
 def main() -> int:
-    """Run the LUCID application.
+    """Run the Lightfall application.
 
     Returns:
         Exit code (0 for success, non-zero for errors).

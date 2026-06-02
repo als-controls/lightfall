@@ -46,7 +46,7 @@ except ImportError as _exc:
 try:
     from tsuchinoko.adaptive.random_in_process import RandomInProcess
     from tsuchinoko.core import Core, CoreState
-    from tsuchinoko.execution.lightfall import LUCIDEngine
+    from tsuchinoko.execution.lucid import LUCIDEngine
     from tsuchinoko.nats.client import NATSClient
     from tsuchinoko.nats.config import NATSConfig
     from tsuchinoko.tiled.reader import TiledReader

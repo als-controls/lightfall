@@ -2,7 +2,7 @@
 
 The TiledWriter makes synchronous HTTP calls which can block the UI during
 scans. This wrapper queues documents and processes them in a background
-QThreadFuture, integrating with LUCID's ThreadManager for lifecycle
+QThreadFuture, integrating with Lightfall's ThreadManager for lifecycle
 management and monitoring.
 """
 
@@ -26,7 +26,7 @@ class ThreadedTiledWriter:
 
     Queues incoming documents and processes them in a background
     QThreadFuture, preventing HTTP calls from blocking the main thread.
-    The thread is registered with LUCID's ThreadManager for visibility
+    The thread is registered with Lightfall's ThreadManager for visibility
     in the threads monitoring panel.
 
     The wrapper implements the Bluesky callback protocol (__call__) so it

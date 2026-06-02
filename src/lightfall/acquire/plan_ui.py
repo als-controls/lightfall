@@ -1,6 +1,6 @@
 """Plan UI framework — plans can embed runtime UI widgets.
 
-Plans opt in by decorating with @plan_with_ui(UIClass). When LUCID's
+Plans opt in by decorating with @plan_with_ui(UIClass). When Lightfall's
 Plans panel submits such a plan, it creates a UI widget and shows it as
 a tab in the panel. The plan and UI share state via a module-level
 PlanState instance that the plan module defines.

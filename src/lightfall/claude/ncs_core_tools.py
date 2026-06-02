@@ -1,6 +1,6 @@
-"""Built-in LUCID MCP tools for Claude assistant.
+"""Built-in Lightfall MCP tools for Claude assistant.
 
-Provides core tools for interacting with the LUCID application:
+Provides core tools for interacting with the Lightfall application:
 - Panel management (list, open, close, get info)
 - Panel action invocation
 - Application introspection
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class NCSCoreToolPlugin(AgentPlugin):
-    """Built-in tools for LUCID panel and window interaction.
+    """Built-in tools for Lightfall panel and window interaction.
 
     This plugin provides core tools that are always available:
     - list_panels: List available and open panels
@@ -30,7 +30,7 @@ class NCSCoreToolPlugin(AgentPlugin):
     - get_application_info: Get application state information
 
     These tools allow Claude to understand and interact with the
-    LUCID application structure.
+    Lightfall application structure.
     """
 
     def __init__(self) -> None:
@@ -64,7 +64,7 @@ class NCSCoreToolPlugin(AgentPlugin):
     @property
     def description(self) -> str:
         """Plugin description."""
-        return "Core LUCID application interaction tools"
+        return "Core Lightfall application interaction tools"
 
     @property
     def tool_description(self) -> str:
@@ -335,7 +335,7 @@ class NCSCoreToolPlugin(AgentPlugin):
 
         @tool(
             name="ncs_get_application_info",
-            description="Get overall LUCID application state including window info, theme, user, and authentication state",
+            description="Get overall Lightfall application state including window info, theme, user, and authentication state",
             input_schema={
                 "type": "object",
                 "properties": {},

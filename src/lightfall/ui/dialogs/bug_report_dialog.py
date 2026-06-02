@@ -1,4 +1,4 @@
-"""Bug report dialog for LUCID.
+"""Bug report dialog for Lightfall.
 
 Allows users to submit bug reports to Sentry/GlitchTip with optional
 error context from recent errors.

@@ -1,4 +1,4 @@
-"""Logging abstraction module for LUCID.
+"""Logging abstraction module for Lightfall.
 
 Provides centralized logging configuration and timing utilities built on loguru.
 """
@@ -50,7 +50,7 @@ def _third_party_filter(record: Record) -> bool:
 
 
 def _default_format(record: Record) -> str:
-    """Default log format for LUCID."""
+    """Default log format for Lightfall."""
     level_colors = {
         "TRACE": "dim",
         "DEBUG": "cyan",
@@ -80,7 +80,7 @@ def configure_logging(
     colorize: bool = True,
     format_string: str | None = None,
 ) -> None:
-    """Configure logging for the LUCID application.
+    """Configure logging for the Lightfall application.
 
     This should be called once at application startup. Subsequent calls
     will reconfigure logging.

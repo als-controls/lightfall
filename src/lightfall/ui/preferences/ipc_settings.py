@@ -47,7 +47,7 @@ class IPCSettingsPlugin(SettingsPlugin):
     Preferences keys:
     - ``ipc_nats_url``: str — NATS broker URL
     - ``ipc_topic_prefix``: str — topic prefix for all published messages
-    - ``ipc_display_name``: str — human-readable name for this LUCID instance
+    - ``ipc_display_name``: str — human-readable name for this Lightfall instance
     """
 
     def __init__(self) -> None:

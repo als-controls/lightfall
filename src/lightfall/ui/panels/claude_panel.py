@@ -1,7 +1,7 @@
-"""Claude Assistant Panel for LUCID.
+"""Claude Assistant Panel for Lightfall.
 
 Provides an embedded Claude AI assistant with MCP tools for
-interacting with the LUCID application.
+interacting with the Lightfall application.
 """
 
 from __future__ import annotations
@@ -452,16 +452,16 @@ class ClaudePanel(BasePanel):
         user_context = f"\nThe current logged-in user is: {user_name}\n" if user_name else ""
 
         base_prompt = """
-You are an AI assistant integrated with LUCID, a scientific beamline controls and data acquisition platform at the Advanced Light Source.
+You are an AI assistant integrated with Lightfall, a scientific beamline controls and data acquisition platform at the Advanced Light Source.
 """ + user_context + """
 
 ## Tool Selection Guidelines
 
-1. **Prefer LUCID domain tools** — use these FIRST for any task they cover. They understand the application and can act directly.
+1. **Prefer Lightfall domain tools** — use these FIRST for any task they cover. They understand the application and can act directly.
 2. **Qt inspection tools as fallback** — screenshot, get_widget_tree, find_widget, click_widget, type_text. Use these only when domain tools don't cover what you need (unfamiliar UI, debugging, user asks to inspect the interface).
 3. **Avoid unnecessary exploration** — don't take screenshots or inspect widget trees unless you need that information.
 
-## LUCID Tools
+## Lightfall Tools
 
 ### Panel Management
 - ncs_list_panels — See available panels and what's currently open
@@ -538,7 +538,7 @@ If Tiled is off, run data cannot be retrieved programmatically.
 - Logbook panel: Records experiment notes and actions
 
 ## RunEngine (CRITICAL)
-LUCID has a built-in shared RunEngine. **NEVER create a new RunEngine.**
+Lightfall has a built-in shared RunEngine. **NEVER create a new RunEngine.**
 Access it via:
 ```python
 from lightfall.acquire import get_engine

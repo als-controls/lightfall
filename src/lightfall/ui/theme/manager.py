@@ -1,4 +1,4 @@
-"""Theme manager for LUCID application theming.
+"""Theme manager for Lightfall application theming.
 
 Provides application-wide theme control with support for:
 - Light, dark, and system-following modes

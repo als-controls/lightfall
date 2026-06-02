@@ -5,7 +5,7 @@ Used at write time to look up the active ESAF for a beamline. The
 key required), so this client only needs the base URL and an optional
 proxy.
 
-The proxy hook exists for development setups where the LUCID host is
+The proxy hook exists for development setups where the Lightfall host is
 off the LBL network and reaches ``*.lbl.gov`` through a SOCKS proxy
 (typically ``socks5h://localhost:1080``). Beamline workstations inside
 the LBL network leave it empty — direct access works.

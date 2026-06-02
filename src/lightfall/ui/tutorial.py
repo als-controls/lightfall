@@ -1,7 +1,7 @@
 """Tutorial overlay system for guided user onboarding.
 
 Provides an interactive tutorial mode that highlights widgets in sequence,
-guiding users through the LUCID interface with:
+guiding users through the Lightfall interface with:
 - Dimmed overlay with spotlight cutout around target widgets
 - Callout popups with step instructions and navigation
 - Smooth animated transitions between steps
@@ -808,7 +808,7 @@ class TutorialManager(QObject):
 
 
 def _build_welcome_tutorial() -> Tutorial:
-    """Build the default 'Welcome to LUCID' tutorial."""
+    """Build the default 'Welcome to Lightfall' tutorial."""
 
     def _find_sidebar() -> QWidget | None:
         window = _find_main_window()
@@ -886,8 +886,8 @@ def _build_welcome_tutorial() -> Tutorial:
 
     return Tutorial(
         id="welcome",
-        name="Welcome to LUCID",
-        description="A quick tour of the LUCID interface.",
+        name="Welcome to Lightfall",
+        description="A quick tour of the Lightfall interface.",
         steps=[
             # ── Intro ──────────────────────────────────────────────
             TutorialStep(

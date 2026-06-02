@@ -1,4 +1,4 @@
-"""Core infrastructure for the LUCID application."""
+"""Core infrastructure for the Lightfall application."""
 
 from lightfall.core.application import (
     ApplicationState,

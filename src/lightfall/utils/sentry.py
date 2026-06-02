@@ -1,4 +1,4 @@
-"""Sentry error reporting integration for LUCID.
+"""Sentry error reporting integration for Lightfall.
 
 Provides centralized error reporting to Sentry with automatic exception capture,
 loguru integration, and context enrichment for Qt applications.

@@ -1,7 +1,7 @@
 """Panel design skill plugin.
 
 Provides Claude with expertise for designing BasePanel subclasses
-for the LUCID application. This skill teaches the full panel API
+for the Lightfall application. This skill teaches the full panel API
 including metadata, lifecycle, state management, and self-registration.
 
 Full API documentation is shipped as references/panel_design.md alongside
@@ -17,7 +17,7 @@ from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class PanelDesignAgent(AgentPlugin):
-    """Skill for designing LUCID panel plugins.
+    """Skill for designing Lightfall panel plugins.
 
     This skill provides Claude with deep expertise for:
     - BasePanel lifecycle and API
@@ -43,7 +43,7 @@ class PanelDesignAgent(AgentPlugin):
     @property
     def description(self) -> str:
         """Return description of this skill's capabilities."""
-        return "Expertise in designing LUCID panel plugins with self-registration"
+        return "Expertise in designing Lightfall panel plugins with self-registration"
 
     @property
     def category(self) -> str:
@@ -62,9 +62,9 @@ class PanelDesignAgent(AgentPlugin):
 
     def get_brief_description(self) -> str:
         """Return brief hint for system prompt (full docs are on-demand)."""
-        return """## LUCID Panel Design
+        return """## Lightfall Panel Design
 
-Expert at designing Qt panel plugins for LUCID with self-registration.
+Expert at designing Qt panel plugins for Lightfall with self-registration.
 
 **See `references/panel_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
 - `PanelMetadata` - id, name, category, docking preferences

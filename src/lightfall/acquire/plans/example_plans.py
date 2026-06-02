@@ -1,6 +1,6 @@
-"""Example plans translated from Xi-CAM to use LUCID annotations.
+"""Example plans translated from Xi-CAM to use Lightfall annotations.
 
-These plans demonstrate the use of Annotated type hints with LUCID's
+These plans demonstrate the use of Annotated type hints with Lightfall's
 annotation metadata classes for procedural UI generation.
 
 Usage:

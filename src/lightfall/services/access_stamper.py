@@ -82,7 +82,7 @@ class AccessStamper:
         """Pull (orcid, keycloak_sub) from the Keycloak session.
 
         Decoded JWT claims live on ``session.user.attributes``, populated by
-        LUCID's Keycloak provider at login. ``orcid`` is only present if the
+        Lightfall's Keycloak provider at login. ``orcid`` is only present if the
         Keycloak realm is configured to emit it; ``sub`` is always present
         in any Keycloak token.
         """

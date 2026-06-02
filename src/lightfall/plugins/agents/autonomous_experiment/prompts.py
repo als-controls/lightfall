@@ -12,10 +12,10 @@ Do not improvise around it — each step relies on the previous one.
 
 Load gpCAM's `experiment-designer` skill from this plugin's references
 and follow its conversation flow. If you cannot see that skill, gpCAM
-is not installed in LUCID's environment — tell the user:
+is not installed in Lightfall's environment — tell the user:
 
 > "I can't see the gpCAM design skills. Install gpCAM with
-> `pip install gpcam` in the LUCID environment and restart LUCID,
+> `pip install gpcam` in the Lightfall environment and restart Lightfall,
 > then ask me again."
 
 …and stop. Do not proceed with `tsuchinoko_*` tools before the user
@@ -142,7 +142,7 @@ For textual progress, call `tsuchinoko_status()`.
 
 `tsuchinoko_pause()`, `tsuchinoko_resume()`, `tsuchinoko_stop()` —
 each takes no arguments. Use `tsuchinoko_stop()` to finalise the
-experiment from the Tsuchinoko side; the LUCID plan exits cleanly
+experiment from the Tsuchinoko side; the Lightfall plan exits cleanly
 when targets stop arriving (configurable timeout).
 
 ### Constraints

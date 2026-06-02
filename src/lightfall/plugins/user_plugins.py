@@ -185,7 +185,7 @@ class UserPluginService(QObject):
             # Skip per-file commits on bulk startup load: each commit costs
             # 2 subprocess calls (git add + git diff --cached --quiet) even
             # when the file is unchanged. With 50 staff plugins that's 100
-            # subprocesses fired on every LUCID startup. The hot-reload
+            # subprocesses fired on every Lightfall startup. The hot-reload
             # watcher and explicit edits still commit normally.
             success = self.load_plugin_from_file(py_file, _skip_commit=True)
             error = None

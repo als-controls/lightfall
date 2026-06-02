@@ -54,7 +54,7 @@ class PermissionManager(QObject):
         "mcp__qt__get_widget_tree",
         "mcp__qt__find_widget",
         "mcp__qt__get_recent_logs",
-        # Read-only LUCID tools (per-plugin namespaces after SDK-native migration).
+        # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).
         # NCSCoreToolPlugin is manifest-driven via AgentRegistry (ncs_core_tools server).
         "mcp__ncs_core_tools__ncs_list_panels",
         "mcp__ncs_core_tools__ncs_get_panel_info",

@@ -1,4 +1,4 @@
-"""About dialog for LUCID.
+"""About dialog for Lightfall.
 
 Displays application information, version, and branding.
 """
@@ -20,7 +20,7 @@ from lightfall.utils.logging import logger
 
 
 class AboutDialog(LucidDialog):
-    """About dialog showing LUCID branding and version information.
+    """About dialog showing Lightfall branding and version information.
 
     Displays the logo, application name, description, and version.
     """
@@ -32,7 +32,7 @@ class AboutDialog(LucidDialog):
             parent: Parent widget.
         """
         super().__init__(parent)
-        self.setWindowTitle("About LUCID")
+        self.setWindowTitle("About Lightfall")
         self.setModal(True)
         self.setFixedWidth(400)
         self._setup_ui()

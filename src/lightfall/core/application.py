@@ -203,7 +203,7 @@ class NCSApplication(QObject):
 
         # Configure logging first
         configure_logging(level=log_level, log_file=log_file)
-        logger.info("Initializing LUCID application")
+        logger.info("Initializing Lightfall application")
 
         # NOTE: Windows AppUserModelID is set in main.py BEFORE any Qt imports.
         # It must be called before COM/Qt initialization for taskbar icon to work.
@@ -240,7 +240,7 @@ class NCSApplication(QObject):
         self._register_core_services(config_paths)
 
         self._set_state(ApplicationState.READY)
-        logger.info("LUCID application initialized")
+        logger.info("Lightfall application initialized")
 
     def _register_core_services(
         self, config_paths: list[Path | str] | None = None
@@ -680,7 +680,7 @@ class NCSApplication(QObject):
             return
 
         self._set_state(ApplicationState.SHUTTING_DOWN)
-        logger.info("Shutting down LUCID application")
+        logger.info("Shutting down Lightfall application")
 
         # Stop IPC service before clearing the registry
         try:
@@ -694,7 +694,7 @@ class NCSApplication(QObject):
         self._services.clear()
 
         self._set_state(ApplicationState.TERMINATED)
-        logger.info("LUCID application terminated")
+        logger.info("Lightfall application terminated")
 
     def quit(self, exit_code: int = 0) -> None:
         """

@@ -1,5 +1,5 @@
 """
-lightfall.claude - Qt/PySide6 integration with Claude Agent SDK (part of LUCID).
+lightfall.claude - Qt/PySide6 integration with Claude Agent SDK (part of Lightfall).
 
 This package enables Claude AI to interact with Qt applications through:
 - Visual understanding (screenshots)

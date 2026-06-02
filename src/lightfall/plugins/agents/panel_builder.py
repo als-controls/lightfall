@@ -16,7 +16,7 @@ from lightfall.utils.logging import logger
 
 
 class PanelBuilderAgent(AgentPlugin):
-    """Skill for building LUCID plugins via MCP tools.
+    """Skill for building Lightfall plugins via MCP tools.
 
     This skill provides Claude with tools to:
     - Create user plugins (persistent or temporary)
@@ -60,7 +60,7 @@ class PanelBuilderAgent(AgentPlugin):
         return '''
 ## Plugin Building Tools
 
-You have access to tools for creating user plugins in LUCID.
+You have access to tools for creating user plugins in Lightfall.
 
 ### Plugin Kinds
 
@@ -200,7 +200,7 @@ ideas before committing to a persistent plugin.
 
         @tool(
             name="ncs_create_user_plugin",
-            description="""Create a LUCID user plugin from Python code.
+            description="""Create a Lightfall user plugin from Python code.
 
 The plugin will be written to ~/lightfall/plugins/ and automatically loaded.
 The kind of plugin is inferred from what `code` defines:
