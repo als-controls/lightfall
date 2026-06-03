@@ -134,10 +134,3 @@ ncs/
 └── tests/            # Test suite
 ```
 
-## License
-
-BSD-3-Clause
-
-## Acknowledgments
-
-Lightfall is developed by the Advanced Light Source Controls Team at Lawrence Berkeley National Laboratory.
