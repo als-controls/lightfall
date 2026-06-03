@@ -110,3 +110,4 @@ src/lightfall/logs/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/

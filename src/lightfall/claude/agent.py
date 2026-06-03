@@ -134,6 +134,20 @@ You have tools for running Bluesky plans in the Lightfall RunEngine:
 - "Do 3 scans with increasing range" → ncs_run_plan_code with a loop
 - "Create a plan I can reuse" → ncs_create_user_plan
 
+### Waiting for a scan to finish
+
+Use **ncs_wait_for_idle** whenever you need the engine to settle before doing
+follow-up work (fitting, summarising, kicking off a dependent plan). It blocks
+the tool call until the engine returns to IDLE, then optionally returns the
+most recent run's metadata in the same response (`include_last_run=True` by
+default), so you can pipe straight into `ncs_get_scan_data(uid=...)` without
+another round-trip. Prefer this over polling `ncs_get_run_status` in a loop,
+and **do not use `ScheduleWakeup` for this** — `ScheduleWakeup` currently does
+not fire in Lightfall's embedded Claude session, so any wakeup you schedule will
+silently drop and the conversation will stall waiting for the user to nudge
+you. `ncs_wait_for_idle` keeps the model suspended inside the tool call,
+which is the right pattern here.
+
 ## Qt Tool Notes
 - Widget object names (setObjectName) identify elements in the widget tree
 - Verify widgets exist and are enabled before interacting
@@ -169,6 +183,16 @@ class QtClaudeAgent(QObject):
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    question_requested = Signal(str, list)  # request_id, questions
+    # Partial streaming
+    partial_block_started = Signal(str, str)
+    partial_text = Signal(str, str)
+    partial_thinking = Signal(str, str)
+    partial_block_finished = Signal(str)
+    # Task tool subagent lifecycle
+    task_started = Signal(str, str, str)
+    task_progress = Signal(str, str, dict, str)
+    task_finished = Signal(str, str, str, str, dict)
 
     def __init__(
         self,
@@ -227,15 +251,21 @@ class QtClaudeAgent(QObject):
 
         # API key is now optional - CLI can authenticate via OAuth from `claude login`
 
-        # Setup permission manager for tool approval UI
+        # Setup permission manager. ALWAYS created — even with
+        # ``permission_mode="bypassPermissions"`` we still need it for
+        # ``AskUserQuestion`` routing (which is an interactive tool, not
+        # a permission ask, and must always reach the user).
         self._require_approval = require_approval
-        self._permission_manager: PermissionManager | None = None
-
+        self._permission_manager = PermissionManager(
+            parent=self, permission_mode=permission_mode
+        )
+        # Question requests must work regardless of approval mode — AskUserQuestion
+        # is an interactive tool, not a permission gate.
+        self._permission_manager.question_requested.connect(
+            self.question_requested.emit
+        )
         if require_approval:
-            self._permission_manager = PermissionManager(
-                parent=self, permission_mode=permission_mode
-            )
-            # Forward permission requests to our signal
+            # Forward standard permission requests to our signal
             self._permission_manager.permission_requested.connect(
                 self.permission_requested.emit
             )
@@ -292,6 +322,10 @@ class QtClaudeAgent(QObject):
             # ThinkingBlock.thinking arrive empty. Opt in to summarized text so
             # the agent panel's thinking boxes have content.
             "thinking": {"type": "adaptive", "display": "summarized"},
+            # Stream per-token deltas so the chat bubble grows live instead of
+            # waiting for the whole block. The worker translates these into
+            # partial_* signals and the widget appends as they arrive.
+            "include_partial_messages": True,
         }
 
         # Add CLI path if provided
@@ -307,25 +341,33 @@ class QtClaudeAgent(QObject):
             os.environ["ANTHROPIC_BASE_URL"] = self.api_url
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
-        # Add permission callbacks if approval is required
-        if require_approval and self._permission_manager:
-            options_dict["can_use_tool"] = create_can_use_tool_callback(
-                self._permission_manager
-            )
-            # Register PreToolUse hook — this is the primary permission
-            # gate that intercepts ALL tool calls including MCP tools.
-            try:
-                from claude_agent_sdk import HookMatcher
-                options_dict["hooks"] = {
-                    "PreToolUse": [
-                        HookMatcher(
-                            matcher=None,  # match all tools
-                            hooks=[create_pre_tool_use_hook(self._permission_manager)],
-                        )
-                    ],
-                }
-            except ImportError:
-                logger.debug("HookMatcher not available, using can_use_tool only")
+        # Register can_use_tool + PreToolUse hook ALWAYS. They serve two
+        # purposes:
+        # 1. Route ``AskUserQuestion`` to our question UI. This must work
+        #    regardless of ``permission_mode`` — even with
+        #    ``bypassPermissions`` the user wants to see the question.
+        # 2. Gate normal tools through the approval UI when require_approval.
+        #    With require_approval=False (the bypassPermissions path), the
+        #    hook returns ``{}`` for non-AskUserQuestion tools so the CLI's
+        #    auto-allow takes effect.
+        options_dict["can_use_tool"] = create_can_use_tool_callback(
+            self._permission_manager, require_approval=require_approval,
+        )
+        try:
+            from claude_agent_sdk import HookMatcher
+            options_dict["hooks"] = {
+                "PreToolUse": [
+                    HookMatcher(
+                        matcher=None,  # match all tools
+                        hooks=[create_pre_tool_use_hook(
+                            self._permission_manager,
+                            require_approval=require_approval,
+                        )],
+                    )
+                ],
+            }
+        except ImportError:
+            logger.debug("HookMatcher not available, using can_use_tool only")
 
         self.options = ClaudeAgentOptions(**options_dict)
 
@@ -362,6 +404,17 @@ class QtClaudeAgent(QObject):
         self._worker.query_completed.connect(self.query_completed)
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
+
+        # Partial streaming forwards
+        self._worker.partial_block_started.connect(self.partial_block_started)
+        self._worker.partial_text.connect(self.partial_text)
+        self._worker.partial_thinking.connect(self.partial_thinking)
+        self._worker.partial_block_finished.connect(self.partial_block_finished)
+
+        # Task tool subagent forwards
+        self._worker.task_started.connect(self.task_started)
+        self._worker.task_progress.connect(self.task_progress)
+        self._worker.task_finished.connect(self.task_finished)
 
         # Track connection result
         result = {"success": False, "error": None}
@@ -503,6 +556,19 @@ class QtClaudeAgent(QObject):
         """
         if self._permission_manager:
             self._permission_manager.respond(request_id, allowed, always, message)
+
+    def respond_to_question(
+        self,
+        request_id: str,
+        answers: dict[str, str] | None,
+    ) -> None:
+        """Provide answers to a pending AskUserQuestion request.
+
+        Pass ``answers=None`` to indicate the user cancelled the question;
+        the agent will reply with a Deny so the model knows.
+        """
+        if self._permission_manager:
+            self._permission_manager.respond_to_question(request_id, answers)
 
     def reset_conversation(self) -> None:
         """Reset the conversation by stopping the worker.

@@ -1,5 +1,7 @@
 """ClaudeAssistantWidget - High-level embeddable chat widget."""
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
@@ -16,6 +18,18 @@ from PySide6.QtWidgets import (
 
 from lightfall.claude.agent import QtClaudeAgent
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
+from lightfall.claude.widgets.question_request import QuestionRequestWidget
+from lightfall.claude.widgets.task_card import TaskCard
+from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+
+@dataclass
+class _StreamingBubble:
+    """Tracks one in-progress streamed assistant block."""
+    kind: str  # "text" or "thinking"
+    frame: QWidget
+    label: QLabel
+    buffer: str = ""
 
 
 class HeightForWidthWidget(QWidget):
@@ -118,6 +132,15 @@ class ClaudeAssistantWidget(QWidget):
 
         # Track pending permission widgets by request_id
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
+        # request_id -> QuestionRequestWidget
+        self._pending_question_widgets: dict[str, "QuestionRequestWidget"] = {}
+        # block_id -> _StreamingBubble for in-progress streamed text/thinking.
+        self._streaming_bubbles: dict[str, _StreamingBubble] = {}
+        # task_id -> TaskCard
+        self._task_cards: dict[str, TaskCard] = {}
+        # tool_use_id -> task_id (so the Task tool's tool_called / tool_result
+        # can be suppressed in favor of the card)
+        self._task_tool_use_ids: dict[str, str] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
 
@@ -129,6 +152,7 @@ class ClaudeAssistantWidget(QWidget):
                 api_url,
                 cli_path,
                 permission_mode=permission_mode,
+                max_turns=ClaudeSettingsProvider.get_max_turns(),
                 additional_system_prompt=additional_system_prompt,
                 require_approval=require_approval,
                 parent=self,
@@ -228,9 +252,26 @@ class ClaudeAssistantWidget(QWidget):
         self.agent.query_completed.connect(self._on_query_completed)
         self.agent.query_cancelled.connect(self._on_query_cancelled)
 
-        # Permission approval signals
+        # AskUserQuestion is interactive, not a permission gate — always
+        # connect, regardless of approval mode. In bypassPermissions the
+        # user still wants to see clarifying questions; the agent.py
+        # mirror of this asymmetry must be kept in sync with this.
+        self.agent.question_requested.connect(self._on_question_requested)
+
+        # Standard permission approval signals only when approvals required.
         if self._require_approval:
             self.agent.permission_requested.connect(self._on_permission_requested)
+
+        # Partial streaming
+        self.agent.partial_block_started.connect(self._on_partial_block_started)
+        self.agent.partial_text.connect(self._on_partial_text)
+        self.agent.partial_thinking.connect(self._on_partial_thinking)
+        self.agent.partial_block_finished.connect(self._on_partial_block_finished)
+
+        # Task tool subagent progress
+        self.agent.task_started.connect(self._on_task_started)
+        self.agent.task_progress.connect(self._on_task_progress)
+        self.agent.task_finished.connect(self._on_task_finished)
 
     @Slot()
     def _on_send_button_clicked(self) -> None:
@@ -291,6 +332,16 @@ class ClaudeAssistantWidget(QWidget):
             widget.deleteLater()
         self._pending_permission_widgets.clear()
         self._pending_tool_names.clear()
+        # Clear any pending question widgets
+        for widget in self._pending_question_widgets.values():
+            widget.deleteLater()
+        self._pending_question_widgets.clear()
+        # Clear any in-progress streaming bubbles
+        self._streaming_bubbles.clear()
+        # Clear any task card tracking (the widgets themselves are children
+        # of the chat layout and were already deleted above).
+        self._task_cards.clear()
+        self._task_tool_use_ids.clear()
         self._permission_container.hide()
 
         # Reset busy state
@@ -334,12 +385,108 @@ class ClaudeAssistantWidget(QWidget):
         """Handle thinking block from Claude."""
         self._append_thinking_message(thinking)
 
+    @Slot(str, str)
+    def _on_partial_block_started(self, block_id: str, kind: str) -> None:
+        """Begin a streamed text or thinking bubble."""
+        if kind == "text":
+            frame = self._create_card(
+                "",  # filled in as deltas arrive
+                accent="#9c27b0",
+                label="Claude",
+                label_color="#9c27b0",
+            )
+        elif kind == "thinking":
+            frame = self._create_card(
+                "", label="Thinking", italic=True, small=True,
+            )
+        else:
+            return
+        # _create_card returns the outer QFrame; the body QLabel is the
+        # last widget added to its layout by _create_card.
+        label = self._find_body_label(frame)
+        if label is None:
+            return
+        self._streaming_bubbles[block_id] = _StreamingBubble(
+            kind=kind, frame=frame, label=label, buffer=""
+        )
+        self._add_widget(frame)
+
+    @Slot(str, str)
+    def _on_partial_text(self, block_id: str, delta: str) -> None:
+        bubble = self._streaming_bubbles.get(block_id)
+        if bubble is None or bubble.kind != "text":
+            return
+        bubble.buffer += delta
+        # Plain text during streaming — markdown render once on finish.
+        bubble.label.setText(self._escape_html(bubble.buffer))
+        self._scroll_to_bottom_if_needed()
+
+    @Slot(str, str)
+    def _on_partial_thinking(self, block_id: str, delta: str) -> None:
+        bubble = self._streaming_bubbles.get(block_id)
+        if bubble is None or bubble.kind != "thinking":
+            return
+        bubble.buffer += delta
+        bubble.label.setText(self._escape_html(bubble.buffer))
+        self._scroll_to_bottom_if_needed()
+
+    @Slot(str)
+    def _on_partial_block_finished(self, block_id: str) -> None:
+        bubble = self._streaming_bubbles.pop(block_id, None)
+        if bubble is None:
+            return
+        if not bubble.buffer:
+            # Empty bubble — no content ever arrived. Remove the ghost
+            # card so the AssistantMessage path's card stands alone.
+            bubble.frame.deleteLater()
+            return
+        if bubble.kind == "text":
+            # One markdown render at end — see spec for the perf rationale.
+            from lightfall.claude.markdown import render_markdown
+            bubble.label.setText(render_markdown(bubble.buffer))
+        # thinking stays plaintext (existing widget style).
+
     @Slot(str, dict)
     def _on_tool_called(self, tool_name: str, tool_input: dict) -> None:
         """Handle tool call."""
+        # The Task tool is represented by its own inline card (TaskCard);
+        # the generic "Using tool" notice would duplicate that.
+        if tool_name == "Task":
+            return
         # Simplify tool name for display
         display_name = tool_name.replace("mcp__qt__", "")
         self._append_system_message(f"Using tool: {display_name}")
+
+    @Slot(str, str, str)
+    def _on_task_started(
+        self, task_id: str, description: str, tool_use_id: str
+    ) -> None:
+        card = TaskCard(task_id, description)
+        self._task_cards[task_id] = card
+        if tool_use_id:
+            self._task_tool_use_ids[tool_use_id] = task_id
+        self._add_widget(card)
+
+    @Slot(str, str, dict, str)
+    def _on_task_progress(
+        self, task_id: str, description: str, usage: dict, last_tool: str
+    ) -> None:
+        card = self._task_cards.get(task_id)
+        if card is not None:
+            card.update_progress(description, dict(usage), last_tool)
+
+    @Slot(str, str, str, str, dict)
+    def _on_task_finished(
+        self,
+        task_id: str,
+        status: str,
+        summary: str,
+        output_file: str,
+        usage: dict,
+    ) -> None:
+        card = self._task_cards.get(task_id)
+        if card is not None:
+            card.mark_finished(status, summary, output_file, dict(usage))
 
     @Slot(str)
     def _on_error(self, error: str) -> None:
@@ -454,11 +601,51 @@ class ClaudeAssistantWidget(QWidget):
             self._permission_layout.removeWidget(widget)
             widget.deleteLater()
 
-        # Hide container if no more pending requests
-        if not self._pending_permission_widgets:
+        # Hide container if no more pending approvals or questions
+        if (
+            not self._pending_permission_widgets
+            and not self._pending_question_widgets
+        ):
             self._permission_container.hide()
             # Update placeholder to show working state
             self.input_field.setPlaceholderText("Claude is working...")
+
+    @Slot(str, list)
+    def _on_question_requested(
+        self, request_id: str, questions: list
+    ) -> None:
+        """Render an AskUserQuestion in the permission container."""
+        widget = QuestionRequestWidget(request_id, questions)
+        widget.submitted.connect(self._on_question_submitted)
+        widget.cancelled.connect(self._on_question_cancelled)
+        self._pending_question_widgets[request_id] = widget
+        self._permission_layout.addWidget(widget)
+        self._permission_container.show()
+        widget.setFocus()
+
+    @Slot(str, dict)
+    def _on_question_submitted(
+        self, request_id: str, answers: dict
+    ) -> None:
+        self.agent.respond_to_question(request_id, dict(answers))
+        self._cleanup_question_widget(request_id)
+
+    @Slot(str)
+    def _on_question_cancelled(self, request_id: str) -> None:
+        self.agent.respond_to_question(request_id, None)
+        self._cleanup_question_widget(request_id)
+
+    def _cleanup_question_widget(self, request_id: str) -> None:
+        widget = self._pending_question_widgets.pop(request_id, None)
+        if widget is not None:
+            self._permission_layout.removeWidget(widget)
+            widget.deleteLater()
+        # Hide the container only if nothing else is using it.
+        if (
+            not self._pending_permission_widgets
+            and not self._pending_question_widgets
+        ):
+            self._permission_container.hide()
 
     def _format_tool_name(self, name: str) -> str:
         """Format tool name for display (strip MCP prefixes)."""
@@ -562,6 +749,19 @@ class ClaudeAssistantWidget(QWidget):
 
         card_layout.addWidget(body_label)
         return card
+
+    @staticmethod
+    def _find_body_label(card: QFrame) -> QLabel | None:
+        """Return the last QLabel child of a card built by _create_card —
+        that's the body label _create_card adds last."""
+        labels = card.findChildren(QLabel)
+        return labels[-1] if labels else None
+
+    def _scroll_to_bottom_if_needed(self) -> None:
+        """Defer a scroll-to-bottom; no-op if user has scrolled up."""
+        from PySide6.QtCore import QTimer
+        if self._at_bottom:
+            QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _add_widget(self, widget: QWidget) -> None:
         """Add a widget to the chat layout and scroll to bottom."""

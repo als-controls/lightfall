@@ -894,8 +894,8 @@ def _build_welcome_tutorial() -> Tutorial:
                 target=None,
                 title="Welcome to Lightfall",
                 message=(
-                    "Lightfall is the control system for beamline "
-                    "controls.\n\n"
+                    "Lightfall is the Lightsource Unified Control Interface "
+                    "Dashboard for beamline controls.\n\n"
                     "This quick tour will show you around the interface. "
                     "Use the arrow keys, click Next, or click the "
                     "highlighted area to advance."
@@ -1026,18 +1026,6 @@ def _build_welcome_tutorial() -> Tutorial:
                 target_description="Devices sidebar button",
             ),
             TutorialStep(
-                target=_find_sidebar_button("lightfall.panels.claude"),
-                title="Claude Assistant",
-                message=(
-                    "An AI assistant that understands your beamline. "
-                    "Ask questions about devices, get help writing scan "
-                    "plans, or troubleshoot issues."
-                ),
-                position=CalloutPosition.RIGHT,
-                padding=4,
-                target_description="Claude sidebar button",
-            ),
-            TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.visualization"),
                 title="Visualization",
                 message=(
@@ -1060,6 +1048,18 @@ def _build_welcome_tutorial() -> Tutorial:
                 position=CalloutPosition.RIGHT,
                 padding=4,
                 target_description="Synoptic sidebar button",
+            ),
+            TutorialStep(
+                target=_find_sidebar_button("lightfall.panels.claude"),
+                title="Claude Assistant",
+                message=(
+                    "An AI assistant that understands your beamline. "
+                    "Ask questions about devices, get help writing scan "
+                    "plans, or troubleshoot issues."
+                ),
+                position=CalloutPosition.RIGHT,
+                padding=4,
+                target_description="Claude sidebar button",
             ),
             # ── Outro: try Claude with a real prompt ──────────────
             TutorialStep(

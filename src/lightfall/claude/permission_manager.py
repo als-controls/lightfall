@@ -28,6 +28,7 @@ class PermissionManager(QObject):
 
     # Signals
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    question_requested = Signal(str, list)  # request_id, questions
     auto_approvals_changed = Signal(set)  # Current set of auto-approved tools
 
     # File-edit tools auto-approved when permission_mode == "acceptEdits"
@@ -74,6 +75,7 @@ class PermissionManager(QObject):
         "mcp__engine_tools__ncs_get_run_history",
         "mcp__engine_tools__ncs_get_scan_data",
         "mcp__engine_tools__ncs_get_last_run",
+        "mcp__engine_tools__ncs_wait_for_idle",
         # ipython_tools agent
         "mcp__ipython_tools__ncs_ipython_get_namespace",
         # Bare names (fallback for SDK that may dispatch without prefix)
@@ -111,6 +113,12 @@ class PermissionManager(QObject):
         self._pending_requests: dict[str, asyncio.Event] = {}
         self._pending_loops: dict[str, asyncio.AbstractEventLoop] = {}
         self._responses: dict[str, tuple[bool, str]] = {}  # (allowed, message)
+
+        # Pending AskUserQuestion requests — parallel plumbing to permissions,
+        # but the response is a free-form answers dict, not a (bool, str) pair.
+        self._pending_questions: dict[str, asyncio.Event] = {}
+        self._pending_question_loops: dict[str, asyncio.AbstractEventLoop] = {}
+        self._question_responses: dict[str, dict[str, str] | None] = {}
 
         # Load saved preferences (but validate against whitelist policy)
         self._load_preferences()
@@ -196,6 +204,16 @@ class PermissionManager(QObject):
             self._responses[request_id] = (False, "Query cancelled by user")
             loop = self._pending_loops.get(request_id)
             event = self._pending_requests.get(request_id)
+            if loop and event:
+                try:
+                    loop.call_soon_threadsafe(event.set)
+                except RuntimeError:
+                    pass
+        # Also wake pending question requests with a cancel response.
+        for request_id in list(self._pending_questions.keys()):
+            self._question_responses[request_id] = None
+            loop = self._pending_question_loops.get(request_id)
+            event = self._pending_questions.get(request_id)
             if loop and event:
                 try:
                     loop.call_soon_threadsafe(event.set)
@@ -297,6 +315,59 @@ class PermissionManager(QObject):
                 self._pending_loops.pop(request_id, None)
                 self._responses.pop(request_id, None)
 
+    async def request_question(
+        self, questions: list[dict[str, Any]]
+    ) -> tuple[bool, dict[str, str]]:
+        """Request the user to answer one or more multi-choice questions.
+
+        Emits ``question_requested`` and waits for a response via
+        ``respond_to_question``. Returns ``(answered, answers)`` where
+        ``answered=False`` means the user cancelled.
+        """
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        event = asyncio.Event()
+
+        self._pending_questions[request_id] = event
+        self._pending_question_loops[request_id] = loop
+
+        self.question_requested.emit(request_id, questions)
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=300)
+        except TimeoutError:
+            self._pending_questions.pop(request_id, None)
+            self._pending_question_loops.pop(request_id, None)
+            self._question_responses.pop(request_id, None)
+            return (False, {})
+
+        self._pending_questions.pop(request_id, None)
+        self._pending_question_loops.pop(request_id, None)
+        answers = self._question_responses.pop(request_id, None)
+        if answers is None:
+            return (False, {})
+        return (True, answers)
+
+    def respond_to_question(
+        self, request_id: str, answers: dict[str, str] | None
+    ) -> None:
+        """Provide answers to a pending question request.
+
+        Pass ``answers=None`` to indicate the user cancelled.
+        """
+        if request_id not in self._pending_questions:
+            return
+        self._question_responses[request_id] = answers
+        loop = self._pending_question_loops.get(request_id)
+        event = self._pending_questions.get(request_id)
+        if loop and event:
+            try:
+                loop.call_soon_threadsafe(event.set)
+            except RuntimeError:
+                self._pending_questions.pop(request_id, None)
+                self._pending_question_loops.pop(request_id, None)
+                self._question_responses.pop(request_id, None)
+
     def has_pending_request(self, request_id: str) -> bool:
         """
         Check if a request is still pending.
@@ -338,7 +409,10 @@ class PermissionManager(QObject):
         settings.remove("permission/user_always_allowed")
 
 
-def create_pre_tool_use_hook(permission_manager: PermissionManager):
+def create_pre_tool_use_hook(
+    permission_manager: PermissionManager,
+    require_approval: bool = True,
+):
     """
     Create a PreToolUse hook callback for the Claude Agent SDK.
 
@@ -347,6 +421,11 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
 
     Args:
         permission_manager: The PermissionManager instance
+        require_approval: When True, gate normal tools through the
+            approval UI. When False (e.g. ``permission_mode=
+            bypassPermissions``), skip the gate for normal tools but
+            still force ``AskUserQuestion`` through ``can_use_tool``
+            so the question UI fires.
 
     Returns:
         Async hook callback compatible with HookMatcher.hooks
@@ -359,6 +438,28 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
     ):
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
+
+        # AskUserQuestion needs to be handled in can_use_tool (which can
+        # return updated_input with the user's answers); a hook can only
+        # allow / deny / ask. Returning empty dict ("no decision") lets
+        # the SDK fall back to its CLI default — which in headless mode
+        # silently dismisses the question without ever asking us.
+        # Explicitly returning permissionDecision="ask" forces the SDK
+        # to route through can_use_tool where we render the question UI.
+        # This applies regardless of ``require_approval`` — the question
+        # tool is interactive by design.
+        if tool_name == "AskUserQuestion":
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "ask",
+                },
+            }
+
+        # When approvals are bypassed, defer to the CLI's permission
+        # rules for all other tools — don't interpose our approval UI.
+        if not require_approval:
+            return {}
 
         # Check auto-approval first
         if permission_manager.is_auto_approved(tool_name):
@@ -394,7 +495,10 @@ def create_pre_tool_use_hook(permission_manager: PermissionManager):
     return pre_tool_use_hook
 
 
-def create_can_use_tool_callback(permission_manager: PermissionManager):
+def create_can_use_tool_callback(
+    permission_manager: PermissionManager,
+    require_approval: bool = True,
+):
     """
     Create a can_use_tool callback for the Claude Agent SDK.
 
@@ -403,6 +507,9 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
 
     Args:
         permission_manager: The PermissionManager instance
+        require_approval: When True, route normal tools through the
+            approval UI. When False, auto-allow normal tools but still
+            handle ``AskUserQuestion`` via the question UI.
 
     Returns:
         Async callback function compatible with ClaudeAgentOptions.can_use_tool
@@ -422,6 +529,11 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
         """
         Permission callback that waits for UI approval.
 
+        Special case: ``AskUserQuestion`` is the CLI's built-in clarifying
+        question tool. We render it as a question UI and inject the user's
+        answers via ``updated_input``; ``PermissionResultAllow`` can carry
+        that, hooks cannot, so this is the only place it can be handled.
+
         Args:
             tool_name: Name of the tool
             tool_input: Tool input parameters
@@ -430,6 +542,35 @@ def create_can_use_tool_callback(permission_manager: PermissionManager):
         Returns:
             PermissionResult allowing or denying the tool use
         """
+        if tool_name == "AskUserQuestion":
+            questions = (
+                tool_input.get("questions", [])
+                if isinstance(tool_input, dict) else []
+            )
+            if not questions:
+                return PermissionResultDeny(
+                    message="AskUserQuestion called with no questions"
+                )
+            try:
+                answered, answers = await permission_manager.request_question(
+                    questions
+                )
+            except Exception as e:
+                return PermissionResultDeny(
+                    message=f"Question system error: {e}"
+                )
+            if not answered:
+                return PermissionResultDeny(message="User declined to answer")
+            return PermissionResultAllow(
+                updated_input={"questions": questions, "answers": answers}
+            )
+
+        # If approvals are bypassed, auto-allow non-AskUserQuestion tools.
+        # We're only here because some hook said "ask" (or the CLI's rules
+        # otherwise routed through can_use_tool); honor the bypass intent.
+        if not require_approval:
+            return PermissionResultAllow()
+
         try:
             allowed, message = await permission_manager.request_permission(
                 tool_name, tool_input

@@ -37,21 +37,102 @@ Pinned-against version: bluesky_tiled_plugins as of 2026-05.
 
 from __future__ import annotations
 
+import collections.abc
 import copy
+import math
 from typing import Any
 
 import numpy
 import pyarrow
 from bluesky_tiled_plugins.writing.tiled_writer import (
     BATCH_SIZE,
-    RunNormalizer,
-    TiledWriter as _UpstreamTiledWriter,
-    _RunWriter as _UpstreamRunWriter,
-    truncate_json_overflow,
 )
-from tiled.client.base import BaseClient
+from bluesky_tiled_plugins.writing.tiled_writer import (
+    TiledWriter as _UpstreamTiledWriter,
+)
+from bluesky_tiled_plugins.writing.tiled_writer import (
+    _RunWriter as _UpstreamRunWriter,
+)
 
 from lightfall.utils.logging import logger
+
+# JSON's exact-integer range. Values outside it are not safe to store: Tiled's
+# PostgreSQL catalog keeps numbers in ``jsonb`` losslessly, but the wire
+# encoders that read them back (msgpack by default, orjson for JSON) are bound
+# to 64 bits, so an oversized integer 500s on read.
+_JSON_INT_MIN = 1 - 2**53
+_JSON_INT_MAX = 2**53 - 1
+
+
+def safe_truncate_json_overflow(data: Any) -> Any:
+    """Recursively clamp numbers into the JSON/msgpack-safe integer range.
+
+    Drop-in replacement for ``bluesky_tiled_plugins``'
+    ``truncate_json_overflow`` that closes two defects which let un-encodable
+    values reach Tiled's catalog and then 500 on every metadata read:
+
+    * Upstream clamps ``+/-inf`` to the float ``1.7976e308``. That value's
+      integer expansion is ~309 digits, so once PostgreSQL stores it as a
+      ``jsonb`` ``numeric`` and a client reads it back as a Python ``int``,
+      neither msgpack nor orjson can encode it. We clamp non-finite and
+      out-of-range floats into ``+/-(2**53-1)`` instead (matching how the
+      integer path already behaves). Triggered in practice by unbounded EPICS
+      axes whose ``*_ctrl_limit`` reads as ``+/-inf``.
+    * Upstream only inspects Python ``int``/``float``, so ``numpy`` integer
+      scalars (common in ophyd ``configuration`` readings) pass through
+      untouched. We coerce ``numpy`` scalars via ``.item()`` first.
+
+    ``NaN`` becomes ``None`` (JSON has no NaN and orjson rejects it); ``bool``
+    is preserved; strings, ``None`` and in-range numbers pass through unchanged.
+    """
+    if isinstance(data, numpy.generic):
+        # numpy scalar -> native Python scalar so the checks below apply
+        data = data.item()
+
+    if isinstance(data, collections.abc.Mapping):
+        return {k: safe_truncate_json_overflow(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [safe_truncate_json_overflow(item) for item in data]
+
+    # bool is a subclass of int; never coerce True/False into numbers
+    if isinstance(data, bool):
+        return data
+
+    if isinstance(data, int):
+        return max(min(data, _JSON_INT_MAX), _JSON_INT_MIN)
+
+    if isinstance(data, float):
+        if math.isnan(data):
+            return None
+        if not (_JSON_INT_MIN <= data <= _JSON_INT_MAX):
+            # Covers +/-inf and any finite magnitude past the safe range.
+            return float(max(min(data, _JSON_INT_MAX), _JSON_INT_MIN))
+        return data
+
+    return data
+
+
+def _install_overflow_patch() -> None:
+    """Point the upstream writer at :func:`safe_truncate_json_overflow`.
+
+    The inherited ``_RunWriter.descriptor`` / ``start`` / ``stop`` sanitize
+    their metadata by calling ``truncate_json_overflow`` resolved from the
+    ``bluesky_tiled_plugins.writing.tiled_writer`` module namespace, so
+    rebinding it there fixes the descriptor ``data_keys`` (where the oversized
+    ctrl-limits live) without reimplementing those handlers. Idempotent.
+    """
+    import bluesky_tiled_plugins.writing.tiled_writer as _tw
+
+    if getattr(_tw.truncate_json_overflow, "_lightfall_overflow_safe", False):
+        return
+    safe_truncate_json_overflow._lightfall_overflow_safe = True  # type: ignore[attr-defined]
+    _tw.truncate_json_overflow = safe_truncate_json_overflow
+    logger.debug(
+        "Installed safe truncate_json_overflow on bluesky_tiled_plugins writer"
+    )
+
+
+_install_overflow_patch()
 
 
 def _override_schema_from_data_keys(
@@ -140,7 +221,7 @@ class _DescribedSchemaRunWriter(_UpstreamRunWriter):
                 self.notes.append(msg)
 
             if not (arr_client := self._internal_arrays.get(f"{desc_name}/{key}")):
-                metadata = truncate_json_overflow(self.data_keys.get(key, {}))
+                metadata = safe_truncate_json_overflow(self.data_keys.get(key, {}))
                 arr_client = desc_node.write_array(
                     numpy.array(arr_lst),
                     key=key,
@@ -169,7 +250,7 @@ class _DescribedSchemaRunWriter(_UpstreamRunWriter):
             metadata = {
                 k: v for k, v in self.data_keys.items() if k in table.column_names
             }
-            metadata = truncate_json_overflow(metadata)
+            metadata = safe_truncate_json_overflow(metadata)
             schema = _override_schema_from_data_keys(table.schema, self.data_keys)
             df_client = desc_node.create_appendable_table(
                 schema=schema,
