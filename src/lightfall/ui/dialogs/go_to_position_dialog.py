@@ -17,13 +17,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
 
-class GoToPositionDialog(LucidDialog):
+class GoToPositionDialog(LFDialog):
     """Confirmation dialog for motor movement from visualizations.
 
     Shows:

@@ -22,13 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 
 if TYPE_CHECKING:
     pass
 
 
-class CreatePlanDialog(LucidDialog):
+class CreatePlanDialog(LFDialog):
     """Dialog for creating a new user plan.
 
     Prompts for:

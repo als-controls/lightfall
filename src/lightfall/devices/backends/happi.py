@@ -241,12 +241,11 @@ class HappiBackend(DeviceBackend):
                     logger.info("Created new happi JSON database at {}", self._path)
                     # Toast notification (fire-and-forget)
                     try:
-                        from lightfall.core.app import LucidApp
-                        app = LucidApp.instance()
-                        if app and hasattr(app, "show_notification"):
-                            app.show_notification(
-                                f"Created new device database at {self._path}"
-                            )
+                        from lightfall.ui.toast import ToastManager
+                        ToastManager.get_instance().info(
+                            "Device database",
+                            f"Created new device database at {self._path}",
+                        )
                     except Exception:
                         pass  # Notification is best-effort
 

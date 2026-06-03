@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree
@@ -30,7 +30,7 @@ _FIXED_KEYS = {
 }
 
 
-class DeviceEditDialog(LucidDialog):
+class DeviceEditDialog(LFDialog):
     """Dialog for editing or creating a device."""
 
     def __init__(self, mode: str = "create", device: Any = None,

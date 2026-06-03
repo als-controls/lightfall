@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -166,7 +166,7 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
         raise ValueError(f"Unexpected data dimensions: {ndim}")
 
 
-class ExportDialog(LucidDialog):
+class ExportDialog(LFDialog):
     """Dialog for configuring and launching a data export."""
 
     def __init__(

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
 
-class LucidDialog(QDialog):
+class LFDialog(QDialog):
     """Base dialog class that automatically sets the application icon.
 
     On Windows, dialogs without a parent don't inherit the application's
@@ -21,7 +21,7 @@ class LucidDialog(QDialog):
     display the correct icon.
 
     Example:
-        >>> class MyDialog(LucidDialog):
+        >>> class MyDialog(LFDialog):
         ...     def __init__(self, parent=None):
         ...         super().__init__(parent)
         ...         # Dialog setup...
@@ -39,6 +39,6 @@ class LucidDialog(QDialog):
         app_icon = get_app_icon()
         if not app_icon.isNull():
             self.setWindowIcon(app_icon)
-            logger.debug("LucidDialog._set_app_icon: icon set ({} sizes)", len(app_icon.availableSizes()))
+            logger.debug("LFDialog._set_app_icon: icon set ({} sizes)", len(app_icon.availableSizes()))
         else:
-            logger.warning("LucidDialog._set_app_icon: app icon is null")
+            logger.warning("LFDialog._set_app_icon: app icon is null")

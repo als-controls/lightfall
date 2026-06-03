@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -58,7 +58,7 @@ class BugPriority(Enum):
         return mapping[self]
 
 
-class BugReportDialog(LucidDialog):
+class BugReportDialog(LFDialog):
     """Dialog for submitting bug reports to Sentry/GlitchTip.
 
     Features:
@@ -350,4 +350,4 @@ def report_bug(parent: QWidget | None = None) -> bool:
     """
     dialog = BugReportDialog(parent)
     result = dialog.exec()
-    return result == LucidDialog.DialogCode.Accepted
+    return result == LFDialog.DialogCode.Accepted

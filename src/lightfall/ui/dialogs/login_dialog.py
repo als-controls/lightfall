@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.auth.session import AuthState, SessionManager
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -41,7 +41,7 @@ class LoginResult(Enum):
     CANCELLED = auto()  # User cancelled/closed the dialog
 
 
-class LoginDialog(LucidDialog):
+class LoginDialog(LFDialog):
     """Modal dialog for user authentication.
 
     Presents options to login via Keycloak (opens browser) or

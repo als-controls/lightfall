@@ -15,11 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 
 
-class AboutDialog(LucidDialog):
+class AboutDialog(LFDialog):
     """About dialog showing Lightfall branding and version information.
 
     Displays the logo, application name, description, and version.

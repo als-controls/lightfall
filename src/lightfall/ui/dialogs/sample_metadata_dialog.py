@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -99,7 +99,7 @@ class ScalableGroup(GroupParameter):
         self.addChild(child)
 
 
-class SampleMetadataDialog(LucidDialog):
+class SampleMetadataDialog(LFDialog):
     """Dialog for collecting sample name and arbitrary metadata before a run.
 
     Layout::

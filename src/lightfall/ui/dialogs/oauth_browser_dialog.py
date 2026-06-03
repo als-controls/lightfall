@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ def _is_webengine_available() -> bool:
 WEBENGINE_AVAILABLE = _is_webengine_available()
 
 
-class OAuthBrowserDialog(LucidDialog):
+class OAuthBrowserDialog(LFDialog):
     """Dialog with embedded browser for OAuth authentication.
 
     This dialog embeds a QWebEngineView to handle OAuth flows within
