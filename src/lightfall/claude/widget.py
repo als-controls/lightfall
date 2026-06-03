@@ -211,7 +211,7 @@ class ClaudeAssistantWidget(QWidget):
         input_layout = QHBoxLayout()
 
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Hi Claude, Tell me about Lucid...")
+        self.input_field.setPlaceholderText("Hi Claude, Tell me about Lightfall...")
         self.input_field.returnPressed.connect(self._send_query)
         input_layout.addWidget(self.input_field)
 
@@ -233,7 +233,7 @@ class ClaudeAssistantWidget(QWidget):
         # Track busy state for button toggling
         self._is_busy = False
         # Store default placeholder for restoration
-        self._default_placeholder = "Hi Claude, Tell me about Lucid..."
+        self._default_placeholder = "Hi Claude, Tell me about Lightfall..."
 
     def _setup_error_ui(self, error_message: str) -> None:
         """Setup error UI when initialization fails."""
