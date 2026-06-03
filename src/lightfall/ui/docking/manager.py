@@ -4,7 +4,7 @@ Uses QMainWindow's native QDockWidget support with a custom icon strip
 sidebar for VS Code/PyCharm-like panel navigation.
 
 Architecture:
-    NCSMainWindow
+    LFMainWindow
     └── QHBoxLayout
         ├── IconStripSidebar (custom icon strip)
         └── inner QMainWindow (hosts QDockWidgets + central widget)

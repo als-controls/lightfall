@@ -2,9 +2,9 @@
 
 from lightfall.core.application import (
     ApplicationState,
-    NCSApplication,
-    NCSEvent,
-    NCSEventTypes,
+    LFApplication,
+    LFEvent,
+    LFEventTypes,
 )
 from lightfall.core.services import (
     ServiceAlreadyRegisteredError,
@@ -14,9 +14,9 @@ from lightfall.core.services import (
 
 __all__ = [
     "ApplicationState",
-    "NCSApplication",
-    "NCSEvent",
-    "NCSEventTypes",
+    "LFApplication",
+    "LFEvent",
+    "LFEventTypes",
     "ServiceAlreadyRegisteredError",
     "ServiceNotFoundError",
     "ServiceRegistry",

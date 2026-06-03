@@ -6,7 +6,7 @@ from lightfall.config.schema import (
     AcquisitionConfig,
     BeamlineConfig,
     LoggingConfig,
-    NCSConfig,
+    LFConfig,
     UIConfig,
 )
 
@@ -18,6 +18,6 @@ __all__ = [
     "ConfigPriority",
     "LayeredConfig",
     "LoggingConfig",
-    "NCSConfig",
+    "LFConfig",
     "UIConfig",
 ]

@@ -129,7 +129,7 @@ class BeamlineConfig(BaseModel):
     )
 
 
-class NCSConfig(BaseModel):
+class LFConfig(BaseModel):
     """Root configuration model for NCS.
 
     This is the top-level configuration that aggregates all sub-configurations.

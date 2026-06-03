@@ -84,7 +84,7 @@ adds themed subclasses for items that hold their own pen/brush:
 - `pg.InfiniteLine` — default pen tracks `highlight` (good for crosshairs).
 - `pg.series_pen(i)` — palette color for the *i*-th series, cycles.
 - `pg.retheme_all()` — re-applies the current palette to every live themed
-  item (called automatically from `NCSMainWindow._apply_theme`).
+  item (called automatically from `LFMainWindow._apply_theme`).
 
 Background, axis, tick, and grid colors are handled globally by
 `apply_pyqtgraph_theme()`, also called from `_apply_theme`. Items

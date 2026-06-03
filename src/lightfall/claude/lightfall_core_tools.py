@@ -15,10 +15,10 @@ from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lightfall.ui.mainwindow import NCSMainWindow
+    from lightfall.ui.mainwindow import LFMainWindow
 
 
-class LightfallCoreToolPlugin(AgentPlugin):
+class LFCoreToolPlugin(AgentPlugin):
     """Built-in tools for Lightfall panel and window interaction.
 
     This plugin provides core tools that are always available:
@@ -36,11 +36,11 @@ class LightfallCoreToolPlugin(AgentPlugin):
     def __init__(self) -> None:
         """Initialize. Main window is resolved lazily on first access."""
         super().__init__()
-        self._cached_window: NCSMainWindow | None = None
+        self._cached_window: LFMainWindow | None = None
 
     @property
-    def _window(self) -> NCSMainWindow | None:
-        """Resolve the active NCSMainWindow lazily.
+    def _window(self) -> LFMainWindow | None:
+        """Resolve the active LFMainWindow lazily.
 
         Uses QApplication.topLevelWidgets() to find the live instance.
         Cached after first successful lookup.
@@ -51,7 +51,7 @@ class LightfallCoreToolPlugin(AgentPlugin):
         app = QApplication.instance()
         if app:
             for widget in app.topLevelWidgets():
-                if widget.__class__.__name__ == "NCSMainWindow":
+                if widget.__class__.__name__ == "LFMainWindow":
                     self._cached_window = widget
                     return widget
         return None

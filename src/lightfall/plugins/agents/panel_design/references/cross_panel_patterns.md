@@ -41,7 +41,7 @@ There are two distinct operations; pick the one that matches your intent.
 - **Show the panel to the user** (dock it and add its sidebar button) with the
   main window's `add_panel(panel_id)`. It instantiates a deferred panel if
   needed and is a no-op if the panel is already open. From inside a docked
-  panel, `self.window()` returns the `NCSMainWindow`.
+  panel, `self.window()` returns the `LFMainWindow`.
 
 ```python
 from lightfall.ui.panels.registry import PanelRegistry

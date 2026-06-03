@@ -46,7 +46,7 @@ Relevant methods: `approve(app_name)`, `deny(app_name)`, `revoke(app_name)`, `ch
 ### TrustDialog (`lightfall.ipc.trust`)
 
 A modal Qt dialog shown when an `UNKNOWN` app requests authentication. It has a 60-second
-auto-reject timer set by the `_handle_ipc_auth_request` handler in `NCSApplication`.
+auto-reject timer set by the `_handle_ipc_auth_request` handler in `LFApplication`.
 The user sees the app name and version and chooses "Trust for this session" or "Deny".
 
 ### IPCSettingsPlugin (`lightfall.ui.preferences.ipc_settings`)
@@ -64,7 +64,7 @@ The plugin also displays a live connection status label and a "Trusted Applicati
 
 ## Wiring and Lifecycle
 
-`NCSApplication` owns both the `TrustManager` and the `IPCService`, registering them in
+`LFApplication` owns both the `TrustManager` and the `IPCService`, registering them in
 `ServiceRegistry` during `_register_core_services()`. The IPC service is not started until
 `run()` is called (after the main window is visible), at which point `_start_ipc()`:
 

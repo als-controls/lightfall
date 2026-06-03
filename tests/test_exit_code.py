@@ -116,11 +116,11 @@ class TestApplicationExitCode:
     """Tests for application exit code."""
 
     def test_ncs_application_quit_uses_zero(self, qapp) -> None:
-        """Test that NCSApplication.quit() defaults to exit code 0."""
-        from lightfall.core.application import NCSApplication
+        """Test that LFApplication.quit() defaults to exit code 0."""
+        from lightfall.core.application import LFApplication
 
         # Get or create app (don't reset - use existing qapp)
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
         if app._qt_app is None:
             app._qt_app = qapp
 

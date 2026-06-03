@@ -5,9 +5,9 @@
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$NcsDir = Split-Path -Parent $ScriptDir
+$LightfallDir = Split-Path -Parent $ScriptDir
 
-Push-Location $NcsDir
+Push-Location $LightfallDir
 try {
     Write-Host "=========================================="
     Write-Host "Lightfall Briefcase Build"
@@ -21,7 +21,7 @@ try {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     # Step 2: Set up pip to find local wheels
-    $DistDir = Join-Path $NcsDir "dist"
+    $DistDir = Join-Path $LightfallDir "dist"
     $env:PIP_FIND_LINKS = $DistDir
     Write-Host ""
     Write-Host "Step 2: Configured PIP_FIND_LINKS=$env:PIP_FIND_LINKS"

@@ -9,7 +9,7 @@ This module provides:
 - UserPlanService: Service for user-defined plans
 """
 
-from lightfall.acquire.plans.ncs_plans import rel_scan_1d, scan_1d
+from lightfall.acquire.plans.lightfall_plans import rel_scan_1d, scan_1d
 from lightfall.acquire.plans.registry import (
     PLAN_CATEGORY_ICONS,
     ParameterInfo,

@@ -449,11 +449,11 @@ class LoginDialog(LucidDialog):
 
         from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
         from lightfall.config import ConfigManager
-        from lightfall.core import NCSApplication
+        from lightfall.core import LFApplication
         from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
         # Get Keycloak config
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
         config: ConfigManager = app.services.get(ConfigManager)
         auth_config = config.model.auth.provider
 
@@ -578,14 +578,14 @@ class LoginDialog(LucidDialog):
 
         from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
         from lightfall.config import ConfigManager
-        from lightfall.core import NCSApplication
+        from lightfall.core import LFApplication
         from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
         duration = LoginSettingsProvider.get_session_duration()
 
         # Build config from app settings if available
         try:
-            app = NCSApplication.get_instance()
+            app = LFApplication.get_instance()
             config: ConfigManager = app.services.get(ConfigManager)
             auth_config = config.model.auth.provider
 

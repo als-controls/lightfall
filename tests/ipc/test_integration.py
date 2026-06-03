@@ -1,6 +1,6 @@
 """Tests for BlueskyEngine <-> IPC integration wiring.
 
-Verifies that NCSApplication._wire_engine_ipc and _wire_plan_commands
+Verifies that LFApplication._wire_engine_ipc and _wire_plan_commands
 correctly bridge engine signals/commands with the IPCService, without
 requiring a real NATS connection or Qt event loop.
 """
@@ -104,10 +104,10 @@ def engine():
 
 @pytest.fixture()
 def app(engine, ipc):
-    """Build an NCSApplication without Qt/NATS and inject fakes."""
-    from lightfall.core.application import NCSApplication
+    """Build an LFApplication without Qt/NATS and inject fakes."""
+    from lightfall.core.application import LFApplication
 
-    instance = NCSApplication.__new__(NCSApplication)
+    instance = LFApplication.__new__(LFApplication)
     instance._services = _FakeServiceRegistry({IPCService: ipc})
     return instance
 

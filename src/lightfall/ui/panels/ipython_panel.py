@@ -348,9 +348,9 @@ class IPythonPanel(BasePanel):
         Args:
             kernel: The IPython kernel.
         """
-        from lightfall.core.application import NCSApplication
+        from lightfall.core.application import LFApplication
 
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
 
         # Add main_window and app to namespace
         kernel.shell.push({

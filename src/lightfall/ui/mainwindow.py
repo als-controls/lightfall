@@ -39,11 +39,11 @@ if TYPE_CHECKING:
     from lightfall.config import ConfigManager
 
 
-class NCSMainWindow(QMainWindow):
+class LFMainWindow(QMainWindow):
     """
     Main application window for Lightfall.
 
-    NCSMainWindow provides:
+    LFMainWindow provides:
     - Menu bar with standard and custom menus
     - Toolbar with common actions
     - Dock widget system for panels
@@ -56,7 +56,7 @@ class NCSMainWindow(QMainWindow):
         about_to_close: Emitted when window is about to close.
 
     Example:
-        >>> window = NCSMainWindow()
+        >>> window = LFMainWindow()
         >>> window.show()
     """
 
@@ -105,7 +105,7 @@ class NCSMainWindow(QMainWindow):
         self.setDockNestingEnabled(True)
 
         # Set object name for state saving
-        self.setObjectName("NCSMainWindow")
+        self.setObjectName("LFMainWindow")
 
     def _setup_menus(self) -> None:
         """Create the menu bar."""

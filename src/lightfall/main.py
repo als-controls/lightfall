@@ -87,11 +87,11 @@ from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E
 from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
 from lightfall.auth.session import SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
-from lightfall.core import NCSApplication  # noqa: E402
+from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
 from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
 from lightfall.project import ProjectService, create_welcome_project  # noqa: E402
-from lightfall.ui import NCSMainWindow  # noqa: E402
+from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
 from lightfall.ui.preferences import PreferencesManager  # noqa: E402
 from lightfall.ui.theme import ThemeManager  # noqa: E402
@@ -180,7 +180,7 @@ def _setup_auth(config: ConfigManager) -> None:
     session_manager.set_provider(provider)
 
 
-def _setup_services(app: NCSApplication, config: ConfigManager) -> None:
+def _setup_services(app: LFApplication, config: ConfigManager) -> None:
     """Setup application services."""
     # Register additional services
     services = app.services
@@ -454,7 +454,7 @@ def _setup_devices() -> None:
         logger.error("Failed to connect device catalog")
 
 
-def _setup_bluesky(app: NCSApplication) -> None:
+def _setup_bluesky(app: LFApplication) -> None:
     """Setup Bluesky engine and plan registry.
 
     Initializes the BlueskyEngine singleton and plan registry
@@ -486,7 +486,7 @@ def _setup_bluesky(app: NCSApplication) -> None:
     )
 
 
-def _setup_tiled(app: NCSApplication, config: ConfigManager) -> None:
+def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     """Setup Tiled service if configured.
 
     Initializes the TiledService singleton and connects to the
@@ -545,7 +545,7 @@ def _setup_tiled(app: NCSApplication, config: ConfigManager) -> None:
     services.register(TiledService, TiledService.get_instance)
 
 
-def _setup_plugins(app: NCSApplication) -> None:
+def _setup_plugins(app: LFApplication) -> None:
     """Setup the plugin system and load preload plugins.
 
     This must be called BEFORE creating the main window to ensure
@@ -606,7 +606,7 @@ def _setup_plugins(app: NCSApplication) -> None:
     logger.debug("Plugin system initialized")
 
 
-def _setup_user_plugins(app: NCSApplication) -> None:
+def _setup_user_plugins(app: LFApplication) -> None:
     """Load user-defined plugins from ~/lightfall/plugins/.
 
     User plugins are Python files in ~/lightfall/plugins/. Plugin classes
@@ -656,7 +656,7 @@ def _setup_first_launch(project_service: ProjectService) -> None:
         project_service.open_project(welcome)
 
 
-def _show_startup_login(window: NCSMainWindow) -> None:
+def _show_startup_login(window: LFMainWindow) -> None:
     """Show login dialog on application startup.
 
     Creates an independent dialog (parent=None) so it gets its own
@@ -702,7 +702,7 @@ def _show_startup_login(window: NCSMainWindow) -> None:
         logger.info("User cancelled login dialog")
 
 
-def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
+def _setup_session_expiry_handler(window: LFMainWindow) -> None:
     """Setup handler to show login dialog when session expires.
 
     Args:
@@ -744,7 +744,7 @@ def _setup_session_expiry_handler(window: NCSMainWindow) -> None:
     session_manager.state_changed.connect(on_state_changed)
 
 
-def _check_editor_protocol(main_window: NCSMainWindow) -> None:
+def _check_editor_protocol(main_window: LFMainWindow) -> None:
     """Check if the configured editor's protocol handler is available.
 
     Shows a warning banner if PyCharm is selected but JetBrains Toolbox
@@ -797,7 +797,7 @@ def _check_editor_protocol(main_window: NCSMainWindow) -> None:
     QTimer.singleShot(500, show_banner)
 
 
-def _setup_default_panels(window: NCSMainWindow) -> None:
+def _setup_default_panels(window: LFMainWindow) -> None:
     """Setup default panels for the main window.
 
     Opens panels that should be visible by default on startup.
@@ -873,7 +873,7 @@ def main() -> int:
     migrate_legacy_data_dir()
 
     # Get/create the application singleton
-    app = NCSApplication.get_instance()
+    app = LFApplication.get_instance()
 
     # Initialize with default settings
     app.initialize(log_level="DEBUG")
@@ -939,7 +939,7 @@ def main() -> int:
     _setup_first_launch(project_service)
 
     # Create and set main window (after preload plugins applied theme)
-    window = NCSMainWindow()
+    window = LFMainWindow()
     window.set_config_manager(config)
     app.set_main_window(window)
 

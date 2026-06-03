@@ -111,3 +111,8 @@ src/lightfall/logs/
 # Git worktrees
 .worktrees/
 .claude/worktrees/
+
+# Historical design docs / working artifacts (kept on disk, not in git)
+docs/investigations/
+docs/plans/
+docs/superpowers/

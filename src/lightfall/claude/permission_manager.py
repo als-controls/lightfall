@@ -56,7 +56,7 @@ class PermissionManager(QObject):
         "mcp__qt__find_widget",
         "mcp__qt__get_recent_logs",
         # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).
-        # LightfallCoreToolPlugin is manifest-driven via AgentRegistry (lightfall_core_tools server).
+        # LFCoreToolPlugin is manifest-driven via AgentRegistry (lightfall_core_tools server).
         "mcp__lightfall_core_tools__lightfall_list_panels",
         "mcp__lightfall_core_tools__lightfall_get_panel_info",
         "mcp__lightfall_core_tools__lightfall_get_application_info",

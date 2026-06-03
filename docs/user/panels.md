@@ -146,7 +146,7 @@ See [Claude Assistant](claude-assistant.md) for detailed usage.
 **Pre-loaded Objects**:
 ```python
 main_window  # Main application window
-app          # NCSApplication instance
+app          # LFApplication instance
 ```
 
 **Widget Targeting**:

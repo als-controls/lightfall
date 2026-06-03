@@ -13,9 +13,9 @@ def __getattr__(name):
     if name == "LoginDialog":
         from lightfall.ui.dialogs import LoginDialog
         return LoginDialog
-    if name == "NCSMainWindow":
-        from lightfall.ui.mainwindow import NCSMainWindow
-        return NCSMainWindow
+    if name == "LFMainWindow":
+        from lightfall.ui.mainwindow import LFMainWindow
+        return LFMainWindow
     if name == "ToastManager":
         from lightfall.ui.toast import ToastManager
         return ToastManager
@@ -23,6 +23,6 @@ def __getattr__(name):
 
 __all__ = [
     "LoginDialog",
-    "NCSMainWindow",
+    "LFMainWindow",
     "ToastManager",
 ]

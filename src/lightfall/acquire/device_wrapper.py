@@ -1,6 +1,6 @@
 """Generic device wrapper adding NCS-specific behavior to ophyd devices.
 
-The NCSDevice wrapper provides a transparent layer over any ophyd device,
+The LFDevice wrapper provides a transparent layer over any ophyd device,
 adding metadata injection, permission checking, and action logging while
 preserving full access to the underlying device's functionality.
 """
@@ -17,10 +17,10 @@ if TYPE_CHECKING:
     from lightfall.devices.model import DeviceInfo
 
 
-class NCSDevice:
+class LFDevice:
     """Generic wrapper for ophyd devices adding NCS metadata and policy.
 
-    NCSDevice wraps any ophyd device (EpicsMotor, AreaDetector, etc.) to add:
+    LFDevice wraps any ophyd device (EpicsMotor, AreaDetector, etc.) to add:
     - Metadata injection (project_id, user_id, timestamp)
     - Permission checking before operations
     - Action logging to the logbook
@@ -34,10 +34,10 @@ class NCSDevice:
         >>> from lightfall.devices import DeviceCatalog
         >>> catalog = DeviceCatalog.get_instance()
         >>> motor_info = catalog.get_device_by_name("sample_x")
-        >>> ncs_motor = NCSDevice(motor_info.ophyd_device, motor_info)
+        >>> lf_motor = LFDevice(motor_info.ophyd_device, motor_info)
         >>> # Use like any ophyd device
-        >>> ncs_motor.move(10)  # Logged and permission-checked
-        >>> ncs_motor.position  # Direct passthrough
+        >>> lf_motor.move(10)  # Logged and permission-checked
+        >>> lf_motor.position  # Direct passthrough
     """
 
     def __init__(
@@ -121,17 +121,17 @@ class NCSDevice:
             Dictionary with all metadata to inject.
         """
         metadata = {
-            "ncs_device_name": self._info.name,
-            "ncs_device_id": str(self._info.id),
-            "ncs_category": self._info.category.value,
-            "ncs_timestamp": datetime.now().isoformat(),
+            "lightfall_device_name": self._info.name,
+            "lightfall_device_id": str(self._info.id),
+            "lightfall_category": self._info.category.value,
+            "lightfall_timestamp": datetime.now().isoformat(),
         }
         if self._project_id:
-            metadata["ncs_project_id"] = self._project_id
+            metadata["lightfall_project_id"] = self._project_id
         if self._user_id:
-            metadata["ncs_user_id"] = self._user_id
+            metadata["lightfall_user_id"] = self._user_id
         if self._info.beamline:
-            metadata["ncs_beamline"] = self._info.beamline
+            metadata["lightfall_beamline"] = self._info.beamline
         metadata.update(self._extra_metadata)
         return metadata
 
@@ -400,10 +400,10 @@ class NCSDevice:
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"NCSDevice({self.name}, category={self.category})"
+        return f"LFDevice({self.name}, category={self.category})"
 
 
-def wrap_device(device: Device, info: DeviceInfo) -> NCSDevice:
+def wrap_device(device: Device, info: DeviceInfo) -> LFDevice:
     """Convenience function to wrap an ophyd device.
 
     Args:
@@ -411,6 +411,6 @@ def wrap_device(device: Device, info: DeviceInfo) -> NCSDevice:
         info: DeviceInfo metadata.
 
     Returns:
-        Wrapped NCSDevice.
+        Wrapped LFDevice.
     """
-    return NCSDevice(device, info)
+    return LFDevice(device, info)

@@ -151,11 +151,11 @@ class StatusBarManager:
         Returns:
             Number of plugins successfully loaded (already-loaded plugins only).
         """
-        from lightfall.core import NCSApplication
+        from lightfall.core import LFApplication
         from lightfall.plugins.loader import PluginLoader
         from lightfall.plugins.registry import PluginRegistry
 
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
         services = app.services
 
         try:

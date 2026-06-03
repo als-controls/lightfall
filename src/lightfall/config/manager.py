@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from lightfall.config.layers import ConfigLayer, ConfigPriority, LayeredConfig
-from lightfall.config.schema import NCSConfig
+from lightfall.config.schema import LFConfig
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -86,7 +86,7 @@ class ConfigManager:
                 (useful for testing).
         """
         self._layered = LayeredConfig()
-        self._model: NCSConfig | None = None
+        self._model: LFConfig | None = None
         self._validation_errors: list[str] = []
 
         if not skip_standard_paths:
@@ -142,20 +142,20 @@ class ConfigManager:
         self._validation_errors.clear()
 
         try:
-            self._model = NCSConfig.model_validate(data)
+            self._model = LFConfig.model_validate(data)
         except ValidationError as e:
             self._validation_errors = [str(err) for err in e.errors()]
             logger.warning("Configuration validation errors: {}", self._validation_errors)
             # Fall back to defaults
-            self._model = NCSConfig()
+            self._model = LFConfig()
 
     @property
-    def model(self) -> NCSConfig:
+    def model(self) -> LFConfig:
         """
         Get the validated configuration model.
 
         Returns:
-            The NCSConfig Pydantic model.
+            The LFConfig Pydantic model.
         """
         if self._model is None:
             self._rebuild_model()

@@ -9,14 +9,14 @@ Components:
 - BlueskyEngine: Bluesky RunEngine wrapper (also available as QRunEngine)
 - MockEngine: Simple mock engine for testing
 - get_engine: Singleton accessor for the default engine
-- NCSDevice: Generic wrapper adding metadata/policy to ophyd devices
+- LFDevice: Generic wrapper adding metadata/policy to ophyd devices
 - SignalConfiguration: UI model for signal selection
 - LiveDataBuffer: Thread-safe document streaming to Qt
 - PlanRegistry: Central registry of available plans
 """
 
 from lightfall.acquire.buffer import LiveDataBuffer
-from lightfall.acquire.device_wrapper import NCSDevice, wrap_device
+from lightfall.acquire.device_wrapper import LFDevice, wrap_device
 from lightfall.acquire.engine import (
     BaseEngine,
     BlueskyEngine,
@@ -62,7 +62,7 @@ __all__ = [
     "QRunEngine",
     "get_run_engine",
     # Device wrapper
-    "NCSDevice",
+    "LFDevice",
     "wrap_device",
     # Signals
     "SignalConfiguration",

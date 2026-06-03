@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lightfall.ui.mainwindow import NCSMainWindow
+    from lightfall.ui.mainwindow import LFMainWindow
 
 
 class CalloutPosition(Enum):
@@ -752,7 +752,7 @@ class TutorialManager(QObject):
         """Get all registered tutorials."""
         return list(self._tutorials.values())
 
-    def start(self, tutorial_id: str, window: NCSMainWindow) -> bool:
+    def start(self, tutorial_id: str, window: LFMainWindow) -> bool:
         """Start a tutorial by ID.
 
         Args:
@@ -1082,13 +1082,13 @@ def _build_welcome_tutorial() -> Tutorial:
     )
 
 
-def _find_main_window() -> NCSMainWindow | None:
-    """Find the NCSMainWindow instance."""
+def _find_main_window() -> LFMainWindow | None:
+    """Find the LFMainWindow instance."""
     app = QApplication.instance()
     if app is None:
         return None
     for widget in app.topLevelWidgets():
-        if widget.__class__.__name__ == "NCSMainWindow":
+        if widget.__class__.__name__ == "LFMainWindow":
             return widget  # type: ignore[return-value]
     return None
 

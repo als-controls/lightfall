@@ -513,7 +513,7 @@ def create_default_registry() -> PlanRegistry:
 
     Raw bluesky builtins (bp.scan, bp.grid_scan, etc.) are NOT registered
     directly because they use *args signatures that can't generate useful UIs.
-    Instead, typed wrapper plans in ncs_plans.py provide the same functionality
+    Instead, typed wrapper plans in lightfall_plans.py provide the same functionality
     with proper type hints for automatic UI generation. The raw bp.* plans
     remain accessible via lightfall_run_plan_code and the IPython console.
 
@@ -524,9 +524,9 @@ def create_default_registry() -> PlanRegistry:
 
     # Register NCS wrapper plans (typed alternatives to raw bluesky builtins)
     try:
-        from lightfall.acquire.plans.ncs_plans import register_ncs_plans
+        from lightfall.acquire.plans.lightfall_plans import register_lightfall_plans
 
-        register_ncs_plans(registry)
+        register_lightfall_plans(registry)
         logger.info(f"Registered {len(registry)} NCS plans")
     except ImportError as e:
         logger.debug(f"Could not register NCS plans: {e}")

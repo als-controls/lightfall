@@ -130,7 +130,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
         Returns:
             A Bluesky plan generator.
         """
-        from lightfall.acquire.plans.ncs_plans import simple_acquire
+        from lightfall.acquire.plans.lightfall_plans import simple_acquire
 
         # Get current settings from UI
         try:
@@ -178,7 +178,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
     def _on_capture_dark(self) -> None:
         if self._device is None:
             return
-        from lightfall.acquire.plans.ncs_plans import simple_acquire
+        from lightfall.acquire.plans.lightfall_plans import simple_acquire
         plan = simple_acquire(detector=self._device, num_images=1, collect_dark=True)
         try:
             from lightfall.acquire.engine import get_engine

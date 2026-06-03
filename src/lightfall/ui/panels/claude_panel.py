@@ -674,12 +674,12 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """Get the main application window.
 
         Returns:
-            The NCSMainWindow or None.
+            The LFMainWindow or None.
         """
         # Walk up the parent chain to find the main window
         widget = self.parent()
         while widget is not None:
-            if widget.__class__.__name__ == "NCSMainWindow":
+            if widget.__class__.__name__ == "LFMainWindow":
                 return widget
             # Also check for QMainWindow in case we're in a dock
             if hasattr(widget, "menuBar"):  # QMainWindow has menuBar
@@ -691,7 +691,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         app = QApplication.instance()
         if app:
             for widget in app.topLevelWidgets():
-                if widget.__class__.__name__ == "NCSMainWindow":
+                if widget.__class__.__name__ == "LFMainWindow":
                     return widget
                 if hasattr(widget, "menuBar"):
                     return widget

@@ -53,11 +53,11 @@ class IPythonToolsAgent(AgentPlugin):
         """Get the main window instance.
 
         Returns:
-            The NCSMainWindow instance or None if not available.
+            The LFMainWindow instance or None if not available.
         """
-        from lightfall.core.application import NCSApplication
+        from lightfall.core.application import LFApplication
 
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
         return app.main_window if app else None
 
     def _get_ipython_panel(self):

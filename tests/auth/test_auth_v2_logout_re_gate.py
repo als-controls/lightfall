@@ -11,8 +11,8 @@ from lightfall.acquire.engine.state import EngineState
 @pytest.fixture
 def mainwindow_class():
     """Import MainWindow lazily so qapp fixture has fired first."""
-    from lightfall.ui.mainwindow import NCSMainWindow
-    return NCSMainWindow
+    from lightfall.ui.mainwindow import LFMainWindow
+    return LFMainWindow
 
 
 def _make_window(qapp, mainwindow_class):
@@ -25,7 +25,7 @@ def _make_window(qapp, mainwindow_class):
     # without actually constructing the widget tree. We need a real
     # QWidget-derived instance so QMessageBox.question accepts it as parent.
     win = mainwindow_class.__new__(mainwindow_class)
-    # Initialize the Qt base (QMainWindow is the direct base of NCSMainWindow)
+    # Initialize the Qt base (QMainWindow is the direct base of LFMainWindow)
     from PySide6.QtWidgets import QMainWindow
     QMainWindow.__init__(win)
     win._session_manager = MagicMock()

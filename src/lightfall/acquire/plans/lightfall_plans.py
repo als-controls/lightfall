@@ -533,7 +533,7 @@ def _register(registry, name, func, category, display_name, icon):
     registry._categories.add(plan_info.category)
 
 
-def register_ncs_plans(registry) -> None:
+def register_lightfall_plans(registry) -> None:
     """Register custom NCS plans in the given registry.
 
     Args:

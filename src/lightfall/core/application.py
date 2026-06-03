@@ -1,4 +1,4 @@
-"""NCSApplication - Central application singleton.
+"""LFApplication - Central application singleton.
 
 This module provides the main application class that coordinates
 initialization, manages services, and controls the application lifecycle.
@@ -36,7 +36,7 @@ class ApplicationState(Enum):
     TERMINATED = auto()
 
 
-class NCSEvent(QEvent):
+class LFEvent(QEvent):
     """Base class for NCS custom events.
 
     Use QCoreApplication.postEvent() to dispatch these events
@@ -65,19 +65,19 @@ class NCSEvent(QEvent):
 
 
 # Pre-registered event types
-class NCSEventTypes:
+class LFEventTypes:
     """Standard NCS event types."""
 
-    CONFIG_CHANGED = NCSEvent.register_type("lightfall.config.changed")
-    SERVICE_REGISTERED = NCSEvent.register_type("lightfall.service.registered")
-    STATE_CHANGED = NCSEvent.register_type("lightfall.state.changed")
+    CONFIG_CHANGED = LFEvent.register_type("lightfall.config.changed")
+    SERVICE_REGISTERED = LFEvent.register_type("lightfall.service.registered")
+    STATE_CHANGED = LFEvent.register_type("lightfall.state.changed")
 
 
-class NCSApplication(QObject):
+class LFApplication(QObject):
     """
     Central application singleton managing NCS lifecycle.
 
-    NCSApplication coordinates:
+    LFApplication coordinates:
     - Service registration and initialization
     - Configuration loading
     - Main window management
@@ -88,17 +88,17 @@ class NCSApplication(QObject):
     Config -> Services -> Plugins -> UI
 
     Example:
-        >>> app = NCSApplication.get_instance()
+        >>> app = LFApplication.get_instance()
         >>> app.initialize()
         >>> return app.run()
     """
 
-    _instance: NCSApplication | None = None
+    _instance: LFApplication | None = None
     _lock = threading.RLock()
 
     def __init__(self, argv: list[str] | None = None) -> None:
         """
-        Initialize NCSApplication.
+        Initialize LFApplication.
 
         Args:
             argv: Command line arguments. If None, uses sys.argv.
@@ -112,15 +112,15 @@ class NCSApplication(QObject):
         self._auth_dialog_active: bool = False
 
     @classmethod
-    def get_instance(cls, argv: list[str] | None = None) -> NCSApplication:
+    def get_instance(cls, argv: list[str] | None = None) -> LFApplication:
         """
-        Get the singleton NCSApplication instance.
+        Get the singleton LFApplication instance.
 
         Args:
             argv: Command line arguments (only used on first call).
 
         Returns:
-            The shared NCSApplication instance.
+            The shared LFApplication instance.
         """
         if cls._instance is None:
             with cls._lock:
@@ -171,8 +171,8 @@ class NCSApplication(QObject):
 
         # Post state change event
         if self._qt_app:
-            event = NCSEvent(
-                NCSEventTypes.STATE_CHANGED,
+            event = LFEvent(
+                LFEventTypes.STATE_CHANGED,
                 {"old_state": old_state, "new_state": new_state},
             )
             QCoreApplication.postEvent(self, event)
@@ -706,7 +706,7 @@ class NCSApplication(QObject):
         if self._qt_app:
             self._qt_app.exit(exit_code)
 
-    def post_event(self, receiver: QObject, event: NCSEvent) -> None:
+    def post_event(self, receiver: QObject, event: LFEvent) -> None:
         """
         Post an NCS event to a receiver.
 
@@ -716,7 +716,7 @@ class NCSApplication(QObject):
         """
         QCoreApplication.postEvent(receiver, event)
 
-    def broadcast_event(self, event: NCSEvent) -> None:
+    def broadcast_event(self, event: LFEvent) -> None:
         """
         Broadcast an event to the application.
 
