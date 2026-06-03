@@ -1,8 +1,8 @@
-# LUCID Paper — Implementation Plan (arXiv M1)
+# Lightfall Paper — Implementation Plan (arXiv M1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Scaffold a new LaTeX paper repository `ncs/lucid-publication` on `git.als.lbl.gov` and populate it with an arXiv-grade first draft of the LUCID publication, meeting Milestone M1 in the design spec (`docs/superpowers/specs/2026-04-20-lucid-publication-design.md`).
+**Goal:** Scaffold a new LaTeX paper repository `ncs/lightfall-publication` on `git.als.lbl.gov` and populate it with an arXiv-grade first draft of the Lightfall publication, meeting Milestone M1 in the design spec (`docs/superpowers/specs/2026-04-20-lightfall-publication-design.md`).
 
 **Architecture:** Self-contained paper repo. Prose lives as section partials under `content/`. Top-level `main-arxiv.tex` (with `main-jsr.tex` as a later stub) includes the partials. `biblatex`+`biber` for references; PlantUML for the architecture figure; placeholder PNGs for the three operational figures. Makefile drives `pdf`, `figures`, and `arxiv-tarball` targets. GitLab CI compiles the PDF and attaches it as an artifact on every push.
 
@@ -16,9 +16,9 @@ Before starting:
 
 - `GITLAB_TOKEN` is present in the environment. (Already configured per `~/.claude/settings.json`.)
 - SOCKS proxy at `localhost:1080` is running (required for all `*.lbl.gov` access).
-- The spec has been read: `~/PycharmProjects/ncs/ncs/docs/superpowers/specs/2026-04-20-lucid-publication-design.md`.
-- The LUCID pitch deck has been read: `~/workspace/lucid-pitch/index.html` (thesis framing) and `~/workspace/lucid-pitch/rebuttal.md` (sustainability narrative).
-- Working tree for this work: `~/workspace/lucid-publication/` (to be created by Task 2).
+- The spec has been read: `~/PycharmProjects/ncs/ncs/docs/superpowers/specs/2026-04-20-lightfall-publication-design.md`.
+- The Lightfall pitch deck has been read: `~/workspace/lightfall-pitch/index.html` (thesis framing) and `~/workspace/lightfall-pitch/rebuttal.md` (sustainability narrative).
+- Working tree for this work: `~/workspace/lightfall-publication/` (to be created by Task 2).
 
 ---
 
@@ -31,8 +31,8 @@ Before starting:
 Reason we use the web UI instead of the API: the configured `GITLAB_TOKEN` is read-only (per `memory/reference_gitlab_ci.md`), so `POST /api/v4/projects` will 403. Ask Ron to:
 
 1. Open https://git.als.lbl.gov/projects/new (SOCKS proxy active in his browser).
-2. Create a blank project in the `ncs` group named `lucid-publication`.
-3. Visibility: **Internal** (matches `ncs` and `lucid-pitch`).
+2. Create a blank project in the `ncs` group named `lightfall-publication`.
+3. Visibility: **Internal** (matches `ncs` and `lightfall-pitch`).
 4. Do **not** initialize with a README — we want a clean first commit.
 
 If Ron wants this unblocked without waiting on him, prompt him via chat and pause.
@@ -42,27 +42,27 @@ If Ron wants this unblocked without waiting on him, prompt him via chat and paus
 ```bash
 curl -s --socks5-hostname localhost:1080 \
   -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flucid-publication" \
+  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flightfall-publication" \
   | python -c "import sys,json; p=json.load(sys.stdin); print(p['id'], p['ssh_url_to_repo'])"
 ```
 
-Expected: prints a numeric project ID and an SSH URL like `git@git.als.lbl.gov:ncs/lucid-publication.git`. Record both for later tasks.
+Expected: prints a numeric project ID and an SSH URL like `git@git.als.lbl.gov:ncs/lightfall-publication.git`. Record both for later tasks.
 
 ---
 
 ## Task 2: Clone locally and initialize
 
 **Files:**
-- Create: `~/workspace/lucid-publication/.gitignore`
-- Create: `~/workspace/lucid-publication/README.md`
-- Create: `~/workspace/lucid-publication/LICENSE`
+- Create: `~/workspace/lightfall-publication/.gitignore`
+- Create: `~/workspace/lightfall-publication/README.md`
+- Create: `~/workspace/lightfall-publication/LICENSE`
 
 - [ ] **Step 1: Clone the empty repo**
 
 ```bash
 cd ~/workspace
-git -c http.proxy=socks5://localhost:1080 clone https://git.als.lbl.gov/ncs/lucid-publication.git
-cd lucid-publication
+git -c http.proxy=socks5://localhost:1080 clone https://git.als.lbl.gov/ncs/lightfall-publication.git
+cd lightfall-publication
 ```
 
 If the project was created empty, git will warn "appears to be an empty repository." That's fine.
@@ -70,13 +70,13 @@ If the project was created empty, git will warn "appears to be an empty reposito
 - [ ] **Step 2: Configure the remote to use the proxy persistently**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git config --local http.proxy socks5://localhost:1080
 ```
 
 - [ ] **Step 3: Create `.gitignore`**
 
-Write `~/workspace/lucid-publication/.gitignore`:
+Write `~/workspace/lightfall-publication/.gitignore`:
 
 ```gitignore
 # LaTeX build artifacts
@@ -118,16 +118,16 @@ Note: `figures/arch.pdf` is NOT gitignored — we commit the generated architect
 
 - [ ] **Step 4: Create a minimal README**
 
-Write `~/workspace/lucid-publication/README.md`:
+Write `~/workspace/lightfall-publication/README.md`:
 
 ```markdown
-# LUCID — Publication
+# Lightfall — Publication
 
-LaTeX source for the LUCID paper. arXiv draft first; Journal of Synchrotron Radiation later.
+LaTeX source for the Lightfall paper. arXiv draft first; Journal of Synchrotron Radiation later.
 
-**Thesis:** LUCID demonstrates that a single API-first design can make a beamline control system addressable by an LLM in two complementary roles — as a user of the interface and as a developer of it.
+**Thesis:** Lightfall demonstrates that a single API-first design can make a beamline control system addressable by an LLM in two complementary roles — as a user of the interface and as a developer of it.
 
-See `docs/superpowers/specs/2026-04-20-lucid-publication-design.md` in the `ncs` repo for the design spec.
+See `docs/superpowers/specs/2026-04-20-lightfall-publication-design.md` in the `ncs` repo for the design spec.
 
 ## Build
 
@@ -147,12 +147,12 @@ make clean         # remove build artifacts
 
 ## Layout
 
-See `docs/superpowers/specs/2026-04-20-lucid-publication-design.md` §6 for the definitive layout rationale.
+See `docs/superpowers/specs/2026-04-20-lightfall-publication-design.md` §6 for the definitive layout rationale.
 ```
 
 - [ ] **Step 5: Create a BSD-3-Clause LICENSE**
 
-LUCID itself is BSD-3-Clause. Match that. Write `~/workspace/lucid-publication/LICENSE` using the standard BSD-3-Clause template with:
+Lightfall itself is BSD-3-Clause. Match that. Write `~/workspace/lightfall-publication/LICENSE` using the standard BSD-3-Clause template with:
 
 - Copyright line: `Copyright (c) 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory`
 - Body: standard BSD-3-Clause text (reuse exactly what `~/PycharmProjects/ncs/ncs/LICENSE` uses; copy it).
@@ -160,7 +160,7 @@ LUCID itself is BSD-3-Clause. Match that. Write `~/workspace/lucid-publication/L
 - [ ] **Step 6: Commit and push**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git checkout -b master   # ensure we're on master (matches the ncs repo convention)
 git add .gitignore README.md LICENSE
 git commit -m "chore: initialize paper repo with README, LICENSE, gitignore"
@@ -180,10 +180,10 @@ Expected output: one commit `chore: initialize paper repo with README, LICENSE, 
 ## Task 3: LaTeX skeleton — `main-arxiv.tex` that compiles empty
 
 **Files:**
-- Create: `~/workspace/lucid-publication/main-arxiv.tex`
-- Create: `~/workspace/lucid-publication/references.bib`
-- Create: `~/workspace/lucid-publication/content/` (directory)
-- Create: `~/workspace/lucid-publication/content/00-abstract.tex` (one-line stub)
+- Create: `~/workspace/lightfall-publication/main-arxiv.tex`
+- Create: `~/workspace/lightfall-publication/references.bib`
+- Create: `~/workspace/lightfall-publication/content/` (directory)
+- Create: `~/workspace/lightfall-publication/content/00-abstract.tex` (one-line stub)
 
 - [ ] **Step 1: Write a minimal `main-arxiv.tex`**
 
@@ -204,7 +204,7 @@ Purpose: prove the class, packages, and bibliography engine all work before any 
 
 \addbibresource{references.bib}
 
-\title{LUCID: An API-first, LLM-addressable control platform for synchrotron beamlines}
+\title{Lightfall: An API-first, LLM-addressable control platform for synchrotron beamlines}
 
 \author{%
   Ronald J.~Pandolfi \and
@@ -232,7 +232,7 @@ Purpose: prove the class, packages, and bibliography engine all work before any 
 - [ ] **Step 2: Create the `content/` directory with a stub abstract**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 mkdir -p content
 printf 'Placeholder abstract. This is a compile smoke-test.\n' > content/00-abstract.tex
 ```
@@ -240,14 +240,14 @@ printf 'Placeholder abstract. This is a compile smoke-test.\n' > content/00-abst
 - [ ] **Step 3: Create an empty `references.bib`**
 
 ```bash
-cd ~/workspace/lucid-publication
-printf '%% LUCID paper references. Populated in Task 9.\n' > references.bib
+cd ~/workspace/lightfall-publication
+printf '%% Lightfall paper references. Populated in Task 9.\n' > references.bib
 ```
 
 - [ ] **Step 4: Compile to verify it builds**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 latexmk -pdf -interaction=nonstopmode main-arxiv.tex
 ```
 
@@ -265,7 +265,7 @@ pdflatex -interaction=nonstopmode main-arxiv.tex
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add main-arxiv.tex references.bib content/00-abstract.tex
 git commit -m "feat: add LaTeX skeleton that compiles"
 git push
@@ -276,12 +276,12 @@ git push
 ## Task 4: Makefile with `pdf`, `figures`, `clean`, and `arxiv-tarball` targets
 
 **Files:**
-- Create: `~/workspace/lucid-publication/Makefile`
+- Create: `~/workspace/lightfall-publication/Makefile`
 
 - [ ] **Step 1: Write the Makefile**
 
 ```makefile
-# LUCID paper build
+# Lightfall paper build
 
 LATEX      := latexmk
 LATEXFLAGS := -pdf -interaction=nonstopmode -halt-on-error
@@ -342,7 +342,7 @@ Note two subtleties:
 We don't have `plantuml` set up yet (Task 6 handles that). Create a trivial placeholder PDF so `make pdf` doesn't fail on the figure dependency. Use Pillow (which is already a dependency for Task 7's placeholder generator) so this works cross-platform without depending on byte-exact PDF structure:
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 mkdir -p figures
 python3 -c "from PIL import Image, ImageDraw; \
 img=Image.new('RGB',(1200,800),'white'); \
@@ -361,7 +361,7 @@ pip install Pillow
 - [ ] **Step 3: Verify `make pdf` works**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make pdf
 ```
 
@@ -370,7 +370,7 @@ Expected: `main-arxiv.pdf` builds successfully.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add Makefile figures/arch.pdf
 git commit -m "feat: add Makefile with pdf, figures, arxiv-tarball targets"
 git push
@@ -381,7 +381,7 @@ git push
 ## Task 5: GitLab CI
 
 **Files:**
-- Create: `~/workspace/lucid-publication/.gitlab-ci.yml`
+- Create: `~/workspace/lightfall-publication/.gitlab-ci.yml`
 
 - [ ] **Step 1: Write the CI config**
 
@@ -400,7 +400,7 @@ build-pdf:
     - make figures
     - make pdf
   artifacts:
-    name: "lucid-publication-$CI_COMMIT_SHORT_SHA"
+    name: "lightfall-publication-$CI_COMMIT_SHORT_SHA"
     paths:
       - main-arxiv.pdf
     expire_in: 30 days
@@ -414,7 +414,7 @@ Rationale:
 - [ ] **Step 2: Commit and push; observe CI**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add .gitlab-ci.yml
 git commit -m "ci: compile paper on every push, upload PDF artifact"
 git push
@@ -425,7 +425,7 @@ git push
 ```bash
 PROJECT_ID=$(curl -s --socks5-hostname localhost:1080 \
   -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flucid-publication" \
+  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flightfall-publication" \
   | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 curl -s --socks5-hostname localhost:1080 \
@@ -456,8 +456,8 @@ Common failure modes: (a) `plantuml` not present in the apt repo of the image �
 ## Task 6: Architecture figure — `arch.puml`
 
 **Files:**
-- Create: `~/workspace/lucid-publication/figures/arch.puml`
-- Replace: `~/workspace/lucid-publication/figures/arch.pdf` (generated)
+- Create: `~/workspace/lightfall-publication/figures/arch.puml`
+- Replace: `~/workspace/lightfall-publication/figures/arch.pdf` (generated)
 
 - [ ] **Step 1: Write `figures/arch.puml`**
 
@@ -522,7 +522,7 @@ API -down-> Core : execute
 - [ ] **Step 2: Generate `figures/arch.pdf`**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make figures
 ```
 
@@ -543,7 +543,7 @@ ls -l figures/arch.pdf
 - [ ] **Step 3: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add figures/arch.puml figures/arch.pdf
 git commit -m "feat: add architecture figure (PlantUML draft)"
 git push
@@ -556,11 +556,11 @@ Pandolfi will polish the rendered PDF in another tool in M2; the `.puml` source 
 ## Task 7: Placeholder figures for Figs 2–4
 
 **Files:**
-- Create: `~/workspace/lucid-publication/tools/gen-placeholders.py`
-- Create: `~/workspace/lucid-publication/figures/fig2-control-mode.png`
-- Create: `~/workspace/lucid-publication/figures/fig3-design-mode.png`
-- Create: `~/workspace/lucid-publication/figures/fig4-cosmic.png`
-- Create: `~/workspace/lucid-publication/figures/README.md`
+- Create: `~/workspace/lightfall-publication/tools/gen-placeholders.py`
+- Create: `~/workspace/lightfall-publication/figures/fig2-control-mode.png`
+- Create: `~/workspace/lightfall-publication/figures/fig3-design-mode.png`
+- Create: `~/workspace/lightfall-publication/figures/fig4-cosmic.png`
+- Create: `~/workspace/lightfall-publication/figures/README.md`
 
 - [ ] **Step 1: Write `tools/gen-placeholders.py`**
 
@@ -606,7 +606,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run it**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 python3 tools/gen-placeholders.py
 ```
 
@@ -648,7 +648,7 @@ Placeholders are idempotent; running the script twice produces the same output.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add tools/ figures/README.md figures/fig2-control-mode.png figures/fig3-design-mode.png figures/fig4-cosmic.png
 git commit -m "feat: add placeholder figures and generator script"
 git push
@@ -659,7 +659,7 @@ git push
 ## Task 8: Stub `main-jsr.tex`
 
 **Files:**
-- Create: `~/workspace/lucid-publication/main-jsr.tex`
+- Create: `~/workspace/lightfall-publication/main-jsr.tex`
 
 - [ ] **Step 1: Write a stub that compiles**
 
@@ -671,7 +671,7 @@ This stub just documents the future path. It compiles on `article` for now; when
 %   1. Replace \documentclass with \documentclass{iucr} (requires the IUCr LaTeX package).
 %   2. Replace the biblatex setup with IUCr's preferred natbib style.
 %   3. Keep all content/*.tex partials identical.
-% See docs/superpowers/specs/2026-04-20-lucid-publication-design.md §7 for the JSR expansion plan.
+% See docs/superpowers/specs/2026-04-20-lightfall-publication-design.md §7 for the JSR expansion plan.
 
 \documentclass[11pt]{article}
 
@@ -684,7 +684,7 @@ This stub just documents the future path. It compiles on `article` for now; when
 \usepackage[backend=biber,style=numeric,sorting=none]{biblatex}
 \addbibresource{references.bib}
 
-\title{LUCID: An API-first, LLM-addressable control platform for synchrotron beamlines}
+\title{Lightfall: An API-first, LLM-addressable control platform for synchrotron beamlines}
 \author{Pandolfi et al.}
 
 \begin{document}
@@ -700,7 +700,7 @@ This stub just documents the future path. It compiles on `article` for now; when
 - [ ] **Step 2: Verify it compiles**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 latexmk -pdf -interaction=nonstopmode main-jsr.tex
 ```
 
@@ -709,7 +709,7 @@ Expected: succeeds.
 - [ ] **Step 3: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add main-jsr.tex
 git commit -m "feat: add main-jsr.tex stub for JSR expansion path"
 git push
@@ -720,7 +720,7 @@ git push
 ## Task 9: Seed `references.bib` with anchor citations
 
 **Files:**
-- Modify: `~/workspace/lucid-publication/references.bib`
+- Modify: `~/workspace/lightfall-publication/references.bib`
 
 - [ ] **Step 1: Add anchor references**
 
@@ -833,7 +833,7 @@ Placeholder abstract. Compile smoke-test that biber resolves: \cite{pandolfi2018
 - [ ] **Step 3: Rebuild and verify the bibliography resolves**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make distclean && make pdf
 ```
 
@@ -850,7 +850,7 @@ Expected: at least one match (the bibliography entry).
 - [ ] **Step 4: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add references.bib content/00-abstract.tex
 git commit -m "feat: seed references.bib with anchor citations"
 git push
@@ -861,7 +861,7 @@ git push
 ## Task 10: Draft `content/00-abstract.tex` (final abstract prose)
 
 **Files:**
-- Modify: `~/workspace/lucid-publication/content/00-abstract.tex`
+- Modify: `~/workspace/lightfall-publication/content/00-abstract.tex`
 
 Goal: replace the smoke-test stub with the real abstract in its near-final form. The spec locks the 5-sentence structure (§3 of the spec).
 
@@ -874,7 +874,7 @@ Synchrotron beamlines differ in hardware, technique, and workflow, making
 customized control interfaces necessary; yet bespoke per-beamline GUIs do
 not scale, and one-size-fits-all facility software forces compromises that
 leave most of the interface unused.
-We present LUCID (Lightsource Unified Control Interface Dashboard), a
+We present Lightfall, a
 facility-wide control platform whose API-first architecture exposes every
 panel, device, and scan plan through a single uniform addressable
 interface.
@@ -884,7 +884,7 @@ The same addressability lets beamline staff extend the interface at
 runtime via \emph{skills} --- plugin modules that the agent can invoke to
 compose and modify panels --- a workflow we have evaluated with beamline
 scientists.
-LUCID is in testing at the COSMIC-Scattering beamline at the Advanced
+Lightfall is in testing at the COSMIC-Scattering beamline at the Advanced
 Light Source, with planned deployment at the CSM beamline at
 NSLS-II.
 ```
@@ -892,7 +892,7 @@ NSLS-II.
 - [ ] **Step 2: Compile and verify**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make pdf
 ```
 
@@ -907,7 +907,7 @@ Expected: roughly 130–180 words.
 - [ ] **Step 3: Commit**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add content/00-abstract.tex
 git commit -m "content: draft abstract"
 git push
@@ -931,7 +931,7 @@ Tasks 11 through 18 each follow the same pattern. For each section:
 
 ### Task 11: §1 Introduction — `content/01-introduction.tex` (target ~600 words)
 
-**File:** Create `~/workspace/lucid-publication/content/01-introduction.tex`.
+**File:** Create `~/workspace/lightfall-publication/content/01-introduction.tex`.
 
 Structure (write one paragraph per bullet):
 
@@ -957,7 +957,7 @@ Note: each section partial is expected to start with its own `\section{...}` com
 
 ### Task 12: §2 Architecture — `content/02-architecture.tex` (target ~900 words)
 
-**File:** Create `~/workspace/lucid-publication/content/02-architecture.tex`, starting with `\section{Architecture}`.
+**File:** Create `~/workspace/lightfall-publication/content/02-architecture.tex`, starting with `\section{Architecture}`.
 
 Structure:
 
@@ -973,7 +973,7 @@ Structure:
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{figures/arch.pdf}
-  \caption{LUCID architecture. The embedded agent addresses the system
+  \caption{Lightfall architecture. The embedded agent addresses the system
   through the same uniform API surface that beamline scientists and staff
   use. Panels, devices, and scan plans are peers on that surface; plugins
   (including runtime \emph{skill plugins}) register capabilities against
@@ -987,7 +987,7 @@ Wire into `main-arxiv.tex` (add `\input{content/02-architecture}` after the Intr
 
 ### Task 13: §3 LLM-as-user — `content/03-llm-as-user.tex` (target ~600 words)
 
-**File:** Create `~/workspace/lucid-publication/content/03-llm-as-user.tex`, starting with `\section{LLM-as-user: control mode}`.
+**File:** Create `~/workspace/lightfall-publication/content/03-llm-as-user.tex`, starting with `\section{LLM-as-user: control mode}`.
 
 Structure:
 
@@ -1012,7 +1012,7 @@ Wire into `main-arxiv.tex`.
 
 ### Task 14: §4 LLM-as-designer — `content/04-llm-as-designer.tex` (target ~900 words)
 
-**File:** Create `~/workspace/lucid-publication/content/04-llm-as-designer.tex`, starting with `\section{LLM-as-designer: runtime extension via skills}`.
+**File:** Create `~/workspace/lightfall-publication/content/04-llm-as-designer.tex`, starting with `\section{LLM-as-designer: runtime extension via skills}`.
 
 This is the paper's headline result. Structure:
 
@@ -1041,7 +1041,7 @@ Wire into `main-arxiv.tex`.
 
 ### Task 15: §5 Supporting capabilities — `content/05-supporting.tex` (target ~500 words)
 
-**File:** Create `~/workspace/lucid-publication/content/05-supporting.tex`, starting with `\section{Supporting capabilities}`.
+**File:** Create `~/workspace/lightfall-publication/content/05-supporting.tex`, starting with `\section{Supporting capabilities}`.
 
 Three subsections, each ~150 words, each explicitly tying back to the API-first claim:
 
@@ -1053,7 +1053,7 @@ No figure. Wire into `main-arxiv.tex`.
 
 ### Task 16: §6 Deployment at COSMIC — `content/06-deployment.tex` (target ~600 words)
 
-**File:** Create `~/workspace/lucid-publication/content/06-deployment.tex`, starting with `\section{Deployment at COSMIC-Scattering}`.
+**File:** Create `~/workspace/lightfall-publication/content/06-deployment.tex`, starting with `\section{Deployment at COSMIC-Scattering}`.
 
 Structure:
 
@@ -1069,7 +1069,7 @@ Structure:
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{figures/fig4-cosmic.png}
-  \caption{LUCID in operation at COSMIC-Scattering. \emph{Placeholder;
+  \caption{Lightfall in operation at COSMIC-Scattering. \emph{Placeholder;
   final capture to be inserted before submission.}}
   \label{fig:cosmic}
 \end{figure}
@@ -1079,7 +1079,7 @@ Wire into `main-arxiv.tex`.
 
 ### Task 17: §7 Discussion and future work — `content/07-discussion.tex` (target ~300 words)
 
-**File:** Create `~/workspace/lucid-publication/content/07-discussion.tex`, starting with `\section{Discussion and future work}`.
+**File:** Create `~/workspace/lightfall-publication/content/07-discussion.tex`, starting with `\section{Discussion and future work}`.
 
 Structure:
 
@@ -1091,7 +1091,7 @@ Wire into `main-arxiv.tex`.
 
 ### Task 18: §8 Conclusions — `content/08-conclusions.tex` (target ~100 words)
 
-**File:** Create `~/workspace/lucid-publication/content/08-conclusions.tex`, starting with `\section{Conclusions}`.
+**File:** Create `~/workspace/lightfall-publication/content/08-conclusions.tex`, starting with `\section{Conclusions}`.
 
 Single compact paragraph that:
 
@@ -1110,7 +1110,7 @@ Wire into `main-arxiv.tex`.
 - [ ] **Step 1: Clean build**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make distclean
 make figures
 make pdf
@@ -1121,7 +1121,7 @@ Expected: clean compile, single warnings pass only (undefined references, citati
 - [ ] **Step 2: Word-count sanity check**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 pdftotext main-arxiv.pdf - | wc -w
 ```
 
@@ -1148,7 +1148,7 @@ Expected: at least three captions contain "Placeholder" (for Figs 2–4).
 If any small fixes were made to partials during the read pass:
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 git add -u
 git commit -m "content: tighten prose after full-document read pass"
 git push
@@ -1163,7 +1163,7 @@ git push
 - [ ] **Step 1: Build the tarball**
 
 ```bash
-cd ~/workspace/lucid-publication
+cd ~/workspace/lightfall-publication
 make arxiv-tarball
 ls -l arxiv-submission.tar.gz
 ```
@@ -1174,7 +1174,7 @@ Expected: the archive exists and is less than a few megabytes.
 
 ```bash
 cd /tmp && rm -rf arxiv-check && mkdir arxiv-check && cd arxiv-check
-tar -xzf ~/workspace/lucid-publication/arxiv-submission.tar.gz
+tar -xzf ~/workspace/lightfall-publication/arxiv-submission.tar.gz
 ls
 # Expected: main-arxiv.tex, references.bib, main-arxiv.bbl, content/, figures/
 latexmk -pdf -interaction=nonstopmode main-arxiv.tex
@@ -1209,7 +1209,7 @@ rm -rf /tmp/arxiv-check
 ```bash
 PROJECT_ID=$(curl -s --socks5-hostname localhost:1080 \
   -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flucid-publication" \
+  "https://git.als.lbl.gov/api/v4/projects/ncs%2Flightfall-publication" \
   | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 curl -s --socks5-hostname localhost:1080 \
@@ -1239,7 +1239,7 @@ Expected: valid PDF with at least 5 pages (the 4500-word paper + figures).
 
 When Tasks 1–21 are complete:
 
-- Announce: M1 is done — repo at `https://git.als.lbl.gov/ncs/lucid-publication`, CI green, PDF downloadable from artifacts.
+- Announce: M1 is done — repo at `https://git.als.lbl.gov/ncs/lightfall-publication`, CI green, PDF downloadable from artifacts.
 - Summarize what's outstanding (M2 items from spec §8).
 - Remind Pandolfi of the open items in spec §9 — especially picking the §4 worked example and locating the panel-design skills for citation.
 

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from lucid.acquire.plans.user_plans import UserPlanService
-from lucid.plugins.agents.plan_tools import PlanToolsAgent
-from lucid.utils.git_tracker import GitTracker
+from lightfall.acquire.plans.user_plans import UserPlanService
+from lightfall.plugins.agents.plan_tools import PlanToolsAgent
+from lightfall.utils.git_tracker import GitTracker
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def reset_singletons():
 @pytest.fixture
 def tracked_dirs(tmp_path, monkeypatch):
     GitTracker.reset_instance()
-    repo_root = tmp_path / "lucid"
+    repo_root = tmp_path / "lightfall"
     repo_root.mkdir()
     plans_dir = repo_root / "plans"
     plans_dir.mkdir()

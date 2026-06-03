@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.ipc.trust import TrustManager, TrustState
+from lightfall.ipc.trust import TrustManager, TrustState
 
 
 # ---------------------------------------------------------------------------

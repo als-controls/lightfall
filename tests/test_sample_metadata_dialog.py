@@ -10,7 +10,7 @@ import pytest
 @pytest.fixture
 def dialog(qapp):
     """Create a SampleMetadataDialog for testing."""
-    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+    from lightfall.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 
     dlg = SampleMetadataDialog()
     return dlg
@@ -65,7 +65,7 @@ class TestSampleMetadataDialogBasics:
 class TestDuplicateCheck:
     """Tests for Tiled duplicate sample name checking."""
 
-    @patch("lucid.services.tiled_service.TiledService")
+    @patch("lightfall.services.tiled_service.TiledService")
     def test_duplicate_name_shows_warning(self, mock_tiled_cls, dialog) -> None:
         mock_service = MagicMock()
         mock_service.is_connected = True
@@ -79,7 +79,7 @@ class TestDuplicateCheck:
         assert dialog._accept_btn.text() == "Force"
         assert dialog._force_mode is True
 
-    @patch("lucid.services.tiled_service.TiledService")
+    @patch("lightfall.services.tiled_service.TiledService")
     def test_force_accepts_duplicate(self, mock_tiled_cls, dialog) -> None:
         mock_service = MagicMock()
         mock_service.is_connected = True
@@ -98,7 +98,7 @@ class TestDuplicateCheck:
             dialog._on_accept_clicked()
             mock_accept.assert_called_once()
 
-    @patch("lucid.services.tiled_service.TiledService")
+    @patch("lightfall.services.tiled_service.TiledService")
     def test_tiled_not_connected_skips_check(self, mock_tiled_cls, dialog) -> None:
         mock_service = MagicMock()
         mock_service.is_connected = False

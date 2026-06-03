@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def _catalog_with(*infos):
 
 class TestFavoritesTab:
     def test_empty_state(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         tab = FavoritesTab(catalog=_catalog_with())
         tab.show()
         assert tab._placeholder.isVisible()
@@ -61,7 +61,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_add_favorite(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("motor_1")
         tab = FavoritesTab(catalog=_catalog_with(info))
         tab.show()
@@ -72,7 +72,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_remove_favorite(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("motor_1")
         tab = FavoritesTab(catalog=_catalog_with(info))
         tab.show()
@@ -84,7 +84,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_is_favorite(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("motor_1")
         tab = FavoritesTab(catalog=_catalog_with(info))
         assert tab.is_favorite(info.name) is False
@@ -95,7 +95,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_duplicate_add_is_noop(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("motor_1")
         tab = FavoritesTab(catalog=_catalog_with(info))
         tab.add_favorite(info.name)
@@ -104,7 +104,7 @@ class TestFavoritesTab:
         tab.close()
 
     def test_get_favorite_ids(self, qapp):
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info1 = _make_motor_info("motor_1")
         info2 = _make_motor_info("motor_2")
         tab = FavoritesTab(catalog=_catalog_with(info1, info2))
@@ -118,7 +118,7 @@ class TestFavoritesTab:
         """Favorite added before its device exists in the catalog stays
         pending; once the catalog gets the device, on_device_added
         creates the widget."""
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("late_motor")
         catalog = _catalog_with()  # device not in catalog yet
         tab = FavoritesTab(catalog=catalog)
@@ -138,7 +138,7 @@ class TestFavoritesTab:
     def test_set_favorites_drops_unknown_then_picks_up_on_add(self, qapp):
         """A name that never resolves stays in _favorite_ids without a
         widget; later add for a different unrelated name still works."""
-        from lucid.ui.widgets.favorites_tab import FavoritesTab
+        from lightfall.ui.widgets.favorites_tab import FavoritesTab
         info = _make_motor_info("good_motor")
         tab = FavoritesTab(catalog=_catalog_with(info))
         tab.set_favorites(["ghost_motor", info.name])

@@ -45,27 +45,27 @@ def _max_int_magnitude(obj):
 
 
 def test_positive_inf_clamped_into_json_safe_range():
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     out = safe_truncate_json_overflow(float("inf"))
     assert abs(int(out)) <= JSON_SAFE_MAX
 
 
 def test_negative_inf_clamped_into_json_safe_range():
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     out = safe_truncate_json_overflow(float("-inf"))
     assert abs(int(out)) <= JSON_SAFE_MAX
 
 
 def test_nan_becomes_none():
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     assert safe_truncate_json_overflow(float("nan")) is None
 
 
 def test_numpy_uint64_is_clamped_and_de_numpied():
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     out = safe_truncate_json_overflow(numpy.uint64(2**64 - 1))
     assert not isinstance(out, numpy.generic)
@@ -73,7 +73,7 @@ def test_numpy_uint64_is_clamped_and_de_numpied():
 
 
 def test_safe_values_pass_through_unchanged():
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     payload = {"a": 5, "b": -500.0, "c": "Micron", "d": [1, 2, 3], "e": None}
     assert safe_truncate_json_overflow(payload) == payload
@@ -81,7 +81,7 @@ def test_safe_values_pass_through_unchanged():
 
 def test_descriptor_with_inf_limits_is_wire_safe():
     """The actual failure shape: +/-inf ctrl_limits inside data_keys."""
-    from lucid.services.tiled_writer_patch import safe_truncate_json_overflow
+    from lightfall.services.tiled_writer_patch import safe_truncate_json_overflow
 
     desc = {
         "data_keys": {
@@ -107,7 +107,7 @@ def test_patch_is_installed_on_upstream_writer_module():
     """
     import bluesky_tiled_plugins.writing.tiled_writer as tw
 
-    import lucid.services.tiled_writer_patch  # noqa: F401  (installs the patch)
+    import lightfall.services.tiled_writer_patch  # noqa: F401  (installs the patch)
 
     out = tw.truncate_json_overflow(float("inf"))
     assert abs(int(out)) <= JSON_SAFE_MAX

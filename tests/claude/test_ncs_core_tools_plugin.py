@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.claude.ncs_core_tools import NCSCoreToolPlugin
+from lightfall.claude.ncs_core_tools import NCSCoreToolPlugin
 
 
 def test_argless_construction():

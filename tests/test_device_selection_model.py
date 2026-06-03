@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import QModelIndex, Qt
 
-from lucid.devices.model import DeviceCategory, DeviceInfo
-from lucid.ui.models.device_selection import DeviceSelectionItem, DeviceSelectionModel
+from lightfall.devices.model import DeviceCategory, DeviceInfo
+from lightfall.ui.models.device_selection import DeviceSelectionItem, DeviceSelectionModel
 
 
 def _make_device_info(name, category=DeviceCategory.MOTOR):
@@ -72,7 +72,7 @@ class TestDeviceSelectionItem:
         assert item.is_writable is False
 
     def test_metadata_dict(self):
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
         item = DeviceSelectionItem(
             name="motor1", dotted_path="motor1", parent=None,
             category=DeviceCategory.MOTOR, is_writable=True, kind="hinted",
@@ -193,7 +193,7 @@ class TestDeviceSelectionModel:
         assert writability.get("setpoint") is True
 
 
-from lucid.ui.models.device_selection import DeviceSelectionFilterProxy  # noqa: E402
+from lightfall.ui.models.device_selection import DeviceSelectionFilterProxy  # noqa: E402
 
 
 class TestDeviceSelectionFilterProxy:

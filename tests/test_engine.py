@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from lucid.acquire.engine import (
+from lightfall.acquire.engine import (
     BaseEngine,
     BlueskyEngine,
     Engine,
@@ -250,13 +250,13 @@ class TestBackwardCompatibility:
 
     def test_qrunengine_alias(self) -> None:
         """Test that QRunEngine is an alias for BlueskyEngine."""
-        from lucid.acquire import QRunEngine
+        from lightfall.acquire import QRunEngine
 
         assert QRunEngine is BlueskyEngine
 
     def test_get_run_engine_alias(self, qapp) -> None:
         """Test that get_run_engine still works."""
-        from lucid.acquire import get_run_engine
+        from lightfall.acquire import get_run_engine
 
         reset_engine()
 
@@ -292,7 +292,7 @@ class TestToastNotifications:
         engine.toast_notifications = True
         assert engine.toast_notifications is True
 
-    @patch("lucid.ui.toast.ToastManager")
+    @patch("lightfall.ui.toast.ToastManager")
     def test_finish_shows_success_toast(self, mock_toast_class, qapp) -> None:
         """Test that finishing a run shows a success toast."""
         mock_toast = MagicMock()
@@ -306,7 +306,7 @@ class TestToastNotifications:
         assert "Complete" in args[0][0]
         assert "mock" in args[0][1]
 
-    @patch("lucid.ui.toast.ToastManager")
+    @patch("lightfall.ui.toast.ToastManager")
     def test_abort_shows_warning_toast(self, mock_toast_class, qapp) -> None:
         """Test that aborting a run shows a warning toast."""
         mock_toast = MagicMock()
@@ -322,7 +322,7 @@ class TestToastNotifications:
         assert "Abort" in args[0][0]
         assert "mock" in args[0][1]
 
-    @patch("lucid.ui.toast.ToastManager")
+    @patch("lightfall.ui.toast.ToastManager")
     def test_exception_shows_error_toast(self, mock_toast_class, qapp) -> None:
         """Test that an exception shows an error toast."""
         mock_toast = MagicMock()
@@ -337,7 +337,7 @@ class TestToastNotifications:
         assert "Failed" in args[0][0]
         assert "Test error message" in args[0][1]
 
-    @patch("lucid.ui.toast.ToastManager")
+    @patch("lightfall.ui.toast.ToastManager")
     def test_disabled_notifications_no_toast(self, mock_toast_class, qapp) -> None:
         """Test that disabled notifications don't show toasts."""
         mock_toast = MagicMock()
@@ -350,7 +350,7 @@ class TestToastNotifications:
         mock_toast.warning.assert_not_called()
         mock_toast.error.assert_not_called()
 
-    @patch("lucid.ui.toast.ToastManager")
+    @patch("lightfall.ui.toast.ToastManager")
     def test_toast_manager_lazy_initialization(self, mock_toast_class, qapp) -> None:
         """Test that ToastManager is lazily initialized."""
         engine = MockEngine(toast_notifications=False)
@@ -370,7 +370,7 @@ class TestQueueManagement:
 
     def test_prioritized_procedure_has_id(self, mock_engine) -> None:
         """Test that submitted procedures get unique IDs."""
-        from lucid.acquire.engine.base import PrioritizedProcedure
+        from lightfall.acquire.engine.base import PrioritizedProcedure
 
         proc1 = PrioritizedProcedure(priority=1, procedure="test1")
         proc2 = PrioritizedProcedure(priority=1, procedure="test2")
@@ -382,7 +382,7 @@ class TestQueueManagement:
         """Test that procedures have submission timestamp."""
         from datetime import datetime
 
-        from lucid.acquire.engine.base import PrioritizedProcedure
+        from lightfall.acquire.engine.base import PrioritizedProcedure
 
         before = datetime.now()
         proc = PrioritizedProcedure(priority=1, procedure="test")
@@ -392,7 +392,7 @@ class TestQueueManagement:
 
     def test_prioritized_procedure_has_name(self, mock_engine) -> None:
         """Test that procedures can have names."""
-        from lucid.acquire.engine.base import PrioritizedProcedure
+        from lightfall.acquire.engine.base import PrioritizedProcedure
 
         proc = PrioritizedProcedure(priority=1, procedure="test", name="my_plan")
         assert proc.name == "my_plan"
@@ -645,10 +645,10 @@ class TestPreSubmitIntegration:
 
         from PySide6.QtWidgets import QDialog
 
-        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lightfall.ui.panels.bluesky_panel import _sample_metadata_pre_submit
 
         with patch(
-            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+            "lightfall.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
         ) as MockDialog:
             mock_dialog = MagicMock()
             mock_dialog.exec.return_value = QDialog.DialogCode.Accepted
@@ -664,10 +664,10 @@ class TestPreSubmitIntegration:
 
         from PySide6.QtWidgets import QDialog
 
-        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lightfall.ui.panels.bluesky_panel import _sample_metadata_pre_submit
 
         with patch(
-            "lucid.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
+            "lightfall.ui.dialogs.sample_metadata_dialog.SampleMetadataDialog"
         ) as MockDialog:
             mock_dialog = MagicMock()
             mock_dialog.exec.return_value = QDialog.DialogCode.Rejected
@@ -689,9 +689,9 @@ class TestPreSubmitIntegration:
         import threading
         from unittest.mock import patch
 
-        from lucid.ui.panels import bluesky_panel
-        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
-        from lucid.utils.threads import initialize_main_thread_invoker
+        from lightfall.ui.panels import bluesky_panel
+        from lightfall.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lightfall.utils.threads import initialize_main_thread_invoker
 
         # The invoker singleton must be constructed on the GUI thread for
         # cross-thread events to dispatch correctly. Production does this

@@ -4,9 +4,9 @@
 
 **Goal:** Show the user's profile picture in the menubar corner (right of RunEngine controls), reacting live to changes; refactor `PreferencesManager` into a backend-multiplexing surface with topic-gated subscriptions so the avatar (and future consumers) observes one key without polling or filtering.
 
-**Architecture:** Introduce a `PreferenceBackend` ABC with two concretes — `LocalPreferenceBackend` (YAML via `ConfigManager`) and `UserPortableBackend` (lucid-logbook via `UserSettingsClient`). `PreferencesManager` becomes a thin multiplexer; per-key `_Topic` QObjects deliver `subscribe(key, slot)` callbacks. The coarse `preference_changed` signal is removed. The new `ProfileAvatarWidget` subscribes to `"profile_image_id"`.
+**Architecture:** Introduce a `PreferenceBackend` ABC with two concretes — `LocalPreferenceBackend` (YAML via `ConfigManager`) and `UserPortableBackend` (lightfall-logbook via `UserSettingsClient`). `PreferencesManager` becomes a thin multiplexer; per-key `_Topic` QObjects deliver `subscribe(key, slot)` callbacks. The coarse `preference_changed` signal is removed. The new `ProfileAvatarWidget` subscribes to `"profile_image_id"`.
 
-**Tech Stack:** PySide6 (Qt6), httpx (sync), pytest + pytest-qt + pytest-httpx, `lucid.utils.threads.QThreadFuture` for off-thread HTTP.
+**Tech Stack:** PySide6 (Qt6), httpx (sync), pytest + pytest-qt + pytest-httpx, `lightfall.utils.threads.QThreadFuture` for off-thread HTTP.
 
 **Spec:** `docs/superpowers/specs/2026-05-11-profile-avatar-and-pref-backends-design.md`
 
@@ -20,13 +20,13 @@
 
 | Action | File |
 |---|---|
-| new | `src/lucid/settings/image_helpers.py` |
-| new | `src/lucid/ui/preferences/backend.py` |
-| new | `src/lucid/ui/preferences/user_portable_backend.py` |
-| edit | `src/lucid/ui/preferences/manager.py` |
-| new | `src/lucid/ui/widgets/profile_avatar.py` |
-| edit | `src/lucid/ui/mainwindow.py` |
-| edit | `src/lucid/ui/preferences/user_profile_settings.py` |
+| new | `src/lightfall/settings/image_helpers.py` |
+| new | `src/lightfall/ui/preferences/backend.py` |
+| new | `src/lightfall/ui/preferences/user_portable_backend.py` |
+| edit | `src/lightfall/ui/preferences/manager.py` |
+| new | `src/lightfall/ui/widgets/profile_avatar.py` |
+| edit | `src/lightfall/ui/mainwindow.py` |
+| edit | `src/lightfall/ui/preferences/user_profile_settings.py` |
 | new | `tests/test_image_helpers.py` |
 | new | `tests/test_preference_backend.py` |
 | new | `tests/test_user_portable_backend.py` |
@@ -41,12 +41,12 @@
 **Why first:** Both the existing settings plugin and the new avatar widget need this helper. Lifting it before touching either consumer keeps the diff for each later task small.
 
 **Files:**
-- Create: `src/lucid/settings/image_helpers.py`
+- Create: `src/lightfall/settings/image_helpers.py`
 - Test: `tests/test_image_helpers.py`
 
 - [ ] **Step 1: Read the current `_fetch_qimage` to copy verbatim**
 
-Run: read `src/lucid/ui/preferences/user_profile_settings.py` lines 260-340. The helper is defined near the bottom of the file. Copy the exact body for the next step.
+Run: read `src/lightfall/ui/preferences/user_profile_settings.py` lines 260-340. The helper is defined near the bottom of the file. Copy the exact body for the next step.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -73,7 +73,7 @@ def qapp():
 
 def test_fetch_qimage_returns_qimage_for_png_bytes(qapp):
     """_fetch_qimage downloads via the client and decodes bytes to QImage."""
-    from lucid.settings.image_helpers import _fetch_qimage
+    from lightfall.settings.image_helpers import _fetch_qimage
 
     # Smallest valid PNG: 1x1 transparent.
     png = bytes.fromhex(
@@ -91,7 +91,7 @@ def test_fetch_qimage_returns_qimage_for_png_bytes(qapp):
 
 
 def test_fetch_qimage_returns_null_image_on_garbage(qapp):
-    from lucid.settings.image_helpers import _fetch_qimage
+    from lightfall.settings.image_helpers import _fetch_qimage
 
     client = MagicMock()
     client.download_image.return_value = (b"not an image", "image/png")
@@ -106,14 +106,14 @@ def test_fetch_qimage_returns_null_image_on_garbage(qapp):
 .venv/Scripts/python -m pytest tests/test_image_helpers.py -v
 ```
 
-Expected: `ModuleNotFoundError: No module named 'lucid.settings.image_helpers'`.
+Expected: `ModuleNotFoundError: No module named 'lightfall.settings.image_helpers'`.
 
 - [ ] **Step 4: Create the helper module**
 
-Create `src/lucid/settings/image_helpers.py`:
+Create `src/lightfall/settings/image_helpers.py`:
 
 ```python
-"""Pure helpers shared across UI code that displays lucid-logbook image
+"""Pure helpers shared across UI code that displays lightfall-logbook image
 artifacts (profile picture, fragment images, etc.).
 
 Keep this module dependency-free of QWidget — it must be safe to import
@@ -126,7 +126,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QImage
 
 if TYPE_CHECKING:
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 def _fetch_qimage(client: "UserSettingsClient", image_id: str) -> QImage:
@@ -155,10 +155,10 @@ Expected: both tests pass.
 
 - [ ] **Step 6: Update `user_profile_settings.py` to import from the new module**
 
-In `src/lucid/ui/preferences/user_profile_settings.py`, delete the in-file `_fetch_qimage` definition (the function near the bottom) and add at the top of the file (with other imports):
+In `src/lightfall/ui/preferences/user_profile_settings.py`, delete the in-file `_fetch_qimage` definition (the function near the bottom) and add at the top of the file (with other imports):
 
 ```python
-from lucid.settings.image_helpers import _fetch_qimage
+from lightfall.settings.image_helpers import _fetch_qimage
 ```
 
 - [ ] **Step 7: Run the user-profile-plugin tests to confirm no regression**
@@ -173,7 +173,7 @@ Expected: every test still passes (the helper moved; behavior is unchanged).
 
 ```
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/settings/image_helpers.py src/lucid/ui/preferences/user_profile_settings.py tests/test_image_helpers.py
+git add src/lightfall/settings/image_helpers.py src/lightfall/ui/preferences/user_profile_settings.py tests/test_image_helpers.py
 git commit -m "refactor(settings): extract _fetch_qimage into shared image_helpers module"
 ```
 
@@ -184,7 +184,7 @@ git commit -m "refactor(settings): extract _fetch_qimage into shared image_helpe
 **Why now:** The ABC defines the contract every later task depends on. `LocalPreferenceBackend` reproduces today's `PreferencesManager` behavior (the bit that talks to `ConfigManager`) inside the new shape, so we can swap the manager's internals without changing observable behavior for local keys.
 
 **Files:**
-- Create: `src/lucid/ui/preferences/backend.py`
+- Create: `src/lightfall/ui/preferences/backend.py`
 - Test: `tests/test_preference_backend.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -227,39 +227,39 @@ def config_manager():
 
 
 def test_abc_cannot_be_instantiated(qapp):
-    from lucid.ui.preferences.backend import PreferenceBackend
+    from lightfall.ui.preferences.backend import PreferenceBackend
     with pytest.raises(TypeError):
         PreferenceBackend()
 
 
 def test_local_backend_owns_non_portable_key(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     b = LocalPreferenceBackend(config_manager)
     assert b.owns("theme") is True
     assert b.owns("font_size") is True
 
 
 def test_local_backend_does_not_own_user_portable_key(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     b = LocalPreferenceBackend(config_manager)
     assert b.owns("profile_image_id") is False
 
 
 def test_local_backend_get_returns_stored_value(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     config_manager._store["preferences.theme"] = "dark"
     b = LocalPreferenceBackend(config_manager)
     assert b.get("theme") == "dark"
 
 
 def test_local_backend_get_returns_default_when_missing(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     b = LocalPreferenceBackend(config_manager)
     assert b.get("missing", default="fallback") == "fallback"
 
 
 def test_local_backend_set_emits_changed(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     b = LocalPreferenceBackend(config_manager)
     captured: list[tuple] = []
     b.changed.connect(lambda k, v: captured.append((k, v)))
@@ -271,7 +271,7 @@ def test_local_backend_set_emits_changed(qapp, config_manager):
 
 
 def test_local_backend_remove_emits_none(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     config_manager._store["preferences.theme"] = "dark"
     b = LocalPreferenceBackend(config_manager)
     captured: list[tuple] = []
@@ -285,7 +285,7 @@ def test_local_backend_remove_emits_none(qapp, config_manager):
 
 def test_local_backend_beamline_override_consulted_first(qapp, config_manager):
     """Beamline-specific keys (e.g., default_data_dir) read beamline first, fall back to global."""
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     config_manager._store["preferences.default_data_dir"] = "/data/global"
     config_manager._store["preferences.beamlines.7011.default_data_dir"] = "/data/7011"
     b = LocalPreferenceBackend(config_manager, beamline="7011")
@@ -293,7 +293,7 @@ def test_local_backend_beamline_override_consulted_first(qapp, config_manager):
 
 
 def test_local_backend_falls_back_when_no_beamline_override(qapp, config_manager):
-    from lucid.ui.preferences.backend import LocalPreferenceBackend
+    from lightfall.ui.preferences.backend import LocalPreferenceBackend
     config_manager._store["preferences.default_data_dir"] = "/data/global"
     b = LocalPreferenceBackend(config_manager, beamline="7011")
     assert b.get("default_data_dir") == "/data/global"
@@ -309,7 +309,7 @@ Expected: every test fails with `ModuleNotFoundError`.
 
 - [ ] **Step 3: Create the ABC + concrete backend**
 
-Create `src/lucid/ui/preferences/backend.py`:
+Create `src/lightfall/ui/preferences/backend.py`:
 
 ```python
 """Preference storage backends used by PreferencesManager.
@@ -325,10 +325,10 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.config.manager import ConfigManager
+    from lightfall.config.manager import ConfigManager
 
 
 # Beamline-specific preference keys. Kept in sync with manager.py's
@@ -400,7 +400,7 @@ class LocalPreferenceBackend(PreferenceBackend):
         # Cache the user-portable set for O(1) `owns()` rejection.
         # Imported lazily to avoid a circular import with
         # user_portable_backend (which itself imports nothing from here).
-        from lucid.ui.preferences.user_portable_backend import (
+        from lightfall.ui.preferences.user_portable_backend import (
             USER_PORTABLE_KEYS,
         )
         self._user_portable_keys = USER_PORTABLE_KEYS
@@ -443,10 +443,10 @@ class LocalPreferenceBackend(PreferenceBackend):
 
 - [ ] **Step 4: Stub `USER_PORTABLE_KEYS` so the local backend imports it**
 
-Create `src/lucid/ui/preferences/user_portable_backend.py` with just the constant for now (the rest lands in Task 3):
+Create `src/lightfall/ui/preferences/user_portable_backend.py` with just the constant for now (the rest lands in Task 3):
 
 ```python
-"""User-portable preference backend (lucid-logbook). Populated in Task 3."""
+"""User-portable preference backend (lightfall-logbook). Populated in Task 3."""
 from __future__ import annotations
 
 USER_PORTABLE_KEYS: frozenset[str] = frozenset({"profile_image_id"})
@@ -463,7 +463,7 @@ Expected: all tests pass.
 - [ ] **Step 6: Commit**
 
 ```
-git add src/lucid/ui/preferences/backend.py src/lucid/ui/preferences/user_portable_backend.py tests/test_preference_backend.py
+git add src/lightfall/ui/preferences/backend.py src/lightfall/ui/preferences/user_portable_backend.py tests/test_preference_backend.py
 git commit -m "feat(prefs): add PreferenceBackend ABC and LocalPreferenceBackend"
 ```
 
@@ -472,7 +472,7 @@ git commit -m "feat(prefs): add PreferenceBackend ABC and LocalPreferenceBackend
 ## Task 3: `UserPortableBackend`
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/user_portable_backend.py` (fill in beyond the stub)
+- Modify: `src/lightfall/ui/preferences/user_portable_backend.py` (fill in beyond the stub)
 - Test: `tests/test_user_portable_backend.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -517,7 +517,7 @@ def _wait_for_spy(spy: QSignalSpy, expected_count: int, timeout_ms: int = 2000) 
 
 
 def test_owns_only_user_portable_keys(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     b = UserPortableBackend(client)
     assert b.owns("profile_image_id") is True
@@ -525,7 +525,7 @@ def test_owns_only_user_portable_keys(qapp):
 
 
 def test_get_returns_default_when_cache_empty(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     b = UserPortableBackend(client)
     assert b.get("profile_image_id", default=None) is None
@@ -533,7 +533,7 @@ def test_get_returns_default_when_cache_empty(qapp):
 
 
 def test_set_runs_async_and_emits_changed(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.set.return_value = None  # successful PUT
 
@@ -550,8 +550,8 @@ def test_set_runs_async_and_emits_changed(qapp):
 
 
 def test_set_failure_leaves_cache_untouched_and_no_emit(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     client = MagicMock()
     client.set.side_effect = UserSettingsError("boom")
@@ -572,7 +572,7 @@ def test_set_failure_leaves_cache_untouched_and_no_emit(qapp):
 
 
 def test_remove_emits_none_and_clears_cache(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.set.return_value = None
     client.delete.return_value = None
@@ -591,7 +591,7 @@ def test_remove_emits_none_and_clears_cache(qapp):
 
 
 def test_refresh_populates_cache_and_emits_per_changed_key(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.get_all.return_value = {"profile_image_id": "img-7"}
 
@@ -608,7 +608,7 @@ def test_refresh_populates_cache_and_emits_per_changed_key(qapp):
 
 def test_refresh_emits_none_for_removed_keys(qapp):
     """Server has no profile_image_id but cache had one — emit (key, None)."""
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
 
     # Seed: server responds with the key, then drops it on second refresh.
@@ -631,7 +631,7 @@ def test_refresh_emits_none_for_removed_keys(qapp):
 
 def test_refresh_skips_in_flight_set(qapp, monkeypatch):
     """If a key has an in-flight set, refresh must not clobber it."""
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     import time
 
     client = MagicMock()
@@ -666,10 +666,10 @@ Expected: every test fails with `ImportError` or `AttributeError: 'NoneType' obj
 
 - [ ] **Step 3: Implement the backend**
 
-Replace the contents of `src/lucid/ui/preferences/user_portable_backend.py`:
+Replace the contents of `src/lightfall/ui/preferences/user_portable_backend.py`:
 
 ```python
-"""User-portable preference backend (lucid-logbook via UserSettingsClient).
+"""User-portable preference backend (lightfall-logbook via UserSettingsClient).
 
 Owns the set of keys whose canonical store is the user's logbook
 account (so they follow the user across machines). All I/O is async:
@@ -680,12 +680,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lucid.ui.preferences.backend import PreferenceBackend
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.ui.preferences.backend import PreferenceBackend
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
 
 
 USER_PORTABLE_KEYS: frozenset[str] = frozenset({"profile_image_id"})
@@ -811,7 +811,7 @@ Expected: all 8 tests pass.
 - [ ] **Step 5: Commit**
 
 ```
-git add src/lucid/ui/preferences/user_portable_backend.py tests/test_user_portable_backend.py
+git add src/lightfall/ui/preferences/user_portable_backend.py tests/test_user_portable_backend.py
 git commit -m "feat(prefs): add UserPortableBackend for logbook-backed settings"
 ```
 
@@ -822,13 +822,13 @@ git commit -m "feat(prefs): add UserPortableBackend for logbook-backed settings"
 **Note:** This task does the full swap in one cohesive change — multiplex backends, introduce `_Topic` and `subscribe`/`unsubscribe`, drop the coarse `preference_changed` signal, migrate the single consumer in `mainwindow.py`. Keeping it atomic prevents an intermediate state where the old signal is gone but the new subscribe API isn't wired.
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/manager.py`
-- Modify: `src/lucid/ui/mainwindow.py` (migrate the theme listener)
+- Modify: `src/lightfall/ui/preferences/manager.py`
+- Modify: `src/lightfall/ui/mainwindow.py` (migrate the theme listener)
 - Modify: `tests/test_preferences_manager.py`
 
 - [ ] **Step 1: Read the existing manager for shape**
 
-Run: open `src/lucid/ui/preferences/manager.py` and skim `__init__`, `get`, `set`, `remove`, `_connect_signals` (if any), and the `BEAMLINE_SPECIFIC_PREFS` set declaration. You'll need to leave non-backend functionality (QSettings, recent files) untouched.
+Run: open `src/lightfall/ui/preferences/manager.py` and skim `__init__`, `get`, `set`, `remove`, `_connect_signals` (if any), and the `BEAMLINE_SPECIFIC_PREFS` set declaration. You'll need to leave non-backend functionality (QSettings, recent files) untouched.
 
 - [ ] **Step 2: Read the existing manager test file**
 
@@ -892,7 +892,7 @@ def test_set_dispatches_to_local_backend_for_local_key(qapp, prefs_manager):
 
 def test_get_returns_cached_user_portable_value(qapp, prefs_manager, monkeypatch):
     """User-portable get is cache-only; populated via refresh or set."""
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     # No fetch has happened yet — get returns default.
     assert prefs_manager.get("profile_image_id", default=None) is None
@@ -901,7 +901,7 @@ def test_get_returns_cached_user_portable_value(qapp, prefs_manager, monkeypatch
 def test_user_portable_set_emits_through_topic(qapp, prefs_manager, monkeypatch):
     """When user-portable backend.set() succeeds, the PrefMgr-level
     subscriber receives the value via the per-key topic."""
-    from lucid.ui.preferences import user_portable_backend as upb_mod
+    from lightfall.ui.preferences import user_portable_backend as upb_mod
 
     # Replace the backend's client so set() succeeds without HTTP.
     from unittest.mock import MagicMock
@@ -930,7 +930,7 @@ For the `prefs_manager` fixture, ensure it constructs `PreferencesManager` with 
 @pytest.fixture
 def prefs_manager(qapp):
     from unittest.mock import MagicMock
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     cm = MagicMock()
     cm._store: dict = {}
@@ -953,14 +953,14 @@ Expected: the new subscribe tests fail with `AttributeError: ... has no attribut
 
 - [ ] **Step 5: Rewrite `manager.py`**
 
-Replace `src/lucid/ui/preferences/manager.py` with the new shape. Preserve everything *outside* the backend split (QSettings, save/restore window state, recent files, login slot wiring). The relevant edits are concentrated in `__init__`, `set`, `get`, `remove`, and the signal declaration.
+Replace `src/lightfall/ui/preferences/manager.py` with the new shape. Preserve everything *outside* the backend split (QSettings, save/restore window state, recent files, login slot wiring). The relevant edits are concentrated in `__init__`, `set`, `get`, `remove`, and the signal declaration.
 
 Inside `__init__` (after `super().__init__()` and existing field assignments):
 
 ```python
-from lucid.settings.user_settings_client import UserSettingsClient
-from lucid.ui.preferences.backend import LocalPreferenceBackend
-from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+from lightfall.settings.user_settings_client import UserSettingsClient
+from lightfall.ui.preferences.backend import LocalPreferenceBackend
+from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
 
 self._local = LocalPreferenceBackend(config_manager, beamline)
 self._user_portable = UserPortableBackend(UserSettingsClient.get_instance())
@@ -1054,7 +1054,7 @@ Remove the now-unused `BEAMLINE_SPECIFIC_PREFS` if it lived in this file — bac
 
 - [ ] **Step 6: Migrate `mainwindow.py` theme listener**
 
-In `src/lucid/ui/mainwindow.py`, find the line (around 252):
+In `src/lightfall/ui/mainwindow.py`, find the line (around 252):
 
 ```python
 self._prefs_manager.preference_changed.connect(self._on_preference_changed)
@@ -1102,7 +1102,7 @@ Expected: no matches.
 - [ ] **Step 9: Commit**
 
 ```
-git add src/lucid/ui/preferences/manager.py src/lucid/ui/mainwindow.py tests/test_preferences_manager.py
+git add src/lightfall/ui/preferences/manager.py src/lightfall/ui/mainwindow.py tests/test_preferences_manager.py
 git commit -m "refactor(prefs): multiplex backends + topic-gated subscribe API"
 ```
 
@@ -1111,7 +1111,7 @@ git commit -m "refactor(prefs): multiplex backends + topic-gated subscribe API"
 ## Task 5: `ProfileAvatarWidget`
 
 **Files:**
-- Create: `src/lucid/ui/widgets/profile_avatar.py`
+- Create: `src/lightfall/ui/widgets/profile_avatar.py`
 - Test: `tests/ui/widgets/test_profile_avatar.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1143,7 +1143,7 @@ def qapp():
 
 @pytest.fixture(autouse=True)
 def _reset_prefs(qapp):
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     from unittest.mock import MagicMock
 
     cm = MagicMock()
@@ -1158,7 +1158,7 @@ def _reset_prefs(qapp):
 
 
 def test_initial_render_is_placeholder(qapp):
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     assert w._loaded_image_id is None
@@ -1167,9 +1167,9 @@ def test_initial_render_is_placeholder(qapp):
 
 
 def test_subscribe_with_new_id_triggers_fetch(qapp):
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -1197,9 +1197,9 @@ def test_subscribe_with_new_id_triggers_fetch(qapp):
 
 
 def test_subscribe_same_id_does_not_refetch(qapp):
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -1229,9 +1229,9 @@ def test_subscribe_same_id_does_not_refetch(qapp):
 
 
 def test_subscribe_none_reverts_to_placeholder(qapp):
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -1256,7 +1256,7 @@ def test_mouse_press_emits_clicked(qapp):
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QMouseEvent
 
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     received: list = []
@@ -1277,7 +1277,7 @@ def test_right_click_does_not_emit_clicked(qapp):
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QMouseEvent
 
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     received: list = []
@@ -1304,7 +1304,7 @@ Expected: every test fails with `ModuleNotFoundError`.
 
 - [ ] **Step 3: Implement the widget**
 
-Create `src/lucid/ui/widgets/profile_avatar.py`:
+Create `src/lightfall/ui/widgets/profile_avatar.py`:
 
 ```python
 """Small clickable avatar widget for the menubar corner.
@@ -1329,11 +1329,11 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from lucid.settings.image_helpers import _fetch_qimage
-from lucid.settings.user_settings_client import UserSettingsClient
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.utils.logging import logger
-from lucid.utils.threads import QThreadFuture
+from lightfall.settings.image_helpers import _fetch_qimage
+from lightfall.settings.user_settings_client import UserSettingsClient
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
+from lightfall.utils.threads import QThreadFuture
 
 
 _AVATAR_PX = 28
@@ -1443,7 +1443,7 @@ Expected: all 6 tests pass.
 - [ ] **Step 5: Commit**
 
 ```
-git add src/lucid/ui/widgets/profile_avatar.py tests/ui/widgets/__init__.py tests/ui/widgets/test_profile_avatar.py
+git add src/lightfall/ui/widgets/profile_avatar.py tests/ui/widgets/__init__.py tests/ui/widgets/test_profile_avatar.py
 git commit -m "feat(ui): add ProfileAvatarWidget for menubar corner"
 ```
 
@@ -1452,11 +1452,11 @@ git commit -m "feat(ui): add ProfileAvatarWidget for menubar corner"
 ## Task 6: NCSMainWindow corner-widget integration
 
 **Files:**
-- Modify: `src/lucid/ui/mainwindow.py`
+- Modify: `src/lightfall/ui/mainwindow.py`
 
 - [ ] **Step 1: Locate the RE control corner-widget setup**
 
-In `src/lucid/ui/mainwindow.py`, find lines 192-194:
+In `src/lightfall/ui/mainwindow.py`, find lines 192-194:
 
 ```python
 # Add RunEngine control widget to menubar corner
@@ -1471,7 +1471,7 @@ Replace those three lines with:
 ```python
 # Compose the menubar-corner: [RunEngine controls | profile avatar]
 from PySide6.QtWidgets import QHBoxLayout
-from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
 corner = QWidget()
 corner_layout = QHBoxLayout(corner)
@@ -1501,7 +1501,7 @@ If no such slot exists yet, find where login state changes are observed in `main
 
 ```
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-.venv/Scripts/python -m lucid
+.venv/Scripts/python -m lightfall
 ```
 
 Expected: app launches; menubar shows a small circular placeholder to the right of the RE controls. Click → preferences dialog opens. (If you already have a `profile_image_id` set on the server, the avatar should populate after login.)
@@ -1509,7 +1509,7 @@ Expected: app launches; menubar shows a small circular placeholder to the right 
 - [ ] **Step 5: Commit**
 
 ```
-git add src/lucid/ui/mainwindow.py
+git add src/lightfall/ui/mainwindow.py
 git commit -m "feat(ui): mount ProfileAvatarWidget in menubar corner"
 ```
 
@@ -1518,7 +1518,7 @@ git commit -m "feat(ui): mount ProfileAvatarWidget in menubar corner"
 ## Task 7: UserProfileSettingsPlugin migration to `PreferencesManager`
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/user_profile_settings.py`
+- Modify: `src/lightfall/ui/preferences/user_profile_settings.py`
 - Modify: `tests/ui/test_user_profile_plugin.py`
 
 - [ ] **Step 1: Update test assertions (failing)**
@@ -1541,7 +1541,7 @@ Expected: the modified tests fail because the plugin still calls `UserSettingsCl
 
 - [ ] **Step 3: Edit the plugin**
 
-In `src/lucid/ui/preferences/user_profile_settings.py`:
+In `src/lightfall/ui/preferences/user_profile_settings.py`:
 
 (a) Replace the `load_settings` body so it reads from PreferencesManager and subscribes for live updates:
 
@@ -1549,7 +1549,7 @@ In `src/lucid/ui/preferences/user_profile_settings.py`:
 def load_settings(self) -> None:
     """Render the current avatar from PreferencesManager's cache; subscribe
     for future updates so a change elsewhere re-renders this dialog."""
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     prefs = PreferencesManager.get_instance()
     prefs.subscribe("profile_image_id", self._on_image_id_changed)
@@ -1558,8 +1558,8 @@ def load_settings(self) -> None:
 
 
 def _on_image_id_changed(self, image_id: str | None) -> None:
-    from lucid.settings.user_settings_client import UserSettingsClient
-    from lucid.utils.threads import QThreadFuture
+    from lightfall.settings.user_settings_client import UserSettingsClient
+    from lightfall.utils.threads import QThreadFuture
 
     if not image_id:
         self._set_placeholder_avatar()
@@ -1586,12 +1586,12 @@ Delete any duplicated logic from the old `load_settings`.
 ```python
 def _upload_and_set(self, data: bytes, mime: str) -> None:
     from PySide6.QtWidgets import QMessageBox
-    from lucid.settings.user_settings_client import (
+    from lightfall.settings.user_settings_client import (
         UserSettingsClient,
         UserSettingsError,
     )
-    from lucid.ui.preferences.manager import PreferencesManager
-    from lucid.utils.threads import QThreadFuture
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.utils.threads import QThreadFuture
 
     client = UserSettingsClient.get_instance()
 
@@ -1633,7 +1633,7 @@ and drop the now-unused `client.delete` call site. Re-render happens via the sub
 ```python
 def teardown(self) -> None:
     """Called by the dialog when the page is closed."""
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     PreferencesManager.get_instance().unsubscribe(
         "profile_image_id", self._on_image_id_changed
     )
@@ -1660,7 +1660,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```
-git add src/lucid/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
+git add src/lightfall/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
 git commit -m "refactor(prefs): route profile_image_id through PreferencesManager"
 ```
 
@@ -1672,7 +1672,7 @@ git commit -m "refactor(prefs): route profile_image_id through PreferencesManage
 
 ```
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-.venv/Scripts/python -m lucid
+.venv/Scripts/python -m lightfall
 ```
 
 - [ ] **Step 2: Walk the scenarios**
@@ -1683,7 +1683,7 @@ cd C:/Users/rp/PycharmProjects/ncs/ncs
 4. Remove the image → both the dialog avatar and the menubar avatar revert to placeholder.
 5. Click the menubar avatar → Preferences dialog opens.
 
-- [ ] **Step 3: Run the full lucid test suite (not just the touched files)**
+- [ ] **Step 3: Run the full lightfall test suite (not just the touched files)**
 
 ```
 .venv/Scripts/python -m pytest -q
@@ -1704,9 +1704,9 @@ Open an MR via the URL the push response prints. Suggested title: `feat(prefs): 
 
 ## Notes for the executor
 
-- **Threading:** `QThreadFuture` lives in `lucid.utils.threads`. Callbacks (`callback_slot`, `except_slot`) are delivered on the GUI thread. You should never need to call `QMetaObject.invokeMethod` manually.
+- **Threading:** `QThreadFuture` lives in `lightfall.utils.threads`. Callbacks (`callback_slot`, `except_slot`) are delivered on the GUI thread. You should never need to call `QMetaObject.invokeMethod` manually.
 - **PreferencesManager singleton:** Tests reset it via `PreferencesManager.reset()` (existing classmethod). Construct fresh manager state in fixtures; never mutate the global across tests.
 - **`USER_PORTABLE_KEYS` is a `frozenset`** — extending it later (display name, ORCID-linked metadata) is a one-line edit. Don't make it a mutable singleton.
 - **Test pattern:** prefer `QSignalSpy` + a hand-rolled `_wait_for_spy` (shown in Task 3) over `qtbot.waitSignal` — keeps tests usable under `QCoreApplication` for backend-only suites that don't need a full `QApplication`.
 - **Never use `git add -A`** on Ron's working tree. Always stage explicit paths (see each task's commit step).
-- **Test command:** `.venv/Scripts/python -m pytest <path>`. Bare `pytest` resolves to system Python 3.10 and cannot import `lucid` (which is 3.12+).
+- **Test command:** `.venv/Scripts/python -m pytest <path>`. Bare `pytest` resolves to system Python 3.10 and cannot import `lightfall` (which is 3.12+).

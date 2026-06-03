@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from lucid.plugins.agents.panel_builder import PanelBuilderAgent
-from lucid.plugins.user_plugins import UserPluginService
-from lucid.ui.panels.claude.agent_registry import AgentRegistry
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.utils.git_tracker import GitTracker
+from lightfall.plugins.agents.panel_builder import PanelBuilderAgent
+from lightfall.plugins.user_plugins import UserPluginService
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.utils.git_tracker import GitTracker
 
 
 def _unwrap(result):
@@ -38,7 +38,7 @@ def reset_singletons():
 @pytest.fixture
 def tracked_dirs(tmp_path, monkeypatch):
     GitTracker.reset_instance()
-    repo_root = tmp_path / "lucid"
+    repo_root = tmp_path / "lightfall"
     repo_root.mkdir()
     plugins_dir = repo_root / "plugins"
     plugins_dir.mkdir()
@@ -49,7 +49,7 @@ def tracked_dirs(tmp_path, monkeypatch):
     # Make UserPluginService use this dir AND make the user-plugin-roots
     # detector recognize it (so __init_subclass__ auto-enqueues).
     monkeypatch.setattr(
-        "lucid.plugins.types._user_plugin_roots",
+        "lightfall.plugins.types._user_plugin_roots",
         lambda: [plugins_dir.resolve()],
     )
     service = UserPluginService.get_instance()
@@ -72,7 +72,7 @@ def test_create_user_plugin_commits_with_description(tracked_dirs):
     create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plugin")
 
     code = '''"""thermometer."""
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 class ThermAgent(AgentPlugin):
     @property

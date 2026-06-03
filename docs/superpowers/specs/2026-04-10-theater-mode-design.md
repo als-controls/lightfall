@@ -16,7 +16,7 @@ The feature is generic — it works with any QWidget, not just plots.
 
 ### Components
 
-Three classes in a new `lucid/ui/theater/` package:
+Three classes in a new `lightfall/ui/theater/` package:
 
 1. **`TheaterProxy(QStackedWidget)`** — Wraps a target widget. Provides the hover
    expand button and manages the widget handoff to/from the overlay.
@@ -139,7 +139,7 @@ container widget directly.
 Single-line opt-in for existing widgets:
 
 ```python
-from lucid.ui.theater import theater_manager
+from lightfall.ui.theater import theater_manager
 
 # In a panel or widget setup:
 plot = pg.PlotWidget()
@@ -150,7 +150,7 @@ theater_manager.install(plot)
 Or direct proxy construction:
 
 ```python
-from lucid.ui.theater import TheaterProxy
+from lightfall.ui.theater import TheaterProxy
 
 proxy = TheaterProxy(my_image_view)
 layout.addWidget(proxy)
@@ -161,7 +161,7 @@ No subclassing or protocol implementation required. Any `QWidget` works.
 ## File Structure
 
 ```
-lucid/ui/theater/
+lightfall/ui/theater/
 ├── __init__.py          # exports TheaterProxy, TheaterOverlay, theater_manager
 ├── proxy.py             # TheaterProxy
 ├── overlay.py           # TheaterOverlay

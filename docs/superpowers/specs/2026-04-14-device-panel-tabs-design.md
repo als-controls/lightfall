@@ -5,7 +5,7 @@
 
 ## Summary
 
-Restructure the LUCID Devices panel from a tree-with-detail-splitter layout to a tabbed interface. The panel gets a top-level `QTabWidget` with two permanent tabs ("Favorites" and "All") and dynamically opened device controller tabs. Favorites are persisted per-beamline. Compact motor widgets provide light inline control in the Favorites tab.
+Restructure the Lightfall Devices panel from a tree-with-detail-splitter layout to a tabbed interface. The panel gets a top-level `QTabWidget` with two permanent tabs ("Favorites" and "All") and dynamically opened device controller tabs. Favorites are persisted per-beamline. Compact motor widgets provide light inline control in the Favorites tab.
 
 ## Goals
 
@@ -131,15 +131,15 @@ Favorites stored via `PreferencesManager` using a beamline-scoped key.
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `ncs/src/lucid/ui/widgets/device_tree_tab.py` | `DeviceTreeTab` | Extracted tree view with toolbar and search/filter |
-| `ncs/src/lucid/ui/widgets/favorites_tab.py` | `FavoritesTab` | Favorites list with compact widgets |
-| `ncs/src/lucid/ui/widgets/compact_motor.py` | `CompactMotorWidget` | Horizontal motor control row |
+| `ncs/src/lightfall/ui/widgets/device_tree_tab.py` | `DeviceTreeTab` | Extracted tree view with toolbar and search/filter |
+| `ncs/src/lightfall/ui/widgets/favorites_tab.py` | `FavoritesTab` | Favorites list with compact widgets |
+| `ncs/src/lightfall/ui/widgets/compact_motor.py` | `CompactMotorWidget` | Horizontal motor control row |
 
 **Modified files:**
 
 | File | Change |
 |------|--------|
-| `ncs/src/lucid/ui/panels/device_panel.py` | Rebuilt as thin tab coordinator — QTabWidget owner, tab open/close/focus logic, wiring between sub-widgets |
-| `ncs/src/lucid/ui/preferences/manager.py` | Add `"device_favorites"` to `BEAMLINE_SPECIFIC_PREFS` |
+| `ncs/src/lightfall/ui/panels/device_panel.py` | Rebuilt as thin tab coordinator — QTabWidget owner, tab open/close/focus logic, wiring between sub-widgets |
+| `ncs/src/lightfall/ui/preferences/manager.py` | Add `"device_favorites"` to `BEAMLINE_SPECIFIC_PREFS` |
 
 **No changes to:** device models, catalog, backends, controller matching, panel plugin/registration system.

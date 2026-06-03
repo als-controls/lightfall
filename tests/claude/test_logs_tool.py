@@ -8,8 +8,8 @@ import json
 import pytest
 from loguru import logger
 
-from lucid.claude.tools.logs import create_logs_tool
-from lucid.utils.log_buffer import LogBuffer
+from lightfall.claude.tools.logs import create_logs_tool
+from lightfall.utils.log_buffer import LogBuffer
 
 
 @pytest.fixture

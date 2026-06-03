@@ -1,50 +1,50 @@
-# Blackfly observer → lucid + endstation split (Spec B)
+# Blackfly observer → lightfall + endstation split (Spec B)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move the `blackfly_observer` codebase into its proper homes — generic observer-camera abstraction into lucid, FLIR-specific transport into the 7.0.1.1 endstation — and add an `AgentPlugin` skill that lets the embedded Claude agent build panels for Blackfly cameras.
+**Goal:** Move the `blackfly_observer` codebase into its proper homes — generic observer-camera abstraction into lightfall, FLIR-specific transport into the 7.0.1.1 endstation — and add an `AgentPlugin` skill that lets the embedded Claude agent build panels for Blackfly cameras.
 
-**Architecture:** Three repos in play. `~/PycharmProjects/ncs/ncs/` (lucid, master branch) gets `lucid.ui.widgets.observers.{camera,image_view}` containing the `CameraBase` ABC and `CameraImageView` widget. `~/PycharmProjects/ncs/lucid-endstation-7011/` (default branch) gets `lucid_endstation_7011.observers.blackfly` containing the GVCP/GVSP transport stack, `BlackflyCamera`, the `BlackflyAgent` skill, the `bfly-discover` console script, and a `references/panel_template.py` source file the skill points the agent at. After both repos merge and hardware verification on tsuru passes, `~/PycharmProjects/blackfly_observer/` is archived (tar to `~/Downloads/` + delete tree). The dependency direction is one-way (endstation imports lucid; lucid never imports endstation), so phase 1 must complete before phase 2 starts.
+**Architecture:** Three repos in play. `~/PycharmProjects/ncs/ncs/` (lightfall, master branch) gets `lightfall.ui.widgets.observers.{camera,image_view}` containing the `CameraBase` ABC and `CameraImageView` widget. `~/PycharmProjects/ncs/lightfall-endstation-7011/` (default branch) gets `lightfall_endstation_7011.observers.blackfly` containing the GVCP/GVSP transport stack, `BlackflyCamera`, the `BlackflyAgent` skill, the `bfly-discover` console script, and a `references/panel_template.py` source file the skill points the agent at. After both repos merge and hardware verification on tsuru passes, `~/PycharmProjects/blackfly_observer/` is archived (tar to `~/Downloads/` + delete tree). The dependency direction is one-way (endstation imports lightfall; lightfall never imports endstation), so phase 1 must complete before phase 2 starts.
 
-**Tech Stack:** Python 3.10+, PySide6 (lucid GUI), pyqtgraph (live image view), pytest (test framework), hatch (build), `lucid.plugins.agent_plugin.AgentPlugin` (Spec A's plugin base class), `lucid.plugins.manifest.PluginEntry` (manifest registration). MCP tool surface uses lucid's `_mcp_helpers` pattern (see existing `lucid/plugins/agents/`).
+**Tech Stack:** Python 3.10+, PySide6 (lightfall GUI), pyqtgraph (live image view), pytest (test framework), hatch (build), `lightfall.plugins.agent_plugin.AgentPlugin` (Spec A's plugin base class), `lightfall.plugins.manifest.PluginEntry` (manifest registration). MCP tool surface uses lightfall's `_mcp_helpers` pattern (see existing `lightfall/plugins/agents/`).
 
-**Spec:** `~/PycharmProjects/ncs/ncs/docs/superpowers/specs/2026-04-26-blackfly-lucid-split-design.md`
+**Spec:** `~/PycharmProjects/ncs/ncs/docs/superpowers/specs/2026-04-26-blackfly-lightfall-split-design.md`
 
 ---
 
 ## File structure
 
-### lucid (`~/PycharmProjects/ncs/ncs/`)
+### lightfall (`~/PycharmProjects/ncs/ncs/`)
 
 Files to **create**:
 
-- `src/lucid/ui/widgets/observers/__init__.py` — re-exports `CameraBase`, `CameraImageView`.
-- `src/lucid/ui/widgets/observers/camera.py` — `CameraBase` ABC. (Single responsibility: the abstract camera contract. The `Geometry` dataclass with FLIR-specific register-readout semantics ships with `BlackflyCamera` in Task 5, not here.)
-- `src/lucid/ui/widgets/observers/image_view.py` — `CameraImageView` pyqtgraph widget. (Single responsibility: live-view widget over any `CameraBase`.)
+- `src/lightfall/ui/widgets/observers/__init__.py` — re-exports `CameraBase`, `CameraImageView`.
+- `src/lightfall/ui/widgets/observers/camera.py` — `CameraBase` ABC. (Single responsibility: the abstract camera contract. The `Geometry` dataclass with FLIR-specific register-readout semantics ships with `BlackflyCamera` in Task 5, not here.)
+- `src/lightfall/ui/widgets/observers/image_view.py` — `CameraImageView` pyqtgraph widget. (Single responsibility: live-view widget over any `CameraBase`.)
 - `tests/ui/widgets/observers/__init__.py` — empty.
 - `tests/ui/widgets/observers/test_camera_base.py` — ABC contract tests.
 - `tests/ui/widgets/observers/test_image_view.py` — widget tests using a fake `CameraBase`.
 
 No files modified.
 
-### lucid-endstation-7011 (`~/PycharmProjects/ncs/lucid-endstation-7011/`)
+### lightfall-endstation-7011 (`~/PycharmProjects/ncs/lightfall-endstation-7011/`)
 
 Files to **create**:
 
-- `src/lucid_endstation_7011/observers/__init__.py` — empty package marker.
-- `src/lucid_endstation_7011/observers/blackfly/__init__.py` — re-exports `BlackflyCamera`, `discover`, `DeviceInfo`.
-- `src/lucid_endstation_7011/observers/blackfly/camera.py` — `BlackflyCamera(CameraBase)` + `Geometry` dataclass.
-- `src/lucid_endstation_7011/observers/blackfly/discovery.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/gvcp.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/gvcp_transport.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/gvsp.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/pixel_formats.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/registers.py` — direct lift.
-- `src/lucid_endstation_7011/observers/blackfly/skill.py` — `BlackflyAgent(AgentPlugin)`.
-- `src/lucid_endstation_7011/observers/blackfly/references/__init__.py` — empty.
-- `src/lucid_endstation_7011/observers/blackfly/references/panel_template.py` — canonical PanelPlugin template.
-- `src/lucid_endstation_7011/observers/blackfly/scripts/__init__.py` — empty.
-- `src/lucid_endstation_7011/observers/blackfly/scripts/discover.py` — `bfly-discover` entry point.
+- `src/lightfall_endstation_7011/observers/__init__.py` — empty package marker.
+- `src/lightfall_endstation_7011/observers/blackfly/__init__.py` — re-exports `BlackflyCamera`, `discover`, `DeviceInfo`.
+- `src/lightfall_endstation_7011/observers/blackfly/camera.py` — `BlackflyCamera(CameraBase)` + `Geometry` dataclass.
+- `src/lightfall_endstation_7011/observers/blackfly/discovery.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/gvcp.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/gvcp_transport.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/gvsp.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/pixel_formats.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/registers.py` — direct lift.
+- `src/lightfall_endstation_7011/observers/blackfly/skill.py` — `BlackflyAgent(AgentPlugin)`.
+- `src/lightfall_endstation_7011/observers/blackfly/references/__init__.py` — empty.
+- `src/lightfall_endstation_7011/observers/blackfly/references/panel_template.py` — canonical PanelPlugin template.
+- `src/lightfall_endstation_7011/observers/blackfly/scripts/__init__.py` — empty.
+- `src/lightfall_endstation_7011/observers/blackfly/scripts/discover.py` — `bfly-discover` entry point.
 - `tests/observers/__init__.py` — empty.
 - `tests/observers/blackfly/__init__.py` — empty.
 - `tests/observers/blackfly/conftest.py` — pytest config (lifted from `blackfly_observer/tests/conftest.py`).
@@ -54,7 +54,7 @@ Files to **create**:
 
 Files to **modify**:
 
-- `src/lucid_endstation_7011/manifest.py` — add one `PluginEntry(type_name="agent", name="blackfly", ...)`.
+- `src/lightfall_endstation_7011/manifest.py` — add one `PluginEntry(type_name="agent", name="blackfly", ...)`.
 - `pyproject.toml` — add `[project.scripts]` table with `bfly-discover` entry.
 
 ### blackfly_observer (`~/PycharmProjects/blackfly_observer/`)
@@ -63,15 +63,15 @@ Deleted after phase 3 hardware verification passes. Tarballed to `~/Downloads/bl
 
 ---
 
-## Phase 1 — lucid: land `CameraBase` + `CameraImageView`
+## Phase 1 — lightfall: land `CameraBase` + `CameraImageView`
 
-These three tasks must merge to lucid `master` before phase 2 can begin (endstation imports `lucid.ui.widgets.observers`).
+These three tasks must merge to lightfall `master` before phase 2 can begin (endstation imports `lightfall.ui.widgets.observers`).
 
-### Task 1: Lift `CameraBase` ABC into lucid
+### Task 1: Lift `CameraBase` ABC into lightfall
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/ncs/src/lucid/ui/widgets/observers/__init__.py`
-- Create: `~/PycharmProjects/ncs/ncs/src/lucid/ui/widgets/observers/camera.py`
+- Create: `~/PycharmProjects/ncs/ncs/src/lightfall/ui/widgets/observers/__init__.py`
+- Create: `~/PycharmProjects/ncs/ncs/src/lightfall/ui/widgets/observers/camera.py`
 - Create: `~/PycharmProjects/ncs/ncs/tests/ui/widgets/observers/__init__.py`
 - Create: `~/PycharmProjects/ncs/ncs/tests/ui/widgets/observers/test_camera_base.py`
 
@@ -86,7 +86,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.ui.widgets.observers import CameraBase
+from lightfall.ui.widgets.observers import CameraBase
 
 
 def test_camerabase_is_abstract():
@@ -109,16 +109,16 @@ Run from `~/PycharmProjects/ncs/ncs/`:
 .venv/Scripts/python -m pytest tests/ui/widgets/observers/test_camera_base.py -v
 ```
 
-Expected: `ImportError` / `ModuleNotFoundError` for `lucid.ui.widgets.observers`.
+Expected: `ImportError` / `ModuleNotFoundError` for `lightfall.ui.widgets.observers`.
 
 - [ ] **Step 3: Create the package and `camera.py` with the ABC**
 
-In `src/lucid/ui/widgets/observers/camera.py`:
+In `src/lightfall/ui/widgets/observers/camera.py`:
 
 ```python
 """Observer-camera abstraction for non-ophyd hardware (e.g., GigE Vision).
 
-For ophyd-backed area detectors, see lucid.ui.widgets.camera (the ophyd-flavored peer).
+For ophyd-backed area detectors, see lightfall.ui.widgets.camera (the ophyd-flavored peer).
 """
 from __future__ import annotations
 
@@ -166,14 +166,14 @@ class CameraBase(ABC):
         self.close()
 ```
 
-In `src/lucid/ui/widgets/observers/__init__.py`:
+In `src/lightfall/ui/widgets/observers/__init__.py`:
 
 ```python
 """Non-ophyd observer-camera abstractions and widgets.
 
-For ophyd-backed area detectors, use lucid.ui.widgets.camera instead.
+For ophyd-backed area detectors, use lightfall.ui.widgets.camera instead.
 """
-from lucid.ui.widgets.observers.camera import CameraBase
+from lightfall.ui.widgets.observers.camera import CameraBase
 
 __all__ = ["CameraBase"]
 ```
@@ -189,30 +189,30 @@ Expected: 2 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/observers/__init__.py \
-        src/lucid/ui/widgets/observers/camera.py \
+git add src/lightfall/ui/widgets/observers/__init__.py \
+        src/lightfall/ui/widgets/observers/camera.py \
         tests/ui/widgets/observers/__init__.py \
         tests/ui/widgets/observers/test_camera_base.py
 git commit -m "feat(observers): add CameraBase ABC for non-ophyd cameras
 
 First step of Spec B (Blackfly observer split). CameraBase is the
 lifecycle contract any non-ophyd observer-camera transport satisfies.
-Future BlackflyCamera (in lucid-endstation-7011) and any other GigE-
+Future BlackflyCamera (in lightfall-endstation-7011) and any other GigE-
 Vision / USB3-Vision adapters subclass this.
 
-For ophyd-backed AreaDetector, see lucid.ui.widgets.camera (existing,
+For ophyd-backed AreaDetector, see lightfall.ui.widgets.camera (existing,
 unchanged).
 
-Spec: docs/superpowers/specs/2026-04-26-blackfly-lucid-split-design.md"
+Spec: docs/superpowers/specs/2026-04-26-blackfly-lightfall-split-design.md"
 ```
 
 ---
 
-### Task 2: Lift `CameraImageView` into lucid (qtpy → PySide6)
+### Task 2: Lift `CameraImageView` into lightfall (qtpy → PySide6)
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/ncs/src/lucid/ui/widgets/observers/image_view.py`
-- Modify: `~/PycharmProjects/ncs/ncs/src/lucid/ui/widgets/observers/__init__.py`
+- Create: `~/PycharmProjects/ncs/ncs/src/lightfall/ui/widgets/observers/image_view.py`
+- Modify: `~/PycharmProjects/ncs/ncs/src/lightfall/ui/widgets/observers/__init__.py`
 - Create: `~/PycharmProjects/ncs/ncs/tests/ui/widgets/observers/test_image_view.py`
 
 - [ ] **Step 1: Write the failing widget test**
@@ -228,7 +228,7 @@ import time
 import numpy as np
 import pytest
 
-from lucid.ui.widgets.observers import CameraBase
+from lightfall.ui.widgets.observers import CameraBase
 
 
 @pytest.fixture(scope="module")
@@ -281,14 +281,14 @@ class FakeCamera(CameraBase):
 
 
 def test_cameraimageview_requires_camera_to_start(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     view = CameraImageView()
     with pytest.raises(RuntimeError, match="no camera"):
         view.start()
 
 
 def test_cameraimageview_set_camera_late(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     view = CameraImageView()
     fake = FakeCamera()
     view.set_camera(fake)
@@ -297,7 +297,7 @@ def test_cameraimageview_set_camera_late(qapp):
 
 def test_cameraimageview_receives_frames(qapp):
     """End-to-end: construct with FakeCamera, start, pump events, verify frames rendered."""
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     fake = FakeCamera(shape=(32, 48), n_frames=3)
     view = CameraImageView(camera=fake)
 
@@ -315,7 +315,7 @@ def test_cameraimageview_receives_frames(qapp):
 
 
 def test_cameraimageview_cannot_change_camera_while_streaming(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     fake = FakeCamera(n_frames=10)
     view = CameraImageView(camera=fake)
     view.start()
@@ -332,11 +332,11 @@ def test_cameraimageview_cannot_change_camera_while_streaming(qapp):
 .venv/Scripts/python -m pytest tests/ui/widgets/observers/test_image_view.py -v
 ```
 
-Expected: `ImportError: cannot import name 'CameraImageView' from 'lucid.ui.widgets.observers'`.
+Expected: `ImportError: cannot import name 'CameraImageView' from 'lightfall.ui.widgets.observers'`.
 
 - [ ] **Step 3: Create `image_view.py` with PySide6 imports**
 
-In `src/lucid/ui/widgets/observers/image_view.py`:
+In `src/lightfall/ui/widgets/observers/image_view.py`:
 
 ```python
 """pyqtgraph-based widget for live camera observation, generic over CameraBase."""
@@ -347,7 +347,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from lucid.ui.widgets.observers.camera import CameraBase
+from lightfall.ui.widgets.observers.camera import CameraBase
 
 
 class CameraImageView(QWidget):
@@ -444,15 +444,15 @@ class CameraImageView(QWidget):
 
 - [ ] **Step 4: Update `__init__.py` to export `CameraImageView`**
 
-Replace contents of `src/lucid/ui/widgets/observers/__init__.py`:
+Replace contents of `src/lightfall/ui/widgets/observers/__init__.py`:
 
 ```python
 """Non-ophyd observer-camera abstractions and widgets.
 
-For ophyd-backed area detectors, use lucid.ui.widgets.camera instead.
+For ophyd-backed area detectors, use lightfall.ui.widgets.camera instead.
 """
-from lucid.ui.widgets.observers.camera import CameraBase
-from lucid.ui.widgets.observers.image_view import CameraImageView
+from lightfall.ui.widgets.observers.camera import CameraBase
+from lightfall.ui.widgets.observers.image_view import CameraImageView
 
 __all__ = ["CameraBase", "CameraImageView"]
 ```
@@ -468,8 +468,8 @@ Expected: 6 passed (2 from `test_camera_base.py`, 4 from `test_image_view.py`).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/observers/__init__.py \
-        src/lucid/ui/widgets/observers/image_view.py \
+git add src/lightfall/ui/widgets/observers/__init__.py \
+        src/lightfall/ui/widgets/observers/image_view.py \
         tests/ui/widgets/observers/test_image_view.py
 git commit -m "feat(observers): add CameraImageView pyqtgraph widget
 
@@ -479,17 +479,17 @@ thread via a Qt Signal. First frame uses setImage (autoLevels +
 autoRange); subsequent frames use updateImage so user pan/zoom and
 levels survive.
 
-Imports use PySide6 directly (matching neighboring lucid widgets);
+Imports use PySide6 directly (matching neighboring lightfall widgets);
 the standalone blackfly_observer used qtpy."
 ```
 
 ---
 
-### Task 3: Run the full lucid test suite and merge phase 1
+### Task 3: Run the full lightfall test suite and merge phase 1
 
 **Files:** none modified. This is a verification + merge gate.
 
-- [ ] **Step 1: Run the broader lucid test suite**
+- [ ] **Step 1: Run the broader lightfall test suite**
 
 ```bash
 .venv/Scripts/python -m pytest tests/ -x --ignore=tests/integration -q
@@ -499,48 +499,48 @@ Expected: same baseline pass count as before this work + 6 new tests under `test
 
 - [ ] **Step 2: Stop here for review.**
 
-Hand off to the user for an integration review on lucid `master`. The user merges (or asks for changes) before phase 2 begins. Phase 2 is **blocked** on this merge because `lucid_endstation_7011.observers.blackfly.camera` will `from lucid.ui.widgets.observers import CameraBase`, which only resolves once phase 1 is on `master` and the endstation's editable lucid install picks it up.
+Hand off to the user for an integration review on lightfall `master`. The user merges (or asks for changes) before phase 2 begins. Phase 2 is **blocked** on this merge because `lightfall_endstation_7011.observers.blackfly.camera` will `from lightfall.ui.widgets.observers import CameraBase`, which only resolves once phase 1 is on `master` and the endstation's editable lightfall install picks it up.
 
 ---
 
 ## Phase 2 — endstation: land transport stack + skill
 
-These six tasks all happen inside `~/PycharmProjects/ncs/lucid-endstation-7011/`. All work happens on a single feature branch (suggest: `feat/observers-blackfly`) and merges as one PR. Tasks 4–9 are sequential.
+These six tasks all happen inside `~/PycharmProjects/ncs/lightfall-endstation-7011/`. All work happens on a single feature branch (suggest: `feat/observers-blackfly`) and merges as one PR. Tasks 4–9 are sequential.
 
-**Pre-flight:** From `~/PycharmProjects/ncs/lucid-endstation-7011/`, run `git checkout -b feat/observers-blackfly` and verify `python -c "from lucid.ui.widgets.observers import CameraBase, CameraImageView"` succeeds (proves the workspace lucid install picked up phase 1). If it fails, reinstall lucid editable into the endstation's venv before proceeding.
+**Pre-flight:** From `~/PycharmProjects/ncs/lightfall-endstation-7011/`, run `git checkout -b feat/observers-blackfly` and verify `python -c "from lightfall.ui.widgets.observers import CameraBase, CameraImageView"` succeeds (proves the workspace lightfall install picked up phase 1). If it fails, reinstall lightfall editable into the endstation's venv before proceeding.
 
 ### Task 4: Lift the GVCP/GVSP transport modules
 
-**Files (create — all under `src/lucid_endstation_7011/observers/blackfly/`):**
+**Files (create — all under `src/lightfall_endstation_7011/observers/blackfly/`):**
 - `__init__.py`, `registers.py`, `pixel_formats.py`, `gvcp.py`, `gvcp_transport.py`, `gvsp.py`, `discovery.py`
-- Plus parent: `src/lucid_endstation_7011/observers/__init__.py`
+- Plus parent: `src/lightfall_endstation_7011/observers/__init__.py`
 
 The transport modules have inter-module imports (`gvcp_transport` imports `gvcp`; `discovery` imports `gvcp` and `gvcp_transport`). Lift them all in one task, with the imports rewritten in place.
 
 - [ ] **Step 1: Create the `observers/blackfly/` package skeleton**
 
 ```bash
-mkdir -p src/lucid_endstation_7011/observers/blackfly
+mkdir -p src/lightfall_endstation_7011/observers/blackfly
 ```
 
-In `src/lucid_endstation_7011/observers/__init__.py`, write `""` (empty).
-In `src/lucid_endstation_7011/observers/blackfly/__init__.py`, write `""` (empty for now — re-exports added in Task 5).
+In `src/lightfall_endstation_7011/observers/__init__.py`, write `""` (empty).
+In `src/lightfall_endstation_7011/observers/blackfly/__init__.py`, write `""` (empty for now — re-exports added in Task 5).
 
 - [ ] **Step 2: Copy the six transport modules from blackfly_observer**
 
 ```bash
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/registers.py \
-   src/lucid_endstation_7011/observers/blackfly/registers.py
+   src/lightfall_endstation_7011/observers/blackfly/registers.py
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/pixel_formats.py \
-   src/lucid_endstation_7011/observers/blackfly/pixel_formats.py
+   src/lightfall_endstation_7011/observers/blackfly/pixel_formats.py
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/gvcp.py \
-   src/lucid_endstation_7011/observers/blackfly/gvcp.py
+   src/lightfall_endstation_7011/observers/blackfly/gvcp.py
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/gvcp_transport.py \
-   src/lucid_endstation_7011/observers/blackfly/gvcp_transport.py
+   src/lightfall_endstation_7011/observers/blackfly/gvcp_transport.py
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/gvsp.py \
-   src/lucid_endstation_7011/observers/blackfly/gvsp.py
+   src/lightfall_endstation_7011/observers/blackfly/gvsp.py
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/discovery.py \
-   src/lucid_endstation_7011/observers/blackfly/discovery.py
+   src/lightfall_endstation_7011/observers/blackfly/discovery.py
 ```
 
 - [ ] **Step 3: Verify internal imports still resolve**
@@ -553,7 +553,7 @@ cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/discovery.py \
 Sanity-check by reading each file's import block:
 
 ```bash
-head -15 src/lucid_endstation_7011/observers/blackfly/{discovery,gvcp_transport,gvsp}.py
+head -15 src/lightfall_endstation_7011/observers/blackfly/{discovery,gvcp_transport,gvsp}.py
 ```
 
 Expected: all imports use the relative `from . import …` style (no absolute `blackfly_observer` references). If any absolute import is found, change it to relative.
@@ -561,7 +561,7 @@ Expected: all imports use the relative `from . import …` style (no absolute `b
 - [ ] **Step 4: Smoke-import the package**
 
 ```bash
-.venv/Scripts/python -c "from lucid_endstation_7011.observers.blackfly import registers, pixel_formats, gvcp, gvcp_transport, gvsp, discovery; print('ok')"
+.venv/Scripts/python -c "from lightfall_endstation_7011.observers.blackfly import registers, pixel_formats, gvcp, gvcp_transport, gvsp, discovery; print('ok')"
 ```
 
 Expected: `ok`. If `ImportError`, re-check step 3.
@@ -569,14 +569,14 @@ Expected: `ok`. If `ImportError`, re-check step 3.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/observers/__init__.py \
-        src/lucid_endstation_7011/observers/blackfly/__init__.py \
-        src/lucid_endstation_7011/observers/blackfly/registers.py \
-        src/lucid_endstation_7011/observers/blackfly/pixel_formats.py \
-        src/lucid_endstation_7011/observers/blackfly/gvcp.py \
-        src/lucid_endstation_7011/observers/blackfly/gvcp_transport.py \
-        src/lucid_endstation_7011/observers/blackfly/gvsp.py \
-        src/lucid_endstation_7011/observers/blackfly/discovery.py
+git add src/lightfall_endstation_7011/observers/__init__.py \
+        src/lightfall_endstation_7011/observers/blackfly/__init__.py \
+        src/lightfall_endstation_7011/observers/blackfly/registers.py \
+        src/lightfall_endstation_7011/observers/blackfly/pixel_formats.py \
+        src/lightfall_endstation_7011/observers/blackfly/gvcp.py \
+        src/lightfall_endstation_7011/observers/blackfly/gvcp_transport.py \
+        src/lightfall_endstation_7011/observers/blackfly/gvsp.py \
+        src/lightfall_endstation_7011/observers/blackfly/discovery.py
 git commit -m "feat(observers): lift GVCP/GVSP transport from blackfly_observer
 
 Direct lift of the six transport modules with no behavioural changes:
@@ -586,7 +586,7 @@ protocol + frame assembler), discovery (device scan).
 
 BlackflyCamera lifts in the next commit. Tests follow in Task 6.
 
-Spec: docs/superpowers/specs/2026-04-26-blackfly-lucid-split-design.md"
+Spec: docs/superpowers/specs/2026-04-26-blackfly-lightfall-split-design.md"
 ```
 
 ---
@@ -594,14 +594,14 @@ Spec: docs/superpowers/specs/2026-04-26-blackfly-lucid-split-design.md"
 ### Task 5: Lift `BlackflyCamera` and wire the package exports
 
 **Files:**
-- Create: `src/lucid_endstation_7011/observers/blackfly/camera.py`
-- Modify: `src/lucid_endstation_7011/observers/blackfly/__init__.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/camera.py`
+- Modify: `src/lightfall_endstation_7011/observers/blackfly/__init__.py`
 
-`BlackflyCamera` is the only module whose imports change: it must import `CameraBase` from lucid (not from a sibling). The `Geometry` dataclass moves with it.
+`BlackflyCamera` is the only module whose imports change: it must import `CameraBase` from lightfall (not from a sibling). The `Geometry` dataclass moves with it.
 
 - [ ] **Step 1: Create `camera.py` with rewired imports**
 
-In `src/lucid_endstation_7011/observers/blackfly/camera.py`:
+In `src/lightfall_endstation_7011/observers/blackfly/camera.py`:
 
 ```python
 """High-level Blackfly camera: owns CCP, heartbeat, UDP stream channel."""
@@ -616,7 +616,7 @@ from typing import Callable
 
 import numpy as np
 
-from lucid.ui.widgets.observers import CameraBase
+from lightfall.ui.widgets.observers import CameraBase
 
 from . import gvcp, gvsp, pixel_formats, registers
 from .gvcp_transport import GvcpClient
@@ -797,18 +797,18 @@ class BlackflyCamera(CameraBase):
 
 - [ ] **Step 2: Wire the package re-exports**
 
-Replace `src/lucid_endstation_7011/observers/blackfly/__init__.py`:
+Replace `src/lightfall_endstation_7011/observers/blackfly/__init__.py`:
 
 ```python
 """FLIR Blackfly S support for ALS Beamline 7.0.1.1.
 
 Provides BlackflyCamera (CameraBase implementation over GVCP/GVSP) and
 discovery primitives. The CameraBase ABC and CameraImageView widget live
-in lucid.ui.widgets.observers.
+in lightfall.ui.widgets.observers.
 """
-from lucid_endstation_7011.observers.blackfly.camera import BlackflyCamera, Geometry
-from lucid_endstation_7011.observers.blackfly.discovery import discover
-from lucid_endstation_7011.observers.blackfly.gvcp import DeviceInfo
+from lightfall_endstation_7011.observers.blackfly.camera import BlackflyCamera, Geometry
+from lightfall_endstation_7011.observers.blackfly.discovery import discover
+from lightfall_endstation_7011.observers.blackfly.gvcp import DeviceInfo
 
 __all__ = ["BlackflyCamera", "DeviceInfo", "Geometry", "discover"]
 ```
@@ -816,21 +816,21 @@ __all__ = ["BlackflyCamera", "DeviceInfo", "Geometry", "discover"]
 - [ ] **Step 3: Smoke-import the new public surface**
 
 ```bash
-.venv/Scripts/python -c "from lucid_endstation_7011.observers.blackfly import BlackflyCamera, DeviceInfo, Geometry, discover; print(BlackflyCamera, DeviceInfo, Geometry, discover)"
+.venv/Scripts/python -c "from lightfall_endstation_7011.observers.blackfly import BlackflyCamera, DeviceInfo, Geometry, discover; print(BlackflyCamera, DeviceInfo, Geometry, discover)"
 ```
 
-Expected: prints four objects without error. Verifies that `BlackflyCamera` resolves `CameraBase` from lucid (which only works because phase 1 is merged).
+Expected: prints four objects without error. Verifies that `BlackflyCamera` resolves `CameraBase` from lightfall (which only works because phase 1 is merged).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/observers/blackfly/camera.py \
-        src/lucid_endstation_7011/observers/blackfly/__init__.py
-git commit -m "feat(observers): lift BlackflyCamera, rewire CameraBase from lucid
+git add src/lightfall_endstation_7011/observers/blackfly/camera.py \
+        src/lightfall_endstation_7011/observers/blackfly/__init__.py
+git commit -m "feat(observers): lift BlackflyCamera, rewire CameraBase from lightfall
 
 BlackflyCamera (CameraBase, GVCP/GVSP transport) moves into the
 endstation. The only behavioural change vs the standalone version is
-the import path for CameraBase — now lucid.ui.widgets.observers.
+the import path for CameraBase — now lightfall.ui.widgets.observers.
 
 Public package surface: BlackflyCamera, DeviceInfo, Geometry, discover."
 ```
@@ -866,20 +866,20 @@ cp ~/PycharmProjects/blackfly_observer/tests/test_registers.py      tests/observ
 
 - [ ] **Step 3: Rewrite imports in the seven test files**
 
-Every `from blackfly_observer` (or `import blackfly_observer`) reference must become `from lucid_endstation_7011.observers.blackfly` (or equivalent). Use Grep to find them:
+Every `from blackfly_observer` (or `import blackfly_observer`) reference must become `from lightfall_endstation_7011.observers.blackfly` (or equivalent). Use Grep to find them:
 
 ```bash
 ```
 
 Then in each test file, replace:
-- `from blackfly_observer.camera import …` → `from lucid_endstation_7011.observers.blackfly.camera import …`
-- `from blackfly_observer.gvcp import …` → `from lucid_endstation_7011.observers.blackfly.gvcp import …`
-- `from blackfly_observer.gvcp_transport import …` → `from lucid_endstation_7011.observers.blackfly.gvcp_transport import …`
-- `from blackfly_observer.gvsp import …` → `from lucid_endstation_7011.observers.blackfly.gvsp import …`
-- `from blackfly_observer.discovery import …` → `from lucid_endstation_7011.observers.blackfly.discovery import …`
-- `from blackfly_observer.pixel_formats import …` → `from lucid_endstation_7011.observers.blackfly.pixel_formats import …`
-- `from blackfly_observer.registers import …` → `from lucid_endstation_7011.observers.blackfly.registers import …`
-- `from blackfly_observer import …` → `from lucid_endstation_7011.observers.blackfly import …`
+- `from blackfly_observer.camera import …` → `from lightfall_endstation_7011.observers.blackfly.camera import …`
+- `from blackfly_observer.gvcp import …` → `from lightfall_endstation_7011.observers.blackfly.gvcp import …`
+- `from blackfly_observer.gvcp_transport import …` → `from lightfall_endstation_7011.observers.blackfly.gvcp_transport import …`
+- `from blackfly_observer.gvsp import …` → `from lightfall_endstation_7011.observers.blackfly.gvsp import …`
+- `from blackfly_observer.discovery import …` → `from lightfall_endstation_7011.observers.blackfly.discovery import …`
+- `from blackfly_observer.pixel_formats import …` → `from lightfall_endstation_7011.observers.blackfly.pixel_formats import …`
+- `from blackfly_observer.registers import …` → `from lightfall_endstation_7011.observers.blackfly.registers import …`
+- `from blackfly_observer import …` → `from lightfall_endstation_7011.observers.blackfly import …`
 
 Re-grep to confirm no `blackfly_observer` references remain in `tests/observers/blackfly/`.
 
@@ -924,7 +924,7 @@ git commit -m "test(observers): lift Blackfly transport tests; add hw marker
 
 70 offline tests + 4 hw-gated tests covering registers, pixel formats,
 gvcp, gvcp_transport, gvsp, discovery, and camera_live integration.
-Imports rewritten to target lucid_endstation_7011.observers.blackfly;
+Imports rewritten to target lightfall_endstation_7011.observers.blackfly;
 the 4 hw tests still gate on BLACKFLY_TEST_IP env var."
 ```
 
@@ -933,17 +933,17 @@ the 4 hw tests still gate on BLACKFLY_TEST_IP env var."
 ### Task 7: Re-home the `bfly-discover` console script
 
 **Files:**
-- Create: `src/lucid_endstation_7011/observers/blackfly/scripts/__init__.py`
-- Create: `src/lucid_endstation_7011/observers/blackfly/scripts/discover.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/scripts/__init__.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/scripts/discover.py`
 - Modify: `pyproject.toml` (add `[project.scripts]`)
 
 - [ ] **Step 1: Create the scripts subpackage**
 
 ```bash
-mkdir -p src/lucid_endstation_7011/observers/blackfly/scripts
+mkdir -p src/lightfall_endstation_7011/observers/blackfly/scripts
 ```
 
-Write `""` to `src/lucid_endstation_7011/observers/blackfly/scripts/__init__.py`.
+Write `""` to `src/lightfall_endstation_7011/observers/blackfly/scripts/__init__.py`.
 
 - [ ] **Step 2: Copy + rewire the script**
 
@@ -951,7 +951,7 @@ Copy from blackfly_observer:
 
 ```bash
 cp ~/PycharmProjects/blackfly_observer/src/blackfly_observer/scripts/discover.py \
-   src/lucid_endstation_7011/observers/blackfly/scripts/discover.py
+   src/lightfall_endstation_7011/observers/blackfly/scripts/discover.py
 ```
 
 Edit the imports in the copied file. Replace:
@@ -964,8 +964,8 @@ from blackfly_observer.discovery import discover
 with:
 
 ```python
-from lucid_endstation_7011.observers.blackfly import gvcp
-from lucid_endstation_7011.observers.blackfly.discovery import discover
+from lightfall_endstation_7011.observers.blackfly import gvcp
+from lightfall_endstation_7011.observers.blackfly.discovery import discover
 ```
 
 (The rest of the script — `_default_bind_ip`, `_local_ipv4_addresses`, `main` — stays unchanged.)
@@ -976,7 +976,7 @@ Insert this table after `[project.optional-dependencies]` (or wherever a `[proje
 
 ```toml
 [project.scripts]
-bfly-discover = "lucid_endstation_7011.observers.blackfly.scripts.discover:main"
+bfly-discover = "lightfall_endstation_7011.observers.blackfly.scripts.discover:main"
 ```
 
 - [ ] **Step 4: Reinstall the endstation editable so the script registers**
@@ -998,11 +998,11 @@ Expected: argparse usage banner. (Don't run a real scan here — that needs a co
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/observers/blackfly/scripts/ \
+git add src/lightfall_endstation_7011/observers/blackfly/scripts/ \
         pyproject.toml
 git commit -m "feat(observers): re-home bfly-discover console script
 
-CLI entry point lives at lucid_endstation_7011.observers.blackfly.scripts.discover.
+CLI entry point lives at lightfall_endstation_7011.observers.blackfly.scripts.discover.
 Same UX as the standalone blackfly_observer version."
 ```
 
@@ -1011,27 +1011,27 @@ Same UX as the standalone blackfly_observer version."
 ### Task 8: Add the canonical `panel_template.py` reference
 
 **Files:**
-- Create: `src/lucid_endstation_7011/observers/blackfly/references/__init__.py`
-- Create: `src/lucid_endstation_7011/observers/blackfly/references/panel_template.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/references/__init__.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/references/panel_template.py`
 
 This file is the **literal source** the BlackflyAgent skill instructs the embedded agent to copy, substitute IPs into, and pass to `panel_builder`'s `ncs_create_user_plugin` MCP tool.
 
 - [ ] **Step 1: Create the references subpackage**
 
 ```bash
-mkdir -p src/lucid_endstation_7011/observers/blackfly/references
+mkdir -p src/lightfall_endstation_7011/observers/blackfly/references
 ```
 
-Write `""` to `src/lucid_endstation_7011/observers/blackfly/references/__init__.py`.
+Write `""` to `src/lightfall_endstation_7011/observers/blackfly/references/__init__.py`.
 
 - [ ] **Step 2: Write the panel template**
 
-In `src/lucid_endstation_7011/observers/blackfly/references/panel_template.py`:
+In `src/lightfall_endstation_7011/observers/blackfly/references/panel_template.py`:
 
 ```python
 """Canonical PanelPlugin template for a Blackfly S live-view panel.
 
-The Blackfly skill (lucid_endstation_7011.observers.blackfly.skill.BlackflyAgent)
+The Blackfly skill (lightfall_endstation_7011.observers.blackfly.skill.BlackflyAgent)
 instructs the embedded Claude agent to:
   1. read this file's source verbatim,
   2. substitute the placeholders <IP> (camera IPv4) and <HOST> (host NIC IPv4)
@@ -1050,10 +1050,10 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from lucid.plugins.panel_plugin import PanelPlugin
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.widgets.observers import CameraImageView
-from lucid_endstation_7011.observers.blackfly import BlackflyCamera
+from lightfall.plugins.panel_plugin import PanelPlugin
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.widgets.observers import CameraImageView
+from lightfall_endstation_7011.observers.blackfly import BlackflyCamera
 
 
 class BlackflyLivePanel(BasePanel):
@@ -1084,7 +1084,7 @@ class BlackflyLivePanelPlugin(PanelPlugin):
         return BlackflyLivePanel
 ```
 
-**API verification done up-front:** the actual lucid contract (verified against `~/PycharmProjects/ncs/ncs/src/lucid/plugins/panel_plugin.py` and `lucid/ui/panels/base.py`) is:
+**API verification done up-front:** the actual lightfall contract (verified against `~/PycharmProjects/ncs/ncs/src/lightfall/plugins/panel_plugin.py` and `lightfall/ui/panels/base.py`) is:
 - `PanelPlugin` is the plugin entry: implements `name` + `get_panel_class() -> type[BasePanel]`. Auto-registered via `__init_subclass__`.
 - The actual UI lives in a `BasePanel` subclass with class-level `panel_metadata: PanelMetadata` and a `_setup_ui()` override that calls `super()._setup_ui()` and adds widgets to `self._layout`.
 - `panel_builder`'s `ncs_create_user_plugin` MCP tool validates by `compile()` + `exec()` in an isolated namespace and discovers concrete `PluginType` subclasses.
@@ -1092,7 +1092,7 @@ class BlackflyLivePanelPlugin(PanelPlugin):
 - [ ] **Step 3: Smoke-import the template (it must be valid Python even though `<IP>`/`<HOST>` aren't real IPs — they're inside string literals so import succeeds)**
 
 ```bash
-.venv/Scripts/python -c "import lucid_endstation_7011.observers.blackfly.references.panel_template as t; print(t.BlackflyLivePanel)"
+.venv/Scripts/python -c "import lightfall_endstation_7011.observers.blackfly.references.panel_template as t; print(t.BlackflyLivePanel)"
 ```
 
 Expected: prints the class. Confirms all imports in the template resolve.
@@ -1100,7 +1100,7 @@ Expected: prints the class. Confirms all imports in the template resolve.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/observers/blackfly/references/
+git add src/lightfall_endstation_7011/observers/blackfly/references/
 git commit -m "feat(observers): add panel_template reference for Blackfly skill
 
 Two-placeholder template (<IP>, <HOST>). The BlackflyAgent skill (next
@@ -1113,12 +1113,12 @@ the placeholders, and hand the result to panel_builder."
 ### Task 9: Add the `BlackflyAgent` skill (TDD)
 
 **Files:**
-- Create: `src/lucid_endstation_7011/observers/blackfly/skill.py`
+- Create: `src/lightfall_endstation_7011/observers/blackfly/skill.py`
 - Create: `tests/observers/blackfly/test_skill.py`
 
 This is **new** code (not a lift). Use TDD: test first → fail → implement → green.
 
-Reference: read `~/PycharmProjects/ncs/ncs/src/lucid/plugins/agents/panel_builder.py` for the `AgentPlugin` shape and `~/PycharmProjects/ncs/ncs/src/lucid/plugins/agents/_mcp_helpers.py` for the MCP-tool helper convention used by other built-in plugins. Match that convention so the skill plugs into the SDK-native machinery without surprises.
+Reference: read `~/PycharmProjects/ncs/ncs/src/lightfall/plugins/agents/panel_builder.py` for the `AgentPlugin` shape and `~/PycharmProjects/ncs/ncs/src/lightfall/plugins/agents/_mcp_helpers.py` for the MCP-tool helper convention used by other built-in plugins. Match that convention so the skill plugs into the SDK-native machinery without surprises.
 
 - [ ] **Step 1: Write the failing skill test**
 
@@ -1128,7 +1128,7 @@ In `tests/observers/blackfly/test_skill.py`:
 """Smoke tests for the BlackflyAgent skill."""
 from __future__ import annotations
 
-from lucid_endstation_7011.observers.blackfly.skill import BlackflyAgent
+from lightfall_endstation_7011.observers.blackfly.skill import BlackflyAgent
 
 
 def test_blackfly_agent_metadata():
@@ -1144,8 +1144,8 @@ def test_blackfly_agent_system_prompt_non_empty():
     body = BlackflyAgent().get_system_prompt()
     assert body.strip(), "system prompt must not be empty"
     # The prompt must teach the agent the public import paths.
-    assert "lucid.ui.widgets.observers" in body
-    assert "lucid_endstation_7011.observers.blackfly" in body
+    assert "lightfall.ui.widgets.observers" in body
+    assert "lightfall_endstation_7011.observers.blackfly" in body
     # And the workflow must mention the discover tool by name.
     assert "discover_blackfly_cameras" in body
 
@@ -1154,7 +1154,7 @@ def test_blackfly_agent_exposes_one_mcp_tool():
     """create_tools returns exactly the discover_blackfly_cameras tool."""
     tools = BlackflyAgent().create_tools()
     assert len(tools) == 1, f"expected one tool, got {len(tools)}"
-    # Tool registration objects in lucid carry a .name (matches _mcp_helpers convention).
+    # Tool registration objects in lightfall carry a .name (matches _mcp_helpers convention).
     tool = tools[0]
     name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
     assert name == "discover_blackfly_cameras", f"unexpected tool name: {name!r}"
@@ -1174,11 +1174,11 @@ def test_blackfly_agent_references_dir_resolves():
 .venv/Scripts/python -m pytest tests/observers/blackfly/test_skill.py -v
 ```
 
-Expected: `ImportError: No module named 'lucid_endstation_7011.observers.blackfly.skill'`.
+Expected: `ImportError: No module named 'lightfall_endstation_7011.observers.blackfly.skill'`.
 
 - [ ] **Step 3: Implement `BlackflyAgent`**
 
-In `src/lucid_endstation_7011/observers/blackfly/skill.py`:
+In `src/lightfall_endstation_7011/observers/blackfly/skill.py`:
 
 ```python
 """BlackflyAgent: discover and wire FLIR Blackfly S cameras into user PanelPlugins."""
@@ -1187,9 +1187,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
-from lucid_endstation_7011.observers.blackfly.discovery import discover
+from lightfall_endstation_7011.observers.blackfly.discovery import discover
 
 
 class BlackflyAgent(AgentPlugin):
@@ -1229,8 +1229,8 @@ those cameras.
 ### Public API
 
 ```python
-from lucid.ui.widgets.observers import CameraImageView
-from lucid_endstation_7011.observers.blackfly import BlackflyCamera
+from lightfall.ui.widgets.observers import CameraImageView
+from lightfall_endstation_7011.observers.blackfly import BlackflyCamera
 ```
 
 `BlackflyCamera(device_ip, bind_ip)` takes two strings: `device_ip` is the
@@ -1257,9 +1257,9 @@ the user has not given you an explicit camera IP.
 """
 
     def create_tools(self) -> list[Any]:
-        # Match the _mcp_helpers convention used by sibling lucid agents (see
-        # lucid/plugins/agents/_mcp_helpers.py for the @tool decorator pattern).
-        from lucid.plugins.agents._mcp_helpers import tool
+        # Match the _mcp_helpers convention used by sibling lightfall agents (see
+        # lightfall/plugins/agents/_mcp_helpers.py for the @tool decorator pattern).
+        from lightfall.plugins.agents._mcp_helpers import tool
 
         @tool(name="discover_blackfly_cameras")
         def discover_blackfly_cameras(timeout_s: float = 1.0) -> list[dict]:
@@ -1281,7 +1281,7 @@ the user has not given you an explicit camera IP.
         return [discover_blackfly_cameras]
 ```
 
-**Implementer note:** the exact `@tool` decorator name and signature in `lucid.plugins.agents._mcp_helpers` may differ from the placeholder above. Before writing the implementation, read `~/PycharmProjects/ncs/ncs/src/lucid/plugins/agents/_mcp_helpers.py` and `~/PycharmProjects/ncs/ncs/src/lucid/plugins/agents/panel_builder.py` to match the actual helper API. If the helper expects a different return shape (e.g., a single registration object rather than a list of decorated callables), adapt accordingly. The test in step 1 only requires that `create_tools()` returns a one-element list whose lone item carries a `name` attribute (or `__name__`) of `"discover_blackfly_cameras"`. Equally, double-check `discovery.discover`'s actual signature — if `timeout` isn't a top-level kwarg or `bind_ip` is required, adjust the wrapper to match (the discover function may need a `bind_ip`, in which case the tool should auto-detect via the same `_default_bind_ip` helper used by the `bfly-discover` script).
+**Implementer note:** the exact `@tool` decorator name and signature in `lightfall.plugins.agents._mcp_helpers` may differ from the placeholder above. Before writing the implementation, read `~/PycharmProjects/ncs/ncs/src/lightfall/plugins/agents/_mcp_helpers.py` and `~/PycharmProjects/ncs/ncs/src/lightfall/plugins/agents/panel_builder.py` to match the actual helper API. If the helper expects a different return shape (e.g., a single registration object rather than a list of decorated callables), adapt accordingly. The test in step 1 only requires that `create_tools()` returns a one-element list whose lone item carries a `name` attribute (or `__name__`) of `"discover_blackfly_cameras"`. Equally, double-check `discovery.discover`'s actual signature — if `timeout` isn't a top-level kwarg or `bind_ip` is required, adjust the wrapper to match (the discover function may need a `bind_ip`, in which case the tool should auto-detect via the same `_default_bind_ip` helper used by the `bfly-discover` script).
 
 - [ ] **Step 4: Run the test, verify all four pass**
 
@@ -1302,7 +1302,7 @@ Expected: all previously passing tests still pass; new skill tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/observers/blackfly/skill.py \
+git add src/lightfall_endstation_7011/observers/blackfly/skill.py \
         tests/observers/blackfly/test_skill.py
 git commit -m "feat(observers): add BlackflyAgent skill
 
@@ -1320,17 +1320,17 @@ Plugin manifest wiring follows in the next commit."
 ### Task 10: Wire the manifest entry and integration-smoke the skill
 
 **Files:**
-- Modify: `src/lucid_endstation_7011/manifest.py`
+- Modify: `src/lightfall_endstation_7011/manifest.py`
 
 - [ ] **Step 1: Add the manifest entry**
 
-In `src/lucid_endstation_7011/manifest.py`, the existing manifest is:
+In `src/lightfall_endstation_7011/manifest.py`, the existing manifest is:
 
 ```python
 manifest = PluginManifest(
-    name="lucid-endstation-7011",
+    name="lightfall-endstation-7011",
     version="0.1.0",
-    description="LUCID plugins for ALS Beamline 7.0.1.1 endstation",
+    description="Lightfall plugins for ALS Beamline 7.0.1.1 endstation",
     plugins=[
         PluginEntry(type_name="controller", name="andor_camera", ...),
         PluginEntry(type_name="controller", name="pimte_camera", ...),
@@ -1345,7 +1345,7 @@ Append one entry to the `plugins=[...]` list:
 PluginEntry(
     type_name="agent",
     name="blackfly",
-    import_path="lucid_endstation_7011.observers.blackfly.skill:BlackflyAgent",
+    import_path="lightfall_endstation_7011.observers.blackfly.skill:BlackflyAgent",
     metadata={"priority": 30},
 ),
 ```
@@ -1355,7 +1355,7 @@ Also update the module docstring at the top of `manifest.py` to mention the new 
 - [ ] **Step 2: Verify the manifest loads cleanly**
 
 ```bash
-.venv/Scripts/python -c "from lucid_endstation_7011.manifest import manifest; print(len(manifest.plugins), 'plugins'); [print(p.type_name, p.name) for p in manifest.plugins]"
+.venv/Scripts/python -c "from lightfall_endstation_7011.manifest import manifest; print(len(manifest.plugins), 'plugins'); [print(p.type_name, p.name) for p in manifest.plugins]"
 ```
 
 Expected:
@@ -1367,19 +1367,19 @@ controller detector_diode
 agent blackfly
 ```
 
-- [ ] **Step 3: Boot lucid against this endstation**
+- [ ] **Step 3: Boot lightfall against this endstation**
 
 In a terminal on Windows (the dev workstation):
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-.venv/Scripts/python -m lucid
+.venv/Scripts/python -m lightfall
 ```
 
 Expected:
 - App boots without error.
 - The settings UI under Tools / Settings (or wherever the agent settings are surfaced) lists "Blackfly Camera" alongside the other agent plugins, in the **devices** category, enabled by default.
-- The lucid log shows the `blackfly` plugin loading; no plugin-load errors.
+- The lightfall log shows the `blackfly` plugin loading; no plugin-load errors.
 
 If any error mentions `BlackflyAgent`, capture the traceback and fix at the source (most likely a typo in the import path or a `_mcp_helpers` API mismatch).
 
@@ -1390,7 +1390,7 @@ In the embedded Claude panel, prompt: *"List Blackfly cameras on the network."* 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_endstation_7011/manifest.py
+git add src/lightfall_endstation_7011/manifest.py
 git commit -m "feat(observers): register BlackflyAgent in endstation manifest
 
 PluginEntry(type_name='agent', name='blackfly', priority=30) wires the
@@ -1417,7 +1417,7 @@ Use the established sync mechanism (git-archive → base64 → psmux send-keys, 
 
 - [ ] **Step 2: Run the offline test suite on tsuru**
 
-In the tsuru shell, from `~/PycharmProjects/lucid-endstation-7011/`:
+In the tsuru shell, from `~/PycharmProjects/lightfall-endstation-7011/`:
 
 ```bash
 PYTHONPATH=src python -m pytest tests/observers/blackfly/ -m "not hw" -q
@@ -1440,7 +1440,7 @@ If a hw test fails with `ACCESS_DENIED` or similar register-write errors (per `f
 
 - [ ] **Step 4: End-to-end embedded-agent smoke test**
 
-On a workstation that can reach 192.168.10.81 (or via tsuru with X forwarding / VNC), boot lucid with the endstation installed. In the embedded Claude panel:
+On a workstation that can reach 192.168.10.81 (or via tsuru with X forwarding / VNC), boot lightfall with the endstation installed. In the embedded Claude panel:
 
 > "Make me a panel for my Blackfly S camera at 192.168.10.81. The host NIC is 192.168.10.42."
 
@@ -1491,7 +1491,7 @@ rm -rf ~/PycharmProjects/blackfly_observer
 
 - [ ] **Step 3: Update the standing memory**
 
-Update `C:\Users\rp\.claude\projects\C--Users-rp-workspace\memory\project_blackfly_lucid_split_plan.md` to record completion: change the front-matter description to "Spec B merged YYYY-MM-DD; blackfly_observer archived to ~/Downloads/blackfly_observer-archive-2026-04-26.tar.gz" and replace the open-items list with a "Completed" entry pointing at the merged commits in lucid (phase 1) and lucid-endstation-7011 (phase 2).
+Update `C:\Users\rp\.claude\projects\C--Users-rp-workspace\memory\project_blackfly_lightfall_split_plan.md` to record completion: change the front-matter description to "Spec B merged YYYY-MM-DD; blackfly_observer archived to ~/Downloads/blackfly_observer-archive-2026-04-26.tar.gz" and replace the open-items list with a "Completed" entry pointing at the merged commits in lightfall (phase 1) and lightfall-endstation-7011 (phase 2).
 
 Also update `project_blackfly_observer.md` to note the project is archived; consider removing it from `MEMORY.md` if Ron prefers to keep that index lean.
 
@@ -1504,8 +1504,8 @@ Also update `project_blackfly_observer.md` to note the project is archived; cons
 **Spec coverage check:**
 
 - §1 Goal → covered by phases 1–3 collectively.
-- §2 Vocabulary → enforced by file placement (Tasks 1–2 use `lucid.ui.widgets.observers`, not `lucid.devices`).
-- §3.1 lucid layout → Tasks 1, 2.
+- §2 Vocabulary → enforced by file placement (Tasks 1–2 use `lightfall.ui.widgets.observers`, not `lightfall.devices`).
+- §3.1 lightfall layout → Tasks 1, 2.
 - §3.2 endstation layout → Tasks 4 (transport), 5 (BlackflyCamera), 6 (tests), 7 (script), 8 (template), 9 (skill), 10 (manifest).
 - §3.3 manifest + console-script → Tasks 7, 10.
 - §4.1 BlackflyAgent class → Task 9.
@@ -1513,9 +1513,9 @@ Also update `project_blackfly_observer.md` to note the project is archived; cons
 - §4.3 MCP tool surface → Task 9 (test asserts exactly one tool with the correct name).
 - §4.4 panel_template.py → Task 8.
 - §5 binding pattern → Task 5 keeps the explicit `device_ip`/`bind_ip` constructor; Task 8 template uses both placeholders.
-- §6 test split → Tasks 1, 2 (lucid), Tasks 6, 9 (endstation).
+- §6 test split → Tasks 1, 2 (lightfall), Tasks 6, 9 (endstation).
 - §7 migration order → phase ordering plus the Task 3 / Task 10 review gates between phases.
-- §8 risks/rollback → mitigations are baked into Task 6 (offline test gate), Task 9 (skill smoke test), Task 10 (lucid app boot), Task 11 (hardware gate); rollback is enabled by phase ordering (revert phase 2 without touching phase 1, etc.).
+- §8 risks/rollback → mitigations are baked into Task 6 (offline test gate), Task 9 (skill smoke test), Task 10 (lightfall app boot), Task 11 (hardware gate); rollback is enabled by phase ordering (revert phase 2 without touching phase 1, etc.).
 - §9 out of scope → no tasks (correct).
 - §10 open questions → none remain (correct).
 

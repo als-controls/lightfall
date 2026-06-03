@@ -1,0 +1,26 @@
+"""Converter registry for the exporter."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lightfall.exporter.converters.base import Converter
+
+CONVERTERS: dict[str, type[Converter]] = {}
+
+
+def register_converter(cls: type[Converter]) -> type[Converter]:
+    """Register a converter class by its name attribute."""
+    CONVERTERS[cls.name] = cls
+    return cls
+
+
+def get_converter(name: str) -> type[Converter]:
+    """Get a converter class by name. Raises KeyError if not found."""
+    return CONVERTERS[name]
+
+
+# Import converters to trigger registration (nxsas added in Task 2)
+from lightfall.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
+from lightfall.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401

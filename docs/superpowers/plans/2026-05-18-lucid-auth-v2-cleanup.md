@@ -1,9 +1,9 @@
-# LUCID Auth v2 — Cleanup (Step 7, end-state)
+# Lightfall Auth v2 — Cleanup (Step 7, end-state)
 
-> **Per-repo plan executed via superpowers:subagent-driven-development.** This is the final step in the [coordination plan](2026-05-17-lucid-auth-v2-coordination.md). With Step 6 merged (logbook consumers on `ServiceKeyAuth`), nothing in LUCID reads `session.token` for service calls — the bearer is dead code waiting for deletion. This plan removes it, deletes the refresh treadmill, and adds the RunEngine logout gate the spec requires.
+> **Per-repo plan executed via superpowers:subagent-driven-development.** This is the final step in the [coordination plan](2026-05-17-lightfall-auth-v2-coordination.md). With Step 6 merged (logbook consumers on `ServiceKeyAuth`), nothing in Lightfall reads `session.token` for service calls — the bearer is dead code waiting for deletion. This plan removes it, deletes the refresh treadmill, and adds the RunEngine logout gate the spec requires.
 
-**Spec:** `docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md`
-**Coordination:** `docs/superpowers/plans/2026-05-17-lucid-auth-v2-coordination.md` (§7)
+**Spec:** `docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md`
+**Coordination:** `docs/superpowers/plans/2026-05-17-lightfall-auth-v2-coordination.md` (§7)
 **Branch:** `feature/auth-v2-cleanup` off `master` @ `2adf735`
 
 ---
@@ -16,14 +16,14 @@ After this plan merges:
 - After `_mint_all_service_keys` returns, `session.token`, `session.refresh_token`, `session.id_token` are all cleared. The id_token is preserved separately on `SessionManager._id_token_for_logout` for the Keycloak RP-initiated logout.
 - `KeycloakAuthProvider.logout` reads id_token from a session that may have `token=None`. The presence-check switches to "logged in iff session has an id_token to use for logout".
 - A logout while `engine.RE.state in {RUNNING, PAUSED}` shows a confirm dialog citing data-write loss; idle RE logs out silently as today.
-- `lucid.auth.httpx_auth.SessionAuth` is deleted (no consumers remain after Step 6).
+- `lightfall.auth.httpx_auth.SessionAuth` is deleted (no consumers remain after Step 6).
 - `application.py:_handle_ipc_token_request` is deleted (deprecated under auth-v2).
 - `access_stamper.py` presence-check switches from `session.token is None` to `session.user is None` to remain compatible with the cleared-bearer state.
 
 The coordination plan's completion criteria become satisfiable:
 
-- `grep -rn 'session\.token' src/lucid/` matches only `lucid/auth/session.py` (post-mint clearing assignment) and the Keycloak provider's `_create_session_from_tokens` (the mint window).
-- `grep -rn 'SessionAuth\|KeycloakTiledAuth' src/lucid/` matches only `services/tiled_auth.py` (the `KeycloakTiledAuth` compatibility shim, intentional).
+- `grep -rn 'session\.token' src/lightfall/` matches only `lightfall/auth/session.py` (post-mint clearing assignment) and the Keycloak provider's `_create_session_from_tokens` (the mint window).
+- `grep -rn 'SessionAuth\|KeycloakTiledAuth' src/lightfall/` matches only `services/tiled_auth.py` (the `KeycloakTiledAuth` compatibility shim, intentional).
 
 ## Out of scope
 
@@ -37,12 +37,12 @@ The coordination plan's completion criteria become satisfiable:
 
 | File | Change |
 | ---- | ------ |
-| `src/lucid/auth/session.py` | Delete `_schedule_refresh`, `_do_scheduled_refresh`, `_on_refresh_success`, `_on_refresh_failure`, `_get_jwt_exp`, `_start_single_shot`, `_cancel_refresh_timer`, `_on_state_for_refresh`, `timerEvent`. Drop `_refresh_in_progress`, `_fast_retry_count`, `_refresh_timer_id` state. Disconnect `state_changed` from refresh hook. Add `_id_token_for_logout` slot. After mint, clear `session.token/refresh_token/id_token` and stash id_token. `_attempt_reconnect` keeps connectivity probe but drops the refresh fallback. `reset()` no longer touches the deleted methods. |
-| `src/lucid/auth/providers/keycloak.py` | `logout()` early-return changes from `if not session.token` to `if not session.id_token` (the only token logout uses). |
-| `src/lucid/services/access_stamper.py` | `_operator_identity` presence-check switches `session.token is None` to `session.user is None`. Remove the FORWARD-REFERENCE comment. |
-| `src/lucid/core/application.py` | Delete `_handle_ipc_token_request` method and its `ipc.register_action("auth.token", ...)` registration. |
-| `src/lucid/auth/httpx_auth.py` | Delete file (the `SessionAuth` class). |
-| `src/lucid/ui/mainwindow.py` | `_on_logout` checks engine state; if `RUNNING` or `PAUSED`, show confirm dialog before proceeding. Existing async logout flow preserved. |
+| `src/lightfall/auth/session.py` | Delete `_schedule_refresh`, `_do_scheduled_refresh`, `_on_refresh_success`, `_on_refresh_failure`, `_get_jwt_exp`, `_start_single_shot`, `_cancel_refresh_timer`, `_on_state_for_refresh`, `timerEvent`. Drop `_refresh_in_progress`, `_fast_retry_count`, `_refresh_timer_id` state. Disconnect `state_changed` from refresh hook. Add `_id_token_for_logout` slot. After mint, clear `session.token/refresh_token/id_token` and stash id_token. `_attempt_reconnect` keeps connectivity probe but drops the refresh fallback. `reset()` no longer touches the deleted methods. |
+| `src/lightfall/auth/providers/keycloak.py` | `logout()` early-return changes from `if not session.token` to `if not session.id_token` (the only token logout uses). |
+| `src/lightfall/services/access_stamper.py` | `_operator_identity` presence-check switches `session.token is None` to `session.user is None`. Remove the FORWARD-REFERENCE comment. |
+| `src/lightfall/core/application.py` | Delete `_handle_ipc_token_request` method and its `ipc.register_action("auth.token", ...)` registration. |
+| `src/lightfall/auth/httpx_auth.py` | Delete file (the `SessionAuth` class). |
+| `src/lightfall/ui/mainwindow.py` | `_on_logout` checks engine state; if `RUNNING` or `PAUSED`, show confirm dialog before proceeding. Existing async logout flow preserved. |
 | `tests/test_session_refresh.py` | Delete (refresh machinery is gone). |
 | `tests/auth/test_session_manager_mint.py` | Add test verifying tokens are cleared after mint and id_token is preserved on the manager slot. |
 | `tests/auth/test_auth_v2_full_roundtrip.py` (new) | login -> Tiled read -> logbook read -> logout (idle) -> logout (RE active, confirm). End-to-end with httpx_mock + mocked engine. |
@@ -52,7 +52,7 @@ The coordination plan's completion criteria become satisfiable:
 
 ### Task 1 — Discard bearer after mint; preserve id_token for logout
 
-Modify `src/lucid/auth/session.py`:
+Modify `src/lightfall/auth/session.py`:
 
 1. Add to `__init__`:
    ```python
@@ -85,7 +85,7 @@ Commit: `feat(auth): discard bearer after mint, preserve id_token for logout`
 
 ### Task 2 — Delete refresh machinery
 
-Modify `src/lucid/auth/session.py`:
+Modify `src/lightfall/auth/session.py`:
 
 Delete the following methods entirely:
 - `_get_jwt_exp` (staticmethod)
@@ -111,13 +111,13 @@ In `_attempt_reconnect`, drop the `self._do_scheduled_refresh()` call in the `_o
 
 Delete `tests/test_session_refresh.py` entirely.
 
-After this task, `grep -rn "_schedule_refresh\|_do_scheduled_refresh\|_refresh_in_progress\|_refresh_timer_id" src/lucid/` returns no matches.
+After this task, `grep -rn "_schedule_refresh\|_do_scheduled_refresh\|_refresh_in_progress\|_refresh_timer_id" src/lightfall/` returns no matches.
 
 Commit: `refactor(auth): delete bearer-refresh treadmill`
 
 ### Task 3 — Switch access_stamper presence-check
 
-Modify `src/lucid/services/access_stamper.py`:
+Modify `src/lightfall/services/access_stamper.py`:
 
 In `_operator_identity` (around line 91):
 - Change `if session is None or session.token is None:` to `if session is None or session.user is None:`.
@@ -129,24 +129,24 @@ Commit: `refactor(stamper): presence-check on session.user (auth-v2)`
 
 ### Task 4 — Delete IPC `auth.token` handler
 
-Modify `src/lucid/core/application.py`:
+Modify `src/lightfall/core/application.py`:
 
 - Delete the method `_handle_ipc_token_request` (around line 634).
 - Delete its registration `ipc.register_action("auth.token", ...)` in `_start_ipc` (around line 304).
 - Search for tests that hit `auth.token`; delete or update.
 
-After this, `grep -rn "auth.token\|_handle_ipc_token_request" src/lucid/` returns only the docstring of `_handle_ipc_auth_request` if any (which is `auth.request`, a different handler).
+After this, `grep -rn "auth.token\|_handle_ipc_token_request" src/lightfall/` returns only the docstring of `_handle_ipc_auth_request` if any (which is `auth.request`, a different handler).
 
 Commit: `refactor(ipc): delete deprecated auth.token handler`
 
 ### Task 5 — Delete `SessionAuth` class
 
-Modify `src/lucid/auth/httpx_auth.py`:
+Modify `src/lightfall/auth/httpx_auth.py`:
 
 Delete the file entirely. The module had only one symbol (`SessionAuth`); Step 6 removed both consumers. Grep first to be sure nothing imports it:
 
 ```
-git grep -n "from lucid.auth.httpx_auth\|import httpx_auth\|SessionAuth" src/lucid/ tests/
+git grep -n "from lightfall.auth.httpx_auth\|import httpx_auth\|SessionAuth" src/lightfall/ tests/
 ```
 
 If only docstrings/comments mention it: safe to delete. Otherwise: the importer needs migrating (which would be a scope expansion, flag rather than silently extend).
@@ -155,14 +155,14 @@ Commit: `refactor(auth): delete SessionAuth class (auth-v2)`
 
 ### Task 6 — RE-gate logout dialog
 
-Modify `src/lucid/ui/mainwindow.py`:
+Modify `src/lightfall/ui/mainwindow.py`:
 
 In `_on_logout`:
 
 ```python
 def _on_logout(self) -> None:
     """Logout current user. Confirm if the RunEngine is active."""
-    from lucid.acquire.engine import EngineState, get_engine
+    from lightfall.acquire.engine import EngineState, get_engine
 
     try:
         engine = get_engine()
@@ -188,7 +188,7 @@ def _on_logout(self) -> None:
             return
 
     import asyncio
-    from lucid.utils.threads import QThreadFuture
+    from lightfall.utils.threads import QThreadFuture
 
     def do_logout() -> None:
         asyncio.run(self._session_manager.logout())
@@ -219,7 +219,7 @@ Commit: `test(auth): full auth-v2 round-trip integration test`
 
 After Tasks 1-7 land and the full suite is green:
 
-1. Update `~/.claude/projects/C--Users-rp-workspace/memory/project_lucid_auth_v2.md`: mark Step 7 done; archive the coordination plan reference.
+1. Update `~/.claude/projects/C--Users-rp-workspace/memory/project_lightfall_auth_v2.md`: mark Step 7 done; archive the coordination plan reference.
 2. Update `~/.claude/projects/C--Users-rp-workspace/memory/project_notebook_pipelines_status.md`: coordination status table → Step 7 DONE.
 
 This task does not produce a code commit.
@@ -251,19 +251,19 @@ Expected: no regressions. `tests/test_session_refresh.py` is gone (Task 2); refr
 After all tasks land:
 ```
 # No live reads of the bearer
-git grep -n "session\.token" src/lucid/ | grep -v "session.py\|providers/keycloak.py"
+git grep -n "session\.token" src/lightfall/ | grep -v "session.py\|providers/keycloak.py"
 # (empty)
 
 # Refresh machinery gone
-git grep -n "_schedule_refresh\|_do_scheduled_refresh\|_refresh_in_progress\|_fast_retry_count\|_refresh_timer_id" src/lucid/
+git grep -n "_schedule_refresh\|_do_scheduled_refresh\|_refresh_in_progress\|_fast_retry_count\|_refresh_timer_id" src/lightfall/
 # (empty)
 
 # SessionAuth class gone
-git grep -n "class SessionAuth" src/lucid/
+git grep -n "class SessionAuth" src/lightfall/
 # (empty)
 
 # IPC auth.token handler gone
-git grep -n "_handle_ipc_token_request\|auth\.token" src/lucid/core/application.py
+git grep -n "_handle_ipc_token_request\|auth\.token" src/lightfall/core/application.py
 # (empty)
 ```
 

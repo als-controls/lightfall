@@ -19,7 +19,7 @@ def parent_widget(qtbot):
 @pytest.fixture(autouse=True)
 def _reset_theater_manager():
     """Reset the theater manager singleton between tests."""
-    from lucid.ui.theater.manager import theater_manager
+    from lightfall.ui.theater.manager import theater_manager
 
     theater_manager._proxies.clear()
     theater_manager._overlay = None

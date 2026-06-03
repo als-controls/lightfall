@@ -1,36 +1,36 @@
-# lucid-deck Implementation Plan
+# lightfall-deck Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a new repo `lucid-deck` (sibling of `~/PycharmProjects/ncs/ncs`) that makes Bitfocus Companion drive Ophyd positioners exposed by LUCID. Two deliverables in one repo: a LUCID-side plugin (`MotorsSettingsPlugin` + NATS action handlers + readback publisher) and a `companion-bridge` console-script (FastAPI ↔ NATS ↔ Companion HTTP).
+**Goal:** Build a new repo `lightfall-deck` (sibling of `~/PycharmProjects/ncs/ncs`) that makes Bitfocus Companion drive Ophyd positioners exposed by Lightfall. Two deliverables in one repo: a Lightfall-side plugin (`MotorsSettingsPlugin` + NATS action handlers + readback publisher) and a `companion-bridge` console-script (FastAPI ↔ NATS ↔ Companion HTTP).
 
-**Architecture:** LUCID hosts NATS request/reply actions (`lucid.motors.action.*`) and publishes readback events (`lucid.motors.readback.<name>`) using its existing `IPCService`. The bridge process subscribes to NATS, exposes HTTP for Companion's Generic HTTP module, and pushes Companion custom variables via Companion's REST API. Bridge owns selection state in memory; LUCID side is stateless about selection.
+**Architecture:** Lightfall hosts NATS request/reply actions (`lightfall.motors.action.*`) and publishes readback events (`lightfall.motors.readback.<name>`) using its existing `IPCService`. The bridge process subscribes to NATS, exposes HTTP for Companion's Generic HTTP module, and pushes Companion custom variables via Companion's REST API. Bridge owns selection state in memory; Lightfall side is stateless about selection.
 
-**Tech Stack:** Python 3.11+, hatch + hatch-vcs, pytest, ruff, PySide6 (LUCID side), FastAPI + uvicorn + httpx + nats-py (bridge side), Ophyd (LUCID positioners). Spec: `docs/superpowers/specs/2026-05-05-lucid-deck-design.md` (commit `261ece1`).
+**Tech Stack:** Python 3.11+, hatch + hatch-vcs, pytest, ruff, PySide6 (Lightfall side), FastAPI + uvicorn + httpx + nats-py (bridge side), Ophyd (Lightfall positioners). Spec: `docs/superpowers/specs/2026-05-05-lightfall-deck-design.md` (commit `261ece1`).
 
 **Out of scope** (per spec): AgentPlugin, hold-to-jog, ControllerPlugin, multi-Companion, auth on bridge, hardware-in-the-loop CI.
 
-**Subject/prefix conventions used throughout:** Plugin registers action suffixes via `IPCService.register_action("motors.action.<verb>", ...)`. Assumes LUCID configures `IPCService` with topic prefix `lucid` (the default in current deployments), so the full wire subjects are `lucid.motors.action.<verb>` and `lucid.motors.readback.<name>`. Bridge connects with the full prefix hard-coded as `lucid.motors`. If a deployment uses a different prefix this becomes a bridge config flag (`--lucid-prefix`); ship the default and the flag together in Task 7.
+**Subject/prefix conventions used throughout:** Plugin registers action suffixes via `IPCService.register_action("motors.action.<verb>", ...)`. Assumes Lightfall configures `IPCService` with topic prefix `lightfall` (the default in current deployments), so the full wire subjects are `lightfall.motors.action.<verb>` and `lightfall.motors.readback.<name>`. Bridge connects with the full prefix hard-coded as `lightfall.motors`. If a deployment uses a different prefix this becomes a bridge config flag (`--lightfall-prefix`); ship the default and the flag together in Task 7.
 
 ---
 
 ## Files
 
-**Repo root:** `~/PycharmProjects/ncs/lucid-deck/`
+**Repo root:** `~/PycharmProjects/ncs/lightfall-deck/`
 
 ```
-lucid-deck/
+lightfall-deck/
 ├── pyproject.toml
 ├── README.md
 ├── src/
-│   └── lucid_deck/
+│   └── lightfall_deck/
 │       ├── __init__.py
 │       ├── manifest.py              # PluginManifest registration
 │       ├── motor_actions.py         # NATS action handlers + readback publisher
 │       ├── settings_plugin.py       # MotorsSettingsPlugin (Qt UI + lifecycle)
 │       └── bridge/
 │           ├── __init__.py
-│           ├── __main__.py          # `python -m lucid_deck.bridge`
+│           ├── __main__.py          # `python -m lightfall_deck.bridge`
 │           ├── cli.py               # console-script entry point
 │           ├── config.py            # env var / CLI flag parsing
 │           ├── companion_client.py  # httpx wrapper for Companion variable push
@@ -54,28 +54,28 @@ lucid-deck/
 **File responsibilities:**
 - `motor_actions.py`: pure functions and a `MotorActionHandlers` class. Owns Ophyd → NATS translation. Has no Qt or FastAPI dependencies.
 - `settings_plugin.py`: only the `SettingsPlugin` subclass and its Qt widget. Imports `motor_actions` and wires it up via `on_loaded()`.
-- `bridge/`: standalone subpackage. Must NOT import lucid (the bridge runs in its own process and venv if desired).
+- `bridge/`: standalone subpackage. Must NOT import lightfall (the bridge runs in its own process and venv if desired).
 - `tests/test_integration_e2e.py`: integration-only; gated behind a marker so unit-test runs stay fast.
 
-**Dependency rule:** `lucid_deck.bridge.*` imports nothing from `lucid` or `lucid_deck` (outside `bridge/`). Verified in Task 9.
+**Dependency rule:** `lightfall_deck.bridge.*` imports nothing from `lightfall` or `lightfall_deck` (outside `bridge/`). Verified in Task 9.
 
 ---
 
 ## Task 1: Repo scaffolding
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/pyproject.toml`
-- Create: `~/PycharmProjects/ncs/lucid-deck/README.md`
-- Create: `~/PycharmProjects/ncs/lucid-deck/.gitignore`
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/__init__.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/__init__.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/pyproject.toml`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/README.md`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/.gitignore`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/__init__.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/__init__.py`
 
 - [ ] **Step 1: Create directory layout**
 
 ```bash
-mkdir -p ~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge
-mkdir -p ~/PycharmProjects/ncs/lucid-deck/tests
-cd ~/PycharmProjects/ncs/lucid-deck
+mkdir -p ~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge
+mkdir -p ~/PycharmProjects/ncs/lightfall-deck/tests
+cd ~/PycharmProjects/ncs/lightfall-deck
 git init
 ```
 
@@ -87,8 +87,8 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lucid-deck"
-description = "Companion-driven motor control surface for LUCID"
+name = "lightfall-deck"
+description = "Companion-driven motor control surface for Lightfall"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -101,7 +101,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "lucid",
+    "lightfall",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "httpx>=0.27",
@@ -117,19 +117,19 @@ test = [
 ]
 
 [project.scripts]
-companion-bridge = "lucid_deck.bridge.cli:main"
+companion-bridge = "lightfall_deck.bridge.cli:main"
 
-[project.entry-points."lucid.plugins"]
-lucid_deck = "lucid_deck.manifest:manifest"
+[project.entry-points."lightfall.plugins"]
+lightfall_deck = "lightfall_deck.manifest:manifest"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/lucid_deck/_version.py"
+version-file = "src/lightfall_deck/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lucid_deck"]
+packages = ["src/lightfall_deck"]
 
 [tool.pytest.ini_options]
 markers = ["integration: requires running nats-server"]
@@ -139,14 +139,14 @@ asyncio_mode = "auto"
 - [ ] **Step 3: Write `README.md`**
 
 ```markdown
-# lucid-deck
+# lightfall-deck
 
-Companion-driven motor control surface for LUCID. See `docs/superpowers/specs/2026-05-05-lucid-deck-design.md` in the lucid repo for full design.
+Companion-driven motor control surface for Lightfall. See `docs/superpowers/specs/2026-05-05-lightfall-deck-design.md` in the lightfall repo for full design.
 
 ## Components
 
-- `lucid_deck` — LUCID plugin (`MotorsSettingsPlugin` + NATS actions + readback publisher).
-- `lucid_deck.bridge` — `companion-bridge` console-script (FastAPI ↔ NATS ↔ Companion HTTP).
+- `lightfall_deck` — Lightfall plugin (`MotorsSettingsPlugin` + NATS actions + readback publisher).
+- `lightfall_deck.bridge` — `companion-bridge` console-script (FastAPI ↔ NATS ↔ Companion HTTP).
 
 ## Quick start
 
@@ -176,17 +176,17 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
-src/lucid_deck/_version.py
+src/lightfall_deck/_version.py
 ```
 
 - [ ] **Step 5: Create empty package files**
 
-`src/lucid_deck/__init__.py`:
+`src/lightfall_deck/__init__.py`:
 ```python
-"""lucid-deck: Companion-driven motor control for LUCID."""
+"""lightfall-deck: Companion-driven motor control for Lightfall."""
 ```
 
-`src/lucid_deck/bridge/__init__.py`:
+`src/lightfall_deck/bridge/__init__.py`:
 ```python
 """companion-bridge: FastAPI ↔ NATS translation for Companion."""
 ```
@@ -196,14 +196,14 @@ src/lucid_deck/_version.py
 - [ ] **Step 6: Create venv and install editable**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
+cd ~/PycharmProjects/ncs/lightfall-deck
 python -m venv .venv
 .venv/Scripts/python -m pip install --upgrade pip
-.venv/Scripts/python -m pip install -e "../ncs"  # lucid editable
+.venv/Scripts/python -m pip install -e "../ncs"  # lightfall editable
 .venv/Scripts/python -m pip install -e ".[test]"
 ```
 
-Expected: `pip install` succeeds. Some warnings about lucid's many deps are normal.
+Expected: `pip install` succeeds. Some warnings about lightfall's many deps are normal.
 
 - [ ] **Step 7: Baseline test run**
 
@@ -213,9 +213,9 @@ Expected: `no tests ran in 0.0Xs` — confirms test collection works.
 - [ ] **Step 8: Initial commit**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
+cd ~/PycharmProjects/ncs/lightfall-deck
 git add pyproject.toml README.md .gitignore src tests
-git commit -m "chore: scaffold lucid-deck repo"
+git commit -m "chore: scaffold lightfall-deck repo"
 ```
 
 ---
@@ -223,8 +223,8 @@ git commit -m "chore: scaffold lucid-deck repo"
 ## Task 2: Mock positioner fixture
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/conftest.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_conftest.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/conftest.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_conftest.py`
 
 **Why this comes first:** Tasks 3 and 4 both need a controllable positioner stand-in. Putting it in a fixture removes ~50 lines of setup from each test module.
 
@@ -299,7 +299,7 @@ class _Status:
 class MockPositioner:
     """Minimal Ophyd-shaped positioner for unit tests.
 
-    Implements the surface lucid_deck.motor_actions actually uses:
+    Implements the surface lightfall_deck.motor_actions actually uses:
       - .name, .position, .high_limit, .low_limit, .units, .moving
       - .move(target) -> Status (synchronous; updates position immediately)
       - .stop()
@@ -376,8 +376,8 @@ git commit -m "test: add mock_positioner fixture"
 ## Task 3: motor_actions module
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/motor_actions.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_motor_actions.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/motor_actions.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_motor_actions.py`
 
 This task is pure logic (no NATS yet). NATS registration is deferred to Task 5. The module exposes a `MotorActionHandlers` class with one method per action; each method takes a `dict` payload and returns a `dict` reply, matching the action contract from the spec.
 
@@ -388,7 +388,7 @@ This task is pure logic (no NATS yet). NATS registration is deferred to Task 5. 
 """Tests for motor_actions handlers (pure dict-in/dict-out)."""
 from __future__ import annotations
 
-from lucid_deck.motor_actions import MotorActionHandlers
+from lightfall_deck.motor_actions import MotorActionHandlers
 
 
 def _make_handlers(positioners):
@@ -480,17 +480,17 @@ def test_hardware_error_caught(mock_positioner):
 - [ ] **Step 2: Run tests, expect failure**
 
 Run: `.venv/Scripts/python -m pytest tests/test_motor_actions.py -v`
-Expected: ImportError on `lucid_deck.motor_actions`.
+Expected: ImportError on `lightfall_deck.motor_actions`.
 
 - [ ] **Step 3: Write the module**
 
-`src/lucid_deck/motor_actions.py`:
+`src/lightfall_deck/motor_actions.py`:
 ```python
 """NATS action handlers for motor control.
 
 Pure dict-in/dict-out logic — no NATS or Qt imports here. The
 ``register_with_ipc`` helper wires handlers to an :class:`IPCService`
-in :mod:`lucid_deck.settings_plugin.on_loaded`.
+in :mod:`lightfall_deck.settings_plugin.on_loaded`.
 """
 from __future__ import annotations
 
@@ -571,7 +571,7 @@ class MotorActionHandlers:
     @_wrap_errors
     def select(self, payload: dict) -> dict:
         # `select` is just `status` with semantic intent — the bridge
-        # tracks selection. Mirroring keeps the LUCID side stateless.
+        # tracks selection. Mirroring keeps the Lightfall side stateless.
         p = self._get(payload["name"])
         return {"ok": True, "status": _status_dict(p)}
 
@@ -606,7 +606,7 @@ Note: `test_status_unknown_motor` expects the exact error message `"Motor 'nope'
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_deck/motor_actions.py tests/test_motor_actions.py
+git add src/lightfall_deck/motor_actions.py tests/test_motor_actions.py
 git commit -m "feat: motor_actions handlers with structured errors"
 ```
 
@@ -615,8 +615,8 @@ git commit -m "feat: motor_actions handlers with structured errors"
 ## Task 4: Readback publisher
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/motor_actions.py` (modify — add `ReadbackPublisher`)
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_readback_publisher.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/motor_actions.py` (modify — add `ReadbackPublisher`)
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_readback_publisher.py`
 
 The publisher subscribes to each positioner's Ophyd `subscribe` callback and forwards state changes onto the NATS bus via a `publish_fn` injected by the caller. Decoupling `publish_fn` from `IPCService` keeps the unit test pure.
 
@@ -626,7 +626,7 @@ The publisher subscribes to each positioner's Ophyd `subscribe` callback and for
 ```python
 from __future__ import annotations
 
-from lucid_deck.motor_actions import ReadbackPublisher
+from lightfall_deck.motor_actions import ReadbackPublisher
 
 
 def test_publisher_emits_on_motor_move(mock_positioner):
@@ -641,9 +641,9 @@ def test_publisher_emits_on_motor_move(mock_positioner):
     p.move(2.5)
 
     # MockPositioner fires subscribers twice per move (start + end).
-    # Both should land on lucid.motors.readback.samx.
+    # Both should land on lightfall.motors.readback.samx.
     subjects = [s for s, _ in captured]
-    assert subjects == ["lucid.motors.readback.samx"] * 2
+    assert subjects == ["lightfall.motors.readback.samx"] * 2
     assert captured[-1][1]["position"] == 2.5
     assert captured[-1][1]["moving"] is False
 
@@ -680,7 +680,7 @@ Expected: ImportError on `ReadbackPublisher`.
 
 - [ ] **Step 3: Add `ReadbackPublisher` to motor_actions.py**
 
-Append to `src/lucid_deck/motor_actions.py`:
+Append to `src/lightfall_deck/motor_actions.py`:
 ```python
 class ReadbackPublisher:
     """Bridges Ophyd subscribe() callbacks to NATS publish().
@@ -690,7 +690,7 @@ class ReadbackPublisher:
     ``IPCService.publish``-shaped (takes ``subject, data``).
     """
 
-    SUBJECT_FMT = "lucid.motors.readback.{name}"
+    SUBJECT_FMT = "lightfall.motors.readback.{name}"
 
     def __init__(self, publish_fn: Callable[[str, dict], None]) -> None:
         self._publish = publish_fn
@@ -749,7 +749,7 @@ Expected: all PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_deck/motor_actions.py tests/test_readback_publisher.py tests/conftest.py
+git add src/lightfall_deck/motor_actions.py tests/test_readback_publisher.py tests/conftest.py
 git commit -m "feat: ReadbackPublisher for motor state events"
 ```
 
@@ -758,10 +758,10 @@ git commit -m "feat: ReadbackPublisher for motor state events"
 ## Task 5: MotorsSettingsPlugin
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/settings_plugin.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_settings_plugin.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/settings_plugin.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_settings_plugin.py`
 
-The plugin owns lifecycle: builds the Qt UI, persists settings to `PreferencesManager`, and on `on_loaded()` registers NATS actions and starts the readback publisher. Catalog access goes through `lucid.devices.catalog`.
+The plugin owns lifecycle: builds the Qt UI, persists settings to `PreferencesManager`, and on `on_loaded()` registers NATS actions and starts the readback publisher. Catalog access goes through `lightfall.devices.catalog`.
 
 **Tests use `pytest-qt` and skip if a `QApplication` cannot start (headless CI).**
 
@@ -782,7 +782,7 @@ pytest.importorskip("PySide6")
 
 from unittest.mock import MagicMock, patch
 
-from lucid_deck.settings_plugin import (
+from lightfall_deck.settings_plugin import (
     MotorsSettingsPlugin,
     PREF_SELECTED_MOTORS,
     PREF_STEP_VALUES,
@@ -798,13 +798,13 @@ def test_plugin_metadata():
 
 
 def test_resolve_motors_from_catalog(mock_positioner):
-    """Plugin should fetch positioners from lucid's catalog by name."""
+    """Plugin should fetch positioners from lightfall's catalog by name."""
     plugin = MotorsSettingsPlugin()
     fake_catalog = MagicMock()
     samx = mock_positioner("samx")
     fake_catalog.get_device.side_effect = lambda n: {"samx": samx}.get(n)
 
-    with patch("lucid_deck.settings_plugin._get_catalog", return_value=fake_catalog):
+    with patch("lightfall_deck.settings_plugin._get_catalog", return_value=fake_catalog):
         result = plugin._resolve_motors(["samx", "missing"])
 
     assert "samx" in result
@@ -828,7 +828,7 @@ def test_save_settings_persists_to_preferences(qtbot):
     plugin._step_values_widget.set_values([0.1, 1.0])
 
     fake_prefs = MagicMock()
-    with patch("lucid_deck.settings_plugin.PreferencesManager.get_instance", return_value=fake_prefs):
+    with patch("lightfall_deck.settings_plugin.PreferencesManager.get_instance", return_value=fake_prefs):
         plugin.save_settings()
 
     fake_prefs.set.assert_any_call(PREF_SELECTED_MOTORS, ["samx", "samy"])
@@ -844,9 +844,9 @@ def test_on_loaded_registers_actions_and_publisher(mock_positioner):
         PREF_STEP_VALUES: [0.1, 1.0],
     }.get(key, default)
 
-    with patch("lucid_deck.settings_plugin.get_ipc_service", return_value=fake_ipc), \
-         patch("lucid_deck.settings_plugin.PreferencesManager.get_instance", return_value=fake_prefs), \
-         patch("lucid_deck.settings_plugin._get_catalog") as fake_get_catalog:
+    with patch("lightfall_deck.settings_plugin.get_ipc_service", return_value=fake_ipc), \
+         patch("lightfall_deck.settings_plugin.PreferencesManager.get_instance", return_value=fake_prefs), \
+         patch("lightfall_deck.settings_plugin._get_catalog") as fake_get_catalog:
         fake_get_catalog.return_value.get_device.return_value = mock_positioner("samx")
         plugin.on_loaded()
 
@@ -870,7 +870,7 @@ Expected: ImportError.
 
 - [ ] **Step 3: Implement the plugin**
 
-`src/lucid_deck/settings_plugin.py`:
+`src/lightfall_deck/settings_plugin.py`:
 ```python
 """Motors settings plugin.
 
@@ -894,21 +894,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.devices.catalog import get_catalog
-from lucid.devices.model import DeviceCategory
-from lucid.ipc.service import get_ipc_service
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.devices.catalog import get_catalog
+from lightfall.devices.model import DeviceCategory
+from lightfall.ipc.service import get_ipc_service
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
 
-from lucid_deck.motor_actions import (
+from lightfall_deck.motor_actions import (
     MotorActionHandlers,
     ReadbackPublisher,
     PositionerRegistry,
 )
 
 
-PREF_SELECTED_MOTORS = "lucid_deck.selected_motors"
-PREF_STEP_VALUES = "lucid_deck.step_values"
+PREF_SELECTED_MOTORS = "lightfall_deck.selected_motors"
+PREF_STEP_VALUES = "lightfall_deck.step_values"
 DEFAULT_STEP_VALUES = [0.001, 0.01, 0.1, 1.0, 10.0]
 
 
@@ -988,7 +988,7 @@ class _StepValuesWidget(QWidget):
 
 
 class MotorsSettingsPlugin(SettingsPlugin):
-    """Settings page + lifecycle for lucid-deck."""
+    """Settings page + lifecycle for lightfall-deck."""
 
     @property
     def name(self) -> str:
@@ -1038,7 +1038,7 @@ class MotorsSettingsPlugin(SettingsPlugin):
             catalog = _get_catalog()
             available = [d.name for d in catalog.list_devices(category=DeviceCategory.MOTOR)]
         except Exception as exc:
-            logger.warning("lucid-deck: failed to list catalog motors: {}", exc)
+            logger.warning("lightfall-deck: failed to list catalog motors: {}", exc)
             available = []
         self._motor_list_widget.populate(available)
         self._motor_list_widget.set_selected(prefs.get(PREF_SELECTED_MOTORS, []))
@@ -1054,7 +1054,7 @@ class MotorsSettingsPlugin(SettingsPlugin):
     # ---------------- preload init ----------------
 
     def on_loaded(self) -> None:
-        """Called once at LUCID startup for preload plugins.
+        """Called once at Lightfall startup for preload plugins.
 
         Registers NATS actions and starts readback publisher using the
         currently saved selection. If there is no saved selection yet
@@ -1064,7 +1064,7 @@ class MotorsSettingsPlugin(SettingsPlugin):
 
         ipc = get_ipc_service()
         if ipc is None:
-            logger.warning("lucid-deck: IPCService not available; skipping action registration")
+            logger.warning("lightfall-deck: IPCService not available; skipping action registration")
             return
 
         handlers = MotorActionHandlers(registry=lambda: self._motors)
@@ -1088,7 +1088,7 @@ class MotorsSettingsPlugin(SettingsPlugin):
             handle = ipc.register_action(
                 suffix,
                 _wrap(handler),
-                description=f"lucid-deck {suffix}",
+                description=f"lightfall-deck {suffix}",
             )
             self._action_handles.append(handle)
 
@@ -1116,10 +1116,10 @@ class MotorsSettingsPlugin(SettingsPlugin):
             try:
                 device = catalog.get_device(name)
             except Exception as exc:
-                logger.warning("lucid-deck: catalog.get_device({}) failed: {}", name, exc)
+                logger.warning("lightfall-deck: catalog.get_device({}) failed: {}", name, exc)
                 device = None
             if device is None:
-                logger.warning("lucid-deck: motor '{}' not found in catalog; skipping", name)
+                logger.warning("lightfall-deck: motor '{}' not found in catalog; skipping", name)
                 continue
             result[name] = device
         return result
@@ -1148,12 +1148,12 @@ class MotorsSettingsPlugin(SettingsPlugin):
 - [ ] **Step 4: Run tests**
 
 Run: `.venv/Scripts/python -m pytest tests/test_settings_plugin.py -v`
-Expected: all PASS. If `lucid.devices.catalog.get_catalog` or `get_device` does not exist with that signature, adjust the import in `_get_catalog` and the patch target in tests to match the real API. Verify by inspecting `~/PycharmProjects/ncs/ncs/src/lucid/devices/catalog.py` before writing tests.
+Expected: all PASS. If `lightfall.devices.catalog.get_catalog` or `get_device` does not exist with that signature, adjust the import in `_get_catalog` and the patch target in tests to match the real API. Verify by inspecting `~/PycharmProjects/ncs/ncs/src/lightfall/devices/catalog.py` before writing tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_deck/settings_plugin.py tests/test_settings_plugin.py
+git add src/lightfall_deck/settings_plugin.py tests/test_settings_plugin.py
 git commit -m "feat: MotorsSettingsPlugin with NATS action wiring"
 ```
 
@@ -1162,8 +1162,8 @@ git commit -m "feat: MotorsSettingsPlugin with NATS action wiring"
 ## Task 6: Plugin manifest
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/manifest.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_manifest.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/manifest.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_manifest.py`
 
 - [ ] **Step 1: Write failing test**
 
@@ -1173,17 +1173,17 @@ from __future__ import annotations
 
 
 def test_manifest_exposes_motor_deck_settings_plugin():
-    from lucid_deck.manifest import manifest
-    assert manifest.name == "lucid-deck"
+    from lightfall_deck.manifest import manifest
+    assert manifest.name == "lightfall-deck"
     settings_entries = [p for p in manifest.plugins if p.type_name == "settings"]
     assert len(settings_entries) == 1
     assert settings_entries[0].name == "motor_deck"
-    assert settings_entries[0].import_path == "lucid_deck.settings_plugin:MotorsSettingsPlugin"
+    assert settings_entries[0].import_path == "lightfall_deck.settings_plugin:MotorsSettingsPlugin"
 
 
 def test_manifest_settings_entry_preloads():
-    """Preload=True is required so on_loaded() runs at LUCID startup."""
-    from lucid_deck.manifest import manifest
+    """Preload=True is required so on_loaded() runs at Lightfall startup."""
+    from lightfall_deck.manifest import manifest
     entry = next(p for p in manifest.plugins if p.name == "motor_deck")
     assert entry.preload is True
 
@@ -1191,7 +1191,7 @@ def test_manifest_settings_entry_preloads():
 def test_manifest_loadable_via_entry_point():
     """The pyproject entry-point points at this manifest object."""
     import importlib
-    mod = importlib.import_module("lucid_deck.manifest")
+    mod = importlib.import_module("lightfall_deck.manifest")
     assert hasattr(mod, "manifest")
 ```
 
@@ -1201,23 +1201,23 @@ Run: `.venv/Scripts/python -m pytest tests/test_manifest.py -v`
 
 - [ ] **Step 3: Write the manifest**
 
-`src/lucid_deck/manifest.py`:
+`src/lightfall_deck/manifest.py`:
 ```python
-"""Plugin manifest for lucid-deck."""
+"""Plugin manifest for lightfall-deck."""
 from __future__ import annotations
 
-from lucid.plugins.manifest import PluginEntry, PluginManifest
+from lightfall.plugins.manifest import PluginEntry, PluginManifest
 
 
 manifest = PluginManifest(
-    name="lucid-deck",
+    name="lightfall-deck",
     version="0.1.0",
-    description="Companion-driven motor control surface for LUCID",
+    description="Companion-driven motor control surface for Lightfall",
     plugins=[
         PluginEntry(
             type_name="settings",
             name="motor_deck",
-            import_path="lucid_deck.settings_plugin:MotorsSettingsPlugin",
+            import_path="lightfall_deck.settings_plugin:MotorsSettingsPlugin",
             preload=True,
         ),
     ],
@@ -1232,8 +1232,8 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_deck/manifest.py tests/test_manifest.py
-git commit -m "feat: register lucid-deck plugin manifest"
+git add src/lightfall_deck/manifest.py tests/test_manifest.py
+git commit -m "feat: register lightfall-deck plugin manifest"
 ```
 
 ---
@@ -1241,10 +1241,10 @@ git commit -m "feat: register lucid-deck plugin manifest"
 ## Task 7: Bridge config + CLI entry point
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/config.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/cli.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/__main__.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_bridge_config.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/config.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/cli.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/__main__.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_bridge_config.py`
 
 - [ ] **Step 1: Write failing test**
 
@@ -1255,14 +1255,14 @@ from __future__ import annotations
 
 import pytest
 
-from lucid_deck.bridge.config import BridgeConfig, load_config
+from lightfall_deck.bridge.config import BridgeConfig, load_config
 
 
 def test_defaults():
     cfg = BridgeConfig()
     assert cfg.bind_host == "127.0.0.1"
     assert cfg.bind_port == 8765
-    assert cfg.lucid_prefix == "lucid"
+    assert cfg.lightfall_prefix == "lightfall"
 
 
 def test_env_vars(monkeypatch):
@@ -1270,13 +1270,13 @@ def test_env_vars(monkeypatch):
     monkeypatch.setenv("COMPANION_URL", "http://comp:8000")
     monkeypatch.setenv("BIND_HOST", "0.0.0.0")
     monkeypatch.setenv("BIND_PORT", "9000")
-    monkeypatch.setenv("LUCID_PREFIX", "ncs")
+    monkeypatch.setenv("Lightfall_PREFIX", "ncs")
     cfg = load_config(argv=[])
     assert cfg.nats_url == "nats://other:4222"
     assert cfg.companion_url == "http://comp:8000"
     assert cfg.bind_host == "0.0.0.0"
     assert cfg.bind_port == 9000
-    assert cfg.lucid_prefix == "ncs"
+    assert cfg.lightfall_prefix == "ncs"
 
 
 def test_cli_flags_override_env(monkeypatch):
@@ -1297,7 +1297,7 @@ Run: `.venv/Scripts/python -m pytest tests/test_bridge_config.py -v`
 
 - [ ] **Step 3: Implement config**
 
-`src/lucid_deck/bridge/config.py`:
+`src/lightfall_deck/bridge/config.py`:
 ```python
 """Bridge configuration via env vars + CLI flags."""
 from __future__ import annotations
@@ -1314,7 +1314,7 @@ class BridgeConfig:
     companion_url: str = ""
     bind_host: str = "127.0.0.1"
     bind_port: int = 8765
-    lucid_prefix: str = "lucid"
+    lightfall_prefix: str = "lightfall"
 
 
 def load_config(argv: list[str] | None = None) -> BridgeConfig:
@@ -1323,7 +1323,7 @@ def load_config(argv: list[str] | None = None) -> BridgeConfig:
     parser.add_argument("--companion-url", default=os.environ.get("COMPANION_URL", ""))
     parser.add_argument("--bind-host", default=os.environ.get("BIND_HOST", "127.0.0.1"))
     parser.add_argument("--bind-port", type=int, default=int(os.environ.get("BIND_PORT", "8765")))
-    parser.add_argument("--lucid-prefix", default=os.environ.get("LUCID_PREFIX", "lucid"))
+    parser.add_argument("--lightfall-prefix", default=os.environ.get("Lightfall_PREFIX", "lightfall"))
     ns = parser.parse_args(argv)
 
     if not ns.companion_url:
@@ -1335,13 +1335,13 @@ def load_config(argv: list[str] | None = None) -> BridgeConfig:
         companion_url=ns.companion_url.rstrip("/"),
         bind_host=ns.bind_host,
         bind_port=ns.bind_port,
-        lucid_prefix=ns.lucid_prefix,
+        lightfall_prefix=ns.lightfall_prefix,
     )
 ```
 
 - [ ] **Step 4: Implement CLI entry point + `__main__`**
 
-`src/lucid_deck/bridge/cli.py`:
+`src/lightfall_deck/bridge/cli.py`:
 ```python
 """Console-script entry point: ``companion-bridge``."""
 from __future__ import annotations
@@ -1350,8 +1350,8 @@ import sys
 
 import uvicorn
 
-from lucid_deck.bridge.app import create_app
-from lucid_deck.bridge.config import load_config
+from lightfall_deck.bridge.app import create_app
+from lightfall_deck.bridge.config import load_config
 
 
 def main() -> int:
@@ -1365,9 +1365,9 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-`src/lucid_deck/bridge/__main__.py`:
+`src/lightfall_deck/bridge/__main__.py`:
 ```python
-from lucid_deck.bridge.cli import main
+from lightfall_deck.bridge.cli import main
 raise SystemExit(main())
 ```
 
@@ -1379,7 +1379,7 @@ Expected: 4 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_deck/bridge/config.py src/lucid_deck/bridge/cli.py src/lucid_deck/bridge/__main__.py tests/test_bridge_config.py
+git add src/lightfall_deck/bridge/config.py src/lightfall_deck/bridge/cli.py src/lightfall_deck/bridge/__main__.py tests/test_bridge_config.py
 git commit -m "feat: bridge config + CLI entry point"
 ```
 
@@ -1388,8 +1388,8 @@ git commit -m "feat: bridge config + CLI entry point"
 ## Task 8: Companion HTTP client
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/companion_client.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_bridge_companion_client.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/companion_client.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_bridge_companion_client.py`
 
 - [ ] **Step 1: Write failing test**
 
@@ -1401,7 +1401,7 @@ import httpx
 import pytest
 import respx
 
-from lucid_deck.bridge.companion_client import CompanionClient
+from lightfall_deck.bridge.companion_client import CompanionClient
 
 
 @pytest.mark.asyncio
@@ -1445,7 +1445,7 @@ Run: `.venv/Scripts/python -m pytest tests/test_bridge_companion_client.py -v`
 
 - [ ] **Step 3: Implement**
 
-`src/lucid_deck/bridge/companion_client.py`:
+`src/lightfall_deck/bridge/companion_client.py`:
 ```python
 """Async HTTP client for pushing Companion custom variables."""
 from __future__ import annotations
@@ -1492,7 +1492,7 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_deck/bridge/companion_client.py tests/test_bridge_companion_client.py
+git add src/lightfall_deck/bridge/companion_client.py tests/test_bridge_companion_client.py
 git commit -m "feat: bridge CompanionClient for variable push"
 ```
 
@@ -1501,9 +1501,9 @@ git commit -m "feat: bridge CompanionClient for variable push"
 ## Task 9: Bridge FastAPI app + NATS client
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/nats_client.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/app.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_bridge_app.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/nats_client.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/app.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_bridge_app.py`
 
 The NATS client is wrapped behind a small abstraction (`NatsLink`) so tests don't need a running NATS server. The FastAPI app receives `NatsLink` and `CompanionClient` as dependencies, so they can be replaced with fakes.
 
@@ -1516,8 +1516,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from lucid_deck.bridge.app import create_app, BridgeState
-from lucid_deck.bridge.config import BridgeConfig
+from lightfall_deck.bridge.app import create_app, BridgeState
+from lightfall_deck.bridge.config import BridgeConfig
 
 
 class FakeNats:
@@ -1549,7 +1549,7 @@ class FakeCompanion:
 
 @pytest.fixture
 def app_pair():
-    cfg = BridgeConfig(nats_url="", companion_url="http://x", lucid_prefix="lucid")
+    cfg = BridgeConfig(nats_url="", companion_url="http://x", lightfall_prefix="lightfall")
     nats = FakeNats()
     comp = FakeCompanion()
     state = BridgeState(config=cfg, nats=nats, companion=comp)
@@ -1561,7 +1561,7 @@ def test_select_calls_nats_and_pushes_variables(app_pair):
     client, state = app_pair
     response = client.post("/select", params={"name": "samx"})
     assert response.status_code == 200
-    assert state.nats.requests[0] == ("lucid.motors.action.select", {"name": "samx"})
+    assert state.nats.requests[0] == ("lightfall.motors.action.select", {"name": "samx"})
     pushes = dict(state.companion.pushes)
     assert pushes["motor_selected"] == "samx"
     assert pushes["motor_position"] == "1.0"
@@ -1576,7 +1576,7 @@ def test_jog_uses_selected_motor(app_pair):
     state.nats.requests.clear()
     response = client.post("/jog", params={"delta": "0.5"})
     assert response.status_code == 200
-    assert state.nats.requests[-1] == ("lucid.motors.action.jog", {"name": "samx", "delta": 0.5})
+    assert state.nats.requests[-1] == ("lightfall.motors.action.jog", {"name": "samx", "delta": 0.5})
 
 
 def test_jog_with_no_selection_returns_400(app_pair):
@@ -1588,7 +1588,7 @@ def test_jog_with_no_selection_returns_400(app_pair):
 def test_jog_at_limit_returns_409_and_pushes_status_msg(app_pair):
     client, state = app_pair
     client.post("/select", params={"name": "samx"})
-    state.nats.replies["lucid.motors.action.jog"] = {
+    state.nats.replies["lightfall.motors.action.jog"] = {
         "ok": False, "code": "at_limit", "msg": "above high limit",
     }
     state.companion.pushes.clear()
@@ -1600,7 +1600,7 @@ def test_jog_at_limit_returns_409_and_pushes_status_msg(app_pair):
 
 def test_unknown_motor_returns_404(app_pair):
     client, state = app_pair
-    state.nats.replies["lucid.motors.action.select"] = {
+    state.nats.replies["lightfall.motors.action.select"] = {
         "ok": False, "code": "unknown_motor", "msg": "Motor 'nope' not configured",
     }
     response = client.post("/select", params={"name": "nope"})
@@ -1617,17 +1617,17 @@ def test_status_endpoint_returns_bridge_view(app_pair):
     assert "last_readback" in body
 
 
-def test_bridge_does_not_import_lucid():
-    """The bridge subpackage must be runnable without lucid installed."""
+def test_bridge_does_not_import_lightfall():
+    """The bridge subpackage must be runnable without lightfall installed."""
     import sys
-    bridge_modules = [n for n in sys.modules if n.startswith("lucid_deck.bridge")]
+    bridge_modules = [n for n in sys.modules if n.startswith("lightfall_deck.bridge")]
     for mod_name in bridge_modules:
         mod = sys.modules[mod_name]
         for attr in dir(mod):
             value = getattr(mod, attr)
             if hasattr(value, "__module__"):
                 origin = value.__module__
-                assert not origin.startswith("lucid."), \
+                assert not origin.startswith("lightfall."), \
                     f"{mod_name}.{attr} originates in {origin}"
 ```
 
@@ -1637,7 +1637,7 @@ Run: `.venv/Scripts/python -m pytest tests/test_bridge_app.py -v`
 
 - [ ] **Step 3: Implement nats_client**
 
-`src/lucid_deck/bridge/nats_client.py`:
+`src/lightfall_deck/bridge/nats_client.py`:
 ```python
 """Thin async wrapper around nats-py for the bridge."""
 from __future__ import annotations
@@ -1683,7 +1683,7 @@ class NatsClient:
 
 - [ ] **Step 4: Implement FastAPI app**
 
-`src/lucid_deck/bridge/app.py`:
+`src/lightfall_deck/bridge/app.py`:
 ```python
 """FastAPI app for the companion-bridge."""
 from __future__ import annotations
@@ -1695,9 +1695,9 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 
-from lucid_deck.bridge.companion_client import CompanionClient
-from lucid_deck.bridge.config import BridgeConfig
-from lucid_deck.bridge.nats_client import NatsClient, NatsLink
+from lightfall_deck.bridge.companion_client import CompanionClient
+from lightfall_deck.bridge.config import BridgeConfig
+from lightfall_deck.bridge.nats_client import NatsClient, NatsLink
 
 
 logger = logging.getLogger(__name__)
@@ -1713,7 +1713,7 @@ class BridgeState:
     last_readback: dict = field(default_factory=dict)
 
 
-# Map LUCID error codes → HTTP status.
+# Map Lightfall error codes → HTTP status.
 _CODE_TO_HTTP = {
     "unknown_motor": 404,
     "at_limit": 409,
@@ -1723,7 +1723,7 @@ _CODE_TO_HTTP = {
 
 
 def _action_subject(state: BridgeState, verb: str) -> str:
-    return f"{state.config.lucid_prefix}.motors.action.{verb}"
+    return f"{state.config.lightfall_prefix}.motors.action.{verb}"
 
 
 async def _push_status_to_companion(state: BridgeState, status: dict, name: str) -> None:
@@ -1789,8 +1789,8 @@ def create_app(cfg: BridgeConfig, *, state: BridgeState | None = None) -> FastAP
         try:
             reply = await state.nats.request(_action_subject(state, "select"), {"name": name})
         except asyncio.TimeoutError:
-            await _push_error(state, "LUCID not responding")
-            raise HTTPException(status_code=504, detail="LUCID not responding")
+            await _push_error(state, "Lightfall not responding")
+            raise HTTPException(status_code=504, detail="Lightfall not responding")
         if not reply.get("ok"):
             await _push_error(state, reply.get("msg", reply.get("code", "error")))
             _raise_for_reply(reply)
@@ -1806,8 +1806,8 @@ def create_app(cfg: BridgeConfig, *, state: BridgeState | None = None) -> FastAP
                 _action_subject(state, "jog"), {"name": name, "delta": delta}
             )
         except asyncio.TimeoutError:
-            await _push_error(state, "LUCID not responding")
-            raise HTTPException(status_code=504, detail="LUCID not responding")
+            await _push_error(state, "Lightfall not responding")
+            raise HTTPException(status_code=504, detail="Lightfall not responding")
         if not reply.get("ok"):
             await _push_error(state, reply.get("msg", reply.get("code", "error")))
             _raise_for_reply(reply)
@@ -1821,8 +1821,8 @@ def create_app(cfg: BridgeConfig, *, state: BridgeState | None = None) -> FastAP
                 _action_subject(state, "move"), {"name": name, "position": position}
             )
         except asyncio.TimeoutError:
-            await _push_error(state, "LUCID not responding")
-            raise HTTPException(status_code=504, detail="LUCID not responding")
+            await _push_error(state, "Lightfall not responding")
+            raise HTTPException(status_code=504, detail="Lightfall not responding")
         if not reply.get("ok"):
             await _push_error(state, reply.get("msg", reply.get("code", "error")))
             _raise_for_reply(reply)
@@ -1834,8 +1834,8 @@ def create_app(cfg: BridgeConfig, *, state: BridgeState | None = None) -> FastAP
         try:
             reply = await state.nats.request(_action_subject(state, "stop"), {"name": name})
         except asyncio.TimeoutError:
-            await _push_error(state, "LUCID not responding")
-            raise HTTPException(status_code=504, detail="LUCID not responding")
+            await _push_error(state, "Lightfall not responding")
+            raise HTTPException(status_code=504, detail="Lightfall not responding")
         if not reply.get("ok"):
             await _push_error(state, reply.get("msg", reply.get("code", "error")))
             _raise_for_reply(reply)
@@ -1859,7 +1859,7 @@ Expected: 7 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_deck/bridge/nats_client.py src/lucid_deck/bridge/app.py tests/test_bridge_app.py
+git add src/lightfall_deck/bridge/nats_client.py src/lightfall_deck/bridge/app.py tests/test_bridge_app.py
 git commit -m "feat: bridge FastAPI app + NATS client wrapper"
 ```
 
@@ -1868,9 +1868,9 @@ git commit -m "feat: bridge FastAPI app + NATS client wrapper"
 ## Task 10: Bridge readback subscriber
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/readback.py`
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_bridge_readback.py`
-- Modify: `~/PycharmProjects/ncs/lucid-deck/src/lucid_deck/bridge/app.py` (wire `ReadbackForwarder` into startup)
+- Create: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/readback.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_bridge_readback.py`
+- Modify: `~/PycharmProjects/ncs/lightfall-deck/src/lightfall_deck/bridge/app.py` (wire `ReadbackForwarder` into startup)
 
 The forwarder subscribes to `<prefix>.motors.readback.*` and, when an event is for the bridge's currently-selected motor, calls `_push_status_to_companion` (re-using the helper from `app.py`).
 
@@ -1882,9 +1882,9 @@ from __future__ import annotations
 
 import pytest
 
-from lucid_deck.bridge.app import BridgeState
-from lucid_deck.bridge.config import BridgeConfig
-from lucid_deck.bridge.readback import ReadbackForwarder
+from lightfall_deck.bridge.app import BridgeState
+from lightfall_deck.bridge.config import BridgeConfig
+from lightfall_deck.bridge.readback import ReadbackForwarder
 
 
 class FakeNatsSubscribable:
@@ -1906,7 +1906,7 @@ class FakeCompanion:
 
 
 def _state():
-    cfg = BridgeConfig(nats_url="", companion_url="http://x", lucid_prefix="lucid")
+    cfg = BridgeConfig(nats_url="", companion_url="http://x", lightfall_prefix="lightfall")
     return BridgeState(config=cfg, nats=FakeNatsSubscribable(), companion=FakeCompanion())
 
 
@@ -1915,7 +1915,7 @@ async def test_subscribe_on_correct_subject():
     state = _state()
     fwd = ReadbackForwarder(state)
     await fwd.start()
-    assert state.nats.subject == "lucid.motors.readback.*"
+    assert state.nats.subject == "lightfall.motors.readback.*"
 
 
 @pytest.mark.asyncio
@@ -1925,7 +1925,7 @@ async def test_event_for_selected_motor_pushes_to_companion():
     fwd = ReadbackForwarder(state)
     await fwd.start()
 
-    await state.nats.callback("lucid.motors.readback.samx", {
+    await state.nats.callback("lightfall.motors.readback.samx", {
         "position": 7.0, "units": "mm", "high_limit": 10.0, "low_limit": -10.0,
         "at_high": False, "at_low": False, "moving": False,
     })
@@ -1942,7 +1942,7 @@ async def test_event_for_other_motor_ignored():
     fwd = ReadbackForwarder(state)
     await fwd.start()
 
-    await state.nats.callback("lucid.motors.readback.samy", {
+    await state.nats.callback("lightfall.motors.readback.samy", {
         "position": 99.0, "units": "mm", "high_limit": 10.0, "low_limit": -10.0,
         "at_high": False, "at_low": False, "moving": False,
     })
@@ -1955,14 +1955,14 @@ Run: `.venv/Scripts/python -m pytest tests/test_bridge_readback.py -v`
 
 - [ ] **Step 3: Implement**
 
-`src/lucid_deck/bridge/readback.py`:
+`src/lightfall_deck/bridge/readback.py`:
 ```python
 """Forwards NATS readback events into Companion variable pushes."""
 from __future__ import annotations
 
 import logging
 
-from lucid_deck.bridge.app import BridgeState, _push_status_to_companion
+from lightfall_deck.bridge.app import BridgeState, _push_status_to_companion
 
 
 logger = logging.getLogger(__name__)
@@ -1976,7 +1976,7 @@ class ReadbackForwarder:
         self._sub = None
 
     async def start(self) -> None:
-        subject = f"{self._state.config.lucid_prefix}.motors.readback.*"
+        subject = f"{self._state.config.lightfall_prefix}.motors.readback.*"
         self._sub = await self._state.nats.subscribe(subject, self._on_event)
 
     async def _on_event(self, subject: str, data: dict) -> None:
@@ -1995,11 +1995,11 @@ class ReadbackForwarder:
 
 - [ ] **Step 4: Wire into app startup**
 
-Edit `src/lucid_deck/bridge/app.py`. After the `_startup` function body, before `_shutdown`, add:
+Edit `src/lightfall_deck/bridge/app.py`. After the `_startup` function body, before `_shutdown`, add:
 
 ```python
         # Subscribe to readback events.
-        from lucid_deck.bridge.readback import ReadbackForwarder
+        from lightfall_deck.bridge.readback import ReadbackForwarder
         state._forwarder = ReadbackForwarder(state)
         if hasattr(nats, "subscribe"):
             await state._forwarder.start()
@@ -2015,7 +2015,7 @@ Expected: all PASS, no regressions.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_deck/bridge/readback.py src/lucid_deck/bridge/app.py tests/test_bridge_readback.py
+git add src/lightfall_deck/bridge/readback.py src/lightfall_deck/bridge/app.py tests/test_bridge_readback.py
 git commit -m "feat: bridge readback forwarder"
 ```
 
@@ -2024,9 +2024,9 @@ git commit -m "feat: bridge readback forwarder"
 ## Task 11: Integration test (real nats-server)
 
 **Files:**
-- Create: `~/PycharmProjects/ncs/lucid-deck/tests/test_integration_e2e.py`
+- Create: `~/PycharmProjects/ncs/lightfall-deck/tests/test_integration_e2e.py`
 
-This test exercises the full bridge against a real nats-server, with a fake LUCID-side responder and a fake Companion. It is gated behind `pytest -m integration` and skipped by default. The test catches whether `NatsClient.request` actually round-trips, which the in-memory tests can't.
+This test exercises the full bridge against a real nats-server, with a fake Lightfall-side responder and a fake Companion. It is gated behind `pytest -m integration` and skipped by default. The test catches whether `NatsClient.request` actually round-trips, which the in-memory tests can't.
 
 **Prerequisite for the runner:** `nats-server` must be available on `$PATH` and reachable on `localhost:4222`. If absent, the test is auto-skipped.
 
@@ -2034,7 +2034,7 @@ This test exercises the full bridge against a real nats-server, with a fake LUCI
 
 `tests/test_integration_e2e.py`:
 ```python
-"""End-to-end: real nats-server + bridge + fake LUCID responder + fake Companion."""
+"""End-to-end: real nats-server + bridge + fake Lightfall responder + fake Companion."""
 from __future__ import annotations
 
 import asyncio
@@ -2051,10 +2051,10 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-from lucid_deck.bridge.app import create_app, BridgeState
-from lucid_deck.bridge.companion_client import CompanionClient
-from lucid_deck.bridge.config import BridgeConfig
-from lucid_deck.bridge.nats_client import NatsClient
+from lightfall_deck.bridge.app import create_app, BridgeState
+from lightfall_deck.bridge.companion_client import CompanionClient
+from lightfall_deck.bridge.config import BridgeConfig
+from lightfall_deck.bridge.nats_client import NatsClient
 
 
 pytestmark = pytest.mark.integration
@@ -2096,22 +2096,22 @@ def nats_server():
 
 @pytest.mark.asyncio
 async def test_select_round_trips_through_real_nats(nats_server):
-    # Stand up a fake LUCID-side responder.
+    # Stand up a fake Lightfall-side responder.
     nc = await nats.connect(nats_server)
-    async def lucid_handler(msg):
+    async def lightfall_handler(msg):
         await nc.publish(msg.reply, json.dumps({
             "ok": True,
             "status": {"position": 1.5, "units": "mm",
                        "high_limit": 10.0, "low_limit": -10.0,
                        "at_high": False, "at_low": False, "moving": False},
         }).encode())
-    sub = await nc.subscribe("lucid.motors.action.select", cb=lucid_handler)
+    sub = await nc.subscribe("lightfall.motors.action.select", cb=lightfall_handler)
 
     # Build a real bridge wired to real NATS but a mocked Companion.
     cfg = BridgeConfig(
         nats_url=nats_server,
         companion_url="http://comp:8000",
-        lucid_prefix="lucid",
+        lightfall_prefix="lightfall",
     )
     nats_link = NatsClient(cfg.nats_url)
     await nats_link.connect()
@@ -2160,26 +2160,26 @@ git commit -m "test: e2e integration test against real nats-server"
 - [ ] **Step 1: Run full unit test suite**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
+cd ~/PycharmProjects/ncs/lightfall-deck
 .venv/Scripts/python -m pytest -v
 ```
 
 Expected: all unit tests PASS, integration test SKIPPED unless nats-server is available.
 
-- [ ] **Step 2: Verify LUCID can discover the plugin**
+- [ ] **Step 2: Verify Lightfall can discover the plugin**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
-.venv/Scripts/python -c "from importlib.metadata import entry_points; print([e for e in entry_points(group='lucid.plugins') if e.name=='lucid_deck'])"
+cd ~/PycharmProjects/ncs/lightfall-deck
+.venv/Scripts/python -c "from importlib.metadata import entry_points; print([e for e in entry_points(group='lightfall.plugins') if e.name=='lightfall_deck'])"
 ```
 
-Expected: a non-empty list containing the `lucid_deck` entry-point.
+Expected: a non-empty list containing the `lightfall_deck` entry-point.
 
-- [ ] **Step 3: Verify the bridge subpackage imports cleanly without lucid**
+- [ ] **Step 3: Verify the bridge subpackage imports cleanly without lightfall**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
-.venv/Scripts/python -c "import lucid_deck.bridge.app, lucid_deck.bridge.cli, lucid_deck.bridge.config, lucid_deck.bridge.companion_client, lucid_deck.bridge.nats_client, lucid_deck.bridge.readback; print('bridge imports OK')"
+cd ~/PycharmProjects/ncs/lightfall-deck
+.venv/Scripts/python -c "import lightfall_deck.bridge.app, lightfall_deck.bridge.cli, lightfall_deck.bridge.config, lightfall_deck.bridge.companion_client, lightfall_deck.bridge.nats_client, lightfall_deck.bridge.readback; print('bridge imports OK')"
 ```
 
 Expected: `bridge imports OK`.
@@ -2187,21 +2187,21 @@ Expected: `bridge imports OK`.
 - [ ] **Step 4: Tag v0.1.0**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-deck
-git tag -a v0.1.0 -m "v0.1.0: initial release per spec 2026-05-05-lucid-deck-design.md"
+cd ~/PycharmProjects/ncs/lightfall-deck
+git tag -a v0.1.0 -m "v0.1.0: initial release per spec 2026-05-05-lightfall-deck-design.md"
 ```
 
 ---
 
 ## Self-review (against spec)
 
-- **Goals: top page motors → drill into single shared Motor Control page** — addressed in spec; the layout itself is data, authored via the existing companion-mcp-server. Plan delivers the bridge endpoints + LUCID actions that back the layout.
+- **Goals: top page motors → drill into single shared Motor Control page** — addressed in spec; the layout itself is data, authored via the existing companion-mcp-server. Plan delivers the bridge endpoints + Lightfall actions that back the layout.
 - **Step-on-press jog with global step + ×10/÷10** — bridge `/jog` accepts an explicit delta; step state lives in Companion. Plan does not need to ship Companion-side variable arithmetic (deferred per spec).
-- **Live readback push** — Tasks 4 (LUCID readback publisher) and 10 (bridge readback forwarder) cover it.
-- **Match LUCID's "headless service over NATS" pattern** — Task 5 wires actions via `IPCService`; Task 9 wires the bridge as a separate process consuming the same bus.
+- **Live readback push** — Tasks 4 (Lightfall readback publisher) and 10 (bridge readback forwarder) cover it.
+- **Match Lightfall's "headless service over NATS" pattern** — Task 5 wires actions via `IPCService`; Task 9 wires the bridge as a separate process consuming the same bus.
 - **Companion variables: `motor_*`** — pushed in Tasks 9 and 10. All fields from the spec table covered.
 - **Error → `motor_status_msg`** — Tasks 9 and 10 push it on error and clear it on success.
-- **Tests** — three surfaces (LUCID handlers, bridge, e2e) per spec.
+- **Tests** — three surfaces (Lightfall handlers, bridge, e2e) per spec.
 - **YAGNI**: no AgentPlugin, no hold-to-jog, no ControllerPlugin, no auth, no multi-Companion, no CI — all explicitly deferred.
 - **Type consistency** — `BridgeConfig`, `BridgeState`, `MotorActionHandlers`, `ReadbackPublisher`, `ReadbackForwarder`, `CompanionClient`, `NatsClient`/`NatsLink` names appear consistently across tasks. Action subjects (`motors.action.list/status/select/jog/move/stop`) appear identically in Tasks 3, 5, 9. Companion variable names appear identically in Tasks 9, 10 and the spec.
 - **No placeholders** — every code block is complete and runnable; the only `TODO`-shaped item is the QDoubleSpinBox-based step-add UI which has a working minimal implementation noted as "full edit dialog out of scope" (acceptable).
@@ -2217,7 +2217,7 @@ This plan is ready for **subagent-driven-development**. Tasks have these depende
 - Tasks 3, 4 (motor_actions, readback publisher) — can run after 2; 4 depends on 3 (same module).
 - Task 5 (settings_plugin) — depends on 3, 4.
 - Task 6 (manifest) — depends on 5.
-- **Tasks 7, 8 (bridge config, companion_client)** — independent of LUCID side; can run in parallel with 3–6 after Task 1.
+- **Tasks 7, 8 (bridge config, companion_client)** — independent of Lightfall side; can run in parallel with 3–6 after Task 1.
 - Task 9 (bridge app) — depends on 7, 8.
 - Task 10 (bridge readback) — depends on 9.
 - Task 11 (integration) — depends on 9, 10.

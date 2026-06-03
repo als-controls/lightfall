@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.panels.visualization_panel import VisualizationPanel
+from lightfall.ui.panels.visualization_panel import VisualizationPanel
 
 
 def _patch_tiled_service(monkeypatch, *, client, is_connected=True):
@@ -14,7 +14,7 @@ def _patch_tiled_service(monkeypatch, *, client, is_connected=True):
     service._client = client
     service.is_connected = is_connected
     monkeypatch.setattr(
-        "lucid.services.tiled_service.TiledService.get_instance",
+        "lightfall.services.tiled_service.TiledService.get_instance",
         lambda: service,
     )
     return service

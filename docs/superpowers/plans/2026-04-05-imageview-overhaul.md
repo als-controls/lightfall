@@ -14,11 +14,11 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/lucid/ui/widgets/camera/image_view.py` | **New.** `OphydImageView` rewrite — axes, crosshair, coords, toolbar, log LUT, ROI stats overlay, progress bar. Self-contained widget. |
-| `src/lucid/ui/widgets/camera/dark_frames.py` | **New.** `DarkFrameManager` — subscribes to RunEngine, watches for `"dark"` stream events, reads frames from Tiled, caches them, exposes current dark for subtraction. |
-| `src/lucid/ui/widgets/camera/base.py` | **Modify.** Remove old `OphydImageView` class (lines 200-344). Import new one from `image_view.py`. Wire progress bar to acquisition signals. |
-| `src/lucid/ui/widgets/camera/plan_based.py` | **Modify.** Add "Capture Dark" button. Wire `DarkFrameManager` into the widget. |
-| `src/lucid/ui/widgets/camera/__init__.py` | **Modify.** Export new public names. |
+| `src/lightfall/ui/widgets/camera/image_view.py` | **New.** `OphydImageView` rewrite — axes, crosshair, coords, toolbar, log LUT, ROI stats overlay, progress bar. Self-contained widget. |
+| `src/lightfall/ui/widgets/camera/dark_frames.py` | **New.** `DarkFrameManager` — subscribes to RunEngine, watches for `"dark"` stream events, reads frames from Tiled, caches them, exposes current dark for subtraction. |
+| `src/lightfall/ui/widgets/camera/base.py` | **Modify.** Remove old `OphydImageView` class (lines 200-344). Import new one from `image_view.py`. Wire progress bar to acquisition signals. |
+| `src/lightfall/ui/widgets/camera/plan_based.py` | **Modify.** Add "Capture Dark" button. Wire `DarkFrameManager` into the widget. |
+| `src/lightfall/ui/widgets/camera/__init__.py` | **Modify.** Export new public names. |
 | `tests/test_ophyd_image_view.py` | **New.** Tests for `OphydImageView` — LUT behavior, orientation, crosshair, log mode, ROI stats display, progress bar. |
 | `tests/test_dark_frame_manager.py` | **New.** Tests for `DarkFrameManager` — document handling, caching, Tiled readback. |
 
@@ -27,7 +27,7 @@
 ## Task 1: Scaffold `OphydImageView` with PlotItem axes and correct orientation
 
 **Files:**
-- Create: `src/lucid/ui/widgets/camera/image_view.py`
+- Create: `src/lightfall/ui/widgets/camera/image_view.py`
 - Create: `tests/test_ophyd_image_view.py`
 
 This task creates the new `OphydImageView` with a `PlotItem` providing axis ticks, an `ImageItem` for the image, and a `HistogramLUTItem` for the color scale. The image is displayed right-side-up by inverting the Y axis. No toolbar or features yet — just the core display.
@@ -45,7 +45,7 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from lucid.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.camera.image_view import OphydImageView
 
 
 @pytest.fixture()
@@ -104,7 +104,7 @@ class TestOphydImageViewBasic:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd /c/Users/rp/PycharmProjects/ncs/ncs && python -m pytest tests/test_ophyd_image_view.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid.ui.widgets.camera.image_view'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.ui.widgets.camera.image_view'`
 
 - [ ] **Step 3: Implement `OphydImageView` scaffold**
 
@@ -130,7 +130,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
@@ -288,7 +288,7 @@ Expected: PASS (3 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/camera/image_view.py tests/test_ophyd_image_view.py
+git add src/lightfall/ui/widgets/camera/image_view.py tests/test_ophyd_image_view.py
 git commit -m "feat(camera): scaffold new OphydImageView with PlotItem axes and correct orientation"
 ```
 
@@ -298,7 +298,7 @@ git commit -m "feat(camera): scaffold new OphydImageView with PlotItem axes and 
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 The current code passes `autoLevels=True` on every frame, resetting the LUT constantly. The new behavior: auto-scale on the first frame only, then hold stable. This task adds tests that verify this behavior. The implementation is already in the Task 1 scaffold (`self._first_frame` flag), so this task focuses on testing.
 
@@ -384,7 +384,7 @@ Expected: PASS (6 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): LUT auto-scales on first frame only, add reset_lut/reset_axes"
 ```
 
@@ -394,7 +394,7 @@ git commit -m "feat(camera): LUT auto-scales on first frame only, add reset_lut/
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 Adds a horizontal toolbar above the image with three buttons: Reset LUT, Reset Axes, and a checkable Log Intensity toggle.
 
@@ -495,7 +495,7 @@ Expected: PASS (9 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): add toolbar with Reset LUT, Reset Axes, Log Intensity buttons"
 ```
 
@@ -505,7 +505,7 @@ git commit -m "feat(camera): add toolbar with Reset LUT, Reset Axes, Log Intensi
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 When log mode is on, the ImageItem displays `np.log1p(data)` (truly log-scaled rendering), but the HistogramLUTItem remains bound to the raw linear data. This means:
 - The histogram shows the real intensity distribution and level handles operate in real units
@@ -714,7 +714,7 @@ Expected: PASS (15 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): log intensity display with log1p transform, histogram stays in real units"
 ```
 
@@ -724,7 +724,7 @@ git commit -m "feat(camera): log intensity display with log1p transform, histogr
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 Orange crosshair (`InfiniteLine` pair) follows the mouse cursor over the image. A `QLabel` below the image shows `x=... y=... I=...` with the pixel coordinates and intensity value under the cursor.
 
@@ -874,7 +874,7 @@ Expected: PASS (17 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): crosshair cursor and pixel coordinate/intensity display"
 ```
 
@@ -884,7 +884,7 @@ git commit -m "feat(camera): crosshair cursor and pixel coordinate/intensity dis
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 Reads hardware-computed ROI statistics from the device's `roi_stat1` plugin (ophyd `ROIStatNPlugin_V23` or `SimStatsPlugin`) and displays them as a text overlay on the image. Stats are polled alongside the image update.
 
@@ -1001,7 +1001,7 @@ Expected: PASS (19 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): ROI statistics overlay from hardware roi_stat1 plugin"
 ```
 
@@ -1011,7 +1011,7 @@ git commit -m "feat(camera): ROI statistics overlay from hardware roi_stat1 plug
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 A `QProgressBar` at the bottom of the image view shows acquisition progress by polling the device's HDF5 plugin (`num_captured` / `num_images`), or falling back to `cam.array_counter` / `cam.num_images`. Only visible during active acquisition.
 
@@ -1138,7 +1138,7 @@ Expected: PASS (22 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): acquisition progress bar from HDF5/cam counters"
 ```
 
@@ -1147,7 +1147,7 @@ git commit -m "feat(camera): acquisition progress bar from HDF5/cam counters"
 ## Task 8: `DarkFrameManager` — RunEngine subscription and Tiled readback
 
 **Files:**
-- Create: `src/lucid/ui/widgets/camera/dark_frames.py`
+- Create: `src/lightfall/ui/widgets/camera/dark_frames.py`
 - Create: `tests/test_dark_frame_manager.py`
 
 `DarkFrameManager` subscribes to the acquisition engine's output stream and watches for
@@ -1172,7 +1172,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
 
 
 class TestDarkFrameManager:
@@ -1232,7 +1232,7 @@ class TestDarkFrameManager:
         mock_client.__getitem__ = MagicMock(return_value=mock_run)
 
         with patch(
-            "lucid.ui.widgets.camera.dark_frames.TiledService.get_instance",
+            "lightfall.ui.widgets.camera.dark_frames.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")
@@ -1377,7 +1377,7 @@ class TestLoadDarkFromTiled:
         mock_client.values_indexer.__getitem__ = MagicMock(return_value=[mock_run])
 
         with patch(
-            "lucid.ui.widgets.camera.dark_frames.TiledService.get_instance",
+            "lightfall.ui.widgets.camera.dark_frames.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")
@@ -1392,7 +1392,7 @@ class TestLoadDarkFromTiled:
         mock_tiled.is_connected = False
 
         with patch(
-            "lucid.ui.widgets.camera.dark_frames.TiledService.get_instance",
+            "lightfall.ui.widgets.camera.dark_frames.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")
@@ -1433,7 +1433,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class DarkFrameManager(QObject):
@@ -1555,7 +1555,7 @@ class DarkFrameManager(QObject):
     def _read_dark_from_tiled(self, run_uid: str, image_field: str) -> None:
         """Read dark frame data from Tiled for a given run."""
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             if not service.is_connected:
@@ -1605,7 +1605,7 @@ class DarkFrameManager(QObject):
             image_field = f"{self._device_name}_image"
 
         try:
-            from lucid.services.tiled_service import TiledService
+            from lightfall.services.tiled_service import TiledService
 
             service = TiledService.get_instance()
             if not service.is_connected:
@@ -1690,7 +1690,7 @@ Expected: PASS (11 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/camera/dark_frames.py tests/test_dark_frame_manager.py
+git add src/lightfall/ui/widgets/camera/dark_frames.py tests/test_dark_frame_manager.py
 git commit -m "feat(camera): DarkFrameManager with inline capture, Tiled readback, and historical lookup"
 ```
 
@@ -1700,7 +1700,7 @@ git commit -m "feat(camera): DarkFrameManager with inline capture, Tiled readbac
 
 **Files:**
 - Modify: `tests/test_ophyd_image_view.py`
-- Modify: `src/lucid/ui/widgets/camera/image_view.py`
+- Modify: `src/lightfall/ui/widgets/camera/image_view.py`
 
 Adds a "BG Correct" toggle button to the toolbar. When checked and a dark frame is available, the cached dark is subtracted from each frame before display.
 
@@ -1709,7 +1709,7 @@ Adds a "BG Correct" toggle button to the toolbar. When checked and a dark frame 
 Add to `tests/test_ophyd_image_view.py`:
 
 ```python
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
 
 
 class TestBackgroundCorrection:
@@ -1816,7 +1816,7 @@ Expected: PASS (25 tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/test_ophyd_image_view.py src/lucid/ui/widgets/camera/image_view.py
+git add tests/test_ophyd_image_view.py src/lightfall/ui/widgets/camera/image_view.py
 git commit -m "feat(camera): background correction toggle using DarkFrameManager"
 ```
 
@@ -1825,8 +1825,8 @@ git commit -m "feat(camera): background correction toggle using DarkFrameManager
 ## Task 10: Wire `DarkFrameManager` into `PlanBasedCameraControlWidget`
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/camera/plan_based.py`
-- Modify: `src/lucid/ui/widgets/camera/base.py`
+- Modify: `src/lightfall/ui/widgets/camera/plan_based.py`
+- Modify: `src/lightfall/ui/widgets/camera/base.py`
 
 The `PlanBasedCameraControlWidget` subscribes the `DarkFrameManager` to the engine so dark frames are captured automatically. It also adds a "Capture Dark" button that runs a dark-only acquisition plan.
 
@@ -1837,7 +1837,7 @@ In `base.py`, the old `OphydImageView` class is removed and replaced with the im
 In `base.py`, remove the old `OphydImageView` class (lines 200-344) and add at the top:
 
 ```python
-from lucid.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.camera.image_view import OphydImageView
 ```
 
 The `_update_image_view()` method (line 637) already creates `OphydImageView(self._device)` — no change needed there.
@@ -1845,7 +1845,7 @@ The `_update_image_view()` method (line 637) already creates `OphydImageView(sel
 - [ ] **Step 2: Add `DarkFrameManager` wiring and Capture Dark button to `plan_based.py`**
 
 ```python
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
 
 # In PlanBasedCameraControlWidget:
 
@@ -1883,7 +1883,7 @@ from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
         """Subscribe the DarkFrameManager to the acquisition engine."""
         self._unsubscribe_dark_manager()
         try:
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
             engine = get_engine()
             dark_mgr = self._image_view._dark_manager
             self._dark_manager_token = engine.subscribe(dark_mgr)
@@ -1894,7 +1894,7 @@ from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
         """Unsubscribe from engine."""
         if self._dark_manager_token is not None:
             try:
-                from lucid.acquire.engine import get_engine
+                from lightfall.acquire.engine import get_engine
                 get_engine().unsubscribe(self._dark_manager_token)
             except Exception:
                 pass
@@ -1905,11 +1905,11 @@ from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
         if self._device is None:
             return
 
-        from lucid.acquire.plans.ncs_plans import simple_acquire
+        from lightfall.acquire.plans.ncs_plans import simple_acquire
         plan = simple_acquire(detector=self._device, num_images=1, collect_dark=True)
 
         try:
-            from lucid.acquire.engine import get_engine
+            from lightfall.acquire.engine import get_engine
             get_engine().submit(plan)
         except Exception as e:
             logger.error(f"Failed to capture dark: {e}")
@@ -1922,8 +1922,8 @@ from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
 - [ ] **Step 3: Update `__init__.py` exports**
 
 ```python
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
-from lucid.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.image_view import OphydImageView
 
 __all__ = [
     "CameraControlWidget",
@@ -1943,7 +1943,7 @@ Expected: PASS (all tests)
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/camera/base.py src/lucid/ui/widgets/camera/plan_based.py src/lucid/ui/widgets/camera/__init__.py
+git add src/lightfall/ui/widgets/camera/base.py src/lightfall/ui/widgets/camera/plan_based.py src/lightfall/ui/widgets/camera/__init__.py
 git commit -m "feat(camera): wire DarkFrameManager into plan-based widget, add Capture Dark button"
 ```
 
@@ -1965,7 +1965,7 @@ Run: `cd /c/Users/rp/PycharmProjects/ncs/ncs && python -m pytest tests/ -v --tb=
 The main risk is other code importing `OphydImageView` from `base.py`. Check for imports:
 
 ```bash
-cd /c/Users/rp/PycharmProjects/ncs/ncs && grep -r "from lucid.ui.widgets.camera.base import.*OphydImageView" src/
+cd /c/Users/rp/PycharmProjects/ncs/ncs && grep -r "from lightfall.ui.widgets.camera.base import.*OphydImageView" src/
 ```
 
 If any are found, update them to import from `image_view` instead. The `__init__.py` re-export should cover most cases.

@@ -1,12 +1,10 @@
-# LUCID
-
-**Lightsource Unified Control Interface Dashboard**
+# Lightfall
 
 A modern, unified control system for synchrotron lightsource facilities that provides facility-wide consistency with beamline-specific customization.
 
 ## Overview
 
-LUCID is designed for the Advanced Light Source (ALS) facility, providing:
+Lightfall is designed for the Advanced Light Source (ALS) facility, providing:
 
 - **Unified Interface**: Consistent look-and-feel across beamlines with skinnable themes
 - **API-First Architecture**: Modular, extensible design enabling automation and integration
@@ -63,24 +61,24 @@ pip install -e ".[dev]"
 ### Running the Application
 
 ```bash
-lucid
+lightfall
 ```
 
 ## Configuration
 
-LUCID uses a layered configuration system:
+Lightfall uses a layered configuration system:
 
 1. **System defaults** - Built-in defaults
 2. **Site configuration** - Facility-wide settings
 3. **User preferences** - Personal customizations
 
 Configuration files are stored in:
-- Windows: `%APPDATA%\lucid\`
-- Linux/Mac: `~/.config/lucid/`
+- Windows: `%APPDATA%\lightfall\`
+- Linux/Mac: `~/.config/lightfall/`
 
 ## Architecture
 
-LUCID is built on:
+Lightfall is built on:
 
 - **PySide6** - Qt for Python GUI framework
 - **Bluesky** - Data acquisition framework
@@ -90,7 +88,7 @@ LUCID is built on:
 
 ### Plugin System
 
-LUCID supports plugins for:
+Lightfall supports plugins for:
 - **Panels** - Custom UI panels
 - **Settings** - Preference pages
 - **Status Bar** - Status indicators
@@ -142,4 +140,4 @@ BSD-3-Clause
 
 ## Acknowledgments
 
-LUCID is developed by the Advanced Light Source Controls Team at Lawrence Berkeley National Laboratory.
+Lightfall is developed by the Advanced Light Source Controls Team at Lawrence Berkeley National Laboratory.

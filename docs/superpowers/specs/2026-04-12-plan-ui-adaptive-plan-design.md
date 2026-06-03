@@ -8,9 +8,9 @@
 
 ## Goal
 
-Add two things to LUCID:
+Add two things to Lightfall:
 
-1. **Plan UI framework** — a general capability for LUCID plans to ship their own
+1. **Plan UI framework** — a general capability for Lightfall plans to ship their own
    runtime UI, shown as a tab in the existing Plans panel while the plan is
    executing.
 
@@ -25,7 +25,7 @@ GP visualization plugins are a separate spec, planned next.
 1. **Plan UI is a general feature.** Not specific to adaptive experiments.
    Any plan can opt in to having a UI by using the `@plan_with_ui` decorator.
 
-2. **LUCID owns the "done" decision.** The plan's UI has a stop button that
+2. **Lightfall owns the "done" decision.** The plan's UI has a stop button that
    sets a flag the plan polls. Tsuchinoko learns the run ended via the existing
    `{prefix}.runs.complete` event.
 
@@ -88,7 +88,7 @@ GP visualization plugins are a separate spec, planned next.
 ### The decorator
 
 ```python
-from lucid.acquire.plan_ui import plan_with_ui
+from lightfall.acquire.plan_ui import plan_with_ui
 
 @plan_with_ui(AdaptiveExperimentPanel)
 def adaptive_experiment(detectors, motors, experiment_id):
@@ -97,7 +97,7 @@ def adaptive_experiment(detectors, motors, experiment_id):
 ```
 
 Implementation: the decorator attaches a `_plan_ui_class` attribute to the
-plan function. LUCID's plan execution layer checks for this attribute.
+plan function. Lightfall's plan execution layer checks for this attribute.
 
 ```python
 def plan_with_ui(ui_class):
@@ -219,7 +219,7 @@ Flow:
 ### Plan UI base class
 
 ```python
-from lucid.acquire.plan_ui import PlanUI
+from lightfall.acquire.plan_ui import PlanUI
 
 class AdaptiveExperimentPanel(PlanUI):
     """UI for the adaptive experiment plan."""
@@ -254,7 +254,7 @@ import queue
 import threading
 from typing import Any
 
-from lucid.ipc.service import IPCService
+from lightfall.ipc.service import IPCService
 
 class NATSPlanBridge:
     """Bridges NATS subscriptions into synchronous generator-based plans.
@@ -321,7 +321,7 @@ def adaptive_experiment(
     detectors: list[Detector],
     motors: list[Motor],
     experiment_id: str,
-    lucid_prefix: str = "als.7011",
+    lightfall_prefix: str = "als.7011",
     exhaust_first: bool = False,
     timeout: float = 300.0,
     poll_interval: float = 0.1,
@@ -336,7 +336,7 @@ def adaptive_experiment(
         motors: Motors to move to target positions. Target order matches
             motor order.
         experiment_id: Tsuchinoko experiment UUID (embedded in start doc).
-        lucid_prefix: NATS topic prefix for this LUCID instance.
+        lightfall_prefix: NATS topic prefix for this Lightfall instance.
         exhaust_first: If True, measure all targets in a batch before
             signaling back. If False (default), signal after each measurement
             so Tsuchinoko can update its GP per-point.
@@ -351,10 +351,10 @@ def adaptive_experiment(
 # In adaptive.py (same module as _state and AdaptiveExperimentPanel above)
 
 def adaptive_experiment(detectors, motors, experiment_id,
-                        lucid_prefix="als.7011", exhaust_first=False,
+                        lightfall_prefix="als.7011", exhaust_first=False,
                         timeout=300.0, poll_interval=0.1):
-    from lucid.acquire.nats_bridge import NATSPlanBridge
-    from lucid.ipc.service import get_ipc_service
+    from lightfall.acquire.nats_bridge import NATSPlanBridge
+    from lightfall.ipc.service import get_ipc_service
     from bluesky import plan_stubs as bps
     import time
 
@@ -404,13 +404,13 @@ def adaptive_experiment(detectors, motors, experiment_id,
                 yield from bps.trigger_and_read(detectors, name="primary")
 
                 if not exhaust_first:
-                    bridge.publish(f"{lucid_prefix}.adaptive.measured", {
+                    bridge.publish(f"{lightfall_prefix}.adaptive.measured", {
                         "iteration": iteration,
                         "n_new_points": 1,
                     })
 
             if exhaust_first and not _state.stop_requested:
-                bridge.publish(f"{lucid_prefix}.adaptive.measured", {
+                bridge.publish(f"{lightfall_prefix}.adaptive.measured", {
                     "iteration": iteration,
                     "n_new_points": len(targets),
                 })
@@ -437,7 +437,7 @@ Simple Qt layout, no fancy visualizations. GP viz is separate (next spec).
 ## How Tsuchinoko Learns "Done"
 
 The adaptive plan closes the run when stopped (either via UI or via timeout).
-The RunEngine's normal lifecycle emits the stop document, which LUCID's IPC
+The RunEngine's normal lifecycle emits the stop document, which Lightfall's IPC
 layer publishes as `{prefix}.runs.complete`. Tsuchinoko is already subscribed
 to this subject (per the rescope design doc's NATS interface).
 
@@ -472,7 +472,7 @@ transitions to Inactive. No new `adaptive.done` subject is needed.
 
 **`tests/test_adaptive_plan_integration.py`**
 - Requires real NATS broker (skip if not available)
-- Mock LUCID (via IPCService) registered on a test prefix
+- Mock Lightfall (via IPCService) registered on a test prefix
 - Mock Tsuchinoko on NATS publishes `tsuchinoko.targets`
 - Run adaptive plan via real BlueskyEngine with mock ophyd motors/detectors
 - Verify: measurements happen, `{prefix}.adaptive.measured` is received
@@ -483,10 +483,10 @@ transitions to Inactive. No new `adaptive.done` subject is needed.
 ### New files
 | File | Responsibility |
 |------|----------------|
-| `src/lucid/acquire/plan_ui.py` | `plan_with_ui` decorator, `PlanState`, `PlanUI`, ContextVar helpers |
-| `src/lucid/acquire/nats_bridge.py` | `NATSPlanBridge` |
-| `src/lucid/acquire/plans/adaptive.py` | `adaptive_experiment` plan + `AdaptivePlanState` |
-| `src/lucid/acquire/plans/adaptive_ui.py` | `AdaptiveExperimentPanel` widget |
+| `src/lightfall/acquire/plan_ui.py` | `plan_with_ui` decorator, `PlanState`, `PlanUI`, ContextVar helpers |
+| `src/lightfall/acquire/nats_bridge.py` | `NATSPlanBridge` |
+| `src/lightfall/acquire/plans/adaptive.py` | `adaptive_experiment` plan + `AdaptivePlanState` |
+| `src/lightfall/acquire/plans/adaptive_ui.py` | `AdaptiveExperimentPanel` widget |
 | `tests/acquire/test_plan_ui_framework.py` | Unit tests for plan UI framework |
 | `tests/acquire/test_nats_plan_bridge.py` | Unit tests for NATS bridge |
 | `tests/acquire/test_adaptive_plan.py` | Unit tests for adaptive plan |
@@ -495,9 +495,9 @@ transitions to Inactive. No new `adaptive.done` subject is needed.
 ### Modified files
 | File | Changes |
 |------|---------|
-| `src/lucid/ui/panels/bluesky_panel.py` | Wrap plan selector in QTabWidget, add hooks for running plan UIs |
-| `src/lucid/acquire/plans/registry.py` | Register `adaptive_experiment` plan |
-| `src/lucid/acquire/engine/bluesky.py` | Inject plan state via ContextVar before running plan |
+| `src/lightfall/ui/panels/bluesky_panel.py` | Wrap plan selector in QTabWidget, add hooks for running plan UIs |
+| `src/lightfall/acquire/plans/registry.py` | Register `adaptive_experiment` plan |
+| `src/lightfall/acquire/engine/bluesky.py` | Inject plan state via ContextVar before running plan |
 
 ## Open Design Questions
 

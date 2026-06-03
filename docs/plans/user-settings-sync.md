@@ -6,7 +6,7 @@
 
 ## Problem
 
-LUCID uses `QSettings` (backed by registry on Windows, `.conf` on Linux) for all preferences. This is machine-local and user-agnostic — when multiple users share a workstation (common at beamlines), they all get the same settings. When a user moves between machines, their preferences don't follow.
+Lightfall uses `QSettings` (backed by registry on Windows, `.conf` on Linux) for all preferences. This is machine-local and user-agnostic — when multiple users share a workstation (common at beamlines), they all get the same settings. When a user moves between machines, their preferences don't follow.
 
 ## Goal
 
@@ -39,16 +39,16 @@ Not all settings should sync. Split into three tiers:
 - Keycloak realm/server
 - These are deployment config, not user settings — handled by environment variables, config files, or a future admin panel
 
-## Recommended Approach: Extend lucid-logbook
+## Recommended Approach: Extend lightfall-logbook
 
-### Why lucid-logbook?
+### Why lightfall-logbook?
 
 1. **Offline-first sync already solved** — `LogbookClient` handles local SQLite + background sync to server. Same pattern applies directly.
 2. **Auth already integrated** — Keycloak token is passed to sync requests. User ID is available from `SessionManager`.
 3. **No new infrastructure** — just a new table and a few API endpoints on the existing Litestar backend.
 4. **Guest fallback works** — guests get local-only settings (no sync), same as logbook entries today.
 
-### Backend Changes (lucid-logbook)
+### Backend Changes (lightfall-logbook)
 
 New table:
 
@@ -74,7 +74,7 @@ POST   /api/users/{user_id}/settings/sync     → bulk sync (same pattern as log
 
 Auth: require valid Keycloak token, enforce `user_id` matches token subject (users can only read/write their own settings).
 
-### Client Changes (LUCID)
+### Client Changes (Lightfall)
 
 #### New: `SettingsClient`
 
@@ -96,7 +96,7 @@ class SettingsClient:
     def schedule_sync(self) -> None: ...  # debounced, like LogbookClient
 ```
 
-- Local db path: `~/.lucid/user_settings.db`
+- Local db path: `~/.lightfall/user_settings.db`
 - Values stored as JSON strings
 - Sync uses same `QThreadFuture` + debounce timer pattern as logbook
 
@@ -172,8 +172,8 @@ When pulling remote settings after login:
 
 ### Migration Path
 
-1. **Phase 1:** Add `user_settings` table + endpoints to lucid-logbook backend
-2. **Phase 2:** Create `SettingsClient` in LUCID (offline-first, local-only initially)
+1. **Phase 1:** Add `user_settings` table + endpoints to lightfall-logbook backend
+2. **Phase 2:** Create `SettingsClient` in Lightfall (offline-first, local-only initially)
 3. **Phase 3:** Wire `SettingsClient` into `PreferencesManager` with tier system
 4. **Phase 4:** Migrate individual settings to `USER` tier one at a time
 5. **Phase 5:** Enable sync (connect `SettingsClient` to server)

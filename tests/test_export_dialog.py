@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.dialogs.export_dialog import build_job_message
+from lightfall.ui.dialogs.export_dialog import build_job_message
 
 
 class TestBuildJobMessage:
@@ -45,7 +45,7 @@ class TestBuildJobMessage:
 
 from unittest.mock import patch, MagicMock
 
-from lucid.ui.dialogs.export_dialog import ping_or_spawn_exporter
+from lightfall.ui.dialogs.export_dialog import ping_or_spawn_exporter
 
 
 class TestPingOrSpawnExporter:
@@ -56,13 +56,13 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is True
         ipc.request.assert_called_once()
 
-    @patch("lucid.ui.dialogs.export_dialog.subprocess.Popen")
+    @patch("lightfall.ui.dialogs.export_dialog.subprocess.Popen")
     def test_ping_fail_spawns_then_retries(self, mock_popen):
         """If first ping fails, spawn exporter, retry pings."""
         ipc = MagicMock()
@@ -75,14 +75,14 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is True
         mock_popen.assert_called_once()
         assert ipc.request.call_count == 2
 
-    @patch("lucid.ui.dialogs.export_dialog.subprocess.Popen")
+    @patch("lightfall.ui.dialogs.export_dialog.subprocess.Popen")
     def test_all_pings_fail_returns_false(self, mock_popen):
         """If all pings fail after spawn, return False."""
         ipc = MagicMock()
@@ -96,7 +96,7 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is False
@@ -104,7 +104,7 @@ class TestPingOrSpawnExporter:
 
 import numpy as np
 
-from lucid.ui.dialogs.export_dialog import load_sample_frame
+from lightfall.ui.dialogs.export_dialog import load_sample_frame
 
 
 class TestLoadSampleFrame:
@@ -138,7 +138,7 @@ class TestLoadSampleFrame:
 
         return client
 
-    @patch("lucid.utils.tiled_helpers.fetch_frame")
+    @patch("lightfall.utils.tiled_helpers.fetch_frame")
     def test_loads_middle_frame_from_3d(self, mock_fetch):
         image_data = np.arange(30).reshape(3, 2, 5).astype(np.float32)
         # fetch_frame is called for 3D data — mock it to return the middle frame

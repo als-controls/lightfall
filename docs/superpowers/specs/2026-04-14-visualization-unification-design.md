@@ -2,7 +2,7 @@
 
 ## Problem
 
-LUCID's visualization system has three code paths for feeding data to widgets:
+Lightfall's visualization system has three code paths for feeding data to widgets:
 
 1. **Eager live** — Engine → MultiStreamBuffer → `_on_new_point()` per event
 2. **Eager historical** — `_load_historical_data()` reads buffer on widget init

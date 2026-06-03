@@ -19,7 +19,7 @@ def qapp():
 @pytest.fixture
 def engine_registry():
     """Create a fresh EngineRegistry for testing."""
-    from lucid.acquire.engine.registry import EngineRegistry
+    from lightfall.acquire.engine.registry import EngineRegistry
 
     # Reset the singleton
     EngineRegistry.reset()
@@ -34,7 +34,7 @@ class TestEnginePlugin:
 
     def test_bluesky_plugin_properties(self) -> None:
         """Test BlueskyEnginePlugin properties."""
-        from lucid.acquire.engine.plugins import BlueskyEnginePlugin
+        from lightfall.acquire.engine.plugins import BlueskyEnginePlugin
 
         plugin = BlueskyEnginePlugin()
 
@@ -45,7 +45,7 @@ class TestEnginePlugin:
 
     def test_mock_plugin_properties(self) -> None:
         """Test MockEnginePlugin properties."""
-        from lucid.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
 
         plugin = MockEnginePlugin()
 
@@ -58,8 +58,8 @@ class TestEnginePlugin:
         """Test that BlueskyEnginePlugin creates a BlueskyEngine."""
         pytest.importorskip("bluesky")
 
-        from lucid.acquire.engine import BlueskyEngine
-        from lucid.acquire.engine.plugins import BlueskyEnginePlugin
+        from lightfall.acquire.engine import BlueskyEngine
+        from lightfall.acquire.engine.plugins import BlueskyEnginePlugin
 
         plugin = BlueskyEnginePlugin()
         engine = plugin.create_engine()
@@ -69,8 +69,8 @@ class TestEnginePlugin:
 
     def test_mock_plugin_creates_engine(self, qapp) -> None:
         """Test that MockEnginePlugin creates a MockEngine."""
-        from lucid.acquire.engine import MockEngine
-        from lucid.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine import MockEngine
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
 
         plugin = MockEnginePlugin()
         engine = plugin.create_engine()
@@ -80,7 +80,7 @@ class TestEnginePlugin:
 
     def test_introspection_data(self) -> None:
         """Test that plugins provide introspection data."""
-        from lucid.acquire.engine.plugins import BlueskyEnginePlugin
+        from lightfall.acquire.engine.plugins import BlueskyEnginePlugin
 
         plugin = BlueskyEnginePlugin()
         data = plugin.get_introspection_data()
@@ -98,14 +98,14 @@ class TestEngineRegistry:
 
     def test_singleton(self, engine_registry) -> None:
         """Test that EngineRegistry is a singleton."""
-        from lucid.acquire.engine.registry import EngineRegistry
+        from lightfall.acquire.engine.registry import EngineRegistry
 
         registry2 = EngineRegistry.get_instance()
         assert registry2 is engine_registry
 
     def test_register_engine(self, engine_registry) -> None:
         """Test registering an engine plugin."""
-        from lucid.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
 
         plugin = MockEnginePlugin()
         engine_registry.register(plugin)
@@ -116,7 +116,7 @@ class TestEngineRegistry:
 
     def test_register_multiple_engines(self, engine_registry) -> None:
         """Test registering multiple engine plugins."""
-        from lucid.acquire.engine.plugins import BlueskyEnginePlugin, MockEnginePlugin
+        from lightfall.acquire.engine.plugins import BlueskyEnginePlugin, MockEnginePlugin
 
         bluesky_plugin = BlueskyEnginePlugin()
         mock_plugin = MockEnginePlugin()
@@ -130,7 +130,7 @@ class TestEngineRegistry:
 
     def test_unregister_engine(self, engine_registry) -> None:
         """Test unregistering an engine plugin."""
-        from lucid.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
 
         plugin = MockEnginePlugin()
         engine_registry.register(plugin)
@@ -158,7 +158,7 @@ class TestEngineRegistry:
 
     def test_introspection_data(self, engine_registry) -> None:
         """Test registry introspection data."""
-        from lucid.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
 
         plugin = MockEnginePlugin()
         engine_registry.register(plugin)
@@ -176,8 +176,8 @@ class TestGetEngineWithPlugins:
     @pytest.fixture(autouse=True)
     def reset_engine(self):
         """Reset the global engine before each test."""
-        from lucid.acquire.engine import reset_engine
-        from lucid.acquire.engine.registry import EngineRegistry
+        from lightfall.acquire.engine import reset_engine
+        from lightfall.acquire.engine.registry import EngineRegistry
 
         reset_engine()
         EngineRegistry.reset()
@@ -187,9 +187,9 @@ class TestGetEngineWithPlugins:
 
     def test_get_engine_with_registered_plugin(self, qapp) -> None:
         """Test get_engine() uses registered plugin."""
-        from lucid.acquire.engine import MockEngine, get_engine
-        from lucid.acquire.engine.plugins import MockEnginePlugin
-        from lucid.acquire.engine.registry import EngineRegistry
+        from lightfall.acquire.engine import MockEngine, get_engine
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.acquire.engine.registry import EngineRegistry
 
         # Register the mock plugin
         registry = EngineRegistry.get_instance()
@@ -202,7 +202,7 @@ class TestGetEngineWithPlugins:
 
     def test_get_engine_fallback(self, qapp) -> None:
         """Test get_engine() falls back to direct instantiation."""
-        from lucid.acquire.engine import MockEngine, get_engine
+        from lightfall.acquire.engine import MockEngine, get_engine
 
         # Don't register any plugins - should fall back to direct instantiation
         engine = get_engine("mock")
@@ -211,7 +211,7 @@ class TestGetEngineWithPlugins:
 
     def test_get_engine_unknown_type(self, qapp) -> None:
         """Test get_engine() raises on unknown type."""
-        from lucid.acquire.engine import get_engine
+        from lightfall.acquire.engine import get_engine
 
         with pytest.raises(ValueError, match="Unknown engine type"):
             get_engine("unknown_engine_type")
@@ -222,8 +222,8 @@ class TestPluginTypeRegistration:
 
     def test_engine_plugin_type_valid(self) -> None:
         """Test that EnginePlugin is a valid plugin type."""
-        from lucid.plugins.engine_plugin import EnginePlugin
-        from lucid.plugins.types import PluginType
+        from lightfall.plugins.engine_plugin import EnginePlugin
+        from lightfall.plugins.types import PluginType
 
         assert issubclass(EnginePlugin, PluginType)
         assert EnginePlugin.type_name == "engine"
@@ -231,16 +231,16 @@ class TestPluginTypeRegistration:
 
     def test_bluesky_plugin_validates(self) -> None:
         """Test that BlueskyEnginePlugin validates as engine plugin."""
-        from lucid.acquire.engine.plugins import BlueskyEnginePlugin
-        from lucid.plugins.engine_plugin import EnginePlugin
+        from lightfall.acquire.engine.plugins import BlueskyEnginePlugin
+        from lightfall.plugins.engine_plugin import EnginePlugin
 
         assert EnginePlugin.validate_class(BlueskyEnginePlugin)
         assert issubclass(BlueskyEnginePlugin, EnginePlugin)
 
     def test_mock_plugin_validates(self) -> None:
         """Test that MockEnginePlugin validates as engine plugin."""
-        from lucid.acquire.engine.plugins import MockEnginePlugin
-        from lucid.plugins.engine_plugin import EnginePlugin
+        from lightfall.acquire.engine.plugins import MockEnginePlugin
+        from lightfall.plugins.engine_plugin import EnginePlugin
 
         assert EnginePlugin.validate_class(MockEnginePlugin)
         assert issubclass(MockEnginePlugin, EnginePlugin)

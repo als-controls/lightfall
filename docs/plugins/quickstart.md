@@ -1,10 +1,10 @@
 # Plugin Quickstart
 
-Create your first LUCID plugin in 5 minutes. This guide walks through creating a minimal settings plugin that adds a preferences page.
+Create your first Lightfall plugin in 5 minutes. This guide walks through creating a minimal settings plugin that adds a preferences page.
 
 ## Prerequisites
 
-- LUCID installed in development mode
+- Lightfall installed in development mode
 - Basic Python and Qt knowledge
 
 ## Step 1: Create the Plugin Class
@@ -12,11 +12,11 @@ Create your first LUCID plugin in 5 minutes. This guide walks through creating a
 Create a new file `my_settings_plugin.py`:
 
 ```python
-"""My first LUCID plugin."""
+"""My first Lightfall plugin."""
 
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from lucid.plugins.settings_plugin import SettingsPlugin
+from lightfall.plugins.settings_plugin import SettingsPlugin
 
 
 class MySettingsPlugin(SettingsPlugin):
@@ -55,7 +55,7 @@ class MySettingsPlugin(SettingsPlugin):
 
 ## Step 2: Register in the Built-in Manifest
 
-For development, the easiest approach is to add your plugin to the built-in manifest. Edit `ncs/src/lucid/plugins/builtin_manifest.py`:
+For development, the easiest approach is to add your plugin to the built-in manifest. Edit `ncs/src/lightfall/plugins/builtin_manifest.py`:
 
 ```python
 # Add to the plugins list:
@@ -70,9 +70,9 @@ Replace `path.to.my_settings_plugin` with the actual import path to your file.
 
 ## Step 3: Test Your Plugin
 
-1. Run LUCID:
+1. Run Lightfall:
    ```bash
-   lucid
+   lightfall
    ```
 
 2. Open Preferences (Ctrl+, or File > Preferences)
@@ -110,8 +110,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.ui.preferences.manager import PreferencesManager
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
 
 
 class BeamlineNamePlugin(SettingsPlugin):

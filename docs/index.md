@@ -1,18 +1,18 @@
-# LUCID Documentation
+# Lightfall Documentation
 
 ```{image} _static/logo.png
-:alt: LUCID Logo
+:alt: Lightfall Logo
 :width: 200px
 :align: center
 ```
 
-**LUCID** (Lightsource Unified Control Interface Dashboard) is a next-generation control system that brings together hardware control, data acquisition, and AI assistance in a single, unified interface. Built for the Advanced Light Source facility and designed for the future of synchrotron science.
+**Lightfall** is a next-generation control system that brings together hardware control, data acquisition, and AI assistance in a single, unified interface. Built for the Advanced Light Source facility and designed for the future of synchrotron science.
 
 ---
 
-## Why LUCID?
+## Why Lightfall?
 
-Running experiments at a synchrotron beamline has traditionally meant juggling multiple applications, remembering obscure command sequences, and manually documenting every step. LUCID changes this by providing:
+Running experiments at a synchrotron beamline has traditionally meant juggling multiple applications, remembering obscure command sequences, and manually documenting every step. Lightfall changes this by providing:
 
 - **One interface for everything** — Device control, data acquisition, experiment logging, and data browsing in coordinated panels
 - **AI that understands your beamline** — Ask Claude to open panels, explain procedures, or help troubleshoot errors using natural language
@@ -23,7 +23,7 @@ Running experiments at a synchrotron beamline has traditionally meant juggling m
 
 ## Core Integrations
 
-LUCID builds on proven scientific computing infrastructure:
+Lightfall builds on proven scientific computing infrastructure:
 
 | Integration | Purpose |
 |-------------|---------|
@@ -38,7 +38,7 @@ LUCID builds on proven scientific computing infrastructure:
 
 ## The Claude Assistant
 
-LUCID includes an integrated AI assistant powered by Claude. This is not a simple chatbot — Claude has access to MCP (Model Context Protocol) tools that let it actually *do* things:
+Lightfall includes an integrated AI assistant powered by Claude. This is not a simple chatbot — Claude has access to MCP (Model Context Protocol) tools that let it actually *do* things:
 
 - **Open and arrange panels** — "Show me the Devices panel"
 - **Query device status** — "What's the current position of the sample stage?"
@@ -51,7 +51,7 @@ The assistant is fully extensible. Beamline scientists can add custom skills and
 
 ## Architecture
 
-LUCID is **API-first**: every user-facing surface — panels, devices, and plans — has a programmatic representation that any client can discover and invoke through one uniform interface. The GUI, a script, and the embedded Claude agent are peers against that surface; none has privileged access the others lack. This uniform addressability is what lets a single agent act on panels, devices, and plans without bespoke per-type adapters.
+Lightfall is **API-first**: every user-facing surface — panels, devices, and plans — has a programmatic representation that any client can discover and invoke through one uniform interface. The GUI, a script, and the embedded Claude agent are peers against that surface; none has privileged access the others lack. This uniform addressability is what lets a single agent act on panels, devices, and plans without bespoke per-type adapters.
 
 The runtime also participates in a beamline-wide [NATS](ipc-architecture.md) message bus, so external services — autonomous engines, live-analysis processes, and external agents — address the same surface as the GUI. Capabilities are added as [plugins](plugins/index.md) that register against this surface rather than against the renderer, which is why a newly installed plugin becomes agent-addressable automatically. The **Technical Foundation** section below summarizes the underlying stack.
 
@@ -59,7 +59,7 @@ The runtime also participates in a beamline-wide [NATS](ipc-architecture.md) mes
 
 ## Plugin Architecture
 
-LUCID's plugin system is designed for real extensibility, not just theming. Nine distinct plugin types cover the full spectrum of customization:
+Lightfall's plugin system is designed for real extensibility, not just theming. Nine distinct plugin types cover the full spectrum of customization:
 
 | Plugin Type | What You Can Add |
 |-------------|------------------|
@@ -79,7 +79,7 @@ Plugins are distributed as Python packages and discovered automatically via entr
 
 ## User Guide
 
-Get started with LUCID for your experiments:
+Get started with Lightfall for your experiments:
 
 - [Getting Started](user/getting-started.md) — Overview and first steps
 - [Logging In](user/login.md) — Authentication and access
@@ -103,7 +103,7 @@ user/preferences
 
 ## Developer Guide
 
-Extend LUCID with custom functionality:
+Extend Lightfall with custom functionality:
 
 - [Plugin System Overview](plugins/index.md) — Architecture and concepts
 - [Plugin Quickstart](plugins/quickstart.md) — Create your first plugin
@@ -134,7 +134,7 @@ api/index
 
 ## Technical Foundation
 
-LUCID is built on a modern, maintainable stack:
+Lightfall is built on a modern, maintainable stack:
 
 - **PySide6** — Qt for Python with native look and feel
 - **Pydantic** — Type-safe configuration with validation
@@ -153,15 +153,15 @@ The architecture emphasizes:
 
 ## Supporting Infrastructure
 
-Beyond control and acquisition, LUCID integrates the operational services a beamline depends on day to day.
+Beyond control and acquisition, Lightfall integrates the operational services a beamline depends on day to day.
 
 ### Logbook
 
-The logbook is a service the GUI and the embedded agent both publish to, not merely a panel. Entries are created **automatically** on run start and completion — and on error events — through acquisition triggers, and **manually** by staff. Manual entries capture the run UID, the user's identity, and relevant panel state; screenshots from the LUCID viewport can be attached directly.
+The logbook is a service the GUI and the embedded agent both publish to, not merely a panel. Entries are created **automatically** on run start and completion — and on error events — through acquisition triggers, and **manually** by staff. Manual entries capture the run UID, the user's identity, and relevant panel state; screenshots from the Lightfall viewport can be attached directly.
 
 ### Error tracking
 
-LUCID reports errors to a self-hosted, Sentry-compatible **Glitchtip** instance via `sentry-sdk`. The integration hooks Loguru, so anything logged at `ERROR` or above is captured automatically and tagged with the release version and environment. A `before_send` hook scrubs sensitive data before transmission, and the attached user context is limited to the Keycloak username — never the raw token.
+Lightfall reports errors to a self-hosted, Sentry-compatible **Glitchtip** instance via `sentry-sdk`. The integration hooks Loguru, so anything logged at `ERROR` or above is captured automatically and tagged with the release version and environment. A `before_send` hook scrubs sensitive data before transmission, and the attached user context is limited to the Keycloak username — never the raw token.
 
 ### Authorization
 
@@ -171,8 +171,8 @@ Data access is enforced **per entry** through Tiled's `access_blob`. Acquisition
 
 ## Deployment
 
-LUCID is in testing at the **COSMIC-Scattering** beamline at the ALS — a production-class deployment scoped to a single beamline to keep the blast radius small while the platform matures.
+Lightfall is in testing at the **COSMIC-Scattering** beamline at the ALS — a production-class deployment scoped to a single beamline to keep the blast radius small while the platform matures.
 
-Most of the stack runs **once per facility**: Keycloak SSO, the LUCID logbook server, the Tiled server, error tracking, and git hosting for plugin repositories. Each beamline runs its **own** LUCID GUI process, NATS broker, EPICS IOCs, and plugin repository, plus an optional autonomous engine such as Tsuchinoko.
+Most of the stack runs **once per facility**: Keycloak SSO, the Lightfall logbook server, the Tiled server, error tracking, and git hosting for plugin repositories. Each beamline runs its **own** Lightfall GUI process, NATS broker, EPICS IOCs, and plugin repository, plus an optional autonomous engine such as Tsuchinoko.
 
-LUCID **coexists** with existing LabVIEW infrastructure: both address the same EPICS process variables over Channel Access, so a beamline can adopt LUCID incrementally and migrate when it is ready rather than on a forced schedule.
+Lightfall **coexists** with existing LabVIEW infrastructure: both address the same EPICS process variables over Channel Access, so a beamline can adopt Lightfall incrementally and migrate when it is ready rather than on a forced schedule.

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from lucid.plugins.user_plugins import UserPluginService
-from lucid.ui.panels.claude.agent_registry import AgentRegistry
-from lucid.ui.panels.registry import PanelRegistry
-from lucid.utils.git_tracker import GitTracker
+from lightfall.plugins.user_plugins import UserPluginService
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.registry import PanelRegistry
+from lightfall.utils.git_tracker import GitTracker
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,7 @@ def qapp():
 def fake_user_dir(tmp_path, monkeypatch):
     """Make tmp_path act as the canonical user plugin dir."""
     monkeypatch.setattr(
-        "lucid.plugins.types._user_plugin_roots",
+        "lightfall.plugins.types._user_plugin_roots",
         lambda: [tmp_path.resolve()],
     )
     # Also force UserPluginService to use this dir
@@ -45,7 +45,7 @@ def _write_user_agent(dir_: Path, name: str, suffix: str = "") -> Path:
     path = dir_ / f"{name}.py"
     path.write_text(
         f'''
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 class {name.title().replace("_", "")}Agent(AgentPlugin):
     @property
@@ -85,20 +85,20 @@ def test_unload_removes_from_agent_registry(fake_user_dir, monkeypatch):
 
 def _write_user_panel(dir_: Path, name: str) -> Path:
     """Write a user panel plugin: PanelPlugin + BasePanel pair, the
-    canonical contract documented in lucid/plugins/panel_plugin.py."""
+    canonical contract documented in lightfall/plugins/panel_plugin.py."""
     path = dir_ / f"{name}.py"
     cls_stem = name.title().replace("_", "")
     path.write_text(
         f'''
 from typing import ClassVar
 
-from lucid.plugins.panel_plugin import PanelPlugin
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.plugins.panel_plugin import PanelPlugin
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 class {cls_stem}Panel(BasePanel):
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.user.{name}",
+        id="lightfall.panels.user.{name}",
         name="{cls_stem} Panel",
     )
 
@@ -124,7 +124,7 @@ def test_load_user_panel_registers_basepanel_class(fake_user_dir, monkeypatch, q
     success = service.load_plugin_from_file(path)
     assert success
 
-    panel_id = "lucid.panels.user.user_delta"
+    panel_id = "lightfall.panels.user.user_delta"
     panel_ids = PanelRegistry.get_instance().list_panel_ids()
     assert panel_id in panel_ids, f"expected {panel_id} in registry, got {panel_ids}"
 
@@ -135,7 +135,7 @@ def test_unload_user_panel_removes_basepanel_from_registry(fake_user_dir, monkey
 
     path = _write_user_panel(fake_user_dir, "user_epsilon")
     service.load_plugin_from_file(path)
-    panel_id = "lucid.panels.user.user_epsilon"
+    panel_id = "lightfall.panels.user.user_epsilon"
     assert panel_id in PanelRegistry.get_instance().list_panel_ids()
 
     service.unload_plugin(path)
@@ -152,13 +152,13 @@ def _write_user_panel_direct(dir_: Path, name: str) -> Path:
         f'''
 from typing import ClassVar
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
-from lucid.ui.panels.registry import PanelRegistry
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.registry import PanelRegistry
 
 
 class {cls_stem}Panel(BasePanel):
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
-        id="lucid.panels.user.{name}",
+        id="lightfall.panels.user.{name}",
         name="{cls_stem} Panel",
     )
 
@@ -179,7 +179,7 @@ def test_load_basepanel_direct_registers_panel(fake_user_dir, monkeypatch, qapp)
     path = _write_user_panel_direct(fake_user_dir, "user_zeta")
     success = service.load_plugin_from_file(path)
     assert success
-    panel_id = "lucid.panels.user.user_zeta"
+    panel_id = "lightfall.panels.user.user_zeta"
     assert panel_id in PanelRegistry.get_instance().list_panel_ids()
 
 
@@ -191,7 +191,7 @@ def test_unload_basepanel_direct_removes_panel(fake_user_dir, monkeypatch, qapp)
 
     path = _write_user_panel_direct(fake_user_dir, "user_eta")
     service.load_plugin_from_file(path)
-    panel_id = "lucid.panels.user.user_eta"
+    panel_id = "lightfall.panels.user.user_eta"
     assert panel_id in PanelRegistry.get_instance().list_panel_ids()
 
     service.unload_plugin(path)
@@ -223,15 +223,15 @@ def test_reload_replaces_old_registration(fake_user_dir, monkeypatch):
 
 @pytest.fixture
 def tracked_user_dir(tmp_path, monkeypatch):
-    """tmp_path acts as ~/lucid/, with a plugins subdir tracked by GitTracker."""
+    """tmp_path acts as ~/lightfall/, with a plugins subdir tracked by GitTracker."""
     GitTracker.reset_instance()
-    repo_root = tmp_path / "lucid"
+    repo_root = tmp_path / "lightfall"
     repo_root.mkdir()
     plugins_dir = repo_root / "plugins"
     plugins_dir.mkdir()
 
     monkeypatch.setattr(
-        "lucid.plugins.types._user_plugin_roots",
+        "lightfall.plugins.types._user_plugin_roots",
         lambda: [plugins_dir.resolve()],
     )
 
@@ -345,7 +345,7 @@ def test_load_plugin_succeeds_when_git_absent(tracked_user_dir, monkeypatch):
     """Plugin creation must not fail because git is misconfigured."""
     def boom(*args, **kwargs):
         raise FileNotFoundError("git: command not found")
-    monkeypatch.setattr("lucid.utils.git_tracker.subprocess.run", boom)
+    monkeypatch.setattr("lightfall.utils.git_tracker.subprocess.run", boom)
 
     service = UserPluginService.get_instance()
     monkeypatch.setattr(service, "_plugins_dir", tracked_user_dir)

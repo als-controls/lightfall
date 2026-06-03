@@ -1,20 +1,20 @@
 # Logging In
 
-LUCID uses role-based access control to manage permissions. This guide explains how to log in and what access levels are available.
+Lightfall uses role-based access control to manage permissions. This guide explains how to log in and what access levels are available.
 
 ## Authentication Methods
 
-LUCID supports multiple authentication methods depending on your environment:
+Lightfall supports multiple authentication methods depending on your environment:
 
 ### Keycloak (Production)
 
-For production use at the ALS facility, LUCID uses Keycloak single sign-on:
+For production use at the ALS facility, Lightfall uses Keycloak single sign-on:
 
-1. Launch LUCID - the login dialog appears automatically
+1. Launch Lightfall - the login dialog appears automatically
 2. Click **Sign in with Browser**
 3. Your web browser opens to the ALS authentication page
 4. Enter your ALS credentials
-5. After successful authentication, the browser redirects back and LUCID completes login
+5. After successful authentication, the browser redirects back and Lightfall completes login
 
 Your session remains active for 8 hours (configurable in Preferences).
 
@@ -35,7 +35,7 @@ For read-only access without authentication:
 
 ## User Roles
 
-LUCID assigns roles that determine your permissions:
+Lightfall assigns roles that determine your permissions:
 
 | Role | Description | Capabilities |
 |------|-------------|--------------|
@@ -81,7 +81,7 @@ Your session state is not preserved between application restarts for security.
 
 ### Browser login doesn't complete
 
-If the browser authentication succeeds but LUCID doesn't complete login:
+If the browser authentication succeeds but Lightfall doesn't complete login:
 
 1. Check that your browser allowed the redirect
 2. Ensure no popup blockers are interfering

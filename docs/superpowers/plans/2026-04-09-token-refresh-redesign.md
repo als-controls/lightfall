@@ -17,7 +17,7 @@
 This is a standalone fix that prevents the cascading 401 crash. Do it first so subsequent testing doesn't hit the secondary failure.
 
 **Files:**
-- Modify: `src/lucid/utils/threads.py:553-560`
+- Modify: `src/lightfall/utils/threads.py:553-560`
 - Test: `tests/test_threads.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -61,7 +61,7 @@ Expected: FAIL — the `repr(BadRepr())` inside the f-string raises RuntimeError
 
 - [ ] **Step 3: Implement safe repr**
 
-In `src/lucid/utils/threads.py`, replace lines 553-560:
+In `src/lightfall/utils/threads.py`, replace lines 553-560:
 
 ```python
         except Exception as ex:
@@ -102,7 +102,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/utils/threads.py tests/test_threads.py
+git add src/lightfall/utils/threads.py tests/test_threads.py
 git commit -m "fix(threads): safe repr in QThreadFuture error logging
 
 repr() on tiled client args triggers HTTP requests that cascade into
@@ -117,7 +117,7 @@ Strip out `_refresh_token_sync` and simplify the auth flows to only check whethe
 SessionManager already has a fresher token.
 
 **Files:**
-- Modify: `src/lucid/services/tiled_auth.py`
+- Modify: `src/lightfall/services/tiled_auth.py`
 - Test: `tests/test_tiled_auth.py` (new file)
 
 - [ ] **Step 1: Write the tests**
@@ -132,7 +132,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from lucid.services.tiled_auth import KeycloakTiledAuth
+from lightfall.services.tiled_auth import KeycloakTiledAuth
 
 
 @pytest.fixture
@@ -147,7 +147,7 @@ def mock_session_manager():
     sm.session = MagicMock()
     sm.session.token = "token-v1"
     with patch(
-        "lucid.services.tiled_auth.SessionManager",
+        "lightfall.services.tiled_auth.SessionManager",
         **{"get_instance.return_value": sm},
     ) as mock_cls:
         mock_cls.get_instance.return_value = sm
@@ -266,7 +266,7 @@ Expected: Several failures — `_refresh_token_sync` still exists, `sync_auth_fl
 
 - [ ] **Step 3: Rewrite tiled_auth.py**
 
-Replace the entire content of `src/lucid/services/tiled_auth.py` with:
+Replace the entire content of `src/lightfall/services/tiled_auth.py` with:
 
 ```python
 """Tiled authentication using Keycloak tokens.
@@ -281,7 +281,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import httpx
 
-from lucid.utils.logging import logger
+from lightfall.utils.logging import logger
 
 
 class KeycloakTiledAuth(httpx.Auth):
@@ -302,7 +302,7 @@ class KeycloakTiledAuth(httpx.Auth):
 
     def _get_token(self) -> str | None:
         """Get the current access token from SessionManager."""
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
 
         session = SessionManager.get_instance().session
         return session.token if session else None
@@ -391,7 +391,7 @@ Expected: All PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/services/tiled_auth.py tests/test_tiled_auth.py
+git add src/lightfall/services/tiled_auth.py tests/test_tiled_auth.py
 git commit -m "fix(tiled-auth): remove on-demand refresh, eliminate race condition
 
 KeycloakTiledAuth no longer calls Keycloak directly on 401.
@@ -408,7 +408,7 @@ This is the core change. Replace the 30s polling QTimer and `_check_session_expi
 with `_schedule_refresh` / `_do_scheduled_refresh`.
 
 **Files:**
-- Modify: `src/lucid/auth/session.py`
+- Modify: `src/lightfall/auth/session.py`
 - Test: `tests/test_session_refresh.py` (new file)
 
 - [ ] **Step 1: Write the tests**
@@ -425,7 +425,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.auth.session import AuthState, Session, SessionManager, User
+from lightfall.auth.session import AuthState, Session, SessionManager, User
 
 
 @pytest.fixture(autouse=True)
@@ -608,7 +608,7 @@ Expected: FAIL — `_schedule_refresh`, `_do_scheduled_refresh`, `_on_refresh_su
 
 - [ ] **Step 3: Implement the new refresh mechanism in SessionManager**
 
-In `src/lucid/auth/session.py`, make these changes:
+In `src/lightfall/auth/session.py`, make these changes:
 
 **3a. Update `__init__`** — replace the polling timer with new state fields.
 
@@ -731,7 +731,7 @@ After line 304 (`if self._session is None: return`), before the provider logout 
 
         self._refresh_in_progress = True
 
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         # Capture session reference for the background thread
         session = self._session
@@ -848,7 +848,7 @@ Expected: No regressions. Nothing connects to `session_expiring`. The old `_expi
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/auth/session.py tests/test_session_refresh.py
+git add src/lightfall/auth/session.py tests/test_session_refresh.py
 git commit -m "fix(auth): replace polling timer with calculated one-shot refresh
 
 - Timer fires exactly 60s before token expiry instead of polling every 30s
@@ -880,7 +880,7 @@ class TestIntegrationWithSessionManager:
         """After SessionManager refreshes, the next tiled request uses the new token."""
         from datetime import UTC, datetime, timedelta
 
-        from lucid.auth.session import Session, SessionManager, User
+        from lightfall.auth.session import Session, SessionManager, User
 
         SessionManager.reset()
         sm = SessionManager.get_instance()

@@ -18,7 +18,7 @@
 
 | File | Changes |
 |------|---------|
-| `src/lucid/ui/dialogs/export_dialog.py` | Add `load_sample_frame()`, replace `_create_nxsas_params`, rewrite `_on_type_changed`, rewrite `_get_roi_params`, add image load callbacks, manage export button state |
+| `src/lightfall/ui/dialogs/export_dialog.py` | Add `load_sample_frame()`, replace `_create_nxsas_params`, rewrite `_on_type_changed`, rewrite `_get_roi_params`, add image load callbacks, manage export button state |
 | `tests/test_export_dialog.py` | Add tests for `load_sample_frame` and ROI param extraction |
 
 ---
@@ -26,7 +26,7 @@
 ## Task 1: Sample Frame Loading Function
 
 **Files:**
-- Modify: `src/lucid/ui/dialogs/export_dialog.py` (add `load_sample_frame` function)
+- Modify: `src/lightfall/ui/dialogs/export_dialog.py` (add `load_sample_frame` function)
 - Modify: `tests/test_export_dialog.py` (add tests)
 
 - [ ] **Step 1: Write failing tests for load_sample_frame**
@@ -36,7 +36,7 @@ Append to `tests/test_export_dialog.py`:
 ```python
 import numpy as np
 
-from lucid.ui.dialogs.export_dialog import load_sample_frame
+from lightfall.ui.dialogs.export_dialog import load_sample_frame
 
 
 class TestLoadSampleFrame:
@@ -100,7 +100,7 @@ Expected: FAIL — `ImportError: cannot import name 'load_sample_frame'`
 
 - [ ] **Step 3: Implement load_sample_frame**
 
-In `src/lucid/ui/dialogs/export_dialog.py`, add this function after `ping_or_spawn_exporter` and before the `ExportDialog` class:
+In `src/lightfall/ui/dialogs/export_dialog.py`, add this function after `ping_or_spawn_exporter` and before the `ExportDialog` class:
 
 ```python
 def load_sample_frame(client: Any, run_key: str) -> Any:
@@ -157,7 +157,7 @@ Expected: PASS (3 tests)
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/export_dialog.py tests/test_export_dialog.py
+git add src/lightfall/ui/dialogs/export_dialog.py tests/test_export_dialog.py
 git commit -m "feat(export): add load_sample_frame for ROI preview"
 ```
 
@@ -166,13 +166,13 @@ git commit -m "feat(export): add load_sample_frame for ROI preview"
 ## Task 2: Replace NXsas Widget with ImageView + RectROI
 
 **Files:**
-- Modify: `src/lucid/ui/dialogs/export_dialog.py` (replace `_create_nxsas_params`, `_on_type_changed`, `_get_roi_params`, add load callbacks)
+- Modify: `src/lightfall/ui/dialogs/export_dialog.py` (replace `_create_nxsas_params`, `_on_type_changed`, `_get_roi_params`, add load callbacks)
 
 This task modifies the Qt widget code. It replaces the 4 text fields with an interactive image viewer.
 
 - [ ] **Step 1: Replace `_create_nxsas_params`**
 
-In `src/lucid/ui/dialogs/export_dialog.py`, replace the entire `_create_nxsas_params` method (lines 184-206) with:
+In `src/lightfall/ui/dialogs/export_dialog.py`, replace the entire `_create_nxsas_params` method (lines 184-206) with:
 
 ```python
     def _create_nxsas_params(self) -> QWidget:
@@ -249,7 +249,7 @@ Add these methods to the `ExportDialog` class:
 ```python
     def _load_preview_image(self) -> None:
         """Load a sample frame from the first selected run in a background thread."""
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         self._ok_btn.setEnabled(False)
         self._roi_status.setText("Loading preview...")
@@ -380,12 +380,12 @@ Delete the old `_roi_x`, `_roi_y`, `_roi_w`, `_roi_h` QLineEdit references. They
 
 Verify no references remain:
 
-Run: `cd ~/PycharmProjects/ncs/ncs && grep -n "_roi_x\|_roi_y\|_roi_w\|_roi_h" src/lucid/ui/dialogs/export_dialog.py`
+Run: `cd ~/PycharmProjects/ncs/ncs && grep -n "_roi_x\|_roi_y\|_roi_w\|_roi_h" src/lightfall/ui/dialogs/export_dialog.py`
 Expected: no output
 
 - [ ] **Step 7: Verify the dialog module imports cleanly**
 
-Run: `cd ~/PycharmProjects/ncs/ncs && .venv/Scripts/python -c "from lucid.ui.dialogs.export_dialog import ExportDialog; print('OK')"`
+Run: `cd ~/PycharmProjects/ncs/ncs && .venv/Scripts/python -c "from lightfall.ui.dialogs.export_dialog import ExportDialog; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 8: Run all export dialog tests**
@@ -402,7 +402,7 @@ Expected: All pass, no regressions
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/export_dialog.py
+git add src/lightfall/ui/dialogs/export_dialog.py
 git commit -m "feat(export): replace text ROI fields with interactive ImageView + RectROI"
 ```
 

@@ -7,8 +7,8 @@ import pytest
 from PySide6.QtCore import QModelIndex
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture

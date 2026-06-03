@@ -18,8 +18,8 @@
 
 | File | Changes |
 |------|---------|
-| `src/lucid/ipc/service.py` | Add `request()` method and async `_do_request()` helper |
-| `src/lucid/ui/dialogs/export_dialog.py` | Replace `_send_to_exporter` with ping/spawn flow |
+| `src/lightfall/ipc/service.py` | Add `request()` method and async `_do_request()` helper |
+| `src/lightfall/ui/dialogs/export_dialog.py` | Replace `_send_to_exporter` with ping/spawn flow |
 | `tests/ipc/test_service.py` | Add tests for `request()` |
 | `tests/test_export_dialog.py` | Add tests for ping/spawn logic |
 
@@ -28,7 +28,7 @@
 ## Task 1: IPCService.request()
 
 **Files:**
-- Modify: `src/lucid/ipc/service.py:381-401` (add after `publish`, before `reply`)
+- Modify: `src/lightfall/ipc/service.py:381-401` (add after `publish`, before `reply`)
 - Modify: `tests/ipc/test_service.py` (add TestRequest class)
 
 - [ ] **Step 1: Write failing tests for request()**
@@ -60,7 +60,7 @@ Expected: FAIL — `AttributeError: 'IPCService' object has no attribute 'reques
 
 - [ ] **Step 3: Implement request() and _do_request()**
 
-In `src/lucid/ipc/service.py`, add these two methods after `publish()` (around line 393) and before `reply()`:
+In `src/lightfall/ipc/service.py`, add these two methods after `publish()` (around line 393) and before `reply()`:
 
 ```python
     def request(
@@ -127,7 +127,7 @@ Expected: All existing tests still pass
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ipc/service.py tests/ipc/test_service.py
+git add src/lightfall/ipc/service.py tests/ipc/test_service.py
 git commit -m "feat(ipc): add request/reply method to IPCService"
 ```
 
@@ -136,7 +136,7 @@ git commit -m "feat(ipc): add request/reply method to IPCService"
 ## Task 2: Export Dialog Ping/Spawn Flow
 
 **Files:**
-- Modify: `src/lucid/ui/dialogs/export_dialog.py` (replace `_send_to_exporter`)
+- Modify: `src/lightfall/ui/dialogs/export_dialog.py` (replace `_send_to_exporter`)
 - Modify: `tests/test_export_dialog.py` (add ping/spawn tests)
 
 - [ ] **Step 1: Write failing tests for ping/spawn logic**
@@ -146,7 +146,7 @@ The ping/spawn logic will be extracted as a pure function `ping_or_spawn_exporte
 ```python
 from unittest.mock import patch, MagicMock
 
-from lucid.ui.dialogs.export_dialog import ping_or_spawn_exporter
+from lightfall.ui.dialogs.export_dialog import ping_or_spawn_exporter
 
 
 class TestPingOrSpawnExporter:
@@ -157,13 +157,13 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is True
         ipc.request.assert_called_once()
 
-    @patch("lucid.ui.dialogs.export_dialog.subprocess.Popen")
+    @patch("lightfall.ui.dialogs.export_dialog.subprocess.Popen")
     def test_ping_fail_spawns_then_retries(self, mock_popen):
         """If first ping fails, spawn exporter, retry pings."""
         ipc = MagicMock()
@@ -176,14 +176,14 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is True
         mock_popen.assert_called_once()
         assert ipc.request.call_count == 2
 
-    @patch("lucid.ui.dialogs.export_dialog.subprocess.Popen")
+    @patch("lightfall.ui.dialogs.export_dialog.subprocess.Popen")
     def test_all_pings_fail_returns_false(self, mock_popen):
         """If all pings fail after spawn, return False."""
         ipc = MagicMock()
@@ -197,7 +197,7 @@ class TestPingOrSpawnExporter:
 
         result = ping_or_spawn_exporter(
             ipc=ipc,
-            ping_subject="lucid.export.test.ping",
+            ping_subject="lightfall.export.test.ping",
             nats_url="nats://localhost:4222",
         )
         assert result is False
@@ -210,7 +210,7 @@ Expected: FAIL — `ImportError: cannot import name 'ping_or_spawn_exporter'`
 
 - [ ] **Step 3: Implement ping_or_spawn_exporter and update _send_to_exporter**
 
-In `src/lucid/ui/dialogs/export_dialog.py`, add `import subprocess` to the imports at the top (after `import platform`), then add this function before the `ExportDialog` class:
+In `src/lightfall/ui/dialogs/export_dialog.py`, add `import subprocess` to the imports at the top (after `import platform`), then add this function before the `ExportDialog` class:
 
 ```python
 import subprocess
@@ -243,15 +243,15 @@ def ping_or_spawn_exporter(
         return True
 
     # No response — spawn a local exporter
-    logger.info("No exporter running, spawning lucid-exporter")
+    logger.info("No exporter running, spawning lightfall-exporter")
     try:
         proc = subprocess.Popen(
-            ["lucid-exporter", "--nats", nats_url],
+            ["lightfall-exporter", "--nats", nats_url],
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        logger.error("lucid-exporter not found on PATH")
+        logger.error("lightfall-exporter not found on PATH")
         return False
 
     # Retry pings
@@ -280,9 +280,9 @@ Now replace the `_send_to_exporter` method in the `ExportDialog` class:
         Pings the exporter first. If no response, spawns a local instance.
         The ping/spawn/send flow runs in a background thread.
         """
-        from lucid.core.services import NCSApplication
-        from lucid.ui.toast import ToastManager
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.core.services import NCSApplication
+        from lightfall.ui.toast import ToastManager
+        from lightfall.utils.threads import QThreadFuture
 
         toast = ToastManager.get_instance()
         app = NCSApplication.get_instance()
@@ -293,9 +293,9 @@ Now replace the `_send_to_exporter` method in the `ExportDialog` class:
             return
 
         hostname = platform.node()
-        job_subject = f"lucid.export.{hostname}"
-        progress_subject = f"lucid.export.{hostname}.progress"
-        ping_subject = f"lucid.export.{hostname}.ping"
+        job_subject = f"lightfall.export.{hostname}"
+        progress_subject = f"lightfall.export.{hostname}.progress"
+        ping_subject = f"lightfall.export.{hostname}.ping"
         nats_url = ipc._nats_url
 
         job_id = message["job_id"]
@@ -359,7 +359,7 @@ Expected: All pass
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/export_dialog.py tests/test_export_dialog.py
+git add src/lightfall/ui/dialogs/export_dialog.py tests/test_export_dialog.py
 git commit -m "feat(export): add ping/spawn flow to auto-start local exporter"
 ```
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add NATS-based IPC to LUCID so external tools can send commands and receive event notifications over the network.
+**Goal:** Add NATS-based IPC to Lightfall so external tools can send commands and receive event notifications over the network.
 
 **Architecture:** IPCService singleton manages a NATS connection on a background thread, dispatches inbound messages to registered callbacks on the Qt main thread, and publishes outbound events. TrustManager handles auth token sharing via NATS request/reply with user approval dialogs. An IPCSettingsPlugin provides configuration UI.
 
@@ -16,21 +16,21 @@
 
 | Action | Path | Responsibility |
 |--------|------|----------------|
-| Create | `src/lucid/ipc/__init__.py` | Public API exports |
-| Create | `src/lucid/ipc/service.py` | IPCService — connection, pub/sub, topic builder, catalogs |
-| Create | `src/lucid/ipc/trust.py` | TrustManager (logic) + TrustDialog (UI) |
-| Create | `src/lucid/ui/preferences/ipc_settings.py` | IPCSettingsPlugin |
+| Create | `src/lightfall/ipc/__init__.py` | Public API exports |
+| Create | `src/lightfall/ipc/service.py` | IPCService — connection, pub/sub, topic builder, catalogs |
+| Create | `src/lightfall/ipc/trust.py` | TrustManager (logic) + TrustDialog (UI) |
+| Create | `src/lightfall/ui/preferences/ipc_settings.py` | IPCSettingsPlugin |
 | Create | `tests/ipc/__init__.py` | Test package |
 | Create | `tests/ipc/test_service.py` | IPCService unit tests |
 | Create | `tests/ipc/test_trust.py` | TrustManager unit tests |
 | Create | `tests/ipc/test_settings.py` | Settings plugin tests |
 | Create | `tests/ipc/test_integration.py` | Engine/logbook/agent integration tests |
 | Modify | `pyproject.toml` | Add nats-py dependency |
-| Modify | `src/lucid/plugins/builtin_manifest.py` | Register IPC settings plugin |
-| Modify | `src/lucid/core/application.py` | IPCService lifecycle (start/stop) |
-| Modify | `src/lucid/acquire/engine/bluesky.py` | Publish run events, register plan commands |
-| Modify | `src/lucid/logbook/client.py` | Register logbook.add command |
-| Modify | `src/lucid/claude/agent.py` | Register agent.message command |
+| Modify | `src/lightfall/plugins/builtin_manifest.py` | Register IPC settings plugin |
+| Modify | `src/lightfall/core/application.py` | IPCService lifecycle (start/stop) |
+| Modify | `src/lightfall/acquire/engine/bluesky.py` | Publish run events, register plan commands |
+| Modify | `src/lightfall/logbook/client.py` | Register logbook.add command |
+| Modify | `src/lightfall/claude/agent.py` | Register agent.message command |
 | Create | `docs/ipc-architecture.md` | Internal architecture documentation |
 | Create | `docs/ipc-client-guide.md` | External client integration guide |
 
@@ -40,7 +40,7 @@
 
 **Files:**
 - Modify: `pyproject.toml`
-- Create: `src/lucid/ipc/__init__.py`
+- Create: `src/lightfall/ipc/__init__.py`
 - Create: `tests/ipc/__init__.py`
 
 - [ ] **Step 1: Add nats-py dependency**
@@ -59,12 +59,12 @@ Run: `cd ~/PycharmProjects/ncs/ncs && pip install -e .`
 
 - [ ] **Step 3: Create ipc package**
 
-Create `src/lucid/ipc/__init__.py`:
+Create `src/lightfall/ipc/__init__.py`:
 
 ```python
-"""NATS-based inter-process communication for LUCID."""
+"""NATS-based inter-process communication for Lightfall."""
 
-from lucid.ipc.service import IPCService
+from lightfall.ipc.service import IPCService
 
 __all__ = ["IPCService"]
 ```
@@ -81,7 +81,7 @@ Expected: version string printed, no import error.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add pyproject.toml src/lucid/ipc/__init__.py tests/ipc/__init__.py
+git add pyproject.toml src/lightfall/ipc/__init__.py tests/ipc/__init__.py
 git commit -m "feat(ipc): add nats-py dependency and ipc package skeleton"
 ```
 
@@ -90,7 +90,7 @@ git commit -m "feat(ipc): add nats-py dependency and ipc package skeleton"
 ### Task 2: IPCService Core — Topic Builder, Connection, Pub/Sub
 
 **Files:**
-- Create: `src/lucid/ipc/service.py`
+- Create: `src/lightfall/ipc/service.py`
 - Create: `tests/ipc/test_service.py`
 
 - [ ] **Step 1: Write tests for topic builder**
@@ -108,7 +108,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lucid.ipc.service import IPCService
+from lightfall.ipc.service import IPCService
 
 
 class TestTopicBuilder:
@@ -136,10 +136,10 @@ Expected: FAIL — `IPCService` does not exist yet.
 
 - [ ] **Step 3: Write IPCService with topic builder**
 
-Create `src/lucid/ipc/service.py`:
+Create `src/lightfall/ipc/service.py`:
 
 ```python
-"""NATS-based IPC service for LUCID."""
+"""NATS-based IPC service for Lightfall."""
 
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ from typing import Any, Callable
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
-from lucid.utils.threads import invoke_in_main_thread
+from lightfall.utils.threads import invoke_in_main_thread
 
 
 @dataclass
@@ -501,7 +501,7 @@ Expected: PASS
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lucid/ipc/service.py tests/ipc/test_service.py
+git add src/lightfall/ipc/service.py tests/ipc/test_service.py
 git commit -m "feat(ipc): IPCService core — topic builder, connection, pub/sub"
 ```
 
@@ -510,7 +510,7 @@ git commit -m "feat(ipc): IPCService core — topic builder, connection, pub/sub
 ### Task 3: Action & Event Catalogs + Meta Discovery
 
 **Files:**
-- Modify: `src/lucid/ipc/service.py`
+- Modify: `src/lightfall/ipc/service.py`
 - Create: `tests/ipc/test_actions.py`
 
 - [ ] **Step 1: Write tests for action/event registration and discovery**
@@ -526,7 +526,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ipc.service import ActionInfo, EventInfo, IPCService
+from lightfall.ipc.service import ActionInfo, EventInfo, IPCService
 
 
 class TestActionRegistration:
@@ -604,7 +604,7 @@ Expected: FAIL — `register_action`, `register_event`, `list_actions`, `list_ev
 
 - [ ] **Step 3: Implement action/event registration**
 
-Add to `src/lucid/ipc/service.py`, inside the `IPCService` class, after the reply method:
+Add to `src/lightfall/ipc/service.py`, inside the `IPCService` class, after the reply method:
 
 ```python
     # -- Action & event catalogs --
@@ -652,7 +652,7 @@ Add to `src/lucid/ipc/service.py`, inside the `IPCService` class, after the repl
         """Register an outbound event for discoverability.
 
         Does NOT create a subscription — this only adds the event to the
-        catalog so external clients can discover what LUCID publishes.
+        catalog so external clients can discover what Lightfall publishes.
 
         Args:
             suffix: Subject suffix (e.g. "runs.new").
@@ -714,7 +714,7 @@ Add to `src/lucid/ipc/service.py`, inside the `IPCService` class, after the repl
         self.register_action(
             "meta.events",
             self._handle_meta_events,
-            description="List outbound event topics LUCID publishes",
+            description="List outbound event topics Lightfall publishes",
         )
 ```
 
@@ -743,7 +743,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ipc/service.py tests/ipc/test_actions.py
+git add src/lightfall/ipc/service.py tests/ipc/test_actions.py
 git commit -m "feat(ipc): action/event catalogs and meta discovery endpoints"
 ```
 
@@ -752,9 +752,9 @@ git commit -m "feat(ipc): action/event catalogs and meta discovery endpoints"
 ### Task 4: TrustManager + TrustDialog
 
 **Files:**
-- Create: `src/lucid/ipc/trust.py`
+- Create: `src/lightfall/ipc/trust.py`
 - Create: `tests/ipc/test_trust.py`
-- Modify: `src/lucid/ipc/__init__.py`
+- Modify: `src/lightfall/ipc/__init__.py`
 
 - [ ] **Step 1: Write tests for TrustManager logic**
 
@@ -769,7 +769,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.ipc.trust import TrustManager, TrustState
+from lightfall.ipc.trust import TrustManager, TrustState
 
 
 class TestTrustState:
@@ -837,7 +837,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement TrustManager**
 
-Create `src/lucid/ipc/trust.py`:
+Create `src/lightfall/ipc/trust.py`:
 
 ```python
 """Trust management for IPC auth token sharing."""
@@ -864,7 +864,7 @@ class TrustState(enum.Enum):
 class TrustManager:
     """Manages the set of trusted/denied IPC applications.
 
-    Trust state is session-scoped — cleared on LUCID restart.
+    Trust state is session-scoped — cleared on Lightfall restart.
     """
 
     def __init__(self) -> None:
@@ -945,7 +945,7 @@ class TrustDialog(QDialog):
 
         version_str = f" v{app_version}" if app_version else ""
         label = QLabel(
-            f"<b>{app_name}{version_str}</b> wants to connect to LUCID.<br><br>"
+            f"<b>{app_name}{version_str}</b> wants to connect to Lightfall.<br><br>"
             "Trust this application for this session?"
         )
         label.setWordWrap(True)
@@ -970,13 +970,13 @@ Expected: PASS
 
 - [ ] **Step 5: Update __init__.py exports**
 
-Update `src/lucid/ipc/__init__.py`:
+Update `src/lightfall/ipc/__init__.py`:
 
 ```python
-"""NATS-based inter-process communication for LUCID."""
+"""NATS-based inter-process communication for Lightfall."""
 
-from lucid.ipc.service import IPCService
-from lucid.ipc.trust import TrustDialog, TrustManager, TrustState
+from lightfall.ipc.service import IPCService
+from lightfall.ipc.trust import TrustDialog, TrustManager, TrustState
 
 __all__ = ["IPCService", "TrustDialog", "TrustManager", "TrustState"]
 ```
@@ -984,7 +984,7 @@ __all__ = ["IPCService", "TrustDialog", "TrustManager", "TrustState"]
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/ipc/trust.py src/lucid/ipc/__init__.py tests/ipc/test_trust.py
+git add src/lightfall/ipc/trust.py src/lightfall/ipc/__init__.py tests/ipc/test_trust.py
 git commit -m "feat(ipc): TrustManager logic and TrustDialog UI"
 ```
 
@@ -993,7 +993,7 @@ git commit -m "feat(ipc): TrustManager logic and TrustDialog UI"
 ### Task 5: Auth Handshake — Wire Trust into IPCService
 
 **Files:**
-- Modify: `src/lucid/ipc/service.py`
+- Modify: `src/lightfall/ipc/service.py`
 - Modify: `tests/ipc/test_service.py`
 
 - [ ] **Step 1: Write tests for auth handshake**
@@ -1001,7 +1001,7 @@ git commit -m "feat(ipc): TrustManager logic and TrustDialog UI"
 Append to `tests/ipc/test_service.py`:
 
 ```python
-from lucid.ipc.trust import TrustManager, TrustState
+from lightfall.ipc.trust import TrustManager, TrustState
 
 
 class TestAuthHandshake:
@@ -1067,7 +1067,7 @@ Add to `IPCService.__init__`:
 Add import at top of `service.py`:
 
 ```python
-from lucid.ipc.trust import TrustManager, TrustState
+from lightfall.ipc.trust import TrustManager, TrustState
 ```
 
 Add methods to `IPCService`, after `register_meta_endpoints`:
@@ -1126,7 +1126,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ipc/service.py tests/ipc/test_service.py
+git add src/lightfall/ipc/service.py tests/ipc/test_service.py
 git commit -m "feat(ipc): auth handshake — trust evaluation and response building"
 ```
 
@@ -1135,7 +1135,7 @@ git commit -m "feat(ipc): auth handshake — trust evaluation and response build
 ### Task 6: IPCSettingsPlugin
 
 **Files:**
-- Create: `src/lucid/ui/preferences/ipc_settings.py`
+- Create: `src/lightfall/ui/preferences/ipc_settings.py`
 - Create: `tests/ipc/test_settings.py`
 
 - [ ] **Step 1: Write tests for settings load/save**
@@ -1151,7 +1151,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.ui.preferences.ipc_settings import IPCSettingsPlugin
+from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
 
 class TestIPCSettingsPlugin:
@@ -1191,7 +1191,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement IPCSettingsPlugin**
 
-Create `src/lucid/ui/preferences/ipc_settings.py`:
+Create `src/lightfall/ui/preferences/ipc_settings.py`:
 
 ```python
 """IPC settings plugin for NATS connection configuration."""
@@ -1210,7 +1210,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
+from lightfall.plugins.settings_plugin import SettingsPlugin
 
 
 class IPCSettingsPlugin(SettingsPlugin):
@@ -1279,7 +1279,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         return widget
 
     def load_settings(self) -> None:
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
         if self._url_edit:
@@ -1288,7 +1288,7 @@ class IPCSettingsPlugin(SettingsPlugin):
             self._prefix_edit.setText(prefs.get("ipc_topic_prefix", "als.7011"))
 
     def save_settings(self) -> None:
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
         if self._url_edit:
@@ -1324,7 +1324,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/preferences/ipc_settings.py tests/ipc/test_settings.py
+git add src/lightfall/ui/preferences/ipc_settings.py tests/ipc/test_settings.py
 git commit -m "feat(ipc): IPCSettingsPlugin with NATS URL, prefix, and trusted apps UI"
 ```
 
@@ -1333,12 +1333,12 @@ git commit -m "feat(ipc): IPCSettingsPlugin with NATS URL, prefix, and trusted a
 ### Task 7: Application Wiring — Manifest, ServiceRegistry, Lifecycle
 
 **Files:**
-- Modify: `src/lucid/plugins/builtin_manifest.py`
-- Modify: `src/lucid/core/application.py`
+- Modify: `src/lightfall/plugins/builtin_manifest.py`
+- Modify: `src/lightfall/core/application.py`
 
 - [ ] **Step 1: Read current builtin_manifest.py**
 
-Read `src/lucid/plugins/builtin_manifest.py` to find the exact location and format
+Read `src/lightfall/plugins/builtin_manifest.py` to find the exact location and format
 for adding the IPC settings plugin entry.
 
 - [ ] **Step 2: Add IPC settings to builtin manifest**
@@ -1349,13 +1349,13 @@ Add a `PluginEntry` to the `builtin_manifest.plugins` list:
         PluginEntry(
             type_name="settings",
             name="ipc",
-            import_path="lucid.ui.preferences.ipc_settings:IPCSettingsPlugin",
+            import_path="lightfall.ui.preferences.ipc_settings:IPCSettingsPlugin",
         ),
 ```
 
 - [ ] **Step 3: Read current application.py**
 
-Read `src/lucid/core/application.py` to find where services are registered
+Read `src/lightfall/core/application.py` to find where services are registered
 and where shutdown hooks run.
 
 - [ ] **Step 4: Register IPCService in application startup**
@@ -1364,8 +1364,8 @@ In `NCSApplication`, after other services are registered during initialization,
 add IPCService registration:
 
 ```python
-from lucid.ipc.service import IPCService
-from lucid.ipc.trust import TrustManager
+from lightfall.ipc.service import IPCService
+from lightfall.ipc.trust import TrustManager
 
 # In the initialization method, after service registration:
 trust_manager = TrustManager()
@@ -1378,7 +1378,7 @@ Add the factory method:
 ```python
 def _create_ipc_service(self, trust_manager: TrustManager) -> IPCService:
     """Create and configure the IPC service from preferences."""
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     prefs = PreferencesManager.get_instance()
     nats_url = prefs.get("ipc_nats_url", "")
@@ -1445,7 +1445,7 @@ def _handle_ipc_auth_request(self, subject: str, data: dict, reply: str | None) 
         return
 
     # Unknown app — show trust dialog
-    from lucid.ipc.trust import TrustDialog
+    from lightfall.ipc.trust import TrustDialog
     dialog = TrustDialog(app_name, app_version, parent=self._main_window)
     # Use a 60-second auto-close timer
     from PySide6.QtCore import QTimer
@@ -1477,7 +1477,7 @@ ipc.register_action("auth.request", self._handle_ipc_auth_request, description="
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lucid/plugins/builtin_manifest.py src/lucid/core/application.py
+git add src/lightfall/plugins/builtin_manifest.py src/lightfall/core/application.py
 git commit -m "feat(ipc): wire IPCService into application lifecycle and manifest"
 ```
 
@@ -1486,7 +1486,7 @@ git commit -m "feat(ipc): wire IPCService into application lifecycle and manifes
 ### Task 8: BlueskyEngine IPC Integration
 
 **Files:**
-- Modify: `src/lucid/acquire/engine/bluesky.py`
+- Modify: `src/lightfall/acquire/engine/bluesky.py`
 - Create: `tests/ipc/test_integration.py`
 
 - [ ] **Step 1: Write tests for engine IPC integration**
@@ -1494,7 +1494,7 @@ git commit -m "feat(ipc): wire IPCService into application lifecycle and manifes
 Create `tests/ipc/test_integration.py`:
 
 ```python
-"""Tests for IPC integration with LUCID components."""
+"""Tests for IPC integration with Lightfall components."""
 
 from __future__ import annotations
 
@@ -1502,7 +1502,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.ipc.service import IPCService
+from lightfall.ipc.service import IPCService
 
 
 class TestEngineIPCIntegration:
@@ -1512,7 +1512,7 @@ class TestEngineIPCIntegration:
         svc.publish = MagicMock()
 
         # Simulate what the engine integration code does
-        from lucid.acquire.engine.bluesky import _publish_run_started
+        from lightfall.acquire.engine.bluesky import _publish_run_started
         _publish_run_started(svc, "test-run-id", "count")
         svc.publish.assert_called_once_with(
             "test.runs.new",
@@ -1523,7 +1523,7 @@ class TestEngineIPCIntegration:
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         svc.publish = MagicMock()
 
-        from lucid.acquire.engine.bluesky import _publish_run_completed
+        from lightfall.acquire.engine.bluesky import _publish_run_completed
         _publish_run_completed(svc, "test-run-id", "success")
         svc.publish.assert_called_once_with(
             "test.runs.complete",
@@ -1538,7 +1538,7 @@ Expected: FAIL — helper functions not defined.
 
 - [ ] **Step 3: Read current BlueskyEngine implementation**
 
-Read `src/lucid/acquire/engine/bluesky.py` to find the exact signal emission
+Read `src/lightfall/acquire/engine/bluesky.py` to find the exact signal emission
 points and `_execute_plan` method.
 
 - [ ] **Step 4: Add IPC helper functions to bluesky.py**
@@ -1572,8 +1572,8 @@ from engine to IPC:
 ```python
 # In application setup, after both engine and IPC are available:
 def _wire_engine_ipc(self) -> None:
-    from lucid.acquire.engine import get_engine
-    from lucid.acquire.engine.bluesky import _publish_run_started, _publish_run_completed
+    from lightfall.acquire.engine import get_engine
+    from lightfall.acquire.engine.bluesky import _publish_run_started, _publish_run_completed
 
     engine = get_engine()
     ipc = self._services.get(IPCService)
@@ -1627,7 +1627,7 @@ Add command handlers for `commands.plan.run` and `commands.plan.abort`:
 
 ```python
 def _wire_plan_commands(self) -> None:
-    from lucid.acquire.engine import get_engine
+    from lightfall.acquire.engine import get_engine
 
     ipc = self._services.get(IPCService)
     engine = get_engine()
@@ -1641,7 +1641,7 @@ def _wire_plan_commands(self) -> None:
             return
 
         # Look up plan by name from plugin registry
-        from lucid.plugins.loader import PluginLoader
+        from lightfall.plugins.loader import PluginLoader
         loader = PluginLoader.get_instance()
         plan_info = loader.get_plugin_by_name("plan", plan_name)
         if not plan_info or not plan_info.instance:
@@ -1682,7 +1682,7 @@ Expected: PASS
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lucid/acquire/engine/bluesky.py src/lucid/core/application.py tests/ipc/test_integration.py
+git add src/lightfall/acquire/engine/bluesky.py src/lightfall/core/application.py tests/ipc/test_integration.py
 git commit -m "feat(ipc): BlueskyEngine integration — plan commands and run events"
 ```
 
@@ -1691,7 +1691,7 @@ git commit -m "feat(ipc): BlueskyEngine integration — plan commands and run ev
 ### Task 9: Logbook + Claude Agent IPC Integration
 
 **Files:**
-- Modify: `src/lucid/core/application.py`
+- Modify: `src/lightfall/core/application.py`
 - Modify: `tests/ipc/test_integration.py`
 
 - [ ] **Step 1: Write tests for logbook IPC**
@@ -1711,7 +1711,7 @@ class TestLogbookIPCIntegration:
         data = {"title": "Test Entry", "content": "Hello from IPC"}
 
         # Simulate the handler
-        from lucid.core.application import _handle_logbook_add
+        from lightfall.core.application import _handle_logbook_add
         _handle_logbook_add(mock_client, svc, "test.commands.logbook.add", data, "_INBOX.reply")
 
         mock_client.create_entry.assert_called_once_with("lb-123", title="Test Entry")
@@ -1730,7 +1730,7 @@ class TestAgentIPCIntegration:
         mock_agent = MagicMock()
         data = {"message": "What devices are available?"}
 
-        from lucid.core.application import _handle_agent_message
+        from lightfall.core.application import _handle_agent_message
         _handle_agent_message(mock_agent, svc, "test.commands.agent.message", data, "_INBOX.reply")
 
         mock_agent.query_sync.assert_called_once_with("What devices are available?")
@@ -1746,7 +1746,7 @@ Expected: FAIL — handler functions not defined.
 
 - [ ] **Step 3: Implement handler functions**
 
-Add module-level handler functions to `src/lucid/core/application.py`:
+Add module-level handler functions to `src/lightfall/core/application.py`:
 
 ```python
 def _handle_logbook_add(
@@ -1800,7 +1800,7 @@ In the application's IPC wiring method:
 
 ```python
 def _wire_logbook_ipc(self) -> None:
-    from lucid.logbook.client import LogbookClient
+    from lightfall.logbook.client import LogbookClient
 
     ipc = self._services.get(IPCService)
     client = LogbookClient.get_instance()
@@ -1814,7 +1814,7 @@ def _wire_logbook_ipc(self) -> None:
 
 
 def _wire_agent_ipc(self) -> None:
-    from lucid.claude.agent import QtClaudeAgent
+    from lightfall.claude.agent import QtClaudeAgent
 
     ipc = self._services.get(IPCService)
 
@@ -1840,7 +1840,7 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/core/application.py tests/ipc/test_integration.py
+git add src/lightfall/core/application.py tests/ipc/test_integration.py
 git commit -m "feat(ipc): logbook and Claude agent IPC command handlers"
 ```
 
@@ -1861,13 +1861,13 @@ Create `docs/ipc-architecture.md`:
 
 ## Overview
 
-LUCID uses NATS as a message broker for inter-process communication.
+Lightfall uses NATS as a message broker for inter-process communication.
 The `IPCService` singleton manages the NATS connection, dispatches
 inbound messages to registered callbacks, and publishes outbound events.
 
 ## Components
 
-### IPCService (`lucid.ipc.service`)
+### IPCService (`lightfall.ipc.service`)
 
 Singleton registered in `ServiceRegistry`. Manages:
 
@@ -1877,22 +1877,22 @@ Singleton registered in `ServiceRegistry`. Manages:
 - **Event catalog** — registered outbound events, discoverable via `meta.events`
 - **Topic builder** — `ipc.topic(suffix)` joins the configured prefix
 
-### TrustManager (`lucid.ipc.trust`)
+### TrustManager (`lightfall.ipc.trust`)
 
 Session-scoped trust state for external applications. Apps are:
 - **UNKNOWN** on first contact → user sees a TrustDialog
 - **APPROVED** for the session → auto-approved on subsequent requests
 - **DENIED** for the session → auto-denied, no repeat prompts
 
-### IPCSettingsPlugin (`lucid.ui.preferences.ipc_settings`)
+### IPCSettingsPlugin (`lightfall.ui.preferences.ipc_settings`)
 
 User-facing config: NATS URL, topic prefix, trusted app list with revoke.
 
 ## Registering a New Action
 
 ```python
-from lucid.core.services import ServiceRegistry
-from lucid.ipc.service import IPCService
+from lightfall.core.services import ServiceRegistry
+from lightfall.ipc.service import IPCService
 
 ipc = ServiceRegistry.get_instance().get(IPCService)
 
@@ -1946,7 +1946,7 @@ Create `docs/ipc-client-guide.md`:
 ```markdown
 # IPC Client Integration Guide
 
-Connect your application to LUCID over the beamline NATS bus.
+Connect your application to Lightfall over the beamline NATS bus.
 
 ## Prerequisites
 
@@ -1964,7 +1964,7 @@ nc = await nats.connect("nats://broker.als.lbl.gov:4222", tls_required=True)
 
 ## Authentication — Getting a Tiled Token
 
-Before you can access experimental data from Tiled, request trust from LUCID:
+Before you can access experimental data from Tiled, request trust from Lightfall:
 
 ```python
 import json
@@ -1984,8 +1984,8 @@ else:
     print(f"Denied: {result.get('reason', 'user declined')}")
 ```
 
-The LUCID user will see a dialog asking if they trust your app. Once approved,
-you stay trusted for the LUCID session.
+The Lightfall user will see a dialog asking if they trust your app. Once approved,
+you stay trusted for the Lightfall session.
 
 ### Token Refresh
 
@@ -2011,7 +2011,7 @@ actions = json.loads(resp.data)["actions"]
 for a in actions:
     print(f"  {a['subject']}: {a['description']}")
 
-# What events does LUCID publish?
+# What events does Lightfall publish?
 resp = await nc.request("als.7011.meta.events", b"", timeout=5)
 events = json.loads(resp.data)["events"]
 for e in events:
@@ -2193,12 +2193,12 @@ git commit -m "docs(ipc): internal architecture and external client integration 
 
 | Task | Description | Key Files |
 |------|-------------|-----------|
-| 1 | Package skeleton + dependency | `pyproject.toml`, `src/lucid/ipc/__init__.py` |
-| 2 | IPCService core — topic builder, connection, pub/sub | `src/lucid/ipc/service.py` |
-| 3 | Action/event catalogs + meta discovery | `src/lucid/ipc/service.py` |
-| 4 | TrustManager + TrustDialog | `src/lucid/ipc/trust.py` |
-| 5 | Auth handshake wired into IPCService | `src/lucid/ipc/service.py` |
-| 6 | IPCSettingsPlugin | `src/lucid/ui/preferences/ipc_settings.py` |
+| 1 | Package skeleton + dependency | `pyproject.toml`, `src/lightfall/ipc/__init__.py` |
+| 2 | IPCService core — topic builder, connection, pub/sub | `src/lightfall/ipc/service.py` |
+| 3 | Action/event catalogs + meta discovery | `src/lightfall/ipc/service.py` |
+| 4 | TrustManager + TrustDialog | `src/lightfall/ipc/trust.py` |
+| 5 | Auth handshake wired into IPCService | `src/lightfall/ipc/service.py` |
+| 6 | IPCSettingsPlugin | `src/lightfall/ui/preferences/ipc_settings.py` |
 | 7 | Application wiring — manifest, lifecycle, auth handler | `application.py`, `builtin_manifest.py` |
 | 8 | BlueskyEngine integration — events + commands | `bluesky.py`, `application.py` |
 | 9 | Logbook + Claude agent commands | `application.py` |

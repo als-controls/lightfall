@@ -1,33 +1,33 @@
-# LUCID Auth v2 Core Implementation Plan
+# Lightfall Auth v2 Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the LUCID-side Auth v2 plumbing (primitives, SessionManager cache, login mint) and migrate every Tiled consumer + the exporter payload format. End state: Tiled goes through per-(user, service) API keys; logbook still uses bearer (migrated in a later plan); refresh machinery still alive (deleted in a later plan).
+**Goal:** Build the Lightfall-side Auth v2 plumbing (primitives, SessionManager cache, login mint) and migrate every Tiled consumer + the exporter payload format. End state: Tiled goes through per-(user, service) API keys; logbook still uses bearer (migrated in a later plan); refresh machinery still alive (deleted in a later plan).
 
-**Architecture:** `lucid.auth.service_key` ships the mint helper (renamed from `job_key`). `lucid.auth.service_key_auth` ships `ServiceKeyAuth` (cache-backed, in-process) and `StaticApiKeyAuth` (literal-secret, for executor subprocesses). `SessionManager` grows a per-service key cache + `_mint_all_service_keys(bearer)` invoked from `login()`. Every site that currently builds `Authorization: Bearer <session.token>` for Tiled gets switched to `Authorization: Apikey <secret>` via the new auth classes. The exporter's NATS payload renames `auth_token` → `tiled_api_key`.
+**Architecture:** `lightfall.auth.service_key` ships the mint helper (renamed from `job_key`). `lightfall.auth.service_key_auth` ships `ServiceKeyAuth` (cache-backed, in-process) and `StaticApiKeyAuth` (literal-secret, for executor subprocesses). `SessionManager` grows a per-service key cache + `_mint_all_service_keys(bearer)` invoked from `login()`. Every site that currently builds `Authorization: Bearer <session.token>` for Tiled gets switched to `Authorization: Apikey <secret>` via the new auth classes. The exporter's NATS payload renames `auth_token` → `tiled_api_key`.
 
 **Tech Stack:** Python 3.11+, httpx, PySide6 (Qt), pytest + pytest-asyncio, loguru, pydantic v2.
 
-**Spec reference:** [`docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md`](../specs/2026-05-17-lucid-auth-v2-design.md)
+**Spec reference:** [`docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md`](../specs/2026-05-17-lightfall-auth-v2-design.md)
 
-**Coordination plan:** [`docs/superpowers/plans/2026-05-17-lucid-auth-v2-coordination.md`](2026-05-17-lucid-auth-v2-coordination.md)
+**Coordination plan:** [`docs/superpowers/plans/2026-05-17-lightfall-auth-v2-coordination.md`](2026-05-17-lightfall-auth-v2-coordination.md)
 
 **What this plan does NOT do:**
 
 - Delete the refresh machinery in `SessionManager` (deferred to the cleanup plan — logbook still uses the bearer).
 - Discard the bearer post-mint (same reason).
 - Add the logout-RE-gate dialog (deferred to cleanup plan).
-- Migrate `lucid.logbook.client` — it keeps using `SessionAuth` for now.
-- Add the lucid-logbook server's mint endpoint (separate per-repo plan).
+- Migrate `lightfall.logbook.client` — it keeps using `SessionAuth` for now.
+- Add the lightfall-logbook server's mint endpoint (separate per-repo plan).
 - Pipelines or tsuchinoko payload migration (separate per-repo plans; they depend on the cache this plan adds).
 
-**Test command (from memory `feedback_lucid_test_command`):**
+**Test command (from memory `feedback_lightfall_test_command`):**
 
 ```bash
 .venv/Scripts/python -m pytest <test_path> -v
 ```
 
-Use this everywhere `pytest` appears below; the bare `pytest` invocation resolves to system Python 3.10, which can't import lucid.
+Use this everywhere `pytest` appears below; the bare `pytest` invocation resolves to system Python 3.10, which can't import lightfall.
 
 ---
 
@@ -35,20 +35,20 @@ Use this everywhere `pytest` appears below; the bare `pytest` invocation resolve
 
 | File                                              | Action  | Responsibility                                                                                       |
 | ------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `src/lucid/auth/service_key.py`                   | Create  | Renamed `job_key.py`: `MintedKey` dataclass, `mint_service_key()`, `revoke_service_key()`            |
-| `src/lucid/auth/job_key.py`                       | Delete  | Replaced by `service_key.py`                                                                          |
-| `src/lucid/auth/service_key_auth.py`              | Create  | `ServiceKeyAuth(service_name)` (cache-backed httpx.Auth) + `StaticApiKeyAuth(secret)` (literal)       |
-| `src/lucid/auth/session.py`                       | Modify  | Add `_service_keys` cache, `get_api_key()`, `get_minted_key()`, `_mint_all_service_keys()`; invoke from `login()` |
-| `src/lucid/auth/__init__.py`                      | Modify  | Re-export public names                                                                                |
-| `src/lucid/services/tiled_auth.py`                | Delete  | `KeycloakTiledAuth` replaced by `ServiceKeyAuth("tiled")`                                             |
-| `src/lucid/services/tiled_service.py`             | Modify  | Stop building `Bearer` header; use `ServiceKeyAuth("tiled")`                                          |
-| `src/lucid/services/access_stamper.py`            | Modify  | Read user identity from `session.user.attributes` instead of decoding `session.token`                 |
-| `src/lucid/ui/preferences/tiled_settings.py`      | Modify  | Read groups from `session.user.attributes` (already-broken pattern fixed in passing)                  |
-| `src/lucid/exporter/service.py`                   | Modify  | Rename `auth_token` → `tiled_api_key`                                                                 |
-| `src/lucid/exporter/tiled_utils.py`               | Modify  | Replace `BearerAuth` with `StaticApiKeyAuth`                                                          |
-| `src/lucid/ui/dialogs/export_dialog.py`           | Modify  | Embed Tiled API key from cache, not bearer                                                            |
-| `src/lucid/acquire/plans/adaptive.py`             | Modify  | Same, for tsuchinoko-bound payloads                                                                   |
-| `src/lucid/ipc/service.py`                        | Modify  | Rename `tiled_token` payload field → `tiled_api_key`                                                  |
+| `src/lightfall/auth/service_key.py`                   | Create  | Renamed `job_key.py`: `MintedKey` dataclass, `mint_service_key()`, `revoke_service_key()`            |
+| `src/lightfall/auth/job_key.py`                       | Delete  | Replaced by `service_key.py`                                                                          |
+| `src/lightfall/auth/service_key_auth.py`              | Create  | `ServiceKeyAuth(service_name)` (cache-backed httpx.Auth) + `StaticApiKeyAuth(secret)` (literal)       |
+| `src/lightfall/auth/session.py`                       | Modify  | Add `_service_keys` cache, `get_api_key()`, `get_minted_key()`, `_mint_all_service_keys()`; invoke from `login()` |
+| `src/lightfall/auth/__init__.py`                      | Modify  | Re-export public names                                                                                |
+| `src/lightfall/services/tiled_auth.py`                | Delete  | `KeycloakTiledAuth` replaced by `ServiceKeyAuth("tiled")`                                             |
+| `src/lightfall/services/tiled_service.py`             | Modify  | Stop building `Bearer` header; use `ServiceKeyAuth("tiled")`                                          |
+| `src/lightfall/services/access_stamper.py`            | Modify  | Read user identity from `session.user.attributes` instead of decoding `session.token`                 |
+| `src/lightfall/ui/preferences/tiled_settings.py`      | Modify  | Read groups from `session.user.attributes` (already-broken pattern fixed in passing)                  |
+| `src/lightfall/exporter/service.py`                   | Modify  | Rename `auth_token` → `tiled_api_key`                                                                 |
+| `src/lightfall/exporter/tiled_utils.py`               | Modify  | Replace `BearerAuth` with `StaticApiKeyAuth`                                                          |
+| `src/lightfall/ui/dialogs/export_dialog.py`           | Modify  | Embed Tiled API key from cache, not bearer                                                            |
+| `src/lightfall/acquire/plans/adaptive.py`             | Modify  | Same, for tsuchinoko-bound payloads                                                                   |
+| `src/lightfall/ipc/service.py`                        | Modify  | Rename `tiled_token` payload field → `tiled_api_key`                                                  |
 | `tests/auth/test_service_key.py`                  | Create  | Unit tests for mint/revoke (port from existing `tests/auth/test_job_key.py` if present)               |
 | `tests/auth/test_service_key_auth.py`             | Create  | `ServiceKeyAuth` + `StaticApiKeyAuth` unit tests                                                       |
 | `tests/auth/test_session_manager_mint.py`         | Create  | `SessionManager._mint_all_service_keys` + cache behavior tests                                         |
@@ -59,11 +59,11 @@ No major restructure — focused changes against the existing module layout.
 
 ---
 
-### Task 1: Rename `lucid.auth.job_key` → `lucid.auth.service_key`
+### Task 1: Rename `lightfall.auth.job_key` → `lightfall.auth.service_key`
 
 **Files:**
-- Create: `src/lucid/auth/service_key.py`
-- Delete: `src/lucid/auth/job_key.py`
+- Create: `src/lightfall/auth/service_key.py`
+- Delete: `src/lightfall/auth/job_key.py`
 - Create: `tests/auth/test_service_key.py`
 
 Per spec: the existing `mint_job_key`/`revoke_job_key` primitives don't change in behavior, just in name and home. Rename happens first so later tasks reference the canonical name.
@@ -74,9 +74,9 @@ Run: `ls tests/auth/ | grep -i job_key`
 
 If `tests/auth/test_job_key.py` exists, plan to delete it after Task 1 Step 7. If not, skip the file but keep the new test file in Step 6.
 
-- [ ] **Step 2: Create the new `src/lucid/auth/service_key.py`**
+- [ ] **Step 2: Create the new `src/lightfall/auth/service_key.py`**
 
-Copy `src/lucid/auth/job_key.py` to `src/lucid/auth/service_key.py`, then edit it in place to:
+Copy `src/lightfall/auth/job_key.py` to `src/lightfall/auth/service_key.py`, then edit it in place to:
 
 1. Rename `MintedJobKey` → `MintedKey`.
 2. Rename `mint_job_key` → `mint_service_key`.
@@ -84,7 +84,7 @@ Copy `src/lucid/auth/job_key.py` to `src/lucid/auth/service_key.py`, then edit i
 4. Add an `is_expired` property to `MintedKey`.
 5. Update the module docstring.
 
-Final content of `src/lucid/auth/service_key.py`:
+Final content of `src/lightfall/auth/service_key.py`:
 
 ```python
 """Per-service API key minting.
@@ -94,7 +94,7 @@ the Tiled-shape /api/v1/auth/apikey endpoint contract documented in the auth-v2
 spec. Used by SessionManager at login to obtain a per-(user, service) API key
 that outlives the Keycloak access token.
 
-Every service implementing the contract (als-tiled today, lucid-logbook next)
+Every service implementing the contract (als-tiled today, lightfall-logbook next)
 accepts the same request shape and returns the same response shape.
 """
 from __future__ import annotations
@@ -136,7 +136,7 @@ def mint_service_key(
     note: str,
     timeout: float = 10.0,
 ) -> MintedKey:
-    """Mint a user-scoped API key for a LUCID-protected service.
+    """Mint a user-scoped API key for a Lightfall-protected service.
 
     Args:
         service_url: Base URL of the service's API root
@@ -219,21 +219,21 @@ def revoke_service_key(
         logger.warning("revoke failed first_eight={} err={}", first_eight, e)
 ```
 
-- [ ] **Step 3: Delete `src/lucid/auth/job_key.py`**
+- [ ] **Step 3: Delete `src/lightfall/auth/job_key.py`**
 
-Run: `git rm src/lucid/auth/job_key.py`
+Run: `git rm src/lightfall/auth/job_key.py`
 
 - [ ] **Step 4: Update the package's `__init__.py`**
 
-Read `src/lucid/auth/__init__.py`. If it re-exports `mint_job_key` / `MintedJobKey` / `revoke_job_key`, replace those names with `mint_service_key` / `MintedKey` / `revoke_service_key`. If the module has no `__init__.py` exports for these (job_key may have been imported by-path), skip and the next task's grep catches stragglers.
+Read `src/lightfall/auth/__init__.py`. If it re-exports `mint_job_key` / `MintedJobKey` / `revoke_job_key`, replace those names with `mint_service_key` / `MintedKey` / `revoke_service_key`. If the module has no `__init__.py` exports for these (job_key may have been imported by-path), skip and the next task's grep catches stragglers.
 
 - [ ] **Step 5: Update any in-repo callers of the old names**
 
-Run: `grep -rn "mint_job_key\|revoke_job_key\|MintedJobKey\|lucid\.auth\.job_key" src/lucid/ tests/`
+Run: `grep -rn "mint_job_key\|revoke_job_key\|MintedJobKey\|lightfall\.auth\.job_key" src/lightfall/ tests/`
 
 For each match, replace the symbol with its new name. Expected call sites:
-- `src/lucid/pipelines/` (Stage 1 of pipelines code) — replace per the new name.
-- `src/lucid/exporter/` (if any) — replace.
+- `src/lightfall/pipelines/` (Stage 1 of pipelines code) — replace per the new name.
+- `src/lightfall/exporter/` (if any) — replace.
 - Test files referencing the old names.
 
 If no callers exist in this repo (the pipelines repo lives elsewhere), the grep returns nothing and you can move on. The remote pipelines repo updates as part of its own plan (coordination plan step 3).
@@ -243,7 +243,7 @@ If no callers exist in this repo (the pipelines repo lives elsewhere), the grep 
 Create the file:
 
 ```python
-"""Unit tests for lucid.auth.service_key — mint/revoke against a stub transport."""
+"""Unit tests for lightfall.auth.service_key — mint/revoke against a stub transport."""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -251,7 +251,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from lucid.auth.service_key import (
+from lightfall.auth.service_key import (
     MintedKey,
     mint_service_key,
     revoke_service_key,
@@ -277,13 +277,13 @@ def test_mint_service_key_posts_expected_body():
                 "first_eight": "ssssssss",
                 "expiration_time": "2026-05-24T20:14:00+00:00",
                 "scopes": ["read:metadata", "read:data"],
-                "note": "lucid bcg-ws-3 user123",
+                "note": "lightfall bcg-ws-3 user123",
             },
         )
 
     with httpx.Client(transport=_stub_transport(handler)) as client:
         # mint_service_key uses module-level httpx.post; monkeypatch it for the test
-        import lucid.auth.service_key as mod
+        import lightfall.auth.service_key as mod
         original = mod.httpx
         class _Mod:
             def post(self_inner, url, **kwargs):
@@ -299,7 +299,7 @@ def test_mint_service_key_posts_expected_body():
                 "bearer-token-xyz",
                 expires_in=604800,
                 scopes=["read:metadata", "read:data"],
-                note="lucid bcg-ws-3 user123",
+                note="lightfall bcg-ws-3 user123",
             )
         finally:
             mod.httpx = original
@@ -311,7 +311,7 @@ def test_mint_service_key_posts_expected_body():
     assert minted.first_eight == "ssssssss"
     assert minted.expires_at == datetime(2026, 5, 24, 20, 14, tzinfo=UTC)
     assert minted.scopes == ("read:metadata", "read:data")
-    assert minted.note == "lucid bcg-ws-3 user123"
+    assert minted.note == "lightfall bcg-ws-3 user123"
 
 
 def test_mint_service_key_raises_on_http_error():
@@ -319,7 +319,7 @@ def test_mint_service_key_raises_on_http_error():
         return httpx.Response(403, json={"detail": "no create:apikeys"})
 
     with httpx.Client(transport=_stub_transport(handler)) as client:
-        import lucid.auth.service_key as mod
+        import lightfall.auth.service_key as mod
         original = mod.httpx
         class _Mod:
             def post(self_inner, url, **kwargs):
@@ -347,7 +347,7 @@ def test_revoke_service_key_swallows_errors():
         return httpx.Response(500, json={"detail": "kaboom"})
 
     with httpx.Client(transport=_stub_transport(handler)) as client:
-        import lucid.auth.service_key as mod
+        import lightfall.auth.service_key as mod
         original = mod.httpx
         class _Mod:
             def post(self_inner, url, **kwargs):
@@ -402,8 +402,8 @@ Expected: 4 PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lucid/auth/service_key.py src/lucid/auth/__init__.py tests/auth/test_service_key.py
-git add -u src/lucid/auth/job_key.py tests/auth/test_job_key.py 2>/dev/null
+git add src/lightfall/auth/service_key.py src/lightfall/auth/__init__.py tests/auth/test_service_key.py
+git add -u src/lightfall/auth/job_key.py tests/auth/test_job_key.py 2>/dev/null
 git commit -m "refactor(auth): rename job_key → service_key, add is_expired"
 ```
 
@@ -412,7 +412,7 @@ git commit -m "refactor(auth): rename job_key → service_key, add is_expired"
 ### Task 2: Add `ServiceKeyAuth` and `StaticApiKeyAuth`
 
 **Files:**
-- Create: `src/lucid/auth/service_key_auth.py`
+- Create: `src/lightfall/auth/service_key_auth.py`
 - Create: `tests/auth/test_service_key_auth.py`
 
 Two httpx.Auth flavors: one reads from `SessionManager`'s cache (in-process consumers); one captures a literal secret (executor subprocesses with no SessionManager).
@@ -428,7 +428,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from lucid.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
+from lightfall.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
 
 
 def test_static_apikey_auth_sets_header():
@@ -452,7 +452,7 @@ def test_service_key_auth_reads_from_session_manager(monkeypatch):
             return "tiled-secret-xyz"
 
     monkeypatch.setattr(
-        "lucid.auth.service_key_auth.SessionManager", _FakeSM
+        "lightfall.auth.service_key_auth.SessionManager", _FakeSM
     )
 
     auth = ServiceKeyAuth("tiled")
@@ -477,7 +477,7 @@ def test_service_key_auth_skips_header_when_no_key(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "lucid.auth.service_key_auth.SessionManager", _FakeSM
+        "lightfall.auth.service_key_auth.SessionManager", _FakeSM
     )
 
     auth = ServiceKeyAuth("logbook")
@@ -492,19 +492,19 @@ def test_service_key_auth_skips_header_when_no_key(monkeypatch):
 
 Run: `.venv/Scripts/python -m pytest tests/auth/test_service_key_auth.py -v`
 
-Expected: ImportError on `lucid.auth.service_key_auth` (module doesn't exist yet).
+Expected: ImportError on `lightfall.auth.service_key_auth` (module doesn't exist yet).
 
-- [ ] **Step 3: Implement `src/lucid/auth/service_key_auth.py`**
+- [ ] **Step 3: Implement `src/lightfall/auth/service_key_auth.py`**
 
 ```python
-"""httpx.Auth adapters for LUCID's per-service API keys.
+"""httpx.Auth adapters for Lightfall's per-service API keys.
 
 ServiceKeyAuth pulls the current API key from SessionManager's cache on
-every request — used by in-process consumers (LUCID's own data-browser,
+every request — used by in-process consumers (Lightfall's own data-browser,
 RE callback writers, etc.) that share the singleton SessionManager.
 
 StaticApiKeyAuth captures a literal secret at construction time — used by
-out-of-process consumers (lucid.exporter executor, lucid-pipelines
+out-of-process consumers (lightfall.exporter executor, lightfall-pipelines
 executor, tsuchinoko executor) that receive the key in their NATS job
 payload and have no SessionManager singleton.
 
@@ -516,7 +516,7 @@ from collections.abc import AsyncGenerator, Generator
 
 import httpx
 
-from lucid.auth.session import SessionManager
+from lightfall.auth.session import SessionManager
 
 
 class ServiceKeyAuth(httpx.Auth):
@@ -587,7 +587,7 @@ Expected: 3 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/auth/service_key_auth.py tests/auth/test_service_key_auth.py
+git add src/lightfall/auth/service_key_auth.py tests/auth/test_service_key_auth.py
 git commit -m "feat(auth): ServiceKeyAuth (cache-backed) + StaticApiKeyAuth (literal)"
 ```
 
@@ -596,7 +596,7 @@ git commit -m "feat(auth): ServiceKeyAuth (cache-backed) + StaticApiKeyAuth (lit
 ### Task 3: SessionManager grows a service-key cache
 
 **Files:**
-- Modify: `src/lucid/auth/session.py` (add cache fields, `get_api_key`, `get_minted_key`)
+- Modify: `src/lightfall/auth/session.py` (add cache fields, `get_api_key`, `get_minted_key`)
 - Create: `tests/auth/test_session_manager_mint.py`
 
 This task adds the cache infrastructure WITHOUT wiring it into `login()` yet. Task 4 wires the mint round; this task is the storage half.
@@ -616,8 +616,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lucid.auth.service_key import MintedKey
-from lucid.auth.session import SessionManager
+from lightfall.auth.service_key import MintedKey
+from lightfall.auth.session import SessionManager
 
 
 @pytest.fixture(autouse=True)
@@ -682,7 +682,7 @@ Expected: all four fail with `AttributeError` on `_service_keys` or `get_api_key
 
 - [ ] **Step 3: Add cache fields to `SessionManager.__init__`**
 
-In `src/lucid/auth/session.py`, find the `__init__` method (around line 164). Locate the existing token-refresh state block:
+In `src/lightfall/auth/session.py`, find the `__init__` method (around line 164). Locate the existing token-refresh state block:
 
 ```python
         # Token refresh state
@@ -695,9 +695,9 @@ In `src/lucid/auth/session.py`, find the `__init__` method (around line 164). Lo
 
 ```python
         # Service-key cache (auth-v2): per-(user, service) API keys minted at
-        # login. See docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md.
+        # login. See docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md.
         # The refresh state above is transitionally kept alive for the logbook
-        # bearer flow until lucid-logbook ships its mint endpoint.
+        # bearer flow until lightfall-logbook ships its mint endpoint.
         self._service_keys: dict[str, MintedKey] = {}
         self._keys_lock = threading.RLock()
 ```
@@ -705,12 +705,12 @@ In `src/lucid/auth/session.py`, find the `__init__` method (around line 164). Lo
 Add the import at the top of `session.py` (alongside the existing imports):
 
 ```python
-from lucid.auth.service_key import MintedKey
+from lightfall.auth.service_key import MintedKey
 ```
 
 - [ ] **Step 4: Add `get_api_key()` and `get_minted_key()` methods**
 
-In `src/lucid/auth/session.py`, add after the `policy_engine` property (around line 235):
+In `src/lightfall/auth/session.py`, add after the `policy_engine` property (around line 235):
 
 ```python
     def get_api_key(self, service: str) -> str | None:
@@ -740,7 +740,7 @@ In `src/lucid/auth/session.py`, add after the `policy_engine` property (around l
 
 - [ ] **Step 5: Update `logout()` to clear the cache**
 
-In `src/lucid/auth/session.py`, find `async def logout(self)` (around line 305). Locate the line `self._session = None` and add the cache-clear just after it:
+In `src/lightfall/auth/session.py`, find `async def logout(self)` (around line 305). Locate the line `self._session = None` and add the cache-clear just after it:
 
 ```python
         old_user = self._session.user
@@ -761,7 +761,7 @@ Expected: all 5 PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lucid/auth/session.py tests/auth/test_session_manager_mint.py
+git add src/lightfall/auth/session.py tests/auth/test_session_manager_mint.py
 git commit -m "feat(auth): SessionManager service-key cache (no-mint-yet)"
 ```
 
@@ -770,20 +770,20 @@ git commit -m "feat(auth): SessionManager service-key cache (no-mint-yet)"
 ### Task 4: Wire `_mint_all_service_keys` into `login()`
 
 **Files:**
-- Modify: `src/lucid/auth/session.py`
+- Modify: `src/lightfall/auth/session.py`
 - Modify: `tests/auth/test_session_manager_mint.py`
 
 Mints in parallel via `asyncio.to_thread` for each configured service; failures log + leave the slot empty (per spec: login degrades, doesn't fail).
 
-For Task 4, only Tiled is on the list. Logbook will be added by the logbook consumer plan. Configuration: read the Tiled URL via `lucid.services.tiled_service` helpers (existing) — no new schema field.
+For Task 4, only Tiled is on the list. Logbook will be added by the logbook consumer plan. Configuration: read the Tiled URL via `lightfall.services.tiled_service` helpers (existing) — no new schema field.
 
 - [ ] **Step 1: Read the Tiled URL resolver**
 
-Run: `grep -n "DEFAULT_TILED\|def get_tiled\|tiled_url" src/lucid/services/tiled_service.py | head -20`
+Run: `grep -n "DEFAULT_TILED\|def get_tiled\|tiled_url" src/lightfall/services/tiled_service.py | head -20`
 
 You should find a function or constant that resolves the configured Tiled base URL from `PreferencesManager`. Note its name — `_mint_all_service_keys` will call it.
 
-If no helper exists, write one in `src/lucid/services/tiled_service.py`:
+If no helper exists, write one in `src/lightfall/services/tiled_service.py`:
 
 ```python
 DEFAULT_TILED_URL = "http://bcgtiled.dhcp.lbl.gov:8000"  # adjust to actual default
@@ -791,7 +791,7 @@ DEFAULT_TILED_URL = "http://bcgtiled.dhcp.lbl.gov:8000"  # adjust to actual defa
 def get_tiled_base_url() -> str:
     """Return the configured Tiled base URL (matches get_logbook_base_url shape)."""
     try:
-        from lucid.ui.preferences.manager import PreferencesManager
+        from lightfall.ui.preferences.manager import PreferencesManager
         prefs = PreferencesManager.get_instance()
         value = prefs.get("tiled_url", None)
     except Exception:
@@ -815,9 +815,9 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
         called.append((service_url, bearer, expires_in, tuple(scopes), note))
         return _minted(secret=f"key-for-{service_url}")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test/api/v1",
     )
 
@@ -832,7 +832,7 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
     assert bearer == "bearer-xyz"
     assert expires_in == 604800
     assert "read:metadata" in scopes and "create:apikeys" not in scopes
-    assert "lucid" in note
+    assert "lightfall" in note
 
 
 def test_mint_all_service_keys_tolerates_failure(monkeypatch, caplog):
@@ -843,9 +843,9 @@ def test_mint_all_service_keys_tolerates_failure(monkeypatch, caplog):
         raise httpx.ConnectError("unreachable")
 
     import httpx
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", boom)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", boom)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test/api/v1",
     )
 
@@ -865,10 +865,10 @@ Expected: AttributeError on `_mint_all_service_keys`.
 
 - [ ] **Step 4: Implement `_mint_all_service_keys`**
 
-In `src/lucid/auth/session.py`, add an import near the top:
+In `src/lightfall/auth/session.py`, add an import near the top:
 
 ```python
-from lucid.auth.service_key import MintedKey, mint_service_key
+from lightfall.auth.service_key import MintedKey, mint_service_key
 ```
 
 (MintedKey is already imported from Task 3; merge into a single import.)
@@ -902,7 +902,7 @@ Then add the method to `SessionManager` (just below `get_minted_key`):
         code simple. If N grows beyond a handful of services or any mint
         ever blocks for noticeable wall time, switch to a thread pool here.
         """
-        from lucid.services.tiled_service import get_tiled_base_url
+        from lightfall.services.tiled_service import get_tiled_base_url
 
         # Resolve per-service URL. Add new services here as they migrate.
         urls = {"tiled": get_tiled_base_url().rstrip("/") + "/api/v1"}
@@ -913,7 +913,7 @@ Then add the method to `SessionManager` (just below `get_minted_key`):
             if self._session and self._session.user
             else "unknown"
         )
-        note = f"lucid {hostname} {sub}"
+        note = f"lightfall {hostname} {sub}"
 
         for service, url in urls.items():
             scopes = self._SERVICE_SCOPES.get(service, [])
@@ -948,7 +948,7 @@ Then add the method to `SessionManager` (just below `get_minted_key`):
 
 - [ ] **Step 5: Invoke `_mint_all_service_keys` from `login()`**
 
-In `src/lucid/auth/session.py`, find `async def login(...)` (around line 255). Locate the block where the session is set and state transitions to AUTHENTICATED:
+In `src/lightfall/auth/session.py`, find `async def login(...)` (around line 255). Locate the block where the session is set and state transitions to AUTHENTICATED:
 
 ```python
             if session:
@@ -995,7 +995,7 @@ Expected: all PASS. If a test on the existing token-refresh path fails, triage �
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lucid/auth/session.py tests/auth/test_session_manager_mint.py
+git add src/lightfall/auth/session.py tests/auth/test_session_manager_mint.py
 git commit -m "feat(auth): mint per-service keys at login (Tiled only, phase 1)"
 ```
 
@@ -1004,42 +1004,42 @@ git commit -m "feat(auth): mint per-service keys at login (Tiled only, phase 1)"
 ### Task 5: Migrate `KeycloakTiledAuth` consumers to `ServiceKeyAuth("tiled")`
 
 **Files:**
-- Modify: `src/lucid/services/tiled_auth.py` (or delete)
-- Modify: `src/lucid/services/tiled_service.py:312-313`
-- Modify: `src/lucid/ui/preferences/tiled_settings.py:252-254`
-- Modify: `src/lucid/ipc/service.py:321`
+- Modify: `src/lightfall/services/tiled_auth.py` (or delete)
+- Modify: `src/lightfall/services/tiled_service.py:312-313`
+- Modify: `src/lightfall/ui/preferences/tiled_settings.py:252-254`
+- Modify: `src/lightfall/ipc/service.py:321`
 - Create: `tests/services/test_tiled_auth_migration.py`
 
 Site-by-site replacement. Start with the central Tiled auth class, then the call sites.
 
 - [ ] **Step 1: Inventory the consumers of `KeycloakTiledAuth`**
 
-Run: `grep -rn "KeycloakTiledAuth\|from lucid\.services\.tiled_auth" src/lucid/ tests/`
+Run: `grep -rn "KeycloakTiledAuth\|from lightfall\.services\.tiled_auth" src/lightfall/ tests/`
 
 Capture the list. Expected sites:
-- `src/lucid/services/tiled_service.py` — the most likely import.
-- Possibly `src/lucid/exporter/` (executor side — keeps `BearerAuth` until Task 7).
+- `src/lightfall/services/tiled_service.py` — the most likely import.
+- Possibly `src/lightfall/exporter/` (executor side — keeps `BearerAuth` until Task 7).
 - Tests that exercise the auth class.
 
-- [ ] **Step 2: Rewrite `src/lucid/services/tiled_auth.py` as a thin compat shim**
+- [ ] **Step 2: Rewrite `src/lightfall/services/tiled_auth.py` as a thin compat shim**
 
 Replace the file's contents with:
 
 ```python
 """Compatibility shim: previously held KeycloakTiledAuth (bearer-based).
 
-Replaced by lucid.auth.service_key_auth.ServiceKeyAuth("tiled") in auth-v2.
+Replaced by lightfall.auth.service_key_auth.ServiceKeyAuth("tiled") in auth-v2.
 KeycloakTiledAuth is now a subclass of ServiceKeyAuth that hard-codes the
 service name. Existing call sites (`KeycloakTiledAuth()`, `isinstance(x,
 KeycloakTiledAuth)`, subclassing) all keep working.
 
 This shim WILL be deleted in the auth cleanup plan once no in-tree code
-imports the old name. Internal LUCID code should import ServiceKeyAuth
-from lucid.auth.service_key_auth directly going forward.
+imports the old name. Internal Lightfall code should import ServiceKeyAuth
+from lightfall.auth.service_key_auth directly going forward.
 """
 from __future__ import annotations
 
-from lucid.auth.service_key_auth import ServiceKeyAuth
+from lightfall.auth.service_key_auth import ServiceKeyAuth
 
 
 class KeycloakTiledAuth(ServiceKeyAuth):
@@ -1055,22 +1055,22 @@ For each in-tree import of `KeycloakTiledAuth`, replace with `ServiceKeyAuth`:
 
 ```python
 # Before
-from lucid.services.tiled_auth import KeycloakTiledAuth
+from lightfall.services.tiled_auth import KeycloakTiledAuth
 client = from_uri(url, auth=KeycloakTiledAuth())
 
 # After
-from lucid.auth.service_key_auth import ServiceKeyAuth
+from lightfall.auth.service_key_auth import ServiceKeyAuth
 client = from_uri(url, auth=ServiceKeyAuth("tiled"))
 ```
 
 Run `grep -rn` to confirm no in-tree `KeycloakTiledAuth` references remain. The shim function itself stays for out-of-tree consumers.
 
-- [ ] **Step 4: Update `src/lucid/services/tiled_service.py:312-313`**
+- [ ] **Step 4: Update `src/lightfall/services/tiled_service.py:312-313`**
 
 Read the surrounding context:
 
 ```bash
-sed -n '300,325p' src/lucid/services/tiled_service.py
+sed -n '300,325p' src/lightfall/services/tiled_service.py
 ```
 
 You should see something like:
@@ -1083,7 +1083,7 @@ You should see something like:
 Replace with a call to the SessionManager API-key cache:
 
 ```python
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
         secret = SessionManager.get_instance().get_api_key("tiled")
         if secret:
             return {"Authorization": f"Apikey {secret}"}
@@ -1096,7 +1096,7 @@ Replace with a call to the SessionManager API-key cache:
 Read the surrounding code:
 
 ```bash
-sed -n '245,260p' src/lucid/ui/preferences/tiled_settings.py
+sed -n '245,260p' src/lightfall/ui/preferences/tiled_settings.py
 ```
 
 You should see:
@@ -1115,12 +1115,12 @@ The `session.token` is a string, not an object with a `.claims` attribute — th
             groups = session.user.attributes.get("groups", []) or []
 ```
 
-- [ ] **Step 6: Update `src/lucid/ipc/service.py:321`**
+- [ ] **Step 6: Update `src/lightfall/ipc/service.py:321`**
 
 Read the surrounding context:
 
 ```bash
-sed -n '310,335p' src/lucid/ipc/service.py
+sed -n '310,335p' src/lightfall/ipc/service.py
 ```
 
 You should find a payload-construction block that sets `"tiled_token": session.token`. Rename the field and source it from the cache:
@@ -1130,7 +1130,7 @@ You should find a payload-construction block that sets `"tiled_token": session.t
         # "tiled_token": session.token,
 
         # After:
-        from lucid.auth.session import SessionManager
+        from lightfall.auth.session import SessionManager
         "tiled_api_key": SessionManager.get_instance().get_api_key("tiled"),
 ```
 
@@ -1146,11 +1146,11 @@ from __future__ import annotations
 
 import httpx
 
-from lucid.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
+from lightfall.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
 
 
 def test_keycloaktiledauth_shim_returns_service_key_auth():
-    from lucid.services.tiled_auth import KeycloakTiledAuth
+    from lightfall.services.tiled_auth import KeycloakTiledAuth
     obj = KeycloakTiledAuth()
     assert isinstance(obj, ServiceKeyAuth)
 
@@ -1164,7 +1164,7 @@ def test_service_key_auth_for_tiled_pulls_from_cache(monkeypatch):
             assert service == "tiled"
             return "the-tiled-key"
 
-    monkeypatch.setattr("lucid.auth.service_key_auth.SessionManager", _SM)
+    monkeypatch.setattr("lightfall.auth.service_key_auth.SessionManager", _SM)
 
     auth = ServiceKeyAuth("tiled")
     req = httpx.Request("GET", "https://tiled.test/api/v1/metadata/")
@@ -1181,7 +1181,7 @@ Expected: all PASS. Existing tests that asserted the bearer header may need upda
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lucid/services/tiled_auth.py src/lucid/services/tiled_service.py src/lucid/ui/preferences/tiled_settings.py src/lucid/ipc/service.py tests/services/test_tiled_auth_migration.py
+git add src/lightfall/services/tiled_auth.py src/lightfall/services/tiled_service.py src/lightfall/ui/preferences/tiled_settings.py src/lightfall/ipc/service.py tests/services/test_tiled_auth_migration.py
 git commit -m "refactor(services): Tiled consumers use ServiceKeyAuth, claims via user.attributes"
 ```
 
@@ -1190,14 +1190,14 @@ git commit -m "refactor(services): Tiled consumers use ServiceKeyAuth, claims vi
 ### Task 6: Verify `access_stamper` is already auth-v2-compatible
 
 **Files:**
-- Modify: `src/lucid/services/access_stamper.py` (audit only, no code change in this plan)
+- Modify: `src/lightfall/services/access_stamper.py` (audit only, no code change in this plan)
 
 The spec listed access_stamper as a JWT-claim-consumer that needs migrating. On inspection, the current implementation **already reads claims from `session.user.attributes`** (see `_operator_identity` at `access_stamper.py:81-98`); only the `session.token is None` presence-check on line 92 remains a bearer-coupling. Since this plan keeps the bearer alive (it's only discarded by the cleanup plan), no code change is needed here.
 
 - [ ] **Step 1: Confirm by reading the file**
 
 ```bash
-sed -n '81,100p' src/lucid/services/access_stamper.py
+sed -n '81,100p' src/lightfall/services/access_stamper.py
 ```
 
 Verify you see:
@@ -1208,7 +1208,7 @@ If the file diverges from this (e.g., someone introduced a JWT decode since the 
 
 - [ ] **Step 2: Add a forward-reference comment to the cleanup plan**
 
-In `src/lucid/services/access_stamper.py:91-93`, change the presence-check comment to flag the upcoming cleanup-plan change:
+In `src/lightfall/services/access_stamper.py:91-93`, change the presence-check comment to flag the upcoming cleanup-plan change:
 
 ```python
         session = self._session_provider()
@@ -1222,7 +1222,7 @@ In `src/lucid/services/access_stamper.py:91-93`, change the presence-check comme
 - [ ] **Step 3: Commit if anything changed**
 
 ```bash
-git add src/lucid/services/access_stamper.py
+git add src/lightfall/services/access_stamper.py
 git commit -m "docs(access_stamper): flag bearer presence-check for cleanup-plan removal"
 ```
 
@@ -1230,22 +1230,22 @@ If nothing changed (the file was already as expected), skip the commit. **Note**
 
 ---
 
-### Task 7: Migrate `lucid.exporter` NATS payload to `tiled_api_key`
+### Task 7: Migrate `lightfall.exporter` NATS payload to `tiled_api_key`
 
 **Files:**
-- Modify: `src/lucid/exporter/service.py:26, 72-77, 149`
-- Modify: `src/lucid/exporter/tiled_utils.py:15-45`
-- Modify: `src/lucid/ui/dialogs/export_dialog.py:484-485`
-- Modify: `src/lucid/acquire/plans/adaptive.py:128-129`
+- Modify: `src/lightfall/exporter/service.py:26, 72-77, 149`
+- Modify: `src/lightfall/exporter/tiled_utils.py:15-45`
+- Modify: `src/lightfall/ui/dialogs/export_dialog.py:484-485`
+- Modify: `src/lightfall/acquire/plans/adaptive.py:128-129`
 - Modify: `tests/exporter/test_service_payload.py` (if exists)
 
-The exporter is the LUCID-side service that processes export NATS jobs. Its payload currently carries `auth_token` (the bearer) and the executor uses `BearerAuth`. This task renames the field and switches the executor to `StaticApiKeyAuth`.
+The exporter is the Lightfall-side service that processes export NATS jobs. Its payload currently carries `auth_token` (the bearer) and the executor uses `BearerAuth`. This task renames the field and switches the executor to `StaticApiKeyAuth`.
 
-The same payload migration happens in lucid-pipelines and tsuchinoko in their own plans, but those are remote repos — see coordination plan steps 3 and 4.
+The same payload migration happens in lightfall-pipelines and tsuchinoko in their own plans, but those are remote repos — see coordination plan steps 3 and 4.
 
 - [ ] **Step 1: Update `ExportJob` dataclass**
 
-In `src/lucid/exporter/service.py`, line 26:
+In `src/lightfall/exporter/service.py`, line 26:
 
 ```python
 # Before
@@ -1269,7 +1269,7 @@ class ExportJob:
 
 - [ ] **Step 2: Update `_parse_job` to read the new field**
 
-In `src/lucid/exporter/service.py`, line 72:
+In `src/lightfall/exporter/service.py`, line 72:
 
 ```python
 # Before
@@ -1281,7 +1281,7 @@ In `src/lucid/exporter/service.py`, line 72:
 
 - [ ] **Step 3: Update the executor's `connect_tiled` call**
 
-In `src/lucid/exporter/service.py`, line 149:
+In `src/lightfall/exporter/service.py`, line 149:
 
 ```python
 # Before
@@ -1297,21 +1297,21 @@ In `src/lucid/exporter/service.py`, line 149:
 
 - [ ] **Step 4: Update `connect_tiled` and `BearerAuth` in `tiled_utils.py`**
 
-Read current `src/lucid/exporter/tiled_utils.py`. Replace the `BearerAuth` class and the `connect_tiled` function:
+Read current `src/lightfall/exporter/tiled_utils.py`. Replace the `BearerAuth` class and the `connect_tiled` function:
 
 ```python
 """Executor-side Tiled connection helpers.
 
-Used by lucid.exporter (and copy-pasted historically into other executor
+Used by lightfall.exporter (and copy-pasted historically into other executor
 services). Constructs a tiled.client with StaticApiKeyAuth so the executor
-authenticates with the LUCID session key it received in the NATS job
+authenticates with the Lightfall session key it received in the NATS job
 payload.
 """
 from __future__ import annotations
 
 from typing import Optional
 
-from lucid.auth.service_key_auth import StaticApiKeyAuth
+from lightfall.auth.service_key_auth import StaticApiKeyAuth
 
 
 def connect_tiled(
@@ -1346,9 +1346,9 @@ def get_run(client, uid: str):
 
 (If the old `get_run` had different logic, preserve it — the snippet above is a minimal replacement.)
 
-- [ ] **Step 5: Update `export_dialog.py:484` LUCID-side dispatcher**
+- [ ] **Step 5: Update `export_dialog.py:484` Lightfall-side dispatcher**
 
-Read `src/lucid/ui/dialogs/export_dialog.py:475-495`. You should find a block that reads `session.token` to embed in the job payload. Replace with the cache lookup:
+Read `src/lightfall/ui/dialogs/export_dialog.py:475-495`. You should find a block that reads `session.token` to embed in the job payload. Replace with the cache lookup:
 
 ```python
 # Before
@@ -1366,7 +1366,7 @@ In the same file, find where the NATS payload dict is constructed and rename `au
 
 - [ ] **Step 6: Update `adaptive.py:128` for tsuchinoko-bound payload**
 
-In `src/lucid/acquire/plans/adaptive.py`, lines 125-135 likely look like:
+In `src/lightfall/acquire/plans/adaptive.py`, lines 125-135 likely look like:
 
 ```python
         session = SessionManager.get_instance().session
@@ -1411,11 +1411,11 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lucid/exporter/service.py src/lucid/exporter/tiled_utils.py src/lucid/ui/dialogs/export_dialog.py src/lucid/acquire/plans/adaptive.py tests/exporter/
+git add src/lightfall/exporter/service.py src/lightfall/exporter/tiled_utils.py src/lightfall/ui/dialogs/export_dialog.py src/lightfall/acquire/plans/adaptive.py tests/exporter/
 git commit -m "feat(exporter): NATS payload field auth_token → tiled_api_key
 
 Executor consumes the session key as StaticApiKeyAuth instead of BearerAuth.
-LUCID-side dispatchers (export dialog + adaptive plan) source the key from
+Lightfall-side dispatchers (export dialog + adaptive plan) source the key from
 SessionManager's cache, not from session.token. Tsuchinoko-bound payload
 field is also renamed here; the tsuchinoko executor lands in its own repo
 plan (see coordination plan step 4)."
@@ -1426,14 +1426,14 @@ plan (see coordination plan step 4)."
 ### Task 8: Audit `core/application.py:647` and any other `session.token` reads
 
 **Files:**
-- Modify: `src/lucid/core/application.py` (audit only — may not need changes)
+- Modify: `src/lightfall/core/application.py` (audit only — may not need changes)
 
 The spec listed this site as "purpose to verify." Triage it directly.
 
 - [ ] **Step 1: Read the context**
 
 ```bash
-sed -n '635,665p' src/lucid/core/application.py
+sed -n '635,665p' src/lightfall/core/application.py
 ```
 
 Determine what `session.token` is being used for:
@@ -1449,7 +1449,7 @@ Apply the appropriate replacement. If the call genuinely needs a Keycloak bearer
 
 - [ ] **Step 2: Re-grep for any other stragglers**
 
-Run: `grep -rn "session\.token" src/lucid/ | grep -v session\.py | grep -v providers/`
+Run: `grep -rn "session\.token" src/lightfall/ | grep -v session\.py | grep -v providers/`
 
 Each remaining hit is either:
 1. A logbook call site (leave for the logbook consumer plan).
@@ -1467,7 +1467,7 @@ Expected: all PASS. If a test fails on a path you didn't touch, triage — it ma
 - [ ] **Step 4: Commit (if any code changed)**
 
 ```bash
-git add -p src/lucid/core/application.py  # accept only your changes
+git add -p src/lightfall/core/application.py  # accept only your changes
 git commit -m "refactor(core): align stray session.token reads with auth-v2 conventions"
 ```
 
@@ -1482,20 +1482,20 @@ If no code changed in this task, skip the commit.
 
 Confirm the in-memory plumbing works against the live `bcgtiled` deployment (which has Plan A's mint endpoint shipped).
 
-- [ ] **Step 1: Run LUCID locally with Keycloak**
+- [ ] **Step 1: Run Lightfall locally with Keycloak**
 
 ```bash
-.venv/Scripts/python -m lucid
+.venv/Scripts/python -m lightfall
 ```
 
 Log in via Keycloak. The login should succeed in the same time as today.
 
 - [ ] **Step 2: Verify the cache populated**
 
-Open a debug console (the existing LUCID dev tooling). Run:
+Open a debug console (the existing Lightfall dev tooling). Run:
 
 ```python
-from lucid.auth.session import SessionManager
+from lightfall.auth.session import SessionManager
 sm = SessionManager.get_instance()
 print(sm.get_api_key("tiled"))
 print(sm.get_minted_key("tiled"))
@@ -1505,7 +1505,7 @@ Expected: a non-None secret, and a MintedKey with `expires_at` ~1 week out.
 
 - [ ] **Step 3: Verify a Tiled call uses the new auth**
 
-Trigger a data-browser action (open a run). In a packet sniffer or LUCID's debug HTTP log, confirm requests to `bcgtiled` carry `Authorization: Apikey <secret>` instead of `Authorization: Bearer <jwt>`.
+Trigger a data-browser action (open a run). In a packet sniffer or Lightfall's debug HTTP log, confirm requests to `bcgtiled` carry `Authorization: Apikey <secret>` instead of `Authorization: Bearer <jwt>`.
 
 - [ ] **Step 4: Logout and re-login**
 
@@ -1523,13 +1523,13 @@ Re-login. Confirm a fresh key landed. The `first_eight` should differ from the p
 
 - [ ] **Step 6: Document the smoke-test result**
 
-Append to `docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md`:
+Append to `docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md`:
 
 ```markdown
-## Smoke test results — Task 9 of LUCID core plan
+## Smoke test results — Task 9 of Lightfall core plan
 
 - Date: <YYYY-MM-DD>
-- LUCID commit: <git rev-parse HEAD>
+- Lightfall commit: <git rev-parse HEAD>
 - bcgtiled commit: <ssh bcgtiled "cd /opt/als-tiled && git log -1 --oneline">
 - Tiled key minted: yes (first_eight=<…>, expires_at=<…>)
 - Tiled calls use Apikey header: yes
@@ -1540,7 +1540,7 @@ Append to `docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md`:
 - [ ] **Step 7: Commit the smoke-test note**
 
 ```bash
-git add docs/superpowers/specs/2026-05-17-lucid-auth-v2-design.md
+git add docs/superpowers/specs/2026-05-17-lightfall-auth-v2-design.md
 git commit -m "docs(auth-v2): record core-plan smoke test against bcgtiled"
 ```
 
@@ -1550,16 +1550,16 @@ git commit -m "docs(auth-v2): record core-plan smoke test against bcgtiled"
 
 - [ ] All unit tests pass: `.venv/Scripts/python -m pytest tests/auth/ tests/services/ tests/exporter/ -v`
 - [ ] Full test suite passes (no regressions): `.venv/Scripts/python -m pytest tests/ -v --timeout=60`
-- [ ] `grep -rn "KeycloakTiledAuth" src/lucid/` shows only the compat shim in `services/tiled_auth.py`.
-- [ ] `grep -rn "BearerAuth" src/lucid/` shows zero hits (or only in non-Tiled-related code).
-- [ ] `grep -rn "session\.token" src/lucid/` shows only: `auth/session.py` (the field itself), `auth/providers/keycloak.py` (mint window), `auth/providers/pam.py` + `local.py` (non-Keycloak providers, unaffected), and `logbook/client.py` (deferred to logbook consumer plan).
+- [ ] `grep -rn "KeycloakTiledAuth" src/lightfall/` shows only the compat shim in `services/tiled_auth.py`.
+- [ ] `grep -rn "BearerAuth" src/lightfall/` shows zero hits (or only in non-Tiled-related code).
+- [ ] `grep -rn "session\.token" src/lightfall/` shows only: `auth/session.py` (the field itself), `auth/providers/keycloak.py` (mint window), `auth/providers/pam.py` + `local.py` (non-Keycloak providers, unaffected), and `logbook/client.py` (deferred to logbook consumer plan).
 - [ ] Smoke test against `bcgtiled` succeeds end-to-end.
 - [ ] The spec's smoke-test results section is appended.
 
-Once these are ticked, this plan is done. The Tiled side of LUCID is fully on API keys; logbook side is unchanged (intentionally); the refresh machinery still runs (intentionally — keeps logbook alive). Next plans (per coordination):
+Once these are ticked, this plan is done. The Tiled side of Lightfall is fully on API keys; logbook side is unchanged (intentionally); the refresh machinery still runs (intentionally — keeps logbook alive). Next plans (per coordination):
 
-- **lucid-pipelines payload migration** (coordination step 3).
+- **lightfall-pipelines payload migration** (coordination step 3).
 - **tsuchinoko payload migration** (coordination step 4).
-- **lucid-logbook mint endpoint** (coordination step 5).
-- **LUCID logbook consumer migration** (coordination step 6).
-- **LUCID auth cleanup** (coordination step 7) — finally deletes the refresh machinery and adds the logout-RE-gate dialog.
+- **lightfall-logbook mint endpoint** (coordination step 5).
+- **Lightfall logbook consumer migration** (coordination step 6).
+- **Lightfall auth cleanup** (coordination step 7) — finally deletes the refresh machinery and adds the logout-RE-gate dialog.

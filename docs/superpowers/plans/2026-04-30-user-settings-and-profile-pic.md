@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a generic per-user settings KV store to the `lucid-logbook` backend, expose it from LUCID via a new `UserSettingsClient`, and ship a `UserProfileSettingsPlugin` that lets a user set their profile picture end-to-end.
+**Goal:** Add a generic per-user settings KV store to the `lightfall-logbook` backend, expose it from Lightfall via a new `UserSettingsClient`, and ship a `UserProfileSettingsPlugin` that lets a user set their profile picture end-to-end.
 
-**Architecture:** Backend gets a `user_settings(user_id, beamline, key, value)` KV table behind four CRUD endpoints under `/logbook/settings`, plus a write hook on `profile_image_id` that deletes the previous image's bytes from disk. LUCID gets a sync `httpx`-based `UserSettingsClient` singleton that mirrors `LogbookClient`'s shape, sharing a refactored `SessionAuth` adapter and a base-URL helper. The new `UserProfileSettingsPlugin` calls the client directly (no `PreferencesManager` integration).
+**Architecture:** Backend gets a `user_settings(user_id, beamline, key, value)` KV table behind four CRUD endpoints under `/logbook/settings`, plus a write hook on `profile_image_id` that deletes the previous image's bytes from disk. Lightfall gets a sync `httpx`-based `UserSettingsClient` singleton that mirrors `LogbookClient`'s shape, sharing a refactored `SessionAuth` adapter and a base-URL helper. The new `UserProfileSettingsPlugin` calls the client directly (no `PreferencesManager` integration).
 
 **Tech Stack:** Python 3.11+, Litestar, SQLAlchemy 2.x async, Pydantic v2, SQLite/Postgres on the server; `httpx`, PySide6, `pytest-httpx` on the client.
 
 **Spec:** [`docs/superpowers/specs/2026-04-30-user-settings-and-profile-pic-design.md`](../specs/2026-04-30-user-settings-and-profile-pic-design.md)
 
 **Repos:**
-- Backend: `~/PycharmProjects/ncs/lucid-logbook` (currently on branch `feat/logbook-images` — create a new branch `feat/user-settings` from `master`).
-- LUCID client: `~/PycharmProjects/ncs/ncs` (currently on `master` — create a new branch `feature/user-profile-settings`).
+- Backend: `~/PycharmProjects/ncs/lightfall-logbook` (currently on branch `feat/logbook-images` — create a new branch `feat/user-settings` from `master`).
+- Lightfall client: `~/PycharmProjects/ncs/ncs` (currently on `master` — create a new branch `feature/user-profile-settings`).
 
 ---
 
@@ -21,12 +21,12 @@
 - [ ] **Step P1: Create backend feature branch**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
+cd ~/PycharmProjects/ncs/lightfall-logbook
 git fetch origin
 git checkout -b feat/user-settings origin/master
 ```
 
-- [ ] **Step P2: Create LUCID feature branch**
+- [ ] **Step P2: Create Lightfall feature branch**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
@@ -37,7 +37,7 @@ git checkout -b feature/user-profile-settings origin/master
 - [ ] **Step P3: Verify dev installs work in both repos**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
+cd ~/PycharmProjects/ncs/lightfall-logbook
 .venv/Scripts/python -m pytest -q          # all green pre-change
 cd ~/PycharmProjects/ncs/ncs
 .venv/Scripts/python -m pytest -q -k logbook   # logbook-related tests green
@@ -47,12 +47,12 @@ Expected: existing tests pass; if not, do not start.
 
 ---
 
-# Phase 1 — Backend (`lucid-logbook`)
+# Phase 1 — Backend (`lightfall-logbook`)
 
 ## Task 1: Add `UserSettingRow` ORM model + Pydantic schemas
 
 **Files:**
-- Modify: `src/lucid_logbook/models.py`
+- Modify: `src/lightfall_logbook/models.py`
 - Test: `tests/test_user_settings_model.py` (create)
 
 - [ ] **Step 1: Write the failing test**
@@ -67,7 +67,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lucid_logbook.models import (
+from lightfall_logbook.models import (
     Base,
     UserSettingRow,
     UserSettingSchema,
@@ -142,7 +142,7 @@ def test_schema_round_trip():
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
+cd ~/PycharmProjects/ncs/lightfall-logbook
 .venv/Scripts/python -m pytest tests/test_user_settings_model.py -v
 ```
 
@@ -150,7 +150,7 @@ Expected: ImportError on `UserSettingRow` / `UserSettingSchema` / `UserSettingWr
 
 - [ ] **Step 3: Add the model + schemas**
 
-Append to `src/lucid_logbook/models.py` (after `FragmentRow`, before the Pydantic section):
+Append to `src/lightfall_logbook/models.py` (after `FragmentRow`, before the Pydantic section):
 
 ```python
 class UserSettingRow(Base):
@@ -218,7 +218,7 @@ Expected: full suite passes.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_logbook/models.py tests/test_user_settings_model.py
+git add src/lightfall_logbook/models.py tests/test_user_settings_model.py
 git commit -m "feat(settings): add UserSettingRow ORM model and Pydantic schemas"
 ```
 
@@ -227,8 +227,8 @@ git commit -m "feat(settings): add UserSettingRow ORM model and Pydantic schemas
 ## Task 2: Add `SettingsController` GET endpoints
 
 **Files:**
-- Modify: `src/lucid_logbook/api.py`
-- Modify: `src/lucid_logbook/app.py` (register the controller)
+- Modify: `src/lightfall_logbook/api.py`
+- Modify: `src/lightfall_logbook/app.py` (register the controller)
 - Test: `tests/test_settings_api.py` (create)
 
 - [ ] **Step 1: Write the failing tests**
@@ -243,7 +243,7 @@ from pathlib import Path
 import pytest
 from litestar.testing import AsyncTestClient
 
-from lucid_logbook.app import create_app
+from lightfall_logbook.app import create_app
 
 
 @pytest.fixture
@@ -314,7 +314,7 @@ Expected: 404 / 405 because the route doesn't exist yet (or import fails because
 
 - [ ] **Step 3: Implement the GET endpoints**
 
-Add to `src/lucid_logbook/api.py` (after `ImageController`):
+Add to `src/lightfall_logbook/api.py` (after `ImageController`):
 
 ```python
 class SettingsController(Controller):
@@ -366,7 +366,7 @@ class SettingsController(Controller):
 Update the imports at the top of `api.py`:
 
 ```python
-from lucid_logbook.models import (
+from lightfall_logbook.models import (
     EntryCreate,
     EntryRow,
     EntrySchema,
@@ -383,10 +383,10 @@ from lucid_logbook.models import (
 )
 ```
 
-Wire it into `src/lucid_logbook/app.py` — change the import line and the `route_handlers=` argument:
+Wire it into `src/lightfall_logbook/app.py` — change the import line and the `route_handlers=` argument:
 
 ```python
-from lucid_logbook.api import (
+from lightfall_logbook.api import (
     ImageController,
     LogbookController,
     SearchController,
@@ -416,7 +416,7 @@ Expected: `test_get_unknown_key_returns_404` and `test_get_all_empty` pass; the 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_logbook/api.py src/lucid_logbook/app.py tests/test_settings_api.py
+git add src/lightfall_logbook/api.py src/lightfall_logbook/app.py tests/test_settings_api.py
 git commit -m "feat(settings): add GET /logbook/settings endpoints"
 ```
 
@@ -425,7 +425,7 @@ git commit -m "feat(settings): add GET /logbook/settings endpoints"
 ## Task 3: Add `SettingsController` PUT (upsert)
 
 **Files:**
-- Modify: `src/lucid_logbook/api.py`
+- Modify: `src/lightfall_logbook/api.py`
 - Modify: `tests/test_settings_api.py`
 
 - [ ] **Step 1: Write additional failing tests**
@@ -490,7 +490,7 @@ Expected: the three new tests fail (405 Method Not Allowed).
 
 - [ ] **Step 3: Implement PUT inside `SettingsController`**
 
-Add method to `SettingsController` in `src/lucid_logbook/api.py`:
+Add method to `SettingsController` in `src/lightfall_logbook/api.py`:
 
 ```python
     @put("/{key:str}")
@@ -569,7 +569,7 @@ Expected: all 7 tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid_logbook/api.py tests/test_settings_api.py
+git add src/lightfall_logbook/api.py tests/test_settings_api.py
 git commit -m "feat(settings): add PUT /logbook/settings/{key} with upsert"
 ```
 
@@ -578,7 +578,7 @@ git commit -m "feat(settings): add PUT /logbook/settings/{key} with upsert"
 ## Task 4: Add `SettingsController` DELETE + profile-pic write hook
 
 **Files:**
-- Modify: `src/lucid_logbook/api.py`
+- Modify: `src/lightfall_logbook/api.py`
 - Modify: `tests/test_settings_api.py`
 - Test: `tests/test_user_profile_flow.py` (create)
 
@@ -630,7 +630,7 @@ from pathlib import Path
 import pytest
 from litestar.testing import AsyncTestClient
 
-from lucid_logbook.app import create_app
+from lightfall_logbook.app import create_app
 
 
 def _make_minimal_png() -> bytes:
@@ -866,7 +866,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid_logbook/api.py tests/test_settings_api.py tests/test_user_profile_flow.py
+git add src/lightfall_logbook/api.py tests/test_settings_api.py tests/test_user_profile_flow.py
 git commit -m "feat(settings): add DELETE endpoint and profile_image_id post-write hook"
 ```
 
@@ -880,24 +880,24 @@ git commit -m "feat(settings): add DELETE endpoint and profile_image_id post-wri
 git push -u origin feat/user-settings
 ```
 
-This is a natural pause point: the backend is feature-complete and tested. The LUCID-side work in Phase 2+ does not need the backend to be merged, only deployed (or run locally) for manual end-to-end testing in Phase 4.
+This is a natural pause point: the backend is feature-complete and tested. The Lightfall-side work in Phase 2+ does not need the backend to be merged, only deployed (or run locally) for manual end-to-end testing in Phase 4.
 
 ---
 
-# Phase 2 — LUCID-side shared HTTP plumbing
+# Phase 2 — Lightfall-side shared HTTP plumbing
 
 These two tasks are pure refactors. No new behavior, no new tests beyond confirming the existing ones still pass.
 
-## Task 6: Extract `SessionAuth` to `lucid/auth/httpx_auth.py`
+## Task 6: Extract `SessionAuth` to `lightfall/auth/httpx_auth.py`
 
 **Files:**
-- Create: `src/lucid/auth/httpx_auth.py`
-- Modify: `src/lucid/logbook/client.py`
+- Create: `src/lightfall/auth/httpx_auth.py`
+- Modify: `src/lightfall/logbook/client.py`
 
 - [ ] **Step 1: Create the new module**
 
 ```python
-# src/lucid/auth/httpx_auth.py
+# src/lightfall/auth/httpx_auth.py
 """Shared httpx.Auth adapter that pulls the Bearer token fresh from the
 SessionManager on every request.
 
@@ -922,7 +922,7 @@ class SessionAuth(httpx.Auth):
 
     def sync_auth_flow(self, request):
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             session = SessionManager.get_instance().session
             if session and session.token:
                 request.headers["Authorization"] = f"Bearer {session.token}"
@@ -933,12 +933,12 @@ class SessionAuth(httpx.Auth):
         yield request
 ```
 
-- [ ] **Step 2: Replace `_SessionAuth` in `lucid/logbook/client.py`**
+- [ ] **Step 2: Replace `_SessionAuth` in `lightfall/logbook/client.py`**
 
-Open `src/lucid/logbook/client.py`. Delete the `_SessionAuth` class (currently around lines 93–113). Update the import block at the top to add:
+Open `src/lightfall/logbook/client.py`. Delete the `_SessionAuth` class (currently around lines 93–113). Update the import block at the top to add:
 
 ```python
-from lucid.auth.httpx_auth import SessionAuth
+from lightfall.auth.httpx_auth import SessionAuth
 ```
 
 In `_run_sync` (currently around line 131), replace:
@@ -965,8 +965,8 @@ Expected: any test that exercised `_SessionAuth` continues to pass; nothing new.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid/auth/httpx_auth.py src/lucid/logbook/client.py
-git commit -m "refactor(auth): extract SessionAuth from logbook client to lucid.auth.httpx_auth"
+git add src/lightfall/auth/httpx_auth.py src/lightfall/logbook/client.py
+git commit -m "refactor(auth): extract SessionAuth from logbook client to lightfall.auth.httpx_auth"
 ```
 
 ---
@@ -974,8 +974,8 @@ git commit -m "refactor(auth): extract SessionAuth from logbook client to lucid.
 ## Task 7: Extract `get_logbook_base_url()` helper
 
 **Files:**
-- Create: `src/lucid/logbook/url.py`
-- Modify: `src/lucid/logbook/client.py`
+- Create: `src/lightfall/logbook/url.py`
+- Modify: `src/lightfall/logbook/client.py`
 - Test: `tests/test_logbook_url.py` (create)
 
 - [ ] **Step 1: Write the failing test**
@@ -991,10 +991,10 @@ import pytest
 def test_default_when_no_pref(monkeypatch):
     """If PreferencesManager isn't initialised or has no value, return the
     fallback base URL."""
-    from lucid.logbook.url import get_logbook_base_url, DEFAULT_LOGBOOK_URL
+    from lightfall.logbook.url import get_logbook_base_url, DEFAULT_LOGBOOK_URL
 
     # Force the prefs lookup to raise (simulate uninitialised manager)
-    import lucid.logbook.url as mod
+    import lightfall.logbook.url as mod
 
     def boom():
         raise RuntimeError("no prefs in test")
@@ -1004,8 +1004,8 @@ def test_default_when_no_pref(monkeypatch):
 
 
 def test_pref_value_overrides_default(monkeypatch):
-    from lucid.logbook.url import get_logbook_base_url
-    import lucid.logbook.url as mod
+    from lightfall.logbook.url import get_logbook_base_url
+    import lightfall.logbook.url as mod
 
     monkeypatch.setattr(mod, "_load_pref", lambda: "https://custom.example/lb")
     assert get_logbook_base_url() == "https://custom.example/lb"
@@ -1013,8 +1013,8 @@ def test_pref_value_overrides_default(monkeypatch):
 
 def test_pref_returning_empty_falls_back(monkeypatch):
     """A blank/None pref must yield the default, not an empty URL."""
-    from lucid.logbook.url import get_logbook_base_url, DEFAULT_LOGBOOK_URL
-    import lucid.logbook.url as mod
+    from lightfall.logbook.url import get_logbook_base_url, DEFAULT_LOGBOOK_URL
+    import lightfall.logbook.url as mod
 
     monkeypatch.setattr(mod, "_load_pref", lambda: "")
     assert get_logbook_base_url() == DEFAULT_LOGBOOK_URL
@@ -1028,12 +1028,12 @@ def test_pref_returning_empty_falls_back(monkeypatch):
 .venv/Scripts/python -m pytest tests/test_logbook_url.py -v
 ```
 
-Expected: ImportError on `lucid.logbook.url`.
+Expected: ImportError on `lightfall.logbook.url`.
 
 - [ ] **Step 3: Implement the helper**
 
 ```python
-# src/lucid/logbook/url.py
+# src/lightfall/logbook/url.py
 """Resolve the logbook base URL once for any client that needs it.
 
 LogbookClient and UserSettingsClient both talk to the same backend, so
@@ -1042,7 +1042,7 @@ prefs lookup.
 """
 from __future__ import annotations
 
-DEFAULT_LOGBOOK_URL = "http://bcglucidlogbook.dhcp.lbl.gov"
+DEFAULT_LOGBOOK_URL = "http://bcglightfalllogbook.dhcp.lbl.gov"
 
 
 def _load_pref() -> str | None:
@@ -1051,7 +1051,7 @@ def _load_pref() -> str | None:
     Returns None on any failure (manager uninitialised, ConfigManager
     missing, etc.). Wrapped so it's trivially monkeypatchable in tests.
     """
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.manager import PreferencesManager
     prefs = PreferencesManager.get_instance()
     return prefs.get("logbook_url", None)
 
@@ -1067,13 +1067,13 @@ def get_logbook_base_url() -> str:
 
 - [ ] **Step 4: Use it from `LogbookClient._load_preferences`**
 
-In `src/lucid/logbook/client.py`, replace `_load_preferences`:
+In `src/lightfall/logbook/client.py`, replace `_load_preferences`:
 
 ```python
     def _load_preferences(self) -> None:
-        from lucid.logbook.url import get_logbook_base_url
+        from lightfall.logbook.url import get_logbook_base_url
         try:
-            from lucid.ui.preferences.manager import PreferencesManager
+            from lightfall.ui.preferences.manager import PreferencesManager
             prefs = PreferencesManager.get_instance()
             self._server_url = get_logbook_base_url()
             self._offline_only = prefs.get("logbook_offline_only", False)
@@ -1093,7 +1093,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/logbook/url.py src/lucid/logbook/client.py tests/test_logbook_url.py
+git add src/lightfall/logbook/url.py src/lightfall/logbook/client.py tests/test_logbook_url.py
 git commit -m "refactor(logbook): extract get_logbook_base_url helper"
 ```
 
@@ -1104,8 +1104,8 @@ git commit -m "refactor(logbook): extract get_logbook_base_url helper"
 ## Task 8: Module skeleton + `get` / `get_all`
 
 **Files:**
-- Create: `src/lucid/settings/__init__.py`
-- Create: `src/lucid/settings/user_settings_client.py`
+- Create: `src/lightfall/settings/__init__.py`
+- Create: `src/lightfall/settings/user_settings_client.py`
 - Test: `tests/test_user_settings_client.py` (create)
 
 - [ ] **Step 1: Write failing tests**
@@ -1123,14 +1123,14 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.reset()
     yield
     UserSettingsClient.reset()
 
 
 def _client(base_url="https://lb.test"):
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.init(base_url=base_url)
     return UserSettingsClient.get_instance()
 
@@ -1189,18 +1189,18 @@ def test_beamline_query_passed_through(httpx_mock):
 .venv/Scripts/python -m pytest tests/test_user_settings_client.py -v
 ```
 
-Expected: ImportError on `lucid.settings.user_settings_client`.
+Expected: ImportError on `lightfall.settings.user_settings_client`.
 
 - [ ] **Step 3: Implement the client skeleton**
 
 ```python
-# src/lucid/settings/__init__.py
-"""User-scoped settings (server-backed) for LUCID."""
+# src/lightfall/settings/__init__.py
+"""User-scoped settings (server-backed) for Lightfall."""
 ```
 
 ```python
-# src/lucid/settings/user_settings_client.py
-"""Sync HTTP client for the lucid-logbook /logbook/settings endpoints.
+# src/lightfall/settings/user_settings_client.py
+"""Sync HTTP client for the lightfall-logbook /logbook/settings endpoints.
 
 Used for user-scoped settings that must follow a user across machines
 (profile picture, future user-level prefs). Local-only preferences
@@ -1213,9 +1213,9 @@ from typing import Any
 
 import httpx
 
-from lucid.auth.httpx_auth import SessionAuth
-from lucid.logbook.url import get_logbook_base_url
-from lucid.utils.logging import logger
+from lightfall.auth.httpx_auth import SessionAuth
+from lightfall.logbook.url import get_logbook_base_url
+from lightfall.utils.logging import logger
 
 
 _DEFAULT_TIMEOUT = 10.0
@@ -1323,7 +1323,7 @@ Expected: all 5 pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/settings/__init__.py src/lucid/settings/user_settings_client.py tests/test_user_settings_client.py
+git add src/lightfall/settings/__init__.py src/lightfall/settings/user_settings_client.py tests/test_user_settings_client.py
 git commit -m "feat(settings): add UserSettingsClient with get and get_all"
 ```
 
@@ -1332,7 +1332,7 @@ git commit -m "feat(settings): add UserSettingsClient with get and get_all"
 ## Task 9: `set` / `delete`
 
 **Files:**
-- Modify: `src/lucid/settings/user_settings_client.py`
+- Modify: `src/lightfall/settings/user_settings_client.py`
 - Modify: `tests/test_user_settings_client.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1375,7 +1375,7 @@ def test_set_with_beamline(httpx_mock):
 
 
 def test_set_raises_on_5xx(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="PUT",
@@ -1388,7 +1388,7 @@ def test_set_raises_on_5xx(httpx_mock):
 
 
 def test_set_raises_on_network_error(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_exception(httpx.ConnectError("boom"))
     c = _client()
@@ -1407,7 +1407,7 @@ def test_delete_succeeds(httpx_mock):
 
 
 def test_delete_raises_on_404(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="DELETE",
@@ -1427,7 +1427,7 @@ def test_delete_raises_on_404(httpx_mock):
 
 - [ ] **Step 3: Implement `set` and `delete`**
 
-Append to `UserSettingsClient` in `src/lucid/settings/user_settings_client.py`:
+Append to `UserSettingsClient` in `src/lightfall/settings/user_settings_client.py`:
 
 ```python
     # ── Write API ────────────────────────────────────────────────────────
@@ -1474,7 +1474,7 @@ Append to `UserSettingsClient` in `src/lucid/settings/user_settings_client.py`:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/settings/user_settings_client.py tests/test_user_settings_client.py
+git add src/lightfall/settings/user_settings_client.py tests/test_user_settings_client.py
 git commit -m "feat(settings): add UserSettingsClient.set and .delete"
 ```
 
@@ -1483,7 +1483,7 @@ git commit -m "feat(settings): add UserSettingsClient.set and .delete"
 ## Task 10: `upload_image` + `image_url` helpers
 
 **Files:**
-- Modify: `src/lucid/settings/user_settings_client.py`
+- Modify: `src/lightfall/settings/user_settings_client.py`
 - Modify: `tests/test_user_settings_client.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1504,7 +1504,7 @@ def test_upload_image_returns_id(httpx_mock):
 
 
 def test_upload_image_raises_on_4xx(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="POST",
@@ -1538,7 +1538,7 @@ def test_download_image_returns_bytes_and_mime(httpx_mock):
 
 
 def test_download_image_raises_on_404(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         url="https://lb.test/logbook/images/missing",
@@ -1605,7 +1605,7 @@ Append to `UserSettingsClient`:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/settings/user_settings_client.py tests/test_user_settings_client.py
+git add src/lightfall/settings/user_settings_client.py tests/test_user_settings_client.py
 git commit -m "feat(settings): add UserSettingsClient.upload_image and image_url"
 ```
 
@@ -1616,7 +1616,7 @@ git commit -m "feat(settings): add UserSettingsClient.upload_image and image_url
 ## Task 11: Plugin skeleton with metadata + identity labels
 
 **Files:**
-- Create: `src/lucid/ui/preferences/user_profile_settings.py`
+- Create: `src/lightfall/ui/preferences/user_profile_settings.py`
 - Test: `tests/ui/test_user_profile_plugin.py` (create)
 
 - [ ] **Step 1: Write the failing test**
@@ -1653,7 +1653,7 @@ class _StubSession:
 
 @pytest.fixture(autouse=True)
 def _reset_settings_client():
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.reset()
     UserSettingsClient.init(base_url="https://lb.test")
     yield
@@ -1663,7 +1663,7 @@ def _reset_settings_client():
 @pytest.fixture
 def stub_session(monkeypatch):
     """Patch SessionManager.get_instance() to return a stub session."""
-    from lucid.auth import session as session_mod
+    from lightfall.auth import session as session_mod
 
     sm = MagicMock()
     sm.session = _StubSession()
@@ -1674,7 +1674,7 @@ def stub_session(monkeypatch):
 
 
 def test_plugin_metadata():
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -1686,7 +1686,7 @@ def test_plugin_metadata():
 
 
 def test_create_widget_shows_identity_labels(qtbot, stub_session):
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -1705,7 +1705,7 @@ def test_create_widget_shows_identity_labels(qtbot, stub_session):
 
 
 def test_orcid_row_hidden_when_absent(qtbot, stub_session):
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
 
@@ -1718,7 +1718,7 @@ def test_orcid_row_hidden_when_absent(qtbot, stub_session):
 
 
 def test_orcid_row_shown_when_present(qtbot, monkeypatch):
-    from lucid.auth import session as session_mod
+    from lightfall.auth import session as session_mod
     user = _StubUser(attributes={"orcid": "0000-0001-2345-6789"})
     sm = MagicMock()
     sm.session = _StubSession(user=user)
@@ -1726,7 +1726,7 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
         session_mod.SessionManager, "get_instance", classmethod(lambda cls: sm)
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -1738,7 +1738,7 @@ def test_orcid_row_shown_when_present(qtbot, monkeypatch):
     assert "0000-0001-2345-6789" in label_text
 ```
 
-Note: this assumes `lucid.auth.session.SessionManager.get_instance()` exists. If the actual API differs, adjust the patch target — but the same shape of test is correct.
+Note: this assumes `lightfall.auth.session.SessionManager.get_instance()` exists. If the actual API differs, adjust the patch target — but the same shape of test is correct.
 
 - [ ] **Step 2: Run; fails on import**
 
@@ -1749,7 +1749,7 @@ Note: this assumes `lucid.auth.session.SessionManager.get_instance()` exists. If
 - [ ] **Step 3: Implement the plugin**
 
 ```python
-# src/lucid/ui/preferences/user_profile_settings.py
+# src/lightfall/ui/preferences/user_profile_settings.py
 """Settings plugin for the per-user profile picture (and identity preview).
 
 MVP scope: the user can view their identity (read-only labels), upload a
@@ -1774,8 +1774,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.plugins.settings_plugin import SettingsPlugin
-from lucid.utils.logging import logger
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -1887,7 +1887,7 @@ class UserProfileSettingsPlugin(SettingsPlugin):
     def _read_identity(self) -> tuple[str, str, str, str | None]:
         """Pull (username, display_name, email, orcid) from the current session."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             sess = SessionManager.get_instance().session
             if sess is None or sess.user is None:
                 return ("(not logged in)", "", "", None)
@@ -1931,7 +1931,7 @@ Expected: 4 tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py tests/ui/__init__.py
+git add src/lightfall/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py tests/ui/__init__.py
 git commit -m "feat(prefs): scaffold UserProfileSettingsPlugin with identity labels"
 ```
 
@@ -1940,7 +1940,7 @@ git commit -m "feat(prefs): scaffold UserProfileSettingsPlugin with identity lab
 ## Task 12: `load_settings` — fetch and display the current avatar
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/user_profile_settings.py`
+- Modify: `src/lightfall/ui/preferences/user_profile_settings.py`
 - Modify: `tests/ui/test_user_profile_plugin.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -1955,7 +1955,7 @@ def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session, httpx_moc
         status_code=404,
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -1991,7 +1991,7 @@ def test_load_settings_with_image_fetches_bytes(
         headers={"content-type": "image/png"},
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -2033,7 +2033,7 @@ def _png_bytes_1x1_red() -> bytes:
 
 - [ ] **Step 3: Implement `load_settings` with worker-thread image fetch**
 
-In `src/lucid/ui/preferences/user_profile_settings.py`, replace the `load_settings` stub and add helpers:
+In `src/lightfall/ui/preferences/user_profile_settings.py`, replace the `load_settings` stub and add helpers:
 
 ```python
     def __init__(self) -> None:
@@ -2044,8 +2044,8 @@ In `src/lucid/ui/preferences/user_profile_settings.py`, replace the `load_settin
 
     def load_settings(self) -> None:
         """Fetch the current profile_image_id and render the avatar."""
-        from lucid.settings.user_settings_client import UserSettingsClient
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.settings.user_settings_client import UserSettingsClient
+        from lightfall.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
         image_id = client.get("profile_image_id", default=None)
@@ -2113,7 +2113,7 @@ Expected: all green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
+git add src/lightfall/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
 git commit -m "feat(prefs): UserProfileSettingsPlugin.load_settings fetches avatar"
 ```
 
@@ -2122,7 +2122,7 @@ git commit -m "feat(prefs): UserProfileSettingsPlugin.load_settings fetches avat
 ## Task 13: "Choose Image…" action
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/user_profile_settings.py`
+- Modify: `src/lightfall/ui/preferences/user_profile_settings.py`
 - Modify: `tests/ui/test_user_profile_plugin.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -2168,7 +2168,7 @@ def test_choose_image_happy_path(
         },
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -2198,7 +2198,7 @@ def test_choose_image_rejects_too_large(
         staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -2228,7 +2228,7 @@ def test_choose_image_rejects_unknown_mime(
         staticmethod(lambda *a, **kw: shown.append(a) or QMessageBox.StandardButton.Ok),
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -2246,7 +2246,7 @@ def test_choose_image_rejects_unknown_mime(
 
 - [ ] **Step 3: Implement choose-image flow**
 
-In `src/lucid/ui/preferences/user_profile_settings.py`, replace `_on_choose_clicked` and add helpers:
+In `src/lightfall/ui/preferences/user_profile_settings.py`, replace `_on_choose_clicked` and add helpers:
 
 ```python
 _ALLOWED_MIMES = {
@@ -2307,11 +2307,11 @@ _MAX_IMAGE_BYTES = 20 * 1024 * 1024
         """Upload image, set profile_image_id, refresh avatar."""
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.settings.user_settings_client import (
+        from lightfall.settings.user_settings_client import (
             UserSettingsClient,
             UserSettingsError,
         )
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
 
@@ -2351,7 +2351,7 @@ Expected: all green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
+git add src/lightfall/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
 git commit -m "feat(prefs): wire Choose Image action with size and mime pre-checks"
 ```
 
@@ -2360,7 +2360,7 @@ git commit -m "feat(prefs): wire Choose Image action with size and mime pre-chec
 ## Task 14: "Remove Image" action
 
 **Files:**
-- Modify: `src/lucid/ui/preferences/user_profile_settings.py`
+- Modify: `src/lightfall/ui/preferences/user_profile_settings.py`
 - Modify: `tests/ui/test_user_profile_plugin.py`
 
 - [ ] **Step 1: Write failing test**
@@ -2380,7 +2380,7 @@ def test_remove_image_clears_setting(qtbot, stub_session, httpx_mock):
         status_code=404,
     )
 
-    from lucid.ui.preferences.user_profile_settings import (
+    from lightfall.ui.preferences.user_profile_settings import (
         UserProfileSettingsPlugin,
     )
     p = UserProfileSettingsPlugin()
@@ -2400,17 +2400,17 @@ def test_remove_image_clears_setting(qtbot, stub_session, httpx_mock):
 
 - [ ] **Step 3: Implement remove**
 
-Replace `_on_remove_clicked` in `src/lucid/ui/preferences/user_profile_settings.py`:
+Replace `_on_remove_clicked` in `src/lightfall/ui/preferences/user_profile_settings.py`:
 
 ```python
     def _on_remove_clicked(self) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lucid.settings.user_settings_client import (
+        from lightfall.settings.user_settings_client import (
             UserSettingsClient,
             UserSettingsError,
         )
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.utils.threads import QThreadFuture
 
         client = UserSettingsClient.get_instance()
 
@@ -2453,7 +2453,7 @@ Expected: all green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
+git add src/lightfall/ui/preferences/user_profile_settings.py tests/ui/test_user_profile_plugin.py
 git commit -m "feat(prefs): wire Remove Image action"
 ```
 
@@ -2462,35 +2462,35 @@ git commit -m "feat(prefs): wire Remove Image action"
 ## Task 15: Register the plugin
 
 **Files:**
-- Modify: `src/lucid/plugins/builtin_manifest.py`
-- Modify: `src/lucid/ui/preferences/__init__.py`
+- Modify: `src/lightfall/plugins/builtin_manifest.py`
+- Modify: `src/lightfall/ui/preferences/__init__.py`
 
 The manifest is a Python module of `PluginEntry` objects, not toml/json. The existing settings entries live between roughly lines 42–114 of `builtin_manifest.py`.
 
 - [ ] **Step 1: Add a `PluginEntry` for `UserProfileSettingsPlugin`**
 
-In `src/lucid/plugins/builtin_manifest.py`, insert a new entry alongside the other settings plugins (e.g., right after the "Login & Session settings" entry):
+In `src/lightfall/plugins/builtin_manifest.py`, insert a new entry alongside the other settings plugins (e.g., right after the "Login & Session settings" entry):
 
 ```python
         # User Profile settings
         PluginEntry(
             type_name="settings",
             name="user_profile",
-            import_path="lucid.ui.preferences.user_profile_settings:UserProfileSettingsPlugin",
+            import_path="lightfall.ui.preferences.user_profile_settings:UserProfileSettingsPlugin",
         ),
 ```
 
 - [ ] **Step 2: Re-export from the package `__init__.py`**
 
-Edit `src/lucid/ui/preferences/__init__.py`:
+Edit `src/lightfall/ui/preferences/__init__.py`:
 
 ```python
 """User preferences management for NCS."""
-from lucid.ui.preferences.builtin import AppearanceSettingsPlugin
-from lucid.ui.preferences.device_settings import DeviceSettingsPlugin
-from lucid.ui.preferences.dialog import PreferencesDialog
-from lucid.ui.preferences.manager import PreferencesManager
-from lucid.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
+from lightfall.ui.preferences.builtin import AppearanceSettingsPlugin
+from lightfall.ui.preferences.device_settings import DeviceSettingsPlugin
+from lightfall.ui.preferences.dialog import PreferencesDialog
+from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
 
 __all__ = [
     "AppearanceSettingsPlugin",
@@ -2504,7 +2504,7 @@ __all__ = [
 - [ ] **Step 3: Verify the plugin is discovered**
 
 ```bash
-.venv/Scripts/python -c "from lucid.plugins.builtin_manifest import builtin_manifest; print([p.name for p in builtin_manifest.plugins if p.type_name == 'settings'])"
+.venv/Scripts/python -c "from lightfall.plugins.builtin_manifest import builtin_manifest; print([p.name for p in builtin_manifest.plugins if p.type_name == 'settings'])"
 ```
 
 Expected: a list containing `'user_profile'` alongside `'appearance'`, `'login'`, etc.
@@ -2520,7 +2520,7 @@ Expected: clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/plugins/builtin_manifest.py src/lucid/ui/preferences/__init__.py
+git add src/lightfall/plugins/builtin_manifest.py src/lightfall/ui/preferences/__init__.py
 git commit -m "feat(prefs): register UserProfileSettingsPlugin in builtin manifest"
 ```
 
@@ -2535,17 +2535,17 @@ git commit -m "feat(prefs): register UserProfileSettingsPlugin in builtin manife
 In one shell:
 
 ```bash
-cd ~/PycharmProjects/ncs/lucid-logbook
-.venv/Scripts/python -m uvicorn lucid_logbook.app:app --reload --port 8000
+cd ~/PycharmProjects/ncs/lightfall-logbook
+.venv/Scripts/python -m uvicorn lightfall_logbook.app:app --reload --port 8000
 ```
 
-- [ ] **Step 2: Point LUCID at it**
+- [ ] **Step 2: Point Lightfall at it**
 
-In LUCID's Preferences (existing UI), set `Logbook URL` to `http://localhost:8000` if not already.
+In Lightfall's Preferences (existing UI), set `Logbook URL` to `http://localhost:8000` if not already.
 
 - [ ] **Step 3: Manual smoke**
 
-1. Launch LUCID, log in.
+1. Launch Lightfall, log in.
 2. Open Preferences → User Profile.
 3. Verify identity labels show your username, display name, email (and ORCID if your token has it).
 4. Click "Choose Image…", pick a PNG. Verify the avatar updates inline.
@@ -2553,7 +2553,7 @@ In LUCID's Preferences (existing UI), set `Logbook URL` to `http://localhost:800
 6. Click "Choose Image…" again with a different image. Confirm the avatar updates and the previous file in the server's `IMAGE_STORAGE_DIR` is gone (`ls` it).
 7. Click "Remove Image". Confirm avatar reverts to the placeholder, and the image file on the server is removed.
 
-- [ ] **Step 4: Push the LUCID branch**
+- [ ] **Step 4: Push the Lightfall branch**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
@@ -2568,10 +2568,10 @@ If the smoke testing surfaced fix-ups, commit them with a `fix(prefs): ...` mess
 
 ## Done criteria (mirrors spec §9)
 
-- New `user_settings` table exists in `lucid-logbook` (Task 1).
+- New `user_settings` table exists in `lightfall-logbook` (Task 1).
 - Four endpoints mounted, authenticated, tenant-scoped (Tasks 2–4).
 - Profile-pic write hook deletes the previous image bytes on update (Task 4).
 - `UserSettingsClient` exists with `get/set/delete/get_all/upload_image/image_url` (Tasks 8–10).
 - `SessionAuth` and `get_logbook_base_url` are factored as in spec §4.1 and used by both clients (Tasks 6–7).
 - `UserProfileSettingsPlugin` registered, appears in the Preferences dialog under General between Appearance and Login & Session, and supports load/choose/remove (Tasks 11–15).
-- Backend test suites and LUCID-side test suites pass (every task ends in `pytest -q` clean).
+- Backend test suites and Lightfall-side test suites pass (every task ends in `pytest -q` clean).

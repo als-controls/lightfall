@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.ui.widgets.observers import CameraBase
+from lightfall.ui.widgets.observers import CameraBase
 
 
 def test_camerabase_is_abstract():

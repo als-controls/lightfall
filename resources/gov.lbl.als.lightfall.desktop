@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lightfall
+GenericName=Control System
+Comment=Control system for the ALS facility
+Exec=lightfall
+Icon=gov.lbl.als.lightfall
+Categories=Science;Development;
+StartupWMClass=lightfall
+Keywords=control;beamline;data;acquisition;

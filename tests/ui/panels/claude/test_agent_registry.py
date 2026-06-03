@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
 
 class _Pure_Prompt_Agent(AgentPlugin):
@@ -48,7 +48,7 @@ def reset_registry():
 def _stub_prefs(monkeypatch, *, disabled=None, forced=None):
     """Stub the registry's pref reads so tests don't touch QSettings."""
     def fake(self, key):
-        from lucid.ui.panels.claude.agent_registry import (
+        from lightfall.ui.panels.claude.agent_registry import (
             DISABLED_PLUGINS_PREF, FORCED_ENABLED_PLUGINS_PREF,
         )
         if key == DISABLED_PLUGINS_PREF:
@@ -57,12 +57,12 @@ def _stub_prefs(monkeypatch, *, disabled=None, forced=None):
             return forced
         return None
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
         fake,
     )
     # Skip migration: tests assert on the new prefs directly.
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
 

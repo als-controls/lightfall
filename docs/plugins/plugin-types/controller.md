@@ -12,7 +12,7 @@ Use `ControllerPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.controller_plugin import ControllerPlugin
+from lightfall.plugins.controller_plugin import ControllerPlugin
 ```
 
 ## Class Attributes
@@ -119,7 +119,7 @@ Higher priorities take precedence when multiple controllers match.
 
 from PySide6.QtWidgets import QWidget
 
-from lucid.plugins.controller_plugin import ControllerPlugin
+from lightfall.plugins.controller_plugin import ControllerPlugin
 
 
 class MotorControllerPlugin(ControllerPlugin):
@@ -143,7 +143,7 @@ class MotorControllerPlugin(ControllerPlugin):
             return None
 
         # Check if it's a motor
-        from lucid.devices.types import DeviceCategory
+        from lightfall.devices.types import DeviceCategory
 
         if item.device_info.category == DeviceCategory.MOTOR:
             return 100  # Device class match
@@ -286,7 +286,7 @@ class MultiMotorControllerPlugin(ControllerPlugin):
         if not (2 <= len(items) <= 4):
             return None
 
-        from lucid.devices.types import DeviceCategory
+        from lightfall.devices.types import DeviceCategory
 
         # All items must be motors
         for item in items:

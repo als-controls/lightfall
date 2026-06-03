@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.devices.model import DeviceInfo
+from lightfall.devices.model import DeviceInfo
 
 
 class TestDeviceInfoNewFields:
@@ -41,7 +41,7 @@ class TestDeviceInfoNewFields:
         assert summary["group"] == "hutch_a"
 
 
-from lucid.devices.base import DeviceBackend
+from lightfall.devices.base import DeviceBackend
 
 
 class TestBackendEditable:
@@ -50,7 +50,7 @@ class TestBackendEditable:
     def test_base_backend_not_editable(self):
         """DeviceBackend.is_editable should default to False."""
         # We can't instantiate the ABC directly, so test via a concrete subclass
-        from lucid.devices.backends.mock import MockBackend
+        from lightfall.devices.backends.mock import MockBackend
 
         backend = MockBackend()
         assert backend.is_editable is False
@@ -60,7 +60,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from lucid.devices.model import DeviceCategory, ConnectionType
+from lightfall.devices.model import DeviceCategory, ConnectionType
 
 
 class TestHappiBackendWriteThrough:
@@ -77,7 +77,7 @@ class TestHappiBackendWriteThrough:
     def backend(self, happi_json):
         """Create a connected HappiBackend."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         be = HappiBackend(path=happi_json, instantiate=False)
         be.connect()
@@ -146,7 +146,7 @@ class TestHappiBackendWriteThrough:
         backend.add_device(device)
         device.active = False
         backend.update_device(device)
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
         be2 = HappiBackend(path=happi_json, instantiate=False)
         be2.connect()
         found = be2.get_device_by_name("toggle_motor")
@@ -156,7 +156,7 @@ class TestHappiBackendWriteThrough:
     def test_auto_init_creates_db(self, tmp_path):
         """If JSON path doesn't exist, auto-create it."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
         db_path = tmp_path / "nonexistent" / "happi.json"
         be = HappiBackend(path=str(db_path), instantiate=False)
         result = be.connect()
@@ -188,7 +188,7 @@ class TestInactiveDeviceRendering:
 
     def test_inactive_device_grey_foreground(self, qapp):
         """Inactive device should return grey foreground for all columns."""
-        from lucid.ui.models.device_tree import DeviceTreeItem, NodeType
+        from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
         inactive_device = DeviceInfo(name="disabled_motor", active=False)
         item = DeviceTreeItem(
             name="disabled_motor",
@@ -217,7 +217,7 @@ class TestDeviceEditDialog:
 
     def test_create_mode_empty_fields(self, qapp):
         """Dialog in create mode should start with empty fields."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         dialog = DeviceEditDialog(mode="create")
         params = dialog.get_values()
         assert params["name"] == ""
@@ -226,7 +226,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_populates_fields(self, qapp):
         """Dialog in edit mode should populate from device."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         device = DeviceInfo(
             name="my_motor",
             device_class="ophyd.EpicsMotor",
@@ -248,7 +248,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_name_readonly(self, qapp):
         """In edit mode, name should be read-only."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         device = DeviceInfo(name="locked_name", device_class="ophyd.EpicsMotor")
         dialog = DeviceEditDialog(mode="edit", device=device)
         name_param = dialog._params.child("Identity", "name")
@@ -256,7 +256,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_device_class_readonly(self, qapp):
         """In edit mode, device_class should be read-only."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         device = DeviceInfo(name="test", device_class="ophyd.EpicsMotor")
         dialog = DeviceEditDialog(mode="edit", device=device)
         dc_param = dialog._params.child("Identity", "device_class")
@@ -264,14 +264,14 @@ class TestDeviceEditDialog:
 
     def test_create_mode_name_editable(self, qapp):
         """In create mode, name should be editable."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         dialog = DeviceEditDialog(mode="create")
         name_param = dialog._params.child("Identity", "name")
         assert name_param.opts.get("readonly", False) is False
 
     def test_extra_fields_from_metadata(self, qapp):
         """Extra metadata fields should appear in the dialog."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
         device = DeviceInfo(
             name="test",
             device_class="ophyd.EpicsMotor",
@@ -299,8 +299,8 @@ class TestDevicePanelContextMenu:
 
     def test_context_menu_policy_set(self, qapp):
         """Tree view should have CustomContextMenu policy."""
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -314,8 +314,8 @@ class TestDevicePanelContextMenu:
 
     def test_context_menu_on_device_has_favorites(self, qapp):
         """Context menu on a device should include Add to Favorites."""
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -331,8 +331,8 @@ class TestDevicePanelContextMenu:
         """Context menu on inactive device should show 'Enable' (via DeviceTreeTab)."""
         # Context menu logic now lives in DeviceTreeTab._on_context_menu
         # We verify the tree tab can be created and has the expected interface
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         editable_backend = MagicMock()
@@ -347,8 +347,8 @@ class TestDevicePanelContextMenu:
 
     def test_build_context_menu_not_editable_backend(self, qapp):
         """Non-editable backend should report not editable."""
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         readonly_backend = MagicMock()
@@ -363,8 +363,8 @@ class TestDevicePanelContextMenu:
 
     def test_backend_editable_multi_backend_with_one_editable(self, qapp):
         """With mock (read-only) + happi (editable), _get_backend_editable is True."""
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         mock_be = MagicMock(); mock_be.is_editable = False
@@ -381,8 +381,8 @@ class TestDevicePanelContextMenu:
 
     def test_device_tree_tab_has_context_menu_support(self, qapp):
         """DeviceTreeTab should have context menu support methods."""
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
-        from lucid.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.models.device_tree import DeviceTreeModel
         catalog = MagicMock()
         catalog.get_all_devices.return_value = []
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
@@ -447,7 +447,7 @@ class TestDeviceEditingIntegration:
     def test_full_lifecycle(self, happi_json):
         """Add a device, update it, disable it, then delete it."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         backend = HappiBackend(path=happi_json, instantiate=False)
         backend.connect()
@@ -506,7 +506,7 @@ class TestInactiveDeviceNotInstantiated:
     def test_inactive_device_not_connected_on_load(self, happi_json):
         """Inactive device should have OFFLINE status after loading."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         # Create backend and add a device
         be1 = HappiBackend(path=happi_json, instantiate=False)

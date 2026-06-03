@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.plugins.manifest import PluginEntry, PluginManifest
-from lucid.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.manifest import PluginEntry, PluginManifest
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
 
 class _SampleAgent(AgentPlugin):
@@ -27,7 +27,7 @@ def reset_registry():
 
 
 def _make_loader_with_agent_type():
-    from lucid.plugins.loader import PluginLoader
+    from lightfall.plugins.loader import PluginLoader
 
     loader = PluginLoader()
     loader.register_plugin_type("agent", AgentPlugin)

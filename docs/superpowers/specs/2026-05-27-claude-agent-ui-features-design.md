@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-27
 **Scope:** Three independent additions to the embedded Claude Agent panel
-(`lucid.claude`) that close visible gaps against the `claude_agent_sdk` v0.2.82
+(`lightfall.claude`) that close visible gaps against the `claude_agent_sdk` v0.2.82
 feature surface.
 
 ## Background
@@ -102,7 +102,7 @@ also wakes pending questions, returning `(False, None)`.
 
 ### Widget
 
-New file: `lucid/claude/widgets/question_request.py`
+New file: `lightfall/claude/widgets/question_request.py`
 
 ```python
 class QuestionRequestWidget(QFrame):
@@ -234,7 +234,7 @@ elif isinstance(msg, TaskNotificationMessage):
 
 ### Widget
 
-New file: `lucid/claude/widgets/task_card.py`
+New file: `lightfall/claude/widgets/task_card.py`
 
 ```python
 class TaskCard(QFrame):
@@ -369,19 +369,19 @@ No pixel-level or screenshot assertions.
 ## File-touch summary
 
 Modified:
-- `src/lucid/claude/agent.py` — options flip, three new signal re-exports,
+- `src/lightfall/claude/agent.py` — options flip, three new signal re-exports,
   `respond_to_question`.
-- `src/lucid/claude/permission_manager.py` — `question_requested`,
+- `src/lightfall/claude/permission_manager.py` — `question_requested`,
   `request_question`, `respond_to_question`, `AskUserQuestion`
   special-cases in hook + can_use_tool factories.
-- `src/lucid/claude/_internal/worker.py` — `StreamEvent` dispatch,
+- `src/lightfall/claude/_internal/worker.py` — `StreamEvent` dispatch,
   `Task*Message` branches, new Signals.
-- `src/lucid/claude/widget.py` — slots and state for streaming bubbles,
+- `src/lightfall/claude/widget.py` — slots and state for streaming bubbles,
   question widgets, task cards.
 
 New:
-- `src/lucid/claude/widgets/question_request.py`
-- `src/lucid/claude/widgets/task_card.py`
+- `src/lightfall/claude/widgets/question_request.py`
+- `src/lightfall/claude/widgets/task_card.py`
 - `tests/claude/test_ask_user_question.py`
 - `tests/claude/test_partial_streaming.py`
 - `tests/claude/test_task_progress.py`

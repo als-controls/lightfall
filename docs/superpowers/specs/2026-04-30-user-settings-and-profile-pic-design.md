@@ -2,20 +2,20 @@
 
 **Date:** 2026-04-30
 **Status:** Approved (brainstorming complete; pending implementation plan)
-**Repos affected:** `lucid-logbook` (backend), `ncs/ncs` (LUCID client)
+**Repos affected:** `lightfall-logbook` (backend), `ncs/ncs` (Lightfall client)
 
 ## 1. Context
 
-LUCID currently stores user preferences locally via `PreferencesManager`
+Lightfall currently stores user preferences locally via `PreferencesManager`
 (QSettings + ConfigManager). All preferences are machine-local, with a
 hard-coded `BEAMLINE_SPECIFIC_PREFS` set deciding which keys can be
 overridden per beamline.
 
 We want a second tier of preferences that follow the *user* across
 machines: server-side, keyed by Keycloak `sub`, scoped either globally or
-per-beamline. The lucid-logbook backend is the natural host — it already
+per-beamline. The lightfall-logbook backend is the natural host — it already
 has Keycloak JWT middleware, per-user data (`Logbook.user_id == sub`),
-file storage (`ImageStore`), and a deployed instance the LUCID client
+file storage (`ImageStore`), and a deployed instance the Lightfall client
 already talks to.
 
 The MVP for this feature is a single concrete user setting — a profile
@@ -31,15 +31,15 @@ schema, just new keys.
 |---|---|
 | Identity key | Keycloak `sub` only (matches existing `Logbook.user_id`). No separate `users` table. |
 | Backend storage | Generic KV table `user_settings(user_id, beamline, key, value)`, `beamline=''` for global. |
-| LUCID-side surface | New `UserSettingsClient` singleton; plugins call it directly. No `PreferencesManager` integration in this MVP. |
+| Lightfall-side surface | New `UserSettingsClient` singleton; plugins call it directly. No `PreferencesManager` integration in this MVP. |
 | Profile-pic upload | Two-step: existing `POST /logbook/images` then `PUT /logbook/settings/profile_image_id`. No new convenience endpoint. |
 | MVP UI surface | The settings plugin only. Avatar widgets in chrome / login chip / entry author byline are explicitly out of scope. |
 
-## 3. Backend Design (`lucid-logbook`)
+## 3. Backend Design (`lightfall-logbook`)
 
 ### 3.1 Schema
 
-New SQLAlchemy ORM model in `src/lucid_logbook/models.py`:
+New SQLAlchemy ORM model in `src/lightfall_logbook/models.py`:
 
 ```python
 class UserSettingRow(Base):
@@ -85,7 +85,7 @@ class UserSettingSchema(BaseModel):
 
 ### 3.3 API surface
 
-New `SettingsController` in `src/lucid_logbook/api.py`, mounted at
+New `SettingsController` in `src/lightfall_logbook/api.py`, mounted at
 `/logbook/settings`:
 
 | Method | Path | Query | Body | Response |
@@ -119,23 +119,23 @@ through the unhooked path.
 ### 3.5 Image visibility
 
 The existing `GET /logbook/images/{id}` endpoint requires Bearer auth.
-That is the right level for profile pictures: any authenticated LUCID
+That is the right level for profile pictures: any authenticated Lightfall
 user can fetch any avatar by id, which matches the use case (avatars are
 shown to other users). No change to the image controller is needed for
 this MVP.
 
-## 4. LUCID-Side Design (`ncs/ncs`)
+## 4. Lightfall-Side Design (`ncs/ncs`)
 
 ### 4.1 Shared HTTP plumbing (small refactor)
 
-`lucid/logbook/client.py` currently defines `_SessionAuth(httpx.Auth)`
+`lightfall/logbook/client.py` currently defines `_SessionAuth(httpx.Auth)`
 and reads `prefs.get("logbook_url", …)`. The new client needs both. Two
 small in-scope cleanups:
 
-- Move `_SessionAuth` to `lucid/auth/httpx_auth.py` (rename to
+- Move `_SessionAuth` to `lightfall/auth/httpx_auth.py` (rename to
   `SessionAuth`) and import it from both `LogbookClient` and
   `UserSettingsClient`.
-- Extract a `lucid.logbook.url.get_logbook_base_url()` helper that
+- Extract a `lightfall.logbook.url.get_logbook_base_url()` helper that
   encapsulates the `prefs.get("logbook_url", default)` lookup, used by
   both clients.
 
@@ -143,8 +143,8 @@ These are tiny, targeted, and improve the code we're already touching.
 
 ### 4.2 `UserSettingsClient`
 
-New module: `lucid/settings/user_settings_client.py`. The package name is
-`lucid.settings` rather than `lucid.logbook.settings` — the endpoint
+New module: `lightfall/settings/user_settings_client.py`. The package name is
+`lightfall.settings` rather than `lightfall.logbook.settings` — the endpoint
 happens to live on the logbook server today, but conceptually user
 settings is not a logbook concern, and we don't want every import site
 to change if it ever moves to its own service.
@@ -195,8 +195,8 @@ facade can come later if it earns its keep.
 
 ## 5. `UserProfileSettingsPlugin`
 
-New module: `lucid/ui/preferences/user_profile_settings.py`. Exported
-from `lucid/ui/preferences/__init__.py` and registered in the plugin
+New module: `lightfall/ui/preferences/user_profile_settings.py`. Exported
+from `lightfall/ui/preferences/__init__.py` and registered in the plugin
 manifest with the other settings plugins.
 
 ### 5.1 Plugin metadata
@@ -235,7 +235,7 @@ MVP.
 
 - **`load_settings()`** — read `profile_image_id` from
   `UserSettingsClient.get("profile_image_id", default=None)`. If present,
-  on a worker thread (`lucid.utils.threads.QThreadFuture`) fetch the
+  on a worker thread (`lightfall.utils.threads.QThreadFuture`) fetch the
   bytes from `client.image_url(image_id)` and decode into a `QImage`;
   marshal the result back to the GUI thread, where it is converted to a
   `QPixmap`, scaled to 128×128 with rounded corners, and set on the
@@ -275,7 +275,7 @@ server still validates.
 - Failure to delete a replaced `profile_image_id` blob → logged at
   WARN, request still succeeds.
 
-### 6.2 LUCID client
+### 6.2 Lightfall client
 
 - `UserSettingsClient.get(key, default=…)` swallows 404 and connection
   errors and returns the default.
@@ -287,7 +287,7 @@ server still validates.
 
 ## 7. Testing
 
-### 7.1 Backend (`lucid-logbook/tests/`)
+### 7.1 Backend (`lightfall-logbook/tests/`)
 
 - `test_settings.py`: PUT/GET/DELETE round-trip, global vs beamline
   scope, upsert semantics on duplicate PUT, cross-user tenancy
@@ -299,7 +299,7 @@ server still validates.
   path: simulate `image_store.delete` raising; verify the PUT still
   succeeds and the warning is logged.
 
-### 7.2 LUCID client (`ncs/ncs/tests/`)
+### 7.2 Lightfall client (`ncs/ncs/tests/`)
 
 - `test_user_settings_client.py`: every method against an
   `httpx.MockTransport`. Verify the swallow-on-default behavior of
@@ -322,14 +322,14 @@ server still validates.
 - Cross-realm or ORCID-primary identity migration. (Today: `sub` only.
   If the realm changes, settings are orphaned with the old `sub`. We
   accept this risk — same risk Logbook itself carries today.)
-- Alembic migrations for `lucid-logbook`. Today the table is created
+- Alembic migrations for `lightfall-logbook`. Today the table is created
   via `Base.metadata.create_all`, like every other table in the repo.
 
 ## 9. Acceptance Criteria
 
 The feature is done when:
 
-1. A new `user_settings` table exists in `lucid-logbook` with the schema
+1. A new `user_settings` table exists in `lightfall-logbook` with the schema
    in §3.1.
 2. The four endpoints in §3.3 are mounted, authenticated, and tenant-
    scoped.

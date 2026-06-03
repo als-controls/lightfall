@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add batch data export to LUCID via a headless exporter process communicating over NATS IPC.
+**Goal:** Add batch data export to Lightfall via a headless exporter process communicating over NATS IPC.
 
-**Architecture:** The Data Browser gains multi-select and an Export button. An export dialog collects parameters (export type, output dir, ROI for NXsas). The job is sent over NATS to a headless exporter process (`lucid-exporter`) that runs on the local machine, connecting to Tiled independently. Progress is reported back via NATS pub/sub and displayed as toasts.
+**Architecture:** The Data Browser gains multi-select and an Export button. An export dialog collects parameters (export type, output dir, ROI for NXsas). The job is sent over NATS to a headless exporter process (`lightfall-exporter`) that runs on the local machine, connecting to Tiled independently. Progress is reported back via NATS pub/sub and displayed as toasts.
 
 **Tech Stack:** PySide6, nats-py, tiled[client], h5py, numpy, pyqtgraph (ROI widget)
 
@@ -18,15 +18,15 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/lucid/exporter/__init__.py` | Package init |
-| `src/lucid/exporter/cli.py` | CLI entry point — argparse, NATS connection, run asyncio loop |
-| `src/lucid/exporter/service.py` | NATS subscription, job queue, dispatch to converters, progress publishing |
-| `src/lucid/exporter/converters/__init__.py` | Converter registry (maps type string to converter class) |
-| `src/lucid/exporter/converters/base.py` | `Converter` ABC — interface for all converters |
-| `src/lucid/exporter/converters/noop.py` | NoOp converter — copies raw data arrays to disk |
-| `src/lucid/exporter/converters/nxsas.py` | NXsas converter — writes NXsas-compliant HDF5 with ROI cropping |
-| `src/lucid/exporter/tiled_utils.py` | Helper to connect to Tiled and fetch run data |
-| `src/lucid/ui/dialogs/export_dialog.py` | Export configuration dialog (type, dir, ROI) |
+| `src/lightfall/exporter/__init__.py` | Package init |
+| `src/lightfall/exporter/cli.py` | CLI entry point — argparse, NATS connection, run asyncio loop |
+| `src/lightfall/exporter/service.py` | NATS subscription, job queue, dispatch to converters, progress publishing |
+| `src/lightfall/exporter/converters/__init__.py` | Converter registry (maps type string to converter class) |
+| `src/lightfall/exporter/converters/base.py` | `Converter` ABC — interface for all converters |
+| `src/lightfall/exporter/converters/noop.py` | NoOp converter — copies raw data arrays to disk |
+| `src/lightfall/exporter/converters/nxsas.py` | NXsas converter — writes NXsas-compliant HDF5 with ROI cropping |
+| `src/lightfall/exporter/tiled_utils.py` | Helper to connect to Tiled and fetch run data |
+| `src/lightfall/ui/dialogs/export_dialog.py` | Export configuration dialog (type, dir, ROI) |
 | `tests/exporter/__init__.py` | Test package init |
 | `tests/exporter/test_converters.py` | Unit tests for NoOp and NXsas converters |
 | `tests/exporter/test_service.py` | Unit tests for exporter service (job queue, dispatch, progress) |
@@ -36,19 +36,19 @@
 
 | File | Changes |
 |------|---------|
-| `src/lucid/ui/panels/tiled_browser_panel.py` | Multi-select, export button, `_get_selected_records()`, export trigger |
-| `pyproject.toml` | Add `lucid-exporter` entry point, add `h5py` dependency |
+| `src/lightfall/ui/panels/tiled_browser_panel.py` | Multi-select, export button, `_get_selected_records()`, export trigger |
+| `pyproject.toml` | Add `lightfall-exporter` entry point, add `h5py` dependency |
 
 ---
 
 ## Task 1: Converter Base Class and NoOp Converter
 
 **Files:**
-- Create: `src/lucid/exporter/__init__.py`
-- Create: `src/lucid/exporter/converters/__init__.py`
-- Create: `src/lucid/exporter/converters/base.py`
-- Create: `src/lucid/exporter/converters/noop.py`
-- Create: `src/lucid/exporter/tiled_utils.py`
+- Create: `src/lightfall/exporter/__init__.py`
+- Create: `src/lightfall/exporter/converters/__init__.py`
+- Create: `src/lightfall/exporter/converters/base.py`
+- Create: `src/lightfall/exporter/converters/noop.py`
+- Create: `src/lightfall/exporter/tiled_utils.py`
 - Test: `tests/exporter/__init__.py`
 - Test: `tests/exporter/test_converters.py`
 
@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.exporter.converters.base import Converter
+from lightfall.exporter.converters.base import Converter
 
 
 class TestConverterABC:
@@ -82,17 +82,17 @@ class TestConverterABC:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd ~/PycharmProjects/ncs/ncs && python -m pytest tests/exporter/test_converters.py::TestConverterABC -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid.exporter'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.exporter'`
 
 - [ ] **Step 3: Implement the Converter ABC**
 
-Create `src/lucid/exporter/__init__.py`:
+Create `src/lightfall/exporter/__init__.py`:
 
 ```python
-"""LUCID Exporter — headless data export service."""
+"""Lightfall Exporter — headless data export service."""
 ```
 
-Create `src/lucid/exporter/converters/__init__.py`:
+Create `src/lightfall/exporter/converters/__init__.py`:
 
 ```python
 """Converter registry for the exporter."""
@@ -102,7 +102,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lucid.exporter.converters.base import Converter
+    from lightfall.exporter.converters.base import Converter
 
 CONVERTERS: dict[str, type[Converter]] = {}
 
@@ -119,10 +119,10 @@ def get_converter(name: str) -> type[Converter]:
 
 
 # Import converters to trigger registration (nxsas added in Task 2)
-from lucid.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
+from lightfall.exporter.converters.noop import NoOpConverter  # noqa: E402, F401
 ```
 
-Create `src/lucid/exporter/converters/base.py`:
+Create `src/lightfall/exporter/converters/base.py`:
 
 ```python
 """Base converter interface for the exporter."""
@@ -207,7 +207,7 @@ class TestNoOpConverter:
         return run
 
     def test_export_creates_output_files(self, tmp_path):
-        from lucid.exporter.converters.noop import NoOpConverter
+        from lightfall.exporter.converters.noop import NoOpConverter
 
         converter = NoOpConverter()
         assert converter.name == "noop"
@@ -231,7 +231,7 @@ class TestNoOpConverter:
         np.testing.assert_array_equal(loaded, data["detector"])
 
     def test_export_calls_progress_cb(self, tmp_path):
-        from lucid.exporter.converters.noop import NoOpConverter
+        from lightfall.exporter.converters.noop import NoOpConverter
 
         converter = NoOpConverter()
         data = {"field1": np.array([1, 2, 3])}
@@ -252,11 +252,11 @@ class TestNoOpConverter:
 - [ ] **Step 6: Run test to verify it fails**
 
 Run: `cd ~/PycharmProjects/ncs/ncs && python -m pytest tests/exporter/test_converters.py::TestNoOpConverter -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid.exporter.converters.noop'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.exporter.converters.noop'`
 
 - [ ] **Step 7: Implement the NoOp converter**
 
-Create `src/lucid/exporter/converters/noop.py`:
+Create `src/lightfall/exporter/converters/noop.py`:
 
 ```python
 """NoOp converter — exports raw data arrays to numpy files."""
@@ -268,7 +268,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from lucid.exporter.converters.base import Converter
+from lightfall.exporter.converters.base import Converter
 
 
 class NoOpConverter(Converter):
@@ -304,7 +304,7 @@ Expected: PASS (2 tests)
 
 - [ ] **Step 9: Create tiled_utils.py**
 
-Create `src/lucid/exporter/tiled_utils.py`:
+Create `src/lightfall/exporter/tiled_utils.py`:
 
 ```python
 """Tiled client utilities for the exporter."""
@@ -352,9 +352,9 @@ def get_run(client: Any, uid: str) -> Any:
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/exporter/__init__.py src/lucid/exporter/converters/__init__.py \
-  src/lucid/exporter/converters/base.py src/lucid/exporter/converters/noop.py \
-  src/lucid/exporter/tiled_utils.py tests/exporter/__init__.py tests/exporter/test_converters.py
+git add src/lightfall/exporter/__init__.py src/lightfall/exporter/converters/__init__.py \
+  src/lightfall/exporter/converters/base.py src/lightfall/exporter/converters/noop.py \
+  src/lightfall/exporter/tiled_utils.py tests/exporter/__init__.py tests/exporter/test_converters.py
 git commit -m "feat(exporter): add Converter ABC, NoOp converter, and tiled utils"
 ```
 
@@ -363,7 +363,7 @@ git commit -m "feat(exporter): add Converter ABC, NoOp converter, and tiled util
 ## Task 2: NXsas Converter
 
 **Files:**
-- Create: `src/lucid/exporter/converters/nxsas.py`
+- Create: `src/lightfall/exporter/converters/nxsas.py`
 - Modify: `tests/exporter/test_converters.py`
 
 - [ ] **Step 1: Write the failing test for NXsas converter**
@@ -395,7 +395,7 @@ class TestNxsasConverter:
         return run
 
     def test_export_creates_hdf5(self, tmp_path):
-        from lucid.exporter.converters.nxsas import NxsasConverter
+        from lightfall.exporter.converters.nxsas import NxsasConverter
 
         converter = NxsasConverter()
         assert converter.name == "nxsas"
@@ -424,7 +424,7 @@ class TestNxsasConverter:
             np.testing.assert_array_equal(data, image_data[:, 20:60, 10:60])
 
     def test_export_without_roi_uses_full_frame(self, tmp_path):
-        from lucid.exporter.converters.nxsas import NxsasConverter
+        from lightfall.exporter.converters.nxsas import NxsasConverter
 
         converter = NxsasConverter()
         image_data = np.ones((2, 50, 50), dtype=np.float32)
@@ -448,11 +448,11 @@ class TestNxsasConverter:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd ~/PycharmProjects/ncs/ncs && python -m pytest tests/exporter/test_converters.py::TestNxsasConverter -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid.exporter.converters.nxsas'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.exporter.converters.nxsas'`
 
 - [ ] **Step 3: Implement the NXsas converter**
 
-Create `src/lucid/exporter/converters/nxsas.py`:
+Create `src/lightfall/exporter/converters/nxsas.py`:
 
 ```python
 """NXsas converter — exports run data as NXsas-compliant HDF5."""
@@ -465,7 +465,7 @@ from typing import Any, Callable
 import h5py
 import numpy as np
 
-from lucid.exporter.converters.base import Converter
+from lightfall.exporter.converters.base import Converter
 
 
 class NxsasConverter(Converter):
@@ -543,10 +543,10 @@ Expected: PASS (2 tests)
 
 - [ ] **Step 5: Register NxsasConverter in converters/__init__.py**
 
-Add the nxsas import to `src/lucid/exporter/converters/__init__.py`, after the existing noop import:
+Add the nxsas import to `src/lightfall/exporter/converters/__init__.py`, after the existing noop import:
 
 ```python
-from lucid.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401
+from lightfall.exporter.converters.nxsas import NxsasConverter  # noqa: E402, F401
 ```
 
 - [ ] **Step 6: Add h5py dependency to pyproject.toml**
@@ -566,7 +566,7 @@ Expected: PASS (6 tests — 2 ABC, 2 NoOp, 2 NXsas)
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/exporter/converters/nxsas.py src/lucid/exporter/converters/__init__.py \
+git add src/lightfall/exporter/converters/nxsas.py src/lightfall/exporter/converters/__init__.py \
   tests/exporter/test_converters.py pyproject.toml
 git commit -m "feat(exporter): add NXsas converter with ROI cropping and HDF5 output"
 ```
@@ -576,7 +576,7 @@ git commit -m "feat(exporter): add NXsas converter with ROI cropping and HDF5 ou
 ## Task 3: Exporter Service (Job Queue + NATS)
 
 **Files:**
-- Create: `src/lucid/exporter/service.py`
+- Create: `src/lightfall/exporter/service.py`
 - Test: `tests/exporter/test_service.py`
 
 - [ ] **Step 1: Write failing tests for ExporterService**
@@ -594,7 +594,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lucid.exporter.service import ExporterService
+from lightfall.exporter.service import ExporterService
 
 
 class TestExporterService:
@@ -605,9 +605,9 @@ class TestExporterService:
 
     def test_subject_names(self):
         svc = ExporterService(nats_url="nats://localhost:4222", hostname="tsuru")
-        assert svc.job_subject == "lucid.export.tsuru"
-        assert svc.ping_subject == "lucid.export.tsuru.ping"
-        assert svc.progress_subject == "lucid.export.tsuru.progress"
+        assert svc.job_subject == "lightfall.export.tsuru"
+        assert svc.ping_subject == "lightfall.export.tsuru.ping"
+        assert svc.progress_subject == "lightfall.export.tsuru.progress"
 
 
 class TestJobDispatch:
@@ -658,11 +658,11 @@ class TestPingResponse:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd ~/PycharmProjects/ncs/ncs && python -m pytest tests/exporter/test_service.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'lucid.exporter.service'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'lightfall.exporter.service'`
 
 - [ ] **Step 3: Implement ExporterService**
 
-Create `src/lucid/exporter/service.py`:
+Create `src/lightfall/exporter/service.py`:
 
 ```python
 """Exporter NATS service — receives jobs, queues them, dispatches to converters."""
@@ -678,8 +678,8 @@ from typing import Any
 
 import nats
 
-from lucid.exporter.converters import CONVERTERS, get_converter
-from lucid.exporter.tiled_utils import connect_tiled, get_run
+from lightfall.exporter.converters import CONVERTERS, get_converter
+from lightfall.exporter.tiled_utils import connect_tiled, get_run
 
 logger = logging.getLogger(__name__)
 
@@ -704,11 +704,11 @@ class ExporterService:
     """Headless exporter that subscribes to NATS and processes export jobs.
 
     Subscribes to:
-        - ``lucid.export.<hostname>`` — job requests (request/reply)
-        - ``lucid.export.<hostname>.ping`` — health check (request/reply)
+        - ``lightfall.export.<hostname>`` — job requests (request/reply)
+        - ``lightfall.export.<hostname>.ping`` — health check (request/reply)
 
     Publishes to:
-        - ``lucid.export.<hostname>.progress`` — job progress events
+        - ``lightfall.export.<hostname>.progress`` — job progress events
     """
 
     def __init__(self, nats_url: str, hostname: str) -> None:
@@ -720,15 +720,15 @@ class ExporterService:
 
     @property
     def job_subject(self) -> str:
-        return f"lucid.export.{self._hostname}"
+        return f"lightfall.export.{self._hostname}"
 
     @property
     def ping_subject(self) -> str:
-        return f"lucid.export.{self._hostname}.ping"
+        return f"lightfall.export.{self._hostname}.ping"
 
     @property
     def progress_subject(self) -> str:
-        return f"lucid.export.{self._hostname}.progress"
+        return f"lightfall.export.{self._hostname}.progress"
 
     def _parse_job(self, data: dict[str, Any]) -> ExportJob:
         """Parse and validate a job message. Raises on invalid data."""
@@ -869,7 +869,7 @@ Expected: PASS (5 tests)
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/exporter/service.py tests/exporter/test_service.py
+git add src/lightfall/exporter/service.py tests/exporter/test_service.py
 git commit -m "feat(exporter): add ExporterService with NATS job queue and dispatch"
 ```
 
@@ -878,15 +878,15 @@ git commit -m "feat(exporter): add ExporterService with NATS job queue and dispa
 ## Task 4: Exporter CLI Entry Point
 
 **Files:**
-- Create: `src/lucid/exporter/cli.py`
+- Create: `src/lightfall/exporter/cli.py`
 - Modify: `pyproject.toml`
 
 - [ ] **Step 1: Implement the CLI**
 
-Create `src/lucid/exporter/cli.py`:
+Create `src/lightfall/exporter/cli.py`:
 
 ```python
-"""CLI entry point for the LUCID exporter service."""
+"""CLI entry point for the Lightfall exporter service."""
 
 from __future__ import annotations
 
@@ -899,10 +899,10 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Run the LUCID exporter service."""
+    """Run the Lightfall exporter service."""
     parser = argparse.ArgumentParser(
-        prog="lucid-exporter",
-        description="Headless data export service for LUCID",
+        prog="lightfall-exporter",
+        description="Headless data export service for Lightfall",
     )
     parser.add_argument(
         "--nats",
@@ -926,9 +926,9 @@ def main(argv: list[str] | None = None) -> None:
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logger = logging.getLogger("lucid.exporter")
+    logger = logging.getLogger("lightfall.exporter")
 
-    from lucid.exporter.service import ExporterService
+    from lightfall.exporter.service import ExporterService
 
     service = ExporterService(nats_url=args.nats, hostname=args.hostname)
 
@@ -940,7 +940,7 @@ def main(argv: list[str] | None = None) -> None:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, lambda: asyncio.create_task(service.stop()))
 
-        logger.info("Starting lucid-exporter (hostname=%s, nats=%s)", args.hostname, args.nats)
+        logger.info("Starting lightfall-exporter (hostname=%s, nats=%s)", args.hostname, args.nats)
         try:
             await service.run()
         except KeyboardInterrupt:
@@ -962,27 +962,27 @@ In `pyproject.toml`, change:
 
 ```toml
 [project.scripts]
-lucid = "lucid.main:cli"
+lightfall = "lightfall.main:cli"
 ```
 
 to:
 
 ```toml
 [project.scripts]
-lucid = "lucid.main:cli"
-lucid-exporter = "lucid.exporter.cli:main"
+lightfall = "lightfall.main:cli"
+lightfall-exporter = "lightfall.exporter.cli:main"
 ```
 
 - [ ] **Step 3: Verify CLI parses args correctly**
 
-Run: `cd ~/PycharmProjects/ncs/ncs && python -m lucid.exporter.cli --help`
+Run: `cd ~/PycharmProjects/ncs/ncs && python -m lightfall.exporter.cli --help`
 Expected: Help text showing `--nats`, `--hostname`, `--log-level` options.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/exporter/cli.py pyproject.toml
+git add src/lightfall/exporter/cli.py pyproject.toml
 git commit -m "feat(exporter): add CLI entry point with NATS and hostname args"
 ```
 
@@ -991,11 +991,11 @@ git commit -m "feat(exporter): add CLI entry point with NATS and hostname args"
 ## Task 5: Data Browser — Multi-Select and Export Button
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py`
 
 - [ ] **Step 1: Change selection mode to ExtendedSelection**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, line 133, change:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, line 133, change:
 
 ```python
         self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -1068,7 +1068,7 @@ Add this method:
         if not records:
             return
 
-        from lucid.ui.dialogs.export_dialog import ExportDialog
+        from lightfall.ui.dialogs.export_dialog import ExportDialog
 
         dialog = ExportDialog(
             records=records,
@@ -1080,14 +1080,14 @@ Add this method:
 
 - [ ] **Step 6: Verify the panel still loads**
 
-Run: `cd ~/PycharmProjects/ncs/ncs && python -c "from lucid.ui.panels.tiled_browser_panel import TiledBrowserPanel; print('OK')"` 
+Run: `cd ~/PycharmProjects/ncs/ncs && python -c "from lightfall.ui.panels.tiled_browser_panel import TiledBrowserPanel; print('OK')"` 
 Expected: `OK` (import succeeds)
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "feat(browser): add multi-select and export button to Data Browser"
 ```
 
@@ -1096,7 +1096,7 @@ git commit -m "feat(browser): add multi-select and export button to Data Browser
 ## Task 6: Export Dialog
 
 **Files:**
-- Create: `src/lucid/ui/dialogs/export_dialog.py`
+- Create: `src/lightfall/ui/dialogs/export_dialog.py`
 - Test: `tests/test_export_dialog.py`
 
 - [ ] **Step 1: Write failing test for ExportDialog parameter assembly**
@@ -1112,7 +1112,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.dialogs.export_dialog import build_job_message
+from lightfall.ui.dialogs.export_dialog import build_job_message
 
 
 class TestBuildJobMessage:
@@ -1155,7 +1155,7 @@ Expected: FAIL — `ModuleNotFoundError` or `ImportError`
 
 - [ ] **Step 3: Implement the export dialog**
 
-Create `src/lucid/ui/dialogs/export_dialog.py`:
+Create `src/lightfall/ui/dialogs/export_dialog.py`:
 
 ```python
 """Export configuration dialog for the Data Browser."""
@@ -1181,12 +1181,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lucid.services.tiled_service import TiledService
-    from lucid.ui.models.tiled_model import TiledRecord
+    from lightfall.services.tiled_service import TiledService
+    from lightfall.ui.models.tiled_model import TiledRecord
 
 
 # Available export types
@@ -1397,7 +1397,7 @@ class ExportDialog(LucidDialog):
     def _get_auth_token(self) -> str | None:
         """Get current auth token from SessionManager."""
         try:
-            from lucid.auth.session import SessionManager
+            from lightfall.auth.session import SessionManager
             session_mgr = SessionManager.get_instance()
             session = session_mgr.session
             if session and session.token:
@@ -1414,8 +1414,8 @@ class ExportDialog(LucidDialog):
         import json
         import subprocess
 
-        from lucid.core.services import NCSApplication
-        from lucid.ui.toast import ToastManager
+        from lightfall.core.services import NCSApplication
+        from lightfall.ui.toast import ToastManager
 
         toast = ToastManager.get_instance()
         app = NCSApplication.get_instance()
@@ -1426,9 +1426,9 @@ class ExportDialog(LucidDialog):
             return
 
         hostname = platform.node()
-        job_subject = f"lucid.export.{hostname}"
-        progress_subject = f"lucid.export.{hostname}.progress"
-        ping_subject = f"lucid.export.{hostname}.ping"
+        job_subject = f"lightfall.export.{hostname}"
+        progress_subject = f"lightfall.export.{hostname}.progress"
+        ping_subject = f"lightfall.export.{hostname}.ping"
 
         # Subscribe to progress for this job
         job_id = message["job_id"]
@@ -1467,7 +1467,7 @@ Expected: PASS (2 tests)
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/export_dialog.py tests/test_export_dialog.py
+git add src/lightfall/ui/dialogs/export_dialog.py tests/test_export_dialog.py
 git commit -m "feat(export): add export configuration dialog with type selector and ROI params"
 ```
 
@@ -1476,7 +1476,7 @@ git commit -m "feat(export): add export configuration dialog with type selector 
 ## Task 7: Ping and On-Demand Spawn
 
 **Files:**
-- Modify: `src/lucid/ui/dialogs/export_dialog.py`
+- Modify: `src/lightfall/ui/dialogs/export_dialog.py`
 
 - [ ] **Step 1: Replace the simple publish with ping-then-send logic**
 
@@ -1493,9 +1493,9 @@ Replace the `_send_to_exporter` method in `export_dialog.py` with a version that
         import subprocess
         import time
 
-        from lucid.core.services import NCSApplication
-        from lucid.ui.toast import ToastManager
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.core.services import NCSApplication
+        from lightfall.ui.toast import ToastManager
+        from lightfall.utils.threads import QThreadFuture
 
         toast = ToastManager.get_instance()
         app = NCSApplication.get_instance()
@@ -1506,8 +1506,8 @@ Replace the `_send_to_exporter` method in `export_dialog.py` with a version that
             return
 
         hostname = platform.node()
-        job_subject = f"lucid.export.{hostname}"
-        progress_subject = f"lucid.export.{hostname}.progress"
+        job_subject = f"lightfall.export.{hostname}"
+        progress_subject = f"lightfall.export.{hostname}.progress"
 
         # Subscribe to progress for this job
         job_id = message["job_id"]
@@ -1537,13 +1537,13 @@ Replace the `_send_to_exporter` method in `export_dialog.py` with a version that
         logger.info("Export job {} sent to {}", job_id, job_subject)
 ```
 
-Note: For v1, we skip the ping/spawn complexity and document it as a follow-up. The exporter must already be running. This avoids adding async request/reply to the LUCID IPC client (which currently only has fire-and-forget `publish`). The ping/spawn mechanism can be added in a follow-up once the basic flow is proven.
+Note: For v1, we skip the ping/spawn complexity and document it as a follow-up. The exporter must already be running. This avoids adding async request/reply to the Lightfall IPC client (which currently only has fire-and-forget `publish`). The ping/spawn mechanism can be added in a follow-up once the basic flow is proven.
 
 - [ ] **Step 2: Commit**
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/export_dialog.py
+git add src/lightfall/ui/dialogs/export_dialog.py
 git commit -m "docs(export): note ping/spawn as follow-up, v1 requires running exporter"
 ```
 
@@ -1552,7 +1552,7 @@ git commit -m "docs(export): note ping/spawn as follow-up, v1 requires running e
 ## Task 8: Wire Everything Together and Integration Test
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py` (verify complete)
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py` (verify complete)
 - Run all tests
 
 - [ ] **Step 1: Run all new tests together**
@@ -1570,10 +1570,10 @@ Expected: No new failures. Existing test count unchanged.
 Run:
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-python -c "from lucid.exporter.service import ExporterService; print('service OK')"
-python -c "from lucid.exporter.cli import main; print('cli OK')"
-python -c "from lucid.exporter.converters import CONVERTERS; print(f'converters: {list(CONVERTERS.keys())}')"
-python -c "from lucid.ui.dialogs.export_dialog import ExportDialog, build_job_message; print('dialog OK')"
+python -c "from lightfall.exporter.service import ExporterService; print('service OK')"
+python -c "from lightfall.exporter.cli import main; print('cli OK')"
+python -c "from lightfall.exporter.converters import CONVERTERS; print(f'converters: {list(CONVERTERS.keys())}')"
+python -c "from lightfall.ui.dialogs.export_dialog import ExportDialog, build_job_message; print('dialog OK')"
 ```
 
 Expected:
@@ -1641,7 +1641,7 @@ And add the action method:
 
 ```bash
 cd ~/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "feat(browser): update introspection for multi-select and add export action"
 ```
 
@@ -1664,7 +1664,7 @@ git commit -m "feat(browser): update introspection for multi-select and add expo
 
 ### Follow-up items (not in this plan):
 
-- **Ping/spawn mechanism:** Add NATS request/reply to LUCID's IPC client for pinging the exporter and auto-spawning it
+- **Ping/spawn mechanism:** Add NATS request/reply to Lightfall's IPC client for pinging the exporter and auto-spawning it
 - **PyQtGraph ROI widget:** Replace the text-input ROI fields with an interactive ImageView + RectROI that loads a sample frame from the first selected run
 - **Cancellation:** Allow canceling in-progress jobs
 - **Multiple concurrent jobs:** The exporter processes sequentially; a parallel mode could be added later

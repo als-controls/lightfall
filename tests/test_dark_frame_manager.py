@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from lucid.ui.widgets.camera.dark_frames import DarkFrameManager
+from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
 
 
 class TestDarkFrameManager:
@@ -54,7 +54,7 @@ class TestDarkFrameManager:
         mock_tiled._client.__getitem__ = MagicMock(return_value=mock_run)
 
         with patch(
-            "lucid.services.tiled_service.TiledService.get_instance",
+            "lightfall.services.tiled_service.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")
@@ -155,7 +155,7 @@ class TestLoadDarkFromTiled:
         mock_client.values_indexer.__getitem__ = MagicMock(return_value=[mock_run])
 
         with patch(
-            "lucid.services.tiled_service.TiledService.get_instance",
+            "lightfall.services.tiled_service.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")
@@ -167,7 +167,7 @@ class TestLoadDarkFromTiled:
         mock_tiled = MagicMock()
         mock_tiled.is_connected = False
         with patch(
-            "lucid.services.tiled_service.TiledService.get_instance",
+            "lightfall.services.tiled_service.TiledService.get_instance",
             return_value=mock_tiled,
         ):
             mgr = DarkFrameManager(device_name="sim_det")

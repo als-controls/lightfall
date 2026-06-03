@@ -1,4 +1,4 @@
-# LUCID Publication — Design Spec
+# Lightfall Publication — Design Spec
 
 **Date:** 2026-04-20
 **Authors (arXiv version):** Ronald J. Pandolfi, Damon English, Beamline Controls Group (ALS, LBNL)
@@ -9,10 +9,10 @@
 
 ## 1. Thesis and framing
 
-**Working title:** *LUCID: An API-first, LLM-addressable control platform for synchrotron beamlines*
+**Working title:** *Lightfall: An API-first, LLM-addressable control platform for synchrotron beamlines*
 
 **One-sentence thesis:**
-> LUCID demonstrates that a single API-first design can make a beamline control system addressable by an LLM in two complementary roles — as a user of the interface and as a developer of it — yielding a sustainable alternative to both bespoke per-beamline GUIs and one-size-fits-all facility software.
+> Lightfall demonstrates that a single API-first design can make a beamline control system addressable by an LLM in two complementary roles — as a user of the interface and as a developer of it — yielding a sustainable alternative to both bespoke per-beamline GUIs and one-size-fits-all facility software.
 
 **Primary contribution claim:** Dual-role LLM addressability (user + designer) enabled by a uniform API exposing panels, devices, and scan plans.
 
@@ -30,10 +30,10 @@
 ## 3. Abstract structure (~150 words, 5 sentences)
 
 1. **Setup** — Synchrotron beamlines need customized control interfaces; custom development doesn't scale; generic interfaces force compromises.
-2. **Approach** — LUCID is a facility-wide control platform whose API-first architecture exposes every panel, device, and scan plan through a uniform addressable interface.
+2. **Approach** — Lightfall is a facility-wide control platform whose API-first architecture exposes every panel, device, and scan plan through a uniform addressable interface.
 3. **Result 1 (LLM-as-user)** — An embedded agent drives experiments through that same interface, bridging natural-language intent and device control.
 4. **Result 2 (LLM-as-designer)** — The same addressability lets beamline staff extend the interface live via runtime skills that the agent executes; this has been tested with beamline scientists.
-5. **Deployment** — In testing at the COSMIC-Scattering beamline at ALS, with planned rollout to CSM at NSLS-II. Code available at (LUCID repository URL).
+5. **Deployment** — In testing at the COSMIC-Scattering beamline at ALS, with planned rollout to CSM at NSLS-II. Code available at (Lightfall repository URL).
 
 ## 4. Section outline (~4,500-word arXiv version)
 
@@ -98,12 +98,12 @@ Dropped for arXiv, reconsider for JSR: a SkillPlugin code-listing figure.
 
 ## 6. Repository and build mechanics
 
-**New repo:** `git.als.lbl.gov/ncs/lucid-publication`
+**New repo:** `git.als.lbl.gov/ncs/lightfall-publication`
 
 ### Layout
 
 ```
-lucid-publication/
+lightfall-publication/
 ├── README.md
 ├── Makefile
 ├── main-arxiv.tex
@@ -167,7 +167,7 @@ Two milestones. The implementation plan owns M1; Pandolfi owns M2.
 
 ### M1 — Scaffold complete, initial drafts in (Claude-owned)
 
-- New repo `ncs/lucid-publication` created, pushed, and building cleanly in GitLab CI.
+- New repo `ncs/lightfall-publication` created, pushed, and building cleanly in GitLab CI.
 - Repo layout matches §6: `content/` partials for all eight sections, `figures/` with placeholders, `references.bib` seeded, `Makefile` targets working, `.gitlab-ci.yml` green.
 - `figures/arch.puml` drafted and rendered to `figures/arch.pdf`.
 - Figures 2–4 present as placeholder images with `figures/README.md` explaining how to replace them.
@@ -187,7 +187,7 @@ Two milestones. The implementation plan owns M1; Pandolfi owns M2.
 ## 9. Open items to resolve during implementation
 
 - **§4 evaluation specifics.** Which beamline-scientist tests do we cite? What qualitative observations survive into the paper? (Resolution: Pandolfi selects the cleanest scientist-tested interaction for Fig. 3 and provides a 1-2 paragraph account of the testing session for §4.)
-- **Panel-design-skill source.** Where do these skills live in the LUCID tree? The spec asserts they exist and work at runtime via the embedded agent; the implementation plan must locate them concretely so §4 can cite file paths or a skill name.
+- **Panel-design-skill source.** Where do these skills live in the Lightfall tree? The spec asserts they exist and work at runtime via the embedded agent; the implementation plan must locate them concretely so §4 can cite file paths or a skill name.
 - **CSM collaborators' level of involvement.** Do any NSLS-II collaborators want to contribute an early paragraph to §6 for the arXiv version, or is that purely a JSR-expansion item? (Default assumption: JSR only.)
 - **Reference list.** Final list to be built incrementally during drafting.
 

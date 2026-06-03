@@ -16,11 +16,11 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/lucid/acquire/engine/base.py` | Modify | Add `_pre_submit_callables` list, `register_pre_submit()`, `unregister_pre_submit()`, update `submit()` and `__call__()` |
-| `src/lucid/acquire/engine/mock.py` | Modify | Update `MockEngine.submit()` to call pre-submit callables |
-| `src/lucid/ui/dialogs/sample_metadata_dialog.py` | Create | `SampleMetadataDialog` with sample name field, ScalableGroup, duplicate check, force button |
-| `src/lucid/ui/dialogs/__init__.py` | Modify | Export `SampleMetadataDialog` |
-| `src/lucid/ui/panels/bluesky_panel.py` | Modify | Register sample metadata pre-submit callable in `_auto_configure()` |
+| `src/lightfall/acquire/engine/base.py` | Modify | Add `_pre_submit_callables` list, `register_pre_submit()`, `unregister_pre_submit()`, update `submit()` and `__call__()` |
+| `src/lightfall/acquire/engine/mock.py` | Modify | Update `MockEngine.submit()` to call pre-submit callables |
+| `src/lightfall/ui/dialogs/sample_metadata_dialog.py` | Create | `SampleMetadataDialog` with sample name field, ScalableGroup, duplicate check, force button |
+| `src/lightfall/ui/dialogs/__init__.py` | Modify | Export `SampleMetadataDialog` |
+| `src/lightfall/ui/panels/bluesky_panel.py` | Modify | Register sample metadata pre-submit callable in `_auto_configure()` |
 | `tests/test_engine.py` | Modify | Add tests for pre-submit hook system |
 | `tests/test_sample_metadata_dialog.py` | Create | Tests for dialog behavior |
 
@@ -29,7 +29,7 @@
 ### Task 1: Pre-submit hook system in BaseEngine
 
 **Files:**
-- Modify: `src/lucid/acquire/engine/base.py` (lines 85-227)
+- Modify: `src/lightfall/acquire/engine/base.py` (lines 85-227)
 - Test: `tests/test_engine.py`
 
 - [ ] **Step 1: Write failing tests for pre-submit registration**
@@ -151,7 +151,7 @@ Expected: FAIL — `register_pre_submit` does not exist.
 
 - [ ] **Step 3: Implement pre-submit hooks in BaseEngine**
 
-In `src/lucid/acquire/engine/base.py`, add to `__init__` (after `self._next_token = 0`):
+In `src/lightfall/acquire/engine/base.py`, add to `__init__` (after `self._next_token = 0`):
 
 ```python
 self._pre_submit_callables: list[Callable[[str, dict[str, Any]], dict[str, Any] | None]] = []
@@ -261,7 +261,7 @@ def __call__(self, *args: Any, **kwargs: Any) -> None:
 
 - [ ] **Step 4: Update MockEngine.submit() to support pre-submit hooks**
 
-In `src/lucid/acquire/engine/mock.py`, update the `submit()` signature and add pre-submit logic at the top of the method:
+In `src/lightfall/acquire/engine/mock.py`, update the `submit()` signature and add pre-submit logic at the top of the method:
 
 ```python
 def submit(
@@ -347,7 +347,7 @@ Expected: ALL PASS (both new and existing tests).
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/acquire/engine/base.py src/lucid/acquire/engine/mock.py tests/test_engine.py
+git add src/lightfall/acquire/engine/base.py src/lightfall/acquire/engine/mock.py tests/test_engine.py
 git commit -m "feat: add pre-submit hook system to BaseEngine
 
 Callables registered via register_pre_submit() run before each plan
@@ -359,7 +359,7 @@ submission and can inject metadata or cancel the submission."
 ### Task 2: SampleMetadataDialog — core dialog with ScalableGroup
 
 **Files:**
-- Create: `src/lucid/ui/dialogs/sample_metadata_dialog.py`
+- Create: `src/lightfall/ui/dialogs/sample_metadata_dialog.py`
 - Test: `tests/test_sample_metadata_dialog.py`
 
 - [ ] **Step 1: Write failing tests for dialog basics**
@@ -388,7 +388,7 @@ def qapp():
 @pytest.fixture
 def dialog(qapp):
     """Create a SampleMetadataDialog for testing."""
-    from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+    from lightfall.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 
     dlg = SampleMetadataDialog()
     return dlg
@@ -463,7 +463,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement SampleMetadataDialog**
 
-Create `src/lucid/ui/dialogs/sample_metadata_dialog.py`:
+Create `src/lightfall/ui/dialogs/sample_metadata_dialog.py`:
 
 ```python
 """Sample metadata dialog for pre-run metadata collection.
@@ -487,8 +487,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
-from lucid.utils.logging import logger
+from lightfall.ui.dialogs.base import LucidDialog
+from lightfall.utils.logging import logger
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree
@@ -519,7 +519,7 @@ RESERVED_FIELDS = frozenset({
     "sample_name",
 })
 
-_QSETTINGS_KEY = "lucid.dialogs.sample_metadata.v1"
+_QSETTINGS_KEY = "lightfall.dialogs.sample_metadata.v1"
 
 
 class ScalableGroup(GroupParameter):
@@ -701,7 +701,7 @@ class SampleMetadataDialog(LucidDialog):
             Returns False if Tiled is not connected (degraded mode).
         """
         try:
-            from lucid.services.tiled_service import TiledConnectionState, TiledService
+            from lightfall.services.tiled_service import TiledConnectionState, TiledService
 
             service = TiledService.get_instance()
             if not service.is_connected or service._client is None:
@@ -763,7 +763,7 @@ Expected: ALL PASS.
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/sample_metadata_dialog.py tests/test_sample_metadata_dialog.py
+git add src/lightfall/ui/dialogs/sample_metadata_dialog.py tests/test_sample_metadata_dialog.py
 git commit -m "feat: add SampleMetadataDialog with ScalableGroup
 
 Collects sample_name (required) and arbitrary typed metadata fields.
@@ -785,7 +785,7 @@ Add to `tests/test_sample_metadata_dialog.py`:
 class TestDuplicateCheck:
     """Tests for Tiled duplicate sample name checking."""
 
-    @patch("lucid.ui.dialogs.sample_metadata_dialog.TiledService")
+    @patch("lightfall.ui.dialogs.sample_metadata_dialog.TiledService")
     def test_duplicate_name_shows_warning(self, mock_tiled_cls, dialog) -> None:
         """Test that duplicate name shows warning and switches to Force."""
         mock_service = MagicMock()
@@ -800,7 +800,7 @@ class TestDuplicateCheck:
         assert dialog._accept_btn.text() == "Force"
         assert dialog._force_mode is True
 
-    @patch("lucid.ui.dialogs.sample_metadata_dialog.TiledService")
+    @patch("lightfall.ui.dialogs.sample_metadata_dialog.TiledService")
     def test_force_accepts_duplicate(self, mock_tiled_cls, dialog) -> None:
         """Test that Force button accepts despite duplicate."""
         mock_service = MagicMock()
@@ -819,7 +819,7 @@ class TestDuplicateCheck:
         # but we can verify force_mode was set and the accept path is taken)
         assert dialog._accept_btn.text() == "Force"
 
-    @patch("lucid.ui.dialogs.sample_metadata_dialog.TiledService")
+    @patch("lightfall.ui.dialogs.sample_metadata_dialog.TiledService")
     def test_tiled_not_connected_skips_check(self, mock_tiled_cls, dialog) -> None:
         """Test that disconnected Tiled skips duplicate check."""
         mock_service = MagicMock()
@@ -861,8 +861,8 @@ git commit -m "test: add duplicate check tests for SampleMetadataDialog"
 ### Task 4: Export from __init__ and wire into BlueskyPanel
 
 **Files:**
-- Modify: `src/lucid/ui/dialogs/__init__.py`
-- Modify: `src/lucid/ui/panels/bluesky_panel.py`
+- Modify: `src/lightfall/ui/dialogs/__init__.py`
+- Modify: `src/lightfall/ui/panels/bluesky_panel.py`
 - Test: `tests/test_engine.py` (integration-style test)
 
 - [ ] **Step 1: Write failing integration test**
@@ -877,11 +877,11 @@ class TestPreSubmitIntegration:
         """Test the callable that wraps SampleMetadataDialog."""
         from unittest.mock import patch
 
-        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lightfall.ui.panels.bluesky_panel import _sample_metadata_pre_submit
 
         # Mock the dialog to auto-accept with metadata
         with patch(
-            "lucid.ui.panels.bluesky_panel.SampleMetadataDialog"
+            "lightfall.ui.panels.bluesky_panel.SampleMetadataDialog"
         ) as MockDialog:
             mock_dialog = MagicMock()
             mock_dialog.exec.return_value = MockDialog.DialogCode.Accepted
@@ -898,10 +898,10 @@ class TestPreSubmitIntegration:
         """Test the callable returns None when dialog is cancelled."""
         from unittest.mock import patch
 
-        from lucid.ui.panels.bluesky_panel import _sample_metadata_pre_submit
+        from lightfall.ui.panels.bluesky_panel import _sample_metadata_pre_submit
 
         with patch(
-            "lucid.ui.panels.bluesky_panel.SampleMetadataDialog"
+            "lightfall.ui.panels.bluesky_panel.SampleMetadataDialog"
         ) as MockDialog:
             mock_dialog = MagicMock()
             mock_dialog.exec.return_value = 0  # Rejected
@@ -920,20 +920,20 @@ Expected: FAIL — `_sample_metadata_pre_submit` does not exist.
 
 - [ ] **Step 3: Update dialogs __init__.py**
 
-In `src/lucid/ui/dialogs/__init__.py`, add the import and export:
+In `src/lightfall/ui/dialogs/__init__.py`, add the import and export:
 
 ```python
-from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+from lightfall.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 ```
 
 And add `"SampleMetadataDialog"` to the `__all__` list.
 
 - [ ] **Step 4: Add pre-submit callable and registration to BlueskyPanel**
 
-In `src/lucid/ui/panels/bluesky_panel.py`, add a module-level function after the imports:
+In `src/lightfall/ui/panels/bluesky_panel.py`, add a module-level function after the imports:
 
 ```python
-from lucid.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
+from lightfall.ui.dialogs.sample_metadata_dialog import SampleMetadataDialog
 
 
 def _sample_metadata_pre_submit(plan_name: str, kwargs: dict) -> dict | None:
@@ -987,7 +987,7 @@ Expected: ALL PASS.
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/__init__.py src/lucid/ui/dialogs/sample_metadata_dialog.py src/lucid/ui/panels/bluesky_panel.py tests/test_engine.py
+git add src/lightfall/ui/dialogs/__init__.py src/lightfall/ui/dialogs/sample_metadata_dialog.py src/lightfall/ui/panels/bluesky_panel.py tests/test_engine.py
 git commit -m "feat: wire SampleMetadataDialog into BlueskyPanel via pre-submit hook
 
 Register _sample_metadata_pre_submit on engine in BlueskyPanel._auto_configure.

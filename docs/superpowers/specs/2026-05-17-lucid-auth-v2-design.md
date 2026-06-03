@@ -1,8 +1,8 @@
-# LUCID Auth v2 — per-service API keys, bearer-refresh retired
+# Lightfall Auth v2 — per-service API keys, bearer-refresh retired
 
 ## Overview
 
-LUCID's per-service auth is shifting from "Keycloak bearer + refresh treadmill" to "per-service API key minted once at login, held for a week." The refresh machinery (`SessionManager._schedule_refresh`, `_do_scheduled_refresh`, `_on_refresh_success/_failure`, the single-shot timer, `KeycloakTiledAuth._refresh_token_sync` lineage) is **deleted**. The Keycloak **access token** survives only long enough to do the mint round at login; the **refresh token** is discarded outright; the **id_token** is preserved on `SessionManager` (not on `Session`) solely so RP-initiated logout can pass `id_token_hint` to Keycloak.
+Lightfall's per-service auth is shifting from "Keycloak bearer + refresh treadmill" to "per-service API key minted once at login, held for a week." The refresh machinery (`SessionManager._schedule_refresh`, `_do_scheduled_refresh`, `_on_refresh_success/_failure`, the single-shot timer, `KeycloakTiledAuth._refresh_token_sync` lineage) is **deleted**. The Keycloak **access token** survives only long enough to do the mint round at login; the **refresh token** is discarded outright; the **id_token** is preserved on `SessionManager` (not on `Session`) solely so RP-initiated logout can pass `id_token_hint` to Keycloak.
 
 Each downstream service exposes a Tiled-shape mint endpoint:
 
@@ -10,20 +10,20 @@ Each downstream service exposes a Tiled-shape mint endpoint:
 POST /api/v1/auth/apikey
 Authorization: Bearer <keycloak_access_token>
 Content-Type: application/json
-{"expires_in": 604800, "scopes": [...], "note": "lucid <hostname> <user_sub>"}
+{"expires_in": 604800, "scopes": [...], "note": "lightfall <hostname> <user_sub>"}
 
 → {"secret": "...", "first_eight": "...", "expiration_time": "...", "scopes": [...], "note": "..."}
 ```
 
-Subsequent requests use `Authorization: Apikey <secret>`. Keys live one week; LUCID's UI may enforce a much shorter re-login cadence but re-login **never** invalidates an in-flight RunEngine's keys — it re-mints and replaces in cache; old keys age out at TTL.
+Subsequent requests use `Authorization: Apikey <secret>`. Keys live one week; Lightfall's UI may enforce a much shorter re-login cadence but re-login **never** invalidates an in-flight RunEngine's keys — it re-mints and replaces in cache; old keys age out at TTL.
 
 ## Goals
 
-- One credential pattern across every LUCID-backed service: per-(user, service) API key minted at login.
+- One credential pattern across every Lightfall-backed service: per-(user, service) API key minted at login.
 - Retire `SessionManager`'s refresh-token rotation entirely. Bearer is discarded after the initial mint round.
-- RunEngine state survives every LUCID UI event short of process exit — re-login, idle timeout, manual lock, key re-mint.
+- RunEngine state survives every Lightfall UI event short of process exit — re-login, idle timeout, manual lock, key re-mint.
 - Pipelines / exporter / tsuchinoko stop forwarding the bearer; the NATS job payload carries a service API key directly.
-- als-tiled's already-shipped mint endpoint (Plan A) is the reference shape; lucid-logbook implements the same wire protocol.
+- als-tiled's already-shipped mint endpoint (Plan A) is the reference shape; lightfall-logbook implements the same wire protocol.
 
 ## Non-goals
 
@@ -37,15 +37,15 @@ Subsequent requests use `Authorization: Apikey <secret>`. Keys live one week; LU
 
 ### Components
 
-1. **`lucid.auth.service_key`** (new module, factored out of `lucid.auth.job_key`) — provides the `mint_service_key(service_url, bearer, *, expires_in, scopes, note)` and `revoke_service_key(...)` primitives. Pure functions over httpx; no LUCID singletons.
+1. **`lightfall.auth.service_key`** (new module, factored out of `lightfall.auth.job_key`) — provides the `mint_service_key(service_url, bearer, *, expires_in, scopes, note)` and `revoke_service_key(...)` primitives. Pure functions over httpx; no Lightfall singletons.
 
 2. **`SessionManager.ServiceKeyCache`** (new state field inside `SessionManager`) — a `dict[str, MintedKey]` mapping service name → minted credential record. Read by `SessionManager.get_api_key(service)`. Written by the login mint round and by re-login.
 
-3. **`lucid.auth.service_key_auth.ServiceKeyAuth`** (new httpx.Auth class) — `ServiceKeyAuth("tiled")`, `ServiceKeyAuth("logbook")`, etc. Reads the current key from `SessionManager.get_api_key(self._service)` on every request, sets `Authorization: Apikey <secret>`. Replaces `SessionAuth` and `KeycloakTiledAuth` everywhere **in-process**. For out-of-process consumers (the exporter / pipeline / tsuchinoko subprocesses that receive a key in a NATS payload and have no `SessionManager`), a sibling `StaticApiKeyAuth(secret)` ships in the same module — same wire behavior, captured secret instead of cache lookup.
+3. **`lightfall.auth.service_key_auth.ServiceKeyAuth`** (new httpx.Auth class) — `ServiceKeyAuth("tiled")`, `ServiceKeyAuth("logbook")`, etc. Reads the current key from `SessionManager.get_api_key(self._service)` on every request, sets `Authorization: Apikey <secret>`. Replaces `SessionAuth` and `KeycloakTiledAuth` everywhere **in-process**. For out-of-process consumers (the exporter / pipeline / tsuchinoko subprocesses that receive a key in a NATS payload and have no `SessionManager`), a sibling `StaticApiKeyAuth(secret)` ships in the same module — same wire behavior, captured secret instead of cache lookup.
 
-4. **`lucid.config.schema.LucidConfig.services`** (new config section) — list of `{name, mint_url}` entries. Tiled and logbook entries are populated by default; ops can add more.
+4. **`lightfall.config.schema.LucidConfig.services`** (new config section) — list of `{name, mint_url}` entries. Tiled and logbook entries are populated by default; ops can add more.
 
-5. **Per-service mint endpoint** — Tiled (done), lucid-logbook (new), and any future LUCID-protected service must expose this endpoint.
+5. **Per-service mint endpoint** — Tiled (done), lightfall-logbook (new), and any future Lightfall-protected service must expose this endpoint.
 
 ### Topology
 
@@ -79,7 +79,7 @@ The bearer is dropped from `Session.token` after the mint round; subsequent code
 
 ### Wire protocol (uniform Tiled-shape)
 
-Every LUCID-protected service implements:
+Every Lightfall-protected service implements:
 
 | Endpoint                                 | Method | Body                                        | Response                                                                 |
 | ---------------------------------------- | ------ | ------------------------------------------- | ------------------------------------------------------------------------ |
@@ -90,7 +90,7 @@ Every LUCID-protected service implements:
 Services validate the apikey by whatever storage model they prefer:
 
 - **DB-backed key table** (Tiled's model). New row per mint; lookup on every request. Best for services that already have a DB.
-- **Self-signed JWT** (e.g., lucid-logbook may prefer this). The "secret" is a JWT signed by the service's private key with claims `{sub, exp, iat, scopes}`; validate by signature, no storage. Recommended for services without a key store.
+- **Self-signed JWT** (e.g., lightfall-logbook may prefer this). The "secret" is a JWT signed by the service's private key with claims `{sub, exp, iat, scopes}`; validate by signature, no storage. Recommended for services without a key store.
 
 The wire protocol is what's uniform. Storage models are per-service implementation choices. Operationally, prefer self-signed JWT for services that don't already have a key DB — it avoids growing key-management infrastructure where it isn't already paying for itself.
 
@@ -104,7 +104,7 @@ The wire protocol is what's uniform. Storage models are per-service implementati
 
 - **Default lifetime:** 7 days (604800s). Matches "no experiment lasts longer than a week."
 - **Re-mint on re-login:** every Keycloak login (initial or forced) re-mints all configured services in parallel; cache is replaced. Old keys are **not revoked** — they age out at TTL. The RunEngine's writers, mid-scan, pick up the fresh key on their next request via `ServiceKeyAuth`.
-- **Re-mint within a session:** none. There is no idle refresher, no proactive renewal. If a user keeps LUCID open >7 days and a key expires mid-session, surface a re-login prompt via the existing `AuthState` flow.
+- **Re-mint within a session:** none. There is no idle refresher, no proactive renewal. If a user keeps Lightfall open >7 days and a key expires mid-session, surface a re-login prompt via the existing `AuthState` flow.
 - **Logout:** gated on RunEngine state. If the RE reports `state in {"running", "paused"}` (via the current engine wrapper's `engine.RE.state`), surface a confirmation dialog: `"Logging out will end your active scan's ability to write data. The scan in progress will continue but any further writes will fail. Continue with logout?"` If the user confirms, or if the RE is idle, proceed: clear the cache. Do **not** revoke (the user already accepted the data-loss risk by confirming). Threat model is "physical workstation," not "leaked log file"; non-revocation buys us the property that an idle-but-not-RE-aware Logout never invalidates a scan that the user forgot was running.
 
 ## Login flow
@@ -114,7 +114,7 @@ The wire protocol is what's uniform. Storage models are per-service implementati
 3. `SessionManager.login()`:
    a. Set `_session = session`, transition to `AUTHENTICATED`. The `state_changed` signal still fires.
    b. (NEW) Kick off `_mint_all_service_keys(bearer)` synchronously on the same thread as login (login is already async/threaded). For each `service` in `LucidConfig.services`:
-      - Call `mint_service_key(service.mint_url, bearer, expires_in=604800, scopes=service.scopes, note=f"lucid {hostname} {user_sub}")`.
+      - Call `mint_service_key(service.mint_url, bearer, expires_in=604800, scopes=service.scopes, note=f"lightfall {hostname} {user_sub}")`.
       - On success → `self._service_keys[service.name] = minted`.
       - On failure → log warning, post a non-blocking toast (`"<service> unavailable, some features disabled"`), leave the cache slot empty.
    c. Once all mints complete (in parallel), **discard credentials from `Session`**: `self._session.token = None`, `self._session.refresh_token = None`, `self._session.id_token = None`. The id_token is copied to `self._id_token_for_logout` on `SessionManager` first so the provider's RP-initiated logout still has it.
@@ -209,7 +209,7 @@ async def logout(self) -> None:
 Options:
 
 1. **Capture id_token at login.** Have `SessionManager.login()` keep the id_token in a private slot (`self._id_token_for_logout`) but still wipe it from `session.token`/`session.refresh_token`. The slot is used only by `_provider.logout()`. Simplest.
-2. **Skip RP-initiated logout.** The Keycloak server-side logout endpoint can still be hit without an id_token; it falls back to "logout based on session cookie." LUCID's embedded browser cookie clearing handles the local side. Simpler still, but the user's other Keycloak SSO sessions (other apps in the same realm) won't be terminated.
+2. **Skip RP-initiated logout.** The Keycloak server-side logout endpoint can still be hit without an id_token; it falls back to "logout based on session cookie." Lightfall's embedded browser cookie clearing handles the local side. Simpler still, but the user's other Keycloak SSO sessions (other apps in the same realm) won't be terminated.
 3. **Pivot logout to use post_logout_redirect_uri only.** Keycloak supports OIDC end-session with just `client_id`; less SSO-tidy but acceptable for our use case.
 
 Recommend Option 1 — keep `id_token` available to the provider via a slot on `SessionManager`, not on the `Session` dataclass. The bearer-and-refresh-token specifically are gone; the id_token is preserved for the logout call but is never used as a bearer.
@@ -222,48 +222,48 @@ Every site that currently reads `session.token` must change. Categorized below:
 
 | File:line | Service | Action |
 | --- | --- | --- |
-| `src/lucid/auth/httpx_auth.py:27` | (multiple) | Delete `SessionAuth`. Replaced by `ServiceKeyAuth(service)`. |
-| `src/lucid/services/tiled_auth.py:36` | tiled | Delete `KeycloakTiledAuth`. Replaced by `ServiceKeyAuth("tiled")`. |
-| `src/lucid/services/tiled_service.py:312-313` | tiled | Replace `"Authorization": f"Bearer {session.token}"` with API-key header pulled from `SessionManager.get_api_key("tiled")`. |
-| `src/lucid/logbook/client.py:759-760` | logbook | Stop forwarding `auth_token`; client uses `ServiceKeyAuth("logbook")`. |
-| `src/lucid/ui/dialogs/export_dialog.py:484-485` | tiled | Read `SessionManager.get_api_key("tiled")` to embed in NATS export job. |
-| `src/lucid/acquire/plans/adaptive.py:128-129` | tiled | Same: pass API key instead of bearer in tsuchinoko NATS payload. |
-| `src/lucid/ipc/service.py:321` | tiled | The `"tiled_token"` payload field — rename to `"tiled_api_key"` and read from cache. |
-| `src/lucid/exporter/service.py:26, 72, 149` | tiled | Rename `auth_token` field to `tiled_api_key`; `connect_tiled` uses `ApiKeyAuth` instead of `BearerAuth`. |
-| `src/lucid/exporter/tiled_utils.py:15-45` | tiled | Replace `BearerAuth` with `StaticApiKeyAuth(secret)` from `lucid.auth.service_key_auth`. Same module used by the executor subprocesses (pipelines, tsuchinoko) — they all consume a literal secret from the NATS payload, not from a cache. |
+| `src/lightfall/auth/httpx_auth.py:27` | (multiple) | Delete `SessionAuth`. Replaced by `ServiceKeyAuth(service)`. |
+| `src/lightfall/services/tiled_auth.py:36` | tiled | Delete `KeycloakTiledAuth`. Replaced by `ServiceKeyAuth("tiled")`. |
+| `src/lightfall/services/tiled_service.py:312-313` | tiled | Replace `"Authorization": f"Bearer {session.token}"` with API-key header pulled from `SessionManager.get_api_key("tiled")`. |
+| `src/lightfall/logbook/client.py:759-760` | logbook | Stop forwarding `auth_token`; client uses `ServiceKeyAuth("logbook")`. |
+| `src/lightfall/ui/dialogs/export_dialog.py:484-485` | tiled | Read `SessionManager.get_api_key("tiled")` to embed in NATS export job. |
+| `src/lightfall/acquire/plans/adaptive.py:128-129` | tiled | Same: pass API key instead of bearer in tsuchinoko NATS payload. |
+| `src/lightfall/ipc/service.py:321` | tiled | The `"tiled_token"` payload field — rename to `"tiled_api_key"` and read from cache. |
+| `src/lightfall/exporter/service.py:26, 72, 149` | tiled | Rename `auth_token` field to `tiled_api_key`; `connect_tiled` uses `ApiKeyAuth` instead of `BearerAuth`. |
+| `src/lightfall/exporter/tiled_utils.py:15-45` | tiled | Replace `BearerAuth` with `StaticApiKeyAuth(secret)` from `lightfall.auth.service_key_auth`. Same module used by the executor subprocesses (pipelines, tsuchinoko) — they all consume a literal secret from the NATS payload, not from a cache. |
 
 ### Sites that need JWT claims (not a credential) — pivot to `user.attributes`
 
 | File:line | Reason | Action |
 | --- | --- | --- |
-| `src/lucid/services/access_stamper.py:84-92` | Extracts the user's Keycloak `sub` claim from the JWT for operator-tag stamping. | Read `session.user.attributes["sub"]` (already populated). The doc comment that says "`session.token` is the raw JWT string" should be updated to point to `user.attributes`. |
-| `src/lucid/ui/preferences/tiled_settings.py:252-254` | Reads `session.token.claims` for groups (already-broken — `session.token` is a string, not an object with `.claims`). | Read `session.user.attributes["groups"]` directly. |
-| `src/lucid/core/application.py:647` | Reads `session.token` — purpose to verify. | Audit at implementation time; either replace with API-key reference or `user.attributes` if it was an identity check. |
+| `src/lightfall/services/access_stamper.py:84-92` | Extracts the user's Keycloak `sub` claim from the JWT for operator-tag stamping. | Read `session.user.attributes["sub"]` (already populated). The doc comment that says "`session.token` is the raw JWT string" should be updated to point to `user.attributes`. |
+| `src/lightfall/ui/preferences/tiled_settings.py:252-254` | Reads `session.token.claims` for groups (already-broken — `session.token` is a string, not an object with `.claims`). | Read `session.user.attributes["groups"]` directly. |
+| `src/lightfall/core/application.py:647` | Reads `session.token` — purpose to verify. | Audit at implementation time; either replace with API-key reference or `user.attributes` if it was an identity check. |
 
 ### Sites that legitimately need the bearer (mint-window only)
 
 | File:line | Reason | Action |
 | --- | --- | --- |
-| `src/lucid/auth/providers/keycloak.py:796, 968-974` | `logout()` and `get_user_info()` call Keycloak directly with the bearer. | `logout`: see "Keycloak provider adjustments." `get_user_info`: it's currently unused at runtime; if needed, call it inside `login()` *before* mint+discard. |
-| `src/lucid/auth/providers/pam.py`, `local.py` | These are non-Keycloak providers that mint their own session-token strings. | Unaffected by this design — they're not subject to the Keycloak refresh-token problem. The `Session.token` field stays populated for these providers; only the Keycloak path explicitly discards it. |
+| `src/lightfall/auth/providers/keycloak.py:796, 968-974` | `logout()` and `get_user_info()` call Keycloak directly with the bearer. | `logout`: see "Keycloak provider adjustments." `get_user_info`: it's currently unused at runtime; if needed, call it inside `login()` *before* mint+discard. |
+| `src/lightfall/auth/providers/pam.py`, `local.py` | These are non-Keycloak providers that mint their own session-token strings. | Unaffected by this design — they're not subject to the Keycloak refresh-token problem. The `Session.token` field stays populated for these providers; only the Keycloak path explicitly discards it. |
 
 ### Sites that mint on someone else's behalf (now redundant)
 
 | File:line | Current behavior | Action |
 | --- | --- | --- |
-| `src/lucid/auth/job_key.py` | `mint_job_key`/`revoke_job_key` minted a per-job Tiled key from the bearer. | Move + rename: become `lucid.auth.service_key.mint_service_key`/`revoke_service_key`. The function is unchanged; callers shift from "mint per job" to "mint per service at login." `revoke_service_key` survives but its only caller in v2 is — nowhere, by default; we keep it for adminy/test paths. |
+| `src/lightfall/auth/job_key.py` | `mint_job_key`/`revoke_job_key` minted a per-job Tiled key from the bearer. | Move + rename: become `lightfall.auth.service_key.mint_service_key`/`revoke_service_key`. The function is unchanged; callers shift from "mint per job" to "mint per service at login." `revoke_service_key` survives but its only caller in v2 is — nowhere, by default; we keep it for adminy/test paths. |
 
 ## Per-service migration story
 
 | Service                  | Current state                                                                   | Auth-v2 action                                                                                                                                                                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **als-tiled**            | Mint endpoint shipped (Plan A, MR !1).                                          | None on the server side. LUCID's `ServiceKeyAuth("tiled")` replaces `KeycloakTiledAuth`. Deploy is independent.                                                                                                                              |
-| **lucid-logbook**        | No mint endpoint; client uses `SessionAuth` (bearer).                            | Implement `POST/DELETE /api/v1/auth/apikey` returning a self-signed JWT. Validate incoming `Authorization: Apikey …` by JWT signature. LUCID side switches to `ServiceKeyAuth("logbook")` once the endpoint is live. Coordinate cutover.    |
+| **als-tiled**            | Mint endpoint shipped (Plan A, MR !1).                                          | None on the server side. Lightfall's `ServiceKeyAuth("tiled")` replaces `KeycloakTiledAuth`. Deploy is independent.                                                                                                                              |
+| **lightfall-logbook**        | No mint endpoint; client uses `SessionAuth` (bearer).                            | Implement `POST/DELETE /api/v1/auth/apikey` returning a self-signed JWT. Validate incoming `Authorization: Apikey …` by JWT signature. Lightfall side switches to `ServiceKeyAuth("logbook")` once the endpoint is live. Coordinate cutover.    |
 | **alshub-api**           | Static API key for authenticated routes; `active-esaf` is public.                | None for now. Document the gap explicitly: if alshub grows new authenticated routes, fold them into the same mint pattern.                                                                                                                  |
-| **lucid.exporter**       | NATS service; receives `auth_token` (bearer) in job payload.                    | Rename payload field `auth_token` → `tiled_api_key`. Executor's `BearerAuth` replaced with `ApiKeyAuth`. LUCID dispatcher reads from session-key cache. Cutover is atomic (LUCID dispatcher and executor ship together — they're in the same repo). |
-| **lucid-pipelines**      | Designed for the new model; `mint_job_key` is the seam.                          | Trivial change: dispatcher reads `SessionManager.get_minted_key("tiled")` and embeds it in the job payload instead of calling `mint_job_key`. The executor side is already key-shaped.                                                       |
-| **tsuchinoko (LUCID-refactor branch)** | Forwards Tiled token over NATS as bearer.                          | Same as exporter: payload field renamed, executor consumes as API key. Cutover handled in tsuchinoko's own branch.                                                                                                                          |
-| **claude/agent integration** (`lucid/claude/agent.py`) | Uses `api_key` for Anthropic, not Tiled/logbook.            | Untouched. This is a third-party API key for Anthropic, unrelated to LUCID's internal auth.                                                                                                                                                  |
+| **lightfall.exporter**       | NATS service; receives `auth_token` (bearer) in job payload.                    | Rename payload field `auth_token` → `tiled_api_key`. Executor's `BearerAuth` replaced with `ApiKeyAuth`. Lightfall dispatcher reads from session-key cache. Cutover is atomic (Lightfall dispatcher and executor ship together — they're in the same repo). |
+| **lightfall-pipelines**      | Designed for the new model; `mint_job_key` is the seam.                          | Trivial change: dispatcher reads `SessionManager.get_minted_key("tiled")` and embeds it in the job payload instead of calling `mint_job_key`. The executor side is already key-shaped.                                                       |
+| **tsuchinoko (Lightfall-refactor branch)** | Forwards Tiled token over NATS as bearer.                          | Same as exporter: payload field renamed, executor consumes as API key. Cutover handled in tsuchinoko's own branch.                                                                                                                          |
+| **claude/agent integration** (`lightfall/claude/agent.py`) | Uses `api_key` for Anthropic, not Tiled/logbook.            | Untouched. This is a third-party API key for Anthropic, unrelated to Lightfall's internal auth.                                                                                                                                                  |
 
 ## Error handling
 
@@ -275,13 +275,13 @@ Every site that currently reads `session.token` must change. Categorized below:
 | `ServiceKeyAuth` finds no key in cache (slot empty)   | per-request           | Yield request without auth header. The downstream call will fail 401 — surface as a "service not authorized; please re-login" toast at the call site. |
 | `ServiceKeyAuth` finds expired key                    | per-request           | Same — treat as empty. (At 7-day TTL this should be rare; user has been working > 1 week without re-login.) |
 | Server returns 401 on a request despite cached key    | per-request           | One retry with same key (in case of transient server glitch). On second 401, treat as expired: clear that slot, surface re-login toast. |
-| RE plan mid-execution; user clicks Logout             | UI (logout action)    | Check `engine.RE.state` (via the LUCID engine wrapper, see [[lucid-engine-wrapper]]). If `running` / `paused`, show confirm dialog citing data-write loss. On confirm or idle: proceed to `SessionManager.logout()` which clears the cache (no revocation — the user already accepted the risk). |
+| RE plan mid-execution; user clicks Logout             | UI (logout action)    | Check `engine.RE.state` (via the Lightfall engine wrapper, see [[lightfall-engine-wrapper]]). If `running` / `paused`, show confirm dialog citing data-write loss. On confirm or idle: proceed to `SessionManager.logout()` which clears the cache (no revocation — the user already accepted the risk). |
 | Keycloak logout endpoint unreachable                  | `provider.logout`     | Warn-log, continue. The local cache is cleared regardless.                                     |
-| User keeps LUCID open >7 days                         | `ServiceKeyAuth`       | Cache slot reports expired; user is prompted to re-login on next service call.                |
+| User keeps Lightfall open >7 days                         | `ServiceKeyAuth`       | Cache slot reports expired; user is prompted to re-login on next service call.                |
 
 ## Testing strategy
 
-### Unit (LUCID)
+### Unit (Lightfall)
 
 - `tests/auth/test_service_key.py` — `mint_service_key` and `revoke_service_key` against a stub httpx transport; verifies request shape, header, error mapping.
 - `tests/auth/test_session_manager_mint.py` — verifies:
@@ -296,7 +296,7 @@ Every site that currently reads `session.token` must change. Categorized below:
 
 ### Integration
 
-- `tests/integration/test_auth_v2_e2e.py` — against a bcgtiled test instance + a stub lucid-logbook server with the mint endpoint:
+- `tests/integration/test_auth_v2_e2e.py` — against a bcgtiled test instance + a stub lightfall-logbook server with the mint endpoint:
   1. Run the Keycloak OAuth flow (or its mock).
   2. Assert two keys appear in the cache.
   3. Assert `session.token is None`.
@@ -324,12 +324,12 @@ def test_revoke_minted_key(authenticated_client):
     ...
 ```
 
-als-tiled already has these (Plan A). lucid-logbook will grow them as part of its mint-endpoint implementation.
+als-tiled already has these (Plan A). lightfall-logbook will grow them as part of its mint-endpoint implementation.
 
 ## What this does NOT change
 
 - The non-Keycloak `AuthProvider`s (`local.py`, `pam.py`). They keep `session.token` as their own opaque session-token string. Only the Keycloak provider path discards `session.token` post-mint.
-- LUCID's `policy` engine, `Role`/`Permission` machinery. Authz still resolves from `user.roles` populated at login.
+- Lightfall's `policy` engine, `Role`/`Permission` machinery. Authz still resolves from `user.roles` populated at login.
 - The OAuth callback flow (`OAuthBrowserDialog`, callback server). Unchanged.
 - Offline mode and the `_reconnect_timer`. Unchanged.
 - alshub-api integration and the ESAF lookup path.
@@ -338,9 +338,9 @@ als-tiled already has these (Plan A). lucid-logbook will grow them as part of it
 
 1. **Which thread does the mint round run on?** `login()` is `async def`; the mint helpers are synchronous httpx. Wrap with `asyncio.to_thread` so the event loop isn't blocked. Confirm during implementation that this composes cleanly with the existing login flow's `QThreadFuture` usage.
 2. **`get_minted_key()` vs. `get_api_key()`** — current sketch has both (the former for NATS payload embedding, the latter for header injection). Could be a single API returning the record and let consumers pick the field. Implementation-time call.
-3. **Where do `LucidConfig.services` defaults live?** Probably in `lucid.config.schema` with two pre-populated entries (`tiled`, `logbook`) read from existing tiled/logbook URL settings. Confirm during plan-write that we don't end up with duplicate URL configuration.
+3. **Where do `LucidConfig.services` defaults live?** Probably in `lightfall.config.schema` with two pre-populated entries (`tiled`, `logbook`) read from existing tiled/logbook URL settings. Confirm during plan-write that we don't end up with duplicate URL configuration.
 4. ~~What does `ServiceKeyAuth("tiled")` do for a Tiled client constructed in a subprocess (executor)?~~ Resolved: `StaticApiKeyAuth(secret)` ships alongside `ServiceKeyAuth` for the no-SessionManager case (executor subprocesses). Captured in the components list above.
-5. **lucid-logbook key storage choice.** Self-signed JWT (recommended in this spec) vs. key-DB. The spec leaves this to the logbook implementation plan. Decision lives in the logbook repo's spec.
+5. **lightfall-logbook key storage choice.** Self-signed JWT (recommended in this spec) vs. key-DB. The spec leaves this to the logbook implementation plan. Decision lives in the logbook repo's spec.
 
 ## Implementation skeleton
 
@@ -348,13 +348,13 @@ Sequenced so each merges independently and the bearer-refresh code can be delete
 
 ### Stage 0 (precursor — already shipped)
 
-0. als-tiled mint endpoint (Plan A, MR !1). Deployed before Stage 2 in LUCID.
+0. als-tiled mint endpoint (Plan A, MR !1). Deployed before Stage 2 in Lightfall.
 
-### Stage 1 (LUCID auth primitives)
+### Stage 1 (Lightfall auth primitives)
 
-1. Move `lucid.auth.job_key` → `lucid.auth.service_key`. Rename functions. Update spec references in `lucid-pipelines`. Tests updated.
+1. Move `lightfall.auth.job_key` → `lightfall.auth.service_key`. Rename functions. Update spec references in `lightfall-pipelines`. Tests updated.
 2. Add `MintedKey` dataclass (in `service_key.py` alongside the mint function).
-3. Add `ServiceKeyAuth` class in `lucid.auth.service_key_auth`.
+3. Add `ServiceKeyAuth` class in `lightfall.auth.service_key_auth`.
 4. Add `LucidConfig.services` config field with Tiled/logbook entries.
 
 ### Stage 2 (SessionManager refactor)
@@ -366,7 +366,7 @@ Sequenced so each merges independently and the bearer-refresh code can be delete
 9. Update `KeycloakAuthProvider.logout` to read `id_token` from the new `SessionManager` slot.
 10. Tests for the new SessionManager surface.
 
-### Stage 3 (LUCID consumer migration)
+### Stage 3 (Lightfall consumer migration)
 
 11. Switch every site listed in "Consumer migration" → `ServiceKeyAuth("tiled")` / `ServiceKeyAuth("logbook")` / `user.attributes`.
 12. Delete `KeycloakTiledAuth` and `SessionAuth`. Grep for stragglers.
@@ -374,26 +374,26 @@ Sequenced so each merges independently and the bearer-refresh code can be delete
 
 ### Stage 4 (exporter + pipelines + tsuchinoko payload migration)
 
-14. lucid.exporter: rename `auth_token` → `tiled_api_key`; switch executor to `Apikey` header; LUCID dispatcher reads from cache.
-15. lucid-pipelines: dispatcher embeds session key instead of calling `mint_job_key`. (Executor unchanged — it already speaks Apikey.)
-16. tsuchinoko: same payload change on LUCID-refactor branch (separate per-repo plan).
+14. lightfall.exporter: rename `auth_token` → `tiled_api_key`; switch executor to `Apikey` header; Lightfall dispatcher reads from cache.
+15. lightfall-pipelines: dispatcher embeds session key instead of calling `mint_job_key`. (Executor unchanged — it already speaks Apikey.)
+16. tsuchinoko: same payload change on Lightfall-refactor branch (separate per-repo plan).
 
-### Stage 5 (lucid-logbook)
+### Stage 5 (lightfall-logbook)
 
-17. Implement mint endpoint in lucid-logbook (self-signed JWT recommended; per-repo spec).
-18. Deploy. LUCID's logbook client cuts over.
+17. Implement mint endpoint in lightfall-logbook (self-signed JWT recommended; per-repo spec).
+18. Deploy. Lightfall's logbook client cuts over.
 
 ### Stage 6 (cleanup)
 
 19. End-to-end integration test (Tiled + logbook + RE round-trip) on bcgtiled.
-20. Memory updates: retire `feedback_lucid_keycloak_claims_location` (still partially valid for non-credential JWT reads, but the credential-flow half is moot).
+20. Memory updates: retire `feedback_lightfall_keycloak_claims_location` (still partially valid for non-credential JWT reads, but the credential-flow half is moot).
 21. Update README / docs.
 
-Stages 0–4 are LUCID-and-Tiled only; merging them already retires the refresh treadmill for the Tiled half. Stage 5 (lucid-logbook) is gated on the logbook spec landing, but doesn't block the Tiled-side win.
+Stages 0–4 are Lightfall-and-Tiled only; merging them already retires the refresh treadmill for the Tiled half. Stage 5 (lightfall-logbook) is gated on the logbook spec landing, but doesn't block the Tiled-side win.
 
 ## Related work
 
 - **als-tiled Plan A** (`~/PycharmProjects/als-tiled/docs/superpowers/plans/2026-05-16-user-scoped-api-keys.md`) — Stage 0 of this design; the reference shape every other service implements.
 - **2026-04-09 token-refresh redesign** — the refresh-path single-owner shape this design retires. Its `_schedule_refresh` / `_do_scheduled_refresh` machinery is deleted, but the work to centralize refresh ownership was a precondition for being able to delete it cleanly.
 - **2026-05-15 notebook-pipelines design § "Auth"** — the per-job-mint model this design generalizes (and collapses).
-- **`lucid.auth.job_key`** — the prior-art mint helper. Survives as `lucid.auth.service_key` with no internal logic change.
+- **`lightfall.auth.job_key`** — the prior-art mint helper. Survives as `lightfall.auth.service_key` with no internal logic change.

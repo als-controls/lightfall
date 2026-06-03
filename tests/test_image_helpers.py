@@ -9,7 +9,7 @@ from PySide6.QtGui import QImage
 
 def test_fetch_qimage_returns_qimage_for_png_bytes(qapp):
     """_fetch_qimage downloads via the client and decodes bytes to QImage."""
-    from lucid.settings.image_helpers import _fetch_qimage
+    from lightfall.settings.image_helpers import _fetch_qimage
 
     # Smallest valid PNG: 1x1 transparent.
     png = bytes.fromhex(
@@ -25,7 +25,7 @@ def test_fetch_qimage_returns_qimage_for_png_bytes(qapp):
 
 
 def test_fetch_qimage_returns_null_image_on_garbage(qapp):
-    from lucid.settings.image_helpers import _fetch_qimage
+    from lightfall.settings.image_helpers import _fetch_qimage
 
     client = MagicMock()
     client.download_image.return_value = (b"not an image", "image/png")

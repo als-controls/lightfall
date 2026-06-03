@@ -17,14 +17,14 @@
 ## File map
 
 **Modified:**
-- `src/lucid/claude/permission_manager.py` — question request/response API, hook & callback special-cases.
-- `src/lucid/claude/agent.py` — re-expose 8 new signals from worker / permission manager; thin `respond_to_question` method; `include_partial_messages=True` option.
-- `src/lucid/claude/_internal/worker.py` — `StreamEvent` dispatch, `Task*Message` branches, 7 new signals.
-- `src/lucid/claude/widget.py` — slots and state for streaming bubbles, question widgets, task cards; suppress `_on_tool_called` for `Task`.
+- `src/lightfall/claude/permission_manager.py` — question request/response API, hook & callback special-cases.
+- `src/lightfall/claude/agent.py` — re-expose 8 new signals from worker / permission manager; thin `respond_to_question` method; `include_partial_messages=True` option.
+- `src/lightfall/claude/_internal/worker.py` — `StreamEvent` dispatch, `Task*Message` branches, 7 new signals.
+- `src/lightfall/claude/widget.py` — slots and state for streaming bubbles, question widgets, task cards; suppress `_on_tool_called` for `Task`.
 
 **Created:**
-- `src/lucid/claude/widgets/question_request.py` — `QuestionRequestWidget`.
-- `src/lucid/claude/widgets/task_card.py` — `TaskCard`.
+- `src/lightfall/claude/widgets/question_request.py` — `QuestionRequestWidget`.
+- `src/lightfall/claude/widgets/task_card.py` — `TaskCard`.
 - `tests/claude/test_question_request.py`
 - `tests/claude/test_partial_streaming_worker.py`
 - `tests/claude/test_task_progress_worker.py`
@@ -40,7 +40,7 @@
 Add a parallel request/response path for `AskUserQuestion` that mirrors the existing approval plumbing but returns a free-form answers dict.
 
 **Files:**
-- Modify: `src/lucid/claude/permission_manager.py`
+- Modify: `src/lightfall/claude/permission_manager.py`
 - Create: `tests/claude/test_question_request.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -55,7 +55,7 @@ import asyncio
 
 import pytest
 
-from lucid.claude.permission_manager import PermissionManager
+from lightfall.claude.permission_manager import PermissionManager
 
 
 @pytest.mark.asyncio
@@ -247,7 +247,7 @@ Expected: 3 passed.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lucid/claude/permission_manager.py tests/claude/test_question_request.py
+git add src/lightfall/claude/permission_manager.py tests/claude/test_question_request.py
 git commit -m "PermissionManager: add request_question / respond_to_question
 
 Parallel to request_permission, but returns a free-form answers dict
@@ -267,7 +267,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 The can_use_tool callback must return `PermissionResultAllow(updated_input=...)` to feed answers back. The PreToolUse hook must pass through (return `{}`) so it doesn't intercept first.
 
 **Files:**
-- Modify: `src/lucid/claude/permission_manager.py:342-448`
+- Modify: `src/lightfall/claude/permission_manager.py:342-448`
 - Test: `tests/claude/test_question_request.py` (append)
 
 - [ ] **Step 1: Add failing test for can_use_tool integration**
@@ -282,7 +282,7 @@ async def test_can_use_tool_routes_AskUserQuestion_to_request_question(qtbot):
         PermissionResultDeny,
         ToolPermissionContext,
     )
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_can_use_tool_callback,
     )
@@ -314,7 +314,7 @@ async def test_can_use_tool_routes_AskUserQuestion_to_request_question(qtbot):
 @pytest.mark.asyncio
 async def test_can_use_tool_AskUserQuestion_cancel_denies(qtbot):
     from claude_agent_sdk import PermissionResultDeny, ToolPermissionContext
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_can_use_tool_callback,
     )
@@ -338,7 +338,7 @@ async def test_can_use_tool_AskUserQuestion_cancel_denies(qtbot):
 
 @pytest.mark.asyncio
 async def test_pre_tool_use_hook_passes_through_AskUserQuestion(qtbot):
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_pre_tool_use_hook,
     )
@@ -459,7 +459,7 @@ Expected: 6 passed (3 original + 3 new).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/claude/permission_manager.py tests/claude/test_question_request.py
+git add src/lightfall/claude/permission_manager.py tests/claude/test_question_request.py
 git commit -m "Route AskUserQuestion through can_use_tool with updated_input
 
 The built-in AskUserQuestion tool needs the user's selections fed back
@@ -478,7 +478,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Inline widget rendering one or more questions with radios / checkboxes.
 
 **Files:**
-- Create: `src/lucid/claude/widgets/question_request.py`
+- Create: `src/lightfall/claude/widgets/question_request.py`
 - Test: `tests/ui/panels/claude/test_question_widget_render.py`
 
 - [ ] **Step 1: Write failing test**
@@ -491,7 +491,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QCheckBox, QRadioButton
 
-from lucid.claude.widgets.question_request import QuestionRequestWidget
+from lightfall.claude.widgets.question_request import QuestionRequestWidget
 
 
 def test_single_select_question(qtbot):
@@ -562,11 +562,11 @@ def test_cancel_emits_cancelled(qtbot):
 - [ ] **Step 2: Run test to confirm it fails**
 
 Run: `.venv/bin/python -m pytest tests/ui/panels/claude/test_question_widget_render.py -v`
-Expected: `ImportError: No module named 'lucid.claude.widgets.question_request'`.
+Expected: `ImportError: No module named 'lightfall.claude.widgets.question_request'`.
 
 - [ ] **Step 3: Implement the widget**
 
-Create `src/lucid/claude/widgets/question_request.py`:
+Create `src/lightfall/claude/widgets/question_request.py`:
 
 ```python
 """Inline widget for AskUserQuestion responses.
@@ -798,7 +798,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/claude/widgets/question_request.py tests/ui/panels/claude/test_question_widget_render.py
+git add src/lightfall/claude/widgets/question_request.py tests/ui/panels/claude/test_question_widget_render.py
 git commit -m "Add QuestionRequestWidget for AskUserQuestion rendering
 
 One QGroupBox per question, radios for single-select / checkboxes for
@@ -816,8 +816,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Forward the permission manager's `question_requested` signal up to the agent, then connect it in the widget.
 
 **Files:**
-- Modify: `src/lucid/claude/agent.py`
-- Modify: `src/lucid/claude/widget.py`
+- Modify: `src/lightfall/claude/agent.py`
+- Modify: `src/lightfall/claude/widget.py`
 
 - [ ] **Step 1: Add signal and method on `QtClaudeAgent`**
 
@@ -874,8 +874,8 @@ In `_connect_signals` (line 224), after the `permission_requested` connect (line
 Add the import near the top with the other widget imports:
 
 ```python
-from lucid.claude.widgets.permission_request import PermissionRequestWidget
-from lucid.claude.widgets.question_request import QuestionRequestWidget
+from lightfall.claude.widgets.permission_request import PermissionRequestWidget
+from lightfall.claude.widgets.question_request import QuestionRequestWidget
 ```
 
 Add three slots after `_cleanup_permission_widget` (around line 462):
@@ -961,7 +961,7 @@ Expected: all pass (no regressions; new test files included).
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid/claude/agent.py src/lucid/claude/widget.py
+git add src/lightfall/claude/agent.py src/lightfall/claude/widget.py
 git commit -m "Wire AskUserQuestion signal through agent into ClaudeAssistantWidget
 
 QtClaudeAgent now re-exposes PermissionManager.question_requested, with
@@ -981,7 +981,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Parse `StreamEvent` from the SDK and emit per-block partial signals.
 
 **Files:**
-- Modify: `src/lucid/claude/_internal/worker.py`
+- Modify: `src/lightfall/claude/_internal/worker.py`
 - Create: `tests/claude/test_partial_streaming_worker.py`
 
 - [ ] **Step 1: Write failing test**
@@ -997,7 +997,7 @@ import asyncio
 import pytest
 
 from claude_agent_sdk.types import ResultMessage, StreamEvent
-from lucid.claude._internal.worker import PersistentClaudeWorker
+from lightfall.claude._internal.worker import PersistentClaudeWorker
 
 
 class _StreamStubClient:
@@ -1201,7 +1201,7 @@ Expected: 2 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/claude/_internal/worker.py tests/claude/test_partial_streaming_worker.py
+git add src/lightfall/claude/_internal/worker.py tests/claude/test_partial_streaming_worker.py
 git commit -m "Worker: dispatch StreamEvent into partial_block_* signals
 
 With include_partial_messages=True, the SDK streams per-token deltas
@@ -1223,7 +1223,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 When `include_partial_messages=True`, text and thinking arrive twice — once via stream events, again in the assembled `AssistantMessage`. Skip the second emit to avoid double rendering.
 
 **Files:**
-- Modify: `src/lucid/claude/_internal/worker.py:405-450`
+- Modify: `src/lightfall/claude/_internal/worker.py:405-450`
 - Test: `tests/claude/test_partial_streaming_worker.py` (append)
 
 - [ ] **Step 1: Add failing test**
@@ -1317,7 +1317,7 @@ Expected: 3 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/claude/_internal/worker.py tests/claude/test_partial_streaming_worker.py
+git add src/lightfall/claude/_internal/worker.py tests/claude/test_partial_streaming_worker.py
 git commit -m "Worker: skip TextBlock / ThinkingBlock re-emit in AssistantMessage
 
 With include_partial_messages=True (now the panel's default), text and
@@ -1337,8 +1337,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 2.3: Enable `include_partial_messages` and forward signals to widget
 
 **Files:**
-- Modify: `src/lucid/claude/agent.py`
-- Modify: `src/lucid/claude/widget.py`
+- Modify: `src/lightfall/claude/agent.py`
+- Modify: `src/lightfall/claude/widget.py`
 
 - [ ] **Step 1: Flip the option in `agent.py`**
 
@@ -1479,7 +1479,7 @@ Add four new slots (place after `_on_thinking`):
             return
         if bubble.kind == "text" and bubble.buffer:
             # One markdown render at end — see spec for the perf rationale.
-            from lucid.claude.markdown import render_markdown
+            from lightfall.claude.markdown import render_markdown
             bubble.label.setText(render_markdown(bubble.buffer))
         # thinking stays plaintext (existing widget style).
 ```
@@ -1518,7 +1518,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/claude/agent.py src/lucid/claude/widget.py
+git add src/lightfall/claude/agent.py src/lightfall/claude/widget.py
 git commit -m "Enable partial streaming and wire bubbles into the chat panel
 
 Set include_partial_messages=True; QtClaudeAgent re-exposes the four
@@ -1542,7 +1542,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Parse the three `SystemMessage` subclasses for Task tool progress.
 
 **Files:**
-- Modify: `src/lucid/claude/_internal/worker.py`
+- Modify: `src/lightfall/claude/_internal/worker.py`
 - Create: `tests/claude/test_task_progress_worker.py`
 
 - [ ] **Step 1: Write failing test**
@@ -1561,7 +1561,7 @@ from claude_agent_sdk.types import (
     TaskProgressMessage,
     TaskStartedMessage,
 )
-from lucid.claude._internal.worker import PersistentClaudeWorker
+from lightfall.claude._internal.worker import PersistentClaudeWorker
 
 
 class _TaskStubClient:
@@ -1717,7 +1717,7 @@ Expected: 1 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/claude/_internal/worker.py tests/claude/test_task_progress_worker.py
+git add src/lightfall/claude/_internal/worker.py tests/claude/test_task_progress_worker.py
 git commit -m "Worker: parse Task*Message into task_started/progress/finished signals
 
 The Task tool dispatches subagents; the CLI surfaces them as
@@ -1734,7 +1734,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 4.2: `TaskCard` widget
 
 **Files:**
-- Create: `src/lucid/claude/widgets/task_card.py`
+- Create: `src/lightfall/claude/widgets/task_card.py`
 - Create: `tests/ui/panels/claude/test_task_card_render.py`
 
 - [ ] **Step 1: Write failing test**
@@ -1745,7 +1745,7 @@ Create `tests/ui/panels/claude/test_task_card_render.py`:
 """TaskCard renders status, description, and counters."""
 from __future__ import annotations
 
-from lucid.claude.widgets.task_card import TaskCard
+from lightfall.claude.widgets.task_card import TaskCard
 
 
 def test_initial_state_is_running(qtbot):
@@ -1793,11 +1793,11 @@ def test_unknown_status_falls_back_to_completed(qtbot):
 - [ ] **Step 2: Run test to confirm it fails**
 
 Run: `.venv/bin/python -m pytest tests/ui/panels/claude/test_task_card_render.py -v`
-Expected: `ImportError: No module named 'lucid.claude.widgets.task_card'`.
+Expected: `ImportError: No module named 'lightfall.claude.widgets.task_card'`.
 
 - [ ] **Step 3: Implement `TaskCard`**
 
-Create `src/lucid/claude/widgets/task_card.py`:
+Create `src/lightfall/claude/widgets/task_card.py`:
 
 ```python
 """Inline card for one Task tool subagent run.
@@ -2028,7 +2028,7 @@ Expected: 4 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/claude/widgets/task_card.py tests/ui/panels/claude/test_task_card_render.py
+git add src/lightfall/claude/widgets/task_card.py tests/ui/panels/claude/test_task_card_render.py
 git commit -m "Add TaskCard widget for Task tool subagent progress
 
 One card per task_id, updated in place across start/progress/finished.
@@ -2044,8 +2044,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 4.3: Wire `TaskCard` into `ClaudeAssistantWidget`, suppress Task tool_called
 
 **Files:**
-- Modify: `src/lucid/claude/agent.py`
-- Modify: `src/lucid/claude/widget.py`
+- Modify: `src/lightfall/claude/agent.py`
+- Modify: `src/lightfall/claude/widget.py`
 
 - [ ] **Step 1: Add signals and forwarding on `QtClaudeAgent`**
 
@@ -2071,7 +2071,7 @@ In `_ensure_connected`, add to the worker signal connects:
 In `widget.py`, add imports:
 
 ```python
-from lucid.claude.widgets.task_card import TaskCard
+from lightfall.claude.widgets.task_card import TaskCard
 ```
 
 In `ClaudeAssistantWidget.__init__`, after `self._streaming_bubbles` (added in Task 2.3):
@@ -2164,7 +2164,7 @@ Expected: all pass — Task 1, 2, and 4 tests plus the original 18.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/claude/agent.py src/lucid/claude/widget.py
+git add src/lightfall/claude/agent.py src/lightfall/claude/widget.py
 git commit -m "Render Task tool subagents inline as live TaskCards
 
 QtClaudeAgent re-exposes task_started / task_progress / task_finished;

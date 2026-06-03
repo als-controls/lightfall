@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QTabWidget
 
-from lucid.acquire.plan_ui import PlanUI, plan_with_ui
+from lightfall.acquire.plan_ui import PlanUI, plan_with_ui
 
 
 class DummyPlanUI(PlanUI):
@@ -28,7 +28,7 @@ def dummy_plan_no_ui():
 
 class TestBlueskyPanelTabbing:
     def test_panel_has_tab_widget(self, qtbot):
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 
         panel = BlueskyPanel()
         qtbot.addWidget(panel)
@@ -37,7 +37,7 @@ class TestBlueskyPanelTabbing:
         assert tab_widget.tabBarAutoHide() is True
 
     def test_initial_one_tab(self, qtbot):
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 
         panel = BlueskyPanel()
         qtbot.addWidget(panel)
@@ -45,8 +45,8 @@ class TestBlueskyPanelTabbing:
         assert tab_widget.count() == 1
 
     def test_adds_tab_for_plan_with_ui(self, qtbot):
-        from lucid.acquire.plans import PlanInfo
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.acquire.plans import PlanInfo
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 
         panel = BlueskyPanel()
         qtbot.addWidget(panel)
@@ -66,8 +66,8 @@ class TestBlueskyPanelTabbing:
         assert isinstance(ui_widget, DummyPlanUI)
 
     def test_no_tab_for_plan_without_ui(self, qtbot):
-        from lucid.acquire.plans import PlanInfo
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.acquire.plans import PlanInfo
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 
         panel = BlueskyPanel()
         qtbot.addWidget(panel)
@@ -83,8 +83,8 @@ class TestBlueskyPanelTabbing:
         assert tab_widget.count() == 1
 
     def test_removes_tab_on_finish(self, qtbot):
-        from lucid.acquire.plans import PlanInfo
-        from lucid.ui.panels.bluesky_panel import BlueskyPanel
+        from lightfall.acquire.plans import PlanInfo
+        from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 
         panel = BlueskyPanel()
         qtbot.addWidget(panel)

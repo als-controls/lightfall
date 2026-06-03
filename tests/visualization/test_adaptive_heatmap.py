@@ -175,11 +175,11 @@ def _patch_for_tests(monkeypatch):
     Stub _start_subscription since FakeContainer has no subscribe().
     """
     monkeypatch.setattr(
-        "lucid.utils.tiled_helpers.fetch_frame",
+        "lightfall.utils.tiled_helpers.fetch_frame",
         _fake_fetch_frame,
     )
     monkeypatch.setattr(
-        "lucid.visualization.widgets.adaptive.heatmap."
+        "lightfall.visualization.widgets.adaptive.heatmap."
         "AdaptiveHeatmapVisualization._start_subscription",
         lambda self: None,
     )
@@ -195,7 +195,7 @@ class TestCanHandle:
     """can_handle scoring tests."""
 
     def test_valid_2d_tsuchinoko_run(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -204,7 +204,7 @@ class TestCanHandle:
         assert AdaptiveHeatmapVisualization.can_handle(run) == 90
 
     def test_returns_zero_for_no_adaptive(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -212,7 +212,7 @@ class TestCanHandle:
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
     def test_returns_zero_for_wrong_engine(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -224,7 +224,7 @@ class TestCanHandle:
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
     def test_returns_zero_for_3d_grid(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -233,7 +233,7 @@ class TestCanHandle:
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
     def test_returns_zero_for_missing_metadata(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -242,7 +242,7 @@ class TestCanHandle:
         assert AdaptiveHeatmapVisualization.can_handle(run) == 0
 
     def test_handles_exception_gracefully(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -254,7 +254,7 @@ class TestSetRunAndFields:
     """set_run + get_fields integration."""
 
     def test_get_fields_returns_present_arrays(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -272,7 +272,7 @@ class TestSetRunAndFields:
         assert "acquisition_function" in fields
 
     def test_get_fields_only_returns_present(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -289,7 +289,7 @@ class TestSetRunAndFields:
         assert "posterior_mean" in fields
 
     def test_get_fields_preserves_priority_order(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -313,7 +313,7 @@ class TestSetField:
     """set_field changes displayed data."""
 
     def test_switching_field_updates_internal_state(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -332,7 +332,7 @@ class TestSetField:
         assert w._field_name == "posterior_variance"
 
     def test_set_field_configures_image_view(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -351,7 +351,7 @@ class TestSetField:
         assert w._current_index == 2
 
     def test_set_field_sets_frame_shape(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -375,7 +375,7 @@ class TestSetField:
         have shape ``(Nx, Ny)`` with axis 0 indexing grid_x — otherwise
         the heatmap appears transposed relative to the scatter overlays.
         """
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -410,7 +410,7 @@ class TestSetField:
         ``_make_adaptive_stream`` spans grid_x ∈ [0, 100] and
         grid_y ∈ [0, 50] — distinct ranges so a swap is detectable.
         """
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -435,7 +435,7 @@ class TestSetField:
         unconditionally; the heatmap viz must undo that so scientific
         (x, y) motor coordinates display the natural way.
         """
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -448,7 +448,7 @@ class TestNewIterationDetection:
     """_check_for_new_iterations behavior."""
 
     def test_no_op_when_count_unchanged(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -465,7 +465,7 @@ class TestNewIterationDetection:
         assert w._current_index == old_index  # unchanged
 
     def test_detects_new_iterations(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -493,7 +493,7 @@ class TestTimelineScrubbing:
     """Timeline (ImageView) replaces the old slider."""
 
     def test_initial_position_is_last_iteration(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -508,7 +508,7 @@ class TestTimelineScrubbing:
         assert w._current_index == 4  # 0-indexed last
 
     def test_auto_advances_when_at_end(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -537,7 +537,7 @@ class TestGetStreams:
     """get_streams returns the expected list."""
 
     def test_returns_adaptive(self, qtbot):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -555,14 +555,14 @@ class TestClassAttributes:
     """Verify class-level metadata."""
 
     def test_viz_name(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
         assert AdaptiveHeatmapVisualization.viz_name == "adaptive_heatmap"
 
     def test_viz_display_name(self):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 
@@ -573,7 +573,7 @@ class TestTargetOverlay:
     """_apply_target_scatter handles padded, ragged, and legacy shapes."""
 
     def _setup(self, qtbot, **stream_kwargs):
-        from lucid.visualization.widgets.adaptive.heatmap import (
+        from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
         )
 

@@ -43,7 +43,7 @@ def fake_settings_active_override():
 def fake_session():
     """Mock SessionManager-style object.
 
-    Mirrors the auth-v2 lucid.auth.session.Session shape: the bearer is
+    Mirrors the auth-v2 lightfall.auth.session.Session shape: the bearer is
     discarded post-mint so ``.token`` is None, and the decoded claims dict
     lives on ``.user.attributes`` (where orcid/sub live).
     """
@@ -61,7 +61,7 @@ def fake_session():
 
 @pytest.mark.asyncio
 async def test_stamp_schedule_path(fake_alshub, fake_settings_no_override, fake_session):
-    from lucid.services.access_stamper import AccessStamper
+    from lightfall.services.access_stamper import AccessStamper
 
     stamper = AccessStamper(
         beamline="4.0.2",
@@ -83,7 +83,7 @@ async def test_stamp_schedule_path(fake_alshub, fake_settings_no_override, fake_
 async def test_stamp_admin_override_wins(
     fake_alshub, fake_settings_active_override, fake_session,
 ):
-    from lucid.services.access_stamper import AccessStamper
+    from lightfall.services.access_stamper import AccessStamper
 
     stamper = AccessStamper(
         beamline="4.0.2",
@@ -101,7 +101,7 @@ async def test_stamp_admin_override_wins(
 async def test_stamp_misconfigured_override_falls_through(
     fake_alshub, fake_session,
 ):
-    from lucid.services.access_stamper import AccessStamper
+    from lightfall.services.access_stamper import AccessStamper
 
     bad = MagicMock()
     bad.access_override = MagicMock(
@@ -123,7 +123,7 @@ async def test_stamp_misconfigured_override_falls_through(
 
 @pytest.mark.asyncio
 async def test_stamp_no_schedule_marks_none(fake_session, fake_settings_no_override):
-    from lucid.services.access_stamper import AccessStamper
+    from lightfall.services.access_stamper import AccessStamper
 
     bare = AsyncMock()
     bare.get_active_esaf.return_value = None
@@ -141,7 +141,7 @@ async def test_stamp_no_schedule_marks_none(fake_session, fake_settings_no_overr
 
 @pytest.mark.asyncio
 async def test_stamp_alshub_outage_marks_pending(fake_session, fake_settings_no_override):
-    from lucid.services.access_stamper import AccessStamper
+    from lightfall.services.access_stamper import AccessStamper
 
     bare = AsyncMock()
     bare.get_active_esaf.side_effect = Exception("connection refused")
@@ -158,7 +158,7 @@ async def test_stamp_alshub_outage_marks_pending(fake_session, fake_settings_no_
 
 @pytest.mark.asyncio
 async def test_stamp_no_session_raises(fake_alshub, fake_settings_no_override):
-    from lucid.services.access_stamper import AccessStamper, MissingSessionError
+    from lightfall.services.access_stamper import AccessStamper, MissingSessionError
 
     no_session = lambda: None
     stamper = AccessStamper(
@@ -174,7 +174,7 @@ async def test_stamp_no_session_raises(fake_alshub, fake_settings_no_override):
 @pytest.mark.asyncio
 async def test_stamp_no_user_raises(fake_alshub, fake_settings_no_override):
     """Auth-v2 presence-check gates on `session.user`, not `session.token`."""
-    from lucid.services.access_stamper import AccessStamper, MissingSessionError
+    from lightfall.services.access_stamper import AccessStamper, MissingSessionError
 
     session_without_user = MagicMock()
     session_without_user.token = None
@@ -190,7 +190,7 @@ async def test_stamp_no_user_raises(fake_alshub, fake_settings_no_override):
 
 
 def test_compute_access_tags_emits_one_per_predicate():
-    from lucid.services.access_stamper import compute_access_tags
+    from lightfall.services.access_stamper import compute_access_tags
 
     blob = {
         "esaf_id": "BLS-00480-001",
@@ -219,7 +219,7 @@ def test_install_appends_preprocessor(
     from bluesky import Msg
     from unittest.mock import MagicMock
 
-    from lucid.services.access_stamper import AccessStamper, install_into_run_engine
+    from lightfall.services.access_stamper import AccessStamper, install_into_run_engine
 
     stamper = AccessStamper(
         beamline="4.0.2",
@@ -265,7 +265,7 @@ def test_install_is_idempotent(
     """Re-installing should replace, not stack."""
     from unittest.mock import MagicMock
 
-    from lucid.services.access_stamper import AccessStamper, install_into_run_engine
+    from lightfall.services.access_stamper import AccessStamper, install_into_run_engine
 
     stamper = AccessStamper(
         beamline="4.0.2",

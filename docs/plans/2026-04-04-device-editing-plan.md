@@ -14,13 +14,13 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/lucid/devices/model.py` | Modify | Add `display_name`, `icon_override`, `group` fields to `DeviceInfo` |
-| `src/lucid/devices/base.py` | Modify | Add `is_editable` property to `DeviceBackend` ABC |
-| `src/lucid/devices/backends/happi.py` | Modify | Write-through for update/add/remove, auto-init JSON DB |
-| `src/lucid/ui/dialogs/device_edit_dialog.py` | Create | ParameterTree-based edit/create dialog |
-| `src/lucid/ui/panels/device_panel.py` | Modify | Context menu, edit dialog integration, inactive click handling |
-| `src/lucid/ui/models/device_tree.py` | Modify | Grey out inactive devices, load all devices |
-| `src/lucid/plugins/tools/device_tools.py` | Modify | Add `ncs_manage_device` tool |
+| `src/lightfall/devices/model.py` | Modify | Add `display_name`, `icon_override`, `group` fields to `DeviceInfo` |
+| `src/lightfall/devices/base.py` | Modify | Add `is_editable` property to `DeviceBackend` ABC |
+| `src/lightfall/devices/backends/happi.py` | Modify | Write-through for update/add/remove, auto-init JSON DB |
+| `src/lightfall/ui/dialogs/device_edit_dialog.py` | Create | ParameterTree-based edit/create dialog |
+| `src/lightfall/ui/panels/device_panel.py` | Modify | Context menu, edit dialog integration, inactive click handling |
+| `src/lightfall/ui/models/device_tree.py` | Modify | Grey out inactive devices, load all devices |
+| `src/lightfall/plugins/tools/device_tools.py` | Modify | Add `ncs_manage_device` tool |
 | `tests/test_device_editing.py` | Create | Tests for all new functionality |
 
 ---
@@ -28,7 +28,7 @@
 ### Task 1: Add Fields to DeviceInfo Model
 
 **Files:**
-- Modify: `src/lucid/devices/model.py:172-185`
+- Modify: `src/lightfall/devices/model.py:172-185`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Create test file with model field tests**
@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.devices.model import DeviceInfo
+from lightfall.devices.model import DeviceInfo
 
 
 class TestDeviceInfoNewFields:
@@ -85,7 +85,7 @@ Expected: FAIL — `display_name`, `icon_override`, `group` not recognized by De
 
 - [ ] **Step 3: Add new fields to DeviceInfo**
 
-In `src/lucid/devices/model.py`, after line 184 (`active: bool = True`), add:
+In `src/lightfall/devices/model.py`, after line 184 (`active: bool = True`), add:
 
 ```python
     display_name: str = ""  # User-facing label (falls back to name if empty)
@@ -95,7 +95,7 @@ In `src/lucid/devices/model.py`, after line 184 (`active: bool = True`), add:
 
 - [ ] **Step 4: Update to_summary() to include new fields**
 
-In `src/lucid/devices/model.py`, in the `to_summary()` method, add the new fields to the returned dict:
+In `src/lightfall/devices/model.py`, in the `to_summary()` method, add the new fields to the returned dict:
 
 ```python
         "display_name": self.display_name,
@@ -112,7 +112,7 @@ Expected: All 5 tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/devices/model.py tests/test_device_editing.py
+git add src/lightfall/devices/model.py tests/test_device_editing.py
 git commit -m "feat: add display_name, icon_override, group fields to DeviceInfo"
 ```
 
@@ -121,7 +121,7 @@ git commit -m "feat: add display_name, icon_override, group fields to DeviceInfo
 ### Task 2: Add is_editable to DeviceBackend ABC
 
 **Files:**
-- Modify: `src/lucid/devices/base.py:24`
+- Modify: `src/lightfall/devices/base.py:24`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Add test for is_editable**
@@ -129,7 +129,7 @@ git commit -m "feat: add display_name, icon_override, group fields to DeviceInfo
 Append to `tests/test_device_editing.py`:
 
 ```python
-from lucid.devices.base import DeviceBackend
+from lightfall.devices.base import DeviceBackend
 
 
 class TestBackendEditable:
@@ -138,7 +138,7 @@ class TestBackendEditable:
     def test_base_backend_not_editable(self):
         """DeviceBackend.is_editable should default to False."""
         # We can't instantiate the ABC directly, so test via a concrete subclass
-        from lucid.devices.backends.mock import MockBackend
+        from lightfall.devices.backends.mock import MockBackend
 
         backend = MockBackend()
         assert backend.is_editable is False
@@ -151,7 +151,7 @@ Expected: FAIL — `is_editable` not defined
 
 - [ ] **Step 3: Add is_editable to DeviceBackend**
 
-In `src/lucid/devices/base.py`, inside the `DeviceBackend` class, after the `is_connected` property (around line 50), add:
+In `src/lightfall/devices/base.py`, inside the `DeviceBackend` class, after the `is_connected` property (around line 50), add:
 
 ```python
     @property
@@ -173,7 +173,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/devices/base.py tests/test_device_editing.py
+git add src/lightfall/devices/base.py tests/test_device_editing.py
 git commit -m "feat: add is_editable property to DeviceBackend ABC"
 ```
 
@@ -182,7 +182,7 @@ git commit -m "feat: add is_editable property to DeviceBackend ABC"
 ### Task 3: HappiBackend Write-Through
 
 **Files:**
-- Modify: `src/lucid/devices/backends/happi.py`
+- Modify: `src/lightfall/devices/backends/happi.py`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write tests for happi write-through**
@@ -195,7 +195,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from lucid.devices.model import DeviceCategory, ConnectionType
+from lightfall.devices.model import DeviceCategory, ConnectionType
 
 
 class TestHappiBackendWriteThrough:
@@ -212,7 +212,7 @@ class TestHappiBackendWriteThrough:
     def backend(self, happi_json):
         """Create a connected HappiBackend."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         be = HappiBackend(path=happi_json, instantiate=False)
         be.connect()
@@ -299,7 +299,7 @@ class TestHappiBackendWriteThrough:
         backend.update_device(device)
 
         # Re-read from disk to verify
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         be2 = HappiBackend(path=happi_json, instantiate=False)
         be2.connect()
@@ -310,7 +310,7 @@ class TestHappiBackendWriteThrough:
     def test_auto_init_creates_db(self, tmp_path):
         """If JSON path doesn't exist, auto-create it."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         db_path = tmp_path / "nonexistent" / "happi.json"
         be = HappiBackend(path=str(db_path), instantiate=False)
@@ -334,7 +334,7 @@ Expected: Multiple failures — `is_editable` not on HappiBackend, `add_device` 
 
 - [ ] **Step 3: Add is_editable to HappiBackend**
 
-In `src/lucid/devices/backends/happi.py`, inside the `HappiBackend` class, after the `path` property, add:
+In `src/lightfall/devices/backends/happi.py`, inside the `HappiBackend` class, after the `path` property, add:
 
 ```python
     @property
@@ -344,13 +344,13 @@ In `src/lucid/devices/backends/happi.py`, inside the `HappiBackend` class, after
 
 - [ ] **Step 4: Implement auto-init in connect()**
 
-In `src/lucid/devices/backends/happi.py`, in the `connect()` method, before the `if self._path:` block (around line 222), add path creation logic:
+In `src/lightfall/devices/backends/happi.py`, in the `connect()` method, before the `if self._path:` block (around line 222), add path creation logic:
 
 ```python
         try:
             import happi
         except ImportError:
-            logger.error("happi package not installed. Install with: pip install lucid[happi]")
+            logger.error("happi package not installed. Install with: pip install lightfall[happi]")
             return False
 
         try:
@@ -367,7 +367,7 @@ In `src/lucid/devices/backends/happi.py`, in the `connect()` method, before the 
                     logger.info("Created new device database at {}", self._path)
                     # Toast notification (fire-and-forget, don't block connect)
                     try:
-                        from lucid.core.app import LucidApp
+                        from lightfall.core.app import LucidApp
 
                         app = LucidApp.instance()
                         if app and hasattr(app, "show_notification"):
@@ -537,7 +537,7 @@ Replace the existing `remove_device()` method in `HappiBackend`:
 In `_add_device_from_result()`, after the `DeviceInfo` constructor call (around line 418), read the new fields from happi metadata:
 
 ```python
-        # Read LUCID-specific fields from happi extraneous data
+        # Read Lightfall-specific fields from happi extraneous data
         device_info.display_name = metadata.get("display_name", "")
         device_info.icon_override = metadata.get("icon_override", "")
         device_info.group = metadata.get("group", "")
@@ -555,7 +555,7 @@ Expected: All 7 tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/devices/backends/happi.py tests/test_device_editing.py
+git add src/lightfall/devices/backends/happi.py tests/test_device_editing.py
 git commit -m "feat: happi backend write-through for add/update/remove with auto-init"
 ```
 
@@ -564,7 +564,7 @@ git commit -m "feat: happi backend write-through for add/update/remove with auto
 ### Task 4: Inactive Device Rendering in Tree Model
 
 **Files:**
-- Modify: `src/lucid/ui/models/device_tree.py:788-852`
+- Modify: `src/lightfall/ui/models/device_tree.py:788-852`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write test for inactive device grey rendering**
@@ -590,7 +590,7 @@ class TestInactiveDeviceRendering:
 
     def test_inactive_device_grey_foreground(self, qapp):
         """Inactive device should return grey foreground for all columns."""
-        from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+        from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
         inactive_device = DeviceInfo(name="disabled_motor", active=False)
         item = DeviceTreeItem(
@@ -617,7 +617,7 @@ Expected: PASS (these are basic assertions; the rendering logic change is struct
 
 - [ ] **Step 3: Modify DeviceTreeModel.data() for inactive grey-out**
 
-In `src/lucid/ui/models/device_tree.py`, in the `data()` method, add inactive check at the beginning of the `ForegroundRole` handling (line 814). Replace the existing `elif role == Qt.ItemDataRole.ForegroundRole:` block:
+In `src/lightfall/ui/models/device_tree.py`, in the `data()` method, add inactive check at the beginning of the `ForegroundRole` handling (line 814). Replace the existing `elif role == Qt.ItemDataRole.ForegroundRole:` block:
 
 ```python
         elif role == Qt.ItemDataRole.ForegroundRole:
@@ -657,7 +657,7 @@ Expected: All tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/models/device_tree.py tests/test_device_editing.py
+git add src/lightfall/ui/models/device_tree.py tests/test_device_editing.py
 git commit -m "feat: grey out inactive devices in device tree"
 ```
 
@@ -666,7 +666,7 @@ git commit -m "feat: grey out inactive devices in device tree"
 ### Task 5: Device Edit Dialog
 
 **Files:**
-- Create: `src/lucid/ui/dialogs/device_edit_dialog.py`
+- Create: `src/lightfall/ui/dialogs/device_edit_dialog.py`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write tests for the edit dialog**
@@ -688,7 +688,7 @@ class TestDeviceEditDialog:
 
     def test_create_mode_empty_fields(self, qapp):
         """Dialog in create mode should start with empty fields."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="create")
         params = dialog.get_values()
@@ -698,7 +698,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_populates_fields(self, qapp):
         """Dialog in edit mode should populate from device."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         device = DeviceInfo(
             name="my_motor",
@@ -721,7 +721,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_name_readonly(self, qapp):
         """In edit mode, name should be read-only."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         device = DeviceInfo(name="locked_name", device_class="ophyd.EpicsMotor")
         dialog = DeviceEditDialog(mode="edit", device=device)
@@ -730,7 +730,7 @@ class TestDeviceEditDialog:
 
     def test_edit_mode_device_class_readonly(self, qapp):
         """In edit mode, device_class should be read-only."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         device = DeviceInfo(name="test", device_class="ophyd.EpicsMotor")
         dialog = DeviceEditDialog(mode="edit", device=device)
@@ -739,7 +739,7 @@ class TestDeviceEditDialog:
 
     def test_create_mode_name_editable(self, qapp):
         """In create mode, name should be editable."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="create")
         name_param = dialog._params.child("Identity", "name")
@@ -747,7 +747,7 @@ class TestDeviceEditDialog:
 
     def test_extra_fields_from_metadata(self, qapp):
         """Extra metadata fields should appear in the dialog."""
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         device = DeviceInfo(
             name="test",
@@ -767,7 +767,7 @@ Expected: FAIL — `device_edit_dialog` module does not exist
 
 - [ ] **Step 3: Create the DeviceEditDialog**
 
-Create `src/lucid/ui/dialogs/device_edit_dialog.py`:
+Create `src/lightfall/ui/dialogs/device_edit_dialog.py`:
 
 ```python
 """Device edit/create dialog using pyqtgraph ParameterTree."""
@@ -785,7 +785,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.ui.dialogs.base import LucidDialog
+from lightfall.ui.dialogs.base import LucidDialog
 
 try:
     from pyqtgraph.parametertree import Parameter, ParameterTree
@@ -1059,7 +1059,7 @@ Expected: All 7 tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/dialogs/device_edit_dialog.py tests/test_device_editing.py
+git add src/lightfall/ui/dialogs/device_edit_dialog.py tests/test_device_editing.py
 git commit -m "feat: add ParameterTree-based device edit/create dialog"
 ```
 
@@ -1068,7 +1068,7 @@ git commit -m "feat: add ParameterTree-based device edit/create dialog"
 ### Task 6: Context Menu on Device Panel
 
 **Files:**
-- Modify: `src/lucid/ui/panels/device_panel.py`
+- Modify: `src/lightfall/ui/panels/device_panel.py`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write tests for context menu**
@@ -1093,7 +1093,7 @@ class TestDevicePanelContextMenu:
 
     def test_context_menu_policy_set(self, qapp):
         """Tree view should have CustomContextMenu policy."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         # Reset singleton for clean test
         DevicePanel._instance = None
@@ -1106,7 +1106,7 @@ class TestDevicePanelContextMenu:
 
     def test_build_context_menu_on_device(self, qapp):
         """Context menu on a device should have Edit, Enable/Disable, etc."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         DevicePanel._instance = None
         panel = DevicePanel()
@@ -1125,7 +1125,7 @@ class TestDevicePanelContextMenu:
 
     def test_build_context_menu_inactive_shows_enable(self, qapp):
         """Context menu on inactive device should show 'Enable'."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         DevicePanel._instance = None
         panel = DevicePanel()
@@ -1140,7 +1140,7 @@ class TestDevicePanelContextMenu:
 
     def test_build_context_menu_not_editable_hides_edit_actions(self, qapp):
         """Non-editable backend should hide edit/delete/add actions."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         DevicePanel._instance = None
         panel = DevicePanel()
@@ -1158,7 +1158,7 @@ class TestDevicePanelContextMenu:
 
     def test_build_context_menu_empty_space(self, qapp):
         """Context menu on empty space should only have Add New Device."""
-        from lucid.ui.panels.device_panel import DevicePanel
+        from lightfall.ui.panels.device_panel import DevicePanel
 
         DevicePanel._instance = None
         panel = DevicePanel()
@@ -1176,7 +1176,7 @@ Expected: FAIL — `_build_context_menu` not defined, context menu policy not se
 
 - [ ] **Step 3: Add context menu setup to DevicePanel**
 
-In `src/lucid/ui/panels/device_panel.py`, after the tree view setup (after `self._tree_view.setSortingEnabled(True)`), add:
+In `src/lightfall/ui/panels/device_panel.py`, after the tree view setup (after `self._tree_view.setSortingEnabled(True)`), add:
 
 ```python
         # Context menu
@@ -1197,7 +1197,7 @@ Add the following methods to the `DevicePanel` class:
 ```python
     def _get_backend_editable(self) -> bool:
         """Check if the current backend supports editing."""
-        from lucid.devices import DeviceCatalog
+        from lightfall.devices import DeviceCatalog
 
         catalog = DeviceCatalog.get_instance()
         backend = catalog.backend
@@ -1266,7 +1266,7 @@ Add the following methods to the `DevicePanel` class:
 
     def _on_context_menu(self, pos) -> None:
         """Handle right-click context menu on the tree view."""
-        from lucid.ui.models.device_tree import NodeType
+        from lightfall.ui.models.device_tree import NodeType
 
         index = self._tree_view.indexAt(pos)
         device_info = None
@@ -1289,8 +1289,8 @@ Add the following methods to the `DevicePanel` class:
 
     def _edit_device(self, device_info) -> None:
         """Open the edit dialog for a device."""
-        from lucid.devices import DeviceCatalog
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.devices import DeviceCatalog
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="edit", device=device_info, parent=self)
         if dialog.exec():
@@ -1311,9 +1311,9 @@ Add the following methods to the `DevicePanel` class:
 
     def _add_new_device(self) -> None:
         """Open the edit dialog in create mode."""
-        from lucid.devices import DeviceCatalog
-        from lucid.devices.model import DeviceInfo
-        from lucid.ui.dialogs.device_edit_dialog import DeviceEditDialog
+        from lightfall.devices import DeviceCatalog
+        from lightfall.devices.model import DeviceInfo
+        from lightfall.ui.dialogs.device_edit_dialog import DeviceEditDialog
 
         dialog = DeviceEditDialog(mode="create", parent=self)
         if dialog.exec():
@@ -1341,7 +1341,7 @@ Add the following methods to the `DevicePanel` class:
 
     def _delete_device(self, device_info) -> None:
         """Delete a device after confirmation."""
-        from lucid.devices import DeviceCatalog
+        from lightfall.devices import DeviceCatalog
 
         reply = QMessageBox.question(
             self,
@@ -1356,7 +1356,7 @@ Add the following methods to the `DevicePanel` class:
 
     def _toggle_device_active(self, device_info, active: bool) -> None:
         """Enable or disable a device."""
-        from lucid.devices import DeviceCatalog
+        from lightfall.devices import DeviceCatalog
 
         device_info.active = active
         catalog = DeviceCatalog.get_instance()
@@ -1372,7 +1372,7 @@ Expected: All 5 tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/device_panel.py tests/test_device_editing.py
+git add src/lightfall/ui/panels/device_panel.py tests/test_device_editing.py
 git commit -m "feat: add context menu to device panel with edit/add/delete/enable/disable"
 ```
 
@@ -1381,7 +1381,7 @@ git commit -m "feat: add context menu to device panel with edit/add/delete/enabl
 ### Task 7: Inactive Device Click Handling
 
 **Files:**
-- Modify: `src/lucid/ui/panels/device_panel.py`
+- Modify: `src/lightfall/ui/panels/device_panel.py`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write test for inactive device click behavior**
@@ -1413,7 +1413,7 @@ class TestInactiveDeviceInteraction:
 
 - [ ] **Step 2: Modify _on_selection_changed to handle inactive devices**
 
-In `src/lucid/ui/panels/device_panel.py`, in the `_on_selection_changed()` method, add a check for inactive devices before updating the control widget. Find the line that calls `self._control_widget.set_items(selected_items)` and wrap it:
+In `src/lightfall/ui/panels/device_panel.py`, in the `_on_selection_changed()` method, add a check for inactive devices before updating the control widget. Find the line that calls `self._control_widget.set_items(selected_items)` and wrap it:
 
 ```python
         # Update control widget — skip for inactive devices
@@ -1457,7 +1457,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/device_panel.py tests/test_device_editing.py
+git add src/lightfall/ui/panels/device_panel.py tests/test_device_editing.py
 git commit -m "feat: show 'Device Inactive' in control tab for inactive devices"
 ```
 
@@ -1466,7 +1466,7 @@ git commit -m "feat: show 'Device Inactive' in control tab for inactive devices"
 ### Task 8: MCP manage_device Tool
 
 **Files:**
-- Modify: `src/lucid/plugins/tools/device_tools.py`
+- Modify: `src/lightfall/plugins/tools/device_tools.py`
 - Test: `tests/test_device_editing.py`
 
 - [ ] **Step 1: Write tests for the MCP tool**
@@ -1517,7 +1517,7 @@ Expected: PASS
 
 - [ ] **Step 3: Add ncs_manage_device tool to DeviceToolPlugin**
 
-In `src/lucid/plugins/tools/device_tools.py`, inside the `create_tools()` method, before the `return [...]` statement, add:
+In `src/lightfall/plugins/tools/device_tools.py`, inside the `create_tools()` method, before the `return [...]` statement, add:
 
 ```python
         @tool(
@@ -1555,9 +1555,9 @@ In `src/lucid/plugins/tools/device_tools.py`, inside the `create_tools()` method
         )
         async def manage_device(args: dict) -> dict[str, Any]:
             """Manage device catalog entries."""
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
-            from lucid.devices.model import DeviceInfo as DI
+            from lightfall.devices.model import DeviceInfo as DI
 
             action = args["action"]
             name = args["name"]
@@ -1709,7 +1709,7 @@ Expected: All tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/plugins/tools/device_tools.py tests/test_device_editing.py
+git add src/lightfall/plugins/tools/device_tools.py tests/test_device_editing.py
 git commit -m "feat: add ncs_manage_device MCP tool for device CRUD"
 ```
 
@@ -1737,7 +1737,7 @@ class TestDeviceEditingIntegration:
     def test_full_lifecycle(self, happi_json):
         """Add a device, update it, disable it, then delete it."""
         pytest.importorskip("happi")
-        from lucid.devices.backends.happi import HappiBackend
+        from lightfall.devices.backends.happi import HappiBackend
 
         backend = HappiBackend(path=happi_json, instantiate=False)
         backend.connect()

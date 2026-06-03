@@ -14,10 +14,10 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/lucid/ui/panels/tiled_browser_panel.py` | Modify | Fix callback, query key paths, add replay logic |
-| `src/lucid/ui/models/tiled_model.py` | Modify | Reorder columns, add fetchMore lazy loading |
-| `src/lucid/ui/widgets/tiled_filter_widget.py` | Modify | Fix date filter to allow "no date" |
-| `src/lucid/ui/panels/visualization_panel.py` | Modify | Add public method to replay historical documents |
+| `src/lightfall/ui/panels/tiled_browser_panel.py` | Modify | Fix callback, query key paths, add replay logic |
+| `src/lightfall/ui/models/tiled_model.py` | Modify | Reorder columns, add fetchMore lazy loading |
+| `src/lightfall/ui/widgets/tiled_filter_widget.py` | Modify | Fix date filter to allow "no date" |
+| `src/lightfall/ui/panels/visualization_panel.py` | Modify | Add public method to replay historical documents |
 | `tests/ui/panels/test_tiled_browser_panel.py` | Create | Tests for browser panel fixes |
 | `tests/ui/models/test_tiled_model.py` | Create | Tests for model changes |
 
@@ -28,8 +28,8 @@
 **Why:** Several bugs have likely root causes that need runtime confirmation before we can write the correct fix. This task gathers the data we need.
 
 **Files:**
-- Read: `src/lucid/ui/panels/tiled_browser_panel.py`
-- Read: `src/lucid/services/tiled_service.py`
+- Read: `src/lightfall/ui/panels/tiled_browser_panel.py`
+- Read: `src/lightfall/services/tiled_service.py`
 
 - [ ] **Step 1: Check Tiled entry metadata structure**
 
@@ -111,7 +111,7 @@ git add -A && git commit -m "chore: remove diagnostic logging from tiled browser
 **Why:** After data loads, the status label stays at "Loading..." and the refresh button stays disabled. This means `_on_records_loaded` either isn't being called, or it's throwing an exception that PySide6 swallows silently.
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py:291-327,505-541`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py:291-327,505-541`
 - Test: `tests/ui/panels/test_tiled_browser_panel.py`
 
 **Likely root cause:** Either (a) the QThreadFuture callback signature doesn't match, (b) an exception inside `_on_records_loaded` is swallowed by PySide6's signal dispatch, or (c) the `result is None` early return triggers incorrectly.
@@ -125,8 +125,8 @@ git add -A && git commit -m "chore: remove diagnostic logging from tiled browser
 import pytest
 from unittest.mock import MagicMock, patch
 
-from lucid.ui.models.tiled_model import TiledRecord
-from lucid.ui.panels.tiled_browser_panel import TiledBrowserPanel
+from lightfall.ui.models.tiled_model import TiledRecord
+from lightfall.ui.panels.tiled_browser_panel import TiledBrowserPanel
 
 
 @pytest.fixture
@@ -213,7 +213,7 @@ Expected: `test_on_records_loaded_none_still_restores` FAILS (the None early ret
 
 - [ ] **Step 3: Fix _on_records_loaded to always restore UI state**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, replace the `_on_records_loaded` method:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, replace the `_on_records_loaded` method:
 
 ```python
 @Slot(object)
@@ -270,7 +270,7 @@ Expected: All PASS.
 
 ```bash
 cd /c/Users/rp/PycharmProjects/ncs/ncs
-git add tests/ui/panels/test_tiled_browser_panel.py src/lucid/ui/panels/tiled_browser_panel.py
+git add tests/ui/panels/test_tiled_browser_panel.py src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "fix(tiled-browser): always restore UI state after load completes
 
 Previously, if _on_records_loaded received None or threw during
@@ -286,7 +286,7 @@ restored regardless of the result."
 **Why:** Completed runs display "running" in the Status column instead of their actual exit status.
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py:452-503`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py:452-503`
 - Test: `tests/ui/panels/test_tiled_browser_panel.py`
 
 **Root cause:** In `_entry_to_record` (line 466):
@@ -377,7 +377,7 @@ Expected: `test_running_run_with_none_stop` and `test_missing_stop_key_shows_unk
 
 - [ ] **Step 3: Fix _entry_to_record stop doc handling**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, replace lines 464-485:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, replace lines 464-485:
 
 ```python
         # Get start document
@@ -430,7 +430,7 @@ Expected: All PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/panels/tiled_browser_panel.py tests/ui/panels/test_tiled_browser_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py tests/ui/panels/test_tiled_browser_panel.py
 git commit -m "fix(tiled-browser): correctly distinguish running vs completed runs
 
 Use sentinel to distinguish 'stop key absent' from 'stop is None'
@@ -445,8 +445,8 @@ default made both absent and None appear as running."
 **Why:** Date range filter doesn't work. Two bugs: (a) dates are always applied (never None), so every query is constrained to the last 30 days by default, and (b) the Key path for time queries is likely wrong.
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/tiled_filter_widget.py:99-168,229-249`
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py:398-450`
+- Modify: `src/lightfall/ui/widgets/tiled_filter_widget.py:99-168,229-249`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py:398-450`
 - Test: `tests/ui/models/test_tiled_model.py`
 
 ### Part A: Fix get_filters() to allow None dates
@@ -459,7 +459,7 @@ default made both absent and None appear as running."
 
 import pytest
 from datetime import datetime
-from lucid.ui.widgets.tiled_filter_widget import TiledFilters
+from lightfall.ui.widgets.tiled_filter_widget import TiledFilters
 
 
 class TestTiledFilters:
@@ -483,7 +483,7 @@ class TestTiledFilters:
 
 - [ ] **Step 2: Add "no date" option to filter widget**
 
-In `src/lucid/ui/widgets/tiled_filter_widget.py`, replace the date setup in `_setup_ui` (lines 148-168):
+In `src/lightfall/ui/widgets/tiled_filter_widget.py`, replace the date setup in `_setup_ui` (lines 148-168):
 
 ```python
         # From date
@@ -596,7 +596,7 @@ Update `set_enabled` to include the new checkboxes:
 
 - [ ] **Step 3: Fix Key paths in _build_query (adjust based on Task 0 findings)**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, update `_build_query`. The correct key paths depend on Task 0 investigation but most likely need the nested form:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, update `_build_query`. The correct key paths depend on Task 0 investigation but most likely need the nested form:
 
 ```python
     def _build_query(self, client: Any, filters: TiledFilters) -> Any:
@@ -650,7 +650,7 @@ python -m pytest tests/ui/widgets/test_tiled_filter_widget.py tests/ui/panels/te
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/tiled_filter_widget.py src/lucid/ui/panels/tiled_browser_panel.py tests/
+git add src/lightfall/ui/widgets/tiled_filter_widget.py src/lightfall/ui/panels/tiled_browser_panel.py tests/
 git commit -m "fix(tiled-browser): fix date filter - dates now optional with checkboxes
 
 Dates were always applied (defaulting to 30-day window), hiding older
@@ -665,14 +665,14 @@ Also fixed Tiled Key paths for server-side filtering."
 **Why:** Text search likely doesn't work because FullText queries may not be supported by the Tiled adapter, and failures are silently caught.
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py:398-450`
-- Modify: `src/lucid/ui/models/tiled_model.py:253-317`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py:398-450`
+- Modify: `src/lightfall/ui/models/tiled_model.py:253-317`
 
 **Strategy:** Remove server-side FullText search (unreliable across Tiled adapters). Instead, rely on the client-side proxy model filter which already exists and works. The search text from the filter widget should drive the proxy model's text filter, NOT the server-side query.
 
 - [ ] **Step 1: Wire search text to proxy model filter**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, update `_on_filters_changed`:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, update `_on_filters_changed`:
 
 ```python
     @Slot(object)
@@ -746,7 +746,7 @@ python -m pytest tests/ -v -k tiled
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "fix(tiled-browser): move text/status search to client-side proxy model
 
 FullText queries are unreliable across Tiled adapters. Text search
@@ -762,8 +762,8 @@ hit the server."
 **Why:** Column order should be: Sample Name, Plan, Timestamp, Status, Scan ID. Points and Duration can be removed (they're available as tooltips or in a detail view later).
 
 **Files:**
-- Modify: `src/lucid/ui/models/tiled_model.py:53-251`
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py:124-148` (header config)
+- Modify: `src/lightfall/ui/models/tiled_model.py:53-251`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py:124-148` (header config)
 - Test: `tests/ui/models/test_tiled_model.py`
 
 - [ ] **Step 1: Write test for new column order**
@@ -774,7 +774,7 @@ hit the server."
 
 import pytest
 from datetime import datetime
-from lucid.ui.models.tiled_model import TiledRecord, TiledRecordModel
+from lightfall.ui.models.tiled_model import TiledRecord, TiledRecordModel
 from PySide6.QtCore import Qt
 
 
@@ -829,7 +829,7 @@ python -m pytest tests/ui/models/test_tiled_model.py -v
 
 - [ ] **Step 3: Update column definitions in TiledRecordModel**
 
-In `src/lucid/ui/models/tiled_model.py`, replace the COLUMNS and display logic:
+In `src/lightfall/ui/models/tiled_model.py`, replace the COLUMNS and display logic:
 
 ```python
     COLUMNS = ["Sample", "Plan", "Timestamp", "Status", "Scan ID"]
@@ -962,7 +962,7 @@ python -m pytest tests/ui/models/test_tiled_model.py tests/ui/panels/test_tiled_
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/ui/models/tiled_model.py src/lucid/ui/panels/tiled_browser_panel.py tests/
+git add src/lightfall/ui/models/tiled_model.py src/lightfall/ui/panels/tiled_browser_panel.py tests/
 git commit -m "refactor(tiled-browser): reorder columns to Sample, Plan, Timestamp, Status, Scan ID
 
 Points and Duration removed from columns (available in timestamp tooltip).
@@ -976,14 +976,14 @@ Sample name is now the first column for easier scanning."
 **Why:** Qt views natively support lazy loading via `canFetchMore`/`fetchMore`. This is better UX than manual Prev/Next pagination buttons.
 
 **Files:**
-- Modify: `src/lucid/ui/models/tiled_model.py` (add fetchMore to source model)
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py` (remove pagination UI, refactor loading)
+- Modify: `src/lightfall/ui/models/tiled_model.py` (add fetchMore to source model)
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py` (remove pagination UI, refactor loading)
 
 **Architecture:** The TiledRecordModel gets a reference to the fetch function. When the view scrolls near the bottom, Qt calls `canFetchMore()` which returns True if there are more records on the server. Then `fetchMore()` triggers a background fetch for the next batch, and `append_records()` adds them to the model.
 
 - [ ] **Step 1: Add fetchMore support to TiledRecordModel**
 
-In `src/lucid/ui/models/tiled_model.py`, add to `TiledRecordModel`:
+In `src/lightfall/ui/models/tiled_model.py`, add to `TiledRecordModel`:
 
 ```python
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -1033,7 +1033,7 @@ from collections.abc import Callable
 
 - [ ] **Step 2: Refactor TiledBrowserPanel to use lazy loading**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`:
 
 Remove the pagination UI from `_setup_ui` (lines 155-176 - the entire pagination_layout section). Remove `_prev_btn`, `_next_btn`, `_page_label`, `_count_label`, `_current_page`, `_update_pagination`, `_on_prev_page`, `_on_next_page`.
 
@@ -1178,7 +1178,7 @@ python -m pytest tests/ -v -k tiled
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/models/tiled_model.py src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/models/tiled_model.py src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "refactor(tiled-browser): replace pagination with lazy loading via fetchMore
 
 Qt's canFetchMore/fetchMore mechanism loads records on demand as
@@ -1193,8 +1193,8 @@ and no need to manage page state."
 **Why:** Double-clicking a run in the Data Browser should replay its documents through the Visualization panel so users can view historical data.
 
 **Files:**
-- Modify: `src/lucid/ui/panels/visualization_panel.py` (add replay_from_tiled method)
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py` (connect signal, add replay logic)
+- Modify: `src/lightfall/ui/panels/visualization_panel.py` (add replay_from_tiled method)
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py` (connect signal, add replay logic)
 
 **Architecture:** The VisualizationPanel already accepts documents via `_on_document(name, doc)` and auto-resets on a new "start" document. We add a public method `replay_documents(docs)` that feeds a sequence of (name, doc) pairs through the pipeline. The TiledBrowserPanel fetches the full document stream from Tiled in a background thread and sends it to the VisualizationPanel.
 
@@ -1204,7 +1204,7 @@ and no need to manage page state."
 
 - [ ] **Step 1: Add replay_documents to VisualizationPanel**
 
-In `src/lucid/ui/panels/visualization_panel.py`, add a public method:
+In `src/lightfall/ui/panels/visualization_panel.py`, add a public method:
 
 ```python
     def replay_documents(self, documents: list[tuple[str, dict]]) -> None:
@@ -1227,7 +1227,7 @@ In `src/lucid/ui/panels/visualization_panel.py`, add a public method:
 
 - [ ] **Step 2: Add document fetching to TiledBrowserPanel**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, add a method to fetch documents from a Tiled entry:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, add a method to fetch documents from a Tiled entry:
 
 ```python
     def _fetch_run_documents(self, client_key: str) -> list[tuple[str, dict]]:
@@ -1286,7 +1286,7 @@ In `src/lucid/ui/panels/tiled_browser_panel.py`, add a method to fetch documents
 
 - [ ] **Step 3: Connect double-click signal to replay**
 
-In `src/lucid/ui/panels/tiled_browser_panel.py`, update `_on_table_double_clicked`:
+In `src/lightfall/ui/panels/tiled_browser_panel.py`, update `_on_table_double_clicked`:
 
 ```python
     @Slot()
@@ -1323,7 +1323,7 @@ In `src/lucid/ui/panels/tiled_browser_panel.py`, update `_on_table_double_clicke
             return
 
         # Find the visualization panel
-        from lucid.ui.panels.visualization_panel import VisualizationPanel
+        from lightfall.ui.panels.visualization_panel import VisualizationPanel
         viz_panel = self._find_panel(VisualizationPanel)
         if viz_panel is None:
             logger.warning("Visualization panel not found")
@@ -1359,7 +1359,7 @@ Manual verification: launch the app, open Data Browser, double-click a completed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/panels/tiled_browser_panel.py src/lucid/ui/panels/visualization_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py src/lightfall/ui/panels/visualization_panel.py
 git commit -m "feat(tiled-browser): double-click run to replay in Visualization panel
 
 Fetches Bluesky documents from Tiled entry in background thread,

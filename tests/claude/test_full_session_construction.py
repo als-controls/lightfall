@@ -10,11 +10,11 @@ import pytest
 @pytest.fixture
 def loaded_builtins(monkeypatch):
     """Load the real builtin manifest into AgentRegistry, with SDK mocked."""
-    monkeypatch.setattr("lucid.claude.agent.ClaudeSDKClient", MagicMock())
-    from lucid.plugins.agent_plugin import AgentPlugin
-    from lucid.plugins.builtin_manifest import builtin_manifest
-    from lucid.plugins.loader import PluginLoader
-    from lucid.ui.panels.claude.agent_registry import AgentRegistry
+    monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
+    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.loader import PluginLoader
+    from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
     AgentRegistry.reset_instance()
 
@@ -28,15 +28,15 @@ def loaded_builtins(monkeypatch):
 
 def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monkeypatch):
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
         lambda self, key: None,  # no overrides — falls through to enabled_by_default
     )
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
     from PySide6.QtWidgets import QWidget
-    from lucid.claude.agent import QtClaudeAgent
+    from lightfall.claude.agent import QtClaudeAgent
 
     target = QWidget()
     qtbot.addWidget(target)

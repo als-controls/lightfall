@@ -15,14 +15,14 @@
 ### Task 1: Create BaseVisualization ABC
 
 **Files:**
-- Create: `src/lucid/visualization/base_visualization.py`
+- Create: `src/lightfall/visualization/base_visualization.py`
 
 This is the new ABC that all visualization widgets will inherit from. Created as a new file to avoid conflicts with the old `base.py` during migration.
 
 - [ ] **Step 1: Write BaseVisualization**
 
 ```python
-# src/lucid/visualization/base_visualization.py
+# src/lightfall/visualization/base_visualization.py
 """Base class for tiled-backed visualization widgets."""
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class BaseVisualization(QWidget, ABC):
 - [ ] **Step 2: Commit**
 
 ```bash
-git add src/lucid/visualization/base_visualization.py
+git add src/lightfall/visualization/base_visualization.py
 git commit -m "Add BaseVisualization ABC for tiled-only viz path"
 ```
 
@@ -110,9 +110,9 @@ git commit -m "Add BaseVisualization ABC for tiled-only viz path"
 ### Task 2: Port ImageStackVisualization
 
 **Files:**
-- Create: `src/lucid/visualization/widgets/image_stack.py`
-- Reference: `src/lucid/visualization/widgets/image_sequence.py` (old, kept temporarily)
-- Reference: `src/lucid/visualization/widgets/lazy_image_view.py` (kept, reused)
+- Create: `src/lightfall/visualization/widgets/image_stack.py`
+- Reference: `src/lightfall/visualization/widgets/image_sequence.py` (old, kept temporarily)
+- Reference: `src/lightfall/visualization/widgets/lazy_image_view.py` (kept, reused)
 
 Port the image stack visualization to the new ABC. This is the most complex widget (lazy ArrayClient, LazyImageView, timeline, ROI, log intensity, dark frames). The old `image_sequence.py` stays until all widgets are ported and the controller is updated.
 
@@ -124,10 +124,10 @@ The new widget reads directly from the tiled stream. Key differences from old:
 - `refresh` checks `stream[field].shape[0]` for new frames
 - No `_on_new_point`, no `_images` list, no `_update_image_stack`
 
-Write `src/lucid/visualization/widgets/image_stack.py` with the full implementation. Key sections:
+Write `src/lightfall/visualization/widgets/image_stack.py` with the full implementation. Key sections:
 
 ```python
-# src/lucid/visualization/widgets/image_stack.py
+# src/lightfall/visualization/widgets/image_stack.py
 """Image stack visualization backed by tiled ArrayClient."""
 
 from __future__ import annotations
@@ -147,9 +147,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.base_visualization import BaseVisualization
-from lucid.visualization.widgets.lazy_image_view import LazyImageView
-from lucid.visualization.widgets.time_axis import HumanReadableTimeAxis
+from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.widgets.lazy_image_view import LazyImageView
+from lightfall.visualization.widgets.time_axis import HumanReadableTimeAxis
 
 
 class ImageStackVisualization(BaseVisualization):
@@ -493,7 +493,7 @@ class ImageStackVisualization(BaseVisualization):
 - [ ] **Step 2: Commit**
 
 ```bash
-git add src/lucid/visualization/widgets/image_stack.py
+git add src/lightfall/visualization/widgets/image_stack.py
 git commit -m "Add new ImageStackVisualization on BaseVisualization ABC"
 ```
 
@@ -502,10 +502,10 @@ git commit -m "Add new ImageStackVisualization on BaseVisualization ABC"
 ### Task 3: Port Scalar Widgets (Plot, Heatmap, Scatter, Table)
 
 **Files:**
-- Create: `src/lucid/visualization/widgets/plot_1d.py`
-- Create: `src/lucid/visualization/widgets/heatmap_new.py`
-- Create: `src/lucid/visualization/widgets/scatter_new.py`
-- Create: `src/lucid/visualization/widgets/table_new.py`
+- Create: `src/lightfall/visualization/widgets/plot_1d.py`
+- Create: `src/lightfall/visualization/widgets/heatmap_new.py`
+- Create: `src/lightfall/visualization/widgets/scatter_new.py`
+- Create: `src/lightfall/visualization/widgets/table_new.py`
 
 All four scalar widgets follow the same pattern: `set_stream` reads scalars eagerly, `refresh` re-reads to find new rows. Create each as a new file next to its old counterpart.
 
@@ -514,7 +514,7 @@ Since these widgets are structurally similar (read scalars, plot them), I'll sho
 - [ ] **Step 1: Create Plot1DVisualization**
 
 ```python
-# src/lucid/visualization/widgets/plot_1d.py
+# src/lightfall/visualization/widgets/plot_1d.py
 """1D plot visualization backed by tiled."""
 
 from __future__ import annotations
@@ -532,7 +532,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class Plot1DVisualization(BaseVisualization):
@@ -711,7 +711,7 @@ class Plot1DVisualization(BaseVisualization):
 - [ ] **Step 2: Create HeatmapVisualization**
 
 ```python
-# src/lucid/visualization/widgets/heatmap_new.py
+# src/lightfall/visualization/widgets/heatmap_new.py
 """Heatmap visualization backed by tiled."""
 
 from __future__ import annotations
@@ -723,7 +723,7 @@ import pyqtgraph as pg
 from loguru import logger
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class HeatmapVisualization(BaseVisualization):
@@ -852,7 +852,7 @@ class HeatmapVisualization(BaseVisualization):
 - [ ] **Step 3: Create ScatterVisualization**
 
 ```python
-# src/lucid/visualization/widgets/scatter_new.py
+# src/lightfall/visualization/widgets/scatter_new.py
 """Scatter plot visualization backed by tiled."""
 
 from __future__ import annotations
@@ -864,7 +864,7 @@ import pyqtgraph as pg
 from loguru import logger
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class ScatterVisualization(BaseVisualization):
@@ -987,7 +987,7 @@ class ScatterVisualization(BaseVisualization):
 - [ ] **Step 4: Create TableVisualization**
 
 ```python
-# src/lucid/visualization/widgets/table_new.py
+# src/lightfall/visualization/widgets/table_new.py
 """Table visualization backed by tiled."""
 
 from __future__ import annotations
@@ -999,7 +999,7 @@ from loguru import logger
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtWidgets import QHeaderView, QTableView, QVBoxLayout, QWidget
 
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 
 class _TableModel(QAbstractTableModel):
@@ -1134,10 +1134,10 @@ class TableVisualization(BaseVisualization):
 - [ ] **Step 5: Commit all four scalar widgets**
 
 ```bash
-git add src/lucid/visualization/widgets/plot_1d.py \
-        src/lucid/visualization/widgets/heatmap_new.py \
-        src/lucid/visualization/widgets/scatter_new.py \
-        src/lucid/visualization/widgets/table_new.py
+git add src/lightfall/visualization/widgets/plot_1d.py \
+        src/lightfall/visualization/widgets/heatmap_new.py \
+        src/lightfall/visualization/widgets/scatter_new.py \
+        src/lightfall/visualization/widgets/table_new.py
 git commit -m "Add tiled-backed scalar visualizations (plot, heatmap, scatter, table)"
 ```
 
@@ -1146,7 +1146,7 @@ git commit -m "Add tiled-backed scalar visualizations (plot, heatmap, scatter, t
 ### Task 4: Rewrite VisualizationPanel Controller
 
 **Files:**
-- Modify: `src/lucid/ui/panels/visualization_panel.py`
+- Modify: `src/lightfall/ui/panels/visualization_panel.py`
 
 Replace the current panel logic with the simplified `open_run(entry)` flow. Strip out buffer wiring, DocumentProcessor, `open_tiled_run`, and the old widget creation path.
 
@@ -1177,11 +1177,11 @@ def open_run(self, entry: Any) -> None:
     self._entry = entry
 
     # Score all registered widget classes
-    from lucid.visualization.widgets.image_stack import ImageStackVisualization
-    from lucid.visualization.widgets.plot_1d import Plot1DVisualization
-    from lucid.visualization.widgets.heatmap_new import HeatmapVisualization
-    from lucid.visualization.widgets.scatter_new import ScatterVisualization
-    from lucid.visualization.widgets.table_new import TableVisualization
+    from lightfall.visualization.widgets.image_stack import ImageStackVisualization
+    from lightfall.visualization.widgets.plot_1d import Plot1DVisualization
+    from lightfall.visualization.widgets.heatmap_new import HeatmapVisualization
+    from lightfall.visualization.widgets.scatter_new import ScatterVisualization
+    from lightfall.visualization.widgets.table_new import TableVisualization
 
     widget_classes = [
         ImageStackVisualization, Plot1DVisualization,
@@ -1231,7 +1231,7 @@ def open_run(self, entry: Any) -> None:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add src/lucid/ui/panels/visualization_panel.py
+git add src/lightfall/ui/panels/visualization_panel.py
 git commit -m "Rewrite VisualizationPanel for tiled-only open_run(entry) flow"
 ```
 
@@ -1240,7 +1240,7 @@ git commit -m "Rewrite VisualizationPanel for tiled-only open_run(entry) flow"
 ### Task 5: Simplify TiledBrowserPanel
 
 **Files:**
-- Modify: `src/lucid/ui/panels/tiled_browser_panel.py`
+- Modify: `src/lightfall/ui/panels/tiled_browser_panel.py`
 
 Replace the background thread + `_setup_visualization` + `_on_visualization_ready` chain with a direct call to `viz_panel.open_run(entry)`.
 
@@ -1275,15 +1275,15 @@ def _on_table_double_clicked(self) -> None:
         logger.error("Failed to access run {}: {}", record.uid[:8], e)
         return
 
-    from lucid.core.services import ServiceRegistry
-    from lucid.ui.docking import DockingManager
-    from lucid.ui.panels.visualization_panel import VisualizationPanel
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.ui.docking import DockingManager
+    from lightfall.ui.panels.visualization_panel import VisualizationPanel
 
     dm = ServiceRegistry.get_instance().get(DockingManager, None)
     if dm is None:
         return
 
-    viz_panel_id = "lucid.panels.visualization"
+    viz_panel_id = "lightfall.panels.visualization"
     dm.show_panel(viz_panel_id)
     panel = dm.get_panel(viz_panel_id)
     if isinstance(panel, VisualizationPanel):
@@ -1295,7 +1295,7 @@ Remove: `_setup_visualization` static method, `_on_visualization_ready`, `_on_re
 - [ ] **Step 2: Commit**
 
 ```bash
-git add src/lucid/ui/panels/tiled_browser_panel.py
+git add src/lightfall/ui/panels/tiled_browser_panel.py
 git commit -m "Simplify TiledBrowserPanel: direct open_run(entry) on double-click"
 ```
 
@@ -1304,24 +1304,24 @@ git commit -m "Simplify TiledBrowserPanel: direct open_run(entry) on double-clic
 ### Task 6: Delete Dead Code
 
 **Files to delete:**
-- `src/lucid/visualization/processor.py`
-- `src/lucid/plugins/visualization_plugin.py`
+- `src/lightfall/visualization/processor.py`
+- `src/lightfall/plugins/visualization_plugin.py`
 
 **Files to clean up:**
-- `src/lucid/visualization/__init__.py` — remove DocumentProcessor, SelectionEngine exports
-- `src/lucid/visualization/spec.py` — remove DataCharacteristics, VisualizationSpec; keep FieldType/FieldInfo
-- `src/lucid/visualization/selection.py` — delete (selection now in panel's open_run loop)
-- `src/lucid/visualization/base.py` — replace content with re-export of BaseVisualization
-- `src/lucid/acquire/__init__.py` — remove MultiStreamBuffer export
-- `src/lucid/acquire/buffer.py` — remove MultiStreamBuffer class (keep LiveDataBuffer if used elsewhere)
-- `src/lucid/plugins/builtin_manifest.py` — update viz plugin registrations to new widget classes
+- `src/lightfall/visualization/__init__.py` — remove DocumentProcessor, SelectionEngine exports
+- `src/lightfall/visualization/spec.py` — remove DataCharacteristics, VisualizationSpec; keep FieldType/FieldInfo
+- `src/lightfall/visualization/selection.py` — delete (selection now in panel's open_run loop)
+- `src/lightfall/visualization/base.py` — replace content with re-export of BaseVisualization
+- `src/lightfall/acquire/__init__.py` — remove MultiStreamBuffer export
+- `src/lightfall/acquire/buffer.py` — remove MultiStreamBuffer class (keep LiveDataBuffer if used elsewhere)
+- `src/lightfall/plugins/builtin_manifest.py` — update viz plugin registrations to new widget classes
 
 - [ ] **Step 1: Delete obsolete files**
 
 ```bash
-git rm src/lucid/visualization/processor.py
-git rm src/lucid/visualization/selection.py
-git rm src/lucid/plugins/visualization_plugin.py
+git rm src/lightfall/visualization/processor.py
+git rm src/lightfall/visualization/selection.py
+git rm src/lightfall/plugins/visualization_plugin.py
 ```
 
 - [ ] **Step 2: Update visualization/__init__.py**
@@ -1337,7 +1337,7 @@ Remove `DataCharacteristics` and `VisualizationSpec` classes. Keep `FieldType`, 
 Replace old `BaseVisualizationWidget` content with:
 ```python
 # Backwards compat re-export
-from lucid.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.base_visualization import BaseVisualization
 
 __all__ = ["BaseVisualization"]
 ```
@@ -1362,12 +1362,12 @@ git commit -m "Remove dead code: buffer, processor, selection engine, old plugin
 ### Task 7: Delete Old Widget Files
 
 **Files to delete:**
-- `src/lucid/visualization/widgets/image_sequence.py`
-- `src/lucid/visualization/widgets/plot.py`
-- `src/lucid/visualization/widgets/heatmap.py`
-- `src/lucid/visualization/widgets/scatter.py`
-- `src/lucid/visualization/widgets/table.py`
-- `src/lucid/visualization/widgets/volume.py`
+- `src/lightfall/visualization/widgets/image_sequence.py`
+- `src/lightfall/visualization/widgets/plot.py`
+- `src/lightfall/visualization/widgets/heatmap.py`
+- `src/lightfall/visualization/widgets/scatter.py`
+- `src/lightfall/visualization/widgets/table.py`
+- `src/lightfall/visualization/widgets/volume.py`
 
 **Files to rename:**
 - `heatmap_new.py` → `heatmap.py`
@@ -1377,12 +1377,12 @@ git commit -m "Remove dead code: buffer, processor, selection engine, old plugin
 - [ ] **Step 1: Verify no remaining imports of old files**
 
 ```bash
-grep -r "from lucid.visualization.widgets.image_sequence" src/lucid/
-grep -r "from lucid.visualization.widgets.plot import" src/lucid/
-grep -r "from lucid.visualization.widgets.heatmap import" src/lucid/
-grep -r "from lucid.visualization.widgets.scatter import" src/lucid/
-grep -r "from lucid.visualization.widgets.table import" src/lucid/
-grep -r "from lucid.visualization.widgets.volume import" src/lucid/
+grep -r "from lightfall.visualization.widgets.image_sequence" src/lightfall/
+grep -r "from lightfall.visualization.widgets.plot import" src/lightfall/
+grep -r "from lightfall.visualization.widgets.heatmap import" src/lightfall/
+grep -r "from lightfall.visualization.widgets.scatter import" src/lightfall/
+grep -r "from lightfall.visualization.widgets.table import" src/lightfall/
+grep -r "from lightfall.visualization.widgets.volume import" src/lightfall/
 ```
 
 Fix any remaining imports to point to new files.
@@ -1390,12 +1390,12 @@ Fix any remaining imports to point to new files.
 - [ ] **Step 2: Delete old files and rename new ones**
 
 ```bash
-git rm src/lucid/visualization/widgets/image_sequence.py
-git rm src/lucid/visualization/widgets/plot.py
-git rm src/lucid/visualization/widgets/volume.py
-git mv src/lucid/visualization/widgets/heatmap_new.py src/lucid/visualization/widgets/heatmap.py
-git mv src/lucid/visualization/widgets/scatter_new.py src/lucid/visualization/widgets/scatter.py
-git mv src/lucid/visualization/widgets/table_new.py src/lucid/visualization/widgets/table.py
+git rm src/lightfall/visualization/widgets/image_sequence.py
+git rm src/lightfall/visualization/widgets/plot.py
+git rm src/lightfall/visualization/widgets/volume.py
+git mv src/lightfall/visualization/widgets/heatmap_new.py src/lightfall/visualization/widgets/heatmap.py
+git mv src/lightfall/visualization/widgets/scatter_new.py src/lightfall/visualization/widgets/scatter.py
+git mv src/lightfall/visualization/widgets/table_new.py src/lightfall/visualization/widgets/table.py
 ```
 
 Update all imports in `visualization_panel.py`, `builtin_manifest.py`, and `__init__.py` to match final names.
@@ -1415,7 +1415,7 @@ git commit -m "Remove old visualization widgets, rename new ones to final paths"
 
 - [ ] **Step 1: Deploy to beamline**
 
-Pull latest on the machine running LUCID (tsuru / shussebora). Restart LUCID.
+Pull latest on the machine running Lightfall (tsuru / shussebora). Restart Lightfall.
 
 - [ ] **Step 2: Verify count run visualization**
 

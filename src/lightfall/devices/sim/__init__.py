@@ -1,0 +1,26 @@
+# src/lightfall/devices/sim/__init__.py
+"""Simulated ophyd devices for testing and development."""
+
+try:
+    from lightfall.devices.sim.areadetector import SimDetector
+    from lightfall.devices.sim.plugins import (
+        SimCam,
+        SimImagePlugin,
+        SimROIPlugin,
+        SimStatsPlugin,
+        SimTransformPlugin,
+    )
+
+    __all__ = [
+        "SimDetector",
+        "SimCam",
+        "SimImagePlugin",
+        "SimROIPlugin",
+        "SimStatsPlugin",
+        "SimTransformPlugin",
+    ]
+except ImportError as e:
+    import warnings
+
+    warnings.warn(f"SimDetector components not available: {e}", stacklevel=2)
+    __all__ = []

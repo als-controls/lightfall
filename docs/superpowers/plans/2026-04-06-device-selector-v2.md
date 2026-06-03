@@ -16,10 +16,10 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `src/lucid/ui/models/device_selection.py` | **Create** | `DeviceSelectionItem`, `DeviceSelectionModel`, `DeviceSelectionFilterProxy` |
-| `src/lucid/ui/widgets/device_selector.py` | **Rewrite** | `DeviceSelectorDialog` (QTreeView-based), `DeviceParameterItem`, `DeviceParameter` |
-| `src/lucid/ui/annotations.py` | **Modify** | Add `DeviceIcon`, update `DeviceFilter.category` type |
-| `src/lucid/ui/widgets/plan_config.py` | **Modify** | Update `_build_param_spec` to translate annotations to new dialog params |
+| `src/lightfall/ui/models/device_selection.py` | **Create** | `DeviceSelectionItem`, `DeviceSelectionModel`, `DeviceSelectionFilterProxy` |
+| `src/lightfall/ui/widgets/device_selector.py` | **Rewrite** | `DeviceSelectorDialog` (QTreeView-based), `DeviceParameterItem`, `DeviceParameter` |
+| `src/lightfall/ui/annotations.py` | **Modify** | Add `DeviceIcon`, update `DeviceFilter.category` type |
+| `src/lightfall/ui/widgets/plan_config.py` | **Modify** | Update `_build_param_spec` to translate annotations to new dialog params |
 | `tests/test_device_selection_model.py` | **Create** | Tests for model, filter proxy, writable detection |
 | `tests/test_device_selector_dialog.py` | **Create** | Tests for dialog, parameter item, icon resolution |
 
@@ -28,7 +28,7 @@
 ## Task 1: Add `DeviceIcon` Annotation and Update `DeviceFilter`
 
 **Files:**
-- Modify: `src/lucid/ui/annotations.py`
+- Modify: `src/lightfall/ui/annotations.py`
 - Test: `tests/test_annotations.py`
 
 - [ ] **Step 1: Write tests for new annotations**
@@ -41,14 +41,14 @@ class TestDeviceIcon:
 
     def test_device_icon_stores_name(self):
         """DeviceIcon stores the icon name."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         icon = DeviceIcon("mdi6.engine")
         assert icon.name == "mdi6.engine"
 
     def test_device_icon_is_frozen(self):
         """DeviceIcon is immutable."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         icon = DeviceIcon("mdi6.engine")
         with pytest.raises(AttributeError):
@@ -60,21 +60,21 @@ class TestDeviceFilterMultiCategory:
 
     def test_category_as_string(self):
         """DeviceFilter.category accepts a string (backwards compatible)."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter(category="motor")
         assert flt.category == "motor"
 
     def test_category_as_set(self):
         """DeviceFilter.category accepts a set of strings."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter(category={"motor", "controller"})
         assert flt.category == {"motor", "controller"}
 
     def test_category_default_none(self):
         """DeviceFilter.category defaults to None."""
-        from lucid.ui.annotations import DeviceFilter
+        from lightfall.ui.annotations import DeviceFilter
 
         flt = DeviceFilter()
         assert flt.category is None
@@ -87,7 +87,7 @@ Expected: FAIL — `DeviceIcon` not importable; multi-category tests pass alread
 
 - [ ] **Step 3: Add DeviceIcon and update DeviceFilter**
 
-In `src/lucid/ui/annotations.py`, add after the `DeviceDefault` class (before `__all__`):
+In `src/lightfall/ui/annotations.py`, add after the `DeviceDefault` class (before `__all__`):
 
 ```python
 @dataclass(frozen=True)
@@ -125,7 +125,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/annotations.py tests/test_annotations.py
+git add src/lightfall/ui/annotations.py tests/test_annotations.py
 git commit -m "feat: add DeviceIcon annotation, multi-category DeviceFilter"
 ```
 
@@ -134,7 +134,7 @@ git commit -m "feat: add DeviceIcon annotation, multi-category DeviceFilter"
 ## Task 2: Create `DeviceSelectionItem` Data Class
 
 **Files:**
-- Create: `src/lucid/ui/models/device_selection.py`
+- Create: `src/lightfall/ui/models/device_selection.py`
 - Create: `tests/test_device_selection_model.py`
 
 - [ ] **Step 1: Write tests for DeviceSelectionItem**
@@ -149,7 +149,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import Qt
 
-from lucid.ui.models.device_selection import DeviceSelectionItem
+from lightfall.ui.models.device_selection import DeviceSelectionItem
 
 
 class TestDeviceSelectionItem:
@@ -215,7 +215,7 @@ class TestDeviceSelectionItem:
 
     def test_metadata_dict(self):
         """metadata_dict returns filterable dict."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         item = DeviceSelectionItem(
             name="motor1",
@@ -241,7 +241,7 @@ Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement DeviceSelectionItem**
 
-Create `src/lucid/ui/models/device_selection.py`:
+Create `src/lightfall/ui/models/device_selection.py`:
 
 ```python
 """Device selection model for the device selector dialog.
@@ -257,7 +257,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 if TYPE_CHECKING:
-    from lucid.devices.model import DeviceCategory, DeviceInfo
+    from lightfall.devices.model import DeviceCategory, DeviceInfo
 
 
 class DeviceSelectionItem:
@@ -351,7 +351,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/models/device_selection.py tests/test_device_selection_model.py
+git add src/lightfall/ui/models/device_selection.py tests/test_device_selection_model.py
 git commit -m "feat: add DeviceSelectionItem for device selector tree"
 ```
 
@@ -360,7 +360,7 @@ git commit -m "feat: add DeviceSelectionItem for device selector tree"
 ## Task 3: Create `DeviceSelectionModel`
 
 **Files:**
-- Modify: `src/lucid/ui/models/device_selection.py`
+- Modify: `src/lightfall/ui/models/device_selection.py`
 - Modify: `tests/test_device_selection_model.py`
 
 - [ ] **Step 1: Write tests for DeviceSelectionModel**
@@ -370,8 +370,8 @@ Append to `tests/test_device_selection_model.py`:
 ```python
 from unittest.mock import MagicMock
 
-from lucid.devices.model import DeviceCategory, DeviceInfo
-from lucid.ui.models.device_selection import DeviceSelectionModel
+from lightfall.devices.model import DeviceCategory, DeviceInfo
+from lightfall.ui.models.device_selection import DeviceSelectionModel
 
 
 def _make_device_info(name: str, category: DeviceCategory = DeviceCategory.MOTOR) -> DeviceInfo:
@@ -507,7 +507,7 @@ Expected: FAIL — `DeviceSelectionModel` not defined
 
 - [ ] **Step 3: Implement DeviceSelectionModel**
 
-Append to `src/lucid/ui/models/device_selection.py`:
+Append to `src/lightfall/ui/models/device_selection.py`:
 
 ```python
 from loguru import logger
@@ -778,7 +778,7 @@ Expected: PASS (all TestDeviceSelectionItem + TestDeviceSelectionModel)
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/models/device_selection.py tests/test_device_selection_model.py
+git add src/lightfall/ui/models/device_selection.py tests/test_device_selection_model.py
 git commit -m "feat: add DeviceSelectionModel with tree population and check state"
 ```
 
@@ -787,7 +787,7 @@ git commit -m "feat: add DeviceSelectionModel with tree population and check sta
 ## Task 4: Create `DeviceSelectionFilterProxy`
 
 **Files:**
-- Modify: `src/lucid/ui/models/device_selection.py`
+- Modify: `src/lightfall/ui/models/device_selection.py`
 - Modify: `tests/test_device_selection_model.py`
 
 - [ ] **Step 1: Write tests for the filter proxy**
@@ -795,7 +795,7 @@ git commit -m "feat: add DeviceSelectionModel with tree population and check sta
 Append to `tests/test_device_selection_model.py`:
 
 ```python
-from lucid.ui.models.device_selection import DeviceSelectionFilterProxy
+from lightfall.ui.models.device_selection import DeviceSelectionFilterProxy
 
 
 class TestDeviceSelectionFilterProxy:
@@ -912,7 +912,7 @@ Expected: FAIL — `DeviceSelectionFilterProxy` not defined
 
 - [ ] **Step 3: Implement DeviceSelectionFilterProxy**
 
-Append to `src/lucid/ui/models/device_selection.py`:
+Append to `src/lightfall/ui/models/device_selection.py`:
 
 ```python
 from collections.abc import Callable
@@ -1031,7 +1031,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/models/device_selection.py tests/test_device_selection_model.py
+git add src/lightfall/ui/models/device_selection.py tests/test_device_selection_model.py
 git commit -m "feat: add DeviceSelectionFilterProxy with category/writable/kind/text/func filters"
 ```
 
@@ -1040,7 +1040,7 @@ git commit -m "feat: add DeviceSelectionFilterProxy with category/writable/kind/
 ## Task 5: Rewrite `DeviceSelectorDialog`
 
 **Files:**
-- Rewrite: `src/lucid/ui/widgets/device_selector.py`
+- Rewrite: `src/lightfall/ui/widgets/device_selector.py`
 - Create: `tests/test_device_selector_dialog.py`
 
 - [ ] **Step 1: Write tests for the new dialog**
@@ -1057,7 +1057,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import Qt
 
-from lucid.devices.model import DeviceCategory, DeviceInfo
+from lightfall.devices.model import DeviceCategory, DeviceInfo
 
 
 def _make_device_info(name: str, category: DeviceCategory = DeviceCategory.MOTOR) -> DeviceInfo:
@@ -1094,7 +1094,7 @@ class TestDeviceSelectorDialog:
 
     def test_flat_mode_shows_devices(self, qapp, catalog):
         """Flat mode shows top-level devices only."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog, show_tree=False)
         # The proxy model should have 3 rows
@@ -1102,7 +1102,7 @@ class TestDeviceSelectorDialog:
 
     def test_tree_mode_shows_children(self, qapp, catalog):
         """Tree mode shows device components."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog, show_tree=True)
         # motor1 should have children
@@ -1111,14 +1111,14 @@ class TestDeviceSelectorDialog:
 
     def test_category_filter(self, qapp, catalog):
         """Category filter restricts visible devices."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog, categories={DeviceCategory.DETECTOR})
         assert dlg._proxy.rowCount() == 1
 
     def test_initial_selection(self, qapp, catalog):
         """initial_selection pre-checks items."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog, initial_selection=["motor1", "det1"])
         paths = dlg.get_selected_paths()
@@ -1128,14 +1128,14 @@ class TestDeviceSelectorDialog:
 
     def test_get_selected_paths_empty(self, qapp, catalog):
         """No selection returns empty list."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog)
         assert dlg.get_selected_paths() == []
 
     def test_search_filters_view(self, qapp, catalog):
         """Typing in search box filters the tree."""
-        from lucid.ui.widgets.device_selector import DeviceSelectorDialog
+        from lightfall.ui.widgets.device_selector import DeviceSelectorDialog
 
         dlg = DeviceSelectorDialog(catalog)
         dlg._search_edit.setText("det")
@@ -1147,40 +1147,40 @@ class TestIconResolution:
 
     def test_explicit_icon(self, qapp):
         """Explicit icon name is returned as-is (with prefix normalization)."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         assert resolve_button_icon_name(icon="mdi6.engine", categories=None) == "mdi6.engine"
 
     def test_explicit_icon_no_prefix(self, qapp):
         """Icon name without prefix gets mdi6. prepended."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         assert resolve_button_icon_name(icon="engine", categories=None) == "mdi6.engine"
 
     def test_auto_from_motor_category(self, qapp):
         """Motor category auto-resolves to mdi6.engine."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.MOTOR})
         assert result == "mdi6.engine"
 
     def test_auto_from_detector_category(self, qapp):
         """Detector category auto-resolves to mdi6.camera."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.DETECTOR})
         assert result == "mdi6.camera"
 
     def test_auto_from_controller_category(self, qapp):
         """Controller category auto-resolves to mdi6.tune-variant."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         result = resolve_button_icon_name(icon=None, categories={DeviceCategory.CONTROLLER})
         assert result == "mdi6.tune-variant"
 
     def test_multi_category_uses_default(self, qapp):
         """Multiple categories fall back to default icon."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         result = resolve_button_icon_name(
             icon=None, categories={DeviceCategory.MOTOR, DeviceCategory.DETECTOR}
@@ -1189,7 +1189,7 @@ class TestIconResolution:
 
     def test_no_icon_no_category(self, qapp):
         """No icon and no category gives default."""
-        from lucid.ui.widgets.device_selector import resolve_button_icon_name
+        from lightfall.ui.widgets.device_selector import resolve_button_icon_name
 
         assert resolve_button_icon_name(icon=None, categories=None) == "mdi6.microwave"
 ```
@@ -1201,7 +1201,7 @@ Expected: FAIL — old dialog doesn't have new constructor params
 
 - [ ] **Step 3: Rewrite device_selector.py**
 
-Replace the entire contents of `src/lucid/ui/widgets/device_selector.py` with:
+Replace the entire contents of `src/lightfall/ui/widgets/device_selector.py` with:
 
 ```python
 """Device selector for plan parameters.
@@ -1255,8 +1255,8 @@ except ImportError:
     PARAM_TYPES = {}
 
 if TYPE_CHECKING:
-    from lucid.devices import DeviceCatalog, DeviceInfo
-    from lucid.devices.model import DeviceCategory
+    from lightfall.devices import DeviceCatalog, DeviceInfo
+    from lightfall.devices.model import DeviceCategory
 
 
 # Category -> QtAwesome icon name
@@ -1335,7 +1335,7 @@ class DeviceSelectorDialog(QDialog):
         self._multi_select = multi_select
 
         # Build models
-        from lucid.ui.models.device_selection import (
+        from lightfall.ui.models.device_selection import (
             DeviceSelectionFilterProxy,
             DeviceSelectionModel,
         )
@@ -1603,7 +1603,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/device_selector.py tests/test_device_selector_dialog.py
+git add src/lightfall/ui/widgets/device_selector.py tests/test_device_selector_dialog.py
 git commit -m "feat: rewrite DeviceSelectorDialog with QTreeView and icon button"
 ```
 
@@ -1612,7 +1612,7 @@ git commit -m "feat: rewrite DeviceSelectorDialog with QTreeView and icon button
 ## Task 6: Update `PlanConfigWidget` to Use New Dialog Parameters
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/plan_config.py`
+- Modify: `src/lightfall/ui/widgets/plan_config.py`
 - Modify: `tests/test_annotations.py` (update existing device param tests)
 
 - [ ] **Step 1: Write tests for the updated _build_param_spec**
@@ -1622,7 +1622,7 @@ Update the existing device param tests in `tests/test_annotations.py`. Replace `
 ```python
     def test_device_param_with_filter(self, config_widget):
         """DeviceFilter annotation creates device parameter with categories."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         def plan(
             motor: Annotated[Any, DeviceFilter(category="motor")],
@@ -1641,7 +1641,7 @@ Update the existing device param tests in `tests/test_annotations.py`. Replace `
 
     def test_device_param_with_multi_category(self, config_widget):
         """DeviceFilter with set category creates multi-category filter."""
-        from lucid.devices.model import DeviceCategory
+        from lightfall.devices.model import DeviceCategory
 
         def plan(
             devices: Annotated[list, DeviceFilter(category={"motor", "controller"})],
@@ -1660,7 +1660,7 @@ Update the existing device param tests in `tests/test_annotations.py`. Replace `
 
     def test_device_param_with_icon(self, config_widget):
         """DeviceIcon annotation sets icon on parameter spec."""
-        from lucid.ui.annotations import DeviceIcon
+        from lightfall.ui.annotations import DeviceIcon
 
         def plan(
             motor: Annotated[Any, DeviceFilter(category="motor"), DeviceIcon("mdi6.engine")],
@@ -1701,8 +1701,8 @@ Replace the device parameter block in `_build_param_spec` (the `if category in (
 
 ```python
         if category in (ParamCategory.DEVICE, ParamCategory.DEVICES):
-            from lucid.devices.model import DeviceCategory as DC
-            from lucid.ui.annotations import DeviceDefault, DeviceIcon
+            from lightfall.devices.model import DeviceCategory as DC
+            from lightfall.ui.annotations import DeviceDefault, DeviceIcon
 
             spec["type"] = "device"
             spec["value"] = []
@@ -1764,7 +1764,7 @@ Replace the device parameter block in `_build_param_spec` (the `if category in (
                 spec["filter_func"] = lambda m, _parts=parts: all(f(m) for f in _parts)
 ```
 
-Also add `DeviceIcon` to the import block at the top of `_build_param_spec` (it already imports from `lucid.ui.annotations`).
+Also add `DeviceIcon` to the import block at the top of `_build_param_spec` (it already imports from `lightfall.ui.annotations`).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1780,7 +1780,7 @@ Expected: PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/plan_config.py tests/test_annotations.py
+git add src/lightfall/ui/widgets/plan_config.py tests/test_annotations.py
 git commit -m "feat: update PlanConfigWidget to use new DeviceSelectorDialog parameters"
 ```
 
@@ -1789,7 +1789,7 @@ git commit -m "feat: update PlanConfigWidget to use new DeviceSelectorDialog par
 ## Task 7: Clean Up Stale References
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/device_selector.py` (already rewritten — verify no stale imports)
+- Modify: `src/lightfall/ui/widgets/device_selector.py` (already rewritten — verify no stale imports)
 - Modify: `tests/test_annotations.py` (remove old `test_device_param_with_filter_any` if superseded)
 
 - [ ] **Step 1: Search for stale references to old dialog API**
@@ -1798,7 +1798,7 @@ Run:
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-grep -rn "category_filter\|DEVICE_CATEGORY_ICONS\|create_device_icon\|device_default\|device_filter" src/lucid/ --include="*.py" | grep -v __pycache__ | grep -v ".pyc"
+grep -rn "category_filter\|DEVICE_CATEGORY_ICONS\|create_device_icon\|device_default\|device_filter" src/lightfall/ --include="*.py" | grep -v __pycache__ | grep -v ".pyc"
 ```
 
 Fix any remaining references to the old API. The old `category_filter` and `device_filter` kwargs should be replaced with `categories` and the new parameters. The `DEVICE_CATEGORY_ICONS` dict and `create_device_icon` function should be gone from `device_selector.py`.

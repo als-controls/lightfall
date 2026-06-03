@@ -9,8 +9,8 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from lucid.auth.service_key import MintedKey
-from lucid.auth.session import AuthState, Session, SessionManager, User
+from lightfall.auth.service_key import MintedKey
+from lightfall.auth.session import AuthState, Session, SessionManager, User
 
 
 @pytest.fixture(autouse=True)
@@ -90,13 +90,13 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
         called.append((service_url, bearer, expires_in, tuple(scopes), note))
         return _minted(secret=f"key-for-{service_url}")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -115,7 +115,7 @@ def test_mint_all_service_keys_populates_cache(monkeypatch):
     # scopes are rejected because the user's `principal.roles` is empty
     # for a fresh Keycloak user — see Tiled's generate_apikey validation.
     assert scopes == ("inherit",) or list(scopes) == ["inherit"]
-    assert "lucid" in note
+    assert "lightfall" in note
 
 
 def test_mint_all_service_keys_tolerates_failure(monkeypatch):
@@ -127,13 +127,13 @@ def test_mint_all_service_keys_tolerates_failure(monkeypatch):
     def boom(service_url, bearer, **kwargs):
         raise httpx.ConnectError("unreachable")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", boom)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", boom)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -152,19 +152,19 @@ def test_login_runs_mint_round_through_asyncio_to_thread(monkeypatch):
     """
     import asyncio
 
-    from lucid.auth.providers.base import AuthProvider
-    from lucid.auth.session import Session
+    from lightfall.auth.providers.base import AuthProvider
+    from lightfall.auth.session import Session
 
     sm = SessionManager.get_instance()
 
     # Stub mint helper + URL resolvers
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", lambda *a, **kw: _minted(secret="login-tiled-key"))
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", lambda *a, **kw: _minted(secret="login-tiled-key"))
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -183,7 +183,7 @@ def test_login_runs_mint_round_through_asyncio_to_thread(monkeypatch):
             return False
 
         async def authenticate(self, **kwargs):
-            from lucid.auth.session import User
+            from lightfall.auth.session import User
             user = User(username="tester", attributes={"sub": "kc-sub-1"})
             return Session(user=user, token="stub-bearer")
 
@@ -212,22 +212,22 @@ def test_attach_session_mints_keys_and_transitions_to_authenticated(monkeypatch)
     to route LoginDialog through attach_session, which is responsible
     for mint + state + signal.
     """
-    from lucid.auth.session import AuthState
+    from lightfall.auth.session import AuthState
 
     sm = SessionManager.get_instance()
     user_changed_seen = []
     sm.user_changed.connect(lambda u: user_changed_seen.append(u.username))
 
     monkeypatch.setattr(
-        "lucid.auth.session.mint_service_key",
+        "lightfall.auth.session.mint_service_key",
         lambda *a, **kw: _minted(secret="attached-key"),
     )
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -257,12 +257,12 @@ def test_attach_session_skips_mint_when_no_bearer(monkeypatch):
     """A session without a Keycloak bearer (e.g. local-auth path) still
     transitions to AUTHENTICATED; mint is skipped gracefully.
     """
-    from lucid.auth.session import AuthState
+    from lightfall.auth.session import AuthState
 
     sm = SessionManager.get_instance()
     mint_calls: list = []
     monkeypatch.setattr(
-        "lucid.auth.session.mint_service_key",
+        "lightfall.auth.session.mint_service_key",
         lambda *a, **kw: mint_calls.append(a) or _minted(),
     )
 
@@ -285,13 +285,13 @@ def test_mint_all_service_keys_mints_both_services(monkeypatch):
         scopes_by_url[service_url] = tuple(scopes)
         return _minted(secret=f"key-for-{service_url}")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -317,13 +317,13 @@ def test_mint_logbook_failure_leaves_tiled_intact(monkeypatch):
             raise httpx.ConnectError("logbook unreachable")
         return _minted(secret="tiled-secret")
 
-    monkeypatch.setattr("lucid.auth.session.mint_service_key", fake_mint)
+    monkeypatch.setattr("lightfall.auth.session.mint_service_key", fake_mint)
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -347,15 +347,15 @@ def test_tokens_cleared_after_mint(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "lucid.auth.session.mint_service_key",
+        "lightfall.auth.session.mint_service_key",
         lambda *a, **kw: _minted(),
     )
     monkeypatch.setattr(
-        "lucid.services.tiled_service.get_tiled_base_url",
+        "lightfall.services.tiled_service.get_tiled_base_url",
         lambda: "https://tiled.test",
     )
     monkeypatch.setattr(
-        "lucid.logbook.url.get_logbook_base_url",
+        "lightfall.logbook.url.get_logbook_base_url",
         lambda: "https://logbook.test",
     )
 
@@ -433,7 +433,7 @@ def test_reconnect_restores_authenticated_state(monkeypatch):
 
     # Call the reconnect callback semantics directly: simulate "connected=True"
     # by patching QThreadFuture to fire the callback synchronously.
-    import lucid.utils.threads as threads_mod
+    import lightfall.utils.threads as threads_mod
 
     class _SyncFuture:
         def __init__(self, fn, *args, callback_slot=None, except_slot=None, **kwargs):

@@ -1,12 +1,12 @@
 # IPC Architecture
 
-LUCID uses [NATS](https://nats.io/) as a message broker for inter-process communication (IPC).
+Lightfall uses [NATS](https://nats.io/) as a message broker for inter-process communication (IPC).
 External tools — scientific clients, automation scripts, agent processes — connect to the same NATS
-server and exchange JSON messages with LUCID over well-defined subjects.
+server and exchange JSON messages with Lightfall over well-defined subjects.
 
 ## Components
 
-### IPCService (`lucid.ipc.service`)
+### IPCService (`lightfall.ipc.service`)
 
 `IPCService` is the central IPC object. It owns the NATS connection, manages subscriptions, and
 exposes a catalog of registered actions and events.
@@ -28,7 +28,7 @@ Key responsibilities:
 - **Qt signal** — `sigConnectionChanged(bool)` is emitted on the Qt main thread whenever the
   connection state changes.
 
-### TrustManager (`lucid.ipc.trust`)
+### TrustManager (`lightfall.ipc.trust`)
 
 `TrustManager` is a thread-safe, session-scoped store of application trust decisions. It tracks
 three states per app name:
@@ -36,22 +36,22 @@ three states per app name:
 | State     | Meaning                                       |
 |-----------|-----------------------------------------------|
 | `UNKNOWN` | Never seen before; prompt the user            |
-| `APPROVED`| Trusted for the current LUCID session         |
+| `APPROVED`| Trusted for the current Lightfall session         |
 | `DENIED`  | Explicitly blocked for the current session    |
 
-Decisions persist only in memory — they reset when LUCID restarts.
+Decisions persist only in memory — they reset when Lightfall restarts.
 
 Relevant methods: `approve(app_name)`, `deny(app_name)`, `revoke(app_name)`, `check(app_name)`.
 
-### TrustDialog (`lucid.ipc.trust`)
+### TrustDialog (`lightfall.ipc.trust`)
 
 A modal Qt dialog shown when an `UNKNOWN` app requests authentication. It has a 60-second
 auto-reject timer set by the `_handle_ipc_auth_request` handler in `NCSApplication`.
 The user sees the app name and version and chooses "Trust for this session" or "Deny".
 
-### IPCSettingsPlugin (`lucid.ui.preferences.ipc_settings`)
+### IPCSettingsPlugin (`lightfall.ui.preferences.ipc_settings`)
 
-A `SettingsPlugin` that exposes IPC configuration in LUCID's Preferences dialog under the
+A `SettingsPlugin` that exposes IPC configuration in Lightfall's Preferences dialog under the
 **General > IPC** category. It reads and writes two `PreferencesManager` keys:
 
 | Key                | Type  | Default              | Description                         |
@@ -94,7 +94,7 @@ Publishing (`ipc.publish`) and replying (`ipc.reply`) are safe to call from any 
 ## Auth Token Sharing Flow
 
 ```
-External client                              LUCID (main thread)
+External client                              Lightfall (main thread)
      │                                             │
      │──── auth.request {app_name, app_version} ──▶│
      │                                             │ evaluate_trust(app_name)
@@ -122,8 +122,8 @@ Actions are request/reply subjects. Use `ServiceRegistry` to obtain the `IPCServ
 optional metadata for discovery.
 
 ```python
-from lucid.core.services import ServiceRegistry
-from lucid.ipc.service import IPCService
+from lightfall.core.services import ServiceRegistry
+from lightfall.ipc.service import IPCService
 
 def handle_my_action(subject: str, data: dict, reply: str | None) -> None:
     # data is the decoded JSON payload
@@ -153,8 +153,8 @@ Events are fire-and-forget publishes. Register the event in the catalog first (s
 discover it via `meta.events`), then publish whenever the relevant state changes.
 
 ```python
-from lucid.core.services import ServiceRegistry
-from lucid.ipc.service import IPCService
+from lightfall.core.services import ServiceRegistry
+from lightfall.ipc.service import IPCService
 
 ipc = ServiceRegistry.get_instance().get(IPCService)
 
@@ -178,5 +178,5 @@ Configuration is stored in `PreferencesManager` and read at service creation tim
 | `ipc_nats_url`     | `""`         | Empty string disables IPC (`start()` is no-op)|
 | `ipc_topic_prefix` | `"als.7011"` | Prepended to every published/subscribed subject |
 
-Changes to these preferences take effect on the next LUCID restart; the service is not
+Changes to these preferences take effect on the next Lightfall restart; the service is not
 dynamically reconfigured at runtime.

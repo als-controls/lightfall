@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QWidget
 
-from lucid.acquire.plan_ui import PlanState, PlanUI, plan_with_ui
+from lightfall.acquire.plan_ui import PlanState, PlanUI, plan_with_ui
 
 
 class TestPlanWithUIDecorator:
@@ -31,7 +31,7 @@ class TestPlanWithUIDecorator:
         assert next(gen) == 42
 
     def test_get_plan_ui_class_helper(self):
-        from lucid.acquire.plan_ui import get_plan_ui_class
+        from lightfall.acquire.plan_ui import get_plan_ui_class
 
         class MyUI(PlanUI):
             pass

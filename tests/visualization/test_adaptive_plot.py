@@ -82,7 +82,7 @@ def _make_run(adaptive: FakeContainer | None = None) -> FakeContainer:
 
 class TestCanHandle:
     def test_valid_run_with_hyperparameters(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -91,7 +91,7 @@ class TestCanHandle:
         assert AdaptivePlotVisualization.can_handle(run) == 70
 
     def test_returns_zero_for_no_adaptive(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -99,7 +99,7 @@ class TestCanHandle:
         assert AdaptivePlotVisualization.can_handle(run) == 0
 
     def test_returns_zero_for_wrong_engine(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -111,7 +111,7 @@ class TestCanHandle:
         assert AdaptivePlotVisualization.can_handle(run) == 0
 
     def test_returns_zero_when_no_hyperparameters(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -120,7 +120,7 @@ class TestCanHandle:
         assert AdaptivePlotVisualization.can_handle(run) == 0
 
     def test_handles_garbage_gracefully(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -130,7 +130,7 @@ class TestCanHandle:
 
 class TestSetRunAndFields:
     def test_get_fields_returns_hyperparameters(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -144,7 +144,7 @@ class TestSetRunAndFields:
         assert w.get_fields() == ["hyperparameters"]
 
     def test_set_field_updates_state(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -161,7 +161,7 @@ class TestSetRunAndFields:
 
 class TestPolling:
     def test_new_iteration_updates_plot(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -183,7 +183,7 @@ class TestPolling:
         assert len(w._iters) == 3
 
     def test_stale_polling_stops_timer(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -202,7 +202,7 @@ class TestPolling:
         assert not w._poll_timer.isActive()
 
     def test_new_data_resets_stale_count(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -227,7 +227,7 @@ class TestPlotContent:
     """Verify that the plot actually creates lines for hyperparameter components."""
 
     def test_lines_created_per_component(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -249,7 +249,7 @@ class TestPlotContent:
 
 class TestGetStreams:
     def test_returns_adaptive(self, qtbot):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
@@ -264,14 +264,14 @@ class TestGetStreams:
 
 class TestClassAttributes:
     def test_viz_name(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 
         assert AdaptivePlotVisualization.viz_name == "adaptive_plot"
 
     def test_viz_display_name(self):
-        from lucid.visualization.widgets.adaptive.plot import (
+        from lightfall.visualization.widgets.adaptive.plot import (
             AdaptivePlotVisualization,
         )
 

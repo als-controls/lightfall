@@ -13,8 +13,8 @@ import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QMenu
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
-from lucid.visualization.motor_mixin import VisualizationMotorMixin
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.visualization.motor_mixin import VisualizationMotorMixin
 
 # Ensure QApplication exists for all tests in this module (QMenu requires it)
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -111,7 +111,7 @@ class TestGetMotorDevice:
         )
         mock_device_info._ophyd_device = mock_ophyd
 
-        with patch("lucid.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
+        with patch("lightfall.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
             mock_catalog.return_value.get_device_by_name.return_value = mock_device_info
             result = mixin._get_motor_device("motor_x")
 
@@ -123,7 +123,7 @@ class TestGetMotorDevice:
         """Should return None when motor not in catalog."""
         mixin = TestableMotorMixin()
 
-        with patch("lucid.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
+        with patch("lightfall.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
             mock_catalog.return_value.get_device_by_name.return_value = None
             result = mixin._get_motor_device("unknown_motor")
 
@@ -138,7 +138,7 @@ class TestGetMotorDevice:
             category=DeviceCategory.DETECTOR,
         )
 
-        with patch("lucid.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
+        with patch("lightfall.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
             mock_catalog.return_value.get_device_by_name.return_value = mock_device_info
             result = mixin._get_motor_device("detector")
 
@@ -154,7 +154,7 @@ class TestGetMotorDevice:
         )
         # ophyd_device is None by default
 
-        with patch("lucid.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
+        with patch("lightfall.devices.catalog.DeviceCatalog.get_instance") as mock_catalog:
             mock_catalog.return_value.get_device_by_name.return_value = mock_device_info
             result = mixin._get_motor_device("motor_x")
 

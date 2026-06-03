@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from lucid.claude.permission_manager import PermissionManager
+from lightfall.claude.permission_manager import PermissionManager
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_can_use_tool_routes_AskUserQuestion_to_request_question(qtbot):
         PermissionResultDeny,
         ToolPermissionContext,
     )
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_can_use_tool_callback,
     )
@@ -110,7 +110,7 @@ async def test_can_use_tool_routes_AskUserQuestion_to_request_question(qtbot):
 @pytest.mark.asyncio
 async def test_can_use_tool_AskUserQuestion_cancel_denies(qtbot):
     from claude_agent_sdk import PermissionResultDeny, ToolPermissionContext
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_can_use_tool_callback,
     )
@@ -139,7 +139,7 @@ async def test_pre_tool_use_hook_forces_ask_for_AskUserQuestion(qtbot):
     dismisses AskUserQuestion without routing through can_use_tool.
     Explicitly returning permissionDecision="ask" forces the SDK to
     invoke can_use_tool, where we render the question UI."""
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_pre_tool_use_hook,
     )
@@ -169,7 +169,7 @@ async def test_pre_tool_use_hook_bypass_mode_still_asks_for_AskUserQuestion(qtbo
     a permission gate. This was the bug the user hit: their settings
     had bypassPermissions, so the hook was never registered, so the
     CLI auto-dismissed AskUserQuestion."""
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_pre_tool_use_hook,
     )
@@ -205,7 +205,7 @@ async def test_can_use_tool_bypass_mode_still_handles_AskUserQuestion(qtbot):
         PermissionResultAllow,
         ToolPermissionContext,
     )
-    from lucid.claude.permission_manager import (
+    from lightfall.claude.permission_manager import (
         PermissionManager,
         create_can_use_tool_callback,
     )

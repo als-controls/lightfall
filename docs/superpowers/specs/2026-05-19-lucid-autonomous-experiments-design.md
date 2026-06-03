@@ -1,19 +1,19 @@
-# LUCID Autonomous Experiments — Embedded-Agent Integration
+# Lightfall Autonomous Experiments — Embedded-Agent Integration
 
 **Status:** Draft
 **Date:** 2026-05-19
 **Authors:** Ron Pandolfi, Ayaka
-**Repos affected:** `ncs/ncs` (LUCID), `tsuchinoko` (`LUCID-refactor` branch)
+**Repos affected:** `ncs/ncs` (Lightfall), `tsuchinoko` (`Lightfall-refactor` branch)
 
 ## Summary
 
-LUCID already ships every load-bearing piece of an autonomous-experiment
+Lightfall already ships every load-bearing piece of an autonomous-experiment
 demo: the `adaptive_experiment` Bluesky plan with its `bind_run`
 handshake, the `AdaptiveHeatmapVisualization` and
 `AdaptiveHyperparameterPlot` widgets that read from the `adaptive`
 Tiled stream, the IPC service and NATS bus, and an embedded Claude
 agent that can run plans via `ncs_run_plan`. Tsuchinoko's
-`LUCID-refactor` branch exposes a stable `tsuchinoko.*` NATS surface
+`Lightfall-refactor` branch exposes a stable `tsuchinoko.*` NATS surface
 (`experiment.{configure, bind_run, start, pause, resume, stop}`,
 `engine.{set_parameter, get_parameters}`, `status`, events
 `state / targets / gp.updated / error`, discovery via
@@ -33,7 +33,7 @@ boundary at all.
 
 This spec closes both gaps with the minimum cross-repo footprint:
 
-1. **LUCID** gains one AgentPlugin (`AutonomousExperimentAgent`) that
+1. **Lightfall** gains one AgentPlugin (`AutonomousExperimentAgent`) that
    carries a short stub prompt, lazy-loads the gpCAM skills tree as
    SDK references, and exposes five MCP tools over the existing
    `tsuchinoko.*` NATS surface.
@@ -51,14 +51,14 @@ update live.
 ## Goals
 
 - Enable an end-to-end "design → run → display" autonomous-experiment
-  demo driven by the LUCID embedded agent, with no new orchestration
+  demo driven by the Lightfall embedded agent, with no new orchestration
   plan and no new visualisation widgets.
 - Keep gpCAM as the single source of truth for experiment-design
-  knowledge — the LUCID plugin must not duplicate skill content.
+  knowledge — the Lightfall plugin must not duplicate skill content.
 - Preserve the existing `tsuchinoko.*` NATS contract; do not introduce
   parallel topics or new processes.
 - Make the cross-repo dependency explicit and orderable: Tsuchinoko
-  side merges first, LUCID side merges second; either side can be
+  side merges first, Lightfall side merges second; either side can be
   rolled back independently.
 
 ## Non-goals
@@ -69,23 +69,23 @@ update live.
 - Multi-instance routing. The agent's `tsuchinoko_discover` tool
   returns all responders, but per-instance addressing (`tsuchinoko.<id>.*`)
   is out of scope. The demo assumes one Tsuchinoko per beamline.
-- A LUCID-managed Tsuchinoko subprocess. Tsuchinoko runs externally
+- A Lightfall-managed Tsuchinoko subprocess. Tsuchinoko runs externally
   (systemd, a pinned dev terminal, or `tsuchinoko run` invoked
-  manually); LUCID only discovers and talks to it.
+  manually); Lightfall only discovers and talks to it.
 - Per-action ACLs over NATS. The trust boundary stays exactly where
   the existing IPC design put it.
-- Changes to `bind_run`, `LUCIDEngine`, `TiledPublisher`, the
+- Changes to `bind_run`, `LightfallEngine`, `TiledPublisher`, the
   `adaptive_experiment` plan body, or the adaptive viz widgets.
 
 ## Background
 
 The IPC bus is settled (spec `2026-04-09-ipc-design.md`). The SDK
-plugin model is settled (spec `2026-04-25-lucid-sdk-native-plugins-design.md`);
+plugin model is settled (spec `2026-04-25-lightfall-sdk-native-plugins-design.md`);
 `AgentPlugin` is the single extension point that contributes both
 a skill prompt and an in-process MCP server. Tsuchinoko's rescope to
 a headless NATS service is documented in
 `tsuchinoko/docs/design/2026-04-12-tsuchinoko-rescope.md` and its
-phase-2 NATS integration plan; the `LUCID-refactor` branch holds the
+phase-2 NATS integration plan; the `Lightfall-refactor` branch holds the
 implementation. The `adaptive_experiment` plan and the two adaptive
 visualisations are already on master in `ncs/ncs`.
 
@@ -111,7 +111,7 @@ canned-choices schema.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  LUCID (ncs/ncs, branch feature/autonomous-experiment-agent)    │
+│  Lightfall (ncs/ncs, branch feature/autonomous-experiment-agent)    │
 │  ─────────────────────────────────────────────────────────────  │
 │  Embedded Claude agent                                          │
 │    └─ NEW: AutonomousExperimentAgent (AgentPlugin)              │
@@ -123,9 +123,9 @@ canned-choices schema.
                      │  NATS  tsuchinoko.*   (existing trusted bus)
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Tsuchinoko (LUCID-refactor branch, +small MR)                  │
+│  Tsuchinoko (Lightfall-refactor branch, +small MR)                  │
 │  ─────────────────────────────────────────────                  │
-│  Existing: NATSService, Core, LUCIDEngine, TiledPublisher       │
+│  Existing: NATSService, Core, LightfallEngine, TiledPublisher       │
 │  CHANGED: experiment.configure  — typed payload, strict valid.  │
 │  NEW:     experiment.upload_design_code                         │
 │  NEW:     ~/.tsuchinoko/user_designs/<kind>/<name>.py           │
@@ -151,13 +151,13 @@ No new processes. No new topics. No new viz widgets.
    design schema, substituting ref strings where appropriate.
 6. **Agent** calls `ncs_run_plan(plan_name="adaptive_experiment",
    params={"detectors": [...], "motors": [...], "timeout": ...})`.
-7. **LUCID plan** opens a single Bluesky run, sends
+7. **Lightfall plan** opens a single Bluesky run, sends
    `tsuchinoko.experiment.bind_run` with Tiled credentials and the
    `run_uid`. Tsuchinoko's existing handler auto-transitions to
    `Starting`, wires `TiledReader` and `TiledPublisher`, and starts
    pushing targets on `tsuchinoko.targets`.
-8. **LUCID plan** moves motors, reads detectors, publishes
-   `{lucid_prefix}.adaptive.measured` after each measurement (or
+8. **Lightfall plan** moves motors, reads detectors, publishes
+   `{lightfall_prefix}.adaptive.measured` after each measurement (or
    each batch, per the `exhaust_first` knob).
 9. **Tsuchinoko** writes the `adaptive` stream incrementally — one
    sub-container per iteration (`adaptive/iter_NNN/`) — into the
@@ -175,19 +175,19 @@ loop.
 
 ## Components
 
-### LUCID side
+### Lightfall side
 
-#### `lucid/plugins/agents/autonomous_experiment/`
+#### `lightfall/plugins/agents/autonomous_experiment/`
 
 A subpackage (not a single module) because the tools and prompt body
 are each non-trivial. Layout:
 
 ```
-ncs/src/lucid/plugins/agents/autonomous_experiment/
+ncs/src/lightfall/plugins/agents/autonomous_experiment/
 ├── __init__.py         # exports AutonomousExperimentAgent
 ├── plugin.py           # AgentPlugin subclass
 ├── nats_tools.py       # 5 @tool functions + one private helper
-└── prompts.py          # LUCID-flavored stub prompt
+└── prompts.py          # Lightfall-flavored stub prompt
 ```
 
 `AutonomousExperimentAgent(AgentPlugin)`:
@@ -212,7 +212,7 @@ Short — only what the agent can't infer from tool docstrings. Pseudo-content:
 > scans, peak finding, or parameter optimisation:
 > 1. **Design first** — load gpCAM's `experiment-designer` skill
 >    from this plugin's references. If you can't see it, gpCAM
->    isn't installed in LUCID's environment — tell the user
+>    isn't installed in Lightfall's environment — tell the user
 >    `pip install gpcam` and stop. Sibling skills are available:
 >    `acquisition-functions`, `kernel-designer`,
 >    `prior-mean-functions`, `noise-functions`, `cost-functions`,
@@ -234,7 +234,7 @@ Short — only what the agent can't infer from tool docstrings. Pseudo-content:
 #### MCP tools (`nats_tools.py`)
 
 All five share a single private helper that pulls the NATS
-connection from `lucid.ipc.service.get_ipc_service()`, sends a
+connection from `lightfall.ipc.service.get_ipc_service()`, sends a
 request with a 5 s timeout, and raises with a tool-named message on
 wire-level errors or timeouts.
 
@@ -253,16 +253,16 @@ Deliberately not in the plugin (the agent already has these):
 
 #### Registration
 
-One line in `lucid/plugins/builtin_manifest.py`, mirroring the
+One line in `lightfall/plugins/builtin_manifest.py`, mirroring the
 existing `BeamlineAlignmentAgent` and `ScanPlanningAgent` entries:
 
 ```python
-import_path="lucid.plugins.agents.autonomous_experiment:AutonomousExperimentAgent",
+import_path="lightfall.plugins.agents.autonomous_experiment:AutonomousExperimentAgent",
 ```
 
 ### Tsuchinoko side
 
-A small MR on `LUCID-refactor`. New design+plan docs under
+A small MR on `Lightfall-refactor`. New design+plan docs under
 `docs/design/2026-05-19-phase5-rich-configure.md` and the matching
 `docs/plans/`.
 
@@ -292,7 +292,7 @@ acquisition/<name>"}`) and no engine mutation.
 
 Validation is **strict**: unknown top-level keys return
 `{"status": "error", "message": "unknown configure field: <key>"}`.
-This fails fast on schema drift between sides; clients (the LUCID
+This fails fast on schema drift between sides; clients (the Lightfall
 plugin and any future client) must keep payloads honest.
 
 #### New `experiment.upload_design_code`
@@ -342,7 +342,7 @@ stateless and idempotent.
 
 | Failure | Where caught | Behaviour |
 |---|---|---|
-| LUCID IPC not running | tool wrapper | raise: "LUCID IPC is not running; enable it in Settings → IPC and retry." |
+| Lightfall IPC not running | tool wrapper | raise: "Lightfall IPC is not running; enable it in Settings → IPC and retry." |
 | No Tsuchinoko instance responds (2 s) | `tsuchinoko_discover` | return `[]`; stub-prompt step 2 instructs the agent to halt |
 | Multiple instances respond | `tsuchinoko_discover` | return all; agent picks (single-instance is the demo expectation, not a constraint) |
 | gpCAM not importable | `get_references_dir` returns `None` | stub prompt instructs the agent to halt and tell the user to `pip install gpcam` |
@@ -357,7 +357,7 @@ stateless and idempotent.
 
 ## Security boundary
 
-`upload_design_code` lets the LUCID embedded agent ship Python that
+`upload_design_code` lets the Lightfall embedded agent ship Python that
 Tsuchinoko will execute in-process. That capability is **not new**:
 anything that can post to `tsuchinoko.*` today can already attach
 arbitrary callables via `engine.set_parameter` against the
@@ -402,7 +402,7 @@ Integration test (requires a NATS broker; opts in via env var):
 
 Reuses the Phase-2 NATS test fixture.
 
-### LUCID side
+### Lightfall side
 
 Unit tests:
 
@@ -452,7 +452,7 @@ Cross-repo but orderable.
    `upload_design_code`, ship unit + integration tests. Strict
    validation means clients must keep up; today's `parameter_bounds`-
    only payload still works (still in the typed schema).
-2. **LUCID second.** Feature branch
+2. **Lightfall second.** Feature branch
    `feature/autonomous-experiment-agent` adds the AgentPlugin and
    manifest entry. CI runs unit tests; integration tests opt-in
    via `$NATS_TEST_AUTOSTART`.
@@ -460,8 +460,8 @@ Cross-repo but orderable.
    manual smoke test ships in `ncs/scripts/`; a short pointer note
    from `tsuchinoko/CLAUDE.md` to this spec.
 4. **Deploy order.** Tsuchinoko side deployed first (wherever it
-   runs). LUCID side merged after. Reverse-order deploys would let
-   the LUCID plugin send keys an old Tsuchinoko rejects.
+   runs). Lightfall side merged after. Reverse-order deploys would let
+   the Lightfall plugin send keys an old Tsuchinoko rejects.
 
 ## Out of scope (future specs)
 
@@ -474,14 +474,14 @@ Cross-repo but orderable.
   the per-user filesystem; a registry that survives upgrades is
   separate work).
 - Per-action ACLs over NATS.
-- LUCID-managed Tsuchinoko lifecycle (subprocess supervision).
+- Lightfall-managed Tsuchinoko lifecycle (subprocess supervision).
 
 ## References
 
-- LUCID IPC design: `docs/superpowers/specs/2026-04-09-ipc-design.md`
-- LUCID SDK-native plugins: `docs/superpowers/specs/2026-04-25-lucid-sdk-native-plugins-design.md`
+- Lightfall IPC design: `docs/superpowers/specs/2026-04-09-ipc-design.md`
+- Lightfall SDK-native plugins: `docs/superpowers/specs/2026-04-25-lightfall-sdk-native-plugins-design.md`
 - Tsuchinoko rescope: `tsuchinoko/docs/design/2026-04-12-tsuchinoko-rescope.md`
 - Tsuchinoko phase-2 NATS: `tsuchinoko/docs/design/2026-04-12-phase2-nats-integration.md`
 - gpCAM skills: `~/PycharmProjects/gpcam/skills/`
-- `adaptive_experiment` plan: `ncs/src/lucid/acquire/plans/adaptive.py`
-- Adaptive viz widgets: `ncs/src/lucid/visualization/widgets/adaptive/`
+- `adaptive_experiment` plan: `ncs/src/lightfall/acquire/plans/adaptive.py`
+- Adaptive viz widgets: `ncs/src/lightfall/visualization/widgets/adaptive/`

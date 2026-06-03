@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from lucid.acquire.triggers.manager import TriggerManager
-from lucid.acquire.triggers.manual import ManualTrigger
+from lightfall.acquire.triggers.manager import TriggerManager
+from lightfall.acquire.triggers.manual import ManualTrigger
 
 
 def test_manual_trigger_does_not_subscribe_engine():

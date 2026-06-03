@@ -6,19 +6,19 @@
 
 **Architecture:** A thin module-level helper (`_beam_status_payload`) wraps `ALSBeamStatusService.get_instance().get_introspection_data()`, and a new `@tool` in the existing `EngineToolsAgent` returns it. No new plugin, no new service, no new PV plumbing — the service already polls `https://controls.als.lbl.gov/als-beamstatus/curvals` and exposes `get_introspection_data()`.
 
-**Tech Stack:** Python, claude_agent_sdk `@tool`, existing `lucid.services.als_beam_status.ALSBeamStatusService`, pytest.
+**Tech Stack:** Python, claude_agent_sdk `@tool`, existing `lightfall.services.als_beam_status.ALSBeamStatusService`, pytest.
 
 **Repo / branch:** `ncs/ncs`. Create a branch `feature/beam-status-tool` from `master` before starting.
 
 **Test interpreter:** `C:/Users/rp/PycharmProjects/ncs/ncs/.venv/Scripts/python.exe -m pytest <args>`
 
-**Related spec:** `lucid-endstation-7011/docs/superpowers/specs/2026-05-26-reflection-alignment-design.md` (§D1). This tool is independently useful; the reflection-alignment skill is its first consumer.
+**Related spec:** `lightfall-endstation-7011/docs/superpowers/specs/2026-05-26-reflection-alignment-design.md` (§D1). This tool is independently useful; the reflection-alignment skill is its first consumer.
 
 ---
 
 ## File Structure
 
-- Modify: `src/lucid/plugins/agents/engine_tools.py` — add `_beam_status_payload` helper (module level) and the `ncs_get_beam_status` tool inside `EngineToolsAgent.create_tools`.
+- Modify: `src/lightfall/plugins/agents/engine_tools.py` — add `_beam_status_payload` helper (module level) and the `ncs_get_beam_status` tool inside `EngineToolsAgent.create_tools`.
 - Create: `tests/plugins/agents/test_beam_status.py`.
 
 ---
@@ -26,7 +26,7 @@
 ### Task 1: Add the `ncs_get_beam_status` tool
 
 **Files:**
-- Modify: `src/lucid/plugins/agents/engine_tools.py`
+- Modify: `src/lightfall/plugins/agents/engine_tools.py`
 - Test: `tests/plugins/agents/test_beam_status.py`
 
 - [ ] **Step 0: Create the working branch**
@@ -42,8 +42,8 @@ git checkout master && git checkout -b feature/beam-status-tool
 """Tests for the ncs_get_beam_status MCP tool helper."""
 from __future__ import annotations
 
-import lucid.plugins.agents.engine_tools as et
-from lucid.services import als_beam_status
+import lightfall.plugins.agents.engine_tools as et
+from lightfall.services import als_beam_status
 
 
 class _FakeService:
@@ -100,11 +100,11 @@ def test_engine_tools_registers_beam_status():
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `C:/Users/rp/PycharmProjects/ncs/ncs/.venv/Scripts/python.exe -m pytest tests/plugins/agents/test_beam_status.py -v`
-Expected: FAIL with `module 'lucid.plugins.agents.engine_tools' has no attribute '_beam_status_payload'`.
+Expected: FAIL with `module 'lightfall.plugins.agents.engine_tools' has no attribute '_beam_status_payload'`.
 
 - [ ] **Step 3: Add the module-level helper**
 
-In `src/lucid/plugins/agents/engine_tools.py`, after the imports and before the `EngineToolsAgent` class definition, add:
+In `src/lightfall/plugins/agents/engine_tools.py`, after the imports and before the `EngineToolsAgent` class definition, add:
 ```python
 def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
     """Read the ALS beam status via the polling service.
@@ -114,7 +114,7 @@ def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
     reflected until that poll completes, so the returned snapshot can lag by
     one cycle.
     """
-    from lucid.services.als_beam_status import ALSBeamStatusService
+    from lightfall.services.als_beam_status import ALSBeamStatusService
 
     service = ALSBeamStatusService.get_instance()
     if force_refresh:
@@ -147,7 +147,7 @@ In `EngineToolsAgent.create_tools`, add this tool definition just before the `re
             },
         )
         async def get_beam_status(args: dict) -> dict[str, Any]:
-            from lucid.claude._internal.threading import run_on_main_thread
+            from lightfall.claude._internal.threading import run_on_main_thread
 
             force = args.get("force_refresh", False)
 
@@ -182,7 +182,7 @@ Expected: `test_beam_status_payload` and `test_beam_status_payload_force_refresh
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lucid/plugins/agents/engine_tools.py tests/plugins/agents/test_beam_status.py
+git add src/lightfall/plugins/agents/engine_tools.py tests/plugins/agents/test_beam_status.py
 git commit -m "feat(agents): add ncs_get_beam_status MCP tool"
 ```
 

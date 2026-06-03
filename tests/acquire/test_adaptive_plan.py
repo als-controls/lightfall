@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtWidgets import QPushButton
 
-from lucid.acquire.plans.adaptive import (
+from lightfall.acquire.plans.adaptive import (
     AdaptiveExperimentPanel,
     AdaptivePlanState,
     _state,
@@ -18,7 +18,7 @@ from lucid.acquire.plans.adaptive import (
 
 class TestAdaptivePlanState:
     def test_subclasses_plan_state(self, qtbot):
-        from lucid.acquire.plan_ui import PlanState
+        from lightfall.acquire.plan_ui import PlanState
         assert issubclass(AdaptivePlanState, PlanState)
 
     def test_iteration_signal(self, qtbot):
@@ -97,7 +97,7 @@ class TestAdaptiveExperimentPlan:
     def test_plan_yields_open_and_close_run(self, qtbot, monkeypatch):
         """Minimal plan run: no targets -> times out quickly, yields open/close."""
         ipc, _ = self._mock_ipc({})
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
 
         _state.stop_requested = False
         gen = adaptive_experiment(
@@ -121,7 +121,7 @@ class TestAdaptiveExperimentPlan:
                 {"iteration": 1, "targets": [[10.0, 20.0]]},
             ],
         })
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
 
         _state.stop_requested = False
         gen = adaptive_experiment(
@@ -142,10 +142,10 @@ class TestAdaptiveExperimentPlan:
                 {"iteration": 1, "targets": [[10.0, 20.0], [30.0, 40.0]]},
             ],
         })
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
         monkeypatch.setattr(
-            "lucid.acquire.plans.adaptive._get_lucid_prefix",
-            lambda: "test.lucid",
+            "lightfall.acquire.plans.adaptive._get_lightfall_prefix",
+            lambda: "test.lightfall",
         )
 
         _state.stop_requested = False
@@ -161,7 +161,7 @@ class TestAdaptiveExperimentPlan:
         # exhaust_first=False means one publish per target (2 total for this batch)
         publishes = [
             call for call in ipc.publish.call_args_list
-            if call.args[0] == "test.lucid.adaptive.measured"
+            if call.args[0] == "test.lightfall.adaptive.measured"
         ]
         assert len(publishes) == 2
 
@@ -171,10 +171,10 @@ class TestAdaptiveExperimentPlan:
                 {"iteration": 1, "targets": [[10.0, 20.0], [30.0, 40.0]]},
             ],
         })
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
         monkeypatch.setattr(
-            "lucid.acquire.plans.adaptive._get_lucid_prefix",
-            lambda: "test.lucid",
+            "lightfall.acquire.plans.adaptive._get_lightfall_prefix",
+            lambda: "test.lightfall",
         )
 
         _state.stop_requested = False
@@ -189,7 +189,7 @@ class TestAdaptiveExperimentPlan:
 
         publishes = [
             call for call in ipc.publish.call_args_list
-            if call.args[0] == "test.lucid.adaptive.measured"
+            if call.args[0] == "test.lightfall.adaptive.measured"
         ]
         assert len(publishes) == 1
         assert publishes[0].args[1]["n_new_points"] == 2
@@ -197,7 +197,7 @@ class TestAdaptiveExperimentPlan:
     def test_plan_stops_on_stop_requested(self, qtbot, monkeypatch):
         """Set stop flag via a message callback so it fires after reset."""
         ipc, callbacks = self._mock_ipc({})
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
 
         # Override subscribe so that after subscribe completes, we set stop
         original_side_effect = ipc.subscribe.side_effect
@@ -230,7 +230,7 @@ class TestAdaptiveExperimentPlan:
 
     def test_plan_resets_state_at_start(self, qtbot, monkeypatch):
         ipc, _ = self._mock_ipc({})
-        monkeypatch.setattr("lucid.ipc.service.get_ipc_service", lambda: ipc)
+        monkeypatch.setattr("lightfall.ipc.service.get_ipc_service", lambda: ipc)
 
         # Preset state as if a previous run left it dirty
         _state.stop_requested = False  # but we want a timely exit

@@ -14,11 +14,11 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/lucid/devices/connection_manager.py` | Modify | Add two-phase `connect_all_phased` method |
-| `src/lucid/devices/backends/happi.py` | Modify | Call `connect_all_phased` from `_start_background_connections` |
-| `src/lucid/ui/widgets/camera/base.py` | Modify | Move `_connect_signals` body to background thread |
-| `src/lucid/ui/panels/device_panel.py` | Modify | Merge Refresh + Reconnect into Sync |
-| `src/lucid/ui/models/device_tree.py` | Modify | Fix `beginInsertRows`/`endInsertRows` ordering |
+| `src/lightfall/devices/connection_manager.py` | Modify | Add two-phase `connect_all_phased` method |
+| `src/lightfall/devices/backends/happi.py` | Modify | Call `connect_all_phased` from `_start_background_connections` |
+| `src/lightfall/ui/widgets/camera/base.py` | Modify | Move `_connect_signals` body to background thread |
+| `src/lightfall/ui/panels/device_panel.py` | Modify | Merge Refresh + Reconnect into Sync |
+| `src/lightfall/ui/models/device_tree.py` | Modify | Fix `beginInsertRows`/`endInsertRows` ordering |
 | `tests/test_connection_manager.py` | Create | Tests for two-phase connection |
 | `tests/test_device_tree_model.py` | Create | Tests for tree model row insertion |
 
@@ -27,7 +27,7 @@
 ### Task 1: Two-phase device connection — connection manager
 
 **Files:**
-- Modify: `src/lucid/devices/connection_manager.py:271-288` (add `connect_all_phased`)
+- Modify: `src/lightfall/devices/connection_manager.py:271-288` (add `connect_all_phased`)
 - Create: `tests/test_connection_manager.py`
 
 - [ ] **Step 1: Write tests for the two-phase connection**
@@ -45,7 +45,7 @@ from uuid import uuid4
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from lucid.devices.connection_manager import (
+from lightfall.devices.connection_manager import (
     ConnectionResult,
     ConnectionState,
     DeviceConnectionManager,
@@ -188,7 +188,7 @@ Expected: FAIL — `AttributeError: 'DeviceConnectionManager' object has no attr
 
 - [ ] **Step 3: Implement `connect_all_phased` in connection manager**
 
-In `src/lucid/devices/connection_manager.py`, add the following method after the existing `connect_all` method (after line 288):
+In `src/lightfall/devices/connection_manager.py`, add the following method after the existing `connect_all` method (after line 288):
 
 ```python
     def connect_all_phased(
@@ -405,7 +405,7 @@ Expected: 3 tests PASS
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/devices/connection_manager.py tests/test_connection_manager.py
+git add src/lightfall/devices/connection_manager.py tests/test_connection_manager.py
 git commit -m "feat: add two-phase connect_all_phased to DeviceConnectionManager
 
 Separates ophyd instantiation (PV registration) from connection
@@ -420,11 +420,11 @@ wait_for_connection()."
 ### Task 2: Wire happi backend to use phased connection
 
 **Files:**
-- Modify: `src/lucid/devices/backends/happi.py:347`
+- Modify: `src/lightfall/devices/backends/happi.py:347`
 
 - [ ] **Step 1: Change `_start_background_connections` to call `connect_all_phased`**
 
-In `src/lucid/devices/backends/happi.py`, change line 347 from:
+In `src/lightfall/devices/backends/happi.py`, change line 347 from:
 
 ```python
             manager.connect_all(to_connect, timeout=self._connection_timeout)
@@ -445,7 +445,7 @@ Expected: All tests pass (no existing tests depend on `connect_all` being called
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/devices/backends/happi.py
+git add src/lightfall/devices/backends/happi.py
 git commit -m "feat: use phased connection in HappiBackend
 
 Switches _start_background_connections from connect_all to
@@ -457,20 +457,20 @@ connect_all_phased for faster device discovery."
 ### Task 3: Async camera signal connection
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/camera/base.py:386,442-460,649-709,712-719`
+- Modify: `src/lightfall/ui/widgets/camera/base.py:386,442-460,649-709,712-719`
 
 - [ ] **Step 1: Add `_connect_thread` attribute in `__init__`**
 
-In `src/lucid/ui/widgets/camera/base.py`, after line 386 (`self._subscriptions: list[tuple[Any, int]] = []`), add:
+In `src/lightfall/ui/widgets/camera/base.py`, after line 386 (`self._subscriptions: list[tuple[Any, int]] = []`), add:
 
 ```python
         self._connect_thread: QThreadFuture | None = None
 ```
 
-Also add the import near the top of the file (with other lucid imports):
+Also add the import near the top of the file (with other lightfall imports):
 
 ```python
-from lucid.utils.threads import QThreadFuture
+from lightfall.utils.threads import QThreadFuture
 ```
 
 - [ ] **Step 2: Refactor `_connect_signals` into main-thread launcher + background worker**
@@ -635,7 +635,7 @@ Run the application and select a camera device. Verify:
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/widgets/camera/base.py
+git add src/lightfall/ui/widgets/camera/base.py
 git commit -m "fix: move camera signal connection off the main thread
 
 _connect_signals now spawns a QThreadFuture for the hasattr/get/
@@ -649,11 +649,11 @@ state and stays responsive."
 ### Task 4: Merge Refresh and Reconnect into Sync
 
 **Files:**
-- Modify: `src/lucid/ui/panels/device_panel.py:352-438`
+- Modify: `src/lightfall/ui/panels/device_panel.py:352-438`
 
 - [ ] **Step 1: Replace toolbar creation and handlers**
 
-In `src/lucid/ui/panels/device_panel.py`, replace the `_create_toolbar` method (lines 352-395) with:
+In `src/lightfall/ui/panels/device_panel.py`, replace the `_create_toolbar` method (lines 352-395) with:
 
 ```python
     def _create_toolbar(self) -> QToolBar:
@@ -703,8 +703,8 @@ Replace the `_refresh` and `_reconnect_failed` methods (lines 402-438) with:
 ```python
     def _sync_devices(self) -> None:
         """Retry failed connections and refresh the device tree."""
-        from lucid.devices import DeviceCatalog
-        from lucid.utils.threads import QThreadFuture
+        from lightfall.devices import DeviceCatalog
+        from lightfall.utils.threads import QThreadFuture
 
         catalog = DeviceCatalog.get_instance()
 
@@ -745,7 +745,7 @@ Run the application. Verify:
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/panels/device_panel.py
+git add src/lightfall/ui/panels/device_panel.py
 git commit -m "fix: merge Refresh and Reconnect into single Sync button
 
 Replaces two confusing toolbar actions with one that retries
@@ -757,7 +757,7 @@ failed connections then rebuilds the device tree."
 ### Task 5: Fix Qt model row insertion ordering
 
 **Files:**
-- Modify: `src/lucid/ui/models/device_tree.py:678-689`
+- Modify: `src/lightfall/ui/models/device_tree.py:678-689`
 - Create: `tests/test_device_tree_model.py`
 
 - [ ] **Step 1: Write test for correct row insertion**
@@ -773,8 +773,8 @@ from uuid import uuid4
 import pytest
 from PySide6.QtCore import QCoreApplication, QModelIndex
 
-from lucid.devices.model import DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture
@@ -880,7 +880,7 @@ Expected: FAIL — the `begin` call will see children already present (the curre
 
 - [ ] **Step 3: Fix the row insertion ordering**
 
-In `src/lucid/ui/models/device_tree.py`, replace lines 684-689:
+In `src/lightfall/ui/models/device_tree.py`, replace lines 684-689:
 
 ```python
         # Add new children from the now-connected ophyd device
@@ -925,7 +925,7 @@ Expected: All tests pass.
 
 ```bash
 cd C:/Users/rp/PycharmProjects/ncs/ncs
-git add src/lucid/ui/models/device_tree.py tests/test_device_tree_model.py
+git add src/lightfall/ui/models/device_tree.py tests/test_device_tree_model.py
 git commit -m "fix: correct Qt model beginInsertRows/endInsertRows ordering
 
 Children were appended to the data structure before

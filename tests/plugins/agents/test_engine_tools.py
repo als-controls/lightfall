@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-import lucid.plugins.agents.engine_tools as et
-from lucid.acquire.engine.state import EngineState
+import lightfall.plugins.agents.engine_tools as et
+from lightfall.acquire.engine.state import EngineState
 
 
 class _FakeEngine:
@@ -47,8 +47,8 @@ class _FakeEngine:
 
 
 def _patch_engine(monkeypatch, engine):
-    """Make ``from lucid.acquire.engine import get_engine`` return ``engine``."""
-    import lucid.acquire.engine as engine_pkg
+    """Make ``from lightfall.acquire.engine import get_engine`` return ``engine``."""
+    import lightfall.acquire.engine as engine_pkg
 
     monkeypatch.setattr(engine_pkg, "get_engine", lambda: engine, raising=True)
 

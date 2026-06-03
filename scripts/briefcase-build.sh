@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build LUCID native application using Briefcase
+# Build Lightfall native application using Briefcase
 # This script orchestrates the full build: wheels -> create -> build
 set -e
 
@@ -9,7 +9,7 @@ NCS_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$NCS_DIR"
 
 echo "=========================================="
-echo "LUCID Briefcase Build"
+echo "Lightfall Briefcase Build"
 echo "=========================================="
 echo ""
 

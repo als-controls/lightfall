@@ -4,7 +4,7 @@ from PySide6.QtCore import QEvent, QPointF
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
-from lucid.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theater.proxy import TheaterProxy
 
 
 class TestTheaterProxyCore:
@@ -65,7 +65,7 @@ class TestTheaterProxyCore:
         assert proxy.count() == 2  # target re-inserted
 
     def test_auto_registers_with_manager(self, qtbot):
-        from lucid.ui.theater.manager import theater_manager
+        from lightfall.ui.theater.manager import theater_manager
 
         target = QWidget()
         qtbot.addWidget(target)

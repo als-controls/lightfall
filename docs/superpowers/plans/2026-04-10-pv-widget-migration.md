@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate all hand-rolled PV/signal widget code by migrating to `lucid.epics.widgets` (PVLineEdit, PVLabel, PVComboBox) for pure-EPICS widgets, and by creating a new parallel `OphydWidget` base class + widgets for ophyd-signal-based UI code.
+**Goal:** Eliminate all hand-rolled PV/signal widget code by migrating to `lightfall.epics.widgets` (PVLineEdit, PVLabel, PVComboBox) for pure-EPICS widgets, and by creating a new parallel `OphydWidget` base class + widgets for ophyd-signal-based UI code.
 
-**Architecture:** Two widget ecosystems exist today — EPICS PV widgets (caproto `PV` class) and ophyd signal widgets (ophyd `.subscribe()`/`.get()`/`.set()`). The `epics-pyside` library already provides reusable PV widgets but they're barely adopted. For ophyd, nothing reusable exists — 5 files reinvent the same boilerplate. This plan: (1) migrates the 2 pure-EPICS files to use existing PV widgets, (2) creates a minimal `OphydWidget` base + `OphydLineEdit`, `OphydComboBox`, `OphydLabel`, `OphydSpinBox` in `lucid.epics.widgets`, then (3) migrates the 5 ophyd files to use them.
+**Architecture:** Two widget ecosystems exist today — EPICS PV widgets (caproto `PV` class) and ophyd signal widgets (ophyd `.subscribe()`/`.get()`/`.set()`). The `epics-pyside` library already provides reusable PV widgets but they're barely adopted. For ophyd, nothing reusable exists — 5 files reinvent the same boilerplate. This plan: (1) migrates the 2 pure-EPICS files to use existing PV widgets, (2) creates a minimal `OphydWidget` base + `OphydLineEdit`, `OphydComboBox`, `OphydLabel`, `OphydSpinBox` in `lightfall.epics.widgets`, then (3) migrates the 5 ophyd files to use them.
 
 **Tech Stack:** PySide6, caproto, ophyd, epics-pyside
 
@@ -13,22 +13,22 @@
 ## File Structure
 
 ### New files
-- `src/lucid/epics/widgets/ophyd_base.py` — `OphydWidget` base class (parallel to `EpicsWidget`)
-- `src/lucid/epics/widgets/ophyd_lineedit.py` — `OphydLineEdit`
-- `src/lucid/epics/widgets/ophyd_label.py` — `OphydLabel`
-- `src/lucid/epics/widgets/ophyd_combobox.py` — `OphydComboBox`
-- `src/lucid/epics/widgets/ophyd_spinbox.py` — `OphydSpinBox`
+- `src/lightfall/epics/widgets/ophyd_base.py` — `OphydWidget` base class (parallel to `EpicsWidget`)
+- `src/lightfall/epics/widgets/ophyd_lineedit.py` — `OphydLineEdit`
+- `src/lightfall/epics/widgets/ophyd_label.py` — `OphydLabel`
+- `src/lightfall/epics/widgets/ophyd_combobox.py` — `OphydComboBox`
+- `src/lightfall/epics/widgets/ophyd_spinbox.py` — `OphydSpinBox`
 - `tests/test_ophyd_widgets.py` — Tests for all new ophyd widgets
 
 ### Modified files
-- `src/lucid/epics/widgets/__init__.py` — Export new ophyd widgets
-- `src/lucid/epics/widgets/areadetector/controls.py` — Replace raw QLineEdit/QComboBox with PVLineEdit/PVComboBox
-- `src/lucid/epics/widgets/motor.py` — Replace raw QLineEdit/QLabel with PVLineEdit/PVLabel
-- `src/lucid/ui/widgets/signal_control.py` — Replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel
-- `src/lucid/ui/widgets/motor_control.py` — Replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel
-- `src/lucid/ui/widgets/camera/base.py` — Replace raw QLineEdit/QComboBox with OphydLineEdit/OphydComboBox
-- `src/lucid/ui/widgets/camera/panels/cooler.py` — Replace raw QComboBox/QDoubleSpinBox/QLabel with OphydComboBox/OphydSpinBox/OphydLabel
-- `src/lucid/ui/widgets/camera/panels/temperature.py` — Replace raw QDoubleSpinBox/QLabel with OphydSpinBox/OphydLabel
+- `src/lightfall/epics/widgets/__init__.py` — Export new ophyd widgets
+- `src/lightfall/epics/widgets/areadetector/controls.py` — Replace raw QLineEdit/QComboBox with PVLineEdit/PVComboBox
+- `src/lightfall/epics/widgets/motor.py` — Replace raw QLineEdit/QLabel with PVLineEdit/PVLabel
+- `src/lightfall/ui/widgets/signal_control.py` — Replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel
+- `src/lightfall/ui/widgets/motor_control.py` — Replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel
+- `src/lightfall/ui/widgets/camera/base.py` — Replace raw QLineEdit/QComboBox with OphydLineEdit/OphydComboBox
+- `src/lightfall/ui/widgets/camera/panels/cooler.py` — Replace raw QComboBox/QDoubleSpinBox/QLabel with OphydComboBox/OphydSpinBox/OphydLabel
+- `src/lightfall/ui/widgets/camera/panels/temperature.py` — Replace raw QDoubleSpinBox/QLabel with OphydSpinBox/OphydLabel
 
 ---
 
@@ -39,7 +39,7 @@
 The simplest migration — `areadetector/controls.py` has 3 raw QLineEdits and 1 raw QComboBox that each map 1:1 to existing PV widgets. The widget manages its own PV connections with a `_pvs` dict and manual `_on_pv_value` dispatch. After migration, the PV widgets handle their own connections, formatting, hasFocus() protection, and write-on-enter — eliminating ~100 lines of boilerplate.
 
 **Files:**
-- Modify: `src/lucid/epics/widgets/areadetector/controls.py`
+- Modify: `src/lightfall/epics/widgets/areadetector/controls.py`
 
 **Key insight:** AreaDetector uses separate setpoint and RBV PVs (e.g., `AcquireTime` for write, `AcquireTime_RBV` for readback). `PVLineEdit` binds to one PV. The cleanest approach: bind PVLineEdit to the RBV for display, and override write to put to the setpoint PV. However, this complicates the widget. Simpler: bind PVLineEdit to the setpoint PV directly. The readback will differ slightly from setpoint during transitions, but this is standard motor-record behavior and acceptable for camera controls.
 
@@ -59,8 +59,8 @@ Replace QLineEdit/QComboBox with PVLineEdit/PVComboBox. The PV name can't be set
 
 Add imports:
 ```python
-from lucid.epics.widgets.lineedit import PVLineEdit
-from lucid.epics.widgets.combobox import PVComboBox
+from lightfall.epics.widgets.lineedit import PVLineEdit
+from lightfall.epics.widgets.combobox import PVComboBox
 ```
 
 Replace in `_setup_ui`:
@@ -101,7 +101,7 @@ def _connect_pvs(self) -> None:
     self._num_images_edit.pv_name = f"{self._cam_prefix}NumImages"
     self._image_mode_combo.pv_name = f"{self._cam_prefix}ImageMode"
 
-    from lucid.epics.ca.pv import PV
+    from lightfall.epics.ca.pv import PV
 
     # Only manual PVs for non-widget fields
     pv_fields = {
@@ -213,7 +213,7 @@ def set_image_mode(self, mode: str) -> None:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/areadetector/controls.py
+git add src/lightfall/epics/widgets/areadetector/controls.py
 git commit -m "refactor(areadetector): replace raw QLineEdit/QComboBox with PVLineEdit/PVComboBox"
 ```
 
@@ -224,15 +224,15 @@ git commit -m "refactor(areadetector): replace raw QLineEdit/QComboBox with PVLi
 `PVMotor` in `motor.py` is more complex — it manages ~17 PVs and has custom logic for motor status, limits, MSTA decoding, etc. The migration targets are the 4 QLineEdits and 2 QLabels that display/edit PV values. The status indicators, buttons, and MSTA decoder stay as-is.
 
 **Files:**
-- Modify: `src/lucid/epics/widgets/motor.py`
+- Modify: `src/lightfall/epics/widgets/motor.py`
 
 **Approach:** Replace the 4 QLineEdits (setpoint, tweak, velocity, acceleration) with `PVLineEdit`, and the RBV QLabel + units QLabel with `PVLabel`. Keep the rest of the manual PV infrastructure for status/limits/MSTA.
 
 - [ ] **Step 1: Add imports**
 
 ```python
-from lucid.epics.widgets.lineedit import PVLineEdit
-from lucid.epics.widgets.label import PVLabel
+from lightfall.epics.widgets.lineedit import PVLineEdit
+from lightfall.epics.widgets.label import PVLabel
 ```
 
 - [ ] **Step 2: Replace RBV display with PVLabel**
@@ -377,7 +377,7 @@ Remove `QLineEdit`, `QDoubleValidator` from imports. Keep `QLabel` for status la
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/motor.py
+git add src/lightfall/epics/widgets/motor.py
 git commit -m "refactor(motor): replace raw QLineEdit/QLabel with PVLineEdit/PVLabel"
 ```
 
@@ -394,7 +394,7 @@ The ophyd analog of `EpicsWidget`. Key differences from `EpicsWidget`:
 - Polling fallback when subscription isn't available
 
 **Files:**
-- Create: `src/lucid/epics/widgets/ophyd_base.py`
+- Create: `src/lightfall/epics/widgets/ophyd_base.py`
 - Test: `tests/test_ophyd_widgets.py`
 
 - [ ] **Step 1: Write the failing test for OphydWidget**
@@ -409,7 +409,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class ConcreteOphydWidget(OphydWidget):
@@ -460,7 +460,7 @@ Expected: FAIL with import error (module doesn't exist yet)
 - [ ] **Step 3: Implement OphydWidget**
 
 ```python
-# src/lucid/epics/widgets/ophyd_base.py
+# src/lightfall/epics/widgets/ophyd_base.py
 """Base class for ophyd signal widgets.
 
 Parallel to EpicsWidget (which wraps caproto PVs), this base class
@@ -476,7 +476,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot, QTimer
 from PySide6.QtWidgets import QWidget
 
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class OphydWidget(QWidget):
@@ -572,7 +572,7 @@ class OphydWidget(QWidget):
 
     def _on_signal_value(self, value: Any = None, **kwargs) -> None:
         """Ophyd subscription callback — may run on background thread."""
-        from lucid.utils.threads import invoke_in_main_thread
+        from lightfall.utils.threads import invoke_in_main_thread
 
         if hasattr(value, "__len__") and not isinstance(value, (str, bytes)):
             if len(value) == 1:
@@ -679,7 +679,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/ophyd_base.py tests/test_ophyd_widgets.py
+git add src/lightfall/epics/widgets/ophyd_base.py tests/test_ophyd_widgets.py
 git commit -m "feat: add OphydWidget base class for ophyd signal widgets"
 ```
 
@@ -688,14 +688,14 @@ git commit -m "feat: add OphydWidget base class for ophyd signal widgets"
 ### Task 4: Create `OphydLineEdit`
 
 **Files:**
-- Create: `src/lucid/epics/widgets/ophyd_lineedit.py`
+- Create: `src/lightfall/epics/widgets/ophyd_lineedit.py`
 - Test: `tests/test_ophyd_widgets.py` (append)
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/test_ophyd_widgets.py`:
 ```python
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
 
 
 class TestOphydLineEdit:
@@ -741,7 +741,7 @@ Expected: FAIL
 - [ ] **Step 3: Implement OphydLineEdit**
 
 ```python
-# src/lucid/epics/widgets/ophyd_lineedit.py
+# src/lightfall/epics/widgets/ophyd_lineedit.py
 """OphydLineEdit — text input for ophyd signal values."""
 from __future__ import annotations
 
@@ -750,8 +750,8 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Property, Signal, Slot
 from PySide6.QtWidgets import QLineEdit, QWidget, QHBoxLayout
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
-from lucid.epics.widgets.style import WidgetStyles
+from lightfall.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.style import WidgetStyles
 
 
 class OphydLineEdit(OphydWidget):
@@ -887,7 +887,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/ophyd_lineedit.py tests/test_ophyd_widgets.py
+git add src/lightfall/epics/widgets/ophyd_lineedit.py tests/test_ophyd_widgets.py
 git commit -m "feat: add OphydLineEdit for ophyd signal text input"
 ```
 
@@ -896,13 +896,13 @@ git commit -m "feat: add OphydLineEdit for ophyd signal text input"
 ### Task 5: Create `OphydLabel`
 
 **Files:**
-- Create: `src/lucid/epics/widgets/ophyd_label.py`
+- Create: `src/lightfall/epics/widgets/ophyd_label.py`
 - Test: `tests/test_ophyd_widgets.py` (append)
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-from lucid.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_label import OphydLabel
 
 
 class TestOphydLabel:
@@ -935,7 +935,7 @@ Run: `cd C:/Users/rp/PycharmProjects/ncs/ncs && .venv/Scripts/python -m pytest t
 - [ ] **Step 3: Implement OphydLabel**
 
 ```python
-# src/lucid/epics/widgets/ophyd_label.py
+# src/lightfall/epics/widgets/ophyd_label.py
 """OphydLabel — read-only display for ophyd signal values."""
 from __future__ import annotations
 
@@ -943,7 +943,7 @@ from typing import Any, ClassVar
 
 from PySide6.QtWidgets import QLabel, QWidget, QHBoxLayout
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class OphydLabel(OphydWidget):
@@ -997,7 +997,7 @@ class OphydLabel(OphydWidget):
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/ophyd_label.py tests/test_ophyd_widgets.py
+git add src/lightfall/epics/widgets/ophyd_label.py tests/test_ophyd_widgets.py
 git commit -m "feat: add OphydLabel for read-only ophyd signal display"
 ```
 
@@ -1006,13 +1006,13 @@ git commit -m "feat: add OphydLabel for read-only ophyd signal display"
 ### Task 6: Create `OphydComboBox`
 
 **Files:**
-- Create: `src/lucid/epics/widgets/ophyd_combobox.py`
+- Create: `src/lightfall/epics/widgets/ophyd_combobox.py`
 - Test: `tests/test_ophyd_widgets.py` (append)
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
 
 
 class TestOphydComboBox:
@@ -1050,7 +1050,7 @@ class TestOphydComboBox:
 - [ ] **Step 3: Implement OphydComboBox**
 
 ```python
-# src/lucid/epics/widgets/ophyd_combobox.py
+# src/lightfall/epics/widgets/ophyd_combobox.py
 """OphydComboBox — dropdown for ophyd enum signal values."""
 from __future__ import annotations
 
@@ -1059,7 +1059,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QComboBox, QWidget, QHBoxLayout
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class OphydComboBox(OphydWidget):
@@ -1146,7 +1146,7 @@ class OphydComboBox(OphydWidget):
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/ophyd_combobox.py tests/test_ophyd_widgets.py
+git add src/lightfall/epics/widgets/ophyd_combobox.py tests/test_ophyd_widgets.py
 git commit -m "feat: add OphydComboBox for ophyd enum signal selection"
 ```
 
@@ -1157,13 +1157,13 @@ git commit -m "feat: add OphydComboBox for ophyd enum signal selection"
 Needed by cooler.py and temperature.py for temperature setpoints.
 
 **Files:**
-- Create: `src/lucid/epics/widgets/ophyd_spinbox.py`
+- Create: `src/lightfall/epics/widgets/ophyd_spinbox.py`
 - Test: `tests/test_ophyd_widgets.py` (append)
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
 
 
 class TestOphydSpinBox:
@@ -1192,7 +1192,7 @@ class TestOphydSpinBox:
 - [ ] **Step 3: Implement OphydSpinBox**
 
 ```python
-# src/lucid/epics/widgets/ophyd_spinbox.py
+# src/lightfall/epics/widgets/ophyd_spinbox.py
 """OphydSpinBox — numeric spin box for ophyd signal values."""
 from __future__ import annotations
 
@@ -1201,7 +1201,7 @@ from typing import Any, ClassVar
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QDoubleSpinBox, QWidget, QHBoxLayout
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_base import OphydWidget
 
 
 class OphydSpinBox(OphydWidget):
@@ -1281,7 +1281,7 @@ class OphydSpinBox(OphydWidget):
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/ophyd_spinbox.py tests/test_ophyd_widgets.py
+git add src/lightfall/epics/widgets/ophyd_spinbox.py tests/test_ophyd_widgets.py
 git commit -m "feat: add OphydSpinBox for numeric ophyd signal editing"
 ```
 
@@ -1290,17 +1290,17 @@ git commit -m "feat: add OphydSpinBox for numeric ophyd signal editing"
 ### Task 8: Export new ophyd widgets from `__init__.py`
 
 **Files:**
-- Modify: `src/lucid/epics/widgets/__init__.py`
+- Modify: `src/lightfall/epics/widgets/__init__.py`
 
 - [ ] **Step 1: Update exports**
 
-Add to `src/lucid/epics/widgets/__init__.py`:
+Add to `src/lightfall/epics/widgets/__init__.py`:
 ```python
-from lucid.epics.widgets.ophyd_base import OphydWidget
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
 ```
 
 Add to `__all__`:
@@ -1315,8 +1315,8 @@ Add to `__all__`:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/__init__.py
-git commit -m "feat: export ophyd widgets from lucid.epics.widgets"
+git add src/lightfall/epics/widgets/__init__.py
+git commit -m "feat: export ophyd widgets from lightfall.epics.widgets"
 ```
 
 ---
@@ -1328,14 +1328,14 @@ git commit -m "feat: export ophyd widgets from lucid.epics.widgets"
 Replace the raw QLineEdit and QLabel in `SignalControlWidget` and `SignalRowWidget` with `OphydLineEdit` and `OphydLabel`.
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/signal_control.py`
+- Modify: `src/lightfall/ui/widgets/signal_control.py`
 
 - [ ] **Step 1: Replace imports**
 
 Add:
 ```python
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.ophyd_label import OphydLabel
 ```
 
 - [ ] **Step 2: Migrate `SignalControlWidget._setup_ui`**
@@ -1409,7 +1409,7 @@ Remove `_get_signal_value` and `_format_value` — these are now in OphydWidget/
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/signal_control.py
+git add src/lightfall/ui/widgets/signal_control.py
 git commit -m "refactor(signal_control): replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel"
 ```
 
@@ -1420,13 +1420,13 @@ git commit -m "refactor(signal_control): replace raw QLineEdit/QLabel with Ophyd
 Replace raw QLineEdit and QComboBox in `CameraControlWidget` with ophyd widgets.
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/camera/base.py`
+- Modify: `src/lightfall/ui/widgets/camera/base.py`
 
 - [ ] **Step 1: Replace imports and widget creation in `_setup_ui`**
 
 ```python
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
 ```
 
 Replace in `_setup_ui`:
@@ -1501,7 +1501,7 @@ def _disconnect_signals(self) -> None:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/camera/base.py
+git add src/lightfall/ui/widgets/camera/base.py
 git commit -m "refactor(camera): replace raw QLineEdit/QComboBox with OphydLineEdit/OphydComboBox"
 ```
 
@@ -1510,7 +1510,7 @@ git commit -m "refactor(camera): replace raw QLineEdit/QComboBox with OphydLineE
 ### Task 11: Migrate `camera/panels/cooler.py`
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/camera/panels/cooler.py`
+- Modify: `src/lightfall/ui/widgets/camera/panels/cooler.py`
 
 - [ ] **Step 1: Replace raw widgets**
 
@@ -1520,9 +1520,9 @@ Replace:
 - `QLabel` for temperature readback → `OphydLabel`
 
 ```python
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
-from lucid.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.ophyd_label import OphydLabel
 ```
 
 - [ ] **Step 2: Bind signals to widgets in `set_device`**
@@ -1544,7 +1544,7 @@ Delete the `_subscribe_signals`, `_on_value_update`, and per-field update method
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/camera/panels/cooler.py
+git add src/lightfall/ui/widgets/camera/panels/cooler.py
 git commit -m "refactor(cooler): replace raw widgets with OphydComboBox/OphydSpinBox/OphydLabel"
 ```
 
@@ -1553,13 +1553,13 @@ git commit -m "refactor(cooler): replace raw widgets with OphydComboBox/OphydSpi
 ### Task 12: Migrate `camera/panels/temperature.py`
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/camera/panels/temperature.py`
+- Modify: `src/lightfall/ui/widgets/camera/panels/temperature.py`
 
 - [ ] **Step 1: Replace raw widgets**
 
 ```python
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
-from lucid.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.ophyd_label import OphydLabel
 ```
 
 Replace `QDoubleSpinBox` with `OphydSpinBox`, `QLabel` for temp readback with `OphydLabel`.
@@ -1578,7 +1578,7 @@ if hasattr(cam, "temperature_setpoint"):
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/camera/panels/temperature.py
+git add src/lightfall/ui/widgets/camera/panels/temperature.py
 git commit -m "refactor(temperature): replace raw widgets with OphydSpinBox/OphydLabel"
 ```
 
@@ -1589,7 +1589,7 @@ git commit -m "refactor(temperature): replace raw widgets with OphydSpinBox/Ophy
 This is the most complex ophyd migration. The `MotorControlWidget` has raw QLineEdits for setpoint and tweak, and QLabels for readback/status, all driven by ophyd motor attribute polling.
 
 **Files:**
-- Modify: `src/lucid/ui/widgets/motor_control.py`
+- Modify: `src/lightfall/ui/widgets/motor_control.py`
 
 - [ ] **Step 1: Read the full file to understand current structure**
 
@@ -1621,7 +1621,7 @@ Keep polling only for status fields that don't have subscriptions.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lucid/ui/widgets/motor_control.py
+git add src/lightfall/ui/widgets/motor_control.py
 git commit -m "refactor(motor_control): replace raw QLineEdit/QLabel with OphydLineEdit/OphydLabel"
 ```
 
@@ -1634,23 +1634,23 @@ git commit -m "refactor(motor_control): replace raw QLineEdit/QLabel with OphydL
 `StatusIndicator` is copy-pasted in 4 files: `motor.py`, `areadetector/controls.py`, `camera/base.py`, `camera/panels/cooler.py`. Move to a shared location.
 
 **Files:**
-- Create: `src/lucid/epics/widgets/status_indicator.py`
-- Modify: `src/lucid/epics/widgets/motor.py` — import from shared
-- Modify: `src/lucid/epics/widgets/areadetector/controls.py` — import from shared
-- Modify: `src/lucid/ui/widgets/camera/base.py` — import from shared
-- Modify: `src/lucid/ui/widgets/camera/panels/cooler.py` — import from shared
-- Modify: `src/lucid/ui/widgets/signal_control.py` — import StatusDot alias or convert to StatusIndicator
+- Create: `src/lightfall/epics/widgets/status_indicator.py`
+- Modify: `src/lightfall/epics/widgets/motor.py` — import from shared
+- Modify: `src/lightfall/epics/widgets/areadetector/controls.py` — import from shared
+- Modify: `src/lightfall/ui/widgets/camera/base.py` — import from shared
+- Modify: `src/lightfall/ui/widgets/camera/panels/cooler.py` — import from shared
+- Modify: `src/lightfall/ui/widgets/signal_control.py` — import StatusDot alias or convert to StatusIndicator
 
 - [ ] **Step 1: Create shared `StatusIndicator`**
 
 ```python
-# src/lucid/epics/widgets/status_indicator.py
+# src/lightfall/epics/widgets/status_indicator.py
 """StatusIndicator — small circular status dot for connection/alarm state."""
 from __future__ import annotations
 
 from PySide6.QtWidgets import QFrame, QWidget
 
-from lucid.epics.widgets.style import (
+from lightfall.epics.widgets.style import (
     get_success_color,
     get_error_color,
     get_warning_color,
@@ -1700,7 +1700,7 @@ class StatusIndicator(QFrame):
 
 In each file, replace the local class with:
 ```python
-from lucid.epics.widgets.status_indicator import StatusIndicator
+from lightfall.epics.widgets.status_indicator import StatusIndicator
 ```
 
 For `signal_control.py`, replace `StatusDot` with `StatusIndicator` and update the 2 call sites (`set_color` → `set_state`, `set_connected` stays).
@@ -1708,18 +1708,18 @@ For `signal_control.py`, replace `StatusDot` with `StatusIndicator` and update t
 - [ ] **Step 3: Export from `__init__.py`**
 
 ```python
-from lucid.epics.widgets.status_indicator import StatusIndicator
+from lightfall.epics.widgets.status_indicator import StatusIndicator
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lucid/epics/widgets/status_indicator.py \
-    src/lucid/epics/widgets/__init__.py \
-    src/lucid/epics/widgets/motor.py \
-    src/lucid/epics/widgets/areadetector/controls.py \
-    src/lucid/ui/widgets/camera/base.py \
-    src/lucid/ui/widgets/camera/panels/cooler.py \
-    src/lucid/ui/widgets/signal_control.py
+git add src/lightfall/epics/widgets/status_indicator.py \
+    src/lightfall/epics/widgets/__init__.py \
+    src/lightfall/epics/widgets/motor.py \
+    src/lightfall/epics/widgets/areadetector/controls.py \
+    src/lightfall/ui/widgets/camera/base.py \
+    src/lightfall/ui/widgets/camera/panels/cooler.py \
+    src/lightfall/ui/widgets/signal_control.py
 git commit -m "refactor: consolidate duplicated StatusIndicator into shared module"
 ```

@@ -1,4 +1,4 @@
-# GitLab CI/CD Pipeline for LUCID
+# GitLab CI/CD Pipeline for Lightfall
 #
 # This pipeline builds documentation and runs tests.
 # Documentation is deployed to GitLab Pages on the default branch.
@@ -52,7 +52,7 @@ test:
     - >-
       pytest tests/ -v --tb=short
       -n auto --max-worker-restart=5 --timeout=60
-      --cov=src/lucid --cov-report=xml:coverage.xml
+      --cov=src/lightfall --cov-report=xml:coverage.xml
       --junitxml=results.xml
   artifacts:
     paths:
@@ -138,7 +138,7 @@ package:linux:
     - briefcase package --no-input
   artifacts:
     paths:
-      - build/lucid/linux/lucid-*.AppImage
+      - build/lightfall/linux/lightfall-*.AppImage
     expire_in: 1 week
 
 package:macos:
@@ -150,7 +150,7 @@ package:macos:
     - briefcase package --no-input
   artifacts:
     paths:
-      - build/lucid/macos/LUCID-*.dmg
+      - build/lightfall/macos/Lightfall-*.dmg
     expire_in: 1 week
 
 package:windows:
@@ -167,7 +167,7 @@ package:windows:
     - briefcase package --no-input
   artifacts:
     paths:
-      - build/lucid/windows/LUCID-*.msi
+      - build/lightfall/windows/Lightfall-*.msi
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
@@ -202,11 +202,11 @@ release:windows:
   rules:
     - if: $CI_COMMIT_TAG
   script:
-    - MSI_FILE=$(ls build/lucid/windows/LUCID-*.msi | head -1)
+    - MSI_FILE=$(ls build/lightfall/windows/Lightfall-*.msi | head -1)
     - echo "Found MSI - $MSI_FILE"
     - |
       release-cli create \
-        --name "LUCID $CI_COMMIT_TAG" \
+        --name "Lightfall $CI_COMMIT_TAG" \
         --tag-name "$CI_COMMIT_TAG" \
         --description "Release $CI_COMMIT_TAG - Windows installer" \
         --assets-link "{\"name\":\"Windows Installer (MSI)\",\"url\":\"${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${MSI_FILE}?job=package%3Awindows\",\"link_type\":\"package\"}"

@@ -1,0 +1,461 @@
+"""Device backend settings plugin for NCS.
+
+Allows enabling multiple device backends simultaneously, each with
+its own configuration section.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.manager import PreferencesManager
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QIcon
+
+
+class DeviceSettingsPlugin(SettingsPlugin):
+    """Settings plugin for device backend configuration.
+
+    Users can enable multiple backends simultaneously. Each backend has
+    its own enable checkbox and configuration group. Devices from all
+    enabled backends are merged into a single catalog.
+
+    Note: Changes require application restart to take effect.
+    """
+
+    def __init__(self) -> None:
+        self._widget: QWidget | None = None
+
+        # Connection settings
+        self._connection_timeout_spin: QDoubleSpinBox | None = None
+        self._connect_on_startup: QCheckBox | None = None
+        self._instantiate_mode: QComboBox | None = None
+
+        # CA Tunnel
+        self._ca_tunnel_enabled: QCheckBox | None = None
+        self._ca_tunnel_gateway: QLineEdit | None = None
+
+        # Mock
+        self._mock_enabled: QCheckBox | None = None
+        self._mock_noisy_check: QComboBox | None = None
+
+        # BCS
+        self._bcs_enabled: QCheckBox | None = None
+        self._bcs_host_edit: QLineEdit | None = None
+        self._bcs_port_spin: QSpinBox | None = None
+        self._bcs_beamline_edit: QLineEdit | None = None
+        self._bcs_timeout_spin: QSpinBox | None = None
+
+        # Happi
+        self._happi_enabled: QCheckBox | None = None
+        self._happi_path_edit: QLineEdit | None = None
+        self._happi_beamline_edit: QLineEdit | None = None
+        self._happi_instantiate: QCheckBox | None = None  # Legacy, hidden
+
+    @property
+    def name(self) -> str:
+        return "devices"
+
+    @property
+    def display_name(self) -> str:
+        return "Devices"
+
+    @property
+    def icon(self) -> QIcon | None:
+        return None
+
+    @property
+    def category(self) -> str:
+        return "general"
+
+    @property
+    def priority(self) -> int:
+        return 20
+
+    def create_widget(self, parent: QWidget | None = None) -> QWidget:
+        widget = QWidget(parent)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        # Prevent checkbox indicator clipping on Windows dark themes
+        widget.setStyleSheet("""
+            QGroupBox {
+                margin-top: 7px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                top: 2px;
+                left: 8px;
+            }
+            QGroupBox::indicator {
+                subcontrol-origin: margin;
+                top: 2px;
+            }
+        """)
+
+        # Restart notice
+        notice = QLabel("<i>⚠ Changes to device backends require application restart.</i>")
+        notice.setWordWrap(True)
+        layout.addWidget(notice)
+
+        # Connection settings (global)
+        layout.addWidget(self._create_connection_group())
+
+        # Mock backend
+        layout.addWidget(self._create_mock_group())
+
+        # BCS backend
+        layout.addWidget(self._create_bcs_group())
+
+        # Happi backend
+        layout.addWidget(self._create_happi_group())
+
+        layout.addStretch()
+        self._widget = widget
+        return widget
+
+    # ── Connection Settings ─────────────────────────────────────────
+
+    def _create_connection_group(self) -> QGroupBox:
+        group = QGroupBox("Connection Settings")
+        form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
+
+        # Instantiation mode
+        self._instantiate_mode = QComboBox()
+        self._instantiate_mode.addItem("Background (recommended)", "background")
+        self._instantiate_mode.addItem("On demand (manual)", "none")
+        self._instantiate_mode.addItem("Blocking (legacy)", "blocking")
+        self._instantiate_mode.setToolTip(
+            "Background: Devices connect in background threads (fastest startup)\n"
+            "On demand: Only connect when a device is selected\n"
+            "Blocking: Connect all devices synchronously on startup (can be slow)"
+        )
+        form.addRow("Device instantiation:", self._instantiate_mode)
+
+        # Connection timeout
+        timeout_layout = QHBoxLayout()
+        self._connection_timeout_spin = QDoubleSpinBox()
+        self._connection_timeout_spin.setRange(0.5, 120.0)
+        self._connection_timeout_spin.setValue(5.0)
+        self._connection_timeout_spin.setSuffix(" seconds")
+        self._connection_timeout_spin.setSingleStep(0.5)
+        self._connection_timeout_spin.setDecimals(1)
+        self._connection_timeout_spin.setToolTip(
+            "How long to wait for a device to connect before marking it as failed.\n"
+            "Increase this if you have slow devices or network latency."
+        )
+        timeout_layout.addWidget(self._connection_timeout_spin)
+        timeout_layout.addStretch()
+        form.addRow("Connection timeout:", timeout_layout)
+
+        # Connect on startup
+        self._connect_on_startup = QCheckBox("Connect devices on startup")
+        self._connect_on_startup.setToolTip(
+            "If checked, devices will start connecting when the application starts.\n"
+            "If unchecked, devices only connect when you select them."
+        )
+        form.addRow(self._connect_on_startup)
+
+        desc = QLabel(
+            "Controls how device connections are handled. Background mode connects "
+            "devices in separate threads so the UI stays responsive."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray;")
+        form.addRow(desc)
+
+        # CA Tunnel (remote access)
+        tunnel_label = QLabel("<b>Remote Access (CA Tunnel)</b>")
+        form.addRow(tunnel_label)
+
+        self._ca_tunnel_enabled = QCheckBox("Enable CA tunnel for remote access")
+        self._ca_tunnel_enabled.setToolTip(
+            "Bridges local UDP CA traffic to a remote CA Gateway via TCP.\n"
+            "Requires an SSH tunnel forwarding the gateway port, and a\n"
+            "CA Gateway running on the remote host.\n\n"
+            "SSH example: ssh -L 5099:localhost:5099 user@host"
+        )
+        self._ca_tunnel_enabled.toggled.connect(self._on_tunnel_toggled)
+        form.addRow(self._ca_tunnel_enabled)
+
+        self._ca_tunnel_gateway = QLineEdit()
+        self._ca_tunnel_gateway.setPlaceholderText("localhost:5099")
+        self._ca_tunnel_gateway.setToolTip(
+            "Address of the CA Gateway as host:port.\n"
+            "This should match your SSH tunnel's local forwarded port."
+        )
+        self._ca_tunnel_gateway.setEnabled(False)
+        form.addRow("Gateway address:", self._ca_tunnel_gateway)
+
+        tunnel_desc = QLabel(
+            "For remote development: forwards EPICS Channel Access through "
+            "an SSH tunnel to a CA Gateway on the beamline network. "
+            "Requires restart."
+        )
+        tunnel_desc.setWordWrap(True)
+        tunnel_desc.setStyleSheet("color: gray;")
+        form.addRow(tunnel_desc)
+
+        return group
+
+    def _on_tunnel_toggled(self, checked: bool) -> None:
+        """Enable/disable the gateway address field."""
+        if self._ca_tunnel_gateway:
+            self._ca_tunnel_gateway.setEnabled(checked)
+
+    # ── Mock ──────────────────────────────────────────────────────
+
+    def _create_mock_group(self) -> QGroupBox:
+        group = QGroupBox("Mock Backend")
+        group.setCheckable(True)
+        self._mock_enabled = group  # QGroupBox.isChecked()
+        form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
+
+        self._mock_noisy_check = QComboBox()
+        self._mock_noisy_check.addItem("Yes", True)
+        self._mock_noisy_check.addItem("No", False)
+        form.addRow("Include noisy devices:", self._mock_noisy_check)
+
+        desc = QLabel("Simulated ophyd.sim devices for development and testing.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray;")
+        form.addRow(desc)
+
+        return group
+
+    # ── BCS ───────────────────────────────────────────────────────
+
+    def _create_bcs_group(self) -> QGroupBox:
+        group = QGroupBox("BCS Backend (ZMQ)")
+        group.setCheckable(True)
+        self._bcs_enabled = group
+
+        form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
+
+        self._bcs_host_edit = QLineEdit()
+        self._bcs_host_edit.setPlaceholderText("localhost")
+        form.addRow("Server host:", self._bcs_host_edit)
+
+        port_layout = QHBoxLayout()
+        self._bcs_port_spin = QSpinBox()
+        self._bcs_port_spin.setRange(1, 65535)
+        self._bcs_port_spin.setValue(5577)
+        port_layout.addWidget(self._bcs_port_spin)
+        port_layout.addStretch()
+        form.addRow("Server port:", port_layout)
+
+        self._bcs_beamline_edit = QLineEdit()
+        self._bcs_beamline_edit.setPlaceholderText("(optional)")
+        form.addRow("Beamline:", self._bcs_beamline_edit)
+
+        timeout_layout = QHBoxLayout()
+        self._bcs_timeout_spin = QSpinBox()
+        self._bcs_timeout_spin.setRange(100, 60000)
+        self._bcs_timeout_spin.setValue(5000)
+        self._bcs_timeout_spin.setSuffix(" ms")
+        self._bcs_timeout_spin.setSingleStep(500)
+        timeout_layout.addWidget(self._bcs_timeout_spin)
+        timeout_layout.addStretch()
+        form.addRow("Timeout:", timeout_layout)
+
+        desc = QLabel(
+            "Connects to a BCS server via ZMQ and auto-discovers devices "
+            "using bcsophyd. Requires bcsophyd package."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray;")
+        form.addRow(desc)
+
+        return group
+
+    # ── Happi ─────────────────────────────────────────────────────
+
+    def _create_happi_group(self) -> QGroupBox:
+        group = QGroupBox("Happi Backend")
+        group.setCheckable(True)
+        self._happi_enabled = group
+
+        form = QFormLayout(group)
+        form.setContentsMargins(12, 20, 12, 12)
+
+        self._happi_path_edit = QLineEdit()
+        self._happi_path_edit.setPlaceholderText(
+            "Path to happi JSON db (or leave empty for $HAPPI_BACKEND)"
+        )
+        form.addRow("Database path:", self._happi_path_edit)
+
+        self._happi_beamline_edit = QLineEdit()
+        self._happi_beamline_edit.setPlaceholderText("(optional — filter by beamline)")
+        form.addRow("Beamline filter:", self._happi_beamline_edit)
+
+        # Legacy instantiate checkbox — hidden, kept for backwards compat
+        self._happi_instantiate = QCheckBox("Instantiate ophyd devices on load")
+        self._happi_instantiate.setVisible(False)
+
+        desc = QLabel(
+            "Loads devices from a Happi device database. "
+            "Supports JSON file backends and happi's default configuration. "
+            "Requires happi package."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: gray;")
+        form.addRow(desc)
+
+        return group
+
+    # ── Load / Save ───────────────────────────────────────────────
+
+    def load_settings(self) -> None:
+        prefs = PreferencesManager.get_instance()
+
+        # Connection settings
+        if self._instantiate_mode:
+            mode = prefs.get("device_instantiate_mode", "background")
+            idx = self._instantiate_mode.findData(mode)
+            if idx >= 0:
+                self._instantiate_mode.setCurrentIndex(idx)
+
+        if self._connection_timeout_spin:
+            self._connection_timeout_spin.setValue(prefs.get("device_connection_timeout", 5.0))
+
+        if self._connect_on_startup:
+            self._connect_on_startup.setChecked(prefs.get("device_connect_on_startup", True))
+
+        # Which backends are enabled (legacy compat: "device_backend" = "mock" or "bcs")
+        legacy_backend = prefs.get("device_backend", "mock")
+        mock_on = prefs.get("device_mock_enabled", legacy_backend == "mock")
+        bcs_on = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
+        happi_on = prefs.get("device_happi_enabled", False)
+
+        # Mock
+        if isinstance(self._mock_enabled, QGroupBox):
+            self._mock_enabled.setChecked(mock_on)
+        if self._mock_noisy_check:
+            idx = self._mock_noisy_check.findData(prefs.get("device_mock_include_noisy", True))
+            if idx >= 0:
+                self._mock_noisy_check.setCurrentIndex(idx)
+
+        # BCS
+        if isinstance(self._bcs_enabled, QGroupBox):
+            self._bcs_enabled.setChecked(bcs_on)
+        if self._bcs_host_edit:
+            self._bcs_host_edit.setText(prefs.get("device_bcs_host", "localhost"))
+        if self._bcs_port_spin:
+            self._bcs_port_spin.setValue(prefs.get("device_bcs_port", 5577))
+        if self._bcs_beamline_edit:
+            self._bcs_beamline_edit.setText(prefs.get("device_bcs_beamline", ""))
+        if self._bcs_timeout_spin:
+            self._bcs_timeout_spin.setValue(prefs.get("device_bcs_timeout_ms", 5000))
+
+        # Happi
+        if isinstance(self._happi_enabled, QGroupBox):
+            self._happi_enabled.setChecked(happi_on)
+        if self._happi_path_edit:
+            self._happi_path_edit.setText(prefs.get("device_happi_path", ""))
+        if self._happi_beamline_edit:
+            self._happi_beamline_edit.setText(prefs.get("device_happi_beamline", ""))
+        if self._happi_instantiate:
+            self._happi_instantiate.setChecked(prefs.get("device_happi_instantiate", False))
+
+        # CA Tunnel
+        if self._ca_tunnel_enabled:
+            self._ca_tunnel_enabled.setChecked(prefs.get("ca_tunnel_enabled", False))
+        if self._ca_tunnel_gateway:
+            self._ca_tunnel_gateway.setText(prefs.get("ca_tunnel_gateway", "localhost:5099"))
+            self._ca_tunnel_gateway.setEnabled(prefs.get("ca_tunnel_enabled", False))
+
+    def save_settings(self) -> None:
+        prefs = PreferencesManager.get_instance()
+
+        # Connection settings
+        if self._instantiate_mode:
+            prefs.set("device_instantiate_mode", self._instantiate_mode.currentData())
+
+        if self._connection_timeout_spin:
+            prefs.set("device_connection_timeout", self._connection_timeout_spin.value())
+
+        if self._connect_on_startup:
+            prefs.set("device_connect_on_startup", self._connect_on_startup.isChecked())
+
+        mock_on = (
+            self._mock_enabled.isChecked() if isinstance(self._mock_enabled, QGroupBox) else False
+        )
+        bcs_on = (
+            self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
+        )
+        happi_on = (
+            self._happi_enabled.isChecked() if isinstance(self._happi_enabled, QGroupBox) else False
+        )
+
+        prefs.set("device_mock_enabled", mock_on)
+        prefs.set("device_bcs_enabled", bcs_on)
+        prefs.set("device_happi_enabled", happi_on)
+
+        # Legacy compat: set device_backend to first enabled
+        if bcs_on:
+            prefs.set("device_backend", "bcs")
+        elif happi_on:
+            prefs.set("device_backend", "happi")
+        else:
+            prefs.set("device_backend", "mock")
+
+        # Mock
+        if self._mock_noisy_check:
+            prefs.set("device_mock_include_noisy", self._mock_noisy_check.currentData())
+
+        # BCS
+        if self._bcs_host_edit:
+            prefs.set("device_bcs_host", self._bcs_host_edit.text() or "localhost")
+        if self._bcs_port_spin:
+            prefs.set("device_bcs_port", self._bcs_port_spin.value())
+        if self._bcs_beamline_edit:
+            prefs.set("device_bcs_beamline", self._bcs_beamline_edit.text())
+        if self._bcs_timeout_spin:
+            prefs.set("device_bcs_timeout_ms", self._bcs_timeout_spin.value())
+
+        # Happi
+        if self._happi_path_edit:
+            prefs.set("device_happi_path", self._happi_path_edit.text())
+        if self._happi_beamline_edit:
+            prefs.set("device_happi_beamline", self._happi_beamline_edit.text())
+        if self._happi_instantiate:
+            prefs.set("device_happi_instantiate", self._happi_instantiate.isChecked())
+
+        # CA Tunnel
+        if self._ca_tunnel_enabled:
+            prefs.set("ca_tunnel_enabled", self._ca_tunnel_enabled.isChecked())
+        if self._ca_tunnel_gateway:
+            prefs.set("ca_tunnel_gateway", self._ca_tunnel_gateway.text() or "localhost:5099")
+
+    def validate(self) -> list[str]:
+        errors = []
+
+        bcs_on = (
+            self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
+        )
+        if bcs_on:
+            if self._bcs_host_edit and not self._bcs_host_edit.text().strip():
+                errors.append("BCS server host is required when BCS backend is enabled")
+
+        return errors

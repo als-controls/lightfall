@@ -27,7 +27,7 @@ def _wait_for_spy(spy: QSignalSpy, expected_count: int, timeout_ms: int = 2000) 
 
 
 def test_owns_only_user_portable_keys(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     b = UserPortableBackend(client)
     assert b.owns("profile_image_id") is True
@@ -35,7 +35,7 @@ def test_owns_only_user_portable_keys(qapp):
 
 
 def test_get_returns_default_when_cache_empty(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     b = UserPortableBackend(client)
     assert b.get("profile_image_id", default=None) is None
@@ -43,7 +43,7 @@ def test_get_returns_default_when_cache_empty(qapp):
 
 
 def test_set_runs_async_and_emits_changed(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.set.return_value = None  # successful PUT
 
@@ -60,8 +60,8 @@ def test_set_runs_async_and_emits_changed(qapp):
 
 
 def test_set_failure_leaves_cache_untouched_and_no_emit(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     client = MagicMock()
     client.set.side_effect = UserSettingsError("boom")
@@ -82,7 +82,7 @@ def test_set_failure_leaves_cache_untouched_and_no_emit(qapp):
 
 
 def test_remove_emits_none_and_clears_cache(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.set.return_value = None
     client.delete.return_value = None
@@ -101,7 +101,7 @@ def test_remove_emits_none_and_clears_cache(qapp):
 
 
 def test_refresh_populates_cache_and_emits_per_changed_key(qapp):
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
     client.get_all.return_value = {"profile_image_id": "img-7"}
 
@@ -118,7 +118,7 @@ def test_refresh_populates_cache_and_emits_per_changed_key(qapp):
 
 def test_refresh_emits_none_for_removed_keys(qapp):
     """Server has no profile_image_id but cache had one — emit (key, None)."""
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     client = MagicMock()
 
     # Seed: server responds with the key, then drops it on second refresh.
@@ -141,7 +141,7 @@ def test_refresh_emits_none_for_removed_keys(qapp):
 
 def test_refresh_skips_in_flight_set(qapp):
     """If a key has an in-flight set, refresh must not clobber it."""
-    from lucid.ui.preferences.user_portable_backend import UserPortableBackend
+    from lightfall.ui.preferences.user_portable_backend import UserPortableBackend
     import time
 
     client = MagicMock()

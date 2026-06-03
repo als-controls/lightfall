@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.ui.panels.pipeline_triggers_panel import (
+from lightfall.ui.panels.pipeline_triggers_panel import (
     PipelineTriggersDockPanel,
     PipelineTriggersPanel,
     _PreferencesTriggerBackend,
@@ -100,9 +100,9 @@ def test_preferences_backend_returns_empty_list_when_value_not_list():
 
 def test_dock_panel_embeds_inner_when_manager_registered(qtbot, monkeypatch):
     """DockPanel pulls TriggerManager from registry and constructs an inner panel."""
-    from lucid.acquire.triggers.manager import TriggerManager
-    from lucid.core.services import ServiceRegistry
-    from lucid.ui.preferences import PreferencesManager
+    from lightfall.acquire.triggers.manager import TriggerManager
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.ui.preferences import PreferencesManager
 
     manager = MagicMock()
     prefs = MagicMock()
@@ -125,7 +125,7 @@ def test_dock_panel_embeds_inner_when_manager_registered(qtbot, monkeypatch):
 
 def test_dock_panel_shows_placeholder_when_no_manager(qtbot, monkeypatch):
     """No registered TriggerManager renders a placeholder label."""
-    from lucid.core.services import ServiceRegistry
+    from lightfall.core.services import ServiceRegistry
 
     registry = ServiceRegistry.get_instance()
     monkeypatch.setattr(registry, "get", lambda key, default=None: default)
@@ -139,8 +139,8 @@ def test_open_add_dialog_calls_add_trigger_on_accept(qtbot, monkeypatch):
     with the dialog's spec."""
     from PySide6.QtWidgets import QDialog
 
-    from lucid.ui.dialogs import add_trigger_dialog as atd_mod
-    from lucid.ui.panels import pipeline_triggers_panel as ptp_mod
+    from lightfall.ui.dialogs import add_trigger_dialog as atd_mod
+    from lightfall.ui.panels import pipeline_triggers_panel as ptp_mod
 
     backend = MagicMock()
     backend.load.return_value = []
@@ -177,7 +177,7 @@ def test_open_add_dialog_calls_add_trigger_on_accept(qtbot, monkeypatch):
 def test_open_add_dialog_does_nothing_on_cancel(qtbot, monkeypatch):
     from PySide6.QtWidgets import QDialog
 
-    from lucid.ui.dialogs import add_trigger_dialog as atd_mod
+    from lightfall.ui.dialogs import add_trigger_dialog as atd_mod
 
     backend = MagicMock()
     backend.load.return_value = []
