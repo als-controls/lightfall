@@ -78,7 +78,7 @@ class DeviceToolsAgent(AgentPlugin):
             return []
 
         @tool(
-            name="ncs_list_devices",
+            name="lightfall_list_devices",
             description="List devices in the NCS catalog with optional filtering by category, beamline, or search query",
             input_schema={
                 "type": "object",
@@ -136,7 +136,7 @@ class DeviceToolsAgent(AgentPlugin):
                             f"Current backend: {backend_info}. "
                             "Check that the application initialized correctly and "
                             "the backend (mock or BCS) has been connected. "
-                            "Use ncs_get_catalog_info for more details."
+                            "Use lightfall_get_catalog_info for more details."
                         ),
                         "devices": [],
                         "count": 0,
@@ -191,7 +191,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_list)
 
         @tool(
-            name="ncs_get_device",
+            name="lightfall_get_device",
             description="Get detailed information about a device by its name",
             input_schema={
                 "type": "object",
@@ -275,7 +275,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_get)
 
         @tool(
-            name="ncs_read_device",
+            name="lightfall_read_device",
             description="Read the current value or position from a device",
             input_schema={
                 "type": "object",
@@ -384,7 +384,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_read)
 
         @tool(
-            name="ncs_get_device_state",
+            name="lightfall_get_device_state",
             description="Get the current state of a device including status, alarms, and connection info",
             input_schema={
                 "type": "object",
@@ -465,7 +465,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_get_state)
 
         @tool(
-            name="ncs_set_device",
+            name="lightfall_set_device",
             description="Set a value on a device. Requires DEVICE_CONTROL permission.",
             input_schema={
                 "type": "object",
@@ -578,7 +578,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_set)
 
         @tool(
-            name="ncs_move_motor",
+            name="lightfall_move_motor",
             description="Move a motor to a specific position. Requires DEVICE_CONTROL permission.",
             input_schema={
                 "type": "object",
@@ -754,7 +754,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_move)
 
         @tool(
-            name="ncs_stop_device",
+            name="lightfall_stop_device",
             description="Stop a device (emergency stop). Requires DEVICE_CONTROL permission.",
             input_schema={
                 "type": "object",
@@ -835,7 +835,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_stop)
 
         @tool(
-            name="ncs_get_catalog_info",
+            name="lightfall_get_catalog_info",
             description=(
                 "Get information about the device catalog including connection status, "
                 "backend type, device counts by category, and API usage hints. "
@@ -927,7 +927,7 @@ class DeviceToolsAgent(AgentPlugin):
             return run_on_main_thread(_get_info)
 
         @tool(
-            name="ncs_manage_device",
+            name="lightfall_manage_device",
             description=(
                 "Add, remove, update, enable, or disable a device in the catalog. "
                 "Requires an editable backend (e.g., happi JSON). "

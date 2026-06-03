@@ -48,7 +48,7 @@ def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monke
     # 6 tool-bearing plugins each get their own server
     expected_tool_servers = {
         "device_tools", "plan_tools", "engine_tools", "ipython_tools",
-        "panel_builder", "ncs_core_tools",
+        "panel_builder", "lightfall_core_tools",
     }
     assert expected_tool_servers.issubset(options.mcp_servers.keys())
     # No bundled "additional" server (skills + tools split into per-plugin servers).

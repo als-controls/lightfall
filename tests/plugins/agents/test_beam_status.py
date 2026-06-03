@@ -1,4 +1,4 @@
-"""Tests for the ncs_get_beam_status MCP tool helper."""
+"""Tests for the lightfall_get_beam_status MCP tool helper."""
 from __future__ import annotations
 
 import lightfall.plugins.agents.engine_tools as et
@@ -54,4 +54,4 @@ def test_engine_tools_registers_beam_status():
 
         pytest.skip("claude_agent_sdk not available")
     names = {getattr(t, "name", None) or getattr(t, "__name__", None) for t in tools}
-    assert "ncs_get_beam_status" in names
+    assert "lightfall_get_beam_status" in names

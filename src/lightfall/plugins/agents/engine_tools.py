@@ -14,7 +14,7 @@ from lightfall.plugins.agent_plugin import AgentPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
-# Upper bound on ncs_wait_for_idle.timeout_seconds. Long enough for any
+# Upper bound on lightfall_wait_for_idle.timeout_seconds. Long enough for any
 # realistic scan, short enough that a typo can't strand the model for
 # the rest of the session.
 _WAIT_TIMEOUT_MAX_SECONDS = 3600.0
@@ -75,7 +75,7 @@ def _read_engine_state_snapshot() -> tuple[str, bool]:
         engine = get_engine()
         return engine.state.name, engine.is_idle
     except Exception as exc:  # pragma: no cover — defensive
-        logger.exception("ncs_wait_for_idle: engine state read failed: {}", exc)
+        logger.exception("lightfall_wait_for_idle: engine state read failed: {}", exc)
         return "ERROR", False
 
 
@@ -189,7 +189,7 @@ class EngineToolsAgent(AgentPlugin):
             return []
 
         @tool(
-            name="ncs_get_run_status",
+            name="lightfall_get_run_status",
             description="Get the current RunEngine status including state, busy flag, and current procedure info.",
             input_schema={"type": "object", "properties": {}},
         )
@@ -228,7 +228,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_get)
 
         @tool(
-            name="ncs_pause_plan",
+            name="lightfall_pause_plan",
             description="Pause the currently running plan. Use defer=true (default) for safe pause at next checkpoint, or defer=false for immediate pause.",
             input_schema={
                 "type": "object",
@@ -267,7 +267,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_pause)
 
         @tool(
-            name="ncs_resume_plan",
+            name="lightfall_resume_plan",
             description="Resume a paused plan.",
             input_schema={"type": "object", "properties": {}},
         )
@@ -295,7 +295,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_resume)
 
         @tool(
-            name="ncs_abort_plan",
+            name="lightfall_abort_plan",
             description="Abort the currently running plan.",
             input_schema={
                 "type": "object",
@@ -334,7 +334,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_abort)
 
         @tool(
-            name="ncs_get_run_history",
+            name="lightfall_get_run_history",
             description="Get recent run history from the Tiled data catalog. Returns UIDs, plan names, start times, and exit status.",
             input_schema={
                 "type": "object",
@@ -397,7 +397,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_get)
 
         @tool(
-            name="ncs_get_scan_data",
+            name="lightfall_get_scan_data",
             description="Get data from a specific run by UID. Returns column names, shape, and first N rows of the primary data stream.",
             input_schema={
                 "type": "object",
@@ -496,7 +496,7 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_get)
 
         @tool(
-            name="ncs_get_last_run",
+            name="lightfall_get_last_run",
             description="Get metadata for the most recent run (shortcut). Returns UID, plan_name, start/stop time, and exit status.",
             input_schema={"type": "object", "properties": {}},
         )
@@ -546,11 +546,11 @@ class EngineToolsAgent(AgentPlugin):
             return run_on_main_thread(_get)
 
         @tool(
-            name="ncs_show_run",
+            name="lightfall_show_run",
             description=(
                 "Display a Bluesky run by uid in the Visualization panel. "
                 "Opens the panel if it isn't already shown. "
-                "Use ncs_get_last_run or ncs_get_run_history to find a uid."
+                "Use lightfall_get_last_run or lightfall_get_run_history to find a uid."
             ),
             input_schema={
                 "type": "object",
@@ -613,19 +613,19 @@ class EngineToolsAgent(AgentPlugin):
                     panel.open_run(entry)
                     return mcp_result({"success": True, "uid": uid})
                 except Exception as e:
-                    logger.exception("ncs_show_run failed")
+                    logger.exception("lightfall_show_run failed")
                     return mcp_result({"success": False, "error": str(e)}, is_error=True)
 
             return run_on_main_thread(_show)
 
         @tool(
-            name="ncs_wait_for_idle",
+            name="lightfall_wait_for_idle",
             description=(
                 "Block until the RunEngine returns to IDLE, then return its state "
                 "and (optionally) the most recent run's metadata. Use this to wait "
                 "for a scan to finish before fitting data or running follow-up "
                 "plans. This suspends the model inside the tool call until the "
-                "engine is idle, so prefer it over polling ncs_get_run_status in a "
+                "engine is idle, so prefer it over polling lightfall_get_run_status in a "
                 "loop, and over ScheduleWakeup — ScheduleWakeup currently does not "
                 "fire in Lightfall's embedded Claude session. "
                 "Defaults: timeout_seconds=600 (max 3600), poll_interval=0.5s."
@@ -645,7 +645,7 @@ class EngineToolsAgent(AgentPlugin):
                     },
                     "include_last_run": {
                         "type": "boolean",
-                        "description": "When idle, include the most recent run's metadata (uid, plan_name, exit_status, …) so you don't need a second ncs_get_last_run call.",
+                        "description": "When idle, include the most recent run's metadata (uid, plan_name, exit_status, …) so you don't need a second lightfall_get_last_run call.",
                         "default": True,
                     },
                 },
@@ -668,11 +668,11 @@ class EngineToolsAgent(AgentPlugin):
                 # stream on cancel, and we must not block shutdown.
                 raise
             except Exception as e:
-                logger.exception("ncs_wait_for_idle failed")
+                logger.exception("lightfall_wait_for_idle failed")
                 return mcp_result({"success": False, "error": str(e)}, is_error=True)
 
         @tool(
-            name="ncs_get_beam_status",
+            name="lightfall_get_beam_status",
             description=(
                 "Get ALS storage-ring beam status: ring current (mA), beam/shutter "
                 "availability, energy (GeV), lifetime (hours), beam-position stability, "

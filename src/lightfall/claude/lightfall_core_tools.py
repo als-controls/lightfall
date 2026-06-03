@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from lightfall.ui.mainwindow import NCSMainWindow
 
 
-class NCSCoreToolPlugin(AgentPlugin):
+class LightfallCoreToolPlugin(AgentPlugin):
     """Built-in tools for Lightfall panel and window interaction.
 
     This plugin provides core tools that are always available:
@@ -59,7 +59,7 @@ class NCSCoreToolPlugin(AgentPlugin):
     @property
     def name(self) -> str:
         """Plugin name."""
-        return "ncs_core_tools"
+        return "lightfall_core_tools"
 
     @property
     def description(self) -> str:
@@ -95,7 +95,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return []
 
         @tool(
-            name="ncs_list_panels",
+            name="lightfall_list_panels",
             description="List all available panels that can be opened and currently open panels in NCS",
             input_schema={
                 "type": "object",
@@ -143,7 +143,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_list)
 
         @tool(
-            name="ncs_open_panel",
+            name="lightfall_open_panel",
             description="Open a panel in NCS by its ID. Returns success status.",
             input_schema={
                 "type": "object",
@@ -177,7 +177,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_open)
 
         @tool(
-            name="ncs_close_panel",
+            name="lightfall_close_panel",
             description="Close an open panel in NCS by its ID",
             input_schema={
                 "type": "object",
@@ -209,7 +209,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_close)
 
         @tool(
-            name="ncs_activate_panel",
+            name="lightfall_activate_panel",
             description="Activate (focus) an open panel in NCS",
             input_schema={
                 "type": "object",
@@ -241,7 +241,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_activate)
 
         @tool(
-            name="ncs_get_panel_info",
+            name="lightfall_get_panel_info",
             description="Get detailed information about an open panel including its widgets, state, and available actions",
             input_schema={
                 "type": "object",
@@ -274,8 +274,8 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_get_info)
 
         @tool(
-            name="ncs_invoke_panel_action",
-            description="Invoke an action on a panel. Use ncs_get_panel_info to see available actions.",
+            name="lightfall_invoke_panel_action",
+            description="Invoke an action on a panel. Use lightfall_get_panel_info to see available actions.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -334,7 +334,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_invoke)
 
         @tool(
-            name="ncs_get_application_info",
+            name="lightfall_get_application_info",
             description="Get overall Lightfall application state including window info, theme, user, and authentication state",
             input_schema={
                 "type": "object",
@@ -353,7 +353,7 @@ class NCSCoreToolPlugin(AgentPlugin):
             return run_on_main_thread(_get_info)
 
         @tool(
-            name="ncs_set_emotion",
+            name="lightfall_set_emotion",
             description=(
                 "Set your sidebar icon to express an emotion. "
                 "Use 'neutral' for normal state, 'love' when feeling affectionate "

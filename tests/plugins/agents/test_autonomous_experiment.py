@@ -39,7 +39,7 @@ def test_stub_prompt_mentions_key_tools_and_steps():
         "tsuchinoko_discover",
         "tsuchinoko_upload_design_code",
         "tsuchinoko_configure",
-        "ncs_run_plan",
+        "lightfall_run_plan",
         "adaptive_experiment",
         "AdaptiveHeatmapVisualization",
         "AdaptiveHyperparameterPlot",

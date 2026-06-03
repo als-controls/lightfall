@@ -78,7 +78,7 @@ code defines and registers:
 
 ### Creating a Plugin
 
-Use `ncs_create_user_plugin` to write a plugin file to ~/lightfall/plugins/.
+Use `lightfall_create_user_plugin` to write a plugin file to ~/lightfall/plugins/.
 The plugin is validated (syntax + exec + at least one panel registration
 or concrete AgentPlugin subclass), written to disk, and loaded immediately.
 
@@ -86,21 +86,21 @@ Example workflow:
 1. User asks for a panel with specific functionality.
 2. You generate a `BasePanel` subclass with a `panel_metadata` and a
    trailing `PanelRegistry.get_instance().register(MyPanel, replace=True)`.
-3. You call `ncs_create_user_plugin` with that source.
+3. You call `lightfall_create_user_plugin` with that source.
 4. The plugin is validated, written to disk, and loaded.
 5. User can open the panel from View > User > [Panel Name].
 
 ### Quick Prototyping
 
-For rapid prototyping, use `ncs_create_temp_plugin` to create a temporary
+For rapid prototyping, use `lightfall_create_temp_plugin` to create a temporary
 plugin that will be lost on application restart. This is useful for testing
 ideas before committing to a persistent plugin.
 
 ### Plugin Management
 
-- `ncs_list_user_plugins`: See all loaded user plugins and their status
-- `ncs_reload_plugin`: Force reload after external edits
-- `ncs_unload_plugin`: Remove a plugin from the registry
+- `lightfall_list_user_plugins`: See all loaded user plugins and their status
+- `lightfall_reload_plugin`: Force reload after external edits
+- `lightfall_unload_plugin`: Remove a plugin from the registry
 '''
 
     def _validate_plugin_code(
@@ -199,7 +199,7 @@ ideas before committing to a persistent plugin.
             return []
 
         @tool(
-            name="ncs_create_user_plugin",
+            name="lightfall_create_user_plugin",
             description="""Create a Lightfall user plugin from Python code.
 
 The plugin will be written to ~/lightfall/plugins/ and automatically loaded.
@@ -416,7 +416,7 @@ engine.submit(my_plan(), description="My plan")
             })
 
         @tool(
-            name="ncs_create_temp_plugin",
+            name="lightfall_create_temp_plugin",
             description="""Create a temporary plugin that won't persist across restarts.
 
 Useful for quick prototyping. The plugin is loaded immediately but will
@@ -428,7 +428,7 @@ The kind of plugin is determined by the class hierarchy in `code`:
 
 Returns success status, temporary file path, and the discovered plugin kind(s).
 
-IMPORTANT: Use the same imports and patterns as ncs_create_user_plugin.
+IMPORTANT: Use the same imports and patterns as lightfall_create_user_plugin.
 See that tool's description for the required template.""",
             input_schema={
                 "type": "object",
@@ -485,7 +485,7 @@ See that tool's description for the required template.""",
                 })
 
         @tool(
-            name="ncs_list_user_plugins",
+            name="lightfall_list_user_plugins",
             description="""List all user plugins with their status.
 
 Returns information about each loaded plugin including:
@@ -522,7 +522,7 @@ Returns information about each loaded plugin including:
                 })
 
         @tool(
-            name="ncs_reload_plugin",
+            name="lightfall_reload_plugin",
             description="""Force reload a user plugin after external edits.
 
 Unloads the plugin (unregistering all its components) and reloads it
@@ -580,7 +580,7 @@ Note: Hot-reload may cause instability if panel instances are still open.""",
                 })
 
         @tool(
-            name="ncs_unload_plugin",
+            name="lightfall_unload_plugin",
             description="""Unload a user plugin from the registry.
 
 Removes the plugin's registrations (panels, skills, tools) without

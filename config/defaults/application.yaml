@@ -22,7 +22,7 @@ ui:
 acquisition:
   default_timeout: 30.0
   auto_save: true
-  data_directory: ~/ncs_data
+  data_directory: ~/lightfall
   file_format: hdf5
   compression: gzip
 

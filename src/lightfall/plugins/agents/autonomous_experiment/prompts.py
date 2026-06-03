@@ -97,7 +97,7 @@ verbatim — fix it before retrying.
 ### 6. Pre-flight: verify motor positions are within bounds
 
 Before launching the plan, read each motor's current position with
-`ncs_read_device(name=<motor>)` and verify it lies inside the
+`lightfall_read_device(name=<motor>)` and verify it lies inside the
 corresponding `[lo, hi]` from `parameter_bounds`. If any motor is
 outside its bound, **do not start the plan**. Tell the user which
 motor is where, then either:
@@ -116,7 +116,7 @@ out-of-domain and the run dies before producing any data.
 Use the existing plan tool:
 
 ```
-ncs_run_plan(
+lightfall_run_plan(
     plan_name="adaptive_experiment",
     params={
         "detectors": [<detector names>],
@@ -154,11 +154,11 @@ when targets stop arriving (configurable timeout).
   previous one is running, paused, or finished.
 - Do not start a new `adaptive_experiment` before stopping the
   current one — the bind_run handshake is single-occupant.
-- `motors` order in `ncs_run_plan` must match the axes order in
+- `motors` order in `lightfall_run_plan` must match the axes order in
   `parameter_bounds`. Disagreement silently produces nonsense.
 - **Verify motor positions before running.** A motor sitting outside
   its `parameter_bounds` axis crashes gpCAM at the first iteration —
   the plan opens a Bluesky run, then dies with no data. Always read
-  each motor with `ncs_read_device` after configure and before
-  `ncs_run_plan`; the plan itself does not validate this.
+  each motor with `lightfall_read_device` after configure and before
+  `lightfall_run_plan`; the plan itself does not validate this.
 """

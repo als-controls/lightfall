@@ -22,7 +22,7 @@ def test_manifest_lists_expected_agent_names():
     assert agent_names == {
         "alignment", "plan_design", "scan_planning", "panel_design", "panel_builder",
         "device_tools", "plan_tools", "engine_tools", "ipython_tools",
-        "ncs_core_tools", "autonomous_experiment",
+        "lightfall_core_tools", "autonomous_experiment",
     }
     # skill_docs is GONE
     assert "skill_docs" not in agent_names

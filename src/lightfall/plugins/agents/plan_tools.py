@@ -267,7 +267,7 @@ class PlanToolsAgent(AgentPlugin):
             return []
 
         @tool(
-            name="ncs_create_user_plan",
+            name="lightfall_create_user_plan",
             description="""Create a Lightfall user plan from Python code.
 
 A valid Lightfall plan file must:
@@ -462,11 +462,11 @@ Plans are saved to ~/lightfall/plans/ and immediately available in the Plan Runn
             }
 
         @tool(
-            name="ncs_list_plans",
+            name="lightfall_list_plans",
             description="""List all registered plans available in the Lightfall plan registry.
 
 Returns plan names, categories, descriptions, and parameter signatures.
-Use this to discover what plans are available before running one with ncs_run_plan.
+Use this to discover what plans are available before running one with lightfall_run_plan.
 
 Optionally filter by category (e.g., "scan", "count", "alignment", "user").""",
             input_schema={
@@ -520,18 +520,18 @@ Optionally filter by category (e.g., "scan", "count", "alignment", "user").""",
             }
 
         @tool(
-            name="ncs_run_plan",
+            name="lightfall_run_plan",
             description="""Run a registered plan from the Lightfall plan registry by name.
 
-Use ncs_list_plans first to see available plans and their parameters.
+Use lightfall_list_plans first to see available plans and their parameters.
 The plan is submitted to the RunEngine queue and executed asynchronously.
 
 Parameters are passed as a JSON object. Device parameters should use device
 names as strings — they will be resolved from the device registry automatically.
 
 Example:
-  ncs_run_plan(plan_name="scan", params={"detectors": ["det1"], "motor": "motor1", "start": -5, "stop": 5, "num": 21})
-  ncs_run_plan(plan_name="count", params={"detectors": ["det1"], "num": 5, "delay": 1.0})""",
+  lightfall_run_plan(plan_name="scan", params={"detectors": ["det1"], "motor": "motor1", "start": -5, "stop": 5, "num": 21})
+  lightfall_run_plan(plan_name="count", params={"detectors": ["det1"], "num": 5, "delay": 1.0})""",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -620,7 +620,7 @@ Example:
                 }
 
         @tool(
-            name="ncs_run_plan_code",
+            name="lightfall_run_plan_code",
             description="""Run arbitrary Python code as a Bluesky plan in the Lightfall RunEngine.
 
 The code string is executed in an isolated namespace with common imports available.
@@ -774,7 +774,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                 }
 
         @tool(
-            name="ncs_get_user_plan",
+            name="lightfall_get_user_plan",
             description="Read the source code of a user plan by name.",
             input_schema={
                 "type": "object",
@@ -816,7 +816,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                 return mcp_result({"success": False, "error": f"Failed to read plan: {e}"}, is_error=True)
 
         @tool(
-            name="ncs_delete_user_plan",
+            name="lightfall_delete_user_plan",
             description="Delete a user plan by name. Requires confirm=true.",
             input_schema={
                 "type": "object",
@@ -856,7 +856,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
 
             try:
                 # Unload from the registry BEFORE removing the file so that
-                # ncs_list_plans / ncs_run_plan don't briefly see a stale
+                # lightfall_list_plans / lightfall_run_plan don't briefly see a stale
                 # entry in the window between unlink() and the watcher's
                 # _on_file_changed callback. The watcher will fire later as
                 # a no-op (plan already unloaded; commit_removal is a no-op

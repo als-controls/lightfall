@@ -414,7 +414,7 @@ import json as json_module
 
 
 class TestManageDeviceTool:
-    """Test the ncs_manage_device MCP tool logic."""
+    """Test the lightfall_manage_device MCP tool logic."""
 
     def test_action_enum_values(self):
         valid_actions = {"add", "remove", "update", "enable", "disable"}

@@ -116,7 +116,7 @@ class IPythonToolsAgent(AgentPlugin):
             return []
 
         @tool(
-            name="ncs_ipython_execute",
+            name="lightfall_ipython_execute",
             description=(
                 "Execute Python code in the IPython console. "
                 "The console has access to `main_window` and `app` objects. "
@@ -221,7 +221,7 @@ class IPythonToolsAgent(AgentPlugin):
             return run_on_main_thread(_execute)
 
         @tool(
-            name="ncs_ipython_push_variable",
+            name="lightfall_ipython_push_variable",
             description=(
                 "Push a variable to the IPython console namespace. "
                 "The variable will be available for the user to use interactively. "
@@ -301,7 +301,7 @@ class IPythonToolsAgent(AgentPlugin):
             return run_on_main_thread(_push)
 
         @tool(
-            name="ncs_ipython_get_namespace",
+            name="lightfall_ipython_get_namespace",
             description=(
                 "Get information about variables in the IPython namespace. "
                 "Useful for understanding what's available to work with."
@@ -380,7 +380,7 @@ class IPythonToolsAgent(AgentPlugin):
             return run_on_main_thread(_get_ns)
 
         @tool(
-            name="ncs_ipython_clear",
+            name="lightfall_ipython_clear",
             description="Clear the IPython console output display.",
             input_schema={
                 "type": "object",
@@ -405,7 +405,7 @@ class IPythonToolsAgent(AgentPlugin):
             return run_on_main_thread(_clear)
 
         @tool(
-            name="ncs_ipython_reset",
+            name="lightfall_ipython_reset",
             description=(
                 "Reset the IPython kernel, clearing all variables and state. "
                 "The initial namespace (main_window, app) will be restored."

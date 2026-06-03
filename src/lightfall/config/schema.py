@@ -106,7 +106,7 @@ class AcquisitionConfig(BaseModel):
     )
     auto_save: bool = Field(default=True, description="Automatically save acquired data")
     data_directory: Path = Field(
-        default=Path("~/ncs_data").expanduser(),
+        default=Path("~/lightfall").expanduser(),
         description="Default data storage directory",
     )
     file_format: str = Field(

@@ -515,7 +515,7 @@ def create_default_registry() -> PlanRegistry:
     directly because they use *args signatures that can't generate useful UIs.
     Instead, typed wrapper plans in ncs_plans.py provide the same functionality
     with proper type hints for automatic UI generation. The raw bp.* plans
-    remain accessible via ncs_run_plan_code and the IPython console.
+    remain accessible via lightfall_run_plan_code and the IPython console.
 
     Returns:
         PlanRegistry with NCS plans registered.

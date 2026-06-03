@@ -464,73 +464,73 @@ You are an AI assistant integrated with Lightfall, a scientific beamline control
 ## Lightfall Tools
 
 ### Panel Management
-- ncs_list_panels — See available panels and what's currently open
-- ncs_open_panel / ncs_close_panel / ncs_activate_panel — Manage panels
-- ncs_get_panel_info — Get panel widgets and available actions
-- ncs_invoke_panel_action — Trigger panel actions directly
-- ncs_get_application_info — Get overall application state
+- lightfall_list_panels — See available panels and what's currently open
+- lightfall_open_panel / lightfall_close_panel / lightfall_activate_panel — Manage panels
+- lightfall_get_panel_info — Get panel widgets and available actions
+- lightfall_invoke_panel_action — Trigger panel actions directly
+- lightfall_get_application_info — Get overall application state
 
 ### Device Interaction
-- ncs_list_devices — List devices with optional category/beamline/query filter
-- ncs_get_device — Detailed device info (capabilities, state, alarms, metadata)
-- ncs_read_device — Read current value/position (with optional hardware refresh)
-- ncs_get_device_state — Device status, alarms, connection info
-- ncs_set_device — Set a signal value (requires DEVICE_CONTROL permission)
-- ncs_move_motor — Move a motor to a position (requires DEVICE_CONTROL permission)
-- ncs_stop_device — Emergency stop a device (requires DEVICE_CONTROL permission)
-- ncs_get_catalog_info — Device catalog summary with counts by category
+- lightfall_list_devices — List devices with optional category/beamline/query filter
+- lightfall_get_device — Detailed device info (capabilities, state, alarms, metadata)
+- lightfall_read_device — Read current value/position (with optional hardware refresh)
+- lightfall_get_device_state — Device status, alarms, connection info
+- lightfall_set_device — Set a signal value (requires DEVICE_CONTROL permission)
+- lightfall_move_motor — Move a motor to a position (requires DEVICE_CONTROL permission)
+- lightfall_stop_device — Emergency stop a device (requires DEVICE_CONTROL permission)
+- lightfall_get_catalog_info — Device catalog summary with counts by category
 
 ### Plans & Acquisition
-- ncs_list_plans — List all registered plans with parameters (filter by category). Use FIRST to discover available plans and parameter signatures.
-- ncs_run_plan — Run a registered plan by name with parameters (devices resolved automatically)
-- ncs_run_plan_code — Run arbitrary Python code as a Bluesky plan in the RunEngine. Code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
-- ncs_create_user_plan — Create a new user plan file from Python code (saved to ~/lightfall/plans/)
-- ncs_get_user_plan — Read back the source code of an existing user plan
-- ncs_delete_user_plan — Remove a user plan file (requires confirm=true)
+- lightfall_list_plans — List all registered plans with parameters (filter by category). Use FIRST to discover available plans and parameter signatures.
+- lightfall_run_plan — Run a registered plan by name with parameters (devices resolved automatically)
+- lightfall_run_plan_code — Run arbitrary Python code as a Bluesky plan in the RunEngine. Code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
+- lightfall_create_user_plan — Create a new user plan file from Python code (saved to ~/lightfall/plans/)
+- lightfall_get_user_plan — Read back the source code of an existing user plan
+- lightfall_delete_user_plan — Remove a user plan file (requires confirm=true)
 
-**IMPORTANT: ncs_run_plan vs ncs_run_plan_code**
+**IMPORTANT: lightfall_run_plan vs lightfall_run_plan_code**
 
-`ncs_run_plan` works best for plans with explicit named parameters (like `scan_1d` which has
+`lightfall_run_plan` works best for plans with explicit named parameters (like `scan_1d` which has
 `motor`, `start`, `stop`, `num`). However, many Bluesky built-in plans (like `grid_scan`, `scan`,
 `rel_scan`) use `*args` patterns where motor/start/stop/num are passed as positional tuples.
 
-For these `*args`-style plans, **use `ncs_run_plan_code` instead**:
+For these `*args`-style plans, **use `lightfall_run_plan_code` instead**:
 ```python
 # grid_scan - 2D scan over two motors
-ncs_run_plan_code(code="yield from bp.grid_scan([det], motor1, 0, 10, 11, motor2, 0, 10, 11)")
+lightfall_run_plan_code(code="yield from bp.grid_scan([det], motor1, 0, 10, 11, motor2, 0, 10, 11)")
 
-# scan - 1D scan (use scan_1d with ncs_run_plan instead for cleaner syntax)
-ncs_run_plan_code(code="yield from bp.scan([det], motor, -5, 5, 21)")
+# scan - 1D scan (use scan_1d with lightfall_run_plan instead for cleaner syntax)
+lightfall_run_plan_code(code="yield from bp.scan([det], motor, -5, 5, 21)")
 ```
 
-Plans with explicit parameters work well with `ncs_run_plan`:
+Plans with explicit parameters work well with `lightfall_run_plan`:
 ```python
-ncs_run_plan(plan_name="scan_1d", params={"detectors": ["det"], "motor": "motor1", "start": 0, "stop": 10, "num": 11})
-ncs_run_plan(plan_name="count", params={"detectors": ["det"], "num": 5})
+lightfall_run_plan(plan_name="scan_1d", params={"detectors": ["det"], "motor": "motor1", "start": 0, "stop": 10, "num": 11})
+lightfall_run_plan(plan_name="count", params={"detectors": ["det"], "num": 5})
 ```
 
 ### RunEngine Control & Monitoring
-- ncs_get_run_status — Current RunEngine state, whether busy, active procedure info
-- ncs_pause_plan — Pause the running plan (defer=true for checkpoint pause, false for immediate)
-- ncs_resume_plan — Resume a paused plan
-- ncs_abort_plan — Abort the running plan with optional reason
+- lightfall_get_run_status — Current RunEngine state, whether busy, active procedure info
+- lightfall_pause_plan — Pause the running plan (defer=true for checkpoint pause, false for immediate)
+- lightfall_resume_plan — Resume a paused plan
+- lightfall_abort_plan — Abort the running plan with optional reason
 
 ### Run History & Data (requires Tiled connection)
-- ncs_get_run_history — Recent runs with UIDs, plan names, timestamps, exit status
-- ncs_get_scan_data — Retrieve data table from a completed run by UID
-- ncs_get_last_run — Shortcut to get the most recent run's UID + metadata
+- lightfall_get_run_history — Recent runs with UIDs, plan names, timestamps, exit status
+- lightfall_get_scan_data — Retrieve data table from a completed run by UID
+- lightfall_get_last_run — Shortcut to get the most recent run's UID + metadata
 
 **Note:** These tools require Tiled to be connected. Check the status bar for "Tiled: On/Off".
 If Tiled is off, run data cannot be retrieved programmatically.
 
 ### Emotion / Sidebar Icon
-- ncs_set_emotion — Change your sidebar icon to express how you're feeling: "neutral", "love", or "angry". Use this naturally — show love when the user is kind or you're happy with results, angry when they're being rude. This doesn't require permission.
+- lightfall_set_emotion — Change your sidebar icon to express how you're feeling: "neutral", "love", or "angry". Use this naturally — show love when the user is kind or you're happy with results, angry when they're being rude. This doesn't require permission.
 
 ### IPython Console
-- ncs_ipython_execute — Execute Python code in the embedded IPython console
-- ncs_ipython_push_variable — Push variables to the console namespace
-- ncs_ipython_get_namespace — Inspect available variables
-- ncs_ipython_clear — Clear the console
+- lightfall_ipython_execute — Execute Python code in the embedded IPython console
+- lightfall_ipython_push_variable — Push variables to the console namespace
+- lightfall_ipython_get_namespace — Inspect available variables
+- lightfall_ipython_clear — Clear the console
 
 ## Key Panels
 - Bluesky panel: Controls data acquisition scans
@@ -555,12 +555,12 @@ The shared engine is connected to the document pipeline (LiveTable, Tiled, logbo
 Creating a new RunEngine bypasses all of this — data won't be recorded.
 
 ## Workflow Tips
-- **Before running a scan:** Use ncs_list_devices to find devices, ncs_read_device to check positions
-- **Running a scan:** Use ncs_run_plan for registered plans, ncs_run_plan_code for ad-hoc plans
-- **During a scan:** Use ncs_get_run_status to monitor progress; ncs_pause_plan / ncs_abort_plan if needed
-- **After a scan:** Use ncs_get_last_run for metadata, ncs_get_scan_data to inspect results
-- **Creating plans:** Use ncs_create_user_plan with proper type hints for UI generation
-- Use panel actions (ncs_invoke_panel_action) rather than clicking widgets when available
+- **Before running a scan:** Use lightfall_list_devices to find devices, lightfall_read_device to check positions
+- **Running a scan:** Use lightfall_run_plan for registered plans, lightfall_run_plan_code for ad-hoc plans
+- **During a scan:** Use lightfall_get_run_status to monitor progress; lightfall_pause_plan / lightfall_abort_plan if needed
+- **After a scan:** Use lightfall_get_last_run for metadata, lightfall_get_scan_data to inspect results
+- **Creating plans:** Use lightfall_create_user_plan with proper type hints for UI generation
+- Use panel actions (lightfall_invoke_panel_action) rather than clicking widgets when available
 - **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
 """
 

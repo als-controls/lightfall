@@ -1,4 +1,4 @@
-"""Tests for the ncs_wait_for_idle MCP tool helper.
+"""Tests for the lightfall_wait_for_idle MCP tool helper.
 
 Mirrors test_beam_status.py's style: tests the module-level payload helper
 directly so we don't need claude_agent_sdk installed in CI.
@@ -200,4 +200,4 @@ def test_engine_tools_registers_wait_for_idle():
     if not tools:
         pytest.skip("claude_agent_sdk not available")
     names = {getattr(t, "name", None) or getattr(t, "__name__", None) for t in tools}
-    assert "ncs_wait_for_idle" in names
+    assert "lightfall_wait_for_idle" in names

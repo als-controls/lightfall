@@ -69,7 +69,7 @@ def test_create_user_plugin_commits_with_description(tracked_dirs):
     """The agent's `description` becomes the commit subject."""
     agent = PanelBuilderAgent()
     tools = agent.create_tools()
-    create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plugin")
+    create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plugin")
 
     code = '''"""thermometer."""
 from lightfall.plugins.agent_plugin import AgentPlugin

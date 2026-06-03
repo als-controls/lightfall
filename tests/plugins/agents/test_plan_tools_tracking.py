@@ -56,7 +56,7 @@ def _unwrap(result):
 def test_create_user_plan_commits_with_description(tracked_dirs):
     agent = PlanToolsAgent()
     tools = agent.create_tools()
-    create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plan")
+    create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plan")
 
     code = '''"""my_scan."""
 from __future__ import annotations
@@ -81,8 +81,8 @@ def test_delete_user_plan_commits_removal_with_agent_subject(tracked_dirs):
     # First create a plan
     agent = PlanToolsAgent()
     tools = agent.create_tools()
-    create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plan")
-    delete_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_delete_user_plan")
+    create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plan")
+    delete_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_delete_user_plan")
 
     code = '''"""doomed."""
 from __future__ import annotations

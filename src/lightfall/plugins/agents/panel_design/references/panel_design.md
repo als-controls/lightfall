@@ -220,11 +220,11 @@ def action_set_filter(self, filter_text: str = "", **kwargs) -> bool:
 
 The optional `"parameters"` entry declares the keyword arguments Claude may
 pass when invoking the action. It is **advisory metadata**: it is surfaced to
-Claude through `ncs_get_panel_info` so the model knows the shape of the call,
+Claude through `lightfall_get_panel_info` so the model knows the shape of the call,
 but the framework does **not** validate it. At invoke time,
-`ncs_invoke_panel_action` passes a free-form `kwargs` object straight through
+`lightfall_invoke_panel_action` passes a free-form `kwargs` object straight through
 `BasePanel.invoke_action(action, **kwargs)` into your `action_<name>(**kwargs)`
-method (see `ui/panels/base.py` and `claude/ncs_core_tools.py`).
+method (see `ui/panels/base.py` and `claude/lightfall_core_tools.py`).
 
 - **Keys** are parameter names. They arrive as keyword arguments to the
   `action_*` method, so they must be valid Python identifiers.

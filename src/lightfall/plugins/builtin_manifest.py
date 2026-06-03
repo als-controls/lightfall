@@ -243,8 +243,8 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="agent",
-            name="ncs_core_tools",
-            import_path="lightfall.claude.ncs_core_tools:NCSCoreToolPlugin",
+            name="lightfall_core_tools",
+            import_path="lightfall.claude.lightfall_core_tools:LightfallCoreToolPlugin",
         ),
         # Current-ESAF skill. Beamline read from tiled_beamline preference;
         # strictly now-only (no date parameter). See plugin docstring.

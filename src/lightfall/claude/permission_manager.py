@@ -56,30 +56,30 @@ class PermissionManager(QObject):
         "mcp__qt__find_widget",
         "mcp__qt__get_recent_logs",
         # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).
-        # NCSCoreToolPlugin is manifest-driven via AgentRegistry (ncs_core_tools server).
-        "mcp__ncs_core_tools__ncs_list_panels",
-        "mcp__ncs_core_tools__ncs_get_panel_info",
-        "mcp__ncs_core_tools__ncs_get_application_info",
-        "mcp__ncs_core_tools__ncs_set_emotion",
+        # LightfallCoreToolPlugin is manifest-driven via AgentRegistry (lightfall_core_tools server).
+        "mcp__lightfall_core_tools__lightfall_list_panels",
+        "mcp__lightfall_core_tools__lightfall_get_panel_info",
+        "mcp__lightfall_core_tools__lightfall_get_application_info",
+        "mcp__lightfall_core_tools__lightfall_set_emotion",
         # device_tools agent
-        "mcp__device_tools__ncs_list_devices",
-        "mcp__device_tools__ncs_get_device",
-        "mcp__device_tools__ncs_read_device",
-        "mcp__device_tools__ncs_get_device_state",
-        "mcp__device_tools__ncs_get_catalog_info",
+        "mcp__device_tools__lightfall_list_devices",
+        "mcp__device_tools__lightfall_get_device",
+        "mcp__device_tools__lightfall_read_device",
+        "mcp__device_tools__lightfall_get_device_state",
+        "mcp__device_tools__lightfall_get_catalog_info",
         # plan_tools agent
-        "mcp__plan_tools__ncs_list_plans",
-        "mcp__plan_tools__ncs_get_user_plan",
+        "mcp__plan_tools__lightfall_list_plans",
+        "mcp__plan_tools__lightfall_get_user_plan",
         # engine_tools agent
-        "mcp__engine_tools__ncs_get_run_status",
-        "mcp__engine_tools__ncs_get_run_history",
-        "mcp__engine_tools__ncs_get_scan_data",
-        "mcp__engine_tools__ncs_get_last_run",
-        "mcp__engine_tools__ncs_wait_for_idle",
+        "mcp__engine_tools__lightfall_get_run_status",
+        "mcp__engine_tools__lightfall_get_run_history",
+        "mcp__engine_tools__lightfall_get_scan_data",
+        "mcp__engine_tools__lightfall_get_last_run",
+        "mcp__engine_tools__lightfall_wait_for_idle",
         # ipython_tools agent
-        "mcp__ipython_tools__ncs_ipython_get_namespace",
+        "mcp__ipython_tools__lightfall_ipython_get_namespace",
         # Bare names (fallback for SDK that may dispatch without prefix)
-        "ncs_set_emotion",
+        "lightfall_set_emotion",
     })
 
     def __init__(

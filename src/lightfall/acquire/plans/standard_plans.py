@@ -4,7 +4,7 @@ These replace the raw bluesky builtins (bp.scan, bp.count, etc.) which use
 *args signatures that can't generate useful procedural UIs. Each wrapper
 provides proper type hints and Lightfall annotations for automatic UI generation.
 
-The raw bp.* plans remain accessible via ncs_run_plan_code and the IPython
+The raw bp.* plans remain accessible via lightfall_run_plan_code and the IPython
 console for power users who need the full flexibility.
 
 Usage:

@@ -105,7 +105,7 @@
         },
         "data_directory": {
           "type": "string",
-          "default": "~/ncs_data",
+          "default": "~/lightfall",
           "description": "Default data storage directory"
         },
         "file_format": {
