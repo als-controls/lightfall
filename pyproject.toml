@@ -46,7 +46,10 @@ dependencies = [
     "h5py>=3.0",
     # epics
     "caproto>=1.1",
-    "netifaces>=0.11",  # required for caproto to enumerate all interfaces on multi-homed hosts
+    # required for caproto to enumerate all interfaces on multi-homed hosts;
+    # excluded on macOS: netifaces is unmaintained and ships no arm64 wheels,
+    # which blocks briefcase packaging (caproto degrades gracefully without it)
+    "netifaces>=0.11; sys_platform != 'darwin'",
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
