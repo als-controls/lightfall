@@ -1,0 +1,78 @@
+# CI for Lightfall — lint, tests, docs build.
+# Ported from .gitlab-ci.yml after the move to GitHub (2026-06-04).
+# SonarQube stage was dropped: the ALS SonarQube server is on a private
+# network unreachable from GitHub-hosted runners.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check src/
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_OPENGL: software
+      QSG_RHI_BACKEND: "null"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs derives the version from git tags
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Qt system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-3 libxkbcommon0 libxcb-cursor0 libegl1 libgl1 libopengl0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - run: pip install -e ".[dev]" pytest-xdist pytest-timeout
+      - name: Run tests
+        # xdist spawns fresh workers (not fork) — avoids Qt fork-safety issues.
+        # --max-worker-restart=5 recovers from PySide6 segfaults in headless CI.
+        # --timeout=60 kills tests that hang on Qt event loops.
+        run: >-
+          pytest tests/ -v --tb=short
+          -n auto --max-worker-restart=5 --timeout=60
+          --cov=src/lightfall --cov-report=xml:coverage.xml
+          --junitxml=results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            coverage.xml
+            results.xml
+          retention-days: 7
+
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[docs]"
+      - run: sphinx-build -b html docs docs/_build --keep-going
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/_build/
+          retention-days: 7

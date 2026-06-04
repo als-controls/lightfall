@@ -62,7 +62,7 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         return "User Profile"
 
     @property
-    def icon(self) -> "QIcon | None":
+    def icon(self) -> QIcon | None:
         return None
 
     @property
@@ -238,7 +238,6 @@ class UserProfileSettingsPlugin(SettingsPlugin):
 
         from lightfall.settings.user_settings_client import (
             UserSettingsClient,
-            UserSettingsError,
         )
         from lightfall.ui.preferences.manager import PreferencesManager
         from lightfall.utils.threads import QThreadFuture

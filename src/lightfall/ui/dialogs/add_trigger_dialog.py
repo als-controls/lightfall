@@ -17,13 +17,19 @@ match-all behaviour. JSON fields are parsed with friendly errors.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox,
-    QPlainTextEdit, QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 _TRIGGER_TYPES = ("run_start", "run_end")
 
@@ -42,12 +48,12 @@ class AddTriggerDialog(QDialog):
     def __init__(
         self,
         *,
-        pipelines: Optional[List[str]] = None,
-        parent: Optional[QWidget] = None,
+        pipelines: list[str] | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add pipeline trigger")
-        self._spec: Optional[Dict[str, Any]] = None
+        self._spec: dict[str, Any] | None = None
 
         outer = QVBoxLayout(self)
         form = QFormLayout()
@@ -59,10 +65,10 @@ class AddTriggerDialog(QDialog):
         form.addRow("Type", self._type_combo)
 
         if pipelines:
-            self._pipeline_combo: Optional[QComboBox] = QComboBox()
+            self._pipeline_combo: QComboBox | None = QComboBox()
             for name in pipelines:
                 self._pipeline_combo.addItem(name)
-            self._pipeline_edit: Optional[QLineEdit] = None
+            self._pipeline_edit: QLineEdit | None = None
             form.addRow("Pipeline", self._pipeline_combo)
         else:
             self._pipeline_combo = None
@@ -88,7 +94,7 @@ class AddTriggerDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
-    def spec(self) -> Optional[Dict[str, Any]]:
+    def spec(self) -> dict[str, Any] | None:
         """Return the spec captured on accept, or ``None`` if cancelled."""
         return self._spec
 
@@ -106,7 +112,7 @@ class AddTriggerDialog(QDialog):
             )
             return
 
-        filter_spec: Dict[str, Any] = {}
+        filter_spec: dict[str, Any] = {}
         plan_name = self._plan_name_edit.text().strip()
         if plan_name:
             filter_spec["plan_name"] = plan_name

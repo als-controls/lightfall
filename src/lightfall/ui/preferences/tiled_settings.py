@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -38,10 +38,10 @@ class AccessOverride:
     esaf_id: str
     start: datetime
     end: datetime
-    set_by: Optional[str] = None
+    set_by: str | None = None
 
 
-def access_override_from_prefs(prefs: PreferencesManager) -> Optional[AccessOverride]:
+def access_override_from_prefs(prefs: PreferencesManager) -> AccessOverride | None:
     """Read AccessOverride from preferences, or None if any field missing."""
     esaf = prefs.get("tiled_access_override_esaf_id", "")
     start = prefs.get("tiled_access_override_start", "")

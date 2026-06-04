@@ -1,5 +1,14 @@
 # Lightfall
 
+<!-- badges:start -->
+[![PyPI version](https://img.shields.io/pypi/v/lightfall.svg)](https://pypi.org/project/lightfall/)
+[![Python versions](https://img.shields.io/pypi/pyversions/lightfall.svg)](https://pypi.org/project/lightfall/)
+[![CI](https://github.com/als-controls/lightfall/actions/workflows/ci.yml/badge.svg)](https://github.com/als-controls/lightfall/actions/workflows/ci.yml)
+[![Docs](https://github.com/als-controls/lightfall/actions/workflows/docs.yml/badge.svg)](https://als-controls.github.io/lightfall/)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE.md)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20545717.svg)](https://doi.org/10.5281/zenodo.20545717)
+<!-- badges:end -->
+
 A modern, unified control system for synchrotron lightsource facilities that provides facility-wide consistency with beamline-specific customization.
 
 ## Overview
@@ -41,12 +50,27 @@ Lightfall is designed for the Advanced Light Source (ALS) facility, providing:
 
 ## Installation
 
+```bash
+pip install lightfall
+```
+
+### BCS backend (ALS-internal)
+
+The BCS device backend requires `bcsophyd-zmq`, which is distributed from ALS
+GitLab rather than PyPI:
+
+```bash
+pip install "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq"
+```
+
+Without it, Lightfall runs normally; only the BCS backend is unavailable.
+
 ### Development Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/als-computing/ncs.git
-cd ncs
+git clone https://github.com/als-controls/lightfall.git
+cd lightfall
 
 # Create and activate virtual environment
 python -m venv .venv

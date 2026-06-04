@@ -30,6 +30,11 @@ def _make_motor_info(name="motor_1"):
     info.category = DeviceCategory.MOTOR
     info.metadata = {"units": "mm", "precision": 3}
     info.active = True
+    # pydantic v2 fields are not visible to MagicMock(spec=...), so every
+    # field the widgets touch must be assigned explicitly.
+    info.display_name = ""
+    info.icon_override = ""
+    info.group = ""
     info._state = DeviceState(
         device_id=device_id, status=DeviceStatus.ONLINE, connected=True
     )

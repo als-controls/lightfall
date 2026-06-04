@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "Lightfall"
+abstract: "A modern, unified control system for synchrotron lightsource facilities that provides facility-wide consistency with beamline-specific customization."
+authors:
+  - family-names: "Pandolfi"
+    given-names: "Ronald J."
+    email: "ronpandolfi@lbl.gov"
+    orcid: "https://orcid.org/0000-0003-0824-8548"
+version: "0.1.0"
+date-released: "2026-06-04"
+url: "https://github.com/als-controls/lightfall"
+repository-code: "https://github.com/als-controls/lightfall"
+license: "BSD-3-Clause"
+keywords:
+  - control-system
+  - data-acquisition
+  - beamline
+  - synchrotron
+  - bluesky
+  - epics
+# Concept DOI — stable across all versions:
+doi: "10.5281/zenodo.20545717"

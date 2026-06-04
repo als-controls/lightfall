@@ -45,7 +45,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from lightfall.plugins.agent_plugin import AgentPlugin
@@ -185,7 +185,7 @@ async def _fetch_active_esaf_full(
     # split this into two ``datetime.now()`` calls — they could drift, and
     # more importantly, future readers might interpret a non-trivial gap
     # as a "window" worth widening.
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # Header form for the API key. Keeps the secret out of URLs, access
     # logs, and process listings; the OpenAPI spec accepts query / header /

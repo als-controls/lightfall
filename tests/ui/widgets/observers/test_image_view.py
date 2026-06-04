@@ -102,3 +102,6 @@ def test_cameraimageview_cannot_change_camera_while_streaming(qapp):
             view.set_camera(FakeCamera())
     finally:
         view.stop()
+        # Drain frame events queued by the camera thread before the widget is
+        # collected; pending queued deliveries to a destroyed widget segfault.
+        qapp.processEvents()

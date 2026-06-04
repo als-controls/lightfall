@@ -138,8 +138,9 @@ class BCSBackend(DeviceBackend):
             from bcsophyd.zmq import BCSDeviceManager
         except ImportError:
             logger.error(
-                "bcsophyd package not installed. "
-                "Install with: pip install ncs[bcs]"
+                "bcsophyd package not installed. ALS-internal users can "
+                'install it with: pip install "bcsophyd @ '
+                'git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq"'
             )
             return False
 

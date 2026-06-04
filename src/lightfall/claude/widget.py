@@ -133,7 +133,7 @@ class ClaudeAssistantWidget(QWidget):
         # Track pending permission widgets by request_id
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
         # request_id -> QuestionRequestWidget
-        self._pending_question_widgets: dict[str, "QuestionRequestWidget"] = {}
+        self._pending_question_widgets: dict[str, QuestionRequestWidget] = {}
         # block_id -> _StreamingBubble for in-progress streamed text/thinking.
         self._streaming_bubbles: dict[str, _StreamingBubble] = {}
         # task_id -> TaskCard

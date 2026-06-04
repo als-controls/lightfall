@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import json
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 from loguru import logger
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from lightfall.acquire.triggers.filter import FilterPredicate
@@ -15,11 +22,10 @@ from lightfall.acquire.triggers.run_end import RunEndTrigger
 from lightfall.acquire.triggers.run_start import RunStartTrigger
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
-
 _COLUMNS = ["type", "filter", "pipeline", "parameter_overrides"]
 
 
-def _construct_trigger(spec: Dict[str, Any]):
+def _construct_trigger(spec: dict[str, Any]):
     f = FilterPredicate(**spec.get("filter", {}))
     t = spec["type"]
     if t == "run_start":
@@ -39,12 +45,12 @@ class PipelineTriggersPanel(QWidget):
         *,
         manager: Any,
         settings_backend: Any,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._manager = manager
         self._backend = settings_backend
-        self._specs: List[Dict[str, Any]] = []
+        self._specs: list[dict[str, Any]] = []
 
         outer = QVBoxLayout(self)
         controls = QHBoxLayout()
@@ -64,7 +70,7 @@ class PipelineTriggersPanel(QWidget):
     def row_count(self) -> int:
         return len(self._specs)
 
-    def add_trigger(self, spec: Dict[str, Any]) -> None:
+    def add_trigger(self, spec: dict[str, Any]) -> None:
         self._add_row(spec, register_with_manager=True)
         try:
             self._backend.save(self.SETTINGS_KEY, self._specs)
@@ -73,7 +79,7 @@ class PipelineTriggersPanel(QWidget):
                 "PipelineTriggersPanel: failed to persist triggers: {}", exc,
             )
 
-    def _add_row(self, spec: Dict[str, Any], *, register_with_manager: bool) -> None:
+    def _add_row(self, spec: dict[str, Any], *, register_with_manager: bool) -> None:
         if register_with_manager:
             self._manager.add(_construct_trigger(spec))  # raises → no state change
         row = self._table.rowCount()
@@ -110,7 +116,7 @@ class _PreferencesTriggerBackend:
         self._prefs = prefs
         self._key = key
 
-    def load(self) -> List[Dict[str, Any]]:
+    def load(self) -> list[dict[str, Any]]:
         value = self._prefs.get(self._key, [])
         return list(value) if isinstance(value, list) else []
 

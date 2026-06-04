@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-    QMessageBox, QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QVBoxLayout,
+    QWidget,
 )
 
 from lightfall.utils.threads import QThreadFuture
@@ -18,16 +25,16 @@ class RunPipelineDialog(QDialog):
         *,
         client: Any,
         run_uid: str,
-        input_access_blob: Dict[str, Any],
+        input_access_blob: dict[str, Any],
         user_id: str = "",
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._client = client
         self._run_uid = run_uid
         self._blob = input_access_blob
         self.user_id = user_id
-        self._submit_future: Optional[QThreadFuture] = None
+        self._submit_future: QThreadFuture | None = None
 
         self.setWindowTitle("Run pipeline...")
         self._pipelines = client.list_available()
@@ -43,7 +50,7 @@ class RunPipelineDialog(QDialog):
 
         self._param_form_container = QWidget()
         outer.addWidget(self._param_form_container)
-        self._param_widgets: Dict[str, QLineEdit] = {}
+        self._param_widgets: dict[str, QLineEdit] = {}
         self._rebuild_param_form(0)
 
         self._status_label = QLabel("")
@@ -76,8 +83,8 @@ class RunPipelineDialog(QDialog):
             layout.addRow(name, edit)
             self._param_widgets[name] = edit
 
-    def _collect_parameters(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def _collect_parameters(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         for k, w in self._param_widgets.items():
             text = w.text()
             try:

@@ -1,0 +1,123 @@
+# Release pipeline, triggered by v* tags:
+#   - build-dist / publish-pypi: sdist + wheel to PyPI via OIDC trusted
+#     publishing (environment: pypi; publisher registered on pypi.org against
+#     this workflow file).
+#   - package / release: native app packaging with Briefcase, published to
+#     GitHub Releases (wheel + sdist attached alongside the app packages).
+# Replaces the GitLab package/release stages from .gitlab-ci.yml.
+#
+# Differences from the GitLab pipeline:
+# - Runs on GitHub-hosted runners instead of ALS self-hosted runners.
+# - The build-wheels step (epics-pyside / pyside-claude sibling checkouts) was
+#   dropped: those projects live on ALS GitLab and are not in briefcase's
+#   `requires` list, so packaging does not need them.
+# - macOS packages are ad-hoc signed (no Apple signing identity in CI).
+#
+# workflow_dispatch runs packaging only (no release is created) — use it to
+# test packaging changes without minting a new tag, since every new release
+# also triggers a Zenodo archive.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs derives the version from git tags
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-pypi:
+    needs: build-dist
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Briefcase's linux-system template requires the distro python3,
+          # so ubuntu skips setup-python and uses the system interpreter.
+          - os: ubuntu-latest
+            py: python3
+            system-python: true
+            package-args: ""
+          - os: macos-latest
+            py: python
+            package-args: "--adhoc-sign"
+          - os: windows-latest
+            py: python
+            package-args: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs derives the version from git tags
+      - uses: actions/setup-python@v5
+        if: ${{ !matrix.system-python }}
+        with:
+          python-version: "3.11"
+      - name: Install Linux build dependencies
+        if: ${{ matrix.system-python }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-dev python3-pip dpkg-dev
+      - run: ${{ matrix.py }} -m pip install briefcase
+      - run: ${{ matrix.py }} -m briefcase create --no-input
+      - run: ${{ matrix.py }} -m briefcase build --no-input
+      - run: ${{ matrix.py }} -m briefcase package --no-input ${{ matrix.package-args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}
+          path: dist/*
+          retention-days: 7
+
+  release:
+    needs: [package, build-dist]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Lightfall ${{ github.ref_name }}
+          generate_release_notes: true
+          files: artifacts/**

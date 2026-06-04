@@ -30,7 +30,7 @@ USER_PORTABLE_KEYS: frozenset[str] = frozenset({
 class UserPortableBackend(PreferenceBackend):
     """Caches user-portable keys locally; round-trips writes via HTTP."""
 
-    def __init__(self, client: "UserSettingsClient") -> None:
+    def __init__(self, client: UserSettingsClient) -> None:
         super().__init__()
         self._client = client
         self._keys = USER_PORTABLE_KEYS

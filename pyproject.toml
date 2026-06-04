@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Lightfall - control system for the ALS facility"
 readme = "README.md"
 license = "BSD-3-Clause"
+license-files = ["LICENSE.md", "LEGAL.md"]
 requires-python = ">=3.11"
 authors = [
     { name = "ALS Controls Team" },
@@ -45,7 +46,10 @@ dependencies = [
     "h5py>=3.0",
     # epics
     "caproto>=1.1",
-    "netifaces>=0.11",  # required for caproto to enumerate all interfaces on multi-homed hosts
+    # required for caproto to enumerate all interfaces on multi-homed hosts;
+    # excluded on macOS: netifaces is unmaintained and ships no arm64 wheels,
+    # which blocks briefcase packaging (caproto degrades gracefully without it)
+    "netifaces>=0.11; sys_platform != 'darwin'",
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
@@ -66,14 +70,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-bcs = [
-    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
-]
+# NOTE: the BCS device backend requires bcsophyd-zmq, which lives on ALS
+# GitLab and cannot be expressed as a PyPI extra (direct-URL dependencies are
+# rejected on upload). ALS-internal users: see "BCS backend" in the README.
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.24",
     "pytest-qt>=4.2",
+    "pytest-httpx>=0.30",
     "ruff>=0.1",
     "mypy>=1.8",
     "pre-commit>=3.6",
@@ -92,12 +97,9 @@ lightfall-exporter = "lightfall.exporter.cli:main"
 lightfall-gui = "lightfall.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/als-computing/lightfall"
-Documentation = "https://als-computing.github.io/lightfall"
-Repository = "https://github.com/als-computing/lightfall"
-
-[tool.hatch.metadata]
-allow-direct-references = true
+Homepage = "https://github.com/als-controls/lightfall"
+Documentation = "https://als-controls.github.io/lightfall"
+Repository = "https://github.com/als-controls/lightfall"
 
 [tool.hatch.version]
 source = "vcs"
@@ -169,9 +171,9 @@ exclude_lines = [
 # =============================================================================
 
 [tool.briefcase]
-project_name = "LUCID"
+project_name = "Lightfall"
 bundle = "gov.lbl.als"
-version = "0.1.0"
+version = "0.1.1"
 url = "https://als.lbl.gov"
 author = "ALS Controls Team"
 author_email = "controls@lbl.gov"
@@ -235,6 +237,12 @@ requires = [
 
 [tool.briefcase.app.lightfall.macOS]
 requires = []
+# Modern scipy/numpy only ship arm64 wheels for newer macOS targets;
+# briefcase's default of 11.0 makes pip find no compatible wheels.
+min_os_version = "14.0"
+# Scientific stack ships no x86_64 wheels for macOS 14, so a universal2
+# build cannot resolve; build Apple Silicon only.
+universal_build = false
 
 [tool.briefcase.app.lightfall.windows]
 requires = []

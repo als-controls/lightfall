@@ -33,7 +33,6 @@ from lightfall.visualization.theme import (
     DARK_VIZ_COLORS,
     VisualizationColors,
     colors_from_theme,
-    get_visualization_colors,
 )
 
 __all__ = [
