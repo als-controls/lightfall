@@ -1,4 +1,9 @@
-# Native app packaging with Briefcase, published to GitHub Releases on tags.
+# Release pipeline, triggered by v* tags:
+#   - build-dist / publish-pypi: sdist + wheel to PyPI via OIDC trusted
+#     publishing (environment: pypi; publisher registered on pypi.org against
+#     this workflow file).
+#   - package / release: native app packaging with Briefcase, published to
+#     GitHub Releases (wheel + sdist attached alongside the app packages).
 # Replaces the GitLab package/release stages from .gitlab-ci.yml.
 #
 # Differences from the GitLab pipeline:
@@ -23,6 +28,42 @@ permissions:
   contents: write
 
 jobs:
+  build-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs derives the version from git tags
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-pypi:
+    needs: build-dist
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
   package:
     strategy:
       fail-fast: false
@@ -67,7 +108,7 @@ jobs:
           retention-days: 7
 
   release:
-    needs: package
+    needs: [package, build-dist]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

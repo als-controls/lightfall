@@ -70,9 +70,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-bcs = [
-    "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq",
-]
+# NOTE: the BCS device backend requires bcsophyd-zmq, which lives on ALS
+# GitLab and cannot be expressed as a PyPI extra (direct-URL dependencies are
+# rejected on upload). ALS-internal users: see "BCS backend" in the README.
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
@@ -100,9 +100,6 @@ lightfall-gui = "lightfall.main:cli"
 Homepage = "https://github.com/als-controls/lightfall"
 Documentation = "https://als-controls.github.io/lightfall"
 Repository = "https://github.com/als-controls/lightfall"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.version]
 source = "vcs"

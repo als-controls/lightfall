@@ -49,12 +49,27 @@ Lightfall is designed for the Advanced Light Source (ALS) facility, providing:
 
 ## Installation
 
+```bash
+pip install lightfall
+```
+
+### BCS backend (ALS-internal)
+
+The BCS device backend requires `bcsophyd-zmq`, which is distributed from ALS
+GitLab rather than PyPI:
+
+```bash
+pip install "bcsophyd @ git+https://git.als.lbl.gov/bcs/bluesky/bcsophyd-zmq"
+```
+
+Without it, Lightfall runs normally; only the BCS backend is unavailable.
+
 ### Development Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/als-computing/ncs.git
-cd ncs
+git clone https://github.com/als-controls/lightfall.git
+cd lightfall
 
 # Create and activate virtual environment
 python -m venv .venv
