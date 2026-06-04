@@ -1,0 +1,62 @@
+# Native app packaging with Briefcase, published to GitHub Releases on tags.
+# Replaces the GitLab package/release stages from .gitlab-ci.yml.
+#
+# Differences from the GitLab pipeline:
+# - Runs on GitHub-hosted runners instead of ALS self-hosted runners.
+# - The build-wheels step (epics-pyside / pyside-claude sibling checkouts) was
+#   dropped: those projects live on ALS GitLab and are not in briefcase's
+#   `requires` list, so packaging does not need them.
+# - macOS packages are ad-hoc signed (no Apple signing identity in CI).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            package-args: ""
+          - os: macos-latest
+            package-args: "--adhoc-sign"
+          - os: windows-latest
+            package-args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # hatch-vcs derives the version from git tags
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install briefcase
+      - run: briefcase create --no-input
+      - run: briefcase build --no-input
+      - run: briefcase package --no-input ${{ matrix.package-args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}
+          path: dist/*
+          retention-days: 7
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Lightfall ${{ github.ref_name }}
+          generate_release_notes: true
+          files: artifacts/**

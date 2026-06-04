@@ -92,9 +92,9 @@ lightfall-exporter = "lightfall.exporter.cli:main"
 lightfall-gui = "lightfall.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/als-computing/lightfall"
-Documentation = "https://als-computing.github.io/lightfall"
-Repository = "https://github.com/als-computing/lightfall"
+Homepage = "https://github.com/als-controls/lightfall"
+Documentation = "https://als-controls.github.io/lightfall"
+Repository = "https://github.com/als-controls/lightfall"
 
 [tool.hatch.metadata]
 allow-direct-references = true
