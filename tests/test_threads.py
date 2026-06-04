@@ -115,9 +115,17 @@ class TestQThreadFuture:
         assert isinstance(future.exception, ValueError)
 
     def test_cancellation(self, qapp) -> None:
-        """Test thread cancellation."""
+        """Test thread cancellation.
+
+        The task must cooperate by checking isInterruptionRequested();
+        a non-cooperative task just runs to completion (or termination),
+        racing cancel()'s timeout and making the test flaky.
+        """
         def slow_task():
+            from PySide6.QtCore import QThread
             for _ in range(100):
+                if QThread.currentThread().isInterruptionRequested():
+                    return "interrupted"
                 time.sleep(0.01)
             return "completed"
 

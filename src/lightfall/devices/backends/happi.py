@@ -239,13 +239,19 @@ class HappiBackend(DeviceBackend):
                     db_path.parent.mkdir(parents=True, exist_ok=True)
                     db_path.write_text(json.dumps({}))
                     logger.info("Created new happi JSON database at {}", self._path)
-                    # Toast notification (fire-and-forget)
+                    # Toast notification (fire-and-forget). Guarded on a live
+                    # QApplication: constructing a QWidget without one is a Qt
+                    # fatal abort (not an exception), which kills headless
+                    # users of this backend (exporter CLI, test workers).
                     try:
-                        from lightfall.ui.toast import ToastManager
-                        ToastManager.get_instance().info(
-                            "Device database",
-                            f"Created new device database at {self._path}",
-                        )
+                        from PySide6.QtWidgets import QApplication
+
+                        if QApplication.instance() is not None:
+                            from lightfall.ui.toast import ToastManager
+                            ToastManager.get_instance().info(
+                                "Device database",
+                                f"Created new device database at {self._path}",
+                            )
                     except Exception:
                         pass  # Notification is best-effort
 

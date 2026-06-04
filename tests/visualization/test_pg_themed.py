@@ -43,8 +43,14 @@ def _color_name(value) -> str:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_registry():
-    """Each test sees a clean weak registry."""
+def _isolate_registry(monkeypatch):
+    """Each test sees a clean weak registry and a deterministic dark palette.
+
+    ``_current_colors()`` consults the ThemeManager singleton, which other
+    tests in the same process may have initialized (with a light theme on CI
+    runners); pin it so these tests don't depend on execution order.
+    """
+    monkeypatch.setattr(themed_pg, "_current_colors", lambda: DARK_VIZ_COLORS)
     themed_pg._themed_items.clear()
     yield
     themed_pg._themed_items.clear()

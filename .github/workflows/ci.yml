@@ -23,7 +23,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    continue-on-error: true  # Remove once tests are stable
     env:
       QT_QPA_PLATFORM: offscreen
       QT_OPENGL: software
