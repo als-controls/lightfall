@@ -1,9 +1,10 @@
 # Lightfall
 
 <!-- badges:start -->
+[![PyPI version](https://img.shields.io/pypi/v/lightfall.svg)](https://pypi.org/project/lightfall/)
+[![Python versions](https://img.shields.io/pypi/pyversions/lightfall.svg)](https://pypi.org/project/lightfall/)
 [![CI](https://github.com/als-controls/lightfall/actions/workflows/ci.yml/badge.svg)](https://github.com/als-controls/lightfall/actions/workflows/ci.yml)
 [![Docs](https://github.com/als-controls/lightfall/actions/workflows/docs.yml/badge.svg)](https://als-controls.github.io/lightfall/)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://github.com/als-controls/lightfall/blob/master/pyproject.toml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE.md)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20545717.svg)](https://doi.org/10.5281/zenodo.20545717)
 <!-- badges:end -->
