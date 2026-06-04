@@ -243,6 +243,9 @@ requires = []
 # Modern scipy/numpy only ship arm64 wheels for newer macOS targets;
 # briefcase's default of 11.0 makes pip find no compatible wheels.
 min_os_version = "14.0"
+# Scientific stack ships no x86_64 wheels for macOS 14, so a universal2
+# build cannot resolve; build Apple Silicon only.
+universal_build = false
 
 [tool.briefcase.app.lightfall.windows]
 requires = []
