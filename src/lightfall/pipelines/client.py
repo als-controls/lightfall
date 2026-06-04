@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import socket
 import uuid
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -39,8 +40,8 @@ class PipelineClient(QObject):
         ipc: Any,
         host: str,
         tiled_url: str,
-        key_provider: Callable[[str], Optional["MintedKey"]],
-        parent: Optional[QObject] = None,
+        key_provider: Callable[[str], MintedKey | None],
+        parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._ipc = ipc
@@ -66,7 +67,7 @@ class PipelineClient(QObject):
 
     # -- public API --------------------------------------------------------
 
-    def list_available(self, timeout_ms: int = 5000) -> List[Dict[str, Any]]:
+    def list_available(self, timeout_ms: int = 5000) -> list[dict[str, Any]]:
         """Synchronous request to the executor; returns its discovered plugins."""
         reply = self._ipc.request(self._list_subject, {}, timeout_ms=timeout_ms)
         if reply is None:
@@ -78,8 +79,8 @@ class PipelineClient(QObject):
         *,
         pipeline: str,
         input_run_uid: str,
-        parameters: Dict[str, Any],
-        input_access_blob: Dict[str, Any],
+        parameters: dict[str, Any],
+        input_access_blob: dict[str, Any],
         user_id: str,
         timeout_ms: int = 5000,
     ) -> str:
@@ -111,7 +112,7 @@ class PipelineClient(QObject):
             "parameters": parameters,
             "user_id": user_id,
             "requested_by": f"lightfall@{socket.gethostname()}",
-            "submitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "submitted_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
 
         reply = self._ipc.request(self._submit_subject, payload, timeout_ms=timeout_ms)
@@ -133,7 +134,7 @@ class PipelineClient(QObject):
 
     # -- progress handling -------------------------------------------------
 
-    def _on_progress(self, subject: str, data: Dict[str, Any], reply: Optional[str]) -> None:
+    def _on_progress(self, subject: str, data: dict[str, Any], reply: str | None) -> None:
         if not data.get("job_id") or not data.get("status"):
             logger.warning(
                 "PipelineClient: malformed progress event on {}: {}", subject, data,

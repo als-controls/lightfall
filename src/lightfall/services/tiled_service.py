@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from lightfall.services.tiled_writer_patch import TiledWriter
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from lightfall.services.tiled_writer_patch import TiledWriter
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -716,7 +716,6 @@ class TiledService(QObject):
                 from lightfall.services._alshub_client import AlshubClient
                 from lightfall.services.access_stamper import AccessStamper, install_into_run_engine
                 from lightfall.ui.preferences.manager import PreferencesManager
-
                 from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
                 prefs = PreferencesManager.get_instance()

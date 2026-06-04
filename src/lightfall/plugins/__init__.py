@@ -76,6 +76,7 @@ The plugin system is typically used via the ServiceRegistry::
     loader.start_loading()  # Background loading
 """
 
+from lightfall.plugins.agent_plugin import AgentPlugin
 from lightfall.plugins.controller_plugin import ControllerPlugin
 from lightfall.plugins.errors import (
     PluginError,
@@ -88,7 +89,6 @@ from lightfall.plugins.errors import (
 from lightfall.plugins.info import PluginInfo
 from lightfall.plugins.loader import PluginLoader
 from lightfall.plugins.manifest import PluginEntry, PluginManifest
-from lightfall.plugins.agent_plugin import AgentPlugin
 from lightfall.plugins.panel_plugin import PanelPlugin
 from lightfall.plugins.plan_plugin import PlanPlugin
 from lightfall.plugins.registry import PluginRegistry

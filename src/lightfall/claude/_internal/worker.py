@@ -652,7 +652,7 @@ class PersistentClaudeWorker(QThread):
                         return
 
             await asyncio.wait_for(_consume(), timeout=drain_timeout_s)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "[sdk-stream] drain timed out after {}s ({} messages); "
                 "giving up to keep cancel responsive",

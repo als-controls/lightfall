@@ -1,25 +1,28 @@
 """Pipeline Jobs dock panel - queue + recent jobs table."""
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
-
 
 _COLUMNS = ["job_id", "pipeline", "input_uid", "status", "started", "outputs"]
 
 
 class PipelineJobsPanel(QWidget):
-    def __init__(self, *, client: Any, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, *, client: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._client = client
-        self._rows: List[Dict[str, Any]] = []
+        self._rows: list[dict[str, Any]] = []
 
         outer = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -42,16 +45,16 @@ class PipelineJobsPanel(QWidget):
     def row_count(self) -> int:
         return len(self._rows)
 
-    def row(self, index: int) -> Dict[str, Any]:
+    def row(self, index: int) -> dict[str, Any]:
         return self._rows[index]
 
-    def _find_row(self, job_id: str) -> Optional[int]:
+    def _find_row(self, job_id: str) -> int | None:
         for i, r in enumerate(self._rows):
             if r["job_id"] == job_id:
                 return i
         return None
 
-    def _add_row(self, data: Dict[str, Any]) -> None:
+    def _add_row(self, data: dict[str, Any]) -> None:
         self._rows.append(data)
         row = self._table.rowCount()
         self._table.insertRow(row)
@@ -70,7 +73,7 @@ class PipelineJobsPanel(QWidget):
         )
         self._queue_label.setText(f"Queue: {active}")
 
-    def _on_queued(self, evt: Dict[str, Any]) -> None:
+    def _on_queued(self, evt: dict[str, Any]) -> None:
         self._add_row({
             "job_id": evt.get("job_id", ""),
             "pipeline": evt.get("pipeline", ""),
@@ -82,7 +85,7 @@ class PipelineJobsPanel(QWidget):
         })
         self._refresh_queue_label()
 
-    def _on_progress(self, evt: Dict[str, Any]) -> None:
+    def _on_progress(self, evt: dict[str, Any]) -> None:
         job_id = evt.get("job_id", "")
         if not job_id:
             return
@@ -99,7 +102,7 @@ class PipelineJobsPanel(QWidget):
         self._update_row(idx)
         self._refresh_queue_label()
 
-    def _on_completed(self, evt: Dict[str, Any]) -> None:
+    def _on_completed(self, evt: dict[str, Any]) -> None:
         idx = self._find_row(evt.get("job_id", ""))
         if idx is None:
             return
@@ -112,7 +115,7 @@ class PipelineJobsPanel(QWidget):
         self._update_row(idx)
         self._refresh_queue_label()
 
-    def _on_failed(self, evt: Dict[str, Any]) -> None:
+    def _on_failed(self, evt: dict[str, Any]) -> None:
         idx = self._find_row(evt.get("job_id", ""))
         if idx is None:
             return

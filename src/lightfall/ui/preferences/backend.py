@@ -94,7 +94,7 @@ class LocalPreferenceBackend(PreferenceBackend):
 
     def __init__(
         self,
-        config_manager: "ConfigManager | None" = None,
+        config_manager: ConfigManager | None = None,
         beamline: str | None = None,
     ) -> None:
         super().__init__()

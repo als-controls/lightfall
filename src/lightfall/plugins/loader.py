@@ -628,8 +628,8 @@ class PluginLoader(QObject):
 
         elif plugin_info.type_name == "agent":
             try:
-                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
                 from lightfall.plugins.agent_plugin import AgentPlugin
+                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
                 instance = plugin_info.instance
                 if not isinstance(instance, AgentPlugin):

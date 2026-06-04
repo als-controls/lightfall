@@ -6,7 +6,8 @@ through the manager so their tokens are tracked centrally.
 """
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from loguru import logger
 

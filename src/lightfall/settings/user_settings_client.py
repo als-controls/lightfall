@@ -46,7 +46,7 @@ class UserSettingsError(Exception):
 class UserSettingsClient:
     """Singleton client for /logbook/settings."""
 
-    _instance: "UserSettingsClient | None" = None
+    _instance: UserSettingsClient | None = None
     _lock = threading.Lock()
 
     def __init__(self, base_url: str | None = None) -> None:
@@ -82,7 +82,7 @@ class UserSettingsClient:
         )
 
     @classmethod
-    def get_instance(cls) -> "UserSettingsClient":
+    def get_instance(cls) -> UserSettingsClient:
         if cls._instance is None:
             cls.init()  # lazy default-init
         assert cls._instance is not None

@@ -17,7 +17,7 @@ class Trigger(ABC):
     """Base class for pipeline triggers."""
 
     @abstractmethod
-    def attach(self, manager: "TriggerManager") -> None:
+    def attach(self, manager: TriggerManager) -> None:
         """Called when added to a manager. Subscribe to engine docs here."""
 
     @abstractmethod

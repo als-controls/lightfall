@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -25,7 +25,6 @@ from lightfall.settings.user_settings_client import UserSettingsClient
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
-
 
 _AVATAR_PX = 28
 _PLACEHOLDER_COLOR = QColor(140, 140, 140)

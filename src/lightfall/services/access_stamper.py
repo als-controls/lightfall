@@ -9,8 +9,9 @@ entry-authorization-design.md (in the als-tiled repo) for the spec.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from lightfall.services._alshub_client import AlshubClient
 
@@ -22,10 +23,10 @@ class MissingSessionError(RuntimeError):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def compute_access_tags(blob: Dict[str, Any]) -> List[str]:
+def compute_access_tags(blob: dict[str, Any]) -> list[str]:
     """Project the human-readable access blob into the flat tag list that
     Tiled's PostgreSQL ``AccessBlobFilter`` actually queries.
 
@@ -44,7 +45,7 @@ def compute_access_tags(blob: Dict[str, Any]) -> List[str]:
       participant:keycloak_sub:<sub>
       participant:orcid:<orcid>
     """
-    tags: List[str] = []
+    tags: list[str] = []
     if blob.get("esaf_id"):
         tags.append(f"esaf:{blob['esaf_id']}")
     if blob.get("beamline"):
@@ -78,7 +79,7 @@ class AccessStamper:
         self._settings_provider = settings_provider
         self._version = version
 
-    def _operator_identity(self) -> tuple[Optional[str], Optional[str]]:
+    def _operator_identity(self) -> tuple[str | None, str | None]:
         """Pull (orcid, keycloak_sub) from the Keycloak session.
 
         Decoded JWT claims live on ``session.user.attributes``, populated by
@@ -98,22 +99,22 @@ class AccessStamper:
         sub = claims.get("sub")
         return orcid, sub
 
-    def _resolve_override(self) -> Optional[dict]:
+    def _resolve_override(self) -> dict | None:
         settings = self._settings_provider()
         override = getattr(settings, "access_override", None)
         if override is None:
             return None
         try:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             start = override.start
             end = override.end
             if start is None or end is None or override.esaf_id is None:
                 logger.warning("access_override missing fields; ignoring")
                 return None
             if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
+                start = start.replace(tzinfo=UTC)
             if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
+                end = end.replace(tzinfo=UTC)
             if not (start <= now <= end):
                 return None
             return {
@@ -124,7 +125,7 @@ class AccessStamper:
             logger.warning("access_override malformed: %s; ignoring", e)
             return None
 
-    async def build_blob(self) -> Dict[str, Any]:
+    async def build_blob(self) -> dict[str, Any]:
         operator_orcid, operator_sub = self._operator_identity()
 
         override = self._resolve_override()
@@ -172,7 +173,7 @@ class AccessStamper:
         return blob
 
     @staticmethod
-    def _derive_proposal(esaf_id: Optional[str]) -> Optional[str]:
+    def _derive_proposal(esaf_id: str | None) -> str | None:
         """Derive proposal_id from esaf_id when possible.
 
         ALS convention: ESAF IDs look like 'BLS-00480-001' where 'BLS-00480'
@@ -187,7 +188,7 @@ class AccessStamper:
         return None
 
 
-def install_into_run_engine(stamper: "AccessStamper", run_engine: Any) -> None:
+def install_into_run_engine(stamper: AccessStamper, run_engine: Any) -> None:
     """Install the stamper as a bluesky preprocessor on the RunEngine.
 
     On each ``RE(plan)`` call, the preprocessor builds a fresh access_blob
@@ -216,7 +217,7 @@ def install_into_run_engine(stamper: "AccessStamper", run_engine: Any) -> None:
         p for p in existing if not getattr(p, "_is_access_stamper", False)
     ]
 
-    def _build_blob_sync() -> Dict[str, Any]:
+    def _build_blob_sync() -> dict[str, Any]:
         # The RE owns an event loop; preprocessors execute inside it. A
         # worker thread gives asyncio.run a fresh, loop-free context.
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

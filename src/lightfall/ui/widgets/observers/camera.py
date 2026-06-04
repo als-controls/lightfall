@@ -5,7 +5,7 @@ For ophyd-backed area detectors, see lightfall.ui.widgets.camera (the ophyd-flav
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
@@ -40,7 +40,7 @@ class CameraBase(ABC):
     def get_latest_frame(self) -> np.ndarray | None:
         """Most-recently-decoded frame, or None if no frame yet. Shared, read-only."""
 
-    def __enter__(self) -> "CameraBase":
+    def __enter__(self) -> CameraBase:
         self.open()
         return self
 

@@ -5,8 +5,8 @@ from lightfall.config.manager import ConfigManager
 from lightfall.config.schema import (
     AcquisitionConfig,
     BeamlineConfig,
-    LoggingConfig,
     LFConfig,
+    LoggingConfig,
     UIConfig,
 )
 

@@ -12,7 +12,6 @@ from typing import Any
 
 from lightfall.utils.log_buffer import LogBuffer
 
-
 _DEFAULT_MAX_COUNT = 50
 _HARD_MAX_COUNT = 500
 

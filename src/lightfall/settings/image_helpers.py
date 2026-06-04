@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from lightfall.settings.user_settings_client import UserSettingsClient
 
 
-def _fetch_qimage(client: "UserSettingsClient", image_id: str) -> QImage:
+def _fetch_qimage(client: UserSettingsClient, image_id: str) -> QImage:
     """Download `image_id` via `client` and decode the bytes into a QImage.
 
     Designed to run on a worker thread; the returned QImage is

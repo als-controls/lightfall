@@ -21,8 +21,8 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from datetime import timedelta
-from typing import TYPE_CHECKING
+from datetime import timedelta  # noqa: E402
+from typing import TYPE_CHECKING  # noqa: E402
 
 
 def _configure_remote_display() -> None:

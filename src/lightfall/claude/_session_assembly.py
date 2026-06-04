@@ -41,7 +41,7 @@ def init_session_plugin_dir(path: Path) -> Path:
     return path
 
 
-def materialize_skill(plugin: "AgentPlugin", plugin_dir: Path) -> None:
+def materialize_skill(plugin: AgentPlugin, plugin_dir: Path) -> None:
     """Write `<plugin_dir>/skills/<name>/SKILL.md` for `plugin`, if it has a prompt.
 
     No-op for plugins where `get_system_prompt()` is empty/whitespace.
@@ -89,7 +89,7 @@ def materialize_skill(plugin: "AgentPlugin", plugin_dir: Path) -> None:
 
 
 def assemble_mcp_servers(
-    enabled_plugins: list["AgentPlugin"],
+    enabled_plugins: list[AgentPlugin],
 ) -> tuple[dict[str, Any], list[str]]:
     """Build (mcp_servers, allowed_tools) from the enabled AgentPlugins.
 

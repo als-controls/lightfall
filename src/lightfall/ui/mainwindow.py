@@ -830,6 +830,7 @@ class LFMainWindow(QMainWindow):
                 return
 
         import asyncio
+
         from lightfall.utils.threads import QThreadFuture
 
         def do_logout() -> None:

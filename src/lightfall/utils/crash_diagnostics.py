@@ -34,11 +34,12 @@ import signal
 import sys
 import threading
 import traceback
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import IO, Any, Callable, TypeVar
+from typing import IO, Any, TypeVar
 
 __all__ = [
     "install",

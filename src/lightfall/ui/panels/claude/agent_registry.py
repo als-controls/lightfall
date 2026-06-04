@@ -40,7 +40,7 @@ class AgentRegistry:
     Use AgentRegistry.get_instance() to access. reset_instance() is for tests.
     """
 
-    _instance: "AgentRegistry | None" = None
+    _instance: AgentRegistry | None = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
@@ -48,7 +48,7 @@ class AgentRegistry:
         self._legacy_migrated: bool = False
 
     @classmethod
-    def get_instance(cls) -> "AgentRegistry":
+    def get_instance(cls) -> AgentRegistry:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -60,7 +60,7 @@ class AgentRegistry:
         with cls._lock:
             cls._instance = None
 
-    def register(self, plugin: "AgentPlugin") -> None:
+    def register(self, plugin: AgentPlugin) -> None:
         """Register an AgentPlugin. Replaces any existing plugin with the same name."""
         if plugin.name in self._plugins:
             logger.warning("agent plugin '{}' already registered, replacing", plugin.name)
@@ -78,11 +78,11 @@ class AgentRegistry:
             return True
         return False
 
-    def get_plugins(self) -> list["AgentPlugin"]:
+    def get_plugins(self) -> list[AgentPlugin]:
         """All registered plugins (any order)."""
         return list(self._plugins.values())
 
-    def get_plugin(self, name: str) -> "AgentPlugin | None":
+    def get_plugin(self, name: str) -> AgentPlugin | None:
         return self._plugins.get(name)
 
     def _read_list_pref(self, key: str) -> list[str] | None:
@@ -144,7 +144,7 @@ class AgentRegistry:
             len(disabled), len(forced_enabled),
         )
 
-    def enabled_plugins(self) -> list["AgentPlugin"]:
+    def enabled_plugins(self) -> list[AgentPlugin]:
         """Plugins enabled by current preferences, sorted by priority (ascending)."""
         self._migrate_legacy_pref_if_needed()
         disabled = set(self._read_list_pref(DISABLED_PLUGINS_PREF) or [])

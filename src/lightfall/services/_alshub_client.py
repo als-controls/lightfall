@@ -13,7 +13,6 @@ the LBL network leave it empty — direct access works.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -24,16 +23,16 @@ class AlshubClient:
     def __init__(
         self,
         base_url: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 5.0,
-        proxy: Optional[str] = None,
+        proxy: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self._timeout = timeout
         self._proxy = proxy or None
 
-    async def get_active_esaf(self, beamline: str) -> Optional[dict]:
+    async def get_active_esaf(self, beamline: str) -> dict | None:
         """Return active-esaf payload, or None on 404. Raises on network errors.
 
         Distinguishing "no schedule" (404) from "alshub down" (raise) lets
