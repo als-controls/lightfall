@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QCheckBox, QRadioButton
 
-from lucid.claude.widgets.question_request import QuestionRequestWidget
+from lightfall.claude.widgets.question_request import QuestionRequestWidget
 
 
 def test_single_select_question(qtbot):

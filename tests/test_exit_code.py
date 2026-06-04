@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from PySide6.QtCore import QThread
 
-from lucid.utils.threads import QThreadFuture, ThreadManager, get_thread_manager
+from lightfall.utils.threads import QThreadFuture, ThreadManager, get_thread_manager
 
 
 class TestThreadShutdown:
@@ -95,7 +95,7 @@ class TestBlueskyEngineShutdown:
         """Test that BlueskyEngine queue processor exits on interruption."""
         pytest.importorskip("bluesky")
 
-        from lucid.acquire.engine.bluesky import BlueskyEngine
+        from lightfall.acquire.engine.bluesky import BlueskyEngine
 
         engine = BlueskyEngine()
 
@@ -116,11 +116,11 @@ class TestApplicationExitCode:
     """Tests for application exit code."""
 
     def test_ncs_application_quit_uses_zero(self, qapp) -> None:
-        """Test that NCSApplication.quit() defaults to exit code 0."""
-        from lucid.core.application import NCSApplication
+        """Test that LFApplication.quit() defaults to exit code 0."""
+        from lightfall.core.application import LFApplication
 
         # Get or create app (don't reset - use existing qapp)
-        app = NCSApplication.get_instance()
+        app = LFApplication.get_instance()
         if app._qt_app is None:
             app._qt_app = qapp
 

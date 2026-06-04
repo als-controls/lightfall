@@ -1,11 +1,11 @@
 ---
 name: starting-nats-server
-description: Use when LUCID code (demos, integration tests, scripts) needs a running NATS broker and one isn't already up — covers binary lookup, subprocess spawn, readiness probe, and teardown.
+description: Use when Lightfall code (demos, integration tests, scripts) needs a running NATS broker and one isn't already up — covers binary lookup, subprocess spawn, readiness probe, and teardown.
 ---
 
-# Starting a NATS server for LUCID
+# Starting a NATS server for Lightfall
 
-LUCID does not embed NATS. In production it's an external service; in tests/demos
+Lightfall does not embed NATS. In production it's an external service; in tests/demos
 you spawn `nats-server` as a subprocess. This skill captures the recipe.
 
 ## When to use
@@ -19,7 +19,7 @@ you spawn `nats-server` as a subprocess. This skill captures the recipe.
 
 - Unit tests — use the `NatsLink` abstraction / fake transport instead.
 - Production / staging — NATS is an external service. Ask beamline controls for
-  the URL; don't bundle a broker into the LUCID process.
+  the URL; don't bundle a broker into the Lightfall process.
 
 ## Binary location
 
@@ -124,7 +124,7 @@ Default port `4222` is fine for single-broker scripts. Use a random free port
   blocks. For session-scoped fixtures that finish in seconds this is fine; for
   anything longer, redirect to `subprocess.DEVNULL` or a file.
 - **JetStream is off by default.** If you need JS, add `-js` and a
-  `-sd <storage-dir>` flag. None of the current LUCID tests need it.
+  `-sd <storage-dir>` flag. None of the current Lightfall tests need it.
 
 ## Reference implementations in this repo
 

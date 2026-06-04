@@ -4,8 +4,8 @@ from __future__ import annotations
 
 
 def test_adaptive_heatmap_registered():
-    from lucid.ui.panels.visualization_panel import _widget_classes
-    from lucid.visualization.widgets.adaptive.heatmap import (
+    from lightfall.ui.panels.visualization_panel import _widget_classes
+    from lightfall.visualization.widgets.adaptive.heatmap import (
         AdaptiveHeatmapVisualization,
     )
 
@@ -14,8 +14,8 @@ def test_adaptive_heatmap_registered():
 
 
 def test_adaptive_plot_registered():
-    from lucid.ui.panels.visualization_panel import _widget_classes
-    from lucid.visualization.widgets.adaptive.plot import (
+    from lightfall.ui.panels.visualization_panel import _widget_classes
+    from lightfall.visualization.widgets.adaptive.plot import (
         AdaptivePlotVisualization,
     )
 

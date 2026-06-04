@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from lucid.exporter.converters.base import Converter
+from lightfall.exporter.converters.base import Converter
 
 
 class TestConverterABC:
@@ -42,7 +42,7 @@ class TestNoOpConverter:
         return run
 
     async def test_export_creates_output_files(self, tmp_path):
-        from lucid.exporter.converters.noop import NoOpConverter
+        from lightfall.exporter.converters.noop import NoOpConverter
 
         converter = NoOpConverter()
         assert converter.name == "noop"
@@ -66,7 +66,7 @@ class TestNoOpConverter:
         np.testing.assert_array_equal(loaded, data["detector"])
 
     async def test_export_calls_progress_cb(self, tmp_path):
-        from lucid.exporter.converters.noop import NoOpConverter
+        from lightfall.exporter.converters.noop import NoOpConverter
 
         converter = NoOpConverter()
         data = {"field1": np.array([1, 2, 3])}
@@ -85,8 +85,8 @@ class TestNoOpConverter:
 
 
 def test_noop_registered_in_converter_registry():
-    from lucid.exporter.converters import get_converter
-    from lucid.exporter.converters.noop import NoOpConverter
+    from lightfall.exporter.converters import get_converter
+    from lightfall.exporter.converters.noop import NoOpConverter
     assert get_converter("noop") is NoOpConverter
 
 
@@ -114,7 +114,7 @@ class TestNxsasConverter:
         return run
 
     async def test_export_creates_hdf5(self, tmp_path):
-        from lucid.exporter.converters.nxsas import NxsasConverter
+        from lightfall.exporter.converters.nxsas import NxsasConverter
 
         converter = NxsasConverter()
         assert converter.name == "nxsas"
@@ -142,7 +142,7 @@ class TestNxsasConverter:
             np.testing.assert_array_equal(data, image_data[:, 20:60, 10:60])
 
     async def test_export_without_roi_uses_full_frame(self, tmp_path):
-        from lucid.exporter.converters.nxsas import NxsasConverter
+        from lightfall.exporter.converters.nxsas import NxsasConverter
 
         converter = NxsasConverter()
         image_data = np.ones((2, 50, 50), dtype=np.float32)

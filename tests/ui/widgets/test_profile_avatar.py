@@ -11,8 +11,8 @@ from PySide6.QtGui import QImage
 @pytest.fixture(autouse=True)
 def _reset_prefs(qapp, monkeypatch):
     from unittest.mock import MagicMock
-    from lucid.settings import user_settings_client as usc_mod
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.settings import user_settings_client as usc_mod
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_client = MagicMock()
     fake_client.set.return_value = None
@@ -37,7 +37,7 @@ def _reset_prefs(qapp, monkeypatch):
 
 
 def test_initial_render_is_placeholder(qapp):
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     assert w._loaded_image_id is None
@@ -46,9 +46,9 @@ def test_initial_render_is_placeholder(qapp):
 
 def test_subscribe_with_new_id_triggers_fetch(qapp):
     import time
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -75,9 +75,9 @@ def test_subscribe_with_new_id_triggers_fetch(qapp):
 
 def test_subscribe_same_id_does_not_refetch(qapp):
     import time
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -106,9 +106,9 @@ def test_subscribe_same_id_does_not_refetch(qapp):
 
 def test_subscribe_none_reverts_to_placeholder(qapp):
     import time
-    from lucid.ui.widgets import profile_avatar as pa_mod
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
-    from lucid.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.preferences.manager import PreferencesManager
 
     fake_qimage = QImage(16, 16, QImage.Format.Format_ARGB32)
     fake_qimage.fill(Qt.GlobalColor.red)
@@ -132,7 +132,7 @@ def test_mouse_press_emits_clicked(qapp):
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtGui import QMouseEvent
 
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     received: list = []
@@ -153,7 +153,7 @@ def test_right_click_does_not_emit_clicked(qapp):
     from PySide6.QtCore import QPointF
     from PySide6.QtGui import QMouseEvent
 
-    from lucid.ui.widgets.profile_avatar import ProfileAvatarWidget
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
 
     w = ProfileAvatarWidget()
     received: list = []

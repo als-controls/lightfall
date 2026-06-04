@@ -1,6 +1,6 @@
 """Unit tests for the module-level WS-proxy patch on tiled.client.stream.connect.
 
-The patch is installed at import time of lucid.services.tiled_service. The
+The patch is installed at import time of lightfall.services.tiled_service. The
 wrapper does a live ProxySettingsProvider lookup per call, so we test by
 controlling that lookup's return value.
 """
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Importing the module also installs the patch.
-import lucid.services.tiled_service  # noqa: F401
+import lightfall.services.tiled_service  # noqa: F401
 import tiled.client.stream as stream_mod
 
 
@@ -27,8 +27,8 @@ def fake_real_connect():
     delegate via its closure cell — we replace the cell's contents.
     """
     wrapper = stream_mod.connect
-    assert getattr(wrapper, "_lucid_socks_patched", False), (
-        "test premise: lucid.services.tiled_service must install the patch on import"
+    assert getattr(wrapper, "_lightfall_socks_patched", False), (
+        "test premise: lightfall.services.tiled_service must install the patch on import"
     )
     # The closure has one cell: the original connect.
     original_cell = wrapper.__closure__[0]
@@ -56,7 +56,7 @@ def test_ws_wrapper_routes_socks_when_provider_returns_socks_url(fake_real_conne
     proxy_obj.connect.return_value = socks_sock
 
     with patch(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider"
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider"
         ".should_use_proxy_for_url",
         return_value="socks5://localhost:1080",
     ), patch("python_socks.sync.Proxy.from_url", return_value=proxy_obj):
@@ -77,7 +77,7 @@ def test_ws_wrapper_adds_ssl_for_wss(fake_real_connect):
     proxy_obj.connect.return_value = socks_sock
 
     with patch(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider"
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider"
         ".should_use_proxy_for_url",
         return_value="socks5://localhost:1080",
     ), patch("python_socks.sync.Proxy.from_url", return_value=proxy_obj):
@@ -94,7 +94,7 @@ def test_ws_wrapper_passthrough_when_no_proxy(fake_real_connect):
     """ProxySettingsProvider returns None → wrapper delegates without
     injecting sock or ssl."""
     with patch(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider"
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider"
         ".should_use_proxy_for_url",
         return_value=None,
     ):
@@ -111,7 +111,7 @@ def test_ws_wrapper_passthrough_for_non_socks_proxy(fake_real_connect):
     delegates to upstream websockets (which can use its own proxy= default
     if HTTPS_PROXY is set in env)."""
     with patch(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider"
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider"
         ".should_use_proxy_for_url",
         return_value="http://corporate-proxy:3128",
     ):
@@ -125,7 +125,7 @@ def test_ws_wrapper_passthrough_for_non_socks_proxy(fake_real_connect):
 
 def test_install_is_idempotent():
     """Calling _install_tiled_stream_ws_proxy_patch a second time is a no-op."""
-    from lucid.services.tiled_service import _install_tiled_stream_ws_proxy_patch
+    from lightfall.services.tiled_service import _install_tiled_stream_ws_proxy_patch
 
     wrapper_before = stream_mod.connect
     _install_tiled_stream_ws_proxy_patch()

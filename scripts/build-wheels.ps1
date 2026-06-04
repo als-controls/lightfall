@@ -5,22 +5,22 @@
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$NcsDir = Split-Path -Parent $ScriptDir
-$DistDir = Join-Path $NcsDir "dist"
+$LightfallDir = Split-Path -Parent $ScriptDir
+$DistDir = Join-Path $LightfallDir "dist"
 
 # Find the parent directory containing sub-projects
 # Works from both main checkout and worktrees
 $ParentDir = $null
 
-$NormalPath = Join-Path (Split-Path -Parent $NcsDir) "epics-pyside"
-$WorktreePath = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $NcsDir))) "epics-pyside"
+$NormalPath = Join-Path (Split-Path -Parent $LightfallDir) "epics-pyside"
+$WorktreePath = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $LightfallDir))) "epics-pyside"
 
 if (Test-Path $NormalPath) {
     # Normal checkout: ncs/ncs/../epics-pyside -> ncs/epics-pyside
-    $ParentDir = Split-Path -Parent $NcsDir
+    $ParentDir = Split-Path -Parent $LightfallDir
 } elseif (Test-Path $WorktreePath) {
     # Worktree: ncs/ncs/.worktrees/branch/../../../epics-pyside -> ncs/epics-pyside
-    $ParentDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $NcsDir))
+    $ParentDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $LightfallDir))
 } else {
     Write-Error "Cannot find sub-projects directory"
     Write-Host "Expected epics-pyside at: $NormalPath"
@@ -29,7 +29,7 @@ if (Test-Path $NormalPath) {
 }
 
 Write-Host "Building wheels for sub-projects..."
-Write-Host "  NCS_DIR: $NcsDir"
+Write-Host "  LIGHTFALL_DIR: $LightfallDir"
 Write-Host "  PARENT_DIR: $ParentDir"
 Write-Host "  DIST_DIR: $DistDir"
 

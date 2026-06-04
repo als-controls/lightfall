@@ -1,16 +1,16 @@
-# Build LUCID native application using Briefcase
+# Build Lightfall native application using Briefcase
 # This script orchestrates the full build: wheels -> create -> build
 #Requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$NcsDir = Split-Path -Parent $ScriptDir
+$LightfallDir = Split-Path -Parent $ScriptDir
 
-Push-Location $NcsDir
+Push-Location $LightfallDir
 try {
     Write-Host "=========================================="
-    Write-Host "LUCID Briefcase Build"
+    Write-Host "Lightfall Briefcase Build"
     Write-Host "=========================================="
     Write-Host ""
 
@@ -21,7 +21,7 @@ try {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     # Step 2: Set up pip to find local wheels
-    $DistDir = Join-Path $NcsDir "dist"
+    $DistDir = Join-Path $LightfallDir "dist"
     $env:PIP_FIND_LINKS = $DistDir
     Write-Host ""
     Write-Host "Step 2: Configured PIP_FIND_LINKS=$env:PIP_FIND_LINKS"

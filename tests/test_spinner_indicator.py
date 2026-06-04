@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtGui import QImage
 
-from lucid.ui.widgets.runengine_control import SpinnerIndicator
+from lightfall.ui.widgets.runengine_control import SpinnerIndicator
 
 
 @pytest.fixture

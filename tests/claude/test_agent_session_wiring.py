@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.plugins.agent_plugin import AgentPlugin
-from lucid.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
 
 class _PromptAgent(AgentPlugin):
@@ -45,7 +45,7 @@ def reset_registry():
 @pytest.fixture
 def mock_sdk(monkeypatch):
     """Replace ClaudeSDKClient with a MagicMock so __init__ doesn't connect."""
-    monkeypatch.setattr("lucid.claude.agent.ClaudeSDKClient", MagicMock())
+    monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
 
 
 def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot, monkeypatch):
@@ -53,17 +53,17 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     AgentRegistry.get_instance().register(_ToolAgent())
     # Both agents default to enabled_by_default=True; stub pref reads to no overrides.
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
         lambda self, key: None,
     )
     monkeypatch.setattr(
-        "lucid.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
 
     from PySide6.QtWidgets import QWidget
 
-    from lucid.claude.agent import QtClaudeAgent
+    from lightfall.claude.agent import QtClaudeAgent
 
     target = QWidget()
     qtbot.addWidget(target)

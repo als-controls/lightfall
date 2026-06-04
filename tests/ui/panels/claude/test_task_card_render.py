@@ -1,7 +1,7 @@
 """TaskCard renders status, description, and counters."""
 from __future__ import annotations
 
-from lucid.claude.widgets.task_card import TaskCard
+from lightfall.claude.widgets.task_card import TaskCard
 
 
 def test_initial_state_is_running(qtbot):

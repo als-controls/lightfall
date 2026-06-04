@@ -4,26 +4,26 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NCS_DIR="$(dirname "$SCRIPT_DIR")"
-DIST_DIR="$NCS_DIR/dist"
+LIGHTFALL_DIR="$(dirname "$SCRIPT_DIR")"
+DIST_DIR="$LIGHTFALL_DIR/dist"
 
 # Find the parent directory containing sub-projects
 # Works from both main checkout and worktrees
-if [ -d "$NCS_DIR/../epics-pyside" ]; then
+if [ -d "$LIGHTFALL_DIR/../epics-pyside" ]; then
     # Normal checkout: ncs/ncs/../epics-pyside -> ncs/epics-pyside
-    PARENT_DIR="$(cd "$NCS_DIR/.." && pwd)"
-elif [ -d "$NCS_DIR/../../../epics-pyside" ]; then
+    PARENT_DIR="$(cd "$LIGHTFALL_DIR/.." && pwd)"
+elif [ -d "$LIGHTFALL_DIR/../../../epics-pyside" ]; then
     # Worktree: ncs/ncs/.worktrees/branch/../../../epics-pyside -> ncs/epics-pyside
-    PARENT_DIR="$(cd "$NCS_DIR/../../.." && pwd)"
+    PARENT_DIR="$(cd "$LIGHTFALL_DIR/../../.." && pwd)"
 else
     echo "Error: Cannot find sub-projects directory"
-    echo "Expected epics-pyside at $NCS_DIR/../epics-pyside"
-    echo "  or $NCS_DIR/../../../epics-pyside (for worktrees)"
+    echo "Expected epics-pyside at $LIGHTFALL_DIR/../epics-pyside"
+    echo "  or $LIGHTFALL_DIR/../../../epics-pyside (for worktrees)"
     exit 1
 fi
 
 echo "Building wheels for sub-projects..."
-echo "  NCS_DIR: $NCS_DIR"
+echo "  LIGHTFALL_DIR: $LIGHTFALL_DIR"
 echo "  PARENT_DIR: $PARENT_DIR"
 echo "  DIST_DIR: $DIST_DIR"
 

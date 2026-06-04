@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import QCoreApplication, QTimer
 
-from lucid.acquire.engine.waiting_hook import WaitingHookBridge
+from lightfall.acquire.engine.waiting_hook import WaitingHookBridge
 
 
 @pytest.fixture

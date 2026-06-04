@@ -1,6 +1,6 @@
 # Running Plans
 
-Plans are the primary way to perform data acquisition in LUCID. A plan defines a sequence of measurements - moving motors, triggering detectors, and recording data. This guide explains how to select, configure, and run plans.
+Plans are the primary way to perform data acquisition in Lightfall. A plan defines a sequence of measurements - moving motors, triggering detectors, and recording data. This guide explains how to select, configure, and run plans.
 
 ## The Bluesky Panel
 
@@ -136,7 +136,7 @@ You can create custom plans for repetitive procedures.
 3. Write your plan using the Bluesky plan template
 4. Save the file
 
-Plans are stored in `~/lucid/plans/` and automatically loaded.
+Plans are stored in `~/lightfall/plans/` and automatically loaded.
 
 ### Refreshing Plans
 

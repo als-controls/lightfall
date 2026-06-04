@@ -1,9 +1,9 @@
-# LUCID — Claude Code instructions
+# Lightfall — Claude Code instructions
 
 ## Crash diagnostics
 
-`lucid.utils.crash_diagnostics` is the project's deterministic-debugging layer.
-It is installed automatically by `lucid.main` and exposes helpers for new code.
+`lightfall.utils.crash_diagnostics` is the project's deterministic-debugging layer.
+It is installed automatically by `lightfall.main` and exposes helpers for new code.
 
 ### Auto-installed (do not reinstall in tests/scripts unless isolating)
 
@@ -23,7 +23,7 @@ It is installed automatically by `lucid.main` and exposes helpers for new code.
 Use these tripwires liberally; they are no-ops in correct code:
 
 ```python
-from lucid.utils.crash_diagnostics import (
+from lightfall.utils.crash_diagnostics import (
     assert_gui_thread,    # raises off the GUI thread; pass an obj for context
     assert_object_thread, # raises if not on obj.thread()
     gui_thread_only,      # decorator form; stack BELOW @Slot
@@ -59,23 +59,23 @@ specific path that produced the crash you are chasing.
 - Check loguru output around the crash time — the excepthook catches what
   Qt's `notify()` boundary swallows.
 - Trigger an on-demand thread dump if the process is hung but alive.
-- `lucid.utils.error_collector.ErrorCollector.get_recent_errors()` returns
+- `lightfall.utils.error_collector.ErrorCollector.get_recent_errors()` returns
   the last 50 ERROR+ records for bug-report dialogs.
 
 ## Surrounding infrastructure (for context)
 
-- Logging: `from lucid.utils.logging import logger` — loguru, configured in
+- Logging: `from lightfall.utils.logging import logger` — loguru, configured in
   `app.initialize()`. File handler is opt-in via `log_file=...`.
-- Sentry: auto-initialized in `main()`. `@sentry_slot()` (in `lucid.utils.sentry`)
+- Sentry: auto-initialized in `main()`. `@sentry_slot()` (in `lightfall.utils.sentry`)
   is the Slot decorator that captures exceptions to Sentry; the QApplication
   subclass also wraps `notify()` for the same purpose.
-- Threading: `lucid.utils.threads` provides `QThreadFuture`, `ManagedThreadPool`,
+- Threading: `lightfall.utils.threads` provides `QThreadFuture`, `ManagedThreadPool`,
   `invoke_in_main_thread`, `is_main_thread`, and the `@method` / `@iterator`
   decorators. Prefer these over raw `threading.Thread` so shutdown is clean.
 
 ## Visualization theming (pyqtgraph)
 
-Use `from lucid.visualization import pg` instead of `import pyqtgraph as pg`
+Use `from lightfall.visualization import pg` instead of `import pyqtgraph as pg`
 in viz widgets. The wrapper re-exports the full pyqtgraph namespace and
 adds themed subclasses for items that hold their own pen/brush:
 
@@ -84,7 +84,7 @@ adds themed subclasses for items that hold their own pen/brush:
 - `pg.InfiniteLine` — default pen tracks `highlight` (good for crosshairs).
 - `pg.series_pen(i)` — palette color for the *i*-th series, cycles.
 - `pg.retheme_all()` — re-applies the current palette to every live themed
-  item (called automatically from `NCSMainWindow._apply_theme`).
+  item (called automatically from `LFMainWindow._apply_theme`).
 
 Background, axis, tick, and grid colors are handled globally by
 `apply_pyqtgraph_theme()`, also called from `_apply_theme`. Items
@@ -93,9 +93,9 @@ theme changes.
 
 For widgets that need more than per-item retheme (e.g. a custom legend or
 overlay), inherit `ThemedVisualizationMixin` from
-`lucid.visualization.theme` and override `_apply_viz_colors`.
+`lightfall.visualization.theme` and override `_apply_viz_colors`.
 
 ## Test runner
 
 Always use the venv Python: `.venv/Scripts/python -m pytest`. Bare `pytest`
-resolves to the system Python 3.10 which cannot import lucid.
+resolves to the system Python 3.10 which cannot import lightfall.

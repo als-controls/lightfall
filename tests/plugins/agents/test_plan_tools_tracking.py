@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from lucid.acquire.plans.user_plans import UserPlanService
-from lucid.plugins.agents.plan_tools import PlanToolsAgent
-from lucid.utils.git_tracker import GitTracker
+from lightfall.acquire.plans.user_plans import UserPlanService
+from lightfall.plugins.agents.plan_tools import PlanToolsAgent
+from lightfall.utils.git_tracker import GitTracker
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def reset_singletons():
 @pytest.fixture
 def tracked_dirs(tmp_path, monkeypatch):
     GitTracker.reset_instance()
-    repo_root = tmp_path / "lucid"
+    repo_root = tmp_path / "lightfall"
     repo_root.mkdir()
     plans_dir = repo_root / "plans"
     plans_dir.mkdir()
@@ -56,7 +56,7 @@ def _unwrap(result):
 def test_create_user_plan_commits_with_description(tracked_dirs):
     agent = PlanToolsAgent()
     tools = agent.create_tools()
-    create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plan")
+    create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plan")
 
     code = '''"""my_scan."""
 from __future__ import annotations
@@ -81,8 +81,8 @@ def test_delete_user_plan_commits_removal_with_agent_subject(tracked_dirs):
     # First create a plan
     agent = PlanToolsAgent()
     tools = agent.create_tools()
-    create_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_create_user_plan")
-    delete_tool = next(t for t in tools if getattr(t, "name", None) == "ncs_delete_user_plan")
+    create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plan")
+    delete_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_delete_user_plan")
 
     code = '''"""doomed."""
 from __future__ import annotations

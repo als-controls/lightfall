@@ -12,7 +12,7 @@ Use `StatusBarPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 ```
 
 ## Class Attributes
@@ -30,7 +30,7 @@ Every status bar plugin must define class-level metadata:
 ```python
 @dataclass
 class StatusBarPluginMetadata:
-    id: str              # Unique identifier (e.g., "lucid.statusbar.user")
+    id: str              # Unique identifier (e.g., "lightfall.statusbar.user")
     name: str            # Human-readable display name
     description: str = ""  # Description of what it shows
     priority: int = 100    # Sort order (lower = further left)
@@ -139,8 +139,8 @@ trailing separator.
 
 from typing import ClassVar
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lucid.ui.theme import ThemeManager
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.ui.theme import ThemeManager
 
 
 class DeviceConnectionStatus(StatusBarPlugin):
@@ -189,7 +189,7 @@ class DeviceConnectionStatus(StatusBarPlugin):
         )
 
     def connect_signals(self) -> None:
-        from lucid.devices.manager import DeviceManager
+        from lightfall.devices.manager import DeviceManager
 
         self._device_manager = DeviceManager.get_instance()
         self._device_manager.connection_changed.connect(self.update)
@@ -208,7 +208,7 @@ class DeviceConnectionStatus(StatusBarPlugin):
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
 class ExternalLinkStatus(StatusBarPlugin):
@@ -245,7 +245,7 @@ import qtawesome as qta
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QToolButton, QWidget
 
-from lucid.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
+from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
 class IconStatusPlugin(StatusBarPlugin):
@@ -331,7 +331,7 @@ close up cleanly, with no leftover gap or trailing separator.
 
 ## Built-in Status Plugins
 
-LUCID includes these status bar plugins:
+Lightfall includes these status bar plugins:
 
 | Plugin | Description |
 |--------|-------------|

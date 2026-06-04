@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from lucid.auth.service_key import MintedKey
-from lucid.auth.session import SessionManager
+from lightfall.auth.service_key import MintedKey
+from lightfall.auth.session import SessionManager
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +20,7 @@ def reset_singleton():
 
 def test_run_sync_carries_apikey_header(tmp_path, httpx_mock):
     """The sync worker injects Authorization: Apikey <secret> on requests."""
-    from lucid.logbook.client import _run_sync
+    from lightfall.logbook.client import _run_sync
 
     # Seed the session-key cache directly — the production write path is
     # the login mint, which is tested separately. Here we just need the
@@ -73,7 +73,7 @@ def test_run_sync_carries_apikey_header(tmp_path, httpx_mock):
 
 def test_run_sync_includes_user_id_header(tmp_path, httpx_mock):
     """X-User-Id is sent so dev-mode logbook (no Keycloak) can identify the user."""
-    from lucid.logbook.client import _run_sync
+    from lightfall.logbook.client import _run_sync
 
     # No service key cached -> ServiceKeyAuth sends no Authorization header.
     # The X-User-Id header is the dev-mode identity fallback.
@@ -110,7 +110,7 @@ def test_run_sync_includes_user_id_header(tmp_path, httpx_mock):
 
 def test_run_sync_omits_user_id_header_when_none(tmp_path, httpx_mock):
     """No X-User-Id header is set when user_id is None."""
-    from lucid.logbook.client import _run_sync
+    from lightfall.logbook.client import _run_sync
 
     db_path = tmp_path / "logbook.db"
     db = sqlite3.connect(str(db_path))

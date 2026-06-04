@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.acquire.triggers.base import Trigger
+from lightfall.acquire.triggers.base import Trigger
 
 
 def test_trigger_is_abstract():

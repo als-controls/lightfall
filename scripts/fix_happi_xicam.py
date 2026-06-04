@@ -14,13 +14,13 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-# Mapping from xicam device classes to new lucid-endstation-7011 classes
+# Mapping from xicam device classes to new lightfall-endstation-7011 classes
 XICAM_TO_OPHYD_MAP = {
-    "xicam.Acquire.devices.diode.DetectorDiode": "lucid_endstation_7011.devices.diode.DetectorDiode",
-    "xicam.Acquire.devices.pimte3.PIMTE3": "lucid_endstation_7011.devices.pimte3.PIMTE3",
-    "xicam.Acquire.devices.andor.Andor": "lucid_endstation_7011.devices.andor.Andor",
-    "xicam.Acquire.devices.lakeshore.LakeShore336": "lucid_endstation_7011.devices.lakeshore.LakeShore336",
-    "xicam.Acquire.devices.motor.DeadbandEpicsMotor": "lucid_endstation_7011.devices.motor.DeadbandEpicsMotor",
+    "xicam.Acquire.devices.diode.DetectorDiode": "lightfall_endstation_7011.devices.diode.DetectorDiode",
+    "xicam.Acquire.devices.pimte3.PIMTE3": "lightfall_endstation_7011.devices.pimte3.PIMTE3",
+    "xicam.Acquire.devices.andor.Andor": "lightfall_endstation_7011.devices.andor.Andor",
+    "xicam.Acquire.devices.lakeshore.LakeShore336": "lightfall_endstation_7011.devices.lakeshore.LakeShore336",
+    "xicam.Acquire.devices.motor.DeadbandEpicsMotor": "lightfall_endstation_7011.devices.motor.DeadbandEpicsMotor",
     # Generic fallbacks
     "xicam.Acquire.devices.areadetector.AreaDetector": "ophyd.areadetector.detectors.DetectorBase",
     "xicam.Acquire.devices.ophyd.OphydDevice": "ophyd.Device",

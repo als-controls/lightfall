@@ -1,10 +1,10 @@
 # Getting Started
 
-LUCID is a modern control system for scientific data acquisition and hardware controls. This guide introduces the main concepts and helps you get started with your first experiment.
+Lightfall is a modern control system for scientific data acquisition and hardware controls. This guide introduces the main concepts and helps you get started with your first experiment.
 
 ## Overview
 
-LUCID provides a unified interface for:
+Lightfall provides a unified interface for:
 
 - **Data Acquisition**: Run scans and measurements using Bluesky plans
 - **Device Control**: Monitor and control beamline hardware
@@ -13,7 +13,7 @@ LUCID provides a unified interface for:
 
 ## Application Layout
 
-When you launch LUCID, you'll see a window with several key areas:
+When you launch Lightfall, you'll see a window with several key areas:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -37,7 +37,7 @@ When you launch LUCID, you'll see a window with several key areas:
 
 ### Main Panels
 
-LUCID uses a dockable panel system. The default layout includes:
+Lightfall uses a dockable panel system. The default layout includes:
 
 | Panel | Purpose |
 |-------|---------|
@@ -50,7 +50,7 @@ Panels can be rearranged by dragging their title bars, and additional panels are
 
 ## Quick Start Workflow
 
-A typical experiment workflow in LUCID:
+A typical experiment workflow in Lightfall:
 
 1. **Log In**: Authenticate with your credentials (see [Logging In](login.md))
 2. **Check Devices**: Verify your hardware is connected in the Devices panel

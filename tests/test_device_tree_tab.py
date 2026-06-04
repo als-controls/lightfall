@@ -7,8 +7,8 @@ import pytest
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import QApplication
 
-from lucid.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
-from lucid.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
+from lightfall.devices.model import DeviceCategory, DeviceInfo, DeviceState, DeviceStatus
+from lightfall.ui.models.device_tree import DeviceTreeItem, DeviceTreeModel, NodeType
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def _make_catalog_with_motors():
 
 class TestDeviceTreeTab:
     def test_creation(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
             tab = DeviceTreeTab(catalog=catalog)
@@ -55,7 +55,7 @@ class TestDeviceTreeTab:
         tab.close()
 
     def test_signals_exist(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
             tab = DeviceTreeTab(catalog=catalog)
@@ -65,7 +65,7 @@ class TestDeviceTreeTab:
         tab.close()
 
     def test_search_filters_tree(self, qapp):
-        from lucid.ui.widgets.device_tree_tab import DeviceTreeTab
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
         catalog, devices = _make_catalog_with_motors()
         with patch.object(DeviceTreeModel, "_poll_value_refresh"):
             tab = DeviceTreeTab(catalog=catalog)

@@ -12,7 +12,7 @@ Use `SkillPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.skill_plugin import SkillPlugin
+from lightfall.plugins.skill_plugin import SkillPlugin
 ```
 
 ## Class Attributes
@@ -136,7 +136,7 @@ def create_tools(self) -> list[Any]:
 ```python
 """Beamline alignment skill for Claude assistant."""
 
-from lucid.plugins.skill_plugin import SkillPlugin
+from lightfall.plugins.skill_plugin import SkillPlugin
 
 
 class BeamlineAlignmentSkill(SkillPlugin):
@@ -208,7 +208,7 @@ You have expertise in beamline alignment and optimization procedures.
 ```python
 """Data analysis skill with specialized tools."""
 
-from lucid.plugins.skill_plugin import SkillPlugin
+from lightfall.plugins.skill_plugin import SkillPlugin
 
 
 class DataAnalysisSkill(SkillPlugin):
@@ -289,7 +289,7 @@ You can analyze scan data to find peaks, calculate statistics, and provide insig
         )
         async def find_peak(args: dict) -> dict:
             import numpy as np
-            from lucid.data.catalog import get_catalog
+            from lightfall.data.catalog import get_catalog
 
             uid = args["scan_uid"]
             x_col = args["x_column"]

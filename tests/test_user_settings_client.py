@@ -9,8 +9,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
-    from lucid.auth.session import SessionManager
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.auth.session import SessionManager
+    from lightfall.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.reset()
     SessionManager.reset()
     yield
@@ -19,7 +19,7 @@ def _reset_singleton():
 
 
 def _client(base_url="https://lb.test"):
-    from lucid.settings.user_settings_client import UserSettingsClient
+    from lightfall.settings.user_settings_client import UserSettingsClient
     UserSettingsClient.init(base_url=base_url)
     return UserSettingsClient.get_instance()
 
@@ -107,7 +107,7 @@ def test_set_with_beamline(httpx_mock):
 
 
 def test_set_raises_on_5xx(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="PUT",
@@ -120,7 +120,7 @@ def test_set_raises_on_5xx(httpx_mock):
 
 
 def test_set_raises_on_network_error(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_exception(httpx.ConnectError("boom"))
     c = _client()
@@ -150,7 +150,7 @@ def test_delete_treats_404_as_success(httpx_mock):
 
 
 def test_delete_raises_on_5xx(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="DELETE",
@@ -175,7 +175,7 @@ def test_upload_image_returns_id(httpx_mock):
 
 
 def test_upload_image_raises_on_4xx(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         method="POST",
@@ -209,7 +209,7 @@ def test_download_image_returns_bytes_and_mime(httpx_mock):
 
 
 def test_download_image_raises_on_404(httpx_mock):
-    from lucid.settings.user_settings_client import UserSettingsError
+    from lightfall.settings.user_settings_client import UserSettingsError
 
     httpx_mock.add_response(
         url="https://lb.test/logbook/images/missing",
@@ -224,7 +224,7 @@ def test_client_uses_proxy_from_provider(monkeypatch):
     """_client() must thread the shared ProxySettingsProvider into httpx
     so calls to *.lbl.gov work behind the SOCKS proxy (matches LogbookClient)."""
     import httpx as _httpx
-    from lucid.ui.preferences import proxy_settings as ps_module
+    from lightfall.ui.preferences import proxy_settings as ps_module
 
     monkeypatch.setattr(
         ps_module.ProxySettingsProvider,
@@ -246,7 +246,7 @@ def test_client_uses_proxy_from_provider(monkeypatch):
 
 def test_client_omits_proxy_when_provider_returns_none(monkeypatch):
     import httpx as _httpx
-    from lucid.ui.preferences import proxy_settings as ps_module
+    from lightfall.ui.preferences import proxy_settings as ps_module
 
     monkeypatch.setattr(
         ps_module.ProxySettingsProvider,
@@ -270,8 +270,8 @@ def test_request_carries_apikey_header(httpx_mock):
     """ServiceKeyAuth injects Authorization: Apikey <secret>."""
     from datetime import UTC, datetime, timedelta
 
-    from lucid.auth.service_key import MintedKey
-    from lucid.auth.session import SessionManager
+    from lightfall.auth.service_key import MintedKey
+    from lightfall.auth.session import SessionManager
 
     sm = SessionManager.get_instance()
     sm._service_keys["logbook"] = MintedKey(

@@ -5,14 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.engine.state import EngineState
+from lightfall.acquire.engine.state import EngineState
 
 
 @pytest.fixture
 def mainwindow_class():
     """Import MainWindow lazily so qapp fixture has fired first."""
-    from lucid.ui.mainwindow import NCSMainWindow
-    return NCSMainWindow
+    from lightfall.ui.mainwindow import LFMainWindow
+    return LFMainWindow
 
 
 def _make_window(qapp, mainwindow_class):
@@ -25,7 +25,7 @@ def _make_window(qapp, mainwindow_class):
     # without actually constructing the widget tree. We need a real
     # QWidget-derived instance so QMessageBox.question accepts it as parent.
     win = mainwindow_class.__new__(mainwindow_class)
-    # Initialize the Qt base (QMainWindow is the direct base of NCSMainWindow)
+    # Initialize the Qt base (QMainWindow is the direct base of LFMainWindow)
     from PySide6.QtWidgets import QMainWindow
     QMainWindow.__init__(win)
     win._session_manager = MagicMock()
@@ -39,7 +39,7 @@ def test_gate_returns_false_when_engine_idle(qapp, mainwindow_class, monkeypatch
     fake_engine.state = EngineState.IDLE
 
     monkeypatch.setattr(
-        "lucid.acquire.engine.get_engine", lambda: fake_engine
+        "lightfall.acquire.engine.get_engine", lambda: fake_engine
     )
 
     assert win._re_active_for_logout_gate() is False
@@ -52,7 +52,7 @@ def test_gate_returns_true_when_engine_running(qapp, mainwindow_class, monkeypat
     fake_engine.state = EngineState.RUNNING
 
     monkeypatch.setattr(
-        "lucid.acquire.engine.get_engine", lambda: fake_engine
+        "lightfall.acquire.engine.get_engine", lambda: fake_engine
     )
 
     assert win._re_active_for_logout_gate() is True
@@ -65,7 +65,7 @@ def test_gate_returns_true_when_engine_paused(qapp, mainwindow_class, monkeypatc
     fake_engine.state = EngineState.PAUSED
 
     monkeypatch.setattr(
-        "lucid.acquire.engine.get_engine", lambda: fake_engine
+        "lightfall.acquire.engine.get_engine", lambda: fake_engine
     )
 
     assert win._re_active_for_logout_gate() is True
@@ -76,7 +76,7 @@ def test_gate_returns_false_on_error(qapp, mainwindow_class, monkeypatch):
 
     def boom():
         raise RuntimeError("engine plugin not loaded")
-    monkeypatch.setattr("lucid.acquire.engine.get_engine", boom)
+    monkeypatch.setattr("lightfall.acquire.engine.get_engine", boom)
 
     assert win._re_active_for_logout_gate() is False
 
@@ -97,7 +97,7 @@ def test_logout_skips_thread_when_user_cancels(qapp, mainwindow_class, monkeypat
     class _FakeFuture:
         def __init__(self, *a, **kw): pass
         def start(self): thread_started.append(True)
-    monkeypatch.setattr("lucid.utils.threads.QThreadFuture", _FakeFuture)
+    monkeypatch.setattr("lightfall.utils.threads.QThreadFuture", _FakeFuture)
 
     win._on_logout()
 
@@ -122,7 +122,7 @@ def test_logout_proceeds_when_user_confirms(qapp, mainwindow_class, monkeypatch)
         def __init__(self, fn, *a, **kw):
             self._fn = fn
         def start(self): thread_started.append(True)
-    monkeypatch.setattr("lucid.utils.threads.QThreadFuture", _FakeFuture)
+    monkeypatch.setattr("lightfall.utils.threads.QThreadFuture", _FakeFuture)
 
     win._on_logout()
 
@@ -146,7 +146,7 @@ def test_logout_skips_dialog_when_engine_idle(qapp, mainwindow_class, monkeypatc
     class _FakeFuture:
         def __init__(self, *a, **kw): pass
         def start(self): thread_started.append(True)
-    monkeypatch.setattr("lucid.utils.threads.QThreadFuture", _FakeFuture)
+    monkeypatch.setattr("lightfall.utils.threads.QThreadFuture", _FakeFuture)
 
     win._on_logout()
 

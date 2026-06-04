@@ -6,7 +6,7 @@ import time
 import numpy as np
 import pytest
 
-from lucid.ui.widgets.observers import CameraBase
+from lightfall.ui.widgets.observers import CameraBase
 
 
 @pytest.fixture(scope="module")
@@ -59,14 +59,14 @@ class FakeCamera(CameraBase):
 
 
 def test_cameraimageview_requires_camera_to_start(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     view = CameraImageView()
     with pytest.raises(RuntimeError, match="no camera"):
         view.start()
 
 
 def test_cameraimageview_set_camera_late(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     view = CameraImageView()
     fake = FakeCamera()
     view.set_camera(fake)
@@ -75,7 +75,7 @@ def test_cameraimageview_set_camera_late(qapp):
 
 def test_cameraimageview_receives_frames(qapp):
     """End-to-end: construct with FakeCamera, start, pump events, verify frames rendered."""
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     fake = FakeCamera(shape=(32, 48), n_frames=3)
     view = CameraImageView(camera=fake)
 
@@ -93,7 +93,7 @@ def test_cameraimageview_receives_frames(qapp):
 
 
 def test_cameraimageview_cannot_change_camera_while_streaming(qapp):
-    from lucid.ui.widgets.observers import CameraImageView
+    from lightfall.ui.widgets.observers import CameraImageView
     fake = FakeCamera(n_frames=10)
     view = CameraImageView(camera=fake)
     view.start()

@@ -1,4 +1,4 @@
-"""Unit tests for lucid.auth.service_key — mint/revoke against a stub transport."""
+"""Unit tests for lightfall.auth.service_key — mint/revoke against a stub transport."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from lucid.auth.service_key import (
+from lightfall.auth.service_key import (
     MintedKey,
     mint_service_key,
     revoke_service_key,
@@ -22,7 +22,7 @@ def _stub_transport(handler):
 @contextmanager
 def _patched_httpx(client: httpx.Client):
     """Redirect module-level httpx.post/delete to a real client with a stub transport."""
-    import lucid.auth.service_key as mod
+    import lightfall.auth.service_key as mod
     original = mod.httpx
 
     class _Mod:
@@ -54,7 +54,7 @@ def test_mint_service_key_posts_expected_body():
                 "first_eight": "ssssssss",
                 "expiration_time": "2026-05-24T20:14:00+00:00",
                 "scopes": ["read:metadata", "read:data"],
-                "note": "lucid bcg-ws-3 user123",
+                "note": "lightfall bcg-ws-3 user123",
             },
         )
 
@@ -64,7 +64,7 @@ def test_mint_service_key_posts_expected_body():
             "bearer-token-xyz",
             expires_in=604800,
             scopes=["read:metadata", "read:data"],
-            note="lucid bcg-ws-3 user123",
+            note="lightfall bcg-ws-3 user123",
         )
 
     assert captured["url"] == "https://example/api/v1/auth/apikey"
@@ -74,7 +74,7 @@ def test_mint_service_key_posts_expected_body():
     assert minted.first_eight == "ssssssss"
     assert minted.expires_at == datetime(2026, 5, 24, 20, 14, tzinfo=UTC)
     assert minted.scopes == ("read:metadata", "read:data")
-    assert minted.note == "lucid bcg-ws-3 user123"
+    assert minted.note == "lightfall bcg-ws-3 user123"
 
 
 def test_mint_service_key_raises_on_http_error():
@@ -113,7 +113,7 @@ def test_mint_service_key_passes_proxy_when_configured(monkeypatch):
     because the mint never reaches the server.
     """
     monkeypatch.setattr(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
         staticmethod(lambda url: "socks5://localhost:1080"),
     )
 
@@ -133,7 +133,7 @@ def test_mint_service_key_passes_proxy_when_configured(monkeypatch):
 
     # Stub httpx.post to capture the kwargs (we can't actually drive a SOCKS
     # transport from here; we just need to confirm proxy was passed through).
-    import lucid.auth.service_key as mod
+    import lightfall.auth.service_key as mod
     original_post = mod.httpx.post
 
     def fake_post(url, **kwargs):
@@ -158,7 +158,7 @@ def test_mint_service_key_passes_proxy_when_configured(monkeypatch):
 def test_mint_service_key_omits_proxy_when_none(monkeypatch):
     """No proxy configured -> proxy kwarg is not passed to httpx.post."""
     monkeypatch.setattr(
-        "lucid.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
+        "lightfall.ui.preferences.proxy_settings.ProxySettingsProvider.should_use_proxy_for_url",
         staticmethod(lambda url: None),
     )
 
@@ -176,7 +176,7 @@ def test_mint_service_key_omits_proxy_when_none(monkeypatch):
             },
         )
 
-    import lucid.auth.service_key as mod
+    import lightfall.auth.service_key as mod
 
     def fake_post(url, **kwargs):
         captured["kwargs"] = kwargs

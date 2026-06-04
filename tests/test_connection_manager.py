@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from lucid.devices.connection_manager import (
+from lightfall.devices.connection_manager import (
     DeviceConnectionManager,
 )
 

@@ -6,7 +6,7 @@ import asyncio
 import pytest
 
 from claude_agent_sdk.types import ResultMessage, StreamEvent
-from lucid.claude._internal.worker import PersistentClaudeWorker
+from lightfall.claude._internal.worker import PersistentClaudeWorker
 
 
 class _StreamStubClient:

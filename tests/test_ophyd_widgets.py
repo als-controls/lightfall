@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.epics.widgets.ophyd_base import OphydWidget
-from lucid.epics.widgets.ophyd_lineedit import OphydLineEdit
-from lucid.epics.widgets.ophyd_label import OphydLabel
-from lucid.epics.widgets.ophyd_combobox import OphydComboBox
-from lucid.epics.widgets.ophyd_spinbox import OphydSpinBox
+from lightfall.epics.widgets.ophyd_base import OphydWidget
+from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
+from lightfall.epics.widgets.ophyd_label import OphydLabel
+from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
+from lightfall.epics.widgets.ophyd_spinbox import OphydSpinBox
 
 
 class ConcreteOphydWidget(OphydWidget):
@@ -126,7 +126,7 @@ class TestOphydWidgetBase:
         # Not connected by default
         assert "background-color" in widget.styleSheet()
 
-    @patch("lucid.epics.widgets.ophyd_base.inspect.isawaitable", return_value=True)
+    @patch("lightfall.epics.widgets.ophyd_base.inspect.isawaitable", return_value=True)
     def test_async_get_skipped(self, mock_awaitable, widget):
         sig = MagicMock()
         sig.connected = True

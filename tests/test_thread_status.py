@@ -12,7 +12,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QTimer
 from PySide6.QtWidgets import QApplication
 
-from lucid.ui.statusbar.plugins.thread_status import (
+from lightfall.ui.statusbar.plugins.thread_status import (
     ThreadStatusPlugin,
     _ProgressOverlay,
 )
@@ -408,7 +408,7 @@ class TestPluginSignalConnection:
         plugin._container = plugin.create_widget()
         # Patch get_engine to raise
         with patch(
-            "lucid.acquire.get_engine",
+            "lightfall.acquire.get_engine",
             side_effect=RuntimeError("no engine"),
         ):
             # Should not raise — falls back gracefully
@@ -419,7 +419,7 @@ class TestPluginSignalConnection:
         plugin = ThreadStatusPlugin()
         plugin._container = plugin.create_widget()
         with patch(
-            "lucid.acquire.get_engine",
+            "lightfall.acquire.get_engine",
             side_effect=RuntimeError("no engine"),
         ):
             plugin.disconnect_signals()
@@ -431,7 +431,7 @@ class TestPluginSignalConnection:
         mock_engine = MagicMock()
         del mock_engine.waiting_bridge  # hasattr will return False
         with patch(
-            "lucid.acquire.get_engine",
+            "lightfall.acquire.get_engine",
             return_value=mock_engine,
         ):
             plugin.connect_signals()

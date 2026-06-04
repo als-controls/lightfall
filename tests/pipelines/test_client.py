@@ -1,4 +1,4 @@
-"""Tests for the LUCID-side PipelineClient (auth-v2)."""
+"""Tests for the Lightfall-side PipelineClient (auth-v2)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.pipelines.client import PipelineClient
+from lightfall.pipelines.client import PipelineClient
 
 
 def _fake_key(secret: str = "s" * 48, first_eight: str = "ssssssss",
@@ -49,7 +49,7 @@ def test_client_submits_using_session_key(mock_ipc, key_provider, qtbot):
     key_provider.assert_called_with("tiled")
     mock_ipc.request.assert_called_once()
     args, kwargs = mock_ipc.request.call_args
-    assert args[0] == "lucid.pipeline.testhost"
+    assert args[0] == "lightfall.pipeline.testhost"
     payload = args[1]
     assert payload["pipeline"] == "reduce_saxs"
     assert payload["api_key"] == "s" * 48
@@ -82,7 +82,7 @@ def test_client_emits_signal_on_progress_event(mock_ipc, key_provider, qtbot):
     client.sigJobProgress.connect(lambda ev: received.append(ev))
 
     client._on_progress(
-        subject="lucid.pipeline.testhost.progress",
+        subject="lightfall.pipeline.testhost.progress",
         data={
             "job_id": "j1", "status": "running", "detail": "x",
             "input_run_uid": "raw", "output_run_uids": [],
@@ -103,7 +103,7 @@ def test_client_subscribes_to_progress_on_construction(mock_ipc, key_provider, q
     )
     mock_ipc.subscribe.assert_called_once()
     args, kwargs = mock_ipc.subscribe.call_args
-    assert args[0] == "lucid.pipeline.testhost.progress"
+    assert args[0] == "lightfall.pipeline.testhost.progress"
 
 
 def test_client_raises_when_executor_times_out(mock_ipc, key_provider, qtbot):
@@ -129,9 +129,9 @@ def test_client_drops_malformed_progress_event(mock_ipc, key_provider, qtbot):
     received = []
     client.sigJobProgress.connect(lambda ev: received.append(ev))
 
-    client._on_progress(subject="lucid.pipeline.h.progress", data={}, reply=None)
+    client._on_progress(subject="lightfall.pipeline.h.progress", data={}, reply=None)
     client._on_progress(
-        subject="lucid.pipeline.h.progress",
+        subject="lightfall.pipeline.h.progress",
         data={"status": "running"},
         reply=None,
     )

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lucid.acquire.nats_bridge import NATSPlanBridge
+from lightfall.acquire.nats_bridge import NATSPlanBridge
 
 
 @pytest.fixture
@@ -56,9 +56,9 @@ class TestNATSPlanBridge:
 
     def test_publish_forwards_to_ipc(self, mock_ipc):
         bridge = NATSPlanBridge(mock_ipc)
-        bridge.publish("lucid.adaptive.measured", {"iteration": 1})
+        bridge.publish("lightfall.adaptive.measured", {"iteration": 1})
         mock_ipc.publish.assert_called_once_with(
-            "lucid.adaptive.measured", {"iteration": 1}
+            "lightfall.adaptive.measured", {"iteration": 1}
         )
 
     def test_cleanup_unsubscribes(self, mock_ipc):

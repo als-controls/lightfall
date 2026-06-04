@@ -1,15 +1,15 @@
 #!/bin/bash
-# Build LUCID native application using Briefcase
+# Build Lightfall native application using Briefcase
 # This script orchestrates the full build: wheels -> create -> build
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NCS_DIR="$(dirname "$SCRIPT_DIR")"
+LIGHTFALL_DIR="$(dirname "$SCRIPT_DIR")"
 
-cd "$NCS_DIR"
+cd "$LIGHTFALL_DIR"
 
 echo "=========================================="
-echo "LUCID Briefcase Build"
+echo "Lightfall Briefcase Build"
 echo "=========================================="
 echo ""
 
@@ -19,7 +19,7 @@ echo "------------------------------------------"
 ./scripts/build-wheels.sh
 
 # Step 2: Set up pip to find local wheels
-export PIP_FIND_LINKS="$NCS_DIR/dist"
+export PIP_FIND_LINKS="$LIGHTFALL_DIR/dist"
 echo ""
 echo "Step 2: Configured PIP_FIND_LINKS=$PIP_FIND_LINKS"
 

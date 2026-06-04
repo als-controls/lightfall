@@ -102,11 +102,17 @@ dmypy.json
 Thumbs.db
 
 # Project specific
-src/lucid/_version.py
+src/lightfall/_version.py
 
 # Runtime debug output
 logs/
-src/lucid/logs/
+src/lightfall/logs/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
+
+# Historical design docs / working artifacts (kept on disk, not in git)
+docs/investigations/
+docs/plans/
+docs/superpowers/

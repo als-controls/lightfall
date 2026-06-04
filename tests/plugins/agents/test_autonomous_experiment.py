@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lucid.plugins.agents.autonomous_experiment import (
+from lightfall.plugins.agents.autonomous_experiment import (
     AutonomousExperimentAgent,
 )
 
@@ -39,7 +39,7 @@ def test_stub_prompt_mentions_key_tools_and_steps():
         "tsuchinoko_discover",
         "tsuchinoko_upload_design_code",
         "tsuchinoko_configure",
-        "ncs_run_plan",
+        "lightfall_run_plan",
         "adaptive_experiment",
         "AdaptiveHeatmapVisualization",
         "AdaptiveHyperparameterPlot",
@@ -77,7 +77,7 @@ def test_stub_prompt_mentions_key_tools_and_steps():
 #     ``SdkMcpTool`` dataclass with ``.name`` and ``.handler`` attributes.
 #     The helpers below pick the handler via ``getattr(tool, "handler")``.
 #
-#   - ``mcp_result`` (see ``lucid/plugins/agents/_mcp_helpers.py``) wraps
+#   - ``mcp_result`` (see ``lightfall/plugins/agents/_mcp_helpers.py``) wraps
 #     the tool's payload as
 #     ``{"content": [{"type": "text", "text": "<json>"}], ...}``.
 #     The tests want to assert against the *inner* dict (``success``,
@@ -89,7 +89,7 @@ def _patch_ipc(reply):
     """Patch get_ipc_service to return a stub IPC with .request → *reply*."""
     ipc = MagicMock()
     ipc.request = MagicMock(return_value=reply)
-    return patch("lucid.ipc.service.get_ipc_service", return_value=ipc), ipc
+    return patch("lightfall.ipc.service.get_ipc_service", return_value=ipc), ipc
 
 
 def _find_tool(tools, name):
@@ -158,7 +158,7 @@ def test_discover_empty_when_no_responders():
 def test_nats_unavailable_raises_actionable_message():
     agent = AutonomousExperimentAgent()
     discover = _find_tool(agent.create_tools(), "tsuchinoko_discover")
-    with patch("lucid.ipc.service.get_ipc_service", return_value=None):
+    with patch("lightfall.ipc.service.get_ipc_service", return_value=None):
         result = _call(discover)
     assert result["success"] is False
     assert "Settings" in result["error"] or "IPC" in result["error"]

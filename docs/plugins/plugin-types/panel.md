@@ -12,7 +12,7 @@ Use `PanelPlugin` when you want to:
 ## Base Class
 
 ```python
-from lucid.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
 ```
 
 ## Class Attributes
@@ -78,7 +78,7 @@ Panel plugins wrap `BasePanel` subclasses. Here's how to create one:
 Every panel needs metadata:
 
 ```python
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 class MyPanel(BasePanel):
     panel_metadata = PanelMetadata(
@@ -96,7 +96,7 @@ class MyPanel(BasePanel):
 ```python
 from PySide6.QtWidgets import QLabel, QVBoxLayout
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 class MyPanel(BasePanel):
@@ -132,7 +132,7 @@ class MyPanel(BasePanel):
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QTableWidget, QVBoxLayout
 
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 
 class MonitorPanel(BasePanel):
@@ -191,10 +191,10 @@ class MonitorPanel(BasePanel):
 
 from typing import TYPE_CHECKING
 
-from lucid.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
 
 if TYPE_CHECKING:
-    from lucid.ui.panels.base import BasePanel
+    from lightfall.ui.panels.base import BasePanel
 
 
 class MonitorPanelPlugin(PanelPlugin):
@@ -258,7 +258,7 @@ The simplest possible panel plugin:
 
 ```python
 # plugin.py
-from lucid.plugins.panel_plugin import PanelPlugin
+from lightfall.plugins.panel_plugin import PanelPlugin
 
 class SimplePanelPlugin(PanelPlugin):
     @property
@@ -273,7 +273,7 @@ class SimplePanelPlugin(PanelPlugin):
 ```python
 # panels.py
 from PySide6.QtWidgets import QLabel, QVBoxLayout
-from lucid.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata
 
 class SimplePanel(BasePanel):
     panel_metadata = PanelMetadata(

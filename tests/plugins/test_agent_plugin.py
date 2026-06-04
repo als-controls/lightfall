@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class _StubAgent(AgentPlugin):

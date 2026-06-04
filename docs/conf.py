@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.abspath("../src"))
 
 # -- Project information -----------------------------------------------------
-project = "LUCID"
+project = "Lightfall"
 copyright = "2024, ALS Controls Team"
 author = "ALS Controls Team"
 
@@ -51,7 +51,7 @@ source_suffix = {
 # -- Options for HTML output -------------------------------------------------
 html_theme = "sphinx_immaterial"
 html_static_path = ["_static"]
-html_title = "LUCID Documentation"
+html_title = "Lightfall Documentation"
 html_logo = "_static/logo.png"
 html_favicon = "_static/logo.png"
 
@@ -60,9 +60,9 @@ html_theme_options = {
     "icon": {
         "repo": "fontawesome/brands/github",
     },
-    "site_url": "https://als-computing.github.io/lucid/",
-    "repo_url": "https://github.com/als-computing/lucid",
-    "repo_name": "lucid",
+    "site_url": "https://als-computing.github.io/lightfall/",
+    "repo_url": "https://github.com/als-computing/lightfall",
+    "repo_name": "lightfall",
     "edit_uri": "blob/main/docs",
     "globaltoc_collapse": True,
     "features": [

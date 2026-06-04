@@ -1,4 +1,4 @@
-"""Tests for the ncs_wait_for_idle MCP tool helper.
+"""Tests for the lightfall_wait_for_idle MCP tool helper.
 
 Mirrors test_beam_status.py's style: tests the module-level payload helper
 directly so we don't need claude_agent_sdk installed in CI.
@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-import lucid.plugins.agents.engine_tools as et
-from lucid.acquire.engine.state import EngineState
+import lightfall.plugins.agents.engine_tools as et
+from lightfall.acquire.engine.state import EngineState
 
 
 class _FakeEngine:
@@ -47,8 +47,8 @@ class _FakeEngine:
 
 
 def _patch_engine(monkeypatch, engine):
-    """Make ``from lucid.acquire.engine import get_engine`` return ``engine``."""
-    import lucid.acquire.engine as engine_pkg
+    """Make ``from lightfall.acquire.engine import get_engine`` return ``engine``."""
+    import lightfall.acquire.engine as engine_pkg
 
     monkeypatch.setattr(engine_pkg, "get_engine", lambda: engine, raising=True)
 
@@ -200,7 +200,7 @@ def test_engine_tools_registers_wait_for_idle():
     if not tools:
         pytest.skip("claude_agent_sdk not available")
     names = {getattr(t, "name", None) or getattr(t, "__name__", None) for t in tools}
-    assert "ncs_wait_for_idle" in names
+    assert "lightfall_wait_for_idle" in names
 
 
 # ---------------------------------------------------------------------------

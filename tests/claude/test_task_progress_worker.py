@@ -9,7 +9,7 @@ from claude_agent_sdk.types import (
     TaskProgressMessage,
     TaskStartedMessage,
 )
-from lucid.claude._internal.worker import PersistentClaudeWorker
+from lightfall.claude._internal.worker import PersistentClaudeWorker
 
 
 class _TaskStubClient:

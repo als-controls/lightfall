@@ -1,7 +1,7 @@
 # IPC Client Integration Guide
 
-This guide explains how to connect an external process to a running LUCID instance over NATS.
-No knowledge of LUCID internals is required.
+This guide explains how to connect an external process to a running Lightfall instance over NATS.
+No knowledge of Lightfall internals is required.
 
 ## Prerequisites
 
@@ -12,11 +12,11 @@ No knowledge of LUCID internals is required.
   ```
   pip install nats-py
   ```
-- A topic prefix matching the one configured in LUCID (default: `als.7011`).
+- A topic prefix matching the one configured in Lightfall (default: `als.7011`).
 
 ## Connecting
 
-LUCID's NATS server requires TLS. Pass an `ssl.SSLContext` to `nats.connect`:
+Lightfall's NATS server requires TLS. Pass an `ssl.SSLContext` to `nats.connect`:
 
 ```python
 import asyncio
@@ -41,8 +41,8 @@ asyncio.run(main())
 
 ## Authentication
 
-Before sending commands, you must authenticate with LUCID. This is a request/reply handshake on
-the `auth.request` subject. LUCID will show a trust dialog the first time; subsequent requests from
+Before sending commands, you must authenticate with Lightfall. This is a request/reply handshake on
+the `auth.request` subject. Lightfall will show a trust dialog the first time; subsequent requests from
 the same `app_name` are approved or denied automatically.
 
 ```python
@@ -62,7 +62,7 @@ async def authenticate(nc, app_name: str, app_version: str = "") -> dict:
         return response
     else:
         reason = response.get("reason", "denied")
-        raise PermissionError(f"LUCID denied the connection request: {reason}")
+        raise PermissionError(f"Lightfall denied the connection request: {reason}")
 ```
 
 A successful response has this shape:
@@ -97,13 +97,13 @@ A denial looks like:
 
 If you receive a reply with `{"error": true}` and the message indicates an auth error, re-run the
 authentication handshake. Under auth-v2, `tiled_token` is a server-issued Tiled API key with a TTL
-(typically 1 week) — it may outlive the IPC requester's local session, and conversely a new LUCID
+(typically 1 week) — it may outlive the IPC requester's local session, and conversely a new Lightfall
 session (restart) will invalidate old keys. On a 401 from Tiled, re-run `auth.request` to obtain a
 fresh key.
 
 ## Discovering Available Actions and Events
 
-Before hard-coding subject names, you can ask LUCID what it supports:
+Before hard-coding subject names, you can ask Lightfall what it supports:
 
 ```python
 async def discover(nc):
@@ -181,7 +181,7 @@ async def send_agent_message(nc, message: str) -> dict:
 
 ## Subscribing to Events
 
-LUCID publishes run lifecycle and engine state changes as NATS core messages. Subscribe before
+Lightfall publishes run lifecycle and engine state changes as NATS core messages. Subscribe before
 starting a plan so you don't miss early events.
 
 ### Run Start and Completion
@@ -213,14 +213,14 @@ async def watch_engine_state(nc):
 
 ## Closed-loop
 
-External services participate in closed experimental loops by subscribing to LUCID's event subjects and posting plan-parameter suggestions back through request/reply on the action subjects. The canonical loop:
+External services participate in closed experimental loops by subscribing to Lightfall's event subjects and posting plan-parameter suggestions back through request/reply on the action subjects. The canonical loop:
 
-1. LUCID publishes Bluesky event documents on its event subjects as a scan progresses.
+1. Lightfall publishes Bluesky event documents on its event subjects as a scan progresses.
 2. A live-analysis service subscribes and computes a derived signal (a peak metric, an alignment offset, a correlation function).
 3. An autonomous engine consumes the analysis output, evaluates a surrogate model, and posts plan-parameter suggestions to the action subjects.
-4. LUCID re-invokes the plan with the suggested parameters, and the loop closes.
+4. Lightfall re-invokes the plan with the suggested parameters, and the loop closes.
 
-No participant in this loop requires modifications to LUCID's core: each addresses LUCID through the same uniform surface the GUI and the embedded agent use, and each joins or leaves the loop independently. The script below is a minimal implementation of one such participant.
+No participant in this loop requires modifications to Lightfall's core: each addresses Lightfall through the same uniform surface the GUI and the embedded agent use, and each joins or leaves the loop independently. The script below is a minimal implementation of one such participant.
 
 ## Complete Example: Tsuchinoko-Style Client
 
@@ -229,7 +229,7 @@ submits a plan, and waits for completion.
 
 ```python
 #!/usr/bin/env python3
-"""Example: connect to LUCID, submit a plan, wait for it to finish."""
+"""Example: connect to Lightfall, submit a plan, wait for it to finish."""
 
 import asyncio
 import json
@@ -321,13 +321,13 @@ The full NATS subject is `{prefix}.{suffix}`.
 
 | Suffix                      | Direction          | Pattern         | Description                                      |
 |-----------------------------|--------------------|-----------------|--------------------------------------------------|
-| `auth.request`              | client → LUCID     | request/reply   | Trust handshake; receive Tiled token             |
-| `meta.actions`              | client → LUCID     | request/reply   | Enumerate registered actions                     |
-| `meta.events`               | client → LUCID     | request/reply   | Enumerate registered events                      |
-| `commands.plan.run`         | client → LUCID     | request/reply   | Submit a plan to the Bluesky engine              |
-| `commands.plan.abort`       | client → LUCID     | request/reply   | Abort the currently active run                   |
-| `commands.logbook.add`      | client → LUCID     | request/reply   | Create a logbook entry                           |
-| `commands.agent.message`    | client → LUCID     | request/reply   | Send a message to the Claude agent               |
-| `runs.new`                  | LUCID → client     | publish/subscribe | Fired when a new run starts                    |
-| `runs.complete`             | LUCID → client     | publish/subscribe | Fired when a run finishes (any exit status)    |
-| `state.engine`              | LUCID → client     | publish/subscribe | Fired when the Bluesky engine state changes    |
+| `auth.request`              | client → Lightfall     | request/reply   | Trust handshake; receive Tiled token             |
+| `meta.actions`              | client → Lightfall     | request/reply   | Enumerate registered actions                     |
+| `meta.events`               | client → Lightfall     | request/reply   | Enumerate registered events                      |
+| `commands.plan.run`         | client → Lightfall     | request/reply   | Submit a plan to the Bluesky engine              |
+| `commands.plan.abort`       | client → Lightfall     | request/reply   | Abort the currently active run                   |
+| `commands.logbook.add`      | client → Lightfall     | request/reply   | Create a logbook entry                           |
+| `commands.agent.message`    | client → Lightfall     | request/reply   | Send a message to the Claude agent               |
+| `runs.new`                  | Lightfall → client     | publish/subscribe | Fired when a new run starts                    |
+| `runs.complete`             | Lightfall → client     | publish/subscribe | Fired when a run finishes (any exit status)    |
+| `state.engine`              | Lightfall → client     | publish/subscribe | Fired when the Bluesky engine state changes    |

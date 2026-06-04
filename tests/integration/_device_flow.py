@@ -21,13 +21,13 @@ from urllib.parse import urljoin
 import httpx
 
 
-_CACHE_PATH = Path.home() / ".cache" / "lucid-pipelines" / "integration-key.json"
+_CACHE_PATH = Path.home() / ".cache" / "lightfall-pipelines" / "integration-key.json"
 _RENEW_BUFFER = timedelta(days=1)
 
 
 def _load_proxy() -> Optional[str]:
-    """Match LUCID's *.lbl.gov SOCKS5 routing for local dev boxes."""
-    return os.environ.get("LUCID_INTEGRATION_PROXY") or "socks5h://localhost:1080"
+    """Match Lightfall's *.lbl.gov SOCKS5 routing for local dev boxes."""
+    return os.environ.get("LIGHTFALL_INTEGRATION_PROXY") or "socks5h://localhost:1080"
 
 
 def _cached_key(tiled_url: str) -> Optional[Dict[str, Any]]:

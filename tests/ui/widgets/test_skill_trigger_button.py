@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
-from lucid.ui.widgets.skill_trigger_button import SkillTriggerButton
+from lightfall.ui.widgets.skill_trigger_button import SkillTriggerButton
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def fake_panel(fake_agent):
 @pytest.fixture
 def patched_registry(fake_panel):
     """Patch PanelRegistry so create() returns our fake Claude panel."""
-    with patch("lucid.ui.panels.registry.PanelRegistry") as registry_cls:
+    with patch("lightfall.ui.panels.registry.PanelRegistry") as registry_cls:
         registry_cls.get_instance.return_value.create.return_value = fake_panel
         yield fake_panel
 
@@ -42,7 +42,7 @@ def patched_registry(fake_panel):
 @pytest.fixture(autouse=True)
 def silence_toasts():
     """Stop the lazy ToastManager import from constructing a real manager."""
-    with patch("lucid.ui.toast.ToastManager") as toast_cls:
+    with patch("lightfall.ui.toast.ToastManager") as toast_cls:
         yield toast_cls
 
 

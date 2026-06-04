@@ -1,11 +1,11 @@
 # Plugin Types
 
-Base classes for extending LUCID with custom functionality.
+Base classes for extending Lightfall with custom functionality.
 
 ## SettingsPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.settings_plugin.SettingsPlugin
+.. autoclass:: lightfall.plugins.settings_plugin.SettingsPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -14,7 +14,7 @@ Base classes for extending LUCID with custom functionality.
 ## PanelPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.panel_plugin.PanelPlugin
+.. autoclass:: lightfall.plugins.panel_plugin.PanelPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -23,7 +23,7 @@ Base classes for extending LUCID with custom functionality.
 ## PlanPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.plan_plugin.PlanPlugin
+.. autoclass:: lightfall.plugins.plan_plugin.PlanPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -32,7 +32,7 @@ Base classes for extending LUCID with custom functionality.
 ## EnginePlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.engine_plugin.EnginePlugin
+.. autoclass:: lightfall.plugins.engine_plugin.EnginePlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -41,7 +41,7 @@ Base classes for extending LUCID with custom functionality.
 ## ThemePlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.theme_plugin.ThemePlugin
+.. autoclass:: lightfall.plugins.theme_plugin.ThemePlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -50,7 +50,7 @@ Base classes for extending LUCID with custom functionality.
 ## StatusBarPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.statusbar_plugin.StatusBarPlugin
+.. autoclass:: lightfall.plugins.statusbar_plugin.StatusBarPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -59,7 +59,7 @@ Base classes for extending LUCID with custom functionality.
 ## ControllerPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.controller_plugin.ControllerPlugin
+.. autoclass:: lightfall.plugins.controller_plugin.ControllerPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -68,7 +68,7 @@ Base classes for extending LUCID with custom functionality.
 ## MCPToolPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.mcp_tool.MCPToolPlugin
+.. autoclass:: lightfall.plugins.mcp_tool.MCPToolPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -77,7 +77,7 @@ Base classes for extending LUCID with custom functionality.
 ## SkillPlugin
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.skill_plugin.SkillPlugin
+.. autoclass:: lightfall.plugins.skill_plugin.SkillPlugin
    :members:
    :show-inheritance:
    :member-order: bysource
@@ -88,7 +88,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginType (Base Class)
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.types.PluginType
+.. autoclass:: lightfall.plugins.types.PluginType
    :members:
    :show-inheritance:
 ```
@@ -96,7 +96,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginManifest
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.manifest.PluginManifest
+.. autoclass:: lightfall.plugins.manifest.PluginManifest
    :members:
    :show-inheritance:
 ```
@@ -104,7 +104,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginEntry
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.manifest.PluginEntry
+.. autoclass:: lightfall.plugins.manifest.PluginEntry
    :members:
    :show-inheritance:
 ```
@@ -112,7 +112,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginRegistry
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.registry.PluginRegistry
+.. autoclass:: lightfall.plugins.registry.PluginRegistry
    :members:
    :show-inheritance:
 ```
@@ -120,7 +120,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginLoader
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.loader.PluginLoader
+.. autoclass:: lightfall.plugins.loader.PluginLoader
    :members:
    :show-inheritance:
 ```
@@ -128,7 +128,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginInfo
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.info.PluginInfo
+.. autoclass:: lightfall.plugins.info.PluginInfo
    :members:
    :show-inheritance:
 ```
@@ -136,7 +136,7 @@ Base classes for extending LUCID with custom functionality.
 ### PluginStatus
 
 ```{eval-rst}
-.. autoclass:: lucid.plugins.errors.PluginStatus
+.. autoclass:: lightfall.plugins.errors.PluginStatus
    :members:
    :show-inheritance:
 ```

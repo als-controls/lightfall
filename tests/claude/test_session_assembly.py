@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.agent_plugin import AgentPlugin
 
 
 class _PromptOnly(AgentPlugin):
@@ -45,7 +45,7 @@ class _WithRefs(AgentPlugin):
 
 
 def test_prompt_only_plugin_writes_skill_md(tmp_path):
-    from lucid.claude._session_assembly import materialize_skill, init_session_plugin_dir
+    from lightfall.claude._session_assembly import materialize_skill, init_session_plugin_dir
 
     plugin_dir = init_session_plugin_dir(tmp_path / "session")
     materialize_skill(_PromptOnly(), plugin_dir)
@@ -60,7 +60,7 @@ def test_prompt_only_plugin_writes_skill_md(tmp_path):
 
 
 def test_tools_only_plugin_does_not_write_skill_md(tmp_path):
-    from lucid.claude._session_assembly import materialize_skill, init_session_plugin_dir
+    from lightfall.claude._session_assembly import materialize_skill, init_session_plugin_dir
 
     plugin_dir = init_session_plugin_dir(tmp_path / "session")
     materialize_skill(_ToolsOnly(), plugin_dir)
@@ -69,7 +69,7 @@ def test_tools_only_plugin_does_not_write_skill_md(tmp_path):
 
 
 def test_long_description_truncates_with_warning(tmp_path, caplog):
-    from lucid.claude._session_assembly import materialize_skill, init_session_plugin_dir
+    from lightfall.claude._session_assembly import materialize_skill, init_session_plugin_dir
 
     plugin_dir = init_session_plugin_dir(tmp_path / "session")
     materialize_skill(_Both(), plugin_dir)
@@ -81,7 +81,7 @@ def test_long_description_truncates_with_warning(tmp_path, caplog):
 
 
 def test_references_dir_copied(tmp_path):
-    from lucid.claude._session_assembly import materialize_skill, init_session_plugin_dir
+    from lightfall.claude._session_assembly import materialize_skill, init_session_plugin_dir
 
     src_refs = tmp_path / "src_refs"
     src_refs.mkdir()
@@ -96,19 +96,19 @@ def test_references_dir_copied(tmp_path):
 
 
 def test_init_session_plugin_dir_writes_plugin_json(tmp_path):
-    from lucid.claude._session_assembly import init_session_plugin_dir
+    from lightfall.claude._session_assembly import init_session_plugin_dir
 
     plugin_dir = init_session_plugin_dir(tmp_path / "session")
     plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
     assert plugin_json.exists()
     import json
     data = json.loads(plugin_json.read_text())
-    assert data["name"] == "lucid-session"
+    assert data["name"] == "lightfall-session"
 
 
 def test_assemble_mcp_servers_skips_tool_less_plugins(tmp_path, monkeypatch):
     """Plugin without tools doesn't get its own server entry."""
-    from lucid.claude._session_assembly import assemble_mcp_servers
+    from lightfall.claude._session_assembly import assemble_mcp_servers
     from claude_agent_sdk import tool
 
     # Stub create_sdk_mcp_server to avoid pulling in real SDK plumbing
@@ -116,7 +116,7 @@ def test_assemble_mcp_servers_skips_tool_less_plugins(tmp_path, monkeypatch):
     def _stub(name, version, tools):
         captured[name] = ("stub", tools)
         return f"stub-{name}"
-    monkeypatch.setattr("lucid.claude._session_assembly.create_sdk_mcp_server", _stub)
+    monkeypatch.setattr("lightfall.claude._session_assembly.create_sdk_mcp_server", _stub)
 
     @tool(name="real_tool", description="x", input_schema={"type": "object", "properties": {}})
     async def real_tool(args): return {"content": [{"type": "text", "text": "ok"}]}
