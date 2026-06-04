@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 (2026-06-04)
+
+First release published to PyPI (`pip install lightfall`).
+
+- Publish sdist + wheel to PyPI on release tags via OIDC trusted publishing
+- Drop the `bcs` extra (direct-URL dependency; install instructions for the
+  ALS-internal `bcsophyd-zmq` backend moved to the README)
+- Fix Briefcase packaging on macOS (Apple Silicon only, netifaces excluded)
+- README: PyPI install instructions; fix stale repository URL
+
 ## 0.1.0 (2026-06-04)
 
 First public release on GitHub (github.com/als-controls/lightfall).
