@@ -20,5 +20,5 @@ keywords:
   - synchrotron
   - bluesky
   - epics
-# Filled by Zenodo after first release (concept DOI, stable across versions):
-# doi: "10.5281/zenodo.XXXXXXX"
+# Concept DOI — stable across all versions:
+doi: "10.5281/zenodo.20545717"
