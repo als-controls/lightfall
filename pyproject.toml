@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Lightfall - control system for the ALS facility"
 readme = "README.md"
 license = "BSD-3-Clause"
+license-files = ["LICENSE.md", "LEGAL.md"]
 requires-python = ">=3.11"
 authors = [
     { name = "ALS Controls Team" },
@@ -236,6 +237,9 @@ requires = [
 
 [tool.briefcase.app.lightfall.macOS]
 requires = []
+# Modern scipy/numpy only ship arm64 wheels for newer macOS targets;
+# briefcase's default of 11.0 makes pip find no compatible wheels.
+min_os_version = "14.0"
 
 [tool.briefcase.app.lightfall.windows]
 requires = []
