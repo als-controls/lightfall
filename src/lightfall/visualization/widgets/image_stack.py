@@ -49,6 +49,9 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._image_client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
         self._timestamps: np.ndarray = np.empty(0)
+        # Set when a frame fetch fails; makes _update_status render the error
+        # instead of a normal "Frame N/total" label until the next load.
+        self._frame_error: str | None = None
 
         self._build_ui()
 
@@ -75,6 +78,8 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._image_view.ui.roiPlot.setAxisItems({"bottom": self._time_axis})
 
         self._image_view.sigTimeChanged.connect(self._on_time_changed)
+        self._image_view.frameLoadFailed.connect(self._on_frame_load_failed)
+        self._image_view.frameLoaded.connect(self._on_frame_loaded)
 
         # Style the scrubber bar
         timeline = self._image_view.timeLine
@@ -190,6 +195,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         t0 = _time.monotonic()
 
         self._field_name = field_name
+        self._frame_error = None
 
         # 1. Resolve the ArrayClient
         image_client = None
@@ -298,7 +304,32 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
     # Status
     # ------------------------------------------------------------------
 
+    def _on_frame_loaded(self) -> None:
+        """A frame displayed successfully — clear any prior error message."""
+        if self._frame_error is not None:
+            self._frame_error = None
+            self._update_status()
+
+    def _on_frame_load_failed(self, index: int, message: str) -> None:
+        """Surface a frame-fetch failure instead of crashing the open-run action.
+
+        Frame loads fail for recoverable reasons — the Tiled server being
+        unreachable (e.g. the storage host is down), the backing detector file
+        not yet flushed, or a partial/corrupt asset. Show the user a clear
+        status message; details are already logged at WARNING.
+        """
+        total = self._image_client.shape[0] if self._image_client is not None else 0
+        self._frame_error = (
+            f"⚠ Frame {index + 1}/{total} unavailable — could not be "
+            f"loaded from Tiled (storage unreachable or data not ready)"
+        )
+        self._update_status()
+
     def _update_status(self) -> None:
+        if self._frame_error is not None:
+            self._time_axis.setLabel(self._frame_error)
+            return
+
         if self._image_client is not None:
             total = self._image_client.shape[0]
         else:

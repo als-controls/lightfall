@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 import pyqtgraph as pg
 from loguru import logger
+from PySide6.QtCore import Signal
 
 
 class _ArrayProxy:
@@ -74,6 +75,20 @@ class LazyImageView(pg.ImageView):
     ``setArraySource`` with a tiled ``ArrayClient``.  Scrubbing the
     timeline triggers a single HTTP fetch for the displayed frame.
     """
+
+    #: Emitted ``(index, message)`` when a frame fetch fails. Frame loads
+    #: fail for *recoverable* reasons — the Tiled server being unreachable,
+    #: the backing detector file not yet flushed, a partial/corrupt asset.
+    #: Hosts connect this to surface a message instead of letting the
+    #: exception propagate into the open-run action (which previously
+    #: escalated to an unhandled-exception crash).
+    frameLoadFailed = Signal(int, str)
+
+    #: Emitted when a frame is successfully fetched and displayed. Lets the
+    #: host clear any prior :attr:`frameLoadFailed` state — clearing must be
+    #: driven by a real success, not by ``sigTimeChanged`` (which fires for a
+    #: failed load too), so the error message survives an initial bad load.
+    frameLoaded = Signal()
 
     def __init__(self, parent: Any | None = None, **kwargs: Any) -> None:
         # PlotItem provides axes (ticks + labels) around the image,
@@ -383,11 +398,24 @@ class LazyImageView(pg.ImageView):
     # ------------------------------------------------------------------
 
     def _update_image_sync(self, autoHistogramRange: bool) -> None:
-        """Fetch and apply the current frame on the calling thread."""
+        """Fetch and apply the current frame on the calling thread.
+
+        A fetch failure here is recoverable (server down, file not ready) and
+        must not propagate: this runs inside ``updateImage`` → ``setCurrentIndex``
+        during ``set_field``, so an exception would crash the whole open-run
+        action. Log it, signal the host, and leave the view empty instead.
+        """
         from lightfall.utils.logging import log_time
 
-        with log_time("_update_image_sync: _fetch_frame (main thread!)", level="DEBUG"):
-            raw_frame = self._fetch_frame(self.currentIndex)
+        try:
+            with log_time("_update_image_sync: _fetch_frame (main thread!)", level="DEBUG"):
+                raw_frame = self._fetch_frame(self.currentIndex)
+        except Exception as exc:
+            logger.warning(
+                "LazyImageView: failed to load frame {}: {}", self.currentIndex, exc
+            )
+            self.frameLoadFailed.emit(int(self.currentIndex), str(exc))
+            return
         self._apply_fetched_frame(raw_frame, autoHistogramRange)
 
     def _update_image_async(self, autoHistogramRange: bool) -> None:
@@ -419,9 +447,7 @@ class LazyImageView(pg.ImageView):
             future = QThreadFuture(
                 do_fetch,
                 callback_slot=on_result,
-                except_slot=lambda e: logger.debug(
-                    "LazyImageView: async fetch for frame {} failed: {}", index, e,
-                ),
+                except_slot=lambda e: self._on_async_fetch_failed(index, e),
                 register=False,  # avoid blocking cancel-on-key during scrubbing
                 name=f"frame-{index}",
             )
@@ -433,6 +459,17 @@ class LazyImageView(pg.ImageView):
         future.finished.connect(lambda f=future: self._in_flight.discard(f))
 
         future.start()
+
+    def _on_async_fetch_failed(self, index: int, exc: Exception) -> None:
+        """Handle a background frame-fetch failure (timeline scrubbing).
+
+        Same recoverable failures as the sync path; surface them via the same
+        signal so the host shows one consistent message.
+        """
+        logger.warning(
+            "LazyImageView: async fetch for frame {} failed: {}", index, exc
+        )
+        self.frameLoadFailed.emit(int(index), str(exc))
 
     def _apply_fetched_frame(
         self, raw_frame: np.ndarray, autoHistogramRange: bool
@@ -472,6 +509,9 @@ class LazyImageView(pg.ImageView):
         # Apply log-mapped levels
         with log_time("_apply_fetched_frame: _apply_log_levels", level="DEBUG"):
             self._apply_log_levels()
+
+        # A frame displayed successfully — let the host clear any error state.
+        self.frameLoaded.emit()
 
     def getProcessedImage(self) -> np.ndarray:
         """Return the current single frame (skip normalisation).
