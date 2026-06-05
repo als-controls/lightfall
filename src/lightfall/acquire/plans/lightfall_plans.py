@@ -146,7 +146,9 @@ def simple_acquire(
         yield from bps.mv(detector.cam.acquire_time, acquire_time)
 
     yield from bps.mv(detector.cam.num_images, num_images)
-    yield from bps.mv(detector.cam.image_mode, 0)  # Single mode
+    # 0=Single, 1=Multiple (EPICS AreaDetector ImageMode enum)
+    image_mode = 1 if num_images > 1 else 0
+    yield from bps.mv(detector.cam.image_mode, image_mode)
 
     yield from bps.open_run()
 
