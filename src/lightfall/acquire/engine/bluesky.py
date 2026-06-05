@@ -17,7 +17,7 @@ from lightfall.acquire.engine.base import BaseEngine, PrioritizedProcedure
 from lightfall.acquire.engine.state import EngineState
 from lightfall.acquire.engine.waiting_hook import WaitingHookBridge
 from lightfall.utils.logging import logger
-from lightfall.utils.threads import QThreadFuture
+from lightfall.utils.threads import QThreadFuture, invoke_in_main_thread
 
 # Map Bluesky RunEngine state strings to EngineState
 _RE_STATE_MAP: dict[str, EngineState] = {
@@ -222,6 +222,25 @@ class BlueskyEngine(BaseEngine):
             except Exception as ex:
                 logger.warning(f"[bluesky] Error in kwargs callable: {ex}")
 
+        # Extract control kwargs that must NOT be forwarded to the RunEngine.
+        # `on_complete` is a completion callback (invoked with a success flag
+        # once the plan settles), not run metadata. Anything passed through to
+        # RunEngine.__call__(**metadata_kw) is folded into the start document,
+        # and a function object there cannot be JSON-serialized by Tiled — the
+        # run would silently fail to persist.
+        on_complete = kwargs.pop("on_complete", None)
+
+        # Defense-in-depth: any remaining callable kwarg would likewise poison
+        # the start document and drop the run from Tiled. Strip and warn rather
+        # than losing the acquisition.
+        for key in [k for k, v in kwargs.items() if callable(v)]:
+            logger.warning(
+                "[bluesky] Dropping non-serializable kwarg '{}'={!r}; callables "
+                "cannot be stored in the run start document",
+                key, kwargs[key],
+            )
+            kwargs.pop(key)
+
         self.sigStart.emit()
         self._set_state(EngineState.RUNNING)
         logger.debug(f"[bluesky] Starting plan '{item.name}' with kwargs={kwargs}")
@@ -229,6 +248,7 @@ class BlueskyEngine(BaseEngine):
         # RE is guaranteed to exist here - created in _process_queue before this method is called
         assert self._RE is not None
 
+        success = False
         try:
             self._RE(plan, **kwargs)
         except RunEngineInterrupted:
@@ -239,12 +259,37 @@ class BlueskyEngine(BaseEngine):
             logger.exception(ex)
             self.sigException.emit(ex)
         else:
+            success = True
             self.sigFinish.emit()
         finally:
             self._clear_current_procedure()
             re_state = self._RE.state if self._RE else "idle"
             mapped = _RE_STATE_MAP.get(re_state, EngineState.IDLE)
             self._set_state(mapped)
+            if on_complete is not None:
+                self._invoke_on_complete(on_complete, success)
+
+    def _invoke_on_complete(
+        self, callback: Callable[[bool], None], success: bool
+    ) -> None:
+        """Invoke a ``submit(on_complete=...)`` callback on the GUI thread.
+
+        Plans are executed on the engine worker thread, but completion
+        callbacks frequently touch Qt widgets (e.g. resuming camera TV mode),
+        so the call is marshalled to the main thread. Exceptions in the
+        callback are logged and swallowed — a misbehaving callback must not
+        take down the engine processor.
+        """
+        def _run() -> None:
+            try:
+                callback(success)
+            except Exception as ex:
+                logger.warning(f"[bluesky] on_complete callback raised: {ex}")
+
+        try:
+            invoke_in_main_thread(_run)
+        except Exception as ex:
+            logger.warning(f"[bluesky] Failed to dispatch on_complete callback: {ex}")
 
     # === Control Operations ===
 
