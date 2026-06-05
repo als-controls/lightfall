@@ -164,6 +164,21 @@ def _override_schema_from_data_keys(
         col_meta = data_keys.get(field.name)
         if not col_meta:
             continue
+
+        # Array-valued keys (e.g. AreaDetector ROI time-series waveforms) declare
+        # a *scalar* ``dtype_numpy`` (the element type, e.g. ``<f8``) alongside
+        # ``dtype: "array"``. Upstream only routes a key to the separate zarr
+        # array path when ``0 <= max_array_size < sum(shape)``, so an array whose
+        # ``shape`` sums to 0 (an empty/idle time-series buffer) stays in the
+        # tabular table. Coercing such a column to ``from_numpy_dtype(dtype_numpy)``
+        # would freeze a *scalar* Arrow type for list-valued data; the
+        # server-side ``table.cast`` in ``append_partition`` (list -> scalar)
+        # then raises and surfaces as a 500, orphaning the run. Leave these
+        # columns at their inferred list type — the null-list fallbacks above
+        # already normalise empty arrays.
+        if col_meta.get("dtype") == "array":
+            continue
+
         dtype_numpy = col_meta.get("dtype_numpy")
         if not dtype_numpy:
             continue
