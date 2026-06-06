@@ -2,27 +2,25 @@
 
 import time
 
-from lightfall.ui.panels.shussebora_panel import (
+from lightfall.services.shussebora_monitor import (
     HEARTBEAT_DEAD_S,
     HEARTBEAT_STALE_S,
-    ShusseboraPanel,
+    ShusseboraMonitor,
 )
+from lightfall.ui.panels.shussebora_panel import ShusseboraPanel
 
 
 class FakeIPC:
-    """Minimal IPCService stand-in recording subscriptions."""
-
     is_connected = True
 
     def __init__(self):
         self.subscriptions = {}
-        self.unsubscribed = []
 
     def subscribe(self, subject, callback, **kwargs):
         self.subscriptions[subject] = callback
 
     def unsubscribe(self, subject):
-        self.unsubscribed.append(subject)
+        pass
 
     def request(self, subject, data, timeout_ms=1000):
         return None
@@ -41,57 +39,62 @@ STATUS = {
 }
 
 
-def make_panel(qtbot, ipc=None):
-    panel = ShusseboraPanel(ipc=ipc or FakeIPC())
-    qtbot.addWidget(panel)
-    return panel
-
-
-def test_subscribes_to_wildcard_subjects(qtbot):
+def make_panel(qtbot):
     ipc = FakeIPC()
-    make_panel(qtbot, ipc)
-    assert "shussebora.*.heartbeat" in ipc.subscriptions
-    assert "shussebora.*.transfer.complete" in ipc.subscriptions
-    assert "shussebora.*.transfer.failed" in ipc.subscriptions
+    monitor = ShusseboraMonitor(ipc=ipc)
+    panel = ShusseboraPanel(monitor=monitor)
+    qtbot.addWidget(panel)
+    return panel, monitor, ipc
 
 
 def test_heartbeat_creates_instance_card(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
+    panel, monitor, ipc = make_panel(qtbot)
     assert panel.instance_count() == 0
 
     ipc.subscriptions["shussebora.*.heartbeat"]("shussebora.suzume.heartbeat", STATUS, None)
 
     assert panel.instance_count() == 1
     assert panel.instance_state("suzume") == "ok"
-    card = panel._instances["suzume"]
+    card = panel._cards["suzume"]
     assert "46.0%" in card["detail"].text()
     assert "queue: 2" in card["detail"].text()
     assert "7 ok, 1 failed" in card["detail"].text()
     assert "13PICAM1:HDF1" in card["triggers"].text()
+    assert "1d 1h" in card["title"].text()  # 90000 s uptime
+
+
+def test_panel_replays_state_seen_before_creation(qtbot):
+    ipc = FakeIPC()
+    monitor = ShusseboraMonitor(ipc=ipc)
+    monitor.start()
+    monitor.ingest_status(STATUS)
+
+    panel = ShusseboraPanel(monitor=monitor)
+    qtbot.addWidget(panel)
+
+    assert panel.instance_count() == 1
+    assert panel.instance_state("suzume") == "ok"
 
 
 def test_staleness_transitions(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
-    panel._apply_status(STATUS)
-    card = panel._instances["suzume"]
+    panel, monitor, ipc = make_panel(qtbot)
+    monitor.ingest_status(STATUS)
 
-    card["last_seen"] = time.time() - (HEARTBEAT_STALE_S + 5)
-    panel._check_staleness()
+    monitor._instances["suzume"]["last_seen"] = time.time() - (HEARTBEAT_STALE_S + 5)
+    monitor._check_staleness()
     assert panel.instance_state("suzume") == "stale"
 
-    card["last_seen"] = time.time() - (HEARTBEAT_DEAD_S + 5)
-    panel._check_staleness()
+    monitor._instances["suzume"]["last_seen"] = time.time() - (HEARTBEAT_DEAD_S + 5)
+    monitor._check_staleness()
     assert panel.instance_state("suzume") == "dead"
+    assert "down" in panel._cards["suzume"]["title"].text()
 
-    panel._apply_status(STATUS)  # heartbeat returns
+    monitor.ingest_status(STATUS)  # heartbeat returns
     assert panel.instance_state("suzume") == "ok"
 
 
 def test_transfer_events_fill_table(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
+    panel, monitor, ipc = make_panel(qtbot)
 
     ipc.subscriptions["shussebora.*.transfer.complete"](
         "shussebora.suzume.transfer.complete",
@@ -117,10 +120,9 @@ def test_transfer_events_fill_table(qtbot):
 
 
 def test_epics_event_updates_trigger_marks(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
-    panel._apply_status(STATUS)
-    card = panel._instances["suzume"]
+    panel, monitor, ipc = make_panel(qtbot)
+    monitor.ingest_status(STATUS)
+    card = panel._cards["suzume"]
     assert "✗" in card["triggers"].text()  # ANDOR disconnected in STATUS
 
     ipc.subscriptions["shussebora.*.epics.connected"](
@@ -129,9 +131,8 @@ def test_epics_event_updates_trigger_marks(qtbot):
 
 
 def test_recent_transfers_replace_table(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
-    panel._apply_recent([
+    panel, monitor, ipc = make_panel(qtbot)
+    monitor.sigRecentTransfers.emit([
         {"source": "/data/a.h5", "trigger": "catchup", "status": "complete",
          "bytes": 100, "finished": "2026-06-05 14:22:26.707738"},
         {"source": "/data/b.h5", "trigger": "13PICAM1:HDF1", "status": "failed",
@@ -140,10 +141,3 @@ def test_recent_transfers_replace_table(qtbot):
     assert panel.transfer_row_count() == 2
     assert panel.transfer_row(0)["time"] == "14:22:26"
     assert panel.transfer_row(1)["status"] == "failed"
-
-
-def test_closing_unsubscribes(qtbot):
-    ipc = FakeIPC()
-    panel = make_panel(qtbot, ipc)
-    panel._on_closing()
-    assert "shussebora.*.heartbeat" in ipc.unsubscribed
