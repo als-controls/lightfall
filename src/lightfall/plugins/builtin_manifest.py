@@ -304,6 +304,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="shussebora",
+            import_path="lightfall.ui.panels.plugins.shussebora_plugin:ShusseboraPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
             name="logging",
             import_path="lightfall.ui.panels.plugins.logging_plugin:LoggingPanelPlugin",
             preload=True,
