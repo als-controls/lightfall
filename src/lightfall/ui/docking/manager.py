@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, Signal
+from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
 
 from lightfall.ui.docking.icon_sidebar import IconStripSidebar
@@ -85,6 +85,10 @@ class DockingManager(QObject):
         # Panel status tracking (status exists even for deferred panels)
         self._panel_status: dict[str, PanelStatus] = {}
         self._icon_color_overrides: dict[str, str] = {}
+
+        # Proactive (post-startup) initialization
+        self._proactive_init_started = False
+        self._proactive_queue: list[str] = []
 
     def initialize(self) -> None:
         """Initialize the docking system.
@@ -691,6 +695,50 @@ class DockingManager(QObject):
         """Re-tint all tracked icons after a theme palette change."""
         for panel_id in set(self._panel_status) | set(self._icon_color_overrides):
             self._refresh_sidebar_icon(panel_id)
+
+    # Proactive initialization
+
+    def start_proactive_init(self) -> None:
+        """Proactively instantiate deferred sidebar panels, top to bottom.
+
+        Called once after the main window is shown and plugin loading is
+        complete. One panel is instantiated per event-loop slice so the
+        UI stays responsive. Panels whose metadata sets
+        proactive_init=False are skipped. Dock widgets stay hidden.
+        """
+        if self._proactive_init_started:
+            return
+        self._proactive_init_started = True
+        if self._icon_sidebar is None:
+            return
+        self._proactive_queue = [
+            pid
+            for pid in self._icon_sidebar.ordered_panel_ids()
+            if pid in self._deferred_panels
+            and self._deferred_metadata[pid].proactive_init
+        ]
+        logger.info(
+            "Proactive panel init: {} panels queued", len(self._proactive_queue)
+        )
+        if self._proactive_queue:
+            QTimer.singleShot(0, self._proactive_init_next)
+
+    def _proactive_init_next(self) -> None:
+        """Instantiate the next queued panel, then yield to the event loop."""
+        while self._proactive_queue:
+            panel_id = self._proactive_queue.pop(0)
+            if panel_id not in self._deferred_panels:
+                continue  # already instantiated (e.g. user clicked it)
+            try:
+                panel = self._instantiate_deferred_panel(panel_id)
+            except Exception:
+                logger.exception("Proactive init failed for {}", panel_id)
+                panel = None
+            if panel is None:
+                self.set_panel_status(panel_id, PanelStatus.ERROR)
+            # One panel per slice — chain the rest via the event loop
+            QTimer.singleShot(0, self._proactive_init_next)
+            return
 
     # Runtime panel registration handlers
 
