@@ -126,7 +126,7 @@ class BasePanel(QWidget):
         deactivated: Emitted when panel loses focus.
         state_changed: Emitted when panel state changes.
         closing: Emitted when panel is about to close.
-        status_changed: Emitted when the panel's status changes (PanelStatus).
+        status_changed: Emitted when the panel's status changes.
 
     Content is placed inside a built-in vertical QScrollArea, so when a
     panel's widgets don't fit the available area the user can scroll
