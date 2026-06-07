@@ -305,7 +305,13 @@ class PanelDockWidget(QDockWidget):
         return self._panel.panel_metadata.id
 
     def _on_expand_requested(self) -> None:
-        """Expand the panel onto the theater overlay."""
+        """Expand the panel onto the theater overlay.
+
+        Deliberately calls activate() directly rather than emitting
+        proxy.expand_requested — the proxy's own signal is already
+        connected to activate by TheaterManager.register(), so emitting
+        it here would double-activate.
+        """
         from lightfall.ui.theater.manager import theater_manager
 
         theater_manager.activate(self._proxy)
