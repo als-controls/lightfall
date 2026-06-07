@@ -10,6 +10,7 @@ Provides the foundation for all NCS panels with:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, Signal
@@ -20,6 +21,20 @@ from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from lightfall.auth.session import User
+
+
+class PanelStatus(Enum):
+    """Lifecycle/health status of a panel, shown as a sidebar icon tint.
+
+    UNINITIALIZED renders in the theme's text color (the pre-existing
+    default); the other values use the matching theme color role.
+    """
+
+    UNINITIALIZED = "uninitialized"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    INFO = "info"
 
 
 @dataclass
@@ -45,6 +60,9 @@ class PanelMetadata:
         sidebar_group: Sidebar group within the area ("top", "bottom").
         auto_hide: Whether panel starts in auto-hide sidebar mode.
         sidebar_order: Order within sidebar group (lower = higher).
+        proactive_init: Whether to eagerly instantiate this panel during
+            the post-startup proactive init sweep. Set False for heavy
+            panels that should stay fully lazy.
     """
 
     id: str
@@ -62,6 +80,7 @@ class PanelMetadata:
     sidebar_group: str = "top"
     auto_hide: bool = True
     sidebar_order: int = 0
+    proactive_init: bool = True
 
     def matches_search(self, query: str) -> bool:
         """Check if panel matches a search query.
@@ -107,6 +126,7 @@ class BasePanel(QWidget):
         deactivated: Emitted when panel loses focus.
         state_changed: Emitted when panel state changes.
         closing: Emitted when panel is about to close.
+        status_changed: Emitted when the panel's status changes (PanelStatus).
 
     Content is placed inside a built-in vertical QScrollArea, so when a
     panel's widgets don't fit the available area the user can scroll
@@ -140,6 +160,7 @@ class BasePanel(QWidget):
     state_changed = Signal(str, object)  # key, value
     closing = Signal()
     icon_changed = Signal(str, str)  # icon_name, color (empty = theme default)
+    status_changed = Signal(object)  # PanelStatus
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the base panel.
@@ -150,6 +171,7 @@ class BasePanel(QWidget):
         super().__init__(parent)
         self._is_active = False
         self._panel_state: dict[str, Any] = {}
+        self._status = PanelStatus.UNINITIALIZED
 
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
@@ -281,6 +303,25 @@ class BasePanel(QWidget):
                    Empty string resets to theme default.
         """
         self.icon_changed.emit(icon_name, color)
+
+    @property
+    def status(self) -> PanelStatus:
+        """Current panel status (drives the sidebar icon tint)."""
+        return self._status
+
+    def set_status(self, status: PanelStatus) -> None:
+        """Set the panel status.
+
+        Emits status_changed, which the docking manager maps to a
+        theme-colored sidebar icon tint.
+
+        Args:
+            status: New PanelStatus.
+        """
+        if status is self._status:
+            return
+        self._status = status
+        self.status_changed.emit(status)
 
     # State management
 
