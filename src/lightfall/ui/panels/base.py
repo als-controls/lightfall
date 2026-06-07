@@ -64,6 +64,10 @@ class PanelMetadata:
         proactive_init: Whether to eagerly instantiate this panel during
             the post-startup proactive init sweep. Set False for heavy
             panels that should stay fully lazy.
+        warmup_import: Optional module name imported in a background
+            thread when the proactive init sweep starts, so a heavy
+            import chain (e.g. "lightfall.claude") is already in
+            sys.modules by the time this panel initializes.
     """
 
     id: str
@@ -82,6 +86,7 @@ class PanelMetadata:
     auto_hide: bool = True
     sidebar_order: int = 0
     proactive_init: bool = True
+    warmup_import: str = ""
 
     def matches_search(self, query: str) -> bool:
         """Check if panel matches a search query.

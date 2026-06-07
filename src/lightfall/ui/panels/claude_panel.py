@@ -177,6 +177,9 @@ class ClaudePanel(BasePanel):
         sidebar_group="top",
         auto_hide=True,
         sidebar_order=0,
+        # claude_agent_sdk import chain is heavy (~300ms+); warm it in
+        # the background while earlier panels initialize
+        warmup_import="lightfall.claude",
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:

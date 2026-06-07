@@ -85,3 +85,34 @@ class TestProactiveInit:
         docking._proactive_init_next()
         assert docking._proactive_queue == []
         assert docking.is_panel_deferred("test.a")
+
+
+class TestImportWarmup:
+    def test_warmup_import_defaults_empty(self):
+        from lightfall.ui.panels.base import PanelMetadata
+
+        assert PanelMetadata(id="x", name="X").warmup_import == ""
+
+    def test_warmup_imports_module_in_background(
+        self, qtbot, docking, tmp_path, monkeypatch
+    ):
+        import sys
+
+        (tmp_path / "warm_dummy_mod.py").write_text("VALUE = 1\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        sys.modules.pop("warm_dummy_mod", None)
+
+        cls = _register(docking, "test.warm")
+        cls.panel_metadata.warmup_import = "warm_dummy_mod"
+
+        docking.start_proactive_init()
+        qtbot.waitUntil(
+            lambda: "warm_dummy_mod" in sys.modules, timeout=5000
+        )
+        _wait_done(qtbot, docking)
+
+    def test_no_warmup_no_thread(self, qtbot, docking):
+        _register(docking, "test.plain")
+        docking.start_proactive_init()
+        assert docking._warmup_thread is None
+        _wait_done(qtbot, docking)

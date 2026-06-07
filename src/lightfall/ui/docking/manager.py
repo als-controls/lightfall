@@ -40,6 +40,18 @@ AREA_MAP: dict[str, Qt.DockWidgetArea] = {
 }
 
 
+def _import_modules(module_names: list[str]) -> None:
+    """Import modules by name (background import warming)."""
+    import importlib
+
+    for name in module_names:
+        try:
+            importlib.import_module(name)
+            logger.debug("Warmed import: {}", name)
+        except Exception:
+            logger.exception("Import warmup failed for {}", name)
+
+
 class DockingManager(QObject):
     """Manages the docking system using native QDockWidget.
 
@@ -89,6 +101,7 @@ class DockingManager(QObject):
         # Proactive (post-startup) initialization
         self._proactive_init_started = False
         self._proactive_queue: list[str] = []
+        self._warmup_thread = None  # QThreadFuture warming heavy imports
 
         # Panels the user removed from the sidebar (persisted)
         self._removed_panels: set[str] = set()
@@ -440,12 +453,11 @@ class DockingManager(QObject):
                 logger.error("Failed to add deferred panel to dock: {}", panel_id)
                 return None
 
-            # Re-apply theme so new dock widget picks up child selectors
-            try:
-                from lightfall.ui.theme import ThemeManager
-                ThemeManager.get_instance().apply_to_application()
-            except Exception:
-                pass
+            # NOTE: no theme reapply here. App-level QSS cascades to
+            # widgets created later (verified pixel-identical with and
+            # without); the old per-panel apply_to_application() cost
+            # 40-100ms per panel for nothing. setup_default_layout()
+            # still does one apply after the initial layout exists.
 
         logger.info("Instantiated deferred panel: {}", panel_id)
         return panel
@@ -754,8 +766,35 @@ class DockingManager(QObject):
         logger.info(
             "Proactive panel init: {} panels queued", len(self._proactive_queue)
         )
+        self._start_import_warmup()
         if self._proactive_queue:
             QTimer.singleShot(0, self._proactive_init_next)
+
+    def _start_import_warmup(self) -> None:
+        """Warm queued panels' heavy imports in a background thread.
+
+        Runs while earlier panels initialize on the GUI thread, so a
+        panel's import chain (metadata.warmup_import, e.g.
+        "lightfall.claude") is already in sys.modules when its slice
+        comes up. Python's per-module import lock makes this safe: if
+        the GUI thread reaches the same import first, it just does the
+        work itself.
+        """
+        modules = [
+            self._deferred_metadata[pid].warmup_import
+            for pid in self._proactive_queue
+            if self._deferred_metadata[pid].warmup_import
+        ]
+        if not modules:
+            return
+
+        from lightfall.utils.threads import QThreadFuture
+
+        self._warmup_thread = QThreadFuture(
+            _import_modules, modules, name="panel-import-warmup"
+        )
+        self._warmup_thread.start()
+        logger.debug("Started import warmup for {}", modules)
 
     def _proactive_init_next(self) -> None:
         """Instantiate the next queued panel, then yield to the event loop."""
