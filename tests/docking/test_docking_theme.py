@@ -78,6 +78,20 @@ def test_panel_background_is_surface(islands_colors):
     ) in css
 
 
+def test_panel_scroll_content_repainted_surface_in_islands(islands_colors):
+    """BasePanel's scrolled content autofills the Window role (= sea); islands
+    mode repaints it surface so panel interiors read as surface, not sea.
+    Covers both dock-hosted panels and the central widget."""
+    css = generate_docking_stylesheet(islands_colors)
+    assert "QDockWidget QScrollArea > QWidget > QWidget" in css
+    assert "#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget" in css
+
+
+def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
+    css = generate_docking_stylesheet(flat_colors)
+    assert "QDockWidget QScrollArea > QWidget > QWidget" not in css
+
+
 def test_central_logbook_is_surface_and_rounded(islands_colors):
     """The central widget (logbook) gets Surface bg + rounded corners, and its
     inner scroll area is rounded too so square corners don't paint over it."""
