@@ -47,6 +47,15 @@ class TestStatusTracking:
         panel.set_status(PanelStatus.WARNING)
         assert docking.get_panel_status("test.p1") is PanelStatus.WARNING
 
+    def test_remove_panel_clears_status_and_override(self, docking):
+        _register_deferred(docking, "test.p1")
+        panel = docking._instantiate_deferred_panel("test.p1")
+        panel.set_sidebar_icon(color="#123456")
+        panel.set_status(PanelStatus.WARNING)
+        docking.remove_panel("test.p1")
+        assert docking.get_panel_status("test.p1") is PanelStatus.UNINITIALIZED
+        assert "test.p1" not in docking._icon_color_overrides
+
 
 class TestIconTinting:
     def _button_color_calls(self, docking, monkeypatch):

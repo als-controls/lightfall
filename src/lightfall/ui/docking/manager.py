@@ -445,6 +445,8 @@ class DockingManager(QObject):
             return False
 
         self._panel_areas.pop(panel_id, None)
+        self._panel_status.pop(panel_id, None)
+        self._icon_color_overrides.pop(panel_id, None)
 
         if self._inner_window:
             self._inner_window.removeDockWidget(widget)
