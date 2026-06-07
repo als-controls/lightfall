@@ -1,15 +1,8 @@
 """Tests for the reworked PanelTitleBar."""
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QToolButton
 
 from lightfall.ui.docking.widget import PanelTitleBar
-
-
-def _shown_buttons(bar: PanelTitleBar) -> list[QToolButton]:
-    return [
-        b for b in bar.findChildren(QToolButton) if not b.isHidden()
-    ]
 
 
 class TestWindowButtons:
@@ -79,9 +72,11 @@ class TestActionButtons:
     def test_set_actions_rebuilds(self, qtbot):
         bar = PanelTitleBar("T")
         qtbot.addWidget(bar)
+        bar.show()
         bar.set_actions([QAction("One", bar)])
         bar.set_actions([])
         assert bar._actions_layout.count() == 0
+        assert bar._separator.isHidden()
 
     def test_action_trigger_via_button(self, qtbot):
         bar = PanelTitleBar("T")
