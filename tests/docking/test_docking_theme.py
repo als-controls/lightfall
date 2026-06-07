@@ -97,6 +97,22 @@ def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
     ) in css
 
 
+def test_dock_panel_widget_transparent_in_islands(islands_colors):
+    """The dock panel widget (BasePanel) sits on top of its TheaterProxy and,
+    left opaque, squares off the proxy's rounded corners. Islands mode makes
+    it transparent so the rounded surface shows (verified live by Ron)."""
+    css = generate_docking_stylesheet(islands_colors)
+    assert (
+        "#TheaterProxy > QWidget {\n"
+        "    background-color: rgba(0, 0, 0, 0);"
+    ) in css
+
+
+def test_dock_panel_widget_rule_absent_when_flat(flat_colors):
+    css = generate_docking_stylesheet(flat_colors)
+    assert "#TheaterProxy > QWidget" not in css
+
+
 def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
     css = generate_docking_stylesheet(flat_colors)
     assert "QDockWidget QScrollArea > QWidget > QWidget" not in css

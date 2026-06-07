@@ -265,6 +265,19 @@ QDockWidget QScrollArea > QWidget > QWidget,
     background-color: rgba(0, 0, 0, 0);
 }}
 
+/* The dock panel widget itself. Dock panels are wrapped in a TheaterProxy
+   (a QStackedWidget) which is the dock's direct child and paints the
+   bottom-rounded surface (via QDockWidget > QWidget above). The BasePanel
+   sits on top as page 0 and, left opaque, squares off those rounded corners.
+   Make it transparent (rgba, not the `transparent` shorthand) so the
+   TheaterProxy's rounded surface shows. The central logbook isn't wrapped in
+   a proxy — it paints its own rounded surface — so it's unaffected here.
+   (Verified live: panel.setStyleSheet("background-color: rgba(0,0,0,0)")
+   rounds the corners; this is the global-stylesheet equivalent.) */
+#TheaterProxy > QWidget {{
+    background-color: rgba(0, 0, 0, 0);
+}}
+
 /* List widgets and frames inside docks — island surface, no frame */
 QDockWidget QListWidget,
 QDockWidget QListView,
