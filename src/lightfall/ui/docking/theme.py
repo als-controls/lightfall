@@ -239,17 +239,21 @@ QDockWidget QScrollArea {{
     background: {island};
 }}
 
-/* Panel interiors: a BasePanel wraps its content in a QScrollArea. The
-   scroll *viewport* paints the surface (Qt routes QScrollArea's background
-   to it) and carries the bottom rounding. The viewport's scrolled child,
-   however, autofills the Window palette role (= sea) and, being an opaque
-   square, both paints sea and squares off the rounded corners (Qt doesn't
-   clip children to a parent's border-radius). Make that scrolled child
-   transparent so the viewport's rounded surface shows through. Targeting
-   the viewport's single child (not the viewport itself) keeps the surface
-   intact and avoids clobbering styled controls (inputs, lists) and
-   scrollbars. Covers dock-hosted panels and the central widget (logbook). */
+/* Panel interiors and rounded corners. A BasePanel wraps its content in a
+   QScrollArea (viewport + scrolled child). Both autofill the Window palette
+   role (= sea) and, as opaque squares, paint sea AND square off the panel's
+   rounded corners (Qt doesn't clip children to a parent's border-radius).
+   Make the whole scroll subtree transparent so the rounded surface painted
+   by the panel's ancestor shows through — the central BasePanel
+   (#InnerDockWindow > QWidget, all-rounded) for the logbook, and the dock's
+   content wrapper (QDockWidget > QWidget, bottom-rounded) for dock panels.
+   Targeting QScrollArea descendants keeps styled controls (inputs, lists)
+   and their own backgrounds intact. */
+QDockWidget QScrollArea,
+QDockWidget QScrollArea > QWidget,
 QDockWidget QScrollArea > QWidget > QWidget,
+#InnerDockWindow > QWidget QScrollArea,
+#InnerDockWindow > QWidget QScrollArea > QWidget,
 #InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}
