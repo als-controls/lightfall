@@ -74,6 +74,8 @@ class LFMainWindow(QMainWindow):
         self._docking_manager: DockingManager | None = None
         self._default_layout_applied: bool = False
         self._initial_show_done: bool = False
+        self._window_shown: bool = False
+        self._plugins_loaded: bool = False
         self._statusbar_manager: StatusBarManager | None = None
 
         # Get manager instances
@@ -926,6 +928,11 @@ class LFMainWindow(QMainWindow):
             return
         self._initial_show_done = True
 
+        # Kick the proactive panel-init latch: starts once the window is
+        # shown AND background plugin loading is complete.
+        self._window_shown = True
+        self._watch_plugin_loading()
+
         # Skip restoration if we just applied a fresh default layout
         if self._default_layout_applied:
             self._default_layout_applied = False
@@ -934,6 +941,28 @@ class LFMainWindow(QMainWindow):
         # Restore window state if preference set
         if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
             self._restore_window_state()
+
+    def _watch_plugin_loading(self) -> None:
+        """Mark plugins loaded now, or when background loading completes."""
+        from lightfall.core.services import ServiceRegistry
+        from lightfall.plugins import PluginLoader
+
+        loader = ServiceRegistry.get_instance().get(PluginLoader, None)
+        if loader is not None and loader.is_loading:
+            loader.loading_complete.connect(self._on_plugin_loading_complete)
+            return
+        self._plugins_loaded = True
+        self._maybe_start_proactive_init()
+
+    def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
+        """Background plugin loading finished."""
+        self._plugins_loaded = True
+        self._maybe_start_proactive_init()
+
+    def _maybe_start_proactive_init(self) -> None:
+        """Start proactive panel init once window shown + plugins loaded."""
+        if self._window_shown and self._plugins_loaded and self._docking_manager:
+            self._docking_manager.start_proactive_init()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle close event."""
