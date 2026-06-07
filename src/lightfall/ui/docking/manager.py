@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
 from lightfall.ui.docking.icon_sidebar import IconStripSidebar
 from lightfall.ui.docking.state import DockingState
 from lightfall.ui.docking.widget import PanelDockWidget
-from lightfall.ui.panels.base import PanelMetadata
+from lightfall.ui.panels.base import PanelMetadata, PanelStatus
 from lightfall.ui.panels.registry import PanelRegistry
 from lightfall.utils.logging import logger
 
@@ -82,6 +82,10 @@ class DockingManager(QObject):
         self._deferred_panels: dict[str, str] = {}  # panel_id -> area
         self._deferred_metadata: dict[str, PanelMetadata] = {}  # panel_id -> metadata
 
+        # Panel status tracking (status exists even for deferred panels)
+        self._panel_status: dict[str, PanelStatus] = {}
+        self._icon_color_overrides: dict[str, str] = {}
+
     def initialize(self) -> None:
         """Initialize the docking system.
 
@@ -122,6 +126,16 @@ class DockingManager(QObject):
         registry = PanelRegistry.get_instance()
         registry.panel_registered.connect(self._on_panel_registered)
         registry.panel_unregistered.connect(self._on_panel_unregistered)
+
+        # Re-tint status icons when the theme palette changes
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            ThemeManager.get_instance().colors_changed.connect(
+                self._on_theme_colors_changed
+            )
+        except Exception:
+            logger.debug("ThemeManager unavailable; status tints are static")
 
         logger.info("DockingManager initialized with QDockWidget + icon strip sidebar")
 
@@ -253,13 +267,27 @@ class DockingManager(QObject):
         # Connect icon changes
         if self._icon_sidebar:
             panel.icon_changed.connect(
-                lambda icon_name, color, pid=panel_id: self._icon_sidebar.update_button_icon(pid, icon_name, color)
+                lambda icon_name, color, pid=panel_id: self._on_panel_icon_changed(pid, icon_name, color)
             )
+
+        # Connect panel-driven status changes
+        panel.status_changed.connect(
+            lambda status, pid=panel_id: self.set_panel_status(pid, status)
+        )
 
         # Connect visibility changes to sync sidebar
         widget.visibilityChanged.connect(
             lambda visible, pid=panel_id: self._on_panel_visibility_changed(pid, visible)
         )
+
+        # The panel instance now exists: mark it loaded unless the panel
+        # already chose a status during construction.
+        initial = (
+            panel.status
+            if panel.status is not PanelStatus.UNINITIALIZED
+            else PanelStatus.SUCCESS
+        )
+        self.set_panel_status(panel_id, initial)
 
         logger.debug("Added panel {} to area {}", panel_id, area)
         self.panel_added.emit(panel_id)
@@ -379,6 +407,7 @@ class DockingManager(QObject):
 
         if panel is None:
             logger.error("Failed to instantiate deferred panel: {}", panel_id)
+            self.set_panel_status(panel_id, PanelStatus.ERROR)
             return None
 
         dock_widget = self.add_panel(
@@ -576,6 +605,90 @@ class DockingManager(QObject):
         """Handle panel visibility change."""
         if self._icon_sidebar:
             self._icon_sidebar.set_panel_active(panel_id, visible)
+
+    # Panel status
+
+    def get_panel_status(self, panel_id: str) -> PanelStatus:
+        """Get the tracked status for a panel (UNINITIALIZED if unknown).
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            Current PanelStatus for the panel.
+        """
+        return self._panel_status.get(panel_id, PanelStatus.UNINITIALIZED)
+
+    def set_panel_status(self, panel_id: str, status: PanelStatus) -> None:
+        """Set a panel's status and re-tint its sidebar icon.
+
+        Args:
+            panel_id: Panel identifier.
+            status: New status.
+        """
+        self._panel_status[panel_id] = status
+        self._refresh_sidebar_icon(panel_id)
+
+    def _status_color(self, status: PanelStatus) -> str:
+        """Map a status to a theme color hex string ('' = theme default).
+
+        Args:
+            status: The PanelStatus to map.
+
+        Returns:
+            Hex color string, or empty string for UNINITIALIZED/unknown.
+        """
+        if status is PanelStatus.UNINITIALIZED:
+            return ""
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            colors = ThemeManager.get_instance().colors
+        except Exception:
+            return ""
+        return {
+            PanelStatus.SUCCESS: colors.success,
+            PanelStatus.WARNING: colors.warning,
+            PanelStatus.ERROR: colors.error,
+            PanelStatus.INFO: colors.info,
+        }[status]
+
+    def _refresh_sidebar_icon(self, panel_id: str, icon_name: str = "") -> None:
+        """Re-apply the icon tint for a panel.
+
+        Precedence: explicit icon color override > status color > theme text.
+
+        Args:
+            panel_id: Panel identifier.
+            icon_name: Icon name to pass through (empty keeps current icon).
+        """
+        if self._icon_sidebar is None:
+            return
+        color = self._icon_color_overrides.get(panel_id) or self._status_color(
+            self.get_panel_status(panel_id)
+        )
+        self._icon_sidebar.update_button_icon(panel_id, icon_name, color)
+
+    def _on_panel_icon_changed(
+        self, panel_id: str, icon_name: str, color: str
+    ) -> None:
+        """Handle BasePanel.icon_changed (manual icon/color updates).
+
+        Args:
+            panel_id: Panel identifier.
+            icon_name: New icon name (empty keeps current).
+            color: Explicit color override (empty clears the override).
+        """
+        if color:
+            self._icon_color_overrides[panel_id] = color
+        else:
+            self._icon_color_overrides.pop(panel_id, None)
+        self._refresh_sidebar_icon(panel_id, icon_name)
+
+    def _on_theme_colors_changed(self) -> None:
+        """Re-tint all tracked icons after a theme palette change."""
+        for panel_id in set(self._panel_status) | set(self._icon_color_overrides):
+            self._refresh_sidebar_icon(panel_id)
 
     # Runtime panel registration handlers
 
