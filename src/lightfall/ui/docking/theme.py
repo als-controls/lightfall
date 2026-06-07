@@ -91,6 +91,12 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
     radius = RADIUS if islands else 0
     gap = GAP if islands else 0
 
+    # Selected (checked) sidebar buttons: in Islands mode use the surface
+    # color so the active button reads as part of the island it opens, rather
+    # than the loud primary accent. Non-islands themes keep the primary
+    # highlight unchanged.
+    checked_bg = island if islands else colors.primary
+
     return f"""
 /* ==========================================================================
    Icon Strip Sidebar — sits in the sea
@@ -112,11 +118,11 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
 }}
 
 #IconStripSidebar QToolButton:checked {{
-    background: {colors.primary};
+    background: {checked_bg};
 }}
 
 #IconStripSidebar QToolButton:checked:hover {{
-    background: {colors.primary};
+    background: {checked_bg};
 }}
 
 #IconStripSeparator {{
@@ -287,6 +293,18 @@ QDockWidget QToolBar QToolButton {{
     background: {island};
     border-radius: {radius}px;
     margin: {gap}px;
+}}
+
+/* The central widget (e.g. logbook) wraps its content in a BasePanel
+   QScrollArea that fills edge-to-edge. Without matching island bg + rounding
+   it paints opaque square corners over the central island's rounded corners.
+   The double child-combinator targets ONLY the central widget's own scroll
+   area (InnerDockWindow > centralWidget > QScrollArea); dock-hosted scroll
+   areas live under QDockWidget > BasePanel and are never matched here. */
+#InnerDockWindow > QWidget > QScrollArea {{
+    background: {island};
+    border: none;
+    border-radius: {radius}px;
 }}
 '''}
 
