@@ -93,7 +93,7 @@ def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
         "#InnerDockWindow > QWidget QScrollArea,\n"
         "#InnerDockWindow > QWidget QScrollArea > QWidget,\n"
         "#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {\n"
-        "    background: transparent;"
+        "    background-color: rgba(0, 0, 0, 0);"
     ) in css
 
 

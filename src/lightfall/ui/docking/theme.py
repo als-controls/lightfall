@@ -248,14 +248,21 @@ QDockWidget QScrollArea {{
    (#InnerDockWindow > QWidget, all-rounded) for the logbook, and the dock's
    content wrapper (QDockWidget > QWidget, bottom-rounded) for dock panels.
    Targeting QScrollArea descendants keeps styled controls (inputs, lists)
-   and their own backgrounds intact. */
+   and their own backgrounds intact.
+
+   Use background-color: rgba(0,0,0,0), NOT `background: transparent`. For a
+   widget with autoFillBackground=True (the viewport and scrolled child),
+   the `transparent` shorthand resolves to "no brush" and Qt falls back to
+   filling with the palette Window brush (= sea) — so it never goes
+   transparent. An explicit zero-alpha background-color overrides the
+   autofill brush and genuinely paints nothing. */
 QDockWidget QScrollArea,
 QDockWidget QScrollArea > QWidget,
 QDockWidget QScrollArea > QWidget > QWidget,
 #InnerDockWindow > QWidget QScrollArea,
 #InnerDockWindow > QWidget QScrollArea > QWidget,
 #InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {{
-    background: transparent;
+    background-color: rgba(0, 0, 0, 0);
 }}
 
 /* List widgets and frames inside docks — island surface, no frame */
