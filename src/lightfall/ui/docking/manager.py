@@ -725,6 +725,14 @@ class DockingManager(QObject):
 
     def _proactive_init_next(self) -> None:
         """Instantiate the next queued panel, then yield to the event loop."""
+        # Bail if the docking UI has been torn down (app shutdown can
+        # leave a pending singleShot tick behind)
+        from lightfall.utils.crash_diagnostics import _is_valid
+
+        if self._inner_window is None or not _is_valid(self._inner_window):
+            self._proactive_queue.clear()
+            return
+
         while self._proactive_queue:
             panel_id = self._proactive_queue.pop(0)
             if panel_id not in self._deferred_panels:

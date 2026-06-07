@@ -72,3 +72,16 @@ class TestProactiveInit:
         docking.start_proactive_init()
         _wait_done(qtbot, docking)
         assert not docking.is_panel_deferred("test.a")
+
+    def test_chain_stops_after_teardown(self, qtbot, docking):
+        _register(docking, "test.a")
+        # Seed the queue directly so no singleShot is scheduled yet.
+        docking._proactive_queue = ["test.a"]
+        # Simulate shutdown: delete the inner window and let the event loop
+        # process the deletion so shiboken6 marks the wrapper as invalid.
+        docking._inner_window.deleteLater()
+        qtbot.wait(50)
+        # Calling _proactive_init_next now should hit the guard and bail.
+        docking._proactive_init_next()
+        assert docking._proactive_queue == []
+        assert docking.is_panel_deferred("test.a")
