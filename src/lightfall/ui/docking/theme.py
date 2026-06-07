@@ -239,16 +239,19 @@ QDockWidget QScrollArea {{
     background: {island};
 }}
 
-/* Panel interiors: a BasePanel wraps its content in a QScrollArea whose
-   scrolled widget autofills the Window palette role (= sea). Repaint that
-   scrolled widget (the viewport's single child) with the island/surface
-   color so PanelPlugin QWidgets read as surface, not sea. Reaching it via
-   the viewport's child avoids clobbering styled controls (inputs, lists)
-   and scrollbars, which keep their own colors. Covers both dock-hosted
-   panels and the central widget (logbook). */
+/* Panel interiors: a BasePanel wraps its content in a QScrollArea. The
+   scroll *viewport* paints the surface (Qt routes QScrollArea's background
+   to it) and carries the bottom rounding. The viewport's scrolled child,
+   however, autofills the Window palette role (= sea) and, being an opaque
+   square, both paints sea and squares off the rounded corners (Qt doesn't
+   clip children to a parent's border-radius). Make that scrolled child
+   transparent so the viewport's rounded surface shows through. Targeting
+   the viewport's single child (not the viewport itself) keeps the surface
+   intact and avoids clobbering styled controls (inputs, lists) and
+   scrollbars. Covers dock-hosted panels and the central widget (logbook). */
 QDockWidget QScrollArea > QWidget > QWidget,
 #InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {{
-    background: {island};
+    background: transparent;
 }}
 
 /* List widgets and frames inside docks — island surface, no frame */

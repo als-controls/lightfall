@@ -78,13 +78,17 @@ def test_panel_background_is_surface(islands_colors):
     ) in css
 
 
-def test_panel_scroll_content_repainted_surface_in_islands(islands_colors):
-    """BasePanel's scrolled content autofills the Window role (= sea); islands
-    mode repaints it surface so panel interiors read as surface, not sea.
-    Covers both dock-hosted panels and the central widget."""
+def test_panel_scroll_content_transparent_in_islands(islands_colors):
+    """BasePanel's scrolled child autofills the Window role (= sea) and, being
+    an opaque square, both paints sea and squares off the rounded corners.
+    Islands mode makes it transparent so the viewport's rounded surface shows
+    through. Covers both dock-hosted panels and the central widget."""
     css = generate_docking_stylesheet(islands_colors)
-    assert "QDockWidget QScrollArea > QWidget > QWidget" in css
-    assert "#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget" in css
+    assert (
+        "QDockWidget QScrollArea > QWidget > QWidget,\n"
+        "#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {\n"
+        "    background: transparent;"
+    ) in css
 
 
 def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
