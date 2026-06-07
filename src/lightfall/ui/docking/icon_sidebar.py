@@ -515,6 +515,9 @@ class IconStripSidebar(QFrame):
 
         Reflects the current layout order, including any drag-and-drop
         reordering the user has done.
+
+        Returns:
+            List of panel IDs in visual layout order.
         """
         ids: list[str] = []
         layout = self.layout()
