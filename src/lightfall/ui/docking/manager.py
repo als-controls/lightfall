@@ -447,6 +447,15 @@ class DockingManager(QObject):
         logger.info("Instantiated deferred panel: {}", panel_id)
         return panel
 
+    def _release_theater(self, panel_id: str) -> None:
+        """Collapse theater mode if this panel is currently expanded."""
+        widget = self._panel_widgets.get(panel_id)
+        if widget is None:
+            return
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.release(widget.proxy)
+
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the docking system.
 
@@ -456,10 +465,13 @@ class DockingManager(QObject):
         Returns:
             True if panel was removed.
         """
-        widget = self._panel_widgets.pop(panel_id, None)
+        widget = self._panel_widgets.get(panel_id)
         if widget is None:
             return False
 
+        self._release_theater(panel_id)
+
+        self._panel_widgets.pop(panel_id)
         self._panel_areas.pop(panel_id, None)
         self._panel_status.pop(panel_id, None)
         self._icon_color_overrides.pop(panel_id, None)
@@ -541,6 +553,7 @@ class DockingManager(QObject):
         if widget is None:
             return False
 
+        self._release_theater(panel_id)
         widget.setVisible(False)
         return True
 
@@ -559,12 +572,17 @@ class DockingManager(QObject):
 
         panel_area = self._panel_areas.get(panel_id)
 
+        # Collapse theater mode on the target panel before re-showing
+        # (prevents showing the "Expanded" placeholder in the dock)
+        self._release_theater(panel_id)
+
         # For side panels, hide others in the same area
         if panel_area in ("left", "bottom"):
             for other_id, other_area in self._panel_areas.items():
                 if other_id != panel_id and other_area == panel_area:
                     other_widget = self._panel_widgets.get(other_id)
                     if other_widget and other_widget.isVisible():
+                        self._release_theater(other_id)
                         other_widget.setVisible(False)
 
         # Show the panel

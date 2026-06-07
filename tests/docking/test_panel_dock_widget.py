@@ -82,3 +82,14 @@ class TestTitleBarActions:
         action = QAction("Go", panel)
         panel.add_title_bar_action(action)
         assert dock._title_bar._actions_layout.count() == 1
+
+
+class TestTheaterTeardownInteractions:
+    def test_minimize_while_expanded_collapses_first(self, qtbot):
+        _, panel, dock = _make_dock(qtbot)
+        dock._title_bar.expand_requested.emit()
+        qtbot.waitUntil(lambda: theater_manager.is_active, timeout=3000)
+        dock._title_bar.close_requested.emit()
+        assert not theater_manager.is_active
+        assert dock.widget().currentWidget() is panel
+        assert not dock.isVisible()

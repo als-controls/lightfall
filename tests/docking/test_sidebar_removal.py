@@ -87,3 +87,47 @@ class TestRestore:
         docking.remove_panel_from_sidebar("test.a")
         docking.restore_panel_to_sidebar("test.a")
         assert "test.a" in docking.icon_sidebar.ordered_panel_ids()
+
+
+class TestTheaterInteractions:
+    def _expand(self, docking, panel_id):
+        from lightfall.ui.theater.manager import theater_manager
+
+        widget = docking.get_dock_widget(panel_id)
+        theater_manager.activate(widget.proxy)
+        return theater_manager
+
+    def test_remove_from_sidebar_while_expanded(self, qtbot, docking):
+        _register_deferred(docking, "test.a")
+        panel = docking._instantiate_deferred_panel("test.a")
+        docking.show_panel("test.a")
+        tm = self._expand(docking, "test.a")
+        qtbot.waitUntil(lambda: tm.is_active, timeout=3000)
+        docking.remove_panel_from_sidebar("test.a")
+        assert not tm.is_active
+        widget = docking.get_dock_widget("test.a")
+        assert widget.proxy.currentWidget() is panel
+        assert not widget.isVisible()
+
+    def test_remove_panel_while_expanded_no_dangling_overlay(self, qtbot, docking):
+        _register_deferred(docking, "test.a")
+        docking._instantiate_deferred_panel("test.a")
+        docking.show_panel("test.a")
+        tm = self._expand(docking, "test.a")
+        qtbot.waitUntil(lambda: tm.is_active, timeout=3000)
+        docking.remove_panel("test.a")
+        assert not tm.is_active
+        # Overlay must not hold a stale proxy
+        assert tm._overlay is None or tm._overlay._active_proxy is None
+
+    def test_show_panel_while_expanded_collapses(self, qtbot, docking):
+        _register_deferred(docking, "test.a")
+        panel = docking._instantiate_deferred_panel("test.a")
+        docking.show_panel("test.a")
+        tm = self._expand(docking, "test.a")
+        qtbot.waitUntil(lambda: tm.is_active, timeout=3000)
+        docking.show_panel("test.a")
+        assert not tm.is_active
+        widget = docking.get_dock_widget("test.a")
+        assert widget.proxy.currentWidget() is panel
+        assert widget.isVisible()

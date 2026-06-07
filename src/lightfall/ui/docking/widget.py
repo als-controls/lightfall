@@ -275,7 +275,7 @@ class PanelDockWidget(QDockWidget):
                 panel.panel_metadata.name,
                 closable=panel.panel_metadata.closable,
             )
-            self._title_bar.close_requested.connect(lambda: self.setVisible(False))
+            self._title_bar.close_requested.connect(self._on_minimize_requested)
             self._title_bar.expand_requested.connect(self._on_expand_requested)
             self._title_bar.redock_requested.connect(
                 lambda: self.setFloating(False)
@@ -300,6 +300,11 @@ class PanelDockWidget(QDockWidget):
         return self._panel
 
     @property
+    def proxy(self) -> TheaterProxy:
+        """Get the TheaterProxy wrapping this dock's panel."""
+        return self._proxy
+
+    @property
     def panel_id(self) -> str:
         """Get the panel ID."""
         return self._panel.panel_metadata.id
@@ -315,6 +320,13 @@ class PanelDockWidget(QDockWidget):
         from lightfall.ui.theater.manager import theater_manager
 
         theater_manager.activate(self._proxy)
+
+    def _on_minimize_requested(self) -> None:
+        """Hide the dock, first returning the panel from theater mode."""
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.release(self._proxy)
+        self.setVisible(False)
 
     def _on_visibility_changed(self, visible: bool) -> None:
         """Handle visibility changes."""
