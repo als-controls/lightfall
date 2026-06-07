@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QDockWidget,
     QFrame,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.utils.logging import logger
+from lightfall.ui.theater.proxy import TheaterProxy
 
 if TYPE_CHECKING:
     from lightfall.ui.panels.base import BasePanel
@@ -74,11 +75,18 @@ class PanelTitleBar(QFrame):
     both the visual header and the drag handle for undocking.
     No custom mouse event handling needed — Qt does it all.
 
+    Layout, left to right:
+        [title] ... [panel action buttons] | [expand][redock?][minimize]
+
     Signals:
-        close_requested: Emitted when the close button is clicked.
+        close_requested: Minimize button clicked (hides the panel).
+        expand_requested: Expand button clicked (theater mode).
+        redock_requested: Redock button clicked (return floating panel).
     """
 
     close_requested = Signal()
+    expand_requested = Signal()
+    redock_requested = Signal()
 
     def __init__(
         self,
@@ -92,7 +100,7 @@ class PanelTitleBar(QFrame):
         Args:
             title: The panel title to display.
             parent: Optional parent widget.
-            closable: Whether to show the close button.
+            closable: Whether to show the minimize button.
         """
         super().__init__(parent)
         self.setObjectName("PanelTitleBar")
@@ -108,24 +116,101 @@ class PanelTitleBar(QFrame):
         layout.addWidget(label)
         layout.addStretch()
 
-        # Close button
+        # Panel-contributed action buttons live in their own sub-layout
+        # so set_actions() can rebuild them without touching the window
+        # buttons.
+        self._actions_layout = QHBoxLayout()
+        self._actions_layout.setContentsMargins(0, 0, 0, 0)
+        self._actions_layout.setSpacing(4)
+        layout.addLayout(self._actions_layout)
+
+        # Separator between action buttons and window buttons
+        self._separator = QFrame()
+        self._separator.setObjectName("PanelTitleSeparator")
+        self._separator.setFrameShape(QFrame.Shape.VLine)
+        self._separator.setFixedHeight(16)
+        self._separator.setVisible(False)
+        layout.addWidget(self._separator)
+
+        icon_color = self._icon_color()
+
+        # Expand (theater mode) — hidden while floating
+        self._expand_btn = self._make_button(
+            "mdi6.arrow-expand-all", "Expand to fill window", icon_color
+        )
+        self._expand_btn.clicked.connect(self.expand_requested.emit)
+        layout.addWidget(self._expand_btn)
+
+        # Redock — only visible while floating
+        self._redock_btn = self._make_button(
+            "mdi6.dock-window", "Return to docked position", icon_color
+        )
+        self._redock_btn.clicked.connect(self.redock_requested.emit)
+        self._redock_btn.setVisible(False)
+        layout.addWidget(self._redock_btn)
+
+        # Minimize (hides the panel)
         if closable:
-            self._close_btn = QToolButton()
-            self._close_btn.setObjectName("PanelTitleCloseButton")
-            self._close_btn.setFixedSize(20, 20)
-            self._close_btn.setCursor(Qt.CursorShape.ArrowCursor)
-            self._close_btn.clicked.connect(self.close_requested.emit)
-            try:
-                from lightfall.ui.theme import ThemeManager
-                theme_mgr = ThemeManager.get_instance()
-                icon_color = theme_mgr.colors.text_secondary
-            except Exception:
-                icon_color = "#808080"
-            try:
-                self._close_btn.setIcon(qta.icon("mdi.close", color=icon_color))
-            except Exception:
-                self._close_btn.setText("x")
-            layout.addWidget(self._close_btn)
+            self._minimize_btn = self._make_button(
+                "mdi6.window-minimize", "Hide panel", icon_color
+            )
+            self._minimize_btn.clicked.connect(self.close_requested.emit)
+            layout.addWidget(self._minimize_btn)
+
+    @staticmethod
+    def _icon_color() -> str:
+        """Theme secondary text color for title bar button icons."""
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            return ThemeManager.get_instance().colors.text_secondary
+        except Exception:
+            return "#808080"
+
+    def _make_button(
+        self, icon_name: str, tooltip: str, icon_color: str
+    ) -> QToolButton:
+        """Create a 20x20 icon-only title bar button."""
+        btn = QToolButton()
+        btn.setObjectName("PanelTitleButton")
+        btn.setFixedSize(20, 20)
+        btn.setCursor(Qt.CursorShape.ArrowCursor)
+        btn.setToolTip(tooltip)
+        try:
+            btn.setIcon(qta.icon(icon_name, color=icon_color))
+        except Exception:
+            btn.setText("?")
+        return btn
+
+    def set_actions(self, actions: list[QAction]) -> None:
+        """Rebuild the panel-contributed action buttons.
+
+        Args:
+            actions: Actions to render as icon-only buttons (in order).
+        """
+        while self._actions_layout.count():
+            item = self._actions_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for action in actions:
+            btn = QToolButton()
+            btn.setObjectName("PanelTitleButton")
+            btn.setFixedSize(20, 20)
+            btn.setCursor(Qt.CursorShape.ArrowCursor)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setDefaultAction(action)
+            self._actions_layout.addWidget(btn)
+        self._separator.setVisible(bool(actions))
+
+    def set_floating(self, floating: bool) -> None:
+        """Swap expand/redock buttons based on floating state.
+
+        Args:
+            floating: Whether the dock widget is currently floating.
+        """
+        self._redock_btn.setVisible(floating)
+        self._expand_btn.setVisible(not floating)
 
 
 class PanelDockWidget(QDockWidget):
@@ -135,6 +220,7 @@ class PanelDockWidget(QDockWidget):
     - Icon from panel metadata
     - Title from panel metadata
     - Feature flags based on closable setting
+    - Content wrapped in a TheaterProxy for expand-to-overlay (theater) mode
     - Optional custom title bar (set as Qt's title bar widget for
       native drag support)
     - Lifecycle signal forwarding
@@ -167,8 +253,11 @@ class PanelDockWidget(QDockWidget):
         # Set object name for state persistence
         self.setObjectName(f"dock_{panel.panel_metadata.id}")
 
-        # Set content widget
-        self.setWidget(panel)
+        # Wrap the panel in a TheaterProxy so the title bar expand button
+        # can move it onto the theater overlay. The proxy's own hover
+        # button is suppressed — the title bar owns that affordance.
+        self._proxy = TheaterProxy(panel, show_hover_button=False)
+        self.setWidget(self._proxy)
 
         # Configure features based on metadata
         features = (
@@ -186,7 +275,16 @@ class PanelDockWidget(QDockWidget):
                 panel.panel_metadata.name,
                 closable=panel.panel_metadata.closable,
             )
-            self._title_bar.close_requested.connect(lambda: self.setVisible(False))
+            self._title_bar.close_requested.connect(self._on_minimize_requested)
+            self._title_bar.expand_requested.connect(self._on_expand_requested)
+            self._title_bar.redock_requested.connect(
+                lambda: self.setFloating(False)
+            )
+            self._title_bar.set_actions(panel.title_bar_actions)
+            panel.title_bar_actions_changed.connect(
+                lambda: self._title_bar.set_actions(self._panel.title_bar_actions)
+            )
+            self.topLevelChanged.connect(self._title_bar.set_floating)
             self.setTitleBarWidget(self._title_bar)
 
 
@@ -202,9 +300,33 @@ class PanelDockWidget(QDockWidget):
         return self._panel
 
     @property
+    def proxy(self) -> TheaterProxy:
+        """Get the TheaterProxy wrapping this dock's panel."""
+        return self._proxy
+
+    @property
     def panel_id(self) -> str:
         """Get the panel ID."""
         return self._panel.panel_metadata.id
+
+    def _on_expand_requested(self) -> None:
+        """Expand the panel onto the theater overlay.
+
+        Deliberately calls activate() directly rather than emitting
+        proxy.expand_requested — the proxy's own signal is already
+        connected to activate by TheaterManager.register(), so emitting
+        it here would double-activate.
+        """
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.activate(self._proxy)
+
+    def _on_minimize_requested(self) -> None:
+        """Hide the dock, first returning the panel from theater mode."""
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.release(self._proxy)
+        self.setVisible(False)
 
     def _on_visibility_changed(self, visible: bool) -> None:
         """Handle visibility changes."""

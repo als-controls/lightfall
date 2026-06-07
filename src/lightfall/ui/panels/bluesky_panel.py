@@ -17,10 +17,11 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDialog,
     QTabWidget,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
+
+import qtawesome as qta
 
 from lightfall.acquire.plan_ui import PlanUI, get_plan_ui_class
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
@@ -151,18 +152,15 @@ class BlueskyPanel(BasePanel):
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabBarAutoHide(True)
 
-        # Tab 0: Plans — toolbar over the selector. The toolbar's actions
-        # (New Plan / Refresh / Open Folder) only operate on the plan list,
-        # so they live inside this tab rather than at the panel top level.
+        # Tab 0: Plans — the plan actions (New Plan / Refresh / Open
+        # Folder) are exposed as title-bar buttons via
+        # add_title_bar_action() rather than an embedded toolbar.
         plans_tab = QWidget()
         plans_layout = QVBoxLayout(plans_tab)
         plans_layout.setContentsMargins(0, 0, 0, 0)
         plans_layout.setSpacing(0)
 
-        self._toolbar = QToolBar()
-        self._toolbar.setMovable(False)
-        self._setup_toolbar()
-        plans_layout.addWidget(self._toolbar)
+        self._setup_title_bar_actions()
 
         self._plan_selector = PlanSelectorWidget()
         self._plan_selector.plan_selected.connect(self._on_plan_selected)
@@ -187,25 +185,43 @@ class BlueskyPanel(BasePanel):
         # Auto-configure with RunEngine and PlanRegistry singletons
         self._auto_configure()
 
-    def _setup_toolbar(self) -> None:
-        """Set up the toolbar with plan actions."""
-        # Create New Plan
-        self._create_plan_action = QAction("New Plan", self)
-        self._create_plan_action.setToolTip("Create a new user plan (opens in editor)")
-        self._create_plan_action.triggered.connect(self._on_create_plan)
-        self._toolbar.addAction(self._create_plan_action)
+    def _setup_title_bar_actions(self) -> None:
+        """Create plan actions shown as panel title-bar buttons."""
+        try:
+            from lightfall.ui.theme import ThemeManager
 
-        # Refresh Plans
-        self._refresh_action = QAction("Refresh", self)
+            icon_color = ThemeManager.get_instance().colors.text_secondary
+        except Exception:
+            icon_color = "#808080"
+
+        self._create_plan_action = QAction(
+            qta.icon("mdi6.file-plus-outline", color=icon_color),
+            "New Plan",
+            self,
+        )
+        self._create_plan_action.setToolTip(
+            "Create a new user plan (opens in editor)"
+        )
+        self._create_plan_action.triggered.connect(self._on_create_plan)
+        self.add_title_bar_action(self._create_plan_action)
+
+        self._refresh_action = QAction(
+            qta.icon("mdi6.refresh", color=icon_color), "Refresh", self
+        )
         self._refresh_action.setToolTip("Reload user plans from disk")
         self._refresh_action.triggered.connect(self._on_refresh_plans)
-        self._toolbar.addAction(self._refresh_action)
+        self.add_title_bar_action(self._refresh_action)
 
-        # Open Folder
-        self._open_folder_action = QAction("Open Folder", self)
-        self._open_folder_action.setToolTip("Open user plans folder in file explorer")
+        self._open_folder_action = QAction(
+            qta.icon("mdi6.folder-open-outline", color=icon_color),
+            "Open Folder",
+            self,
+        )
+        self._open_folder_action.setToolTip(
+            "Open user plans folder in file explorer"
+        )
         self._open_folder_action.triggered.connect(self._on_open_plans_folder)
-        self._toolbar.addAction(self._open_folder_action)
+        self.add_title_bar_action(self._open_folder_action)
 
     @Slot()
     def _on_create_plan(self) -> None:

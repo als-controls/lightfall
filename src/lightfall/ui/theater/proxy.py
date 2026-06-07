@@ -17,13 +17,24 @@ class TheaterProxy(QStackedWidget):
 
     Page 0: target widget (normal display).
     Page 1: placeholder shown while the widget is on the overlay.
+
+    The hover expand button can be suppressed with show_hover_button=False
+    when another affordance (e.g. a panel title bar button) triggers
+    expansion instead.
     """
 
     expand_requested = Signal()
 
-    def __init__(self, widget: QWidget, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        widget: QWidget,
+        parent: QWidget | None = None,
+        *,
+        show_hover_button: bool = True,
+    ) -> None:
         super().__init__(parent)
         self._target = widget
+        self._show_hover_button = show_hover_button
         self.setObjectName("TheaterProxy")
 
         # Page 0 — target widget
@@ -89,13 +100,15 @@ class TheaterProxy(QStackedWidget):
 
     def _recheck_hover(self) -> None:
         """Show expand button if the cursor is already over us."""
+        if not self._show_hover_button:
+            return
         pos = self.mapFromGlobal(QCursor.pos())
         if self.rect().contains(pos) and self.currentWidget() is self._target:
             self._expand_btn.setVisible(True)
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
-        if self.currentWidget() is self._target:
+        if self._show_hover_button and self.currentWidget() is self._target:
             self._expand_btn.setVisible(True)
 
     def leaveEvent(self, event) -> None:

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 import qtawesome as qta
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QMouseEvent
-from PySide6.QtWidgets import QFrame, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QMenu, QToolButton, QVBoxLayout, QWidget
 
 from lightfall.utils.logging import logger
 
@@ -144,6 +144,7 @@ class IconStripSidebar(QFrame):
 
     panel_toggled = Signal(str, bool)  # panel_id, should_show
     panel_section_changed = Signal(str, str)  # panel_id, new_section ("top" or "bottom")
+    panel_remove_requested = Signal(str)  # panel_id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the sidebar.
@@ -179,6 +180,72 @@ class IconStripSidebar(QFrame):
         # Create drop indicator (hidden by default)
         self._drop_indicator = DropIndicator(self)
 
+    def _create_button(
+        self, panel_id: str, icon_name: str, tooltip: str
+    ) -> IconStripButton:
+        """Create a fully-wired IconStripButton (shared by add/insert).
+
+        Args:
+            panel_id: Unique panel identifier.
+            icon_name: QtAwesome icon name (e.g., "fa5s.bolt") or path.
+            tooltip: Tooltip text shown on hover.
+
+        Returns:
+            The created button (not yet added to the layout).
+        """
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            icon_color = ThemeManager.get_instance().colors.text
+        except Exception:
+            icon_color = "#cccccc"
+
+        icon = self._resolve_icon(icon_name, icon_color)
+        button = IconStripButton(panel_id, icon, tooltip, self)
+        button.toggled.connect(
+            lambda checked: self._on_button_toggled(panel_id, checked)
+        )
+        button.drag_started.connect(self._on_button_drag_started)
+        button.drag_moved.connect(self._on_button_drag_moved)
+        button.drag_finished.connect(self._on_button_drag_finished)
+        button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        button.customContextMenuRequested.connect(
+            lambda pos, pid=panel_id: self._show_button_context_menu(pid, pos)
+        )
+        self._buttons[panel_id] = button
+        self._button_icons[panel_id] = icon_name
+        return button
+
+    def _show_button_context_menu(self, panel_id: str, pos: QPoint) -> None:
+        """Show the right-click menu for a sidebar button.
+
+        Args:
+            panel_id: Panel identifier.
+            pos: Local position of the right-click event.
+        """
+        button = self._buttons.get(panel_id)
+        if button is None:
+            return
+        menu = QMenu(self)
+        remove_action = menu.addAction("Remove from Sidebar")
+        chosen = self._exec_context_menu(menu, button.mapToGlobal(pos))
+        if chosen is remove_action:
+            self.panel_remove_requested.emit(panel_id)
+
+    def _exec_context_menu(self, menu: QMenu, global_pos: QPoint):
+        """Execute the context menu at a global position.
+
+        Extracted for testability — tests monkeypatch this method.
+
+        Args:
+            menu: The QMenu to execute.
+            global_pos: Global screen position.
+
+        Returns:
+            The triggered QAction, or None if dismissed.
+        """
+        return menu.exec(global_pos)
+
     def add_panel_button(
         self,
         panel_id: str,
@@ -195,27 +262,7 @@ class IconStripSidebar(QFrame):
         Returns:
             The created button.
         """
-        # Get theme color for icon
-        try:
-            from lightfall.ui.theme import ThemeManager
-            theme_mgr = ThemeManager.get_instance()
-            icon_color = theme_mgr.colors.text
-        except Exception:
-            icon_color = "#cccccc"
-
-        # Create icon
-        icon = self._resolve_icon(icon_name, icon_color)
-
-        button = IconStripButton(panel_id, icon, tooltip, self)
-        button.toggled.connect(lambda checked: self._on_button_toggled(panel_id, checked))
-
-        # Connect drag signals
-        button.drag_started.connect(self._on_button_drag_started)
-        button.drag_moved.connect(self._on_button_drag_moved)
-        button.drag_finished.connect(self._on_button_drag_finished)
-
-        self._buttons[panel_id] = button
-        self._button_icons[panel_id] = icon_name  # Store for theme updates
+        button = self._create_button(panel_id, icon_name, tooltip)
 
         # Determine which section to add to based on whether stretch exists
         if self._stretch_index >= 0:
@@ -253,27 +300,7 @@ class IconStripSidebar(QFrame):
         Returns:
             The created button.
         """
-        # Get theme color for icon
-        try:
-            from lightfall.ui.theme import ThemeManager
-            theme_mgr = ThemeManager.get_instance()
-            icon_color = theme_mgr.colors.text
-        except Exception:
-            icon_color = "#cccccc"
-
-        # Create icon and button
-        icon = self._resolve_icon(icon_name, icon_color)
-        button = IconStripButton(panel_id, icon, tooltip, self)
-        button.toggled.connect(lambda checked: self._on_button_toggled(panel_id, checked))
-
-        # Connect drag signals
-        button.drag_started.connect(self._on_button_drag_started)
-        button.drag_moved.connect(self._on_button_drag_moved)
-        button.drag_finished.connect(self._on_button_drag_finished)
-
-        # Store tracking info
-        self._buttons[panel_id] = button
-        self._button_icons[panel_id] = icon_name
+        button = self._create_button(panel_id, icon_name, tooltip)
         self._button_orders[panel_id] = sidebar_order
         self._button_sections[panel_id] = section
 
@@ -509,6 +536,24 @@ class IconStripSidebar(QFrame):
             Section name ("top" or "bottom") or None if not found.
         """
         return self._button_sections.get(panel_id)
+
+    def ordered_panel_ids(self) -> list[str]:
+        """Panel ids in visual order: top section top-to-bottom, then bottom.
+
+        Reflects the current layout order, including any drag-and-drop
+        reordering the user has done.
+
+        Returns:
+            List of panel IDs in visual layout order.
+        """
+        ids: list[str] = []
+        layout = self.layout()
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if isinstance(widget, IconStripButton):
+                ids.append(widget.panel_id)
+        return ids
 
     def add_stretch(self) -> None:
         """Add stretch to push subsequent buttons to bottom."""

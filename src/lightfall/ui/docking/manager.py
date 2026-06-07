@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, Signal
+from PySide6.QtCore import QByteArray, QObject, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
 
 from lightfall.ui.docking.icon_sidebar import IconStripSidebar
 from lightfall.ui.docking.state import DockingState
 from lightfall.ui.docking.widget import PanelDockWidget
-from lightfall.ui.panels.base import PanelMetadata
+from lightfall.ui.panels.base import PanelMetadata, PanelStatus
 from lightfall.ui.panels.registry import PanelRegistry
 from lightfall.utils.logging import logger
 
@@ -82,6 +82,17 @@ class DockingManager(QObject):
         self._deferred_panels: dict[str, str] = {}  # panel_id -> area
         self._deferred_metadata: dict[str, PanelMetadata] = {}  # panel_id -> metadata
 
+        # Panel status tracking (status exists even for deferred panels)
+        self._panel_status: dict[str, PanelStatus] = {}
+        self._icon_color_overrides: dict[str, str] = {}
+
+        # Proactive (post-startup) initialization
+        self._proactive_init_started = False
+        self._proactive_queue: list[str] = []
+
+        # Panels the user removed from the sidebar (persisted)
+        self._removed_panels: set[str] = set()
+
     def initialize(self) -> None:
         """Initialize the docking system.
 
@@ -103,6 +114,9 @@ class DockingManager(QObject):
         self._icon_sidebar = IconStripSidebar()
         self._icon_sidebar.panel_toggled.connect(self._on_sidebar_panel_toggled)
         self._icon_sidebar.panel_section_changed.connect(self._on_sidebar_section_changed)
+        self._icon_sidebar.panel_remove_requested.connect(
+            self.remove_panel_from_sidebar
+        )
         layout.addWidget(self._icon_sidebar)
 
         # Create inner QMainWindow (hosts QDockWidgets)
@@ -122,6 +136,19 @@ class DockingManager(QObject):
         registry = PanelRegistry.get_instance()
         registry.panel_registered.connect(self._on_panel_registered)
         registry.panel_unregistered.connect(self._on_panel_unregistered)
+
+        # Re-tint status icons when the theme palette changes
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            ThemeManager.get_instance().colors_changed.connect(
+                self._on_theme_colors_changed
+            )
+        except Exception:
+            logger.debug("ThemeManager unavailable; status tints are static")
+
+        # Load persisted removed-from-sidebar set
+        self._removed_panels = self._load_removed_panels()
 
         logger.info("DockingManager initialized with QDockWidget + icon strip sidebar")
 
@@ -243,7 +270,7 @@ class DockingManager(QObject):
         widget.setVisible(False)
 
         # Add sidebar button
-        if add_sidebar_button and self._icon_sidebar:
+        if add_sidebar_button and self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.add_panel_button(
                 panel_id,
                 panel.panel_metadata.icon,
@@ -253,13 +280,27 @@ class DockingManager(QObject):
         # Connect icon changes
         if self._icon_sidebar:
             panel.icon_changed.connect(
-                lambda icon_name, color, pid=panel_id: self._icon_sidebar.update_button_icon(pid, icon_name, color)
+                lambda icon_name, color, pid=panel_id: self._on_panel_icon_changed(pid, icon_name, color)
             )
+
+        # Connect panel-driven status changes
+        panel.status_changed.connect(
+            lambda status, pid=panel_id: self.set_panel_status(pid, status)
+        )
 
         # Connect visibility changes to sync sidebar
         widget.visibilityChanged.connect(
             lambda visible, pid=panel_id: self._on_panel_visibility_changed(pid, visible)
         )
+
+        # The panel instance now exists: mark it loaded unless the panel
+        # already chose a status during construction.
+        initial = (
+            panel.status
+            if panel.status is not PanelStatus.UNINITIALIZED
+            else PanelStatus.SUCCESS
+        )
+        self.set_panel_status(panel_id, initial)
 
         logger.debug("Added panel {} to area {}", panel_id, area)
         self.panel_added.emit(panel_id)
@@ -323,7 +364,7 @@ class DockingManager(QObject):
         self._deferred_panels[panel_id] = area
         self._deferred_metadata[panel_id] = metadata
 
-        if add_sidebar_button and self._icon_sidebar:
+        if add_sidebar_button and self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.add_panel_button(
                 panel_id,
                 metadata.icon,
@@ -342,6 +383,9 @@ class DockingManager(QObject):
             True if button was added.
         """
         if self._icon_sidebar is None:
+            return False
+
+        if panel_id in self._removed_panels:
             return False
 
         metadata = self._deferred_metadata.get(panel_id)
@@ -379,6 +423,7 @@ class DockingManager(QObject):
 
         if panel is None:
             logger.error("Failed to instantiate deferred panel: {}", panel_id)
+            self.set_panel_status(panel_id, PanelStatus.ERROR)
             return None
 
         dock_widget = self.add_panel(
@@ -402,6 +447,15 @@ class DockingManager(QObject):
         logger.info("Instantiated deferred panel: {}", panel_id)
         return panel
 
+    def _release_theater(self, panel_id: str) -> None:
+        """Collapse theater mode if this panel is currently expanded."""
+        widget = self._panel_widgets.get(panel_id)
+        if widget is None:
+            return
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.release(widget.proxy)
+
     def remove_panel(self, panel_id: str) -> bool:
         """Remove a panel from the docking system.
 
@@ -411,11 +465,16 @@ class DockingManager(QObject):
         Returns:
             True if panel was removed.
         """
-        widget = self._panel_widgets.pop(panel_id, None)
+        widget = self._panel_widgets.get(panel_id)
         if widget is None:
             return False
 
+        self._release_theater(panel_id)
+
+        self._panel_widgets.pop(panel_id)
         self._panel_areas.pop(panel_id, None)
+        self._panel_status.pop(panel_id, None)
+        self._icon_color_overrides.pop(panel_id, None)
 
         if self._inner_window:
             self._inner_window.removeDockWidget(widget)
@@ -494,6 +553,7 @@ class DockingManager(QObject):
         if widget is None:
             return False
 
+        self._release_theater(panel_id)
         widget.setVisible(False)
         return True
 
@@ -512,12 +572,17 @@ class DockingManager(QObject):
 
         panel_area = self._panel_areas.get(panel_id)
 
+        # Collapse theater mode on the target panel before re-showing
+        # (prevents showing the "Expanded" placeholder in the dock)
+        self._release_theater(panel_id)
+
         # For side panels, hide others in the same area
         if panel_area in ("left", "bottom"):
             for other_id, other_area in self._panel_areas.items():
                 if other_id != panel_id and other_area == panel_area:
                     other_widget = self._panel_widgets.get(other_id)
                     if other_widget and other_widget.isVisible():
+                        self._release_theater(other_id)
                         other_widget.setVisible(False)
 
         # Show the panel
@@ -577,6 +642,231 @@ class DockingManager(QObject):
         if self._icon_sidebar:
             self._icon_sidebar.set_panel_active(panel_id, visible)
 
+    # Panel status
+
+    def get_panel_status(self, panel_id: str) -> PanelStatus:
+        """Get the tracked status for a panel (UNINITIALIZED if unknown).
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            Current PanelStatus for the panel.
+        """
+        return self._panel_status.get(panel_id, PanelStatus.UNINITIALIZED)
+
+    def set_panel_status(self, panel_id: str, status: PanelStatus) -> None:
+        """Set a panel's status and re-tint its sidebar icon.
+
+        Args:
+            panel_id: Panel identifier.
+            status: New status.
+        """
+        self._panel_status[panel_id] = status
+        self._refresh_sidebar_icon(panel_id)
+
+    def _status_color(self, status: PanelStatus) -> str:
+        """Map a status to a theme color hex string ('' = theme default).
+
+        Args:
+            status: The PanelStatus to map.
+
+        Returns:
+            Hex color string, or empty string for UNINITIALIZED/unknown.
+        """
+        if status is PanelStatus.UNINITIALIZED:
+            return ""
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            colors = ThemeManager.get_instance().colors
+        except Exception:
+            return ""
+        return {
+            PanelStatus.SUCCESS: colors.success,
+            PanelStatus.WARNING: colors.warning,
+            PanelStatus.ERROR: colors.error,
+            PanelStatus.INFO: colors.info,
+        }[status]
+
+    def _refresh_sidebar_icon(self, panel_id: str, icon_name: str = "") -> None:
+        """Re-apply the icon tint for a panel.
+
+        Precedence: explicit icon color override > status color > theme text.
+
+        Args:
+            panel_id: Panel identifier.
+            icon_name: Icon name to pass through (empty keeps current icon).
+        """
+        if self._icon_sidebar is None:
+            return
+        color = self._icon_color_overrides.get(panel_id) or self._status_color(
+            self.get_panel_status(panel_id)
+        )
+        self._icon_sidebar.update_button_icon(panel_id, icon_name, color)
+
+    def _on_panel_icon_changed(
+        self, panel_id: str, icon_name: str, color: str
+    ) -> None:
+        """Handle BasePanel.icon_changed (manual icon/color updates).
+
+        Args:
+            panel_id: Panel identifier.
+            icon_name: New icon name (empty keeps current).
+            color: Explicit color override (empty clears the override).
+        """
+        if color:
+            self._icon_color_overrides[panel_id] = color
+        else:
+            self._icon_color_overrides.pop(panel_id, None)
+        self._refresh_sidebar_icon(panel_id, icon_name)
+
+    def _on_theme_colors_changed(self) -> None:
+        """Re-tint all tracked icons after a theme palette change."""
+        for panel_id in set(self._panel_status) | set(self._icon_color_overrides):
+            self._refresh_sidebar_icon(panel_id)
+
+    # Proactive initialization
+
+    def start_proactive_init(self) -> None:
+        """Proactively instantiate deferred sidebar panels, top to bottom.
+
+        Called once after the main window is shown and plugin loading is
+        complete. One panel is instantiated per event-loop slice so the
+        UI stays responsive. Panels whose metadata sets
+        proactive_init=False are skipped. Dock widgets stay hidden.
+        """
+        if self._proactive_init_started:
+            return
+        self._proactive_init_started = True
+        if self._icon_sidebar is None:
+            return
+        self._proactive_queue = [
+            pid
+            for pid in self._icon_sidebar.ordered_panel_ids()
+            if pid in self._deferred_panels
+            and self._deferred_metadata[pid].proactive_init
+            and pid not in self._removed_panels
+        ]
+        logger.info(
+            "Proactive panel init: {} panels queued", len(self._proactive_queue)
+        )
+        if self._proactive_queue:
+            QTimer.singleShot(0, self._proactive_init_next)
+
+    def _proactive_init_next(self) -> None:
+        """Instantiate the next queued panel, then yield to the event loop."""
+        # Bail if the docking UI has been torn down (app shutdown can
+        # leave a pending singleShot tick behind)
+        from lightfall.utils.crash_diagnostics import _is_valid
+
+        if self._inner_window is None or not _is_valid(self._inner_window):
+            self._proactive_queue.clear()
+            return
+
+        while self._proactive_queue:
+            panel_id = self._proactive_queue.pop(0)
+            if panel_id not in self._deferred_panels:
+                continue  # already instantiated (e.g. user clicked it)
+            try:
+                panel = self._instantiate_deferred_panel(panel_id)
+            except Exception:
+                logger.exception("Proactive init failed for {}", panel_id)
+                panel = None
+            if panel is None:
+                self.set_panel_status(panel_id, PanelStatus.ERROR)
+            # One panel per slice — chain the rest via the event loop
+            QTimer.singleShot(0, self._proactive_init_next)
+            return
+
+    # Sidebar removal persistence
+
+    def is_panel_removed_from_sidebar(self, panel_id: str) -> bool:
+        """Whether the user has removed this panel from the sidebar.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if the panel has been removed from the sidebar.
+        """
+        return panel_id in self._removed_panels
+
+    def remove_panel_from_sidebar(self, panel_id: str) -> None:
+        """Remove a panel's sidebar button (persisted across restarts).
+
+        Hides the panel if visible. The panel instance (or deferred
+        registration) is kept — restore via View > Panels.
+
+        Args:
+            panel_id: Panel identifier.
+        """
+        self.hide_panel(panel_id)
+        if self._icon_sidebar:
+            self._icon_sidebar.remove_panel_button(panel_id)
+        self._removed_panels.add(panel_id)
+        self._save_removed_panels()
+        logger.info("Removed panel {} from sidebar", panel_id)
+
+    def restore_panel_to_sidebar(self, panel_id: str) -> bool:
+        """Clear a panel's removed flag and re-add its sidebar button.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if the panel was removed and has now been restored.
+        """
+        if panel_id not in self._removed_panels:
+            return False
+        self._removed_panels.discard(panel_id)
+        self._save_removed_panels()
+
+        metadata = self._deferred_metadata.get(panel_id)
+        if metadata is None:
+            widget = self._panel_widgets.get(panel_id)
+            metadata = widget.panel.panel_metadata if widget else None
+        if metadata is None or self._icon_sidebar is None:
+            logger.warning(
+                "Restored sidebar flag for {} but no metadata for a button",
+                panel_id,
+            )
+            return True
+
+        area = self._panel_areas.get(panel_id) or self._deferred_panels.get(
+            panel_id, metadata.default_area
+        )
+        section = "top" if area == "left" else "bottom"
+        self._icon_sidebar.insert_panel_button_sorted(
+            panel_id,
+            metadata.icon,
+            metadata.name,
+            metadata.sidebar_order,
+            section,
+        )
+        # Re-apply current status tint to the fresh button
+        self._refresh_sidebar_icon(panel_id)
+        logger.info("Restored panel {} to sidebar", panel_id)
+        return True
+
+    def _load_removed_panels(self) -> set[str]:
+        """Load the persisted removed-panel set from QSettings.
+
+        Returns:
+            Set of removed panel IDs.
+        """
+        settings = QSettings("ALS", "NCS")
+        value = settings.value("sidebar/removed_panels", [])
+        if isinstance(value, str):
+            # QSettings round-trips single-element lists as a plain string
+            value = [value]
+        return set(value or [])
+
+    def _save_removed_panels(self) -> None:
+        """Persist the removed-panel set to QSettings."""
+        settings = QSettings("ALS", "NCS")
+        settings.setValue("sidebar/removed_panels", sorted(self._removed_panels))
+
     # Runtime panel registration handlers
 
     def _on_panel_registered(self, panel_id: str, metadata: PanelMetadata) -> None:
@@ -592,7 +882,7 @@ class DockingManager(QObject):
         self._deferred_panels[panel_id] = metadata.default_area
         self._deferred_metadata[panel_id] = metadata
 
-        if self._icon_sidebar:
+        if self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.insert_panel_button_sorted(
                 panel_id,
                 metadata.icon,

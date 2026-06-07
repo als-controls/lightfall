@@ -71,6 +71,15 @@ class TheaterManager:
         layout.insertWidget(index, proxy)
         return proxy
 
+    def release(self, proxy: TheaterProxy) -> None:
+        """Synchronously collapse the overlay if this proxy is active.
+
+        Call before hiding or destroying a proxy's host so the overlay
+        never holds a stale reference (no animation — immediate).
+        """
+        if self._overlay is not None and self._overlay._active_proxy is proxy:
+            self._overlay._finish_deactivate()
+
     def uninstall(self, widget: QWidget) -> None:
         """Remove theater mode from a widget, restoring it to its layout."""
         widget_id = id(widget)
@@ -79,8 +88,7 @@ class TheaterManager:
             return
 
         # Deactivate if currently in theater mode
-        if self._overlay is not None and self._overlay._active_proxy is proxy:
-            self._overlay._finish_deactivate()
+        self.release(proxy)
 
         # Restore widget to layout
         parent = proxy.parentWidget()

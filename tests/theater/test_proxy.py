@@ -150,3 +150,25 @@ class TestTheaterProxyHoverButton:
         margin = 4
         assert btn.x() == 400 - btn.width() - margin
         assert btn.y() == margin
+
+
+class TestHoverButtonFlag:
+    def test_default_shows_on_enter(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target)
+        qtbot.addWidget(proxy)
+        proxy.show()
+        event = QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5))
+        proxy.enterEvent(event)
+        assert proxy._expand_btn.isVisible()
+
+    def test_suppressed_when_disabled(self, qtbot):
+        target = QWidget()
+        qtbot.addWidget(target)
+        proxy = TheaterProxy(target, show_hover_button=False)
+        qtbot.addWidget(proxy)
+        proxy.show()
+        event = QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5))
+        proxy.enterEvent(event)
+        assert not proxy._expand_btn.isVisible()

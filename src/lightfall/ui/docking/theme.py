@@ -22,7 +22,7 @@ Widget tree (from dump_dock_tree):
       SomePanel [lightfall.panels.*]          ← island bg, bottom rounding
       PanelTitleBar [PanelTitleBar]        ← island bg, top rounding
         QLabel [PanelTitleLabel]
-        QToolButton [PanelTitleCloseButton]
+        QToolButton [PanelTitleButton]
 """
 
 from __future__ import annotations
@@ -157,19 +157,23 @@ QDockWidget {{
     font-size: 11px;
 }}
 
-#PanelTitleCloseButton {{
+#PanelTitleButton {{
     background: transparent;
     border: none;
     border-radius: 3px;
     padding: 2px;
 }}
 
-#PanelTitleCloseButton:hover {{
+#PanelTitleButton:hover {{
     background: {colors.border};
 }}
 
-#PanelTitleCloseButton:pressed {{
+#PanelTitleButton:pressed {{
     background: {colors.text_secondary};
+}}
+
+#PanelTitleSeparator {{
+    color: {colors.border};
 }}
 
 /* --------------------------------------------------------------------------
