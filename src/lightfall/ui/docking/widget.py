@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.utils.logging import logger
+from lightfall.ui.theater.proxy import TheaterProxy
 
 if TYPE_CHECKING:
     from lightfall.ui.panels.base import BasePanel
@@ -219,6 +220,7 @@ class PanelDockWidget(QDockWidget):
     - Icon from panel metadata
     - Title from panel metadata
     - Feature flags based on closable setting
+    - Content wrapped in a TheaterProxy for expand-to-overlay (theater) mode
     - Optional custom title bar (set as Qt's title bar widget for
       native drag support)
     - Lifecycle signal forwarding
@@ -251,8 +253,11 @@ class PanelDockWidget(QDockWidget):
         # Set object name for state persistence
         self.setObjectName(f"dock_{panel.panel_metadata.id}")
 
-        # Set content widget
-        self.setWidget(panel)
+        # Wrap the panel in a TheaterProxy so the title bar expand button
+        # can move it onto the theater overlay. The proxy's own hover
+        # button is suppressed — the title bar owns that affordance.
+        self._proxy = TheaterProxy(panel, show_hover_button=False)
+        self.setWidget(self._proxy)
 
         # Configure features based on metadata
         features = (
@@ -271,6 +276,15 @@ class PanelDockWidget(QDockWidget):
                 closable=panel.panel_metadata.closable,
             )
             self._title_bar.close_requested.connect(lambda: self.setVisible(False))
+            self._title_bar.expand_requested.connect(self._on_expand_requested)
+            self._title_bar.redock_requested.connect(
+                lambda: self.setFloating(False)
+            )
+            self._title_bar.set_actions(panel.title_bar_actions)
+            panel.title_bar_actions_changed.connect(
+                lambda: self._title_bar.set_actions(self._panel.title_bar_actions)
+            )
+            self.topLevelChanged.connect(self._title_bar.set_floating)
             self.setTitleBarWidget(self._title_bar)
 
 
@@ -289,6 +303,12 @@ class PanelDockWidget(QDockWidget):
     def panel_id(self) -> str:
         """Get the panel ID."""
         return self._panel.panel_metadata.id
+
+    def _on_expand_requested(self) -> None:
+        """Expand the panel onto the theater overlay."""
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager.activate(self._proxy)
 
     def _on_visibility_changed(self, visible: bool) -> None:
         """Handle visibility changes."""
