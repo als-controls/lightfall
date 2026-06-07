@@ -877,7 +877,7 @@ def _build_welcome_tutorial() -> Tutorial:
         window._docking_manager.show_panel("lightfall.panels.claude")
 
         dock = window._docking_manager.get_dock_widget("lightfall.panels.claude")
-        panel = dock.widget() if dock is not None else None
+        panel = dock.panel if dock is not None else None
         claude_widget = getattr(panel, "_claude_widget", None)
         input_field = getattr(claude_widget, "input_field", None)
         # Don't clobber whatever the user is already typing.
