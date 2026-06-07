@@ -22,6 +22,17 @@ _WAIT_TIMEOUT_MAX_SECONDS = 3600.0
 # passes 0 or a negative number. Crossing to the GUI thread on every
 # tick is cheap but not free.
 _WAIT_POLL_MIN_SECONDS = 0.01
+# Grace window below which "engine was idle on first poll" rather than
+# "we waited and no run opened" — used by the plan_never_started check.
+# 50 ms comfortably exceeds the immediate-return case (single GUI hop +
+# loop overhead) without overlapping any realistic polling cadence.
+_PLAN_START_GRACE_S = 0.05
+# How long to wait before re-asking Tiled for the latest run when the
+# uid we observed via the engine's document stream isn't visible yet.
+# Tiled occasionally finishes indexing the new run shortly *after* the
+# engine flips back to IDLE — without this retry, a successful scan can
+# be returned with stale ``last_run`` metadata.
+_TILED_INDEX_RETRY_S = 0.5
 
 
 def _last_run_payload() -> dict[str, Any] | None:
@@ -62,6 +73,23 @@ def _last_run_payload() -> dict[str, Any] | None:
         return None
 
 
+def _most_recent_uid() -> str | None:
+    """Return only the most-recent Tiled key (or None if unavailable).
+
+    Built on top of ``_last_run_payload`` rather than touching Tiled
+    directly so test stubs that patch ``_last_run_payload`` automatically
+    affect this helper too. Used by ``_wait_for_idle_payload`` to snapshot
+    "which run was latest before the wait" so it can distinguish a
+    successful empty wait from a plan that failed before opening a run
+    document.
+    """
+    payload = _last_run_payload()
+    if not payload:
+        return None
+    uid = payload.get("uid")
+    return uid if isinstance(uid, str) and uid else None
+
+
 def _read_engine_state_snapshot() -> tuple[str, bool]:
     """Return ``(EngineState.name, is_idle)`` for the current engine.
 
@@ -79,6 +107,50 @@ def _read_engine_state_snapshot() -> tuple[str, bool]:
         return "ERROR", False
 
 
+def _attach_doc_listener_and_snapshot(
+    listener: Any,
+) -> tuple[int | None, str, bool]:
+    """Subscribe ``listener`` to the engine's document stream AND read the
+    current ``(state, is_idle)`` in a single GUI-thread closure.
+
+    Doing both inside one ``run_on_main_thread`` hop is the atomicity
+    guarantee we need: between ``engine.subscribe()`` and the state read,
+    no Python code (and therefore no document emission) can interleave.
+    Without that, a ``start`` document emitted *between* the subscribe and
+    the first state read would be missed, and the wait helper would
+    misclassify a real run as ``plan_never_started``.
+
+    Returns ``(token, state_name, is_idle)`` on success, or
+    ``(None, "ERROR", False)`` if anything failed. ``token=None`` tells the
+    caller to skip the matching ``unsubscribe`` step.
+    """
+    try:
+        from lightfall.acquire.engine import get_engine
+
+        engine = get_engine()
+        token = engine.subscribe(listener)
+        return token, engine.state.name, engine.is_idle
+    except Exception:  # pragma: no cover — defensive
+        logger.exception("lightfall_wait_for_idle: subscribe+state snapshot failed")
+        return None, "ERROR", False
+
+
+def _detach_doc_listener(token: int) -> None:
+    """Remove a subscription installed by ``_attach_doc_listener_and_snapshot``.
+
+    Called from a ``finally`` block in the wait helper so subscribers are
+    never leaked even on timeout, cancellation, or unexpected exceptions
+    in the polling loop. Errors are logged and swallowed — failing to
+    unsubscribe should not turn a successful wait into a tool error.
+    """
+    try:
+        from lightfall.acquire.engine import get_engine
+
+        get_engine().unsubscribe(token)
+    except Exception:  # pragma: no cover — defensive
+        logger.exception("lightfall_wait_for_idle: unsubscribe failed")
+
+
 async def _wait_for_idle_payload(
     *,
     timeout_seconds: float = 600.0,
@@ -91,7 +163,32 @@ async def _wait_for_idle_payload(
     ``asyncio.sleep`` calls so the SDK event loop stays responsive (cancel
     requests can still land, the worker can still drain).
 
-    Returns the response envelope documented in the tool's MCP description.
+    The status field distinguishes three success modes:
+
+    - ``"idle"``               — engine reached IDLE; if ``include_last_run``
+                                 is true, ``last_run`` is the most recent
+                                 Tiled run (which is the one we just waited
+                                 for whenever a run document was observed).
+    - ``"plan_never_started"`` — engine reached IDLE after a wait but emitted
+                                 no ``start`` or ``stop`` documents during
+                                 it. This is the real pre-``bps.open_run``
+                                 failure case (e.g. ``md`` with a reserved
+                                 key of the wrong type). ``last_run`` is
+                                 null so the caller cannot accidentally fit
+                                 data from a stale prior run.
+    - ``"timeout"``             — wait abandoned without reaching IDLE.
+
+    How we decide whether a run is attributable to this wait:
+
+    We subscribe to the engine's document stream for the duration of the
+    wait and record whether we saw any ``start`` (a new run opened) or
+    ``stop`` (a run that was already open when we arrived just closed)
+    documents. The subscription is the authoritative signal — much more
+    reliable than diffing Tiled's most-recent uid, which has a wide-open
+    race: a plan submitted shortly before this call can have its ``start``
+    indexed by Tiled before we even snapshot, leaving Tiled's "before"
+    and "after" uids identical for a perfectly successful run.
+
     On ``CancelledError`` the exception propagates — callers (the SDK worker)
     drain the response stream on cancel, so we must not block shutdown by
     swallowing it.
@@ -101,31 +198,93 @@ async def _wait_for_idle_payload(
     timeout = max(0.0, min(float(timeout_seconds), _WAIT_TIMEOUT_MAX_SECONDS))
     interval = max(_WAIT_POLL_MIN_SECONDS, float(poll_interval_seconds))
 
+    # Listener state — closure-captured so the engine's emit thread updates
+    # these directly. We only read them after unsubscribing, and CPython's
+    # GIL guarantees boolean/string assignments are atomic, so no lock.
+    saw_start = False
+    saw_stop = False
+    captured_uid: str | None = None
+
+    def _doc_listener(name: str, doc: Any) -> None:
+        nonlocal saw_start, saw_stop, captured_uid
+        if name == "start":
+            saw_start = True
+            if isinstance(doc, dict):
+                uid = doc.get("uid")
+                if isinstance(uid, str) and uid:
+                    captured_uid = uid
+        elif name == "stop":
+            saw_stop = True
+            # Only fall back to stop's `run_start` if we never saw a start
+            # ourselves — that means the run was already open before we
+            # subscribed (the original bug case). When both are seen, the
+            # start uid wins because it represents the most recent run.
+            if captured_uid is None and isinstance(doc, dict):
+                uid = doc.get("run_start")
+                if isinstance(uid, str) and uid:
+                    captured_uid = uid
+
+    token, first_state, first_idle = run_on_main_thread(
+        lambda: _attach_doc_listener_and_snapshot(_doc_listener)
+    )
+
     loop = asyncio.get_event_loop()
     start = loop.time()
-    last_state = "UNKNOWN"
-    reached_idle = False
+    last_state = first_state
+    reached_idle = bool(first_idle)
 
-    while True:
-        state_name, is_idle = run_on_main_thread(_read_engine_state_snapshot)
-        last_state = state_name
+    try:
+        while not reached_idle:
+            elapsed = loop.time() - start
+            if elapsed >= timeout:
+                break
 
-        if is_idle:
-            reached_idle = True
-            break
+            # Cap sleep so we don't overshoot the deadline on the final tick.
+            remaining = timeout - elapsed
+            await asyncio.sleep(min(interval, remaining))
 
-        elapsed = loop.time() - start
-        if elapsed >= timeout:
-            break
-
-        # Cap sleep so we don't overshoot the deadline on the final tick.
-        remaining = timeout - elapsed
-        await asyncio.sleep(min(interval, remaining))
+            state_name, is_idle = run_on_main_thread(_read_engine_state_snapshot)
+            last_state = state_name
+            if is_idle:
+                reached_idle = True
+                break
+    finally:
+        if token is not None:
+            run_on_main_thread(lambda: _detach_doc_listener(token))
 
     elapsed = loop.time() - start
     last_run: dict[str, Any] | None = None
+    status = "idle" if reached_idle else "timeout"
+
     if reached_idle and include_last_run:
-        last_run = run_on_main_thread(_last_run_payload)
+        # Any document observation means a run is associated with this wait.
+        # `saw_start` covers "a new run opened while we watched"; `saw_stop`
+        # covers "a run was already open when we subscribed and just closed"
+        # — the case that the old Tiled-diff detector misclassified.
+        a_run_is_attributable = saw_start or saw_stop
+        actually_waited = elapsed > max(interval, _PLAN_START_GRACE_S)
+
+        if a_run_is_attributable:
+            last_run = run_on_main_thread(_last_run_payload)
+            # Tiled may finish indexing the run shortly after the engine
+            # flips IDLE. If the uid we captured from the document stream
+            # doesn't yet match Tiled's most-recent, retry once.
+            if captured_uid and (
+                not last_run or last_run.get("uid") != captured_uid
+            ):
+                await asyncio.sleep(_TILED_INDEX_RETRY_S)
+                last_run = run_on_main_thread(_last_run_payload)
+        elif actually_waited:
+            # Engine went non-idle and back to idle without emitting any
+            # document — a real pre-``bps.open_run`` failure. Don't return
+            # a stale last_run; the caller would fit the wrong data.
+            status = "plan_never_started"
+            last_run = None
+        else:
+            # First poll was already idle and we never slept. We can't tell
+            # "no plan was ever submitted" from "the plan completed before
+            # we asked"; return whatever Tiled has as best-effort context.
+            last_run = run_on_main_thread(_last_run_payload)
 
     return {
         "success": True,
@@ -133,6 +292,7 @@ async def _wait_for_idle_payload(
         "state": last_state,
         "elapsed_seconds": elapsed,
         "last_run": last_run,
+        "status": status,
         "reason": "" if reached_idle else "timeout",
     }
 
@@ -621,13 +781,29 @@ class EngineToolsAgent(AgentPlugin):
         @tool(
             name="lightfall_wait_for_idle",
             description=(
-                "Block until the RunEngine returns to IDLE, then return its state "
-                "and (optionally) the most recent run's metadata. Use this to wait "
-                "for a scan to finish before fitting data or running follow-up "
-                "plans. This suspends the model inside the tool call until the "
-                "engine is idle, so prefer it over polling lightfall_get_run_status in a "
-                "loop, and over ScheduleWakeup — ScheduleWakeup currently does not "
-                "fire in Lightfall's embedded Claude session. "
+                "Block until the RunEngine returns to IDLE, then return its state, "
+                "an outcome `status`, and (optionally) the most recent run's "
+                "metadata. Use this to wait for a scan to finish before fitting "
+                "data or running follow-up plans. This suspends the model inside "
+                "the tool call until the engine is idle, so prefer it over polling "
+                "lightfall_get_run_status in a loop, and over ScheduleWakeup — "
+                "ScheduleWakeup currently does not fire in Lightfall's embedded "
+                "Claude session.\n"
+                "\n"
+                "status values:\n"
+                "  - 'idle'               : engine reached IDLE; `last_run` is the\n"
+                "                           run that just finished (when one was\n"
+                "                           attributable to this wait — detected via\n"
+                "                           the engine's document stream, not by\n"
+                "                           diffing Tiled's most-recent uid).\n"
+                "  - 'plan_never_started' : engine returned to IDLE after a wait but\n"
+                "                           emitted no start/stop documents — the\n"
+                "                           submitted plan failed before bps.open_run.\n"
+                "                           `last_run` is null (a stale prior run is\n"
+                "                           intentionally suppressed). Inspect engine\n"
+                "                           logs; do NOT fit any data.\n"
+                "  - 'timeout'            : abandoned without reaching IDLE.\n"
+                "\n"
                 "Defaults: timeout_seconds=600 (max 3600), poll_interval=0.5s."
             ),
             input_schema={
