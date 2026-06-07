@@ -14,6 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
 from lightfall.auth.policy import Permission
@@ -127,6 +128,7 @@ class BasePanel(QWidget):
         state_changed: Emitted when panel state changes.
         closing: Emitted when panel is about to close.
         status_changed: Emitted when the panel's status changes.
+        title_bar_actions_changed: Emitted when title bar actions change.
 
     Content is placed inside a built-in vertical QScrollArea, so when a
     panel's widgets don't fit the available area the user can scroll
@@ -161,6 +163,7 @@ class BasePanel(QWidget):
     closing = Signal()
     icon_changed = Signal(str, str)  # icon_name, color (empty = theme default)
     status_changed = Signal(object)  # PanelStatus
+    title_bar_actions_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the base panel.
@@ -172,6 +175,9 @@ class BasePanel(QWidget):
         self._is_active = False
         self._panel_state: dict[str, Any] = {}
         self._status = PanelStatus.UNINITIALIZED
+        # Title bar actions must exist before _setup_ui so subclasses can
+        # register actions during UI construction.
+        self._title_bar_actions: list[QAction] = []
 
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
@@ -322,6 +328,26 @@ class BasePanel(QWidget):
             return
         self._status = status
         self.status_changed.emit(status)
+
+    # Title bar actions
+
+    def add_title_bar_action(self, action: QAction) -> None:
+        """Add an action rendered as an icon-only button in the panel
+        title bar.
+
+        Give the action an icon -- title bar buttons are icon-only; the
+        action's text/tooltip becomes the button tooltip.
+
+        Args:
+            action: The QAction to add.
+        """
+        self._title_bar_actions.append(action)
+        self.title_bar_actions_changed.emit()
+
+    @property
+    def title_bar_actions(self) -> list[QAction]:
+        """Actions shown as title bar buttons (copy of internal list)."""
+        return list(self._title_bar_actions)
 
     # State management
 
