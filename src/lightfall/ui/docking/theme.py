@@ -265,16 +265,23 @@ QDockWidget QScrollArea > QWidget > QWidget,
     background-color: rgba(0, 0, 0, 0);
 }}
 
-/* The dock panel widget itself. Dock panels are wrapped in a TheaterProxy
-   (a QStackedWidget) which is the dock's direct child and paints the
+/* The dock panel subtree. Dock panels are wrapped in a TheaterProxy (a
+   QStackedWidget) which is the dock's direct child and paints the
    bottom-rounded surface (via QDockWidget > QWidget above). The BasePanel
-   sits on top as page 0 and, left opaque, squares off those rounded corners.
-   Make it transparent (rgba, not the `transparent` shorthand) so the
-   TheaterProxy's rounded surface shows. The central logbook isn't wrapped in
-   a proxy — it paints its own rounded surface — so it's unaffected here.
-   (Verified live: panel.setStyleSheet("background-color: rgba(0,0,0,0)")
-   rounds the corners; this is the global-stylesheet equivalent.) */
-#TheaterProxy > QWidget {{
+   sits on top as page 0; left opaque it squares off those rounded corners.
+   Make the panel and everything under it transparent so the TheaterProxy's
+   rounded surface shows.
+
+   Must be a DESCENDANT combinator (space), NOT '#TheaterProxy > QWidget':
+   Qt's QSS direct-child '>' combinator does not match the pages of a
+   QStackedWidget, so the child form silently misses the panel. The
+   descendant form traverses into the stack (same reason QDockWidget
+   QScrollArea works). rgba, not the `transparent` shorthand (see above).
+   The central logbook isn't proxy-wrapped — it paints its own rounded
+   surface — so it's unaffected here. Verified live by Ron:
+   panel.setStyleSheet("background-color: rgba(0,0,0,0)") rounds the corners;
+   this is the global-stylesheet equivalent (its subtree bleed). */
+#TheaterProxy QWidget {{
     background-color: rgba(0, 0, 0, 0);
 }}
 
