@@ -22,7 +22,7 @@ from lightfall.ui.docking.state import DockingState
 from lightfall.ui.docking.widget import PanelDockWidget
 from lightfall.ui.panels.base import PanelMetadata, PanelStatus
 from lightfall.ui.panels.registry import PanelRegistry
-from lightfall.utils.logging import logger
+from lightfall.utils.logging import log_time, logger
 
 # Default sizes for side panels (in pixels)
 LEFT_PANEL_WIDTH = 350
@@ -418,31 +418,34 @@ class DockingManager(QObject):
         area = self._deferred_panels.pop(panel_id)
         self._deferred_metadata.pop(panel_id, None)
 
-        registry = PanelRegistry.get_instance()
-        panel = registry.create(panel_id)
+        # Times the full per-panel cost (construction + dock widget +
+        # theme reapply); cumulative_key aggregates the startup sweep.
+        with log_time("Panel init:", panel_id, cumulative_key="panel_init"):
+            registry = PanelRegistry.get_instance()
+            panel = registry.create(panel_id)
 
-        if panel is None:
-            logger.error("Failed to instantiate deferred panel: {}", panel_id)
-            self.set_panel_status(panel_id, PanelStatus.ERROR)
-            return None
+            if panel is None:
+                logger.error("Failed to instantiate deferred panel: {}", panel_id)
+                self.set_panel_status(panel_id, PanelStatus.ERROR)
+                return None
 
-        dock_widget = self.add_panel(
-            panel_id,
-            panel,
-            area=area,
-            add_sidebar_button=False,
-        )
+            dock_widget = self.add_panel(
+                panel_id,
+                panel,
+                area=area,
+                add_sidebar_button=False,
+            )
 
-        if dock_widget is None and area != "center":
-            logger.error("Failed to add deferred panel to dock: {}", panel_id)
-            return None
+            if dock_widget is None and area != "center":
+                logger.error("Failed to add deferred panel to dock: {}", panel_id)
+                return None
 
-        # Re-apply theme so new dock widget picks up child selectors
-        try:
-            from lightfall.ui.theme import ThemeManager
-            ThemeManager.get_instance().apply_to_application()
-        except Exception:
-            pass
+            # Re-apply theme so new dock widget picks up child selectors
+            try:
+                from lightfall.ui.theme import ThemeManager
+                ThemeManager.get_instance().apply_to_application()
+            except Exception:
+                pass
 
         logger.info("Instantiated deferred panel: {}", panel_id)
         return panel
