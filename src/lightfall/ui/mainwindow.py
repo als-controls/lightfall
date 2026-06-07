@@ -116,15 +116,11 @@ class LFMainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("&File")
 
-        # Save layout action
-        save_layout_action = QAction("Save Layout", self)
-        save_layout_action.triggered.connect(self._save_window_state)
-        file_menu.addAction(save_layout_action)
-
-        # Restore layout action
-        restore_layout_action = QAction("Restore Layout", self)
-        restore_layout_action.triggered.connect(self._restore_window_state)
-        file_menu.addAction(restore_layout_action)
+        # Settings action (moved from Tools > Preferences)
+        settings_action = QAction("&Settings...", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._on_preferences)
+        file_menu.addAction(settings_action)
 
         file_menu.addSeparator()
 
@@ -140,15 +136,6 @@ class LFMainWindow(QMainWindow):
         # Panels submenu
         self._panels_menu = view_menu.addMenu("Panels")
         self._update_panels_menu()
-
-        # Tools menu
-        tools_menu = menubar.addMenu("&Tools")
-
-        # Preferences action
-        prefs_action = QAction("&Preferences...", self)
-        prefs_action.setShortcut("Ctrl+,")
-        prefs_action.triggered.connect(self._on_preferences)
-        tools_menu.addAction(prefs_action)
 
         # User menu
         user_menu = menubar.addMenu("&User")

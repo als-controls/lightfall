@@ -921,7 +921,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 message=(
                     "Your profile picture appears in the top-right corner "
                     "as a visual indicator of the currently signed-in user. "
-                    "You can set or change it from Tools > Preferences > "
+                    "You can set or change it from File > Settings > "
                     "User Profile."
                 ),
                 position=CalloutPosition.BELOW,
@@ -933,9 +933,9 @@ def _build_welcome_tutorial() -> Tutorial:
                 target=_find_menubar,
                 title="Menu Bar",
                 message=(
-                    "The menu bar provides access to File operations, "
-                    "View options (including panel management), Tools "
-                    "(Preferences), User login, and Help."
+                    "The menu bar provides access to File operations "
+                    "(including Settings), View options (including panel "
+                    "management), User login, and Help."
                 ),
                 position=CalloutPosition.BELOW,
                 target_description="Menu bar",
