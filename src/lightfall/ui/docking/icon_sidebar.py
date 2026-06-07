@@ -510,6 +510,21 @@ class IconStripSidebar(QFrame):
         """
         return self._button_sections.get(panel_id)
 
+    def ordered_panel_ids(self) -> list[str]:
+        """Panel ids in visual order: top section top-to-bottom, then bottom.
+
+        Reflects the current layout order, including any drag-and-drop
+        reordering the user has done.
+        """
+        ids: list[str] = []
+        layout = self.layout()
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if isinstance(widget, IconStripButton):
+                ids.append(widget.panel_id)
+        return ids
+
     def add_stretch(self) -> None:
         """Add stretch to push subsequent buttons to bottom."""
         layout = self.layout()
