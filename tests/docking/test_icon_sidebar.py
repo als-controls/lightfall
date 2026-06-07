@@ -27,3 +27,38 @@ class TestOrderedPanelIds:
             "top.a", "mdi6.alpha-a", "A", sidebar_order=-1, section="top"
         )
         assert sidebar.ordered_panel_ids() == ["top.a", "top.b"]
+
+
+class TestContextMenu:
+    def test_remove_signal_emitted(self, qtbot, monkeypatch):
+        from PySide6.QtCore import QPoint
+
+        sidebar = IconStripSidebar()
+        qtbot.addWidget(sidebar)
+        button = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+
+        # Patch _exec_context_menu to auto-choose the first action without
+        # blocking (QMenu.exec is a C++ method that can't be patched via
+        # monkeypatch.setattr on the class in PySide6).
+        monkeypatch.setattr(
+            sidebar,
+            "_exec_context_menu",
+            lambda menu, pos: menu.actions()[0],
+        )
+        with qtbot.waitSignal(sidebar.panel_remove_requested) as blocker:
+            button.customContextMenuRequested.emit(QPoint(5, 5))
+        assert blocker.args == ["top.a"]
+
+    def test_menu_dismissed_no_signal(self, qtbot, monkeypatch):
+        from PySide6.QtCore import QPoint
+
+        sidebar = IconStripSidebar()
+        qtbot.addWidget(sidebar)
+        button = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+        monkeypatch.setattr(
+            sidebar,
+            "_exec_context_menu",
+            lambda menu, pos: None,
+        )
+        with qtbot.assertNotEmitted(sidebar.panel_remove_requested):
+            button.customContextMenuRequested.emit(QPoint(5, 5))

@@ -318,6 +318,10 @@ class LFMainWindow(QMainWindow):
             logger.error("Docking manager not initialized")
             return None
 
+        # If the user previously removed this panel from the sidebar,
+        # opening it via View > Panels restores the button.
+        self._docking_manager.restore_panel_to_sidebar(panel_id)
+
         # Check if already open
         existing = self._docking_manager.get_panel(panel_id)
         if existing is not None:

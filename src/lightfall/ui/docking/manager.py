@@ -90,6 +90,9 @@ class DockingManager(QObject):
         self._proactive_init_started = False
         self._proactive_queue: list[str] = []
 
+        # Panels the user removed from the sidebar (persisted)
+        self._removed_panels: set[str] = set()
+
     def initialize(self) -> None:
         """Initialize the docking system.
 
@@ -111,6 +114,9 @@ class DockingManager(QObject):
         self._icon_sidebar = IconStripSidebar()
         self._icon_sidebar.panel_toggled.connect(self._on_sidebar_panel_toggled)
         self._icon_sidebar.panel_section_changed.connect(self._on_sidebar_section_changed)
+        self._icon_sidebar.panel_remove_requested.connect(
+            self.remove_panel_from_sidebar
+        )
         layout.addWidget(self._icon_sidebar)
 
         # Create inner QMainWindow (hosts QDockWidgets)
@@ -140,6 +146,9 @@ class DockingManager(QObject):
             )
         except Exception:
             logger.debug("ThemeManager unavailable; status tints are static")
+
+        # Load persisted removed-from-sidebar set
+        self._removed_panels = self._load_removed_panels()
 
         logger.info("DockingManager initialized with QDockWidget + icon strip sidebar")
 
@@ -261,7 +270,7 @@ class DockingManager(QObject):
         widget.setVisible(False)
 
         # Add sidebar button
-        if add_sidebar_button and self._icon_sidebar:
+        if add_sidebar_button and self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.add_panel_button(
                 panel_id,
                 panel.panel_metadata.icon,
@@ -355,7 +364,7 @@ class DockingManager(QObject):
         self._deferred_panels[panel_id] = area
         self._deferred_metadata[panel_id] = metadata
 
-        if add_sidebar_button and self._icon_sidebar:
+        if add_sidebar_button and self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.add_panel_button(
                 panel_id,
                 metadata.icon,
@@ -374,6 +383,9 @@ class DockingManager(QObject):
             True if button was added.
         """
         if self._icon_sidebar is None:
+            return False
+
+        if panel_id in self._removed_panels:
             return False
 
         metadata = self._deferred_metadata.get(panel_id)
@@ -716,6 +728,7 @@ class DockingManager(QObject):
             for pid in self._icon_sidebar.ordered_panel_ids()
             if pid in self._deferred_panels
             and self._deferred_metadata[pid].proactive_init
+            and pid not in self._removed_panels
         ]
         logger.info(
             "Proactive panel init: {} panels queued", len(self._proactive_queue)
@@ -748,6 +761,94 @@ class DockingManager(QObject):
             QTimer.singleShot(0, self._proactive_init_next)
             return
 
+    # Sidebar removal persistence
+
+    def is_panel_removed_from_sidebar(self, panel_id: str) -> bool:
+        """Whether the user has removed this panel from the sidebar.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if the panel has been removed from the sidebar.
+        """
+        return panel_id in self._removed_panels
+
+    def remove_panel_from_sidebar(self, panel_id: str) -> None:
+        """Remove a panel's sidebar button (persisted across restarts).
+
+        Hides the panel if visible. The panel instance (or deferred
+        registration) is kept — restore via View > Panels.
+
+        Args:
+            panel_id: Panel identifier.
+        """
+        self.hide_panel(panel_id)
+        if self._icon_sidebar:
+            self._icon_sidebar.remove_panel_button(panel_id)
+        self._removed_panels.add(panel_id)
+        self._save_removed_panels()
+        logger.info("Removed panel {} from sidebar", panel_id)
+
+    def restore_panel_to_sidebar(self, panel_id: str) -> bool:
+        """Clear a panel's removed flag and re-add its sidebar button.
+
+        Args:
+            panel_id: Panel identifier.
+
+        Returns:
+            True if the panel was removed and has now been restored.
+        """
+        if panel_id not in self._removed_panels:
+            return False
+        self._removed_panels.discard(panel_id)
+        self._save_removed_panels()
+
+        metadata = self._deferred_metadata.get(panel_id)
+        if metadata is None:
+            widget = self._panel_widgets.get(panel_id)
+            metadata = widget.panel.panel_metadata if widget else None
+        if metadata is None or self._icon_sidebar is None:
+            logger.warning(
+                "Restored sidebar flag for {} but no metadata for a button",
+                panel_id,
+            )
+            return True
+
+        area = self._panel_areas.get(panel_id) or self._deferred_panels.get(
+            panel_id, metadata.default_area
+        )
+        section = "top" if area == "left" else "bottom"
+        self._icon_sidebar.insert_panel_button_sorted(
+            panel_id,
+            metadata.icon,
+            metadata.name,
+            metadata.sidebar_order,
+            section,
+        )
+        # Re-apply current status tint to the fresh button
+        self._refresh_sidebar_icon(panel_id)
+        logger.info("Restored panel {} to sidebar", panel_id)
+        return True
+
+    def _load_removed_panels(self) -> set[str]:
+        """Load the persisted removed-panel set from QSettings.
+
+        Returns:
+            Set of removed panel IDs.
+        """
+        settings = QSettings("ALS", "NCS")
+        value = settings.value("sidebar/removed_panels", [])
+        if isinstance(value, str):
+            # QSettings round-trips single-element lists as a plain string
+            value = [value]
+        return set(value or [])
+
+    def _save_removed_panels(self) -> None:
+        """Persist the removed-panel set to QSettings."""
+        settings = QSettings("ALS", "NCS")
+        settings.setValue("sidebar/removed_panels", sorted(self._removed_panels))
+
     # Runtime panel registration handlers
 
     def _on_panel_registered(self, panel_id: str, metadata: PanelMetadata) -> None:
@@ -763,7 +864,7 @@ class DockingManager(QObject):
         self._deferred_panels[panel_id] = metadata.default_area
         self._deferred_metadata[panel_id] = metadata
 
-        if self._icon_sidebar:
+        if self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.insert_panel_button_sorted(
                 panel_id,
                 metadata.icon,
