@@ -300,8 +300,8 @@ class RunEngineControlWidget(QWidget):
         """Create a flat icon button matching the sidebar's tool buttons."""
         btn = QToolButton()
         btn.setAutoRaise(True)
-        btn.setFixedSize(26, 26)
-        btn.setIconSize(QSize(17, 17))
+        btn.setFixedSize(36, 36)
+        btn.setIconSize(QSize(22, 22))
         btn.setToolTip(tooltip)
         btn.setIcon(self._themed_icon(icon_name))
         btn.setEnabled(False)
