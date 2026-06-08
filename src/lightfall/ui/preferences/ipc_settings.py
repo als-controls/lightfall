@@ -118,6 +118,9 @@ class IPCSettingsPlugin(SettingsPlugin):
         trusted_layout = QVBoxLayout(trusted_group)
 
         self._trusted_list = QListWidget()
+        self._trusted_list.setSelectionBehavior(
+            QListWidget.SelectionBehavior.SelectRows
+        )
         trusted_layout.addWidget(self._trusted_list)
 
         self._revoke_btn = QPushButton("Revoke Selected")

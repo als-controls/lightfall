@@ -115,6 +115,7 @@ class DeviceTreeTab(QWidget):
 
         self._tree_view = QTreeView()
         self._tree_view.setModel(self._proxy_model)
+        self._tree_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._tree_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._tree_view.setAlternatingRowColors(True)
         self._tree_view.setAnimated(True)

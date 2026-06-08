@@ -722,6 +722,7 @@ class DocumentStreamWidget(QWidget):
 
         # Tree view (grouped by type)
         self._tree_view = QTreeView()
+        self._tree_view.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self._tree_view.setAlternatingRowColors(True)
         self._tree_view.setRootIsDecorated(True)
         self._tree_view.setUniformRowHeights(True)

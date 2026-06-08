@@ -884,6 +884,7 @@ class EntryListWidget(QFrame):
         self._delegate.delete_clicked.connect(self._on_row_delete)
 
         self._view = QListView()
+        self._view.setSelectionBehavior(QListView.SelectionBehavior.SelectRows)
         self._view.setModel(self._proxy)
         self._view.setItemDelegate(self._delegate)
         self._view.setFrameShape(QFrame.Shape.NoFrame)

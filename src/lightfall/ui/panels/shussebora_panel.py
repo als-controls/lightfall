@@ -103,6 +103,9 @@ class ShusseboraPanel(BasePanel):
         self._layout.addLayout(self._instances_layout)
 
         self._transfers_table = QTableWidget(0, 5)
+        self._transfers_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         self._transfers_table.setHorizontalHeaderLabels(
             ["Time", "File", "Trigger", "Status", "Size"])
         self._transfers_table.horizontalHeader().setStretchLastSection(True)

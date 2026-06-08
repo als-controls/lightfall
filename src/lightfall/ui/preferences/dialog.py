@@ -77,6 +77,7 @@ class PreferencesDialog(QDialog):
 
         # Left sidebar for navigation
         self._sidebar = QListWidget()
+        self._sidebar.setSelectionBehavior(QListWidget.SelectionBehavior.SelectRows)
         self._sidebar.setMaximumWidth(150)
         self._sidebar.setMinimumWidth(120)
         self._sidebar.currentRowChanged.connect(self._on_page_changed)
