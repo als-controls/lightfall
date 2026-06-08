@@ -188,6 +188,14 @@ QDockWidget {{
     background: {colors.primary};
 }}
 
+/* Hide Qt's menu-indicator arrow on dropdown title bar buttons — at 20x20
+   it overwhelms the icon. The icon itself signals the action. */
+#PanelTitleButton::menu-indicator {{
+    image: none;
+    width: 0;
+    height: 0;
+}}
+
 #PanelTitleSeparator {{
     color: {colors.border};
 }}
