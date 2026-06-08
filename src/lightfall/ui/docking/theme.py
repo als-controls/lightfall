@@ -283,13 +283,19 @@ QDockWidget QFrame,
     background-color: rgba(0, 0, 0, 0);
 }}
 
-/* The whole dock-panel subtree is container. Panels are wrapped in a
-   TheaterProxy (a QStackedWidget); the proxy is the shell that paints the
-   bottom-rounded surface, and everything under it must be transparent.
+/* Dock-panel subtree paints SURFACE (the dock is a solid surface island; sea
+   shows only in the separator gaps between docks). Painting the content
+   directly is reliable, unlike relying on transparency to reveal a shell
+   behind it: a docked QDockWidget paints nothing, and the TheaterProxy
+   (a QStackedWidget) does not paint behind its current page — so transparent
+   content would fall through to the sea canvas. This wins over the
+   transparent CONTAINER rules above for proxy descendants (id selector).
    DESCENDANT combinator (not '>'): Qt's '>' does not match the pages of a
-   QStackedWidget, so '#TheaterProxy > QWidget' silently misses the panel. */
+   QStackedWidget, so '#TheaterProxy > QWidget' silently misses the panel.
+   (The central widget is NOT proxy-wrapped — it keeps transparent content so
+   it can round against its sea-gap margin.) */
 #TheaterProxy QWidget {{
-    background-color: rgba(0, 0, 0, 0);
+    background-color: {island};
 }}
 
 /* Table/tree headers inside docks — island surface */

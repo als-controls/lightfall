@@ -103,15 +103,16 @@ def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
     ) in css
 
 
-def test_dock_panel_subtree_transparent_in_islands(islands_colors):
-    """The dock panel subtree sits on top of its TheaterProxy and, left
-    opaque, squares off the proxy's rounded corners. Islands mode makes it
-    transparent so the rounded surface shows. Must be a descendant combinator
+def test_dock_panel_subtree_is_surface_in_islands(islands_colors):
+    """Docked panels are solid surface islands: the dock-panel subtree paints
+    surface directly. (Transparency would fall through to the sea canvas — a
+    docked QDockWidget paints nothing and the TheaterProxy QStackedWidget
+    doesn't paint behind its page.) Must be a descendant combinator
     (#TheaterProxy QWidget) — Qt's '>' does not match QStackedWidget pages."""
     css = generate_docking_stylesheet(islands_colors)
     assert (
         "#TheaterProxy QWidget {\n"
-        "    background-color: rgba(0, 0, 0, 0);"
+        f"    background-color: {islands_colors.surface};"
     ) in css
     # The direct-child form silently misses the stacked panel; guard against
     # a well-meaning "simplification" back to it.
