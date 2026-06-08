@@ -1,14 +1,16 @@
 """ClaudeAssistantWidget - High-level embeddable chat widget."""
 
+import math
 from dataclasses import dataclass
 
+import qtawesome as qta
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QKeyEvent, QPalette
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -54,6 +56,82 @@ class HeightForWidthWidget(QWidget):
             h = self.layout().minimumHeightForWidth(self.width())
             return QSize(base.width(), h)
         return base
+
+
+class _ChatInput(QPlainTextEdit):
+    """Multi-line chat input.
+
+    Enter submits the query (emits ``submit_requested``); Shift+Enter inserts a
+    newline. The field starts at one line and auto-grows with content up to
+    ``_MAX_LINES``, after which it scrolls.
+    """
+
+    submit_requested = Signal()
+
+    _MAX_LINES = 6
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Scrollbar is toggled in _adjust_height: hidden while the field
+        # auto-grows, shown only once content exceeds _MAX_LINES.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setTabChangesFocus(True)
+        self.document().documentLayout().documentSizeChanged.connect(
+            self._adjust_height
+        )
+        self._adjust_height()
+
+    def showEvent(self, event) -> None:
+        # Recompute once the stylesheet/frame are applied: contentsMargins (and
+        # thus the frame overhead) are zero until the widget is polished, so the
+        # __init__ call alone would leave the field one chrome-height too short
+        # and jump on the first keystroke.
+        super().showEvent(event)
+        self._adjust_height()
+
+    def _line_height(self) -> int:
+        return int(self.fontMetrics().lineSpacing())
+
+    def _viewport_content_height(self, lines: int) -> int:
+        # The text lines plus the document margin Qt reserves inside the viewport.
+        return lines * self._line_height() + 2 * int(self.document().documentMargin())
+
+    def _frame_overhead(self) -> int:
+        # Space the frame/border/padding occupy *outside* the scroll viewport.
+        # Measured directly so it works whether the border comes from the native
+        # frame or from a Qt Style Sheet (which lands in contentsMargins).
+        overhead = self.height() - self.viewport().height()
+        if overhead > 0:
+            return overhead
+        margins = self.contentsMargins()
+        return margins.top() + margins.bottom() + self.frameWidth() * 2
+
+    def _adjust_height(self) -> None:
+        # QPlainTextDocumentLayout reports document height in *lines* (qreal),
+        # not pixels.
+        doc_lines = self.document().size().height()
+        lines = max(1, min(self._MAX_LINES, math.ceil(doc_lines)))
+        self.setFixedHeight(
+            self._viewport_content_height(lines) + self._frame_overhead()
+        )
+        # Only allow scrolling once content exceeds the cap.
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if doc_lines > self._MAX_LINES
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Shift+Enter: insert a newline.
+                super().keyPressEvent(event)
+            else:
+                self.submit_requested.emit()
+            return
+        super().keyPressEvent(event)
 
 
 class ClaudeAssistantWidget(QWidget):
@@ -209,17 +287,18 @@ class ClaudeAssistantWidget(QWidget):
 
         # Input area
         input_layout = QHBoxLayout()
+        input_layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
 
-        self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Hi Claude, Tell me about Lightfall...")
-        self.input_field.returnPressed.connect(self._send_query)
+        self.input_field = _ChatInput()
+        self.input_field.setPlaceholderText(
+            "Hi Claude, Tell me about Lightfall...  (Shift+Enter for a new line)"
+        )
+        self.input_field.submit_requested.connect(self._send_query)
         input_layout.addWidget(self.input_field)
 
-        self.send_button = QPushButton("Send")
+        self.send_button = QPushButton(qta.icon("mdi6.send"), "Send")
         self.send_button.clicked.connect(self._on_send_button_clicked)
         input_layout.addWidget(self.send_button)
-
-        import qtawesome as qta
 
         self.reset_button = QPushButton(qta.icon("mdi6.broom"), "")
         self.reset_button.setFixedWidth(32)
@@ -233,7 +312,9 @@ class ClaudeAssistantWidget(QWidget):
         # Track busy state for button toggling
         self._is_busy = False
         # Store default placeholder for restoration
-        self._default_placeholder = "Hi Claude, Tell me about Lightfall..."
+        self._default_placeholder = (
+            "Hi Claude, Tell me about Lightfall...  (Shift+Enter for a new line)"
+        )
 
     def _setup_error_ui(self, error_message: str) -> None:
         """Setup error UI when initialization fails."""
@@ -286,7 +367,7 @@ class ClaudeAssistantWidget(QWidget):
     @Slot()
     def _send_query(self) -> None:
         """Send the user's query to Claude."""
-        prompt = self.input_field.text().strip()
+        prompt = self.input_field.toPlainText().strip()
 
         if not prompt:
             return
@@ -363,6 +444,7 @@ class ClaudeAssistantWidget(QWidget):
             # Disable input, show status as placeholder
             self.input_field.setEnabled(False)
             self.input_field.setPlaceholderText(status_text or "Processing...")
+            self.send_button.setIcon(qta.icon("mdi6.stop"))
             self.send_button.setText("Cancel")
             self.send_button.setEnabled(True)
             self.reset_button.setEnabled(False)
@@ -370,6 +452,7 @@ class ClaudeAssistantWidget(QWidget):
             # Enable input, restore placeholder, change button back
             self.input_field.setEnabled(True)
             self.input_field.setPlaceholderText(self._default_placeholder)
+            self.send_button.setIcon(qta.icon("mdi6.send"))
             self.send_button.setText("Send")
             self.send_button.setEnabled(True)
             self.reset_button.setEnabled(True)

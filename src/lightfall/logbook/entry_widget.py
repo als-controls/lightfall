@@ -154,6 +154,7 @@ class EntryWidget(QFrame):
     title_changed = Signal(str, str)  # (entry_id, new_title)
     tags_changed = Signal(str, list)  # (entry_id, new_tags)
     claude_requested = Signal(str, str)  # (entry_id, fragment_id)
+    image_requested = Signal()  # user clicked the add-image button
 
     def __init__(
         self,
@@ -303,6 +304,17 @@ class EntryWidget(QFrame):
         toolbar.setStyleSheet(
             "QToolBar { border-top: 1px solid #444; padding: 2px 4px; spacing: 2px; }"
         )
+
+        # Add-image button, all the way on the left
+        try:
+            import qtawesome as qta
+            self._add_image_btn = QToolButton()
+            self._add_image_btn.setIcon(qta.icon("fa5s.image", color="#aaa"))
+            self._add_image_btn.setToolTip("Add image to entry")
+            self._add_image_btn.clicked.connect(self.image_requested)
+            toolbar.addWidget(self._add_image_btn)
+        except ImportError:
+            pass
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)

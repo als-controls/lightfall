@@ -441,10 +441,10 @@ QDialog {{
     background-color: {island};
 }}
 
-/* Push buttons: flat, sea-colored, borderless. */
+/* Push buttons: sea-colored with a themed border so they don't read as flat. */
 QPushButton {{
     background: {sea};
-    border: none;
+    border: 1px solid {colors.border};
     border-radius: {RADIUS_SM}px;
     padding: 4px 12px;
 }}

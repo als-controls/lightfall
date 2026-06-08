@@ -723,14 +723,14 @@ QGroupBox::title {{
     padding: 0 4px;
 }}
 
-/* Line edit */
-QLineEdit {{
+/* Line edit / multi-line text edits */
+QLineEdit, QTextEdit, QPlainTextEdit {{
     border: 1px solid {c.border};
     border-radius: 4px;
     padding: 4px 8px;
     background: {c.background};
 }}
-QLineEdit:focus {{
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
     border-color: {c.primary};
 }}
 

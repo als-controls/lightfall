@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QWidget,
 )
 
@@ -95,18 +94,6 @@ class LogbookPanel(BasePanel):
         self._is_guest = False
         self._is_disconnected = False
 
-        # Image button toolbar
-        try:
-            import qtawesome as qta
-            self._add_image_btn = QPushButton()
-            self._add_image_btn.setIcon(qta.icon("fa5s.image", color="#aaa"))
-            self._add_image_btn.setToolTip("Add image to entry")
-            self._add_image_btn.setFixedSize(28, 28)
-            self._add_image_btn.clicked.connect(self._on_add_image_clicked)
-            self._layout.addWidget(self._add_image_btn)
-        except ImportError:
-            logger.debug("qtawesome not available, skipping image button")
-
         self._layout.addWidget(self._entry_widget)
 
         # Install event filter on QApplication to catch Ctrl+V with image data
@@ -119,6 +106,7 @@ class LogbookPanel(BasePanel):
         self._entry_widget.fragment_deleted.connect(self._on_fragment_deleted)
         self._entry_widget.fragment_reordered.connect(self._on_fragment_reordered)
         self._entry_widget.claude_requested.connect(self._on_claude_requested)
+        self._entry_widget.image_requested.connect(self._on_add_image_clicked)
         self._entry_widget.title_changed.connect(self._on_title_changed)
         self._entry_widget.tags_changed.connect(self._on_tags_changed)
 

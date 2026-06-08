@@ -304,14 +304,14 @@ QTabBar::tab:hover:!selected {{
 /* --------------------------------------------------------------------------
    Inputs
    -------------------------------------------------------------------------- */
-QLineEdit {{
+QLineEdit, QTextEdit, QPlainTextEdit {{
     border-radius: 6px;
     padding: 4px 8px;
     background: {c._INPUT};
     border: 1px solid {c._BORDER};
 }}
 
-QLineEdit:focus {{
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
     border-color: {c._ACCENT};
     background: {c._SEA};
 }}
