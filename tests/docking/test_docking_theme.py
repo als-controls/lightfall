@@ -125,6 +125,9 @@ def test_island_widget_polish(islands_colors):
         f"QTabBar::tab:selected {{\n    background: {islands_colors.surface};"
     ) in css
     assert (
+        f"QTabWidget::pane {{\n    border: none;\n    background: {islands_colors.surface};"
+    ) in css
+    assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
     ) in css
     assert (

@@ -351,6 +351,12 @@ QTabBar::tab:selected {{
     background: {island};
 }}
 
+/* Tab content pane: flat (no raised border) on surface, not sea. */
+QTabWidget::pane {{
+    border: none;
+    background: {island};
+}}
+
 /* Stacked widgets sit on surface. */
 QStackedWidget {{
     background: {island};
