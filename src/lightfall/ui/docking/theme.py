@@ -383,6 +383,14 @@ QGroupBox::title {{
     background-color: {island};
 }}
 
+/* No focus rectangle around the current cell/row (the border Qt draws on
+   the focused item, separate from the selection highlight). */
+QTreeView,
+QListView,
+QTableView {{
+    outline: none;
+}}
+
 /* Square rows/cells — the islands themes round item cells by default.
    Covers tree/list/table views (and their *Widget subclasses). */
 QTreeView::item,

@@ -149,6 +149,8 @@ def test_island_widget_polish(islands_colors):
     ) in css
     # List rows use horizontal-only padding (vertical padding pushes text low).
     assert "QListView::item {\n    padding: 0px 4px;" in css
+    # No focus rectangle around the current cell.
+    assert "QTreeView,\nQListView,\nQTableView {\n    outline: none;" in css
     # Context menus under the proxy keep a sea background (panel-transparency
     # rule would otherwise blank them).
     assert (
