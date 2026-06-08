@@ -419,6 +419,11 @@ QStackedWidget {{
     background: {island};
 }}
 
+/* Dialogs sit on surface. */
+QDialog {{
+    background: {island};
+}}
+
 /* Push buttons: flat, sea-colored, borderless. */
 QPushButton {{
     background: {sea};

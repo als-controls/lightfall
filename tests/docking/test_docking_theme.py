@@ -160,14 +160,27 @@ def test_island_widget_polish(islands_colors):
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
     ) in css
     assert (
+        f"QDialog {{\n    background: {islands_colors.surface};"
+    ) in css
+    assert (
         f"QPushButton {{\n    background: {islands_colors.sea};\n    border: none;"
     ) in css
 
 
 def test_island_widget_polish_absent_when_flat(flat_colors):
+    """Audit: the islands sea/surface aesthetic (polish rules) must not be
+    emitted for non-islands themes — only the foundational dock chrome, which
+    uses the background/surface fallback variables, applies there."""
     css = generate_docking_stylesheet(flat_colors)
     assert "QTabBar::tab:selected" not in css
     assert "QStackedWidget {" not in css
+    assert "QDialog {" not in css
+    assert "QGroupBox::title" not in css
+    assert "outline: none;" not in css
+    assert "QListView::item {" not in css
+    # And the distinct sea color never appears for a flat theme (sea falls
+    # back to background, so no separate sea value leaks into the sheet).
+    assert flat_colors.sea == flat_colors.background
 
 
 def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
