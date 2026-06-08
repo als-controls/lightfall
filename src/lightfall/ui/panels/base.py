@@ -183,6 +183,9 @@ class BasePanel(QWidget):
         # Title bar actions must exist before _setup_ui so subclasses can
         # register actions during UI construction.
         self._title_bar_actions: list[QAction] = []
+        # Keeps title-bar dropdown menus alive (they are owned by the button
+        # popup, not parented to the panel — see add_title_bar_button).
+        self._title_bar_menus: list[Any] = []
 
         # Set object name from metadata
         self.setObjectName(self.panel_metadata.id)
@@ -398,7 +401,12 @@ class BasePanel(QWidget):
             action.setCheckable(True)
             action.setChecked(checked)
         if menu is not None:
-            menu.setParent(self)
+            # Do NOT setParent(self): reparenting a QMenu to a normal widget
+            # clears its Qt.Popup window flag, so it renders inline (filling
+            # the panel) instead of popping from the button. Keep a Python
+            # reference instead so it survives until the title bar's button
+            # adopts it as its popup menu.
+            self._title_bar_menus.append(menu)
             action.setMenu(menu)
         if on_triggered is not None:
             action.triggered.connect(on_triggered)
