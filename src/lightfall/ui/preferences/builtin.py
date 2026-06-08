@@ -82,7 +82,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         theme_mgr = ThemeManager.get_instance()
         # Apply the islands-layout preference before the theme so the first
         # stylesheet generation already reflects it.
-        theme_mgr.set_islands_mode(bool(prefs.get("islands_mode", True)))
+        theme_mgr.set_islands_mode(bool(prefs.get("islands_mode", False)))
         # Use set_theme_by_name for string-based themes
         theme_mgr.set_theme_by_name(prefs.theme)
 
@@ -167,7 +167,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
 
         prefs = PreferencesManager.get_instance()
         self._original_theme = prefs.theme
-        self._original_islands = bool(prefs.get("islands_mode", True))
+        self._original_islands = bool(prefs.get("islands_mode", False))
 
         # Islands layout checkbox
         if self._islands_check is not None:

@@ -237,10 +237,11 @@ class ThemeManager(QObject):
         self._colors = LIGHT_COLORS
         self._beamline_theme: BeamlineTheme | None = None
         self._custom_stylesheets: dict[str, str] = {}
-        # Islands layout (rounded floating panel cards on a sea canvas) is a
-        # user preference applied on top of any theme, not tied to the theme's
-        # colors. Default on; AppearanceSettingsPlugin syncs it from prefs.
-        self._islands_mode: bool = True
+        # Islands layout (rounded floating panel cards + islands aesthetic) is
+        # a user preference applied on top of any theme, not tied to the
+        # theme's colors. Off by default; AppearanceSettingsPlugin syncs it
+        # from prefs.
+        self._islands_mode: bool = False
 
         # Detect system theme
         self._update_effective_theme()
@@ -830,6 +831,16 @@ QHeaderView::section {{
     padding: 6px;
 }}
 """
+        # Islands aesthetic (rounded menus, inputs, scrollbars, tabs, ...) is
+        # applied on top of ANY theme when Islands mode is enabled, so the look
+        # is consistent across themes rather than baked into specific ones.
+        if self._islands_mode:
+            try:
+                from lightfall.ui.theme.builtin import generate_islands_stylesheet
+                base_stylesheet += f"\n{generate_islands_stylesheet(c)}"
+            except ImportError:
+                pass
+
         # Append theme-specific CSS overrides
         if self._css_overrides:
             base_stylesheet += f"\n/* Theme-specific overrides */\n{self._css_overrides}"

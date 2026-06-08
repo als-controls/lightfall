@@ -74,6 +74,24 @@ def test_islands_flag_forces_off_for_islands_theme(islands_colors):
     assert _ISLANDS_MARKER not in css
 
 
+def test_islands_aesthetic_generated_for_any_palette(islands_colors, flat_colors):
+    """The islands aesthetic (rounded menus, etc.) is generated from any
+    palette, so Islands mode looks consistent across themes — not just the
+    ones that used to bake it into css_overrides."""
+    from lightfall.ui.theme.builtin import generate_islands_stylesheet
+
+    for colors in (islands_colors, flat_colors):
+        css = generate_islands_stylesheet(colors)
+        # Rounded menus + menu bar — the pieces missing before when Islands
+        # mode was enabled on a non-islands theme.
+        assert "QMenuBar {" in css
+        assert "QMenu {" in css and "border-radius: 8px;" in css
+        assert "QMenu QWidget {" in css  # rounded-corner fix
+        # Built from the palette's own colors.
+        assert colors.sea in css
+        assert colors.primary in css
+
+
 def test_selected_sidebar_button_is_surface_in_islands(islands_colors):
     """Selected (checked) sidebar tool buttons use the Surface color, not the
     loud primary accent, so the active button reads as part of the island."""
