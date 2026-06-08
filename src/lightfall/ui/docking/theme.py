@@ -302,7 +302,6 @@ QDockWidget QFrame,
 }}
 #TheaterProxy QWidget QWidget {{
     background-color: rgba(0, 0, 0, 0);
-    border-radius: 0px;
 }}
 
 /* PanelTitleBar is the card's top SHELL, but it's a QFrame — so the container
