@@ -257,32 +257,18 @@ QDockWidget QScrollArea {{
     background: {island};
 }}
 
-/* Panel interiors and rounded corners. A BasePanel wraps its content in a
-   QScrollArea (viewport + scrolled child). Both autofill the Window palette
-   role (= sea) and, as opaque squares, paint sea AND square off the panel's
-   rounded corners (Qt doesn't clip children to a parent's border-radius).
-   Make the whole scroll subtree transparent so the rounded surface painted
-   by the panel's ancestor shows through — the central BasePanel
-   (#InnerDockWindow > QWidget, all-rounded) for the logbook, and the dock's
-   content wrapper (QDockWidget > QWidget, bottom-rounded) for dock panels.
-   Targeting QScrollArea descendants keeps styled controls (inputs, lists)
-   and their own backgrounds intact.
-
-   Use background-color: rgba(0,0,0,0), NOT `background: transparent`. For a
-   widget with autoFillBackground=True (the viewport and scrolled child),
-   the `transparent` shorthand resolves to "no brush" and Qt falls back to
-   filling with the palette Window brush (= sea) — so it never goes
-   transparent. An explicit zero-alpha background-color overrides the
-   autofill brush and genuinely paints nothing. */
-QDockWidget QScrollArea,
-QDockWidget QScrollArea > QWidget,
-QDockWidget QScrollArea > QWidget > QWidget,
-#InnerDockWindow > QWidget QScrollArea,
-#InnerDockWindow > QWidget QScrollArea > QWidget,
-#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget,
-QDialog QScrollArea,
-QDialog QScrollArea > QWidget,
-QDialog QScrollArea > QWidget > QWidget {{
+/* Scroll areas are transparent so the rounded surface behind them (panel,
+   central widget, dialog) shows through, instead of an opaque square that
+   squares off the rounded corners. Global (not scoped) so nested scroll
+   areas — e.g. inside the LogbookPanel — are covered too. The viewport and
+   its scrolled child autofill the Window palette role (= sea), so blank them
+   with rgba(0,0,0,0): the `transparent` shorthand resolves to "no brush" and
+   Qt falls back to the autofill (sea), whereas an explicit zero-alpha
+   background-color genuinely paints nothing. Styled controls (inputs, lists)
+   keep their own backgrounds. */
+QScrollArea,
+QScrollArea > QWidget,
+QScrollArea > QWidget > QWidget {{
     background-color: rgba(0, 0, 0, 0);
 }}
 
@@ -414,6 +400,14 @@ QListView::item {{
    matches them and blanks their background. Re-assert the sea background —
    same specificity, placed later, so it wins. */
 #TheaterProxy QMenu {{
+    background-color: {sea};
+}}
+
+/* Submenus (e.g. View > Panels > ...) are QMenus parented to their parent
+   QMenu, so the themes' 'QMenu QWidget {{ background: transparent }}' corner-
+   fix rule matches them and blanks their background. Re-assert sea for nested
+   menus (same specificity, emitted later, so it wins). */
+QMenu QMenu {{
     background-color: {sea};
 }}
 

@@ -79,23 +79,16 @@ def test_panel_background_is_surface(islands_colors):
 
 
 def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
-    """A BasePanel's QScrollArea (viewport + scrolled child) autofills the
-    Window role (= sea) and, as opaque squares, paints sea and squares off
-    the panel's rounded corners. Islands mode makes the whole scroll subtree
-    transparent so the rounded surface painted by the panel's ancestor shows
-    through — the central BasePanel for the logbook and the dock content
-    wrapper (TheaterProxy, matched by QDockWidget > QWidget) for dock panels."""
+    """A QScrollArea (viewport + scrolled child) autofills the Window role
+    (= sea) and, as opaque squares, paints sea and squares off the rounded
+    corners of the surface behind it. Islands mode makes the whole scroll
+    subtree transparent (global, so nested scroll areas like the LogbookPanel
+    are covered) so the rounded surface shows through."""
     css = generate_docking_stylesheet(islands_colors)
     assert (
-        "QDockWidget QScrollArea,\n"
-        "QDockWidget QScrollArea > QWidget,\n"
-        "QDockWidget QScrollArea > QWidget > QWidget,\n"
-        "#InnerDockWindow > QWidget QScrollArea,\n"
-        "#InnerDockWindow > QWidget QScrollArea > QWidget,\n"
-        "#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget,\n"
-        "QDialog QScrollArea,\n"
-        "QDialog QScrollArea > QWidget,\n"
-        "QDialog QScrollArea > QWidget > QWidget {\n"
+        "QScrollArea,\n"
+        "QScrollArea > QWidget,\n"
+        "QScrollArea > QWidget > QWidget {\n"
         "    background-color: rgba(0, 0, 0, 0);"
     ) in css
 
@@ -158,6 +151,11 @@ def test_island_widget_polish(islands_colors):
     # rule would otherwise blank them).
     assert (
         f"#TheaterProxy QMenu {{\n    background-color: {islands_colors.sea};"
+    ) in css
+    # Submenus keep a sea background (the 'QMenu QWidget' corner-fix rule
+    # would otherwise blank nested menus).
+    assert (
+        f"QMenu QMenu {{\n    background-color: {islands_colors.sea};"
     ) in css
     assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
