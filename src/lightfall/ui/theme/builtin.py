@@ -543,7 +543,11 @@ class _IslandsPalette:
     being hard-coded in specific themes' css_overrides."""
 
     def __init__(self, c: ThemeColors) -> None:
-        self._SEA = c.sea
+        from lightfall.ui.docking.theme import _sea_color
+
+        # Sea is always lighter than surface (derived if the theme's own sea
+        # isn't), matching the docking chrome.
+        self._SEA = _sea_color(c)
         self._BG = c.background
         self._TEXT = c.text
         self._BORDER = c.border
@@ -699,7 +703,7 @@ class AyakaThemePlugin(ThemePlugin):
     # --- Ayaka color constants ---
     _BG = "#1a1b2e"        # twilight indigo (deepest)
     _ISLAND = "#252640"    # dusk cloud (surface / panels)
-    _SEA = "#1f2038"       # deeper twilight (gaps between islands)
+    _SEA = "#2c2e4d"       # twilight sea — lighter than the surface islands
     _INPUT = "#1e1f35"     # input fields — slightly warmer than bg
     _BORDER = "#3a3a58"    # indigo border
     _BORDER_HI = "#4a4a70" # highlighted border
