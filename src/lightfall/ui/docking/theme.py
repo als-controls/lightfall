@@ -279,7 +279,10 @@ QDockWidget QScrollArea > QWidget,
 QDockWidget QScrollArea > QWidget > QWidget,
 #InnerDockWindow > QWidget QScrollArea,
 #InnerDockWindow > QWidget QScrollArea > QWidget,
-#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget {{
+#InnerDockWindow > QWidget QScrollArea > QWidget > QWidget,
+QDialog QScrollArea,
+QDialog QScrollArea > QWidget,
+QDialog QScrollArea > QWidget > QWidget {{
     background-color: rgba(0, 0, 0, 0);
 }}
 
