@@ -340,6 +340,39 @@ QDockWidget QToolBar {{
 QDockWidget QToolBar QToolButton {{
     background: transparent;
 }}
+
+/* --------------------------------------------------------------------------
+   Island widget polish — applied app-wide in islands themes. Appended after
+   the per-theme css_overrides so these win for all islands themes.
+   -------------------------------------------------------------------------- */
+
+/* Selected tab reads as surface (the island it belongs to). */
+QTabBar::tab:selected {{
+    background: {island};
+}}
+
+/* Stacked widgets sit on surface. */
+QStackedWidget {{
+    background: {island};
+}}
+
+/* Push buttons: flat, sea-colored, borderless. */
+QPushButton {{
+    background: {sea};
+    border: none;
+    border-radius: {RADIUS_SM}px;
+    padding: 4px 12px;
+}}
+QPushButton:hover {{
+    background: {colors.border};
+}}
+QPushButton:pressed {{
+    background: {colors.text_secondary};
+}}
+QPushButton:disabled {{
+    background: {sea};
+    color: {colors.text_secondary};
+}}
 '''}
 
 /* --------------------------------------------------------------------------

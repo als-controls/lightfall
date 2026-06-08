@@ -117,6 +117,27 @@ def test_dock_panel_subtree_rule_absent_when_flat(flat_colors):
     assert "#TheaterProxy QWidget" not in css
 
 
+def test_island_widget_polish(islands_colors):
+    """Islands themes: selected tab = surface, stacked widget = surface,
+    push buttons flat/sea/borderless."""
+    css = generate_docking_stylesheet(islands_colors)
+    assert (
+        f"QTabBar::tab:selected {{\n    background: {islands_colors.surface};"
+    ) in css
+    assert (
+        f"QStackedWidget {{\n    background: {islands_colors.surface};"
+    ) in css
+    assert (
+        f"QPushButton {{\n    background: {islands_colors.sea};\n    border: none;"
+    ) in css
+
+
+def test_island_widget_polish_absent_when_flat(flat_colors):
+    css = generate_docking_stylesheet(flat_colors)
+    assert "QTabBar::tab:selected" not in css
+    assert "QStackedWidget {" not in css
+
+
 def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
     css = generate_docking_stylesheet(flat_colors)
     assert "QDockWidget QScrollArea > QWidget > QWidget" not in css
