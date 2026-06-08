@@ -9,15 +9,26 @@ from __future__ import annotations
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
+import qtawesome as qta
 from loguru import logger
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QImage, QPainter, QPixmap, qAlpha, qBlue, qGreen, qRed, qRgba
+from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import (
+    QIcon,
+    QImage,
+    QPainter,
+    QPixmap,
+    qAlpha,
+    qBlue,
+    qGreen,
+    qRed,
+    qRgba,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -238,49 +249,63 @@ class RunEngineControlWidget(QWidget):
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(8)
 
-        # Status section
-        status_frame = QFrame()
-        status_frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
-        status_layout = QHBoxLayout(status_frame)
-        status_layout.setContentsMargins(6, 2, 6, 2)
-        status_layout.setSpacing(4)
-
+        # Status: spinner + label, placed directly (no surrounding frame).
         self._status_indicator = SpinnerIndicator()
-        status_layout.addWidget(self._status_indicator)
+        layout.addWidget(self._status_indicator)
 
         self._status_label = QLabel("Idle")
         self._status_label.setMinimumWidth(60)
-        status_layout.addWidget(self._status_label)
+        layout.addWidget(self._status_label)
 
-        layout.addWidget(status_frame)
-
-        # Pause/Resume toggle button
-        self._pause_resume_btn = QPushButton("Pause")
-        self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
-        self._pause_resume_btn.setEnabled(False)
+        # Control buttons — icon buttons styled like the sidebar.
+        self._pause_resume_btn = self._make_icon_button(
+            "mdi6.pause", "Pause the current run at the next checkpoint"
+        )
         self._pause_resume_btn.clicked.connect(self._on_pause_resume_clicked)
         layout.addWidget(self._pause_resume_btn)
 
-        self._stop_btn = QPushButton("Stop")
-        self._stop_btn.setToolTip("Stop the current run gracefully")
-        self._stop_btn.setEnabled(False)
+        self._stop_btn = self._make_icon_button(
+            "mdi6.stop", "Stop the current run gracefully"
+        )
         self._stop_btn.clicked.connect(self._on_stop_clicked)
         layout.addWidget(self._stop_btn)
 
-        self._abort_btn = QPushButton("Abort")
-        self._abort_btn.setToolTip("Abort the current run immediately")
-        self._abort_btn.setEnabled(False)
+        self._abort_btn = self._make_icon_button(
+            "mdi6.close-octagon", "Abort the current run immediately"
+        )
         self._abort_btn.clicked.connect(self._on_abort_clicked)
         layout.addWidget(self._abort_btn)
 
-        # Queue info
+        # Queue info — only shown when 2+ plans are queued.
         self._queue_label = QLabel("Queue: 0")
         self._queue_label.setToolTip("Number of plans queued")
+        self._queue_label.setVisible(False)
         layout.addWidget(self._queue_label)
 
         layout.addStretch()
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+    def _themed_icon(self, name: str) -> QIcon:
+        """Build a qtawesome icon tinted with the current theme text color."""
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            color = ThemeManager.get_instance().colors.text
+        except Exception:
+            color = "#cccccc"
+        return qta.icon(name, color=color)
+
+    def _make_icon_button(self, icon_name: str, tooltip: str) -> QToolButton:
+        """Create a flat icon button matching the sidebar's tool buttons."""
+        btn = QToolButton()
+        btn.setAutoRaise(True)
+        btn.setFixedSize(26, 26)
+        btn.setIconSize(QSize(17, 17))
+        btn.setToolTip(tooltip)
+        btn.setIcon(self._themed_icon(icon_name))
+        btn.setEnabled(False)
+        return btn
 
     def set_engine(self, engine: Engine) -> None:
         """Connect to an Engine instance.
@@ -340,6 +365,7 @@ class RunEngineControlWidget(QWidget):
             self._status_indicator.set_status("idle")
             self._status_label.setText("No Engine")
             self._disable_all_buttons()
+            self._queue_label.setVisible(False)
             return
 
         state = self._engine.state_name
@@ -350,26 +376,25 @@ class RunEngineControlWidget(QWidget):
         is_running = state == "running"
         is_paused = state == "paused"
 
-        # Update pause/resume toggle
+        # Update pause/resume toggle (icon + tooltip)
         if is_paused:
-            self._pause_resume_btn.setText("Resume")
+            self._pause_resume_btn.setIcon(self._themed_icon("mdi6.play"))
             self._pause_resume_btn.setToolTip("Resume a paused run")
             self._pause_resume_btn.setEnabled(True)
-        elif is_running:
-            self._pause_resume_btn.setText("Pause")
-            self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
-            self._pause_resume_btn.setEnabled(True)
         else:
-            self._pause_resume_btn.setText("Pause")
-            self._pause_resume_btn.setToolTip("Pause the current run at the next checkpoint")
-            self._pause_resume_btn.setEnabled(False)
+            self._pause_resume_btn.setIcon(self._themed_icon("mdi6.pause"))
+            self._pause_resume_btn.setToolTip(
+                "Pause the current run at the next checkpoint"
+            )
+            self._pause_resume_btn.setEnabled(is_running)
 
         self._stop_btn.setEnabled(is_running or is_paused)
         self._abort_btn.setEnabled(is_running or is_paused)
 
-        # Update queue count
+        # Update queue count — only shown when 2+ plans are queued.
         queue_size = self._engine.queue_size
         self._queue_label.setText(f"Queue: {queue_size}")
+        self._queue_label.setVisible(queue_size >= 2)
 
     def _disable_all_buttons(self) -> None:
         """Disable all control buttons."""
