@@ -346,14 +346,30 @@ QDockWidget QToolBar QToolButton {{
    the per-theme css_overrides so these win for all islands themes.
    -------------------------------------------------------------------------- */
 
-/* Selected tab reads as surface (the island it belongs to). */
-QTabBar::tab:selected {{
+/* Tabs styled as rounded-rect buttons (like QPushButton): surface and
+   borderless when idle, primary with a border when active. */
+QTabBar::tab {{
     background: {island};
+    color: {colors.text};
+    border: none;
+    border-radius: {RADIUS_SM}px;
+    padding: 5px 12px;
+    margin: 2px;
+}}
+QTabBar::tab:hover:!selected {{
+    background: {colors.border};
+}}
+QTabBar::tab:selected {{
+    background: {colors.primary};
+    color: white;
+    border: 1px solid {colors.border};
 }}
 
-/* Tab content pane: flat (no raised border) on surface, not sea. */
+/* Tab content pane: flat on surface, with a 1px sea line separating it
+   from the tab bar above. */
 QTabWidget::pane {{
     border: none;
+    border-top: 1px solid {sea};
     background: {island};
 }}
 

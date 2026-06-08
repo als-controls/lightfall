@@ -121,11 +121,20 @@ def test_island_widget_polish(islands_colors):
     """Islands themes: selected tab = surface, stacked widget = surface,
     push buttons flat/sea/borderless."""
     css = generate_docking_stylesheet(islands_colors)
+    # Idle tabs: surface, borderless, rounded-rect (button-like).
     assert (
-        f"QTabBar::tab:selected {{\n    background: {islands_colors.surface};"
+        f"QTabBar::tab {{\n    background: {islands_colors.surface};\n"
+        f"    color: {islands_colors.text};\n    border: none;"
+    ) in css
+    # Active tab: primary with a border.
+    assert (
+        f"QTabBar::tab:selected {{\n    background: {islands_colors.primary};\n"
+        f"    color: white;\n    border: 1px solid {islands_colors.border};"
     ) in css
     assert (
-        f"QTabWidget::pane {{\n    border: none;\n    background: {islands_colors.surface};"
+        f"QTabWidget::pane {{\n    border: none;\n"
+        f"    border-top: 1px solid {islands_colors.sea};\n"
+        f"    background: {islands_colors.surface};"
     ) in css
     assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
