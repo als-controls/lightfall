@@ -242,70 +242,52 @@ QDockWidget > QWidget {{
 }}
 
 {"" if not islands else f'''
-/* Edge-touching scrollable widgets — must inherit bottom rounding
-   so they don't paint opaque rectangles over the rounded corners */
-QDockWidget QPlainTextEdit,
-QDockWidget QTextEdit,
-QDockWidget QListView,
-QDockWidget QTreeView,
-QDockWidget QTableView,
-QDockWidget QScrollArea {{
-    border: none;
-    border-radius: 0px;
-    border-bottom-left-radius: {radius}px;
-    border-bottom-right-radius: {radius}px;
-    background: {island};
-}}
+/* ==========================================================================
+   Islands styling model — three layers, applied consistently:
 
-/* Scroll areas are transparent so the rounded surface behind them (panel,
-   central widget, dialog) shows through, instead of an opaque square that
-   squares off the rounded corners. Global (not scoped) so nested scroll
-   areas — e.g. inside the LogbookPanel — are covered too. The viewport and
-   its scrolled child autofill the Window palette role (= sea), so blank them
-   with rgba(0,0,0,0): the `transparent` shorthand resolves to "no brush" and
-   Qt falls back to the autofill (sea), whereas an explicit zero-alpha
-   background-color genuinely paints nothing. Styled controls (inputs, lists)
-   keep their own backgrounds. */
+     SHELL     The rounded surface "card". The ONLY layer that paints surface.
+               QDockWidget > QWidget (panel proxy, bottom-rounded),
+               #InnerDockWindow > QWidget (central widget, all-rounded),
+               QDialog, QStackedWidget, QTabWidget::pane.
+
+     CONTAINER Structural widgets inside a shell. ALWAYS transparent so the
+               shell's surface + rounded corners show through. They must never
+               paint their own background: Qt does not clip children to a
+               parent's border-radius, so an opaque container re-squares the
+               rounded corner — only transparency composes.
+               QScrollArea (+ viewport + scrolled child), QFrame, and the
+               whole dock-panel subtree (TheaterProxy descendants).
+
+     CONTROL   Interactive widgets that own their color: inputs (input color),
+               item-view rows/headers, push buttons (sea). From the per-theme
+               css_overrides + the polish rules below.
+
+   New plugins inherit this for free — their frames/scroll areas are
+   containers (transparent), so only a genuinely new *control* type ever needs
+   a colour. Use background-color: rgba(0,0,0,0), NOT the `transparent`
+   shorthand: containers' viewport/scrolled child autofill the Window (sea)
+   palette role, and the shorthand falls back to that brush, whereas an
+   explicit zero-alpha background-color genuinely paints nothing.
+   ========================================================================== */
+
+/* CONTAINERS — transparent. Global QScrollArea covers nested and future
+   scroll areas (e.g. inside the LogbookPanel) without per-widget rules. */
 QScrollArea,
 QScrollArea > QWidget,
-QScrollArea > QWidget > QWidget {{
+QScrollArea > QWidget > QWidget,
+QDockWidget QFrame,
+#InnerDockWindow QFrame,
+#EntryListWidget {{
     background-color: rgba(0, 0, 0, 0);
 }}
 
-/* The dock panel subtree. Dock panels are wrapped in a TheaterProxy (a
-   QStackedWidget) which is the dock's direct child and paints the
-   bottom-rounded surface (via QDockWidget > QWidget above). The BasePanel
-   sits on top as page 0; left opaque it squares off those rounded corners.
-   Make the panel and everything under it transparent so the TheaterProxy's
-   rounded surface shows.
-
-   Must be a DESCENDANT combinator (space), NOT '#TheaterProxy > QWidget':
-   Qt's QSS direct-child '>' combinator does not match the pages of a
-   QStackedWidget, so the child form silently misses the panel. The
-   descendant form traverses into the stack (same reason QDockWidget
-   QScrollArea works). rgba, not the `transparent` shorthand (see above).
-   The central logbook isn't proxy-wrapped — it paints its own rounded
-   surface — so it's unaffected here. Verified live by Ron:
-   panel.setStyleSheet("background-color: rgba(0,0,0,0)") rounds the corners;
-   this is the global-stylesheet equivalent (its subtree bleed). */
+/* The whole dock-panel subtree is container. Panels are wrapped in a
+   TheaterProxy (a QStackedWidget); the proxy is the shell that paints the
+   bottom-rounded surface, and everything under it must be transparent.
+   DESCENDANT combinator (not '>'): Qt's '>' does not match the pages of a
+   QStackedWidget, so '#TheaterProxy > QWidget' silently misses the panel. */
 #TheaterProxy QWidget {{
     background-color: rgba(0, 0, 0, 0);
-}}
-
-/* List widgets and frames inside docks — island surface, no frame */
-QDockWidget QListWidget,
-QDockWidget QListView,
-QDockWidget QFrame {{
-    background: {island};
-    border: none;
-}}
-
-/* EntryListWidget — full island rounding so it doesn't paint over
-   the panel's rounded corners */
-#EntryListWidget {{
-    background: {island};
-    border: none;
-    border-radius: {radius}px;
 }}
 
 /* Table/tree headers inside docks — island surface */
@@ -451,22 +433,13 @@ QPushButton:disabled {{
    Central widget (e.g. logbook) — island with rounding + margin
    -------------------------------------------------------------------------- */
 {"" if not islands else f'''
+/* SHELL: the central widget (e.g. logbook) — rounded surface card. Its
+   interior (scroll area + content) is container, made transparent by the
+   global rules above, so this rounded surface shows through. */
 #InnerDockWindow > QWidget {{
     background: {island};
     border-radius: {radius}px;
     margin: {gap}px;
-}}
-
-/* The central widget (e.g. logbook) wraps its content in a BasePanel
-   QScrollArea that fills edge-to-edge. Without matching island bg + rounding
-   it paints opaque square corners over the central island's rounded corners.
-   The double child-combinator targets ONLY the central widget's own scroll
-   area (InnerDockWindow > centralWidget > QScrollArea); dock-hosted scroll
-   areas live under QDockWidget > BasePanel and are never matched here. */
-#InnerDockWindow > QWidget > QScrollArea {{
-    background: {island};
-    border: none;
-    border-radius: {radius}px;
 }}
 '''}
 

@@ -88,7 +88,10 @@ def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
     assert (
         "QScrollArea,\n"
         "QScrollArea > QWidget,\n"
-        "QScrollArea > QWidget > QWidget {\n"
+        "QScrollArea > QWidget > QWidget,\n"
+        "QDockWidget QFrame,\n"
+        "#InnerDockWindow QFrame,\n"
+        "#EntryListWidget {\n"
         "    background-color: rgba(0, 0, 0, 0);"
     ) in css
 
@@ -190,18 +193,19 @@ def test_panel_scroll_content_rule_absent_when_flat(flat_colors):
 
 
 def test_central_logbook_is_surface_and_rounded(islands_colors):
-    """The central widget (logbook) gets Surface bg + rounded corners, and its
-    inner scroll area is rounded too so square corners don't paint over it."""
+    """The central widget (logbook) is a SHELL: surface bg + rounded corners +
+    gap margin. Its interior is container (transparent via the global rules),
+    so the rounded surface shows through — no per-scroll-area surface rule."""
     css = generate_docking_stylesheet(islands_colors)
-    # Central island itself
     assert "#InnerDockWindow > QWidget {" in css
     assert f"background: {islands_colors.surface};" in css
-    # Inner scroll area rounding — targeted at the central widget only
-    # (double child-combinator never matches dock-hosted scroll areas).
-    assert "#InnerDockWindow > QWidget > QScrollArea {" in css
+    # The old opaque central scroll-area rule is gone (it fought the global
+    # transparency and re-squared the corner).
+    assert "#InnerDockWindow > QWidget > QScrollArea {" not in css
 
 
-def test_central_scroll_area_rule_absent_when_flat(flat_colors):
-    """Rounding only applies in islands mode; flat themes are untouched."""
+def test_central_shell_rule_absent_when_flat(flat_colors):
+    """The central surface+rounding shell only applies in islands mode."""
     css = generate_docking_stylesheet(flat_colors)
+    assert "#InnerDockWindow > QWidget {" not in css
     assert "#InnerDockWindow > QWidget > QScrollArea {" not in css
