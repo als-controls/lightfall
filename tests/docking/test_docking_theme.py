@@ -70,8 +70,13 @@ def test_selected_sidebar_button_stays_primary_when_flat(flat_colors):
 
 
 def test_panel_background_is_surface(islands_colors):
-    """PanelPlugin (dock content) background uses Surface."""
+    """The dock (shell) and its content both use Surface — the dock is a
+    surface island; sea shows only in the separator gaps between docks."""
     css = generate_docking_stylesheet(islands_colors)
+    assert (
+        "QDockWidget {\n"
+        f"    background: {islands_colors.surface};"
+    ) in css
     assert (
         "QDockWidget > QWidget {\n"
         f"    background: {islands_colors.surface};"

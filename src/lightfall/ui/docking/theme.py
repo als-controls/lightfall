@@ -135,11 +135,13 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
 }}
 
 /* ==========================================================================
-   QDockWidget — sea background so corners show sea color
+   QDockWidget — SHELL: surface. The dock is a surface island; sea shows only
+   in the separator gaps between docks (QMainWindow::separator) and the canvas
+   behind them (#InnerDockWindow), not inside a dock.
    ========================================================================== */
 
 QDockWidget {{
-    background: {sea};
+    background: {island};
     border: none;
     titlebar-close-icon: url(none);
     titlebar-normal-icon: url(none);
