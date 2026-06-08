@@ -50,6 +50,7 @@ class LightThemePlugin(ThemePlugin):
             info="#0891b2",
             background="#ffffff",
             surface="#f3f4f6",
+            sea="#fafafa",  # lighter than surface (gaps/canvas)
             text="#1f2937",
             text_secondary="#6b7280",
             border="#e5e7eb",
@@ -86,6 +87,7 @@ class SlateThemePlugin(ThemePlugin):
             info="#06b6d4",
             background="#1e1e1e",
             surface="#2d2d2d",
+            sea="#373737",  # lighter than surface (gaps/canvas)
             text="#d4d4d4",
             text_secondary="#808080",
             border="#3e3e3e",
@@ -121,6 +123,7 @@ class DarkBlueThemePlugin(ThemePlugin):
             info="#06b6d4",
             background="#1f2937",
             surface="#374151",
+            sea="#3f4b5d",  # lighter than surface (gaps/canvas)
             text="#f3f4f6",
             text_secondary="#9ca3af",
             border="#4b5563",
@@ -591,6 +594,7 @@ class CatppuccinMochaThemePlugin(ThemePlugin):
             info="#74c7ec",          # sapphire
             background="#1e1e2e",    # base
             surface="#313244",       # surface0
+            sea="#3a3b50",           # surface1 — lighter than surface (gaps)
             text="#cdd6f4",          # text
             text_secondary="#a6adc8",  # subtext0
             border="#45475a",        # surface1
@@ -628,6 +632,7 @@ class EldritchThemePlugin(ThemePlugin):
             info="#39DDFD",          # bright_cyan
             background="#212337",    # bg
             surface="#292e42",       # bg_highlight
+            sea="#31374f",           # lighter than surface (gaps/canvas)
             text="#ebfafa",          # fg
             text_secondary="#ABB4DA",  # fg_dark
             border="#414868",        # terminal_black
@@ -666,6 +671,7 @@ class EvangelionThemePlugin(ThemePlugin):
             info="#AB92FC",          # dummyplug
             background="#201430",    # midnight
             surface="#39274C",       # casper
+            sea="#432e59",           # lighter than surface (gaps/canvas)
             text="#E1D6F8",          # rei
             text_secondary="#A1A0AD",  # shinji
             border="#483160",        # longingus
