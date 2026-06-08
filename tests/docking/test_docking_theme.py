@@ -145,6 +145,9 @@ def test_island_widget_polish(islands_colors):
         f"QGroupBox::title {{\n    background-color: {islands_colors.surface};"
     ) in css
     assert (
+        "QListView::item,\nQListWidget::item {\n    border-radius: 0px;"
+    ) in css
+    assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
     ) in css
     assert (

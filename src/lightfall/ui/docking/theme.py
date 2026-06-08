@@ -383,6 +383,12 @@ QGroupBox::title {{
     background-color: {island};
 }}
 
+/* Square list rows — the islands themes round item cells by default. */
+QListView::item,
+QListWidget::item {{
+    border-radius: 0px;
+}}
+
 /* Stacked widgets sit on surface. */
 QStackedWidget {{
     background: {island};
