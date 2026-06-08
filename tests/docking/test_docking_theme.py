@@ -73,13 +73,15 @@ def test_panel_background_is_surface(islands_colors):
     """The dock (shell) and its content both use Surface — the dock is a
     surface island; sea shows only in the separator gaps between docks."""
     css = generate_docking_stylesheet(islands_colors)
+    # Shells use background-color (not the `background` shorthand) so a docked
+    # QDockWidget reliably paints surface instead of nothing.
     assert (
         "QDockWidget {\n"
-        f"    background: {islands_colors.surface};"
+        f"    background-color: {islands_colors.surface};"
     ) in css
     assert (
         "QDockWidget > QWidget {\n"
-        f"    background: {islands_colors.surface};"
+        f"    background-color: {islands_colors.surface};"
     ) in css
 
 
@@ -127,7 +129,7 @@ def test_island_widget_polish(islands_colors):
     css = generate_docking_stylesheet(islands_colors)
     # Idle tabs: surface, borderless, rounded-rect (button-like).
     assert (
-        f"QTabBar::tab {{\n    background: {islands_colors.surface};\n"
+        f"QTabBar::tab {{\n    background-color: {islands_colors.surface};\n"
         f"    color: {islands_colors.text};\n    border: none;"
     ) in css
     # Active tab: primary with a border.
@@ -138,7 +140,7 @@ def test_island_widget_polish(islands_colors):
     assert (
         f"QTabWidget::pane {{\n    border: none;\n"
         f"    border-top: 1px solid {islands_colors.sea};\n"
-        f"    background: {islands_colors.surface};"
+        f"    background-color: {islands_colors.surface};"
     ) in css
     # QGroupBox: top-only sea divider + surface title.
     assert (
@@ -166,10 +168,10 @@ def test_island_widget_polish(islands_colors):
         f"QMenu QMenu {{\n    background-color: {islands_colors.sea};"
     ) in css
     assert (
-        f"QStackedWidget {{\n    background: {islands_colors.surface};"
+        f"QStackedWidget {{\n    background-color: {islands_colors.surface};"
     ) in css
     assert (
-        f"QDialog {{\n    background: {islands_colors.surface};"
+        f"QDialog {{\n    background-color: {islands_colors.surface};"
     ) in css
     assert (
         f"QPushButton {{\n    background: {islands_colors.sea};\n    border: none;"
@@ -202,8 +204,10 @@ def test_central_logbook_is_surface_and_rounded(islands_colors):
     gap margin. Its interior is container (transparent via the global rules),
     so the rounded surface shows through — no per-scroll-area surface rule."""
     css = generate_docking_stylesheet(islands_colors)
-    assert "#InnerDockWindow > QWidget {" in css
-    assert f"background: {islands_colors.surface};" in css
+    assert (
+        "#InnerDockWindow > QWidget {\n"
+        f"    background-color: {islands_colors.surface};"
+    ) in css
     # The old opaque central scroll-area rule is gone (it fought the global
     # transparency and re-squared the corner).
     assert "#InnerDockWindow > QWidget > QScrollArea {" not in css

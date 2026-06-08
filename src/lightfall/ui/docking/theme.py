@@ -141,7 +141,7 @@ def generate_docking_stylesheet(colors: ThemeColors) -> str:
    ========================================================================== */
 
 QDockWidget {{
-    background: {island};
+    background-color: {island};
     border: none;
     titlebar-close-icon: url(none);
     titlebar-normal-icon: url(none);
@@ -152,7 +152,7 @@ QDockWidget {{
    Targeted by object name so it doesn't conflict with QDockWidget > QWidget
    -------------------------------------------------------------------------- */
 #PanelTitleBar {{
-    background: {island};
+    background-color: {island};
     border: none;
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
@@ -206,7 +206,7 @@ QDockWidget {{
    Native title bar fallback (hidden when custom title bar is set)
    -------------------------------------------------------------------------- */
 QDockWidget::title {{
-    background: {island};
+    background-color: {island};
     border: none;
     {"border-top-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-top-right-radius: " + str(radius) + "px;" if islands else ""}
@@ -238,7 +238,7 @@ QDockWidget::float-button:hover {{
    PanelTitleBar's more-specific #id selector overrides it.
    -------------------------------------------------------------------------- */
 QDockWidget > QWidget {{
-    background: {island};
+    background-color: {island};
     {"border-bottom-left-radius: " + str(radius) + "px;" if islands else ""}
     {"border-bottom-right-radius: " + str(radius) + "px;" if islands else ""}
 }}
@@ -294,7 +294,7 @@ QDockWidget QFrame,
 
 /* Table/tree headers inside docks — island surface */
 QDockWidget QHeaderView::section {{
-    background: {island};
+    background-color: {island};
     color: {colors.text_secondary};
     border: none;
     border-bottom: 1px solid {colors.border};
@@ -306,7 +306,7 @@ QDockWidget QHeaderView::section {{
 
 /* Toolbars inside panels */
 QDockWidget QToolBar {{
-    background: {island};
+    background-color: {island};
     border: none;
 }}
 
@@ -322,7 +322,7 @@ QDockWidget QToolBar QToolButton {{
 /* Tabs styled as rounded-rect buttons (like QPushButton): surface and
    borderless when idle, primary with a border when active. */
 QTabBar::tab {{
-    background: {island};
+    background-color: {island};
     color: {colors.text};
     border: none;
     border-radius: {RADIUS_SM}px;
@@ -343,7 +343,7 @@ QTabBar::tab:selected {{
 QTabWidget::pane {{
     border: none;
     border-top: 1px solid {sea};
-    background: {island};
+    background-color: {island};
 }}
 
 /* QGroupBox: section-divider look — the title sits on surface and a single
@@ -397,12 +397,12 @@ QMenu QMenu {{
 
 /* Stacked widgets sit on surface. */
 QStackedWidget {{
-    background: {island};
+    background-color: {island};
 }}
 
 /* Dialogs sit on surface. */
 QDialog {{
-    background: {island};
+    background-color: {island};
 }}
 
 /* Push buttons: flat, sea-colored, borderless. */
@@ -439,7 +439,7 @@ QPushButton:disabled {{
    interior (scroll area + content) is container, made transparent by the
    global rules above, so this rounded surface shows through. */
 #InnerDockWindow > QWidget {{
-    background: {island};
+    background-color: {island};
     border-radius: {radius}px;
     margin: {gap}px;
 }}
@@ -450,7 +450,7 @@ QPushButton:disabled {{
    -------------------------------------------------------------------------- */
 {"" if not islands else f'''
 QSplitter {{
-    background: {island};
+    background-color: {island};
     border-radius: {radius}px;
 }}
 
