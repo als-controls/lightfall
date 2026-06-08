@@ -305,6 +305,16 @@ QDockWidget QFrame,
     border-radius: 0px;
 }}
 
+/* PanelTitleBar is the card's top SHELL, but it's a QFrame — so the container
+   QFrame transparency above (#InnerDockWindow QFrame) matches it and would
+   blank it to the sea behind. Re-assert surface with a higher-precedence
+   selector (id + type, emitted after the container rules) so the title bar
+   reads as part of the surface card. Matches docked and floating (the title
+   bar is always a child of the QDockWidget). */
+QDockWidget #PanelTitleBar {{
+    background-color: {island};
+}}
+
 /* Table/tree headers inside docks — island surface */
 QDockWidget QHeaderView::section {{
     background-color: {island};

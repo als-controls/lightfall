@@ -131,6 +131,12 @@ def test_dock_panel_subtree_is_surface_in_islands(islands_colors):
     # The direct-child form silently misses the stacked panel; guard against
     # a well-meaning "simplification" back to it.
     assert "#TheaterProxy > QWidget {" not in css
+    # Title bar is a QFrame (a shell, not container) — re-asserted surface with
+    # a selector that wins over the container QFrame transparency.
+    assert (
+        "QDockWidget #PanelTitleBar {\n"
+        f"    background-color: {islands_colors.surface};"
+    ) in css
 
 
 def test_dock_panel_subtree_rule_absent_when_flat(flat_colors):
