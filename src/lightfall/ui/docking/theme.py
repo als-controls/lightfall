@@ -391,6 +391,14 @@ QTableView::item {{
     border-radius: 0px;
 }}
 
+/* Context menus popped from panel widgets are parented (QObject-wise) inside
+   the proxy, so the '#TheaterProxy QWidget' panel-transparency rule above
+   matches them and blanks their background. Re-assert the sea background —
+   same specificity, placed later, so it wins. */
+#TheaterProxy QMenu {{
+    background-color: {sea};
+}}
+
 /* Stacked widgets sit on surface. */
 QStackedWidget {{
     background: {island};

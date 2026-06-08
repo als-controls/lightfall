@@ -147,6 +147,11 @@ def test_island_widget_polish(islands_colors):
     assert (
         "QTreeView::item,\nQListView::item,\nQTableView::item {\n    border-radius: 0px;"
     ) in css
+    # Context menus under the proxy keep a sea background (panel-transparency
+    # rule would otherwise blank them).
+    assert (
+        f"#TheaterProxy QMenu {{\n    background-color: {islands_colors.sea};"
+    ) in css
     assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
     ) in css
