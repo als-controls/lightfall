@@ -714,29 +714,8 @@ class DocumentStreamWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # Header with controls
-        header = QHBoxLayout()
-
-        header.addWidget(QLabel("Document Stream"))
-        header.addStretch()
-
-        # View mode toggle
-        self._view_mode_btn = QPushButton("View: Tree")
-        self._view_mode_btn.setCheckable(True)
-        self._view_mode_btn.clicked.connect(self._toggle_view_mode)
-        header.addWidget(self._view_mode_btn)
-
-        self._auto_scroll_btn = QPushButton("Auto-scroll: On")
-        self._auto_scroll_btn.setCheckable(True)
-        self._auto_scroll_btn.setChecked(True)
-        self._auto_scroll_btn.clicked.connect(self._toggle_auto_scroll)
-        header.addWidget(self._auto_scroll_btn)
-
-        self._clear_btn = QPushButton("Clear")
-        self._clear_btn.clicked.connect(self._on_clear_clicked)
-        header.addWidget(self._clear_btn)
-
-        layout.addLayout(header)
+        # View / auto-scroll / clear controls live in the owning panel's
+        # title bar (see DocumentsPanel), wired to the slots below.
 
         # Stacked widget for view modes
         self._stack = QStackedWidget()
@@ -857,19 +836,19 @@ class DocumentStreamWidget(QWidget):
         """Toggle between tree and sequential view modes."""
         if self._view_mode == "tree":
             self._view_mode = "sequential"
-            self._view_mode_btn.setText("View: Sequential")
             self._stack.setCurrentWidget(self._table_view)
         else:
             self._view_mode = "tree"
-            self._view_mode_btn.setText("View: Tree")
             self._stack.setCurrentWidget(self._tree_view)
 
-    @Slot()
-    def _toggle_auto_scroll(self) -> None:
-        """Toggle auto-scroll mode."""
-        self._auto_scroll = self._auto_scroll_btn.isChecked()
-        text = "Auto-scroll: On" if self._auto_scroll else "Auto-scroll: Off"
-        self._auto_scroll_btn.setText(text)
+    @Slot(bool)
+    def _toggle_auto_scroll(self, enabled: bool) -> None:
+        """Set auto-scroll mode.
+
+        Args:
+            enabled: Whether auto-scroll is on (from the title bar toggle).
+        """
+        self._auto_scroll = enabled
 
     @Slot()
     def _on_clear_clicked(self) -> None:

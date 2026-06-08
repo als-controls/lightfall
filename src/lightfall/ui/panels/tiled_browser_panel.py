@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMenu,
-    QPushButton,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -94,9 +93,6 @@ class TiledBrowserPanel(BasePanel):
 
         super().__init__(parent)
 
-        # Update export button when selection changes
-        self._table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
-
         # Connect to TiledService signals
         self._tiled_service.connection_changed.connect(self._on_connection_changed)
 
@@ -116,25 +112,10 @@ class TiledBrowserPanel(BasePanel):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
 
-        # Status bar at top
-        status_layout = QHBoxLayout()
-
-        self._status_label = QLabel("Status: Disconnected")
-        self._status_label.setStyleSheet("font-weight: bold;")
-        status_layout.addWidget(self._status_label)
-
-        status_layout.addStretch()
-
-        self._refresh_btn = QPushButton("Refresh")
-        self._refresh_btn.clicked.connect(self._on_refresh_clicked)
-        status_layout.addWidget(self._refresh_btn)
-
-        self._export_btn = QPushButton("Export")
-        self._export_btn.setEnabled(False)
-        self._export_btn.clicked.connect(self._on_export_clicked)
-        status_layout.addWidget(self._export_btn)
-
-        main_layout.addLayout(status_layout)
+        # Refresh action lives in the panel title bar (icon-only button).
+        self._refresh_action = self.add_title_bar_button(
+            "mdi6.refresh", "Refresh", self._on_refresh_clicked
+        )
 
         # Filter widget
         self._filter_widget = TiledFilterWidget()
@@ -174,12 +155,18 @@ class TiledBrowserPanel(BasePanel):
 
         main_layout.addWidget(self._table_view, stretch=1)
 
-        # Record count at bottom
-        count_layout = QHBoxLayout()
-        count_layout.addStretch()
+        # Bottom row: status indicator on the left, record count on the right.
+        bottom_layout = QHBoxLayout()
+
+        self._status_label = QLabel("Status: Disconnected")
+        self._status_label.setStyleSheet("font-weight: bold;")
+        bottom_layout.addWidget(self._status_label)
+
+        bottom_layout.addStretch()
+
         self._count_label = QLabel("")
-        count_layout.addWidget(self._count_label)
-        main_layout.addLayout(count_layout)
+        bottom_layout.addWidget(self._count_label)
+        main_layout.addLayout(bottom_layout)
 
         self._layout.addWidget(main_widget)
 
@@ -193,23 +180,23 @@ class TiledBrowserPanel(BasePanel):
             self._status_label.setText(f"Status: Connected to {status_info['url']}")
             self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.success};")
             self._filter_widget.set_enabled(True)
-            self._refresh_btn.setEnabled(True)
+            self._refresh_action.setEnabled(True)
         elif state == TiledConnectionState.CONNECTING:
             self._status_label.setText("Status: Connecting...")
             self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.warning};")
             self._filter_widget.set_enabled(False)
-            self._refresh_btn.setEnabled(False)
+            self._refresh_action.setEnabled(False)
         elif state == TiledConnectionState.ERROR:
             error_msg = status_info.get("error", "Unknown error")
             self._status_label.setText(f"Status: Error - {error_msg}")
             self._status_label.setStyleSheet(f"font-weight: bold; color: {colors.error};")
             self._filter_widget.set_enabled(False)
-            self._refresh_btn.setEnabled(True)  # Allow retry
+            self._refresh_action.setEnabled(True)  # Allow retry
         else:  # DISCONNECTED
             self._status_label.setText("Status: Disconnected")
             self._status_label.setStyleSheet("font-weight: bold;")
             self._filter_widget.set_enabled(False)
-            self._refresh_btn.setEnabled(False)
+            self._refresh_action.setEnabled(False)
 
     def _update_count_label(self) -> None:
         """Update the record count label."""
@@ -313,6 +300,8 @@ class TiledBrowserPanel(BasePanel):
         show_docs_action = menu.addAction("Show Documents")
         run_pipeline_action = menu.addAction("Run pipeline...")
         run_pipeline_action.setEnabled(self._pipeline_client() is not None)
+        menu.addSeparator()
+        export_action = menu.addAction("Export")
 
         action = menu.exec(self._table_view.viewport().mapToGlobal(pos))
         if action is None:
@@ -328,6 +317,8 @@ class TiledBrowserPanel(BasePanel):
             self._open_run_in_documents(record)
         elif action is run_pipeline_action:
             self._open_run_pipeline_dialog(record)
+        elif action is export_action:
+            self._on_export_clicked()
 
     def _get_tiled_entry(self, record: TiledRecord):
         """Get the Tiled entry for a record, or None on failure."""
@@ -422,14 +413,8 @@ class TiledBrowserPanel(BasePanel):
         return records
 
     @Slot()
-    def _on_selection_changed(self) -> None:
-        """Enable/disable export button based on selection."""
-        has_selection = bool(self._table_view.selectionModel().selectedRows())
-        self._export_btn.setEnabled(has_selection)
-
-    @Slot()
     def _on_export_clicked(self) -> None:
-        """Handle export button click — open export dialog."""
+        """Open the export dialog for the selected run(s)."""
         records = self._get_selected_records()
         if not records:
             return
@@ -460,7 +445,7 @@ class TiledBrowserPanel(BasePanel):
 
         self._loading = True
         self._model.clear()
-        self._refresh_btn.setEnabled(False)
+        self._refresh_action.setEnabled(False)
         self._status_label.setText("Loading...")
 
         self._fetch_thread = QThreadFuture(
@@ -684,7 +669,7 @@ class TiledBrowserPanel(BasePanel):
 
         if result is None:
             self._update_status()
-            self._refresh_btn.setEnabled(True)
+            self._refresh_action.setEnabled(True)
             return
 
         try:
@@ -698,7 +683,7 @@ class TiledBrowserPanel(BasePanel):
             logger.error("Error processing loaded records: {}", e)
 
         self._update_status()
-        self._refresh_btn.setEnabled(True)
+        self._refresh_action.setEnabled(True)
         logger.debug("Loaded {} of {} records", self._model.rowCount(), self._total_records)
 
     @Slot(object)
@@ -723,7 +708,7 @@ class TiledBrowserPanel(BasePanel):
     def _on_load_error(self, error: Exception) -> None:
         """Handle error loading records."""
         self._loading = False
-        self._refresh_btn.setEnabled(True)
+        self._refresh_action.setEnabled(True)
         self._status_label.setText(f"Error: {error}")
         self._status_label.setStyleSheet(
             f"font-weight: bold; color: {self._theme_manager.colors.error};"

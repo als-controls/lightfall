@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import ClassVar
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu, QWidget
 
 from lightfall.logbook.entry_widget import EntryData, EntryListWidget
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
@@ -18,17 +19,17 @@ from lightfall.ui.panels.base import BasePanel, PanelMetadata
 class LogbookEntriesPanel(BasePanel):
     """Sidebar panel listing logbook entries.
 
+    The New Entry button and the Sort control live in the panel title bar
+    (added in :meth:`_setup_ui`); the entry list itself fills the body.
+
     Layout::
 
-        ┌──────────────┐
-        │ ＋ New Entry  │
-        │ Sort: Created │
-        ├──────────────┤
-        │ Entry 1      │
-        │ Entry 2      │
-        │ Entry 3      │
-        │ ...          │
-        └──────────────┘
+        ┌─────────── ＋ ⇅ ┐   (title bar: New Entry, Sort)
+        │ Entry 1        │
+        │ Entry 2        │
+        │ Entry 3        │
+        │ ...            │
+        └────────────────┘
     """
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
@@ -56,13 +57,28 @@ class LogbookEntriesPanel(BasePanel):
         super().__init__(parent)
 
     def _setup_ui(self) -> None:
-        self._entry_list = EntryListWidget()
+        # The New Entry button and sort control live in the panel title bar
+        # (see below), so omit the in-widget toolbar.
+        self._entry_list = EntryListWidget(show_toolbar=False)
         self._layout.addWidget(self._entry_list)
 
         # Forward signals
         self._entry_list.entry_selected.connect(self.entry_selected)
         self._entry_list.entry_delete_requested.connect(self.entry_delete_requested)
         self._entry_list.new_entry_requested.connect(self.new_entry_requested)
+
+        # Title bar: New Entry button drives the same new_entry_requested signal.
+        self.add_title_bar_button(
+            "mdi6.plus", "New Entry", self._entry_list.new_entry_requested
+        )
+
+        # Title bar: Sort menu applies the same sort keys as the old combo.
+        sort_menu = QMenu()
+        for label, key in EntryListWidget.SORT_OPTIONS:
+            act = QAction(label, sort_menu)
+            act.triggered.connect(lambda _checked=False, k=key: self._entry_list.set_sort_key(k))
+            sort_menu.addAction(act)
+        self.add_title_bar_button("mdi6.sort", "Sort", menu=sort_menu)
 
     # -- Public API (called by LogbookPanel) --
 

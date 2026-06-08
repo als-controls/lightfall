@@ -15,7 +15,6 @@ from PySide6.QtGui import QAction, QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -172,7 +171,6 @@ class IPythonPanel(BasePanel):
         self._jupyter_widget = None
         self._targeting_filter: WidgetTargetingFilter | None = None
         self._target_action: QAction | None = None
-        self._status_label: QLabel | None = None
         self._widget_counter = 0
         self._qtconsole_available = False
         super().__init__(parent)
@@ -190,9 +188,8 @@ class IPythonPanel(BasePanel):
             self._setup_unavailable_ui()
             return
 
-        # Create toolbar
-        toolbar = self._create_toolbar()
-        self._layout.addWidget(toolbar)
+        # Create title bar controls
+        self._create_title_bar_actions()
 
         # Create Jupyter widget
         self._setup_jupyter_widget()
@@ -217,52 +214,26 @@ class IPythonPanel(BasePanel):
         self._layout.addWidget(container)
         logger.warning("qtconsole not available - IPython panel disabled")
 
-    def _create_toolbar(self) -> QToolBar:
-        """Create the panel toolbar.
+    def _create_title_bar_actions(self) -> None:
+        """Create the panel's title bar controls.
 
-        Returns:
-            The configured toolbar.
+        Adds the Target Widget, Clear, and Reset Kernel buttons to the
+        PanelTitleBar. Target Widget is a checkable toggle that activates
+        click-to-capture targeting mode.
         """
-        toolbar = QToolBar()
-        toolbar.setMovable(False)
-
-        # Target Widget action (checkable)
-        self._target_action = QAction("Target Widget", toolbar)
-        self._target_action.setCheckable(True)
-        self._target_action.setToolTip("Click to capture a widget into the console namespace")
-        self._target_action.triggered.connect(self._on_target_triggered)
-        toolbar.addAction(self._target_action)
-
-        toolbar.addSeparator()
+        # Target Widget action (checkable toggle for click-to-capture mode)
+        self._target_action = self.add_title_bar_button(
+            "mdi6.target",
+            "Target Widget",
+            self._on_target_triggered,
+            checkable=True,
+        )
 
         # Clear action
-        clear_action = QAction("Clear", toolbar)
-        clear_action.setToolTip("Clear the console output")
-        clear_action.triggered.connect(self._on_clear)
-        toolbar.addAction(clear_action)
+        self.add_title_bar_button("mdi6.trash-can", "Clear", self._on_clear)
 
         # Reset Kernel action
-        reset_action = QAction("Reset Kernel", toolbar)
-        reset_action.setToolTip("Restart the IPython kernel")
-        reset_action.triggered.connect(self._on_reset_kernel)
-        toolbar.addAction(reset_action)
-
-        # Spacer
-        spacer = QWidget()
-        spacer.setSizePolicy(
-            spacer.sizePolicy().horizontalPolicy(),
-            spacer.sizePolicy().verticalPolicy(),
-        )
-        from PySide6.QtWidgets import QSizePolicy
-
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-
-        # Status label
-        self._status_label = QLabel()
-        toolbar.addWidget(self._status_label)
-
-        return toolbar
+        self.add_title_bar_button("mdi6.restart", "Reset Kernel", self._on_reset_kernel)
 
     def _setup_jupyter_widget(self) -> None:
         """Set up the Jupyter/IPython widget with in-process kernel."""
@@ -371,12 +342,8 @@ class IPythonPanel(BasePanel):
 
         if checked:
             self._targeting_filter.activate()
-            if self._status_label:
-                self._status_label.setText("Click a widget to capture...")
         else:
             self._targeting_filter.deactivate()
-            if self._status_label:
-                self._status_label.clear()
 
     def _on_widget_captured(self, widget: QWidget) -> None:
         """Handle widget capture.
@@ -393,8 +360,6 @@ class IPythonPanel(BasePanel):
         # Update UI
         if self._target_action:
             self._target_action.setChecked(False)
-        if self._status_label:
-            self._status_label.clear()
 
         # Show toast notification
         widget_class = widget.__class__.__name__
@@ -410,8 +375,6 @@ class IPythonPanel(BasePanel):
         """Handle targeting mode cancelled."""
         if self._target_action:
             self._target_action.setChecked(False)
-        if self._status_label:
-            self._status_label.clear()
 
         ToastManager.get_instance().info("Widget targeting cancelled")
 

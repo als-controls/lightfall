@@ -817,7 +817,15 @@ class EntryListWidget(QFrame):
     entry_delete_requested = Signal(str)  # entry_id
     new_entry_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    #: Available sort options as ``(label, key)`` pairs. Used by the in-widget
+    #: combo and, when the toolbar is omitted, by an external sort control
+    #: (e.g. the LogbookEntriesPanel title bar menu).
+    SORT_OPTIONS: tuple[tuple[str, str], ...] = (
+        ("Created", "created_at"),
+        ("Updated", "updated_at"),
+    )
+
+    def __init__(self, parent: QWidget | None = None, *, show_toolbar: bool = True) -> None:
         super().__init__(parent)
         self._selected_id: str | None = None
         self.setObjectName("EntryListWidget")
@@ -832,27 +840,32 @@ class EntryListWidget(QFrame):
         root.setSpacing(6)
 
         # --- toolbar row ---
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(4)
-        new_btn = QPushButton("＋ New Entry")
-        new_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #555; border-radius: 6px; "
-            "padding: 4px 10px; font-size: 9pt; } "
-            "QPushButton:hover { background: #3a3a5c; }"
-        )
-        new_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        new_btn.clicked.connect(self.new_entry_requested)
-        toolbar.addWidget(new_btn)
+        # The New Entry button and sort combo can be omitted (show_toolbar=
+        # False) when an external host (the panel title bar) drives the same
+        # new-entry signal and sort logic instead.
+        self._sort_combo: QComboBox | None = None
+        if show_toolbar:
+            toolbar = QHBoxLayout()
+            toolbar.setSpacing(4)
+            new_btn = QPushButton("＋ New Entry")
+            new_btn.setStyleSheet(
+                "QPushButton { border: 1px solid #555; border-radius: 6px; "
+                "padding: 4px 10px; font-size: 9pt; } "
+                "QPushButton:hover { background: #3a3a5c; }"
+            )
+            new_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            new_btn.clicked.connect(self.new_entry_requested)
+            toolbar.addWidget(new_btn)
 
-        self._sort_combo = QComboBox()
-        self._sort_combo.addItems(["Created", "Updated"])
-        self._sort_combo.setStyleSheet(
-            "QComboBox { border: 1px solid #555; border-radius: 6px; "
-            "padding: 3px 8px; font-size: 8pt; }"
-        )
-        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-        toolbar.addWidget(self._sort_combo)
-        root.addLayout(toolbar)
+            self._sort_combo = QComboBox()
+            self._sort_combo.addItems([label for label, _ in self.SORT_OPTIONS])
+            self._sort_combo.setStyleSheet(
+                "QComboBox { border: 1px solid #555; border-radius: 6px; "
+                "padding: 3px 8px; font-size: 8pt; }"
+            )
+            self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+            toolbar.addWidget(self._sort_combo)
+            root.addLayout(toolbar)
 
         # --- tag filter row ---
         self._tag_filter_container = QWidget()
@@ -1002,8 +1015,24 @@ class EntryListWidget(QFrame):
 
     @Slot(int)
     def _on_sort_changed(self, index: int) -> None:
-        key = "created_at" if index == 0 else "updated_at"
+        _, key = self.SORT_OPTIONS[index]
         self._proxy.set_sort_key(key)
+
+    def set_sort_key(self, key: str) -> None:
+        """Apply a sort key (e.g. ``"created_at"``) to the entry list.
+
+        Drives the same proxy sort logic as the in-widget sort combo, and
+        keeps the combo (when present) in sync. Used by an external sort
+        control such as the panel title bar menu.
+        """
+        self._proxy.set_sort_key(key)
+        if self._sort_combo is not None:
+            for i, (_, k) in enumerate(self.SORT_OPTIONS):
+                if k == key:
+                    self._sort_combo.blockSignals(True)
+                    self._sort_combo.setCurrentIndex(i)
+                    self._sort_combo.blockSignals(False)
+                    break
 
 
 # ---------------------------------------------------------------------------

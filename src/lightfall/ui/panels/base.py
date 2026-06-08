@@ -349,6 +349,62 @@ class BasePanel(QWidget):
         self._title_bar_actions.append(action)
         self.title_bar_actions_changed.emit()
 
+    def add_title_bar_button(
+        self,
+        icon_name: str,
+        tooltip: str,
+        on_triggered=None,
+        *,
+        checkable: bool = False,
+        checked: bool = False,
+        menu: Any = None,
+    ) -> QAction:
+        """Create a themed QAction and add it as a title bar button.
+
+        Convenience over ``add_title_bar_action`` that builds the QAction
+        with a qtawesome icon tinted to match the title bar's other buttons.
+
+        Args:
+            icon_name: qtawesome icon name (e.g. "mdi6.plus").
+            tooltip: Tooltip / accessible text for the button.
+            on_triggered: Optional slot connected to ``triggered``. For a
+                checkable action it receives the new checked state.
+            checkable: Whether the action toggles.
+            checked: Initial checked state (only if ``checkable``).
+            menu: Optional QMenu; when set the button opens it as a popup
+                (used for sort / filter / target-style pickers).
+
+        Returns:
+            The created QAction (already added to the title bar).
+        """
+        import qtawesome as qta
+        from PySide6.QtGui import QIcon
+
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            color = ThemeManager.get_instance().colors.text_secondary
+        except Exception:
+            color = "#808080"
+
+        try:
+            icon = qta.icon(icon_name, color=color)
+        except Exception:
+            icon = QIcon()
+
+        action = QAction(icon, tooltip, self)
+        action.setToolTip(tooltip)
+        if checkable:
+            action.setCheckable(True)
+            action.setChecked(checked)
+        if menu is not None:
+            menu.setParent(self)
+            action.setMenu(menu)
+        if on_triggered is not None:
+            action.triggered.connect(on_triggered)
+        self.add_title_bar_action(action)
+        return action
+
     @property
     def title_bar_actions(self) -> list[QAction]:
         """Actions shown as title bar buttons (copy of internal list)."""

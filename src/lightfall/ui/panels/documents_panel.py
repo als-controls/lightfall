@@ -67,6 +67,22 @@ class DocumentsPanel(BasePanel):
         self._doc_stream = DocumentStreamWidget()
         self._layout.addWidget(self._doc_stream)
 
+        # Stream controls live in the panel title bar, wired to the
+        # document stream widget's existing handlers.
+        self.add_title_bar_button(
+            "mdi6.file-tree", "View", self._doc_stream._toggle_view_mode
+        )
+        self.add_title_bar_button(
+            "mdi6.auto-download",
+            "Auto-scroll",
+            self._doc_stream._toggle_auto_scroll,
+            checkable=True,
+            checked=self._doc_stream._auto_scroll,
+        )
+        self.add_title_bar_button(
+            "mdi6.trash-can", "Clear", self._doc_stream._on_clear_clicked
+        )
+
         # Auto-configure with RunEngine singleton
         self._auto_configure()
 

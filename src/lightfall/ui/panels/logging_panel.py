@@ -13,13 +13,10 @@ from typing import Any, ClassVar
 
 from loguru import logger
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont
+from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QCursor, QFont
 from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
     QHeaderView,
     QMenu,
-    QPushButton,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -56,6 +53,12 @@ LEVEL_NUMBERS = {
     "ERROR": 40,
     "CRITICAL": 50,
 }
+
+# Selectable log levels, in display order
+LEVELS = ["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+
+# Default minimum level shown when the panel starts
+DEFAULT_LEVEL = "DEBUG"
 
 # Level colors for display
 LEVEL_COLORS = {
@@ -274,35 +277,38 @@ class LoggingPanel(BasePanel):
         """
         self._handler_id: int | None = None
         self._auto_scroll = True
+        self._current_level = DEFAULT_LEVEL
         super().__init__(parent)
 
     def _setup_ui(self) -> None:
         """Set up the panel UI."""
-        # Toolbar
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(4, 4, 4, 4)
-        toolbar.setSpacing(8)
+        # Title bar: log-level filter menu. Checkable actions in an
+        # exclusive group indicate the current level.
+        level_menu = QMenu()
+        self._level_group = QActionGroup(level_menu)
+        self._level_group.setExclusive(True)
+        self._level_actions: dict[str, QAction] = {}
+        for level in LEVELS:
+            act = QAction(level, level_menu)
+            act.setCheckable(True)
+            act.setChecked(level == self._current_level)
+            act.triggered.connect(lambda _checked=False, level=level: self._on_level_changed(level))
+            self._level_group.addAction(act)
+            level_menu.addAction(act)
+            self._level_actions[level] = act
+        self.add_title_bar_button("mdi6.filter", "Log level", menu=level_menu)
 
-        # Level filter combo
-        self._level_combo = QComboBox()
-        self._level_combo.addItems(["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"])
-        self._level_combo.setCurrentText("DEBUG")
-        self._level_combo.currentTextChanged.connect(self._on_level_changed)
-        toolbar.addWidget(self._level_combo)
+        # Title bar: auto-scroll toggle.
+        self._auto_scroll_action = self.add_title_bar_button(
+            "mdi6.auto-download",
+            "Auto-scroll",
+            self._on_auto_scroll_toggled,
+            checkable=True,
+            checked=self._auto_scroll,
+        )
 
-        # Auto-scroll toggle
-        self._auto_scroll_btn = QPushButton("Auto-scroll")
-        self._auto_scroll_btn.setCheckable(True)
-        self._auto_scroll_btn.setChecked(True)
-        self._auto_scroll_btn.toggled.connect(self._on_auto_scroll_toggled)
-        toolbar.addWidget(self._auto_scroll_btn)
-
-        # Clear button
-        self._clear_btn = QPushButton("Clear")
-        self._clear_btn.clicked.connect(self._on_clear)
-        toolbar.addWidget(self._clear_btn)
-
-        toolbar.addStretch()
+        # Title bar: clear button.
+        self.add_title_bar_button("mdi6.trash-can", "Clear", self._on_clear)
 
         # Table view
         self._model = LogTableModel()
@@ -335,7 +341,6 @@ class LoggingPanel(BasePanel):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Message
 
         # Layout
-        self._layout.addLayout(toolbar)
         self._layout.addWidget(self._table)
 
         # Connect signal for thread-safe record addition
@@ -397,6 +402,11 @@ class LoggingPanel(BasePanel):
     @Slot(str)
     def _on_level_changed(self, level: str) -> None:
         """Handle level filter change."""
+        self._current_level = level
+        # Keep the menu checkmark in sync (e.g. for programmatic changes).
+        action = self._level_actions.get(level)
+        if action is not None and not action.isChecked():
+            action.setChecked(True)
         self._model.set_min_level(level)
         self.set_state("level_filter", level)
 
@@ -529,12 +539,15 @@ class LoggingPanel(BasePanel):
         super().restore_state(state)
 
         # Restore level filter
-        level = state.get("level_filter", "DEBUG")
-        self._level_combo.setCurrentText(level)
+        level = state.get("level_filter", DEFAULT_LEVEL)
+        if level in self._level_actions:
+            self._level_actions[level].setChecked(True)
+            self._on_level_changed(level)
 
         # Restore auto-scroll
         auto_scroll = state.get("auto_scroll", True)
-        self._auto_scroll_btn.setChecked(auto_scroll)
+        self._auto_scroll_action.setChecked(auto_scroll)
+        self._on_auto_scroll_toggled(auto_scroll)
 
     # === Introspection API for MCP tools ===
 
@@ -543,7 +556,7 @@ class LoggingPanel(BasePanel):
         return {
             "total_records": self._model.record_count(),
             "filtered_records": self._model.filtered_count(),
-            "level_filter": self._level_combo.currentText(),
+            "level_filter": self._current_level,
             "auto_scroll": self._auto_scroll,
         }
 
@@ -574,14 +587,16 @@ class LoggingPanel(BasePanel):
         self._on_clear()
         return True
 
-    def action_set_level(self, level: str = "DEBUG") -> bool:
+    def action_set_level(self, level: str = DEFAULT_LEVEL) -> bool:
         """Set level action handler for MCP tools."""
-        if level in LEVEL_NUMBERS:
-            self._level_combo.setCurrentText(level)
+        if level in self._level_actions:
+            self._level_actions[level].setChecked(True)
+            self._on_level_changed(level)
             return True
         return False
 
     def action_toggle_auto_scroll(self) -> bool:
         """Toggle auto-scroll action handler for MCP tools."""
-        self._auto_scroll_btn.toggle()
+        self._auto_scroll_action.toggle()
+        self._on_auto_scroll_toggled(self._auto_scroll_action.isChecked())
         return True
