@@ -60,16 +60,12 @@ def test_islands_flag_none_autodetects(islands_colors, flat_colors):
 
 
 def test_islands_flag_forces_on_for_flat_theme(flat_colors):
-    """islands=True applies the Islands layout even to a theme with no distinct
-    sea — the sea is derived lighter than surface (not the plain background),
-    so panels read as darker cards on a lighter canvas."""
-    from lightfall.ui.docking.theme import _lightness, _sea_color
-
+    """islands=True applies the Islands layout even to a theme with no
+    distinct sea (sea falls back to background)."""
     css = generate_docking_stylesheet(flat_colors, islands=True)
     assert _ISLANDS_MARKER in css
-    sea = _sea_color(flat_colors)
-    assert _lightness(sea) > _lightness(flat_colors.surface)
-    assert f"#InnerDockWindow {{\n    background: {sea};" in css
+    # sea falls back to background for a theme without a distinct sea.
+    assert f"#InnerDockWindow {{\n    background: {flat_colors.background};" in css
 
 
 def test_islands_flag_forces_off_for_islands_theme(islands_colors):

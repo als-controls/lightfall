@@ -75,34 +75,6 @@ def _is_islands_mode(colors: ThemeColors) -> bool:
     return bool(colors.sea) and colors.sea != colors.background
 
 
-def _lightness(hex_color: str) -> float:
-    from PySide6.QtGui import QColor
-
-    return QColor(hex_color).lightnessF()
-
-
-def _lighter(hex_color: str, delta: float = 0.04) -> str:
-    """Return `hex_color` lightened by `delta` (HSL lightness, 0..1)."""
-    from PySide6.QtGui import QColor
-
-    qc = QColor(hex_color)
-    h, s, lightness, a = qc.getHslF()
-    qc.setHslF(h, s, min(1.0, lightness + delta), a)
-    return qc.name()
-
-
-def _sea_color(colors: ThemeColors) -> str:
-    """The Islands "sea" (gaps/canvas) — always LIGHTER than the surface
-    (island) color, so panels read as darker cards floating on a lighter sea.
-    Uses the theme's own sea when it is distinct and already lighter than
-    surface; otherwise derives one by lightening surface."""
-    if colors.sea != colors.background and _lightness(colors.sea) > _lightness(
-        colors.surface
-    ):
-        return colors.sea
-    return _lighter(colors.surface)
-
-
 def generate_docking_stylesheet(
     colors: ThemeColors, islands: bool | None = None
 ) -> str:
@@ -122,9 +94,7 @@ def generate_docking_stylesheet(
     """
     if islands is None:
         islands = _is_islands_mode(colors)
-    # Sea (gaps/canvas) is lighter than surface in Islands mode; flat mode has
-    # no sea distinction, so it uses the plain background.
-    sea = _sea_color(colors) if islands else colors.background
+    sea = colors.sea if islands else colors.background
     island = colors.surface if islands else colors.surface
 
     radius = RADIUS if islands else 0
