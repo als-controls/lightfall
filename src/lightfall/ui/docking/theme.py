@@ -387,6 +387,11 @@ QTableView {{
     outline: none;
 }}
 
+/* Item views: no border (the surface card / panel provides the framing). */
+QAbstractItemView {{
+    border: none;
+}}
+
 /* Square rows/cells — the islands themes round item cells by default.
    Covers tree/list/table views (and their *Widget subclasses). */
 QTreeView::item,

@@ -178,6 +178,8 @@ def test_island_widget_polish(islands_colors):
     assert "QListView::item {\n    padding: 0px 4px;" in css
     # No focus rectangle around the current cell.
     assert "QTreeView,\nQListView,\nQTableView {\n    outline: none;" in css
+    # Item views have no border (the surface card frames them).
+    assert "QAbstractItemView {\n    border: none;" in css
     # Context menus under the proxy keep a sea background (panel-transparency
     # rule would otherwise blank them).
     assert (
