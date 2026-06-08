@@ -136,6 +136,14 @@ def test_island_widget_polish(islands_colors):
         f"    border-top: 1px solid {islands_colors.sea};\n"
         f"    background: {islands_colors.surface};"
     ) in css
+    # QGroupBox: top-only sea divider + surface title.
+    assert (
+        f"QGroupBox {{\n    border: none;\n"
+        f"    border-top: 1px solid {islands_colors.sea};"
+    ) in css
+    assert (
+        f"QGroupBox::title {{\n    background-color: {islands_colors.surface};"
+    ) in css
     assert (
         f"QStackedWidget {{\n    background: {islands_colors.surface};"
     ) in css

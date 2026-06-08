@@ -373,6 +373,16 @@ QTabWidget::pane {{
     background: {island};
 }}
 
+/* QGroupBox: section-divider look — the title sits on surface and a single
+   1px sea line runs across the top instead of a full raised box border. */
+QGroupBox {{
+    border: none;
+    border-top: 1px solid {sea};
+}}
+QGroupBox::title {{
+    background-color: {island};
+}}
+
 /* Stacked widgets sit on surface. */
 QStackedWidget {{
     background: {island};
