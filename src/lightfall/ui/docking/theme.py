@@ -391,6 +391,13 @@ QTableView::item {{
     border-radius: 0px;
 }}
 
+/* List rows: horizontal-only padding. The themes' 4px all-around item
+   padding pushes QListView/QListWidget text below the icon's vertical center
+   (a QSS list-mode quirk; tree/table views are unaffected and keep theirs). */
+QListView::item {{
+    padding: 0px 4px;
+}}
+
 /* Context menus popped from panel widgets are parented (QObject-wise) inside
    the proxy, so the '#TheaterProxy QWidget' panel-transparency rule above
    matches them and blanks their background. Re-assert the sea background —

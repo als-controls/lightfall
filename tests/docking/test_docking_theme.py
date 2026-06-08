@@ -147,6 +147,8 @@ def test_island_widget_polish(islands_colors):
     assert (
         "QTreeView::item,\nQListView::item,\nQTableView::item {\n    border-radius: 0px;"
     ) in css
+    # List rows use horizontal-only padding (vertical padding pushes text low).
+    assert "QListView::item {\n    padding: 0px 4px;" in css
     # Context menus under the proxy keep a sea background (panel-transparency
     # rule would otherwise blank them).
     assert (
