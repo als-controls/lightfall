@@ -670,8 +670,8 @@ class EvangelionThemePlugin(ThemePlugin):
             error="#DB6088",         # misato
             info="#AB92FC",          # dummyplug
             background="#201430",    # midnight
-            surface="#39274C",       # casper
-            sea="#432e59",           # lighter than surface (gaps/canvas)
+            surface="#201430",       # midnight (panel cards)
+            sea="#39274C",           # casper — lighter than surface (gaps)
             text="#E1D6F8",          # rei
             text_secondary="#A1A0AD",  # shinji
             border="#483160",        # longingus
