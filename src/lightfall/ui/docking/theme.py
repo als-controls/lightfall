@@ -383,9 +383,11 @@ QGroupBox::title {{
     background-color: {island};
 }}
 
-/* Square list rows — the islands themes round item cells by default. */
+/* Square rows/cells — the islands themes round item cells by default.
+   Covers tree/list/table views (and their *Widget subclasses). */
+QTreeView::item,
 QListView::item,
-QListWidget::item {{
+QTableView::item {{
     border-radius: 0px;
 }}
 
