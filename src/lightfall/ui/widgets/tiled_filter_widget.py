@@ -174,11 +174,6 @@ class TiledFilterWidget(QWidget):
         self._apply_btn.clicked.connect(self._on_apply_clicked)
         row2.addWidget(self._apply_btn)
 
-        # Clear button
-        self._clear_btn = QPushButton("Clear")
-        self._clear_btn.clicked.connect(self._on_clear_clicked)
-        row2.addWidget(self._clear_btn)
-
         layout.addLayout(row2)
 
     def _on_search_text_changed(self, text: str) -> None:
@@ -196,29 +191,6 @@ class TiledFilterWidget(QWidget):
 
     def _on_apply_clicked(self) -> None:
         """Handle apply button click."""
-        self._emit_filters()
-
-    def _on_clear_clicked(self) -> None:
-        """Handle clear button click."""
-        # Block signals while resetting
-        self._search_input.blockSignals(True)
-        self._plan_combo.blockSignals(True)
-        self._status_combo.blockSignals(True)
-        self._from_date.blockSignals(True)
-        self._to_date.blockSignals(True)
-
-        self._search_input.clear()
-        self._plan_combo.setCurrentIndex(0)
-        self._status_combo.setCurrentIndex(0)
-        self._from_date.setDate(datetime.now().date() - timedelta(days=30))
-        self._to_date.setDate(datetime.now().date())
-
-        self._search_input.blockSignals(False)
-        self._plan_combo.blockSignals(False)
-        self._status_combo.blockSignals(False)
-        self._from_date.blockSignals(False)
-        self._to_date.blockSignals(False)
-
         self._emit_filters()
 
     def _emit_filters(self) -> None:
@@ -311,4 +283,3 @@ class TiledFilterWidget(QWidget):
         self._from_date.setEnabled(enabled)
         self._to_date.setEnabled(enabled)
         self._apply_btn.setEnabled(enabled)
-        self._clear_btn.setEnabled(enabled)

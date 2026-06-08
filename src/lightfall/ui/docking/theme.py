@@ -178,6 +178,16 @@ QDockWidget {{
     background: {colors.text_secondary};
 }}
 
+/* Toggle actions (auto-scroll, target-capture, ...) show their active
+   state with the accent color. */
+#PanelTitleButton:checked {{
+    background: {colors.primary};
+}}
+
+#PanelTitleButton:checked:hover {{
+    background: {colors.primary};
+}}
+
 #PanelTitleSeparator {{
     color: {colors.border};
 }}

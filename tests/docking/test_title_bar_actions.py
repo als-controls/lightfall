@@ -111,3 +111,6 @@ class TestTitleBarMenuRendering:
         # Exactly the menu-carrying action becomes an instant popup; the
         # plain action and the window buttons do not.
         assert len(instant) == 1
+        # The menu must actually be attached to the button (a default action
+        # would leave button.menu() == None and nothing would pop).
+        assert instant[0].menu() is menu

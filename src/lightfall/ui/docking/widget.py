@@ -199,13 +199,19 @@ class PanelTitleBar(QFrame):
             btn.setFixedSize(20, 20)
             btn.setCursor(Qt.CursorShape.ArrowCursor)
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            btn.setDefaultAction(action)
-            # Actions carrying a menu (e.g. sort / filter / target pickers)
-            # render as an instant popup so a click opens the menu.
             menu = action.menu()
             if menu is not None:
+                # Menu pickers (sort / filter / target): show the menu on
+                # click. Don't use setDefaultAction here — with a default
+                # action QToolButton.menu() returns None and InstantPopup has
+                # nothing to show. Carry the icon/tooltip over manually and
+                # set the menu explicitly so the popup actually opens.
+                btn.setIcon(action.icon())
+                btn.setToolTip(action.toolTip())
                 btn.setMenu(menu)
                 btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            else:
+                btn.setDefaultAction(action)
             self._actions_layout.addWidget(btn)
         self._separator.setVisible(bool(actions))
 
