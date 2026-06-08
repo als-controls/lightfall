@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from lightfall.ui.docking.theme import _is_islands_mode, generate_docking_stylesheet
+from lightfall.ui.docking.theme import (
+    RADIUS,
+    _is_islands_mode,
+    generate_docking_stylesheet,
+)
 from lightfall.ui.theme.manager import ThemeColors
 
 
@@ -70,15 +74,17 @@ def test_selected_sidebar_button_stays_primary_when_flat(flat_colors):
 
 
 def test_panel_background_is_surface(islands_colors):
-    """The dock (shell) and its content both use Surface — the dock is a
-    surface island; sea shows only in the separator gaps between docks."""
+    """The panel card is surface; the QDockWidget canvas behind it is sea, so
+    the card's rounded corners read as a floating surface island. Shells use
+    background-color (not the `background` shorthand) so they paint reliably
+    when docked."""
     css = generate_docking_stylesheet(islands_colors)
-    # Shells use background-color (not the `background` shorthand) so a docked
-    # QDockWidget reliably paints surface instead of nothing.
+    # Dock canvas behind the card = sea.
     assert (
         "QDockWidget {\n"
-        f"    background-color: {islands_colors.surface};"
+        f"    background-color: {islands_colors.sea};"
     ) in css
+    # Panel card body (proxy) = surface.
     assert (
         "QDockWidget > QWidget {\n"
         f"    background-color: {islands_colors.surface};"
@@ -104,15 +110,23 @@ def test_panel_scroll_subtree_transparent_in_islands(islands_colors):
 
 
 def test_dock_panel_subtree_is_surface_in_islands(islands_colors):
-    """Docked panels are solid surface islands: the dock-panel subtree paints
-    surface directly. (Transparency would fall through to the sea canvas — a
+    """Docked panel = rounded surface card. The card body (first QWidget under
+    the proxy) paints surface with bottom rounding (painted directly, since a
     docked QDockWidget paints nothing and the TheaterProxy QStackedWidget
-    doesn't paint behind its page.) Must be a descendant combinator
-    (#TheaterProxy QWidget) — Qt's '>' does not match QStackedWidget pages."""
+    doesn't paint behind its page); its content is transparent so the rounded
+    surface + sea-revealing corners show. Descendant combinator (not '>') —
+    Qt's '>' does not match QStackedWidget pages."""
     css = generate_docking_stylesheet(islands_colors)
     assert (
         "#TheaterProxy QWidget {\n"
-        f"    background-color: {islands_colors.surface};"
+        f"    background-color: {islands_colors.surface};\n"
+        f"    border-bottom-left-radius: {RADIUS}px;\n"
+        f"    border-bottom-right-radius: {RADIUS}px;"
+    ) in css
+    # Card content (deeper widgets) transparent so the rounded surface shows.
+    assert (
+        "#TheaterProxy QWidget QWidget {\n"
+        "    background-color: rgba(0, 0, 0, 0);"
     ) in css
     # The direct-child form silently misses the stacked panel; guard against
     # a well-meaning "simplification" back to it.
