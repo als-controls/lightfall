@@ -115,6 +115,14 @@ class PanelMetadata:
     sidebar_group: str = "top"           # "top", "bottom" within sidebar
     auto_hide: bool = True               # Start in auto-hide sidebar
     sidebar_order: int = 0               # Order within group (lower = higher)
+
+    # Startup behavior
+    proactive_init: bool = True          # Eagerly instantiate in the post-startup
+                                         # sweep. Set False for heavy panels that
+                                         # should stay fully lazy until clicked.
+    warmup_import: str = ""              # Optional module imported on a background
+                                         # thread when the sweep starts, so a heavy
+                                         # import chain is warm before init.
 ```
 
 ## lifecycle-methods
@@ -151,6 +159,72 @@ def can_close(self, force: bool = False) -> bool:
     return True
 ```
 
+## keep-initialization-fast
+
+`_setup_ui()` runs on the **main (GUI) thread**, and panels with
+`proactive_init=True` (the default — see `panel-metadata`) are all instantiated
+in a sweep shortly after the window appears. **Slow work in `_setup_ui()`
+stalls the whole UI** — not just your panel — and a few sluggish panels add up
+to a janky startup.
+
+So: build the widgets, then return. Anything that can block — network/EPICS
+connections, Tiled queries, disk reads, heavy imports — must be **offloaded to
+a background thread**, with the panel showing a "loading…" state until the
+result arrives. This is just good panel design generally; proactive init only
+makes it more visible.
+
+Use `lightfall.utils.threads` for this — it integrates with Qt's event loop and
+marshals callbacks back to the main thread, so you never touch widgets from a
+worker:
+
+```python
+from lightfall.utils import threads
+from lightfall.ui.panels.base import BasePanel, PanelStatus
+
+
+class MyPanel(BasePanel):
+    def _setup_ui(self) -> None:
+        # Fast: just lay out widgets and show a placeholder.
+        self._status_label = QLabel("Connecting…")
+        self._layout.addWidget(self._status_label)
+
+        # Offload the slow part; _setup_ui returns immediately.
+        threads.QThreadFuture(
+            self._fetch_catalog,
+            callback_slot=self._on_catalog_ready,  # delivered on the main thread
+            except_slot=self._on_load_error,       # delivered on the main thread
+        ).start()
+
+    def _fetch_catalog(self) -> list[str]:
+        # Runs on a BACKGROUND thread — do NOT touch Qt widgets here.
+        return expensive_network_call()
+
+    def _on_catalog_ready(self, items: list[str]) -> None:
+        # Back on the main thread — safe to update widgets.
+        self._populate(items)
+        self.set_status(PanelStatus.SUCCESS)   # tint the sidebar icon (see panel-status-indicator)
+
+    def _on_load_error(self, exc: Exception) -> None:
+        self._status_label.setText(f"Failed: {exc}")
+        self.set_status(PanelStatus.ERROR)
+```
+
+Key rules:
+
+- **Never touch Qt widgets from the worker function.** Only the
+  `callback_slot` / `finished_slot` / `except_slot` handlers (delivered via Qt
+  signals) run on the main thread and may update the UI. To push an arbitrary
+  call back to the GUI thread, use `threads.invoke_in_main_thread(fn, ...)`.
+- The `@threads.method(callback_slot=...)` decorator is a shorthand for the
+  same thing on a standalone worker; `@threads.iterator(yield_slot=...)` streams
+  progress (e.g. row-by-row loads).
+- Pair the background load with the status indicator: `SUCCESS` when it lands,
+  `ERROR` (and a visible message) when it fails.
+- If the panel's cost is mostly a **heavy import chain**, set
+  `warmup_import="…"` in `PanelMetadata` so that module is imported on a
+  background thread when the sweep starts — or set `proactive_init=False` to
+  stay fully lazy until the user opens the panel.
+
 ## signals
 
 ```python
@@ -174,6 +248,57 @@ all_state = self.get_all_state()
 # Restore from dict
 self.restore_state(state_dict)
 ```
+
+## panel-status-indicator
+
+A panel's sidebar button can carry a **status tint** that signals health at a
+glance — green when healthy, red on error, and so on. The tint recolors
+whatever icon the panel already uses; it is independent of the icon itself.
+
+### PanelStatus enum
+
+```python
+from lightfall.ui.panels.base import PanelStatus
+```
+
+| Value | Sidebar tint | Use it for |
+|-------|--------------|-----------|
+| `PanelStatus.UNINITIALIZED` | theme text color (default) | not yet initialized / idle |
+| `PanelStatus.SUCCESS` | theme success (green) | connected, healthy, ready |
+| `PanelStatus.WARNING` | theme warning (amber) | degraded, needs attention |
+| `PanelStatus.ERROR` | theme error (red) | failed, disconnected, faulted |
+| `PanelStatus.INFO` | theme info (blue) | informational / active state |
+
+Tints are pulled from the **active theme** and re-applied automatically on a
+theme switch — never hard-code a hex color for status.
+
+### Setting status
+
+```python
+from lightfall.ui.panels.base import BasePanel, PanelStatus
+
+class MyPanel(BasePanel):
+    def _on_device_connected(self) -> None:
+        self.set_status(PanelStatus.SUCCESS)
+
+    def _on_device_fault(self) -> None:
+        self.set_status(PanelStatus.ERROR)
+
+    def _check(self) -> None:
+        current = self.status          # -> PanelStatus (read-only property)
+```
+
+- `set_status(status)` emits `status_changed = Signal(object)`; the docking
+  manager listens and re-tints the sidebar button. It is a no-op when the
+  status is unchanged, so it is safe to call from a frequently-firing slot
+  (e.g. an ophyd subscription callback).
+- The framework drives status **automatically** around deferred/proactive
+  instantiation (see `proactive_init` in `panel-metadata`): a panel that
+  instantiates cleanly is marked `SUCCESS`, one that raises during creation is
+  marked `ERROR`. Override it from there to reflect live runtime health.
+- An explicit color passed to `set_sidebar_icon(icon_name, color)` still
+  **wins** over the status tint (manual override). Pass an empty `color=""`
+  to release the override and fall back to the status tint.
 
 ## mcp-introspection-api
 
@@ -259,6 +384,89 @@ def action_run_scan(
     ...
     return True
 ```
+
+## title-bar-actions
+
+The panel title bar hosts a small **toolbar** for high-level panel actions —
+icon-only buttons sitting to the right of the title, before the window
+buttons:
+
+```
+[title] ........ [your action buttons] | [expand] [redock?] [minimize]
+```
+
+This is the right home for a panel's top-level verbs (New, Refresh, Clear, a
+sort/filter picker, a mode toggle). It keeps the panel body free of chrome and
+gives every panel a consistent place for its controls — **prefer it over an
+embedded `QToolBar`** inside the panel body.
+
+### add_title_bar_button (recommended)
+
+The convenience helper builds a theme-tinted qtawesome icon, wires the slot,
+and adds the button in one call. It returns the created `QAction` so you can
+toggle `setEnabled` / `setChecked` / `setIcon` later.
+
+```python
+def _setup_ui(self) -> None:
+    ...
+    # plain action button
+    self.add_title_bar_button("mdi6.refresh", "Refresh", self._on_refresh)
+
+    # checkable toggle (the slot receives the new checked state)
+    self._auto_action = self.add_title_bar_button(
+        "mdi6.arrow-down-bold", "Auto-scroll", self._on_auto_toggled,
+        checkable=True, checked=True,
+    )
+
+    # dropdown: pass a QMenu (see the gotcha below)
+    from PySide6.QtWidgets import QMenu
+    sort_menu = QMenu()
+    sort_menu.addAction("Newest first", lambda: self._sort("desc"))
+    sort_menu.addAction("Oldest first", lambda: self._sort("asc"))
+    self.add_title_bar_button("mdi6.sort", "Sort", menu=sort_menu)
+```
+
+Signature:
+
+```python
+def add_title_bar_button(
+    self, icon_name: str, tooltip: str, on_triggered=None, *,
+    checkable: bool = False, checked: bool = False, menu=None,
+) -> QAction
+```
+
+> Buttons are **icon-only** (20×20). The tooltip is the only label, so always
+> pass a clear one. Use `mdi6.*` icon names.
+
+> **Menu gotcha:** pass the `QMenu` via `menu=` and do **not**
+> `setParent(self)` on it. Reparenting a popup menu to a normal widget clears
+> its `Qt.Popup` window flag, so it renders inline (filling the panel) instead
+> of popping from the button. The helper keeps a reference to the menu for you.
+
+### add_title_bar_action (raw QAction)
+
+When you already have a `QAction` (e.g. one shared with a menu or keyboard
+shortcut), add it directly:
+
+```python
+from PySide6.QtGui import QAction
+import qtawesome as qta
+
+self._new_plan_action = QAction(
+    qta.icon("mdi6.file-plus-outline"), "New Plan", self
+)
+self._new_plan_action.triggered.connect(self._on_new_plan)
+self.add_title_bar_action(self._new_plan_action)
+```
+
+`title_bar_actions` returns the current list, and `add_title_bar_action` emits
+`title_bar_actions_changed = Signal()` — so actions added *after* the title bar
+is first built still appear. `add_title_bar_button` is just a thin wrapper that
+builds the themed `QAction` and calls `add_title_bar_action`.
+
+> A title bar button is also a natural place to kick off an *AI-mediated*
+> procedure — wire `on_triggered` to the dispatch pattern in
+> `triggering-the-claude-assistant` below.
 
 ## triggering-the-claude-assistant
 
