@@ -237,6 +237,10 @@ class ThemeManager(QObject):
         self._colors = LIGHT_COLORS
         self._beamline_theme: BeamlineTheme | None = None
         self._custom_stylesheets: dict[str, str] = {}
+        # Islands layout (rounded floating panel cards on a sea canvas) is a
+        # user preference applied on top of any theme, not tied to the theme's
+        # colors. Default on; AppearanceSettingsPlugin syncs it from prefs.
+        self._islands_mode: bool = True
 
         # Detect system theme
         self._update_effective_theme()
@@ -312,6 +316,27 @@ class ThemeManager(QObject):
     def colors(self) -> ThemeColors:
         """Current theme colors."""
         return self._colors
+
+    @property
+    def islands_mode(self) -> bool:
+        """Whether the Islands layout is applied (independent of the theme)."""
+        return self._islands_mode
+
+    def set_islands_mode(self, enabled: bool) -> None:
+        """Enable/disable the Islands layout for any theme.
+
+        Re-applies the stylesheet (regenerated with the new flag) via the
+        theme_changed signal, the same path a theme switch uses.
+
+        Args:
+            enabled: True to apply rounded floating panel cards on a sea
+                canvas; False for a flat layout.
+        """
+        if enabled == self._islands_mode:
+            return
+        self._islands_mode = enabled
+        logger.info("Islands layout {}", "enabled" if enabled else "disabled")
+        self.theme_changed.emit(self._theme_name)
 
     @property
     def beamline_theme(self) -> BeamlineTheme | None:
@@ -812,7 +837,9 @@ QHeaderView::section {{
         # Append docking stylesheet if available
         try:
             from lightfall.ui.docking.theme import generate_docking_stylesheet
-            base_stylesheet += f"\n{generate_docking_stylesheet(c)}"
+            base_stylesheet += (
+                f"\n{generate_docking_stylesheet(c, islands=self._islands_mode)}"
+            )
         except ImportError:
             pass
 

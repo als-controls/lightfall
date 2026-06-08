@@ -49,6 +49,31 @@ def test_fixtures_select_expected_modes(islands_colors, flat_colors):
     assert _is_islands_mode(flat_colors) is False
 
 
+# A marker rule only emitted in islands mode (the central widget shell).
+_ISLANDS_MARKER = "#InnerDockWindow > QWidget {"
+
+
+def test_islands_flag_none_autodetects(islands_colors, flat_colors):
+    """islands=None falls back to the theme's sea-based auto-detection."""
+    assert _ISLANDS_MARKER in generate_docking_stylesheet(islands_colors)
+    assert _ISLANDS_MARKER not in generate_docking_stylesheet(flat_colors)
+
+
+def test_islands_flag_forces_on_for_flat_theme(flat_colors):
+    """islands=True applies the Islands layout even to a theme with no
+    distinct sea (sea falls back to background)."""
+    css = generate_docking_stylesheet(flat_colors, islands=True)
+    assert _ISLANDS_MARKER in css
+    # sea falls back to background for a theme without a distinct sea.
+    assert f"#InnerDockWindow {{\n    background: {flat_colors.background};" in css
+
+
+def test_islands_flag_forces_off_for_islands_theme(islands_colors):
+    """islands=False disables the Islands layout even for a sea-defining theme."""
+    css = generate_docking_stylesheet(islands_colors, islands=False)
+    assert _ISLANDS_MARKER not in css
+
+
 def test_selected_sidebar_button_is_surface_in_islands(islands_colors):
     """Selected (checked) sidebar tool buttons use the Surface color, not the
     loud primary accent, so the active button reads as part of the island."""

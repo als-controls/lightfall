@@ -75,16 +75,25 @@ def _is_islands_mode(colors: ThemeColors) -> bool:
     return bool(colors.sea) and colors.sea != colors.background
 
 
-def generate_docking_stylesheet(colors: ThemeColors) -> str:
+def generate_docking_stylesheet(
+    colors: ThemeColors, islands: bool | None = None
+) -> str:
     """Generate a stylesheet for the docking system.
 
     Args:
         colors: The current theme colors.
+        islands: Whether to apply the Islands layout (rounded floating panel
+            cards on a sea canvas). ``None`` auto-detects from the theme (on
+            when it defines a distinct ``sea`` color); ``True``/``False`` force
+            it on/off for any theme. When forced on for a theme without a
+            distinct sea, ``sea`` falls back to ``background``, so panels read
+            as surface cards on the background canvas.
 
     Returns:
         CSS stylesheet string.
     """
-    islands = _is_islands_mode(colors)
+    if islands is None:
+        islands = _is_islands_mode(colors)
     sea = colors.sea if islands else colors.background
     island = colors.surface if islands else colors.surface
 

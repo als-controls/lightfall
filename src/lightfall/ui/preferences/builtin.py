@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -42,7 +43,9 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._widget: QWidget | None = None
         self._theme_combo: QComboBox | None = None
         self._font_spin: QSpinBox | None = None
+        self._islands_check: QCheckBox | None = None
         self._original_theme: str = "system"
+        self._original_islands: bool = True
 
     @property
     def name(self) -> str:
@@ -76,9 +79,12 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         This ensures the correct theme is applied before any UI appears.
         """
         prefs = PreferencesManager.get_instance()
-        theme_value = prefs.theme
+        theme_mgr = ThemeManager.get_instance()
+        # Apply the islands-layout preference before the theme so the first
+        # stylesheet generation already reflects it.
+        theme_mgr.set_islands_mode(bool(prefs.get("islands_mode", True)))
         # Use set_theme_by_name for string-based themes
-        ThemeManager.get_instance().set_theme_by_name(theme_value)
+        theme_mgr.set_theme_by_name(prefs.theme)
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the settings widget.
@@ -125,6 +131,12 @@ class AppearanceSettingsPlugin(SettingsPlugin):
             self._console_style_combo.addItem(style_name.title(), style_name)
         appearance_layout.addRow("Console Style:", self._console_style_combo)
 
+        # Islands layout — applies the rounded floating-panel look on top of
+        # any theme (independent of the theme's colors).
+        self._islands_check = QCheckBox("Islands layout (rounded floating panels)")
+        self._islands_check.toggled.connect(self.apply_preview)
+        appearance_layout.addRow("Layout:", self._islands_check)
+
         layout.addWidget(appearance_group)
         layout.addStretch()
 
@@ -155,6 +167,11 @@ class AppearanceSettingsPlugin(SettingsPlugin):
 
         prefs = PreferencesManager.get_instance()
         self._original_theme = prefs.theme
+        self._original_islands = bool(prefs.get("islands_mode", True))
+
+        # Islands layout checkbox
+        if self._islands_check is not None:
+            self._islands_check.setChecked(self._original_islands)
 
         # Set theme combo by name
         index = self._theme_combo.findData(prefs.theme)
@@ -191,6 +208,9 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         if self._console_style_combo:
             prefs.set("console_syntax_style", self._console_style_combo.currentData())
 
+        if self._islands_check is not None:
+            prefs.set("islands_mode", self._islands_check.isChecked())
+
     def validate(self) -> list[str]:
         """Validate current widget values.
 
@@ -205,16 +225,22 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         Called when the user changes the theme selection, allowing
         immediate visual feedback.
         """
-        if not self._theme_combo:
-            return
+        theme_mgr = ThemeManager.get_instance()
 
-        theme_name = self._theme_combo.currentData()
-        if theme_name:
-            ThemeManager.get_instance().set_theme_by_name(theme_name)
+        # Islands layout (re-applies the stylesheet on change).
+        if self._islands_check is not None:
+            theme_mgr.set_islands_mode(self._islands_check.isChecked())
+
+        if self._theme_combo:
+            theme_name = self._theme_combo.currentData()
+            if theme_name:
+                theme_mgr.set_theme_by_name(theme_name)
 
     def revert_preview(self) -> None:
-        """Revert to the original theme if user cancels.
+        """Revert to the original theme + islands layout if user cancels.
 
-        Restores the theme that was active when the dialog opened.
+        Restores what was active when the dialog opened.
         """
-        ThemeManager.get_instance().set_theme_by_name(self._original_theme)
+        theme_mgr = ThemeManager.get_instance()
+        theme_mgr.set_islands_mode(self._original_islands)
+        theme_mgr.set_theme_by_name(self._original_theme)
