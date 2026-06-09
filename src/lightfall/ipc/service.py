@@ -386,6 +386,7 @@ class IPCService(QObject):
         de-duped list of ``{instance_id, display_name, prefix, is_self}`` dicts
         (the local instance is tagged ``is_self=True``). When not connected the
         callback is invoked immediately with an empty list.
+        A very small or zero ``timeout_ms`` may return an empty list, as peers have no time to reply.
         """
         if not self.is_connected or self._loop is None or self._nc is None:
             invoke_in_main_thread(callback, [])
@@ -417,11 +418,13 @@ class IPCService(QObject):
         inbox = self._nc.new_inbox()
         sub = await self._nc.subscribe(inbox, cb=_collect)
         await self._nc.publish("_lightfall.discover", b"{}", reply=inbox)
-        await asyncio.sleep(timeout_s)
         try:
-            await sub.unsubscribe()
-        except Exception as exc:
-            logger.debug("IPCService: error unsubscribing discover inbox: {}", exc)
+            await asyncio.sleep(timeout_s)
+        finally:
+            try:
+                await sub.unsubscribe()
+            except Exception as exc:
+                logger.debug("IPCService: error unsubscribing discover inbox: {}", exc)
         return self._dedupe_peers(replies, self._instance_id)
 
     # ------------------------------------------------------------------

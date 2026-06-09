@@ -98,6 +98,21 @@ async def test_gather_peers_collects_and_dedupes():
 
 
 @pytest.mark.asyncio
+async def test_gather_peers_survives_unsubscribe_error():
+    class _RaisingSub:
+        async def unsubscribe(self):
+            raise RuntimeError("boom")
+
+    nc = _FakeNC([{"instance_id": "host-2", "display_name": "Other"}])
+    nc.sub = _RaisingSub()
+    svc = IPCService.__new__(IPCService)
+    svc._instance_id = "host-self"
+    svc._nc = nc
+    peers = await svc._gather_peers(timeout_s=0.01)
+    assert [p["instance_id"] for p in peers] == ["host-2"]
+
+
+@pytest.mark.asyncio
 async def test_gather_peers_returns_empty_when_no_nc():
     svc = IPCService.__new__(IPCService)
     svc._instance_id = "x"
