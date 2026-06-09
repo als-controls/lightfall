@@ -377,6 +377,53 @@ class IPCService(QObject):
             key=lambda p: (not p["is_self"], p["display_name"].lower(), p["instance_id"]),
         )
 
+    def discover_peers(
+        self, callback: Callable[[list[dict]], Any], timeout_ms: int = 500
+    ) -> None:
+        """Broadcast a discovery request; deliver the peer list to *callback*.
+
+        Non-blocking. The callback runs on the Qt main thread and receives a
+        de-duped list of ``{instance_id, display_name, prefix, is_self}`` dicts
+        (the local instance is tagged ``is_self=True``). When not connected the
+        callback is invoked immediately with an empty list.
+        """
+        if not self.is_connected or self._loop is None or self._nc is None:
+            invoke_in_main_thread(callback, [])
+            return
+
+        async def _run() -> None:
+            peers = await self._gather_peers(timeout_ms / 1000.0)
+            invoke_in_main_thread(callback, peers)
+
+        asyncio.run_coroutine_threadsafe(_run(), self._loop)
+
+    async def _gather_peers(self, timeout_s: float) -> list[dict]:
+        """Scatter-gather peers over ``_lightfall.discover``.
+
+        Subscribes a temporary inbox, publishes a discovery request with that
+        inbox as the reply subject, collects replies for *timeout_s*, then
+        unsubscribes and returns the de-duped peer list.
+        """
+        if self._nc is None:
+            return []
+        replies: list[dict] = []
+
+        async def _collect(msg: Any) -> None:
+            try:
+                replies.append(json.loads(msg.data.decode()))
+            except Exception as exc:  # malformed reply — ignore
+                logger.debug("IPCService: bad discover reply: {}", exc)
+
+        inbox = self._nc.new_inbox()
+        sub = await self._nc.subscribe(inbox, cb=_collect)
+        await self._nc.publish("_lightfall.discover", b"{}", reply=inbox)
+        await asyncio.sleep(timeout_s)
+        try:
+            await sub.unsubscribe()
+        except Exception as exc:
+            logger.debug("IPCService: error unsubscribing discover inbox: {}", exc)
+        return self._dedupe_peers(replies, self._instance_id)
+
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------

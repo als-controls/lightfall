@@ -43,3 +43,70 @@ class TestNatsUrlProperty:
     def test_nats_url_exposes_configured_url(self, qapp):
         svc = IPCService(nats_url="tls://bcgnats:4222", topic_prefix="als.test")
         assert svc.nats_url == "tls://bcgnats:4222"
+
+
+class _FakeSub:
+    def __init__(self):
+        self.unsubscribed = False
+
+    async def unsubscribe(self):
+        self.unsubscribed = True
+
+
+class _FakeNC:
+    """Minimal async NATS stand-in for gather tests.
+
+    On publish to ``_lightfall.discover`` it immediately delivers the canned
+    replies to the inbox callback, simulating instant peer responses.
+    """
+
+    def __init__(self, canned_replies):
+        self._canned = canned_replies
+        self._inbox_cb = None
+        self.published = []
+        self.sub = _FakeSub()
+
+    def new_inbox(self):
+        return "_INBOX.test123"
+
+    async def subscribe(self, subject, cb=None):
+        self._inbox_cb = cb
+        return self.sub
+
+    async def publish(self, subject, payload, reply=None):
+        self.published.append((subject, payload, reply))
+        if subject == "_lightfall.discover" and self._inbox_cb is not None:
+            for reply_dict in self._canned:
+                msg = type("Msg", (), {"data": json.dumps(reply_dict).encode()})()
+                await self._inbox_cb(msg)
+
+
+@pytest.mark.asyncio
+async def test_gather_peers_collects_and_dedupes():
+    svc = IPCService.__new__(IPCService)
+    svc._instance_id = "host-self"
+    svc._nc = _FakeNC([
+        {"instance_id": "host-self", "display_name": "Me", "prefix": "als"},
+        {"instance_id": "host-2", "display_name": "Other", "prefix": "oth"},
+    ])
+    peers = await svc._gather_peers(timeout_s=0.01)
+    assert [p["instance_id"] for p in peers] == ["host-self", "host-2"]
+    assert peers[0]["is_self"] is True
+    assert svc._nc.sub.unsubscribed is True
+    assert svc._nc.published[0][0] == "_lightfall.discover"
+    assert svc._nc.published[0][2] == "_INBOX.test123"  # reply inbox set
+
+
+@pytest.mark.asyncio
+async def test_gather_peers_returns_empty_when_no_nc():
+    svc = IPCService.__new__(IPCService)
+    svc._instance_id = "x"
+    svc._nc = None
+    assert await svc._gather_peers(timeout_s=0.01) == []
+
+
+def test_discover_peers_calls_back_empty_when_not_connected(qapp):
+    svc = IPCService(nats_url="tls://x:4222", topic_prefix="t")
+    received = []
+    svc.discover_peers(received.append, timeout_ms=10)
+    assert received == [[]]  # immediate empty callback, not connected
