@@ -162,16 +162,6 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="statusbar",
-            name="auth_status",
-            import_path="lightfall.ui.statusbar.plugins.auth_status:AuthStatusPlugin",
-        ),
-        PluginEntry(
-            type_name="statusbar",
-            name="connection_status",
-            import_path="lightfall.ui.statusbar.plugins.connection_status:ConnectionStatusPlugin",
-        ),
-        PluginEntry(
-            type_name="statusbar",
             name="tiled_status",
             import_path="lightfall.ui.statusbar.plugins.tiled_status:TiledStatusPlugin",
         ),

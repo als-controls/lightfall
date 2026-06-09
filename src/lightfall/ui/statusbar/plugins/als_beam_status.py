@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import qtawesome as qta
 from PySide6.QtCore import QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 
@@ -138,14 +139,17 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
         current_str = f"{data.beam_current:.1f} mA"
         lifetime_str = f"{data.lifetime:.1f}h"
-        status_str = "Available" if data.beam_available else "Closed"
 
         if self._theme_manager is None:
             self._theme_manager = ThemeManager.get_instance()
         colors = self._theme_manager.colors
         color = colors.success if data.beam_available else colors.error
 
-        self.set_text(f"{current_str} | {lifetime_str} | {status_str}")
+        self.set_icon(qta.icon("ri.camera-lens-line", color=color))
+        if data.beam_current < 450 or data.lifetime < 1 or not data.beam_available:
+            self.set_text(f"{current_str} | {lifetime_str}")
+        else:
+            self.set_text("")
         self.set_color(color)
         self.set_tooltip(self._build_tooltip(data))
 
@@ -172,8 +176,10 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         if self._theme_manager is None:
             self._theme_manager = ThemeManager.get_instance()
 
+        secondary = self._theme_manager.colors.text_secondary
+        self.set_icon(qta.icon("ri.camera-lens-line", color=secondary))
         self.set_text("Offline")
-        self.set_color(self._theme_manager.colors.text_secondary)
+        self.set_color(secondary)
 
         error_msg = ""
         if self._service and self._service.last_error:

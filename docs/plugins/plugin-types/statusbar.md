@@ -336,8 +336,6 @@ Lightfall includes these status bar plugins:
 | Plugin | Description |
 |--------|-------------|
 | `thread_status` | Background tasks and scan progress (hides when idle) |
-| `user_status` | Current user information |
-| `auth_status` | Authentication state |
-| `connection_status` | Network connection |
+| `user_status` | Current user and authentication state |
 | `tiled_status` | Tiled data service status |
 | `als_beam_status` | ALS synchrotron beam current and availability |

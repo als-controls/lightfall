@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QToolButton
 
 from lightfall.plugins.types import PluginType
@@ -235,6 +236,39 @@ class StatusBarPlugin(PluginType):
         """Set the displayed text on the default button widget."""
         if self._button is not None:
             self._button.setText(text)
+        self._update_toolbutton_style()
+
+    def set_icon(self, icon: QIcon | None) -> None:
+        """Set a leading icon on the default button widget.
+
+        Switches the button to show the icon beside any text. Pass ``None``
+        to clear the icon and revert to text-only display.
+        """
+        if self._button is None:
+            return
+        if icon is None:
+            self._button.setIcon(QIcon())
+        else:
+            self._button.setIcon(icon)
+        self._update_toolbutton_style()
+
+    def _update_toolbutton_style(self) -> None:
+        """Pick the button style from the current icon/text combination.
+
+        Keeps the default button compact: icon-only when there is no text,
+        text-only when there is no icon, and icon-beside-text otherwise.
+        """
+        if self._button is None:
+            return
+        has_icon = not self._button.icon().isNull()
+        has_text = bool(self._button.text())
+        if not has_icon:
+            style = Qt.ToolButtonStyle.ToolButtonTextOnly
+        elif has_text:
+            style = Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        else:
+            style = Qt.ToolButtonStyle.ToolButtonIconOnly
+        self._button.setToolButtonStyle(style)
 
     def set_tooltip(self, tooltip: str) -> None:
         """Set the tooltip on the default button widget."""

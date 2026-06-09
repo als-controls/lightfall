@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+import qtawesome as qta
 from PySide6.QtCore import Slot
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
@@ -130,33 +131,35 @@ class TiledStatusPlugin(StatusBarPlugin):
             self._theme_manager = ThemeManager.get_instance()
         return self._theme_manager.colors
 
-    def _update_display_connected(self) -> None:
-        self.set_text("Tiled: Connected")
-        self.set_color(self._colors.success)
-        self.set_tooltip("Connected to Tiled server")
-
-    def _update_display_connecting(self) -> None:
-        self.set_text("Tiled: Connecting...")
-        self.set_color(self._colors.warning)
-        self.set_tooltip("Connecting to Tiled server...")
-
-    def _update_display_error(self, message: str = "") -> None:
-        self.set_text("Tiled: Error")
-        self.set_color(self._colors.error)
-        tooltip = "Tiled connection error"
-        if message:
-            tooltip = f"Tiled error: {message}"
+    def _set_state(self, text: str, color: str, tooltip: str) -> None:
+        """Apply text, the database icon (tinted to ``color``), and a tooltip."""
+        self.set_icon(qta.icon("mdi6.database", color=color))
+        self.set_text(text)
+        self.set_color(color)
         self.set_tooltip(tooltip)
 
+    def _update_display_connected(self) -> None:
+        # Icon only: the green color already signals "connected".
+        self._set_state("", self._colors.success, "Connected to Tiled server")
+
+    def _update_display_connecting(self) -> None:
+        self._set_state(
+            "Connecting...", self._colors.warning, "Connecting to Tiled server..."
+        )
+
+    def _update_display_error(self, message: str = "") -> None:
+        tooltip = f"Tiled error: {message}" if message else "Tiled connection error"
+        self._set_state("Error", self._colors.error, tooltip)
+
     def _update_display_disconnected(self) -> None:
-        self.set_text("Tiled: Disconnected")
-        self.set_color(self._colors.text_secondary)
-        self.set_tooltip("Disconnected from Tiled server")
+        self._set_state(
+            "Disconnected", self._colors.text_secondary, "Disconnected from Tiled server"
+        )
 
     def _update_display_disabled(self) -> None:
-        self.set_text("Tiled: Off")
-        self.set_color(self._colors.text_secondary)
-        self.set_tooltip("Tiled integration is disabled")
+        self._set_state(
+            "Off", self._colors.text_secondary, "Tiled integration is disabled"
+        )
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools."""
