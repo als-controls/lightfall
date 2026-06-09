@@ -102,7 +102,9 @@ class PanelMetadata:
     id: str                              # Unique ID, e.g., "lightfall.panels.user.my_panel"
     name: str                            # Display name in menus
     description: str = ""                # Tooltip/help text
-    icon: str = ""                       # Icon name (mdi.icon-name or path)
+    icon: str = ""                       # qtawesome name, e.g. "mdi6.chart-line"
+                                         # (NOT a bare word like "chart-scatter" —
+                                         #  unknown names render blank, no error)
     category: str = "General"            # Menu grouping: "User", "Data", "Devices", etc.
     required_permission: Permission | None = None  # Access control (usually None)
     singleton: bool = True               # Only one instance allowed
@@ -111,7 +113,13 @@ class PanelMetadata:
 
     # Docking preferences
     default_area: str = "left"           # "left" or "bottom" (gets sidebar button + title bar)
-                                         # "center" (always visible, no sidebar button)
+                                         # Use these for plugin panels. Do NOT use "center"
+                                         # (reserved for the Logbook — center calls
+                                         # setCentralWidget, so a plugin there evicts it) or
+                                         # "right" (not a plugin area). A panel content area is
+                                         # wrapped in a QScrollArea, so give your main widget
+                                         # layout stretch=1 and pin status/footer rows to a
+                                         # fixed-height container, or they balloon vertically.
     sidebar_group: str = "top"           # "top", "bottom" within sidebar
     auto_hide: bool = True               # Start in auto-hide sidebar
     sidebar_order: int = 0               # Order within group (lower = higher)
