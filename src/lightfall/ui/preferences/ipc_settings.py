@@ -202,7 +202,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
 
         if self._url_edit:
-            self._url_edit.setText(prefs.get("ipc_nats_url", ""))
+            self._url_edit.setText(prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222"))
         if self._prefix_edit:
             self._prefix_edit.setText(prefs.get("ipc_topic_prefix", "als.7011"))
         if self._display_name_edit:

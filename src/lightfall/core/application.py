@@ -283,7 +283,7 @@ class LFApplication(QObject):
         from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
-        nats_url = prefs.get("ipc_nats_url", "")
+        nats_url = prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222")
         topic_prefix = prefs.get("ipc_topic_prefix", "als.7011")
         svc = IPCService(nats_url=nats_url, topic_prefix=topic_prefix)
         svc.set_trust_manager(trust_manager)
