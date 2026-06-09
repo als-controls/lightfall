@@ -142,6 +142,11 @@ class IPCService(QObject):
     def display_name(self, value: str | None) -> None:
         self._display_name = value
 
+    @property
+    def nats_url(self) -> str:
+        """The configured NATS server URL."""
+        return self._nats_url
+
     # ------------------------------------------------------------------
     # Topic builder
     # ------------------------------------------------------------------
@@ -341,6 +346,36 @@ class IPCService(QObject):
         if reason:
             response["reason"] = reason
         return response
+
+    # ------------------------------------------------------------------
+    # Peer discovery
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dedupe_peers(replies: list[dict], self_id: str) -> list[dict]:
+        """De-dupe discovery replies by instance_id and tag the local one.
+
+        The local IPCService answers its own ``_lightfall.discover`` request,
+        so its reply is tagged ``is_self=True`` rather than dropped. Sorted
+        self-first, then by display_name, then instance_id.
+        """
+        by_id: dict[str, dict] = {}
+        for reply in replies:
+            if not isinstance(reply, dict):
+                continue
+            iid = reply.get("instance_id")
+            if not iid or iid in by_id:
+                continue
+            by_id[iid] = {
+                "instance_id": iid,
+                "display_name": reply.get("display_name") or "",
+                "prefix": reply.get("prefix") or "",
+                "is_self": iid == self_id,
+            }
+        return sorted(
+            by_id.values(),
+            key=lambda p: (not p["is_self"], p["display_name"].lower(), p["instance_id"]),
+        )
 
     # ------------------------------------------------------------------
     # Connection lifecycle
