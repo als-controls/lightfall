@@ -263,6 +263,7 @@ class TestAuthHandshake:
             # session is still required as a presence flag, but its .token
             # is no longer read.
             mock_session = MagicMock()
+            mock_session.user.attributes = {"sub": "user-abc-123"}
             resp = svc.build_auth_response(
                 approved=True,
                 session=mock_session,
@@ -272,6 +273,7 @@ class TestAuthHandshake:
                 "status": "approved",
                 "tiled_token": "tiled-apikey-xyz",
                 "tiled_url": "https://tiled.example.com",
+                "session_id": "user-abc-123",
             }
         finally:
             SessionManager.reset()

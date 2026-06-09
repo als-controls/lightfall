@@ -336,11 +336,18 @@ class IPCService(QObject):
         if approved and session is not None:
             from lightfall.auth.session import SessionManager
 
+            try:
+                session_id = session.user.attributes.get("sub")
+            except Exception:
+                session_id = None
             return {
                 "status": "approved",
                 # Historical name; actually carries an API key under auth-v2.
                 "tiled_token": SessionManager.get_instance().get_api_key("tiled"),
                 "tiled_url": tiled_url,
+                # Keycloak `sub` of the logged-in user; lets IPC clients drop a
+                # cached Tiled key when a different user session issues a request.
+                "session_id": session_id,
             }
         response: dict = {"status": "denied"}
         if reason:
