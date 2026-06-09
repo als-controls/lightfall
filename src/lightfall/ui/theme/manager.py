@@ -237,6 +237,11 @@ class ThemeManager(QObject):
         self._colors = LIGHT_COLORS
         self._beamline_theme: BeamlineTheme | None = None
         self._custom_stylesheets: dict[str, str] = {}
+        # Islands layout (rounded floating panel cards + islands aesthetic) is
+        # a user preference applied on top of any theme, not tied to the
+        # theme's colors. Off by default; AppearanceSettingsPlugin syncs it
+        # from prefs.
+        self._islands_mode: bool = False
 
         # Detect system theme
         self._update_effective_theme()
@@ -312,6 +317,27 @@ class ThemeManager(QObject):
     def colors(self) -> ThemeColors:
         """Current theme colors."""
         return self._colors
+
+    @property
+    def islands_mode(self) -> bool:
+        """Whether the Islands layout is applied (independent of the theme)."""
+        return self._islands_mode
+
+    def set_islands_mode(self, enabled: bool) -> None:
+        """Enable/disable the Islands layout for any theme.
+
+        Re-applies the stylesheet (regenerated with the new flag) via the
+        theme_changed signal, the same path a theme switch uses.
+
+        Args:
+            enabled: True to apply rounded floating panel cards on a sea
+                canvas; False for a flat layout.
+        """
+        if enabled == self._islands_mode:
+            return
+        self._islands_mode = enabled
+        logger.info("Islands layout {}", "enabled" if enabled else "disabled")
+        self.theme_changed.emit(self._theme_name)
 
     @property
     def beamline_theme(self) -> BeamlineTheme | None:
@@ -697,14 +723,14 @@ QGroupBox::title {{
     padding: 0 4px;
 }}
 
-/* Line edit */
-QLineEdit {{
+/* Line edit / multi-line text edits */
+QLineEdit, QTextEdit, QPlainTextEdit {{
     border: 1px solid {c.border};
     border-radius: 4px;
     padding: 4px 8px;
     background: {c.background};
 }}
-QLineEdit:focus {{
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
     border-color: {c.primary};
 }}
 
@@ -805,6 +831,16 @@ QHeaderView::section {{
     padding: 6px;
 }}
 """
+        # Islands aesthetic (rounded menus, inputs, scrollbars, tabs, ...) is
+        # applied on top of ANY theme when Islands mode is enabled, so the look
+        # is consistent across themes rather than baked into specific ones.
+        if self._islands_mode:
+            try:
+                from lightfall.ui.theme.builtin import generate_islands_stylesheet
+                base_stylesheet += f"\n{generate_islands_stylesheet(c)}"
+            except ImportError:
+                pass
+
         # Append theme-specific CSS overrides
         if self._css_overrides:
             base_stylesheet += f"\n/* Theme-specific overrides */\n{self._css_overrides}"
@@ -812,7 +848,9 @@ QHeaderView::section {{
         # Append docking stylesheet if available
         try:
             from lightfall.ui.docking.theme import generate_docking_stylesheet
-            base_stylesheet += f"\n{generate_docking_stylesheet(c)}"
+            base_stylesheet += (
+                f"\n{generate_docking_stylesheet(c, islands=self._islands_mode)}"
+            )
         except ImportError:
             pass
 

@@ -4,13 +4,14 @@ This package provides:
 - BasePanel: Base class for all NCS panels with introspection
 - PanelRegistry: Central registry for panel discovery and instantiation
 - PanelMetadata: Metadata about panel types
+- PanelStatus: Lifecycle/health status enum for panels
 - LogbookPanel: Default panel for experiment logbook
 - DevicePanel: Panel for device management
 - BlueskyPanel: Panel for Bluesky plan execution
 - DocumentsPanel: Panel for viewing Bluesky document streams
 """
 
-from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import BasePanel, PanelMetadata, PanelStatus
 from lightfall.ui.panels.bluesky_panel import BlueskyPanel
 from lightfall.ui.panels.device_panel import DevicePanel
 from lightfall.ui.panels.documents_panel import DocumentsPanel
@@ -25,4 +26,5 @@ __all__ = [
     "LogbookPanel",
     "PanelMetadata",
     "PanelRegistry",
+    "PanelStatus",
 ]

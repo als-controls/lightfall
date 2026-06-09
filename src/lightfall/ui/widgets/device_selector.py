@@ -191,6 +191,7 @@ class DeviceSelectorDialog(QDialog):
 
         # Tree view
         self._tree_view = QTreeView()
+        self._tree_view.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
         self._tree_view.setModel(self._proxy)
         self._tree_view.setHeaderHidden(True)
         self._tree_view.setRootIsDecorated(show_tree)

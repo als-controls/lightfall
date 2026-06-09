@@ -67,8 +67,47 @@ class DocumentsPanel(BasePanel):
         self._doc_stream = DocumentStreamWidget()
         self._layout.addWidget(self._doc_stream)
 
+        # Stream controls live in the panel title bar, wired to the
+        # document stream widget's existing handlers.
+        self._view_action = self.add_title_bar_button(
+            "mdi6.file-tree", "View", self._on_toggle_view
+        )
+        self._update_view_icon()
+        self.add_title_bar_button(
+            "mdi6.auto-download",
+            "Auto-scroll",
+            self._doc_stream._toggle_auto_scroll,
+            checkable=True,
+            checked=self._doc_stream._auto_scroll,
+        )
+        self.add_title_bar_button(
+            "mdi6.trash-can", "Clear", self._doc_stream._on_clear_clicked
+        )
+
         # Auto-configure with RunEngine singleton
         self._auto_configure()
+
+    def _on_toggle_view(self, *_args) -> None:
+        """Toggle the stream view mode and reflect it in the button icon."""
+        self._doc_stream._toggle_view_mode()
+        self._update_view_icon()
+
+    def _update_view_icon(self) -> None:
+        """Show the icon for the current view mode (tree vs sequential)."""
+        import qtawesome as qta
+
+        try:
+            from lightfall.ui.theme import ThemeManager
+
+            color = ThemeManager.get_instance().colors.text_secondary
+        except Exception:
+            color = "#808080"
+        name = (
+            "mdi6.file-tree"
+            if self._doc_stream._view_mode == "tree"
+            else "mdi6.view-sequential"
+        )
+        self._view_action.setIcon(qta.icon(name, color=color))
 
     def _auto_configure(self) -> None:
         """Auto-configure with RunEngine singleton."""

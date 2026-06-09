@@ -270,6 +270,7 @@ class PlanSelectorWidget(QWidget):
 
         # Plan list
         self._list_view = QListView()
+        self._list_view.setSelectionBehavior(QListView.SelectionBehavior.SelectRows)
         self._list_view.setAlternatingRowColors(True)
 
         self._source_model = PlanListModel()

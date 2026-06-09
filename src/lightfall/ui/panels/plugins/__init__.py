@@ -16,6 +16,7 @@ from lightfall.ui.panels.plugins.device_plugin import DevicePanelPlugin
 from lightfall.ui.panels.plugins.documents_plugin import DocumentsPanelPlugin
 from lightfall.ui.panels.plugins.logbook_entries_plugin import LogbookEntriesPanelPlugin
 from lightfall.ui.panels.plugins.logbook_plugin import LogbookPanelPlugin
+from lightfall.ui.panels.plugins.shussebora_plugin import ShusseboraPanelPlugin
 
 __all__ = [
     "BlueskyPanelPlugin",
@@ -23,6 +24,7 @@ __all__ = [
     "DocumentsPanelPlugin",
     "LogbookEntriesPanelPlugin",
     "LogbookPanelPlugin",
+    "ShusseboraPanelPlugin",
 ]
 
 # Claude panel (built into Lightfall)

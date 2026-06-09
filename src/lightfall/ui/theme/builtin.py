@@ -13,7 +13,12 @@ This module contains the default themes that ship with NCS:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from lightfall.plugins.theme_plugin import ThemeDefinition, ThemePlugin
+
+if TYPE_CHECKING:
+    from lightfall.ui.theme.manager import ThemeColors
 
 
 class LightThemePlugin(ThemePlugin):
@@ -45,6 +50,7 @@ class LightThemePlugin(ThemePlugin):
             info="#0891b2",
             background="#ffffff",
             surface="#f3f4f6",
+            sea="#fafafa",  # lighter than surface (gaps/canvas)
             text="#1f2937",
             text_secondary="#6b7280",
             border="#e5e7eb",
@@ -81,6 +87,7 @@ class SlateThemePlugin(ThemePlugin):
             info="#06b6d4",
             background="#1e1e1e",
             surface="#2d2d2d",
+            sea="#373737",  # lighter than surface (gaps/canvas)
             text="#d4d4d4",
             text_secondary="#808080",
             border="#3e3e3e",
@@ -116,6 +123,7 @@ class DarkBlueThemePlugin(ThemePlugin):
             info="#06b6d4",
             background="#1f2937",
             surface="#374151",
+            sea="#3f4b5d",  # lighter than surface (gaps/canvas)
             text="#f3f4f6",
             text_secondary="#9ca3af",
             border="#4b5563",
@@ -181,7 +189,9 @@ class IslandsThemePlugin(ThemePlugin):
             border=c._BORDER,
             connected="#3FB950",
             disconnected="#5C2323",
-            css_overrides=_build_islands_css(c),
+            # No css_overrides: the islands aesthetic now comes from the
+            # Islands-mode toggle (generate_islands_stylesheet), applied on top
+            # of this palette when enabled — consistent across all themes.
         )
 
 
@@ -294,14 +304,14 @@ QTabBar::tab:hover:!selected {{
 /* --------------------------------------------------------------------------
    Inputs
    -------------------------------------------------------------------------- */
-QLineEdit {{
+QLineEdit, QTextEdit, QPlainTextEdit {{
     border-radius: 6px;
     padding: 4px 8px;
     background: {c._INPUT};
     border: 1px solid {c._BORDER};
 }}
 
-QLineEdit:focus {{
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
     border-color: {c._ACCENT};
     background: {c._SEA};
 }}
@@ -517,6 +527,44 @@ QStatusBar::item {{
 """
 
 
+def _adjust(hex_color: str, amount: int) -> str:
+    """Lighten (+) or darken (-) a hex color by `amount` (~-255..255)."""
+    from PySide6.QtGui import QColor
+
+    qc = QColor(hex_color)
+    h, s, lightness, a = qc.getHslF()
+    lightness = max(0.0, min(1.0, lightness + amount / 255.0))
+    qc.setHslF(h, s, lightness, a)
+    return qc.name()
+
+
+class _IslandsPalette:
+    """Adapt a ThemeColors palette to the color constants the islands CSS
+    expects, deriving the input/highlight/accent-state shades that aren't part
+    of ThemeColors from the base palette. Lets the islands aesthetic be
+    generated for ANY theme (driven by the Islands-mode toggle) rather than
+    being hard-coded in specific themes' css_overrides."""
+
+    def __init__(self, c: ThemeColors) -> None:
+        self._SEA = c.sea
+        self._BG = c.background
+        self._TEXT = c.text
+        self._BORDER = c.border
+        self._ACCENT = c.primary
+        self._INPUT = _adjust(c.background, 7)        # slightly elevated field
+        self._BORDER_HI = _adjust(c.border, 18)       # focus/hover border
+        self._ACCENT_HOVER = _adjust(c.primary, -16)
+        self._ACCENT_PRESS = _adjust(c.primary, -32)
+
+
+def generate_islands_stylesheet(colors: ThemeColors) -> str:
+    """Islands aesthetic (rounded menus, inputs, scrollbars, tabs, etc.) for
+    any theme. Applied by ThemeManager when Islands mode is enabled, so the
+    look is consistent across themes instead of living in specific themes'
+    css_overrides."""
+    return _build_islands_css(_IslandsPalette(colors))
+
+
 class CatppuccinMochaThemePlugin(ThemePlugin):
     """Catppuccin Mocha theme plugin.
 
@@ -546,6 +594,7 @@ class CatppuccinMochaThemePlugin(ThemePlugin):
             info="#74c7ec",          # sapphire
             background="#1e1e2e",    # base
             surface="#313244",       # surface0
+            sea="#3a3b50",           # surface1 — lighter than surface (gaps)
             text="#cdd6f4",          # text
             text_secondary="#a6adc8",  # subtext0
             border="#45475a",        # surface1
@@ -583,6 +632,7 @@ class EldritchThemePlugin(ThemePlugin):
             info="#39DDFD",          # bright_cyan
             background="#212337",    # bg
             surface="#292e42",       # bg_highlight
+            sea="#31374f",           # lighter than surface (gaps/canvas)
             text="#ebfafa",          # fg
             text_secondary="#ABB4DA",  # fg_dark
             border="#414868",        # terminal_black
@@ -620,7 +670,8 @@ class EvangelionThemePlugin(ThemePlugin):
             error="#DB6088",         # misato
             info="#AB92FC",          # dummyplug
             background="#201430",    # midnight
-            surface="#39274C",       # casper
+            surface="#201430",       # midnight (panel cards)
+            sea="#39274C",           # casper — lighter than surface (gaps)
             text="#E1D6F8",          # rei
             text_secondary="#A1A0AD",  # shinji
             border="#483160",        # longingus
@@ -653,8 +704,8 @@ class AyakaThemePlugin(ThemePlugin):
 
     # --- Ayaka color constants ---
     _BG = "#1a1b2e"        # twilight indigo (deepest)
-    _ISLAND = "#252640"    # dusk cloud (surface / panels)
-    _SEA = "#1f2038"       # deeper twilight (gaps between islands)
+    _ISLAND = "#1f2038"    # deeper twilight (surface / panel cards)
+    _SEA = "#252640"       # dusk cloud (sea / gaps) — lighter than surface
     _INPUT = "#1e1f35"     # input fields — slightly warmer than bg
     _BORDER = "#3a3a58"    # indigo border
     _BORDER_HI = "#4a4a70" # highlighted border
@@ -681,335 +732,6 @@ class AyakaThemePlugin(ThemePlugin):
             border=c._BORDER,
             connected="#90c8a0",
             disconnected="#5c2535",   # deep plum
-            css_overrides=_build_ayaka_css(c),
+            # No css_overrides — islands aesthetic comes from the Islands-mode
+            # toggle (see IslandsThemePlugin).
         )
-
-
-def _build_ayaka_css(c) -> str:
-    """Build Ayaka CSS overrides from the class color constants."""
-    return f"""
-/* Ayaka (彩佳) Theme — twilight sakura with Islands layout */
-
-/* --------------------------------------------------------------------------
-   Menu bar — sea color, sits above the islands
-   -------------------------------------------------------------------------- */
-QMenuBar {{
-    background: {c._SEA};
-    color: {c._TEXT};
-    border: none;
-    padding: 2px 4px;
-    spacing: 2px;
-}}
-
-QMenuBar::item {{
-    background: transparent;
-    padding: 4px 8px;
-    border-radius: 6px;
-}}
-
-QMenuBar::item:selected {{
-    background: {c._BORDER};
-}}
-
-/* --------------------------------------------------------------------------
-   Menus — island-styled popups
-   -------------------------------------------------------------------------- */
-QMenu {{
-    background-color: {c._SEA};
-    border: 1px solid {c._BORDER};
-    border-radius: 8px;
-    padding: 4px;
-}}
-
-QMenu::item {{
-    padding: 8px 24px;
-    border-radius: 4px;
-    margin: 2px 4px;
-}}
-
-QMenu::item:selected {{
-    background-color: {c._ACCENT};
-    color: #1a1b2e;
-}}
-
-QMenu::separator {{
-    height: 1px;
-    background: {c._BORDER};
-    margin: 6px 12px;
-}}
-
-QMenu QWidget {{
-    background: transparent;
-}}
-
-/* --------------------------------------------------------------------------
-   Group boxes — island containers
-   -------------------------------------------------------------------------- */
-QGroupBox {{
-    border-radius: 8px;
-    margin-top: 12px;
-    padding: 12px 8px 8px 8px;
-    background-color: {c._SEA};
-}}
-
-QGroupBox::title {{
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-    background-color: {c._SEA};
-    border-radius: 4px;
-}}
-
-/* --------------------------------------------------------------------------
-   Tabs
-   -------------------------------------------------------------------------- */
-QTabWidget::pane {{
-    border: 1px solid {c._BORDER};
-    border-radius: 8px;
-    background: {c._SEA};
-    margin-top: -1px;
-}}
-
-QTabBar::tab {{
-    background: {c._BG};
-    border: 1px solid {c._BORDER};
-    border-bottom: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    padding: 8px 16px;
-    margin-right: 2px;
-}}
-
-QTabBar::tab:selected {{
-    background: {c._SEA};
-    border-bottom-color: {c._SEA};
-}}
-
-QTabBar::tab:hover:!selected {{
-    background: {c._INPUT};
-}}
-
-/* --------------------------------------------------------------------------
-   Inputs
-   -------------------------------------------------------------------------- */
-QLineEdit {{
-    border-radius: 6px;
-    padding: 4px 8px;
-    background: {c._INPUT};
-    border: 1px solid {c._BORDER};
-}}
-
-QLineEdit:focus {{
-    border-color: {c._ACCENT};
-    background: {c._SEA};
-}}
-
-QComboBox {{
-    border-radius: 6px;
-    padding: 4px 8px;
-    background: {c._INPUT};
-    border: 1px solid {c._BORDER};
-}}
-
-QComboBox:focus {{
-    border-color: {c._ACCENT};
-}}
-
-QComboBox::drop-down {{
-    border: none;
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
-}}
-
-QSpinBox, QDoubleSpinBox {{
-    border-radius: 6px;
-    padding: 4px;
-    background: {c._INPUT};
-    border: 1px solid {c._BORDER};
-}}
-
-QSpinBox:focus, QDoubleSpinBox:focus {{
-    border-color: {c._ACCENT};
-}}
-
-/* --------------------------------------------------------------------------
-   Buttons
-   -------------------------------------------------------------------------- */
-QPushButton {{
-    background: {c._SEA};
-    border: 1px solid {c._BORDER};
-    border-radius: 6px;
-    padding: 4px 12px;
-}}
-
-QPushButton:hover {{
-    background: {c._BORDER};
-    border-color: {c._BORDER_HI};
-}}
-
-QPushButton:pressed {{
-    background: {c._BORDER_HI};
-}}
-
-QPushButton[primary="true"] {{
-    background: {c._ACCENT};
-    color: #1a1b2e;
-    border: none;
-    border-radius: 6px;
-}}
-
-QPushButton[primary="true"]:hover {{
-    background: {c._ACCENT_HOVER};
-}}
-
-QPushButton[primary="true"]:pressed {{
-    background: {c._ACCENT_PRESS};
-}}
-
-/* --------------------------------------------------------------------------
-   Scrollbars
-   -------------------------------------------------------------------------- */
-QScrollBar:vertical {{
-    background: {c._BG};
-    width: 14px;
-    margin: 0;
-    border-radius: 7px;
-}}
-
-QScrollBar::handle:vertical {{
-    background: {c._BORDER};
-    min-height: 30px;
-    border-radius: 5px;
-    margin: 3px;
-}}
-
-QScrollBar::handle:vertical:hover {{
-    background: {c._BORDER_HI};
-}}
-
-QScrollBar:horizontal {{
-    background: {c._BG};
-    height: 14px;
-    margin: 0;
-    border-radius: 7px;
-}}
-
-QScrollBar::handle:horizontal {{
-    background: {c._BORDER};
-    min-width: 30px;
-    border-radius: 5px;
-    margin: 3px;
-}}
-
-QScrollBar::handle:horizontal:hover {{
-    background: {c._BORDER_HI};
-}}
-
-QScrollBar::add-line, QScrollBar::sub-line {{
-    border: none;
-    background: none;
-    height: 0;
-    width: 0;
-}}
-
-QScrollBar::add-page, QScrollBar::sub-page {{
-    background: none;
-}}
-
-/* --------------------------------------------------------------------------
-   Tooltips
-   -------------------------------------------------------------------------- */
-QToolTip {{
-    background-color: {c._SEA};
-    color: {c._TEXT};
-    border: 1px solid {c._BORDER};
-    border-radius: 6px;
-    padding: 6px 10px;
-}}
-
-/* --------------------------------------------------------------------------
-   Progress bar
-   -------------------------------------------------------------------------- */
-QProgressBar {{
-    border: none;
-    border-radius: 4px;
-    text-align: center;
-    background: {c._INPUT};
-    height: 8px;
-}}
-
-QProgressBar::chunk {{
-    background: {c._ACCENT};
-    border-radius: 4px;
-}}
-
-/* --------------------------------------------------------------------------
-   Tree / List / Table views
-   -------------------------------------------------------------------------- */
-QTreeView, QListView, QTableView {{
-    border: 1px solid {c._BORDER};
-    border-radius: 8px;
-    background: {c._INPUT};
-}}
-
-QTreeView::item, QListView::item, QTableView::item {{
-    padding: 4px;
-    border-radius: 4px;
-}}
-
-QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
-    background: {c._ACCENT};
-    color: #1a1b2e;
-}}
-
-QTreeView::item:hover:!selected, QListView::item:hover:!selected, QTableView::item:hover:!selected {{
-    background: {c._SEA};
-}}
-
-/* --------------------------------------------------------------------------
-   Headers
-   -------------------------------------------------------------------------- */
-QHeaderView::section {{
-    background: {c._SEA};
-    border: none;
-    border-right: 1px solid {c._BORDER};
-    border-bottom: 1px solid {c._BORDER};
-    padding: 8px;
-}}
-
-QHeaderView::section:first {{
-    border-top-left-radius: 8px;
-}}
-
-QHeaderView::section:last {{
-    border-top-right-radius: 8px;
-    border-right: none;
-}}
-
-/* --------------------------------------------------------------------------
-   Splitters
-   -------------------------------------------------------------------------- */
-QSplitter::handle {{
-    background: {c._BORDER};
-}}
-
-QSplitter::handle:horizontal {{
-    width: 2px;
-}}
-
-QSplitter::handle:vertical {{
-    height: 2px;
-}}
-
-/* --------------------------------------------------------------------------
-   Status bar
-   -------------------------------------------------------------------------- */
-QStatusBar {{
-    background: {c._SEA};
-    border-top: none;
-}}
-
-QStatusBar::item {{
-    border: none;
-}}
-"""

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from loguru import logger
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -75,6 +77,7 @@ class PreferencesDialog(QDialog):
 
         # Left sidebar for navigation
         self._sidebar = QListWidget()
+        self._sidebar.setSelectionBehavior(QListWidget.SelectionBehavior.SelectRows)
         self._sidebar.setMaximumWidth(150)
         self._sidebar.setMinimumWidth(120)
         self._sidebar.currentRowChanged.connect(self._on_page_changed)
@@ -140,12 +143,26 @@ class PreferencesDialog(QDialog):
                 self._plugin_widgets[plugin.name] = widget
                 plugin.load_settings()
 
-                # Add to UI
+                # Add to UI. Wrap each plugin widget in its own vertical
+                # scroll area (one per stack page). Putting the QStackedWidget
+                # itself inside a single scroll area would size its contents to
+                # the tallest page; per-page scroll areas scroll independently.
+                scroll = QScrollArea()
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+                scroll.setHorizontalScrollBarPolicy(
+                    Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                )
+                scroll.setVerticalScrollBarPolicy(
+                    Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                )
+                scroll.setWidget(widget)
+
                 item = QListWidgetItem(plugin.display_name)
                 if plugin.icon:
                     item.setIcon(plugin.icon)
                 self._sidebar.addItem(item)
-                self._stack.addWidget(widget)
+                self._stack.addWidget(scroll)
 
                 logger.debug("Loaded settings plugin: {}", plugin.name)
             except Exception as e:

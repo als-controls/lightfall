@@ -185,6 +185,11 @@ builtin_manifest = PluginManifest(
             name="thread_status",
             import_path="lightfall.ui.statusbar.plugins.thread_status:ThreadStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="shussebora_status",
+            import_path="lightfall.ui.statusbar.plugins.shussebora_status:ShusseboraStatusPlugin",
+        ),
         # Agent plugins (skill prompts and/or MCP tool bags).
         # Each contributes via AgentRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lightfall/claude/agent.py.
@@ -300,6 +305,12 @@ builtin_manifest = PluginManifest(
             type_name="panel",
             name="threads",
             import_path="lightfall.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="shussebora",
+            import_path="lightfall.ui.panels.plugins.shussebora_plugin:ShusseboraPanelPlugin",
             preload=True,
         ),
         PluginEntry(

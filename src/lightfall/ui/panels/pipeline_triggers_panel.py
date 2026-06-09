@@ -61,6 +61,7 @@ class PipelineTriggersPanel(QWidget):
         outer.addLayout(controls)
 
         self._table = QTableWidget(0, len(_COLUMNS))
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         outer.addWidget(self._table)
 
