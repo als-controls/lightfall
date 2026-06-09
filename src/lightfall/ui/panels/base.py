@@ -183,6 +183,9 @@ class BasePanel(QWidget):
         # Title bar actions must exist before _setup_ui so subclasses can
         # register actions during UI construction.
         self._title_bar_actions: list[QAction] = []
+        # Arbitrary panel-contributed title-bar widgets (e.g. a status
+        # spinner used as a toggle). Rendered alongside the action buttons.
+        self._title_bar_widgets: list[QWidget] = []
         # Keeps title-bar dropdown menus alive (they are owned by the button
         # popup, not parented to the panel — see add_title_bar_button).
         self._title_bar_menus: list[Any] = []
@@ -413,10 +416,29 @@ class BasePanel(QWidget):
         self.add_title_bar_action(action)
         return action
 
+    def add_title_bar_widget(self, widget: QWidget) -> None:
+        """Add an arbitrary widget to the panel title bar.
+
+        Unlike ``add_title_bar_action`` (which renders a QAction as an icon
+        button), this places a caller-owned widget — e.g. a status spinner
+        doubling as a toggle — directly into the title bar. The panel retains
+        ownership; the title bar never deletes it on rebuild.
+
+        Args:
+            widget: The widget to show in the title bar.
+        """
+        self._title_bar_widgets.append(widget)
+        self.title_bar_actions_changed.emit()
+
     @property
     def title_bar_actions(self) -> list[QAction]:
         """Actions shown as title bar buttons (copy of internal list)."""
         return list(self._title_bar_actions)
+
+    @property
+    def title_bar_widgets(self) -> list[QWidget]:
+        """Widgets shown in the title bar (copy of internal list)."""
+        return list(self._title_bar_widgets)
 
     # State management
 

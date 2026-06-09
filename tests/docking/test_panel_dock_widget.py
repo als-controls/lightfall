@@ -83,6 +83,14 @@ class TestTitleBarActions:
         panel.add_title_bar_action(action)
         assert dock._title_bar._actions_layout.count() == 1
 
+    def test_panel_widgets_rendered(self, qtbot):
+        from PySide6.QtWidgets import QLabel
+
+        window, panel, dock = _make_dock(qtbot)
+        w = QLabel("spin", panel)
+        panel.add_title_bar_widget(w)
+        assert w in dock._title_bar.findChildren(QLabel)
+
 
 class TestTheaterTeardownInteractions:
     def test_minimize_while_expanded_collapses_first(self, qtbot):

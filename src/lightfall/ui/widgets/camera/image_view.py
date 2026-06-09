@@ -107,6 +107,7 @@ class OphydImageView(QWidget):
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(4)
+        self._toolbar = toolbar  # exposed for add_toolbar_action() injection
 
         self._reset_lut_btn = QPushButton(qta.icon("mdi6.chart-histogram"), "Reset LUT")
         self._reset_lut_btn.setFixedHeight(24)
@@ -208,6 +209,34 @@ class OphydImageView(QWidget):
         self._progress_bar.setFormat("%v / %m  (%p%)")
         self._progress_bar.setVisible(False)
         layout.addWidget(self._progress_bar)
+
+    def add_toolbar_action(self, action: "Any") -> "Any":
+        """Render a QAction as an icon button in the image toolbar.
+
+        Lets an embedding panel (e.g. XPCS) contribute ROI/mask tools to the
+        image view's own toolbar instead of a separate control strip. An
+        action carrying a menu becomes an InstantPopup button (mirrors the
+        panel title bar). The button is inserted with the built-in tools,
+        before the trailing stretch.
+
+        Returns the created QToolButton.
+        """
+        from PySide6.QtWidgets import QToolButton
+
+        btn = QToolButton()
+        btn.setFixedHeight(24)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setToolTip(action.toolTip() or action.text())
+        menu = action.menu()
+        if menu is not None:
+            btn.setIcon(action.icon())
+            btn.setMenu(menu)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        else:
+            btn.setDefaultAction(action)
+        # insert before the trailing stretch so tools stay left-aligned
+        self._toolbar.insertWidget(max(0, self._toolbar.count() - 1), btn)
+        return btn
 
     # =====================================================================
     # Background polling thread

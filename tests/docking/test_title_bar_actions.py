@@ -1,7 +1,7 @@
 """Tests for the BasePanel title-bar actions API."""
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu, QToolButton
+from PySide6.QtWidgets import QLabel, QMenu, QToolButton
 
 from lightfall.ui.docking.widget import PanelTitleBar
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
@@ -87,6 +87,44 @@ class TestAddTitleBarButtonHelper:
         menu.addAction("Updated")
         action = panel.add_title_bar_button("mdi6.sort", "Sort", menu=menu)
         assert action.menu() is menu
+
+
+class TestTitleBarWidgets:
+    """Panels may contribute arbitrary widgets (e.g. a status spinner) to the
+    title bar, not just QAction buttons."""
+
+    def test_add_widget_stored_and_emits_signal(self, qtbot):
+        class _P(BasePanel):
+            panel_metadata = PanelMetadata(id="test.tbwidget", name="P")
+
+        panel = _P()
+        qtbot.addWidget(panel)
+        assert panel.title_bar_widgets == []
+        w = QLabel("x")
+        with qtbot.waitSignal(panel.title_bar_actions_changed):
+            panel.add_title_bar_widget(w)
+        assert panel.title_bar_widgets == [w]
+
+    def test_returned_widget_list_is_a_copy(self, qtbot):
+        class _P(BasePanel):
+            panel_metadata = PanelMetadata(id="test.tbwidget.copy", name="P")
+
+        panel = _P()
+        qtbot.addWidget(panel)
+        panel.add_title_bar_widget(QLabel("x"))
+        panel.title_bar_widgets.clear()
+        assert len(panel.title_bar_widgets) == 1
+
+    def test_set_widgets_renders_and_is_idempotent(self, qtbot):
+        bar = PanelTitleBar("Title")
+        qtbot.addWidget(bar)
+        w = QLabel("spinner")
+        bar.set_widgets([w])
+        assert w in bar.findChildren(QLabel)
+        # rebuilding must NOT delete the panel-owned widget (unlike action
+        # buttons, the title bar does not own these)
+        bar.set_widgets([w])
+        assert w in bar.findChildren(QLabel)
 
 
 class TestTitleBarMenuRendering:

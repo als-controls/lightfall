@@ -67,6 +67,39 @@ class TestOphydImageViewBasic:
         view.close()
 
 
+class TestToolbarInjection:
+    """Panels embedding the view (e.g. XPCS) inject ROI/mask tools into the
+    image toolbar via a public hook."""
+
+    def test_add_toolbar_action_inserts_button_before_stretch(self, qapp):
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QToolButton
+
+        view = OphydImageView(_make_mock_device())
+        act = QAction("Add ROI", view)
+        btn = view.add_toolbar_action(act)
+        assert isinstance(btn, QToolButton)
+        assert btn.defaultAction() is act
+        # inserted with the other tools, not pushed past the trailing stretch
+        idx = view._toolbar.indexOf(btn)
+        assert idx == view._toolbar.count() - 2
+        view.close()
+
+    def test_add_toolbar_action_with_menu_is_instant_popup(self, qapp):
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMenu, QToolButton
+
+        view = OphydImageView(_make_mock_device())
+        menu = QMenu()
+        menu.addAction("Add mask")
+        act = QAction("Mask", view)
+        act.setMenu(menu)
+        btn = view.add_toolbar_action(act)
+        assert btn.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
+        assert btn.menu() is menu
+        view.close()
+
+
 class TestLUTBehavior:
     """LUT should auto-scale on first frame, then stay stable."""
 

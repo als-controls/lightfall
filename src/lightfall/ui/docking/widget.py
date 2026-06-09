@@ -116,6 +116,13 @@ class PanelTitleBar(QFrame):
         layout.addWidget(label)
         layout.addStretch()
 
+        # Panel-contributed widgets (e.g. a status spinner toggle) render to
+        # the left of the action buttons, in their own caller-owned sub-layout.
+        self._widgets_layout = QHBoxLayout()
+        self._widgets_layout.setContentsMargins(0, 0, 0, 0)
+        self._widgets_layout.setSpacing(4)
+        layout.addLayout(self._widgets_layout)
+
         # Panel-contributed action buttons live in their own sub-layout
         # so set_actions() can rebuild them without touching the window
         # buttons.
@@ -213,7 +220,31 @@ class PanelTitleBar(QFrame):
             else:
                 btn.setDefaultAction(action)
             self._actions_layout.addWidget(btn)
-        self._separator.setVisible(bool(actions))
+        self._update_separator()
+
+    def set_widgets(self, widgets: list[QWidget]) -> None:
+        """Place panel-contributed widgets in the title bar.
+
+        These widgets are owned by the panel, so on rebuild they are detached
+        from the layout (reparented away) rather than deleted.
+
+        Args:
+            widgets: Widgets to render, left of the action buttons (in order).
+        """
+        while self._widgets_layout.count():
+            item = self._widgets_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)  # detach without deleting (panel owns it)
+        for widget in widgets:
+            self._widgets_layout.addWidget(widget)
+        self._update_separator()
+
+    def _update_separator(self) -> None:
+        """Show the separator before the window buttons when the panel
+        contributed any actions or widgets."""
+        has_content = self._actions_layout.count() > 0 or self._widgets_layout.count() > 0
+        self._separator.setVisible(has_content)
 
     def set_floating(self, floating: bool) -> None:
         """Swap expand/redock buttons based on floating state.
@@ -293,8 +324,12 @@ class PanelDockWidget(QDockWidget):
                 lambda: self.setFloating(False)
             )
             self._title_bar.set_actions(panel.title_bar_actions)
+            self._title_bar.set_widgets(panel.title_bar_widgets)
             panel.title_bar_actions_changed.connect(
                 lambda: self._title_bar.set_actions(self._panel.title_bar_actions)
+            )
+            panel.title_bar_actions_changed.connect(
+                lambda: self._title_bar.set_widgets(self._panel.title_bar_widgets)
             )
             self.topLevelChanged.connect(self._title_bar.set_floating)
             self.setTitleBarWidget(self._title_bar)
