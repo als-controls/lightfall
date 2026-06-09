@@ -387,6 +387,7 @@ class IPCService(QObject):
         (the local instance is tagged ``is_self=True``). When not connected the
         callback is invoked immediately with an empty list.
         A very small or zero ``timeout_ms`` may return an empty list, as peers have no time to reply.
+        The local instance is included only if its own discovery reply arrives within the window.
         """
         if not self.is_connected or self._loop is None or self._nc is None:
             invoke_in_main_thread(callback, [])

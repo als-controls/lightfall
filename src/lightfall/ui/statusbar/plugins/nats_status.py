@@ -49,6 +49,7 @@ class NatsStatusPlugin(StatusBarPlugin):
         self._peers: list[dict] = []
         self._last_refreshed: str | None = None
         self._icon_name: str = "mdi6.message-outline"
+        self._alive: bool = True
 
     @property
     def name(self) -> str:
@@ -62,6 +63,7 @@ class NatsStatusPlugin(StatusBarPlugin):
     # -- wiring ---------------------------------------------------------------
 
     def connect_signals(self) -> None:
+        self._alive = True
         try:
             from lightfall.ui.theme import ThemeManager
 
@@ -77,6 +79,7 @@ class NatsStatusPlugin(StatusBarPlugin):
                 self._refresh_peers()
 
     def disconnect_signals(self) -> None:
+        self._alive = False
         ipc = self._get_ipc()
         if ipc is not None:
             try:
@@ -107,7 +110,11 @@ class NatsStatusPlugin(StatusBarPlugin):
 
     def _on_peers(self, peers: list[dict]) -> None:
         # Always invoked on the Qt main thread (IPCService.discover_peers
-        # delivers via invoke_in_main_thread), so touching widgets is safe.
+        # delivers via invoke_in_main_thread). A gather scheduled before
+        # teardown can still land afterwards, so ignore it once the plugin's
+        # signals have been disconnected and its widget is being deleted.
+        if not self._alive:
+            return
         self._peers = peers
         self._last_refreshed = datetime.now().strftime("%H:%M:%S")
         self.update()

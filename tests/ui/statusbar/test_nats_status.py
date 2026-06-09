@@ -75,6 +75,16 @@ def test_disconnect_signal_clears_peers(qtbot):
     assert "not connected" in plugin._button.toolTip()
 
 
+def test_on_peers_ignored_after_disconnect(qtbot):
+    ipc = FakeIPC(connected=True, peers=[])
+    plugin = make_plugin(qtbot, ipc)
+    assert plugin._peers == []
+    plugin.disconnect_signals()
+    # A discovery scheduled before teardown lands afterwards — must be ignored.
+    plugin._on_peers(PEERS)
+    assert plugin._peers == []
+
+
 def test_not_configured_shows_message_outline(qtbot, monkeypatch):
     monkeypatch.setattr(
         "lightfall.ui.statusbar.plugins.nats_status.get_ipc_service", lambda: None
