@@ -106,6 +106,8 @@ class NatsStatusPlugin(StatusBarPlugin):
         ipc.discover_peers(self._on_peers)
 
     def _on_peers(self, peers: list[dict]) -> None:
+        # Always invoked on the Qt main thread (IPCService.discover_peers
+        # delivers via invoke_in_main_thread), so touching widgets is safe.
         self._peers = peers
         self._last_refreshed = datetime.now().strftime("%H:%M:%S")
         self.update()
@@ -156,7 +158,7 @@ class NatsStatusPlugin(StatusBarPlugin):
     def _build_tooltip(self, ipc: IPCService) -> str:
         lines = ["NATS connection — Connected", f"Server: {ipc.nats_url}", ""]
         if self._peers:
-            lines.append(f"Peers ({len(self._peers)}):")
+            lines.append("Peers:")
             for p in self._peers:
                 name = p.get("display_name") or p.get("instance_id") or "?"
                 tag = " (this instance)" if p.get("is_self") else ""

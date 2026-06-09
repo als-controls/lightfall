@@ -64,6 +64,17 @@ def test_disconnected_shows_message_off(qtbot):
     assert "not connected" in plugin._button.toolTip()
 
 
+def test_disconnect_signal_clears_peers(qtbot):
+    ipc = FakeIPC(connected=True, peers=PEERS)
+    plugin = make_plugin(qtbot, ipc)
+    assert plugin._peers  # populated on connect
+    ipc._connected = False
+    ipc.sigConnectionChanged.emit(False)
+    assert plugin._peers == []
+    assert plugin._icon_name == "mdi6.message-off-outline"
+    assert "not connected" in plugin._button.toolTip()
+
+
 def test_not_configured_shows_message_outline(qtbot, monkeypatch):
     monkeypatch.setattr(
         "lightfall.ui.statusbar.plugins.nats_status.get_ipc_service", lambda: None
