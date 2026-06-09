@@ -43,7 +43,7 @@ def make_plugin(qtbot):
 
 def test_unknown_before_any_heartbeat(qtbot):
     plugin, monitor = make_plugin(qtbot)
-    assert plugin._button.text() == "—"
+    assert plugin._button.text() == ""
     assert "no instances" in plugin._button.toolTip()
 
 
