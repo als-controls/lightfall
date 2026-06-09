@@ -150,7 +150,15 @@ def simple_acquire(
     image_mode = 1 if num_images > 1 else 0
     yield from bps.mv(detector.cam.image_mode, image_mode)
 
-    yield from bps.open_run()
+    # open_run() (unlike bp.count) does not auto-populate the start doc, so
+    # advertise the detector explicitly — downstream consumers (e.g. the XPCS
+    # panel) key off start["detectors"] to pick the active detector.
+    yield from bps.open_run(md={
+        "detectors": [detector.name],
+        "plan_name": "simple_acquire",
+        "num_images": num_images,
+        "acquire_time": acquire_time,
+    })
 
     if collect_dark and hasattr(detector.cam, "shutter_control"):
         yield from bps.stage(detector)

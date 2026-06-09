@@ -29,3 +29,15 @@ def test_single_image_uses_single_mode():
 
 def test_multiple_images_uses_multiple_mode():
     assert _image_mode_set_value(num_images=5) == MULTIPLE
+
+
+def test_open_run_advertises_detector():
+    """The start doc must carry detectors so consumers (e.g. the XPCS panel)
+    can pick the active detector — open_run does not add it automatically."""
+    det = SimDetector(name="sim_det")
+    md = None
+    for msg in simple_acquire(detector=det, num_images=1):
+        if msg.command == "open_run":
+            md = msg.kwargs
+            break
+    assert md is not None and md.get("detectors") == ["sim_det"]
