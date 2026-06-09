@@ -180,6 +180,11 @@ builtin_manifest = PluginManifest(
             name="shussebora_status",
             import_path="lightfall.ui.statusbar.plugins.shussebora_status:ShusseboraStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="nats_status",
+            import_path="lightfall.ui.statusbar.plugins.nats_status:NatsStatusPlugin",
+        ),
         # Agent plugins (skill prompts and/or MCP tool bags).
         # Each contributes via AgentRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lightfall/claude/agent.py.

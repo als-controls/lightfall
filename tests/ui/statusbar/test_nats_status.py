@@ -100,3 +100,23 @@ def test_introspection_reports_connection_and_peers(qtbot):
     assert data["connected"] is True
     assert data["peer_count"] == 1
     assert len(data["peers"]) == 2
+
+
+def test_registered_in_builtin_manifest():
+    from lightfall.plugins.builtin_manifest import builtin_manifest
+
+    entry = next(
+        (e for e in builtin_manifest.plugins
+         if e.type_name == "statusbar" and e.name == "nats_status"),
+        None,
+    )
+    assert entry is not None
+    assert entry.import_path == (
+        "lightfall.ui.statusbar.plugins.nats_status:NatsStatusPlugin"
+    )
+
+
+def test_exported_from_plugins_package():
+    from lightfall.ui.statusbar.plugins import NatsStatusPlugin as Exported
+
+    assert Exported is NatsStatusPlugin
