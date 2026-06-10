@@ -1,24 +1,13 @@
 """
-Experiment logbook widget for NCS.
+Experiment logbook integration for Lightfall.
 
-This module provides a markdown-based experiment logbook widget with:
-- Dual editing modes: raw markdown and WYSIWYG
-- Protected content regions using HTML comment markers
-- Signal-based protection violation notification
-- Theme-aware styling
+This package provides:
+- Logbook service client (``lightfall.logbook.client``)
+- Fragment-based entry widgets (``lightfall.logbook.entry_widget``,
+  ``lightfall.logbook.fragment_widgets``)
+- Logbook event listening (``lightfall.logbook.event_listener``)
+- Logbook URL helpers (``lightfall.logbook.url``)
 - Automatic device action logging
-
-Usage:
-    >>> from lightfall.logbook import LogbookWidget
-    >>> logbook = LogbookWidget()
-    >>> logbook.set_content("# My Experiment\\n\\nNotes...")
-    >>> logbook.protection_violated.connect(handle_violation)
-    >>> logbook.show()
-
-Protected regions are defined using HTML comment syntax:
-    <!-- PROTECTED:region-id -->
-    Protected content here...
-    <!-- /PROTECTED:region-id -->
 
 Device action logging:
     >>> from lightfall.logbook import DeviceActionLogger
@@ -27,20 +16,12 @@ Device action logging:
     >>> logger.action_recorded.connect(on_action)
 """
 
-from lightfall.logbook.action_dialog import ActionGroupDialog
 from lightfall.logbook.action_logger import ActionGroup, DeviceAction, DeviceActionLogger
-from lightfall.logbook.converter import MarkdownConverter
-from lightfall.logbook.protection import ActionGroupInfo, ProtectedRegion, ProtectionManager
-from lightfall.logbook.widget import LogbookWidget
+from lightfall.logbook.client import LogbookClient
 
 __all__ = [
     "ActionGroup",
-    "ActionGroupDialog",
-    "ActionGroupInfo",
     "DeviceAction",
     "DeviceActionLogger",
-    "LogbookWidget",
-    "MarkdownConverter",
-    "ProtectedRegion",
-    "ProtectionManager",
+    "LogbookClient",
 ]
