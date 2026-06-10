@@ -67,7 +67,6 @@ class ParameterInfo:
         default: Default value (inspect.Parameter.empty if none).
         kind: Parameter kind (POSITIONAL_ONLY, VAR_POSITIONAL, etc.).
         description: Extracted description from docstring.
-        required: Whether the parameter is required.
     """
 
     name: str
