@@ -180,16 +180,19 @@ class BlueskyEngine(BaseEngine):
         # Main processing loop - check for interruption request to allow clean shutdown
         while not QThread.currentThread().isInterruptionRequested():
             try:
-                # Block on the priority queue with timeout
+                # Block on the priority queue with timeout. Deliberately NOT
+                # under the queue lock — remove/priority operations must be
+                # able to proceed while this blocks.
                 item = self._queue.get(block=True, timeout=0.1)
             except Empty:
                 continue
 
-            # Track this item as current and remove from tracking list
-            if item in self._queue_items:
-                self._queue_items.remove(item)
-            self._current_procedure = item
-            self.sigQueueChanged.emit()
+            # The item may have been removed from the queue (or be a stale
+            # duplicate left by a priority rebuild) between the blocking
+            # get() and now — claim it under the lock or skip it.
+            if not self._claim_queued_item(item):
+                self._queue.task_done()
+                continue
 
             try:
                 self._execute_plan(item)
@@ -421,5 +424,5 @@ class BlueskyEngine(BaseEngine):
 
     def _check_if_ready(self, *args: Any) -> None:
         """Check if the queue is empty and RE is idle, emit sigReady if so."""
-        if self._RE and self._RE.state == "idle" and self._queue.empty():
+        if self._RE and self._RE.state == "idle" and self.queue_size == 0:
             self.sigReady.emit()

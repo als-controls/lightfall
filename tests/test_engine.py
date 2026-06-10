@@ -4,6 +4,7 @@ Tests the Engine protocol, BaseEngine, BlueskyEngine, and MockEngine.
 """
 
 import time
+from queue import Empty
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +20,25 @@ from lightfall.acquire.engine import (
     reset_engine,
     set_engine,
 )
+
+
+class _QueueOnlyEngine(BaseEngine):
+    """Concrete BaseEngine exposing only the queue machinery for tests."""
+
+    def pause(self, defer: bool = False) -> None:
+        pass
+
+    def resume(self) -> None:
+        pass
+
+    def stop(self) -> bool:
+        return False
+
+    def abort(self, reason: str = "") -> bool:
+        return False
+
+    def halt(self) -> bool:
+        return False
 
 
 @pytest.fixture
@@ -283,6 +303,98 @@ class TestStopAbortFromPaused:
         engine._RE.state = "idle"
         assert engine.halt() is False
         engine._RE.halt.assert_not_called()
+
+
+class TestQueueRaceInvariants:
+    """Deterministic interleaving tests for the queue/tracking-list lock.
+
+    The worker thread's blocking ``get()`` runs without the lock, so these
+    tests call the worker-side claim step (``_claim_queued_item``) directly
+    in the exact orderings that used to race.
+    """
+
+    @pytest.fixture
+    def engine(self, qapp):
+        return _QueueOnlyEngine(name="test")
+
+    def test_removed_item_is_never_claimed(self, engine):
+        proc_id = engine.submit("plan-a", priority=1)
+        item = engine.get_procedure_by_id(proc_id)
+
+        # Worker pops the item from the priority queue...
+        popped = engine._queue.get_nowait()
+        assert popped is item
+
+        # ...and the GUI removes it before the worker claims it.
+        assert engine.remove_from_queue(proc_id) is True
+
+        # The worker-side claim must refuse to execute it.
+        assert engine._claim_queued_item(popped) is False
+        assert engine.get_current_procedure() is None
+
+    def test_priority_rebuild_does_not_double_execute(self, engine):
+        id_a = engine.submit("plan-a", priority=1)
+        id_b = engine.submit("plan-b", priority=2)
+        item_a = engine.get_procedure_by_id(id_a)
+
+        # Worker pops A; before it claims, a priority update rebuilds the
+        # queue from the tracking list, re-queuing a duplicate of A.
+        popped = engine._queue.get_nowait()
+        assert popped is item_a
+        assert engine.update_priority(id_b, 0) is True
+
+        # First claim wins.
+        assert engine._claim_queued_item(popped) is True
+
+        # Drain the queue exactly as the worker loop would: the stale
+        # duplicate of A must be skipped, B must execute exactly once.
+        executed = []
+        while True:
+            try:
+                nxt = engine._queue.get_nowait()
+            except Empty:
+                break
+            if engine._claim_queued_item(nxt):
+                executed.append(nxt.id)
+        assert executed == [id_b]
+
+    def test_remove_after_claim_reports_false(self, engine):
+        proc_id = engine.submit("plan-a", priority=1)
+        popped = engine._queue.get_nowait()
+        assert engine._claim_queued_item(popped) is True
+
+        # Already executing — removal must not claim success.
+        assert engine.remove_from_queue(proc_id) is False
+
+    def test_clear_queue_prevents_claim(self, engine):
+        engine.submit("plan-a", priority=1)
+        popped = engine._queue.get_nowait()
+        engine.clear_queue()
+        assert engine._claim_queued_item(popped) is False
+
+    def test_equal_priority_removal_is_by_identity(self, engine):
+        # PrioritizedProcedure.__eq__ compares only priority (order=True
+        # with compare=False on every other field), so list removal must
+        # match by identity, not equality.
+        id_a = engine.submit("plan-a", priority=1)
+        id_b = engine.submit("plan-b", priority=1)
+
+        assert engine.remove_from_queue(id_b) is True
+        remaining = [item.id for item in engine.get_queue_items()]
+        assert remaining == [id_a]
+
+    def test_queue_size_ignores_stale_duplicates(self, engine):
+        id_a = engine.submit("plan-a", priority=1)
+        engine.submit("plan-b", priority=2)
+
+        # Pop A, then rebuild (re-queues a duplicate of A), then claim A.
+        popped = engine._queue.get_nowait()
+        engine.update_priority(id_a, 0)
+        assert engine._claim_queued_item(popped) is True
+
+        # Only B is really pending, even though the PriorityQueue still
+        # holds a stale duplicate of A.
+        assert engine.queue_size == 1
 
 
 class TestEngineSingleton:

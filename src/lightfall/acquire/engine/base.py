@@ -5,6 +5,7 @@ Provides a base class with common functionality for engines.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -98,6 +99,11 @@ class BaseEngine(QObject):
         self._state = EngineState.IDLE
         self._queue: PriorityQueue[PrioritizedProcedure] = PriorityQueue()
         self._queue_items: list[PrioritizedProcedure] = []  # Parallel list for management
+        # Guards every compound operation on _queue + _queue_items. Worker
+        # threads must NOT hold it while blocking on _queue.get(); instead
+        # they claim popped items via _claim_queued_item, which re-validates
+        # membership under the lock.
+        self._queue_lock = threading.RLock()
         self._current_procedure: PrioritizedProcedure | None = None  # Currently running
         self._subscribers: dict[int, Callable[[str, dict], Any]] = {}
         self._next_token = 0
@@ -139,8 +145,14 @@ class BaseEngine(QObject):
 
     @property
     def queue_size(self) -> int:
-        """Number of procedures waiting in the queue."""
-        return self._queue.qsize()
+        """Number of procedures waiting in the queue.
+
+        Counts the tracking list rather than the PriorityQueue — the queue
+        can transiently hold stale duplicates left behind by a rebuild that
+        raced a worker pop (they are skipped, never executed).
+        """
+        with self._queue_lock:
+            return len(self._queue_items)
 
     @property
     def toast_notifications(self) -> bool:
@@ -195,9 +207,10 @@ class BaseEngine(QObject):
                 return None
 
         item = PrioritizedProcedure(priority, procedure, kwargs, name=name)
-        self._queue.put(item)
-        self._queue_items.append(item)
-        self._queue_items.sort(key=lambda x: x.priority)
+        with self._queue_lock:
+            self._queue.put(item)
+            self._queue_items.append(item)
+            self._queue_items.sort(key=lambda x: x.priority)
         logger.debug(f"[{self._name}] Queued '{name}' with priority {priority}, id={item.id[:8]}")
         self.sigQueueChanged.emit()
         return item.id
@@ -241,14 +254,14 @@ class BaseEngine(QObject):
         Returns:
             Number of procedures removed.
         """
-        count = 0
-        while True:
-            try:
-                self._queue.get_nowait()
-                count += 1
-            except Empty:
-                break
-        self._queue_items.clear()
+        with self._queue_lock:
+            while True:
+                try:
+                    self._queue.get_nowait()
+                except Empty:
+                    break
+            count = len(self._queue_items)
+            self._queue_items.clear()
         if count:
             logger.info(f"[{self._name}] Cleared {count} procedures from queue")
             self.sigQueueChanged.emit()
@@ -260,7 +273,8 @@ class BaseEngine(QObject):
         Returns:
             List of queued procedures sorted by priority.
         """
-        return list(self._queue_items)
+        with self._queue_lock:
+            return list(self._queue_items)
 
     def get_current_procedure(self) -> PrioritizedProcedure | None:
         """Get the currently running procedure, if any.
@@ -279,9 +293,10 @@ class BaseEngine(QObject):
         Returns:
             The procedure if found, None otherwise.
         """
-        for item in self._queue_items:
-            if item.id == procedure_id:
-                return item
+        with self._queue_lock:
+            for item in self._queue_items:
+                if item.id == procedure_id:
+                    return item
         return None
 
     def remove_from_queue(self, procedure_id: str) -> bool:
@@ -291,24 +306,24 @@ class BaseEngine(QObject):
             procedure_id: The ID of the procedure to remove.
 
         Returns:
-            True if the procedure was found and removed.
+            True if the procedure was found and removed. False if it was not
+            queued — including when it already started executing.
         """
-        # Find the item in our tracking list
-        item_to_remove = None
-        for item in self._queue_items:
-            if item.id == procedure_id:
-                item_to_remove = item
-                break
+        with self._queue_lock:
+            # PrioritizedProcedure.__eq__ compares only priority, so the
+            # removal must be by index, not list.remove().
+            index = next(
+                (i for i, item in enumerate(self._queue_items) if item.id == procedure_id),
+                None,
+            )
+            if index is None:
+                logger.warning(f"[{self._name}] Procedure {procedure_id[:8]} not found in queue")
+                return False
 
-        if item_to_remove is None:
-            logger.warning(f"[{self._name}] Procedure {procedure_id[:8]} not found in queue")
-            return False
+            del self._queue_items[index]
 
-        # Remove from tracking list
-        self._queue_items.remove(item_to_remove)
-
-        # Rebuild the priority queue without this item
-        self._rebuild_priority_queue()
+            # Rebuild the priority queue without this item
+            self._rebuild_priority_queue()
 
         logger.info(f"[{self._name}] Removed procedure {procedure_id[:8]} from queue")
         self.sigQueueChanged.emit()
@@ -324,26 +339,26 @@ class BaseEngine(QObject):
         Returns:
             True if the procedure was found and updated.
         """
-        # Find the item in our tracking list
-        for item in self._queue_items:
-            if item.id == procedure_id:
-                old_priority = item.priority
-                # Create new item with updated priority (dataclass is frozen by order=True)
-                # We need to modify the object directly since we're using it in a list
-                object.__setattr__(item, "priority", new_priority)
+        with self._queue_lock:
+            for item in self._queue_items:
+                if item.id == procedure_id:
+                    old_priority = item.priority
+                    # Create new item with updated priority (dataclass is frozen by order=True)
+                    # We need to modify the object directly since we're using it in a list
+                    object.__setattr__(item, "priority", new_priority)
 
-                # Re-sort the tracking list
-                self._queue_items.sort(key=lambda x: x.priority)
+                    # Re-sort the tracking list
+                    self._queue_items.sort(key=lambda x: x.priority)
 
-                # Rebuild the priority queue
-                self._rebuild_priority_queue()
+                    # Rebuild the priority queue
+                    self._rebuild_priority_queue()
 
-                logger.debug(
-                    f"[{self._name}] Updated priority for {procedure_id[:8]}: "
-                    f"{old_priority} -> {new_priority}"
-                )
-                self.sigQueueChanged.emit()
-                return True
+                    logger.debug(
+                        f"[{self._name}] Updated priority for {procedure_id[:8]}: "
+                        f"{old_priority} -> {new_priority}"
+                    )
+                    self.sigQueueChanged.emit()
+                    return True
 
         logger.warning(f"[{self._name}] Procedure {procedure_id[:8]} not found in queue")
         return False
@@ -351,38 +366,72 @@ class BaseEngine(QObject):
     def _rebuild_priority_queue(self) -> None:
         """Rebuild the PriorityQueue from the tracking list.
 
-        Called after removing items or updating priorities.
+        Called after removing items or updating priorities. Caller must hold
+        ``_queue_lock`` (taken re-entrantly here as well). A worker blocked in
+        ``_queue.get()`` may steal an entry mid-drain; because it re-validates
+        via ``_claim_queued_item`` before executing, the worst case is a stale
+        duplicate in the queue, never a lost or doubly-executed item.
         """
-        # Drain the old queue
-        while True:
-            try:
-                self._queue.get_nowait()
-            except Empty:
-                break
+        with self._queue_lock:
+            # Drain the old queue
+            while True:
+                try:
+                    self._queue.get_nowait()
+                except Empty:
+                    break
 
-        # Re-add all items
-        for item in self._queue_items:
-            self._queue.put(item)
+            # Re-add all items
+            for item in self._queue_items:
+                self._queue.put(item)
+
+    def _claim_queued_item(self, item: PrioritizedProcedure) -> bool:
+        """Atomically claim an item popped from the priority queue.
+
+        Worker threads block on ``_queue.get()`` without holding
+        ``_queue_lock``, so by the time they hold the item it may have been
+        removed via ``remove_from_queue``/``clear_queue``, or be a stale
+        duplicate re-queued by ``_rebuild_priority_queue``. Only an item
+        still present in the tracking list may execute; claiming untracks
+        it and sets it as the current procedure in one locked step.
+
+        Args:
+            item: The procedure popped from ``_queue``.
+
+        Returns:
+            True if the item was claimed and may execute; False if it must
+            be skipped.
+        """
+        with self._queue_lock:
+            # Identity, not equality: __eq__ compares only priority.
+            index = next(
+                (i for i, queued in enumerate(self._queue_items) if queued is item),
+                None,
+            )
+            if index is None:
+                return False
+            del self._queue_items[index]
+            self._current_procedure = item
+        self.sigQueueChanged.emit()
+        return True
 
     def _pop_next_procedure(self) -> PrioritizedProcedure | None:
         """Pop the next procedure from the queue.
 
         Also removes from tracking list and sets as current.
-        Called by subclasses when starting execution.
+        Called by subclasses when starting execution. Stale duplicates left
+        behind by a queue rebuild are skipped.
 
         Returns:
             The next procedure to execute, or None if queue is empty.
         """
-        try:
-            item = self._queue.get_nowait()
-            # Remove from tracking list
-            if item in self._queue_items:
-                self._queue_items.remove(item)
-            self._current_procedure = item
-            self.sigQueueChanged.emit()
-            return item
-        except Empty:
-            return None
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Empty:
+                return None
+            if self._claim_queued_item(item):
+                return item
+            self._queue.task_done()
 
     def _clear_current_procedure(self) -> None:
         """Clear the current procedure reference.
@@ -503,7 +552,7 @@ class BaseEngine(QObject):
 
     def _check_if_ready(self, *args: Any) -> None:
         """Check if queue is empty and emit sigReady if so."""
-        if self._state == EngineState.IDLE and self._queue.empty():
+        if self._state == EngineState.IDLE and self.queue_size == 0:
             self.sigReady.emit()
 
     # === Toast Notification Handlers ===
