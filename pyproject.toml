@@ -208,10 +208,20 @@ requires = [
     # Async/HTTP
     "aiohttp>=3.8",
     "aiohttp-socks>=0.8",
+    "httpx[socks]>=0.27",
+    "PySocks>=1.7",
+    "nats-py>=2.0",
+
+    # EPICS
+    "caproto>=1.1",
+    # see [project].dependencies for why netifaces is excluded on macOS
+    "netifaces>=0.11; sys_platform != 'darwin'",
 
     # Data acquisition
     "bluesky>=1.10",
     "ophyd>=1.7",
+    "happi>=2.0",
+    "h5py>=3.0",
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
 
