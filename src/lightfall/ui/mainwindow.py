@@ -407,16 +407,25 @@ class LFMainWindow(QMainWindow):
         - Center panels → Always visible, eager load
         - Bottom area panels → Sidebar bottom section (dock to bottom)
 
-        Also clears saved state and prevents showEvent from restoring.
+        When a saved layout exists (window geometry or docking state), it is
+        left intact so showEvent() can restore it on top of the panels
+        registered here. Only on first run (no saved layout) is any stale
+        partial state cleared and showEvent() restoration suppressed.
         """
-        # Clear any saved state
         from PySide6.QtCore import QSettings
         settings = QSettings("ALS", "NCS")
-        settings.remove("mainwindow/geometry")
-        settings.remove("mainwindow/state")
+        has_saved_layout = settings.value("mainwindow/geometry") is not None or (
+            self._docking_manager is not None
+            and self._docking_manager.has_saved_state(settings)
+        )
 
-        if self._docking_manager:
-            self._docking_manager.clear_state(settings)
+        if not has_saved_layout:
+            # First run: clear stale partial state so the default layout
+            # applies cleanly.
+            settings.remove("mainwindow/geometry")
+            settings.remove("mainwindow/state")
+            if self._docking_manager:
+                self._docking_manager.clear_state(settings)
 
         # Get current user for permission filtering
         user = self._session_manager.current_user
@@ -457,9 +466,12 @@ class LFMainWindow(QMainWindow):
             for panel_id in registered_bottom:
                 self._docking_manager.add_deferred_sidebar_button(panel_id)
 
-        self._default_layout_applied = True
-        logger.info("Applied default panel layout with {} deferred panels",
-                    len(registered_left) + len(registered_bottom))
+        # Suppress showEvent() restoration only when there is nothing to
+        # restore; with a saved layout, showEvent() restores it.
+        self._default_layout_applied = not has_saved_layout
+        logger.info("Applied default panel layout with {} deferred panels{}",
+                    len(registered_left) + len(registered_bottom),
+                    " (saved layout will be restored on show)" if has_saved_layout else "")
 
         # Re-apply theme now that dock widgets exist.
         # The initial apply_to_application() runs before panels are created,

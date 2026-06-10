@@ -962,6 +962,12 @@ class DockingManager(QObject):
             return False
         return self._state_manager.restore(settings)
 
+    def has_saved_state(self, settings: QSettings | None = None) -> bool:
+        """Check whether a saved docking state exists in settings."""
+        if self._state_manager is None:
+            return False
+        return self._state_manager.has_saved_state(settings)
+
     def clear_state(self, settings: QSettings | None = None) -> None:
         """Clear saved docking state."""
         if self._state_manager:

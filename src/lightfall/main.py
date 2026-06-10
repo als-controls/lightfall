@@ -80,8 +80,6 @@ def _configure_remote_display() -> None:
 # Configure remote display BEFORE any Qt imports
 _configure_remote_display()
 
-from PySide6.QtCore import Qt  # noqa: E402
-
 from lightfall.acquire import get_engine  # noqa: E402
 from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
 from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
@@ -773,72 +771,6 @@ def _check_editor_protocol(main_window: LFMainWindow) -> None:
 
     # Delay slightly to ensure window is fully shown
     QTimer.singleShot(500, show_banner)
-
-
-def _setup_default_panels(window: LFMainWindow) -> None:
-    """Setup default panels for the main window.
-
-    Opens panels that should be visible by default on startup.
-    Layout: Claude, Bluesky, and Devices tabbed on left, Logbook on right.
-
-    Args:
-        window: The main window instance.
-    """
-    # Clear any saved window state to ensure our layout is applied
-    from PySide6.QtCore import QSettings
-    settings = QSettings("ALS", "NCS")
-    settings.remove("mainwindow/geometry")
-    settings.remove("mainwindow/state")
-
-    # Open Claude panel on the left first (will be a tab)
-    claude_dock = None
-    claude_panel = window.add_panel(
-        "lightfall.panels.claude",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    if claude_panel:
-        claude_dock = window._panel_docks.get("lightfall.panels.claude")
-
-    # Open Bluesky panel on the left
-    window.add_panel(
-        "lightfall.panels.bluesky",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    bluesky_dock = window._panel_docks.get("lightfall.panels.bluesky")
-
-    # Open Devices panel - add to left then tabify with Bluesky
-    window.add_panel(
-        "lightfall.panels.devices",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    devices_dock = window._panel_docks.get("lightfall.panels.devices")
-
-    # Tabify Claude, Bluesky and Devices (stack as tabs)
-    if claude_dock and bluesky_dock:
-        window.tabifyDockWidget(claude_dock, bluesky_dock)
-    if bluesky_dock and devices_dock:
-        window.tabifyDockWidget(bluesky_dock, devices_dock)
-
-    # Raise Bluesky as the default visible tab
-    if bluesky_dock:
-        bluesky_dock.raise_()
-
-    # Open Logbook panel on the right
-    window.add_panel(
-        "lightfall.panels.logbook",
-        area=Qt.DockWidgetArea.RightDockWidgetArea,
-    )
-    logbook_dock = window._panel_docks.get("lightfall.panels.logbook")
-
-    # Use splitDockWidget to ensure left-right layout
-    first_left_dock = claude_dock or bluesky_dock
-    if first_left_dock and logbook_dock:
-        window.splitDockWidget(first_left_dock, logbook_dock, Qt.Orientation.Horizontal)
-
-    panels_opened = ["Bluesky", "Devices", "Logbook"]
-    if claude_dock:
-        panels_opened.insert(0, "Claude")
-    logger.info("Opened default panels: {} (left), Logbook (right)", "+".join(panels_opened[:-1]))
 
 
 def main() -> int:

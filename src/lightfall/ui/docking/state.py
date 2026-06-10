@@ -100,6 +100,19 @@ class DockingState:
 
         return success
 
+    def has_saved_state(self, settings: QSettings | None = None) -> bool:
+        """Check whether a saved docking state exists in settings.
+
+        Args:
+            settings: Optional QSettings to check.
+
+        Returns:
+            True if a previously saved state is present.
+        """
+        if settings is None:
+            return False
+        return settings.value(f"{self._settings_group}/{self.STATE_KEY}") is not None
+
     def clear(self, settings: QSettings | None = None) -> None:
         """Clear saved docking state.
 
