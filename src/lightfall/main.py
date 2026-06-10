@@ -90,7 +90,6 @@ from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
 from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
-from lightfall.project import ProjectService, create_welcome_project  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
 from lightfall.ui.preferences import PreferencesManager  # noqa: E402
@@ -200,10 +199,6 @@ def _setup_services(app: LFApplication, config: ConfigManager) -> None:
     # External entry point panels can still use ncs.panels entry points via discover_plugins()
     registry = PanelRegistry.get_instance()
     services.register_instance(PanelRegistry, registry)
-
-    # Project service
-    project_service = ProjectService.get_instance()
-    services.register_instance(ProjectService, project_service)
 
     # Device catalog with mock backend
     device_catalog = DeviceCatalog.get_instance()
@@ -639,23 +634,6 @@ def _setup_user_plugins(app: LFApplication) -> None:
         logger.debug("No user plugins loaded")
 
 
-def _setup_first_launch(project_service: ProjectService) -> None:
-    """Setup the welcome project for first launch.
-
-    If no project is currently open (first launch or no recent project),
-    creates and opens the welcome project with introductory content.
-
-    Args:
-        project_service: The ProjectService instance.
-    """
-    # Check if we have a recent project to restore
-    # For now, always create welcome project (persistence comes later)
-    if not project_service.has_project:
-        logger.info("First launch detected, creating welcome project")
-        welcome = create_welcome_project()
-        project_service.open_project(welcome)
-
-
 def _show_startup_login(window: LFMainWindow) -> None:
     """Show login dialog on application startup.
 
@@ -933,10 +911,6 @@ def main() -> int:
 
     # Load user plugins from ~/lightfall/plugins/
     _setup_user_plugins(app)
-
-    # Setup first launch (welcome project)
-    project_service = ProjectService.get_instance()
-    _setup_first_launch(project_service)
 
     # Create and set main window (after preload plugins applied theme)
     window = LFMainWindow()
