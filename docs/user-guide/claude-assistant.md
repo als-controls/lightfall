@@ -15,7 +15,7 @@ Assistant**:
 - **API key** — paste an Anthropic API key, or set the `ANTHROPIC_API_KEY`
   environment variable before launching.
 - **OAuth** — if you have authenticated the Claude Code CLI on this machine
-  (`claude login`), the settings page shows your OAuth status and the
+  (`claude auth login`), the settings page shows your OAuth status and the
   assistant can use that instead of an API key.
 
 The same page selects the **model**, the **maximum turns** per request, and

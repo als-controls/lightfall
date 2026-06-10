@@ -83,7 +83,9 @@ Two things require configuration:
 - **The Data Browser and Visualization panels** read runs from a
   [Tiled](https://blueskyproject.io/tiled/) data server, configured under
   **File → Settings → Tiled Data Catalog**. Without one, scans still run —
-  there is just no catalog to browse.
+  there is just no catalog to browse. For evaluation, a throwaway local
+  server is two commands; [Your First Session](first-session.md) walks
+  through it.
 
 Connecting to real hardware (EPICS/BCS devices, Keycloak sign-on, a shared
 logbook server) is a deployment task; see the

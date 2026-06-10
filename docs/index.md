@@ -70,21 +70,26 @@ pip install lightfall
 lightfall
 ```
 
-Requires Python 3.11 or newer. On first launch, sign in or click **Continue as
-Guest**. A fresh install starts with a set of **simulated devices** — motors and
-point detectors with Gaussian responses, plus temperature and pressure signals —
-so you can open the device panels, run real Bluesky scans, watch the live plots,
-and explore the logbook without touching a beamline.
+Requires Python 3.11 or newer. On first launch, click **Continue as Guest** to
+look around, or sign in with the built-in demo account to run scans: click
+**Use local account instead**, then username `user`, password `user` (guest
+access is read-only). A fresh install starts with a set of **simulated
+devices** — motors and point detectors with Gaussian responses, plus
+temperature and pressure signals — so you can open the device panels, run real
+Bluesky scans, and explore the logbook without touching a beamline.
 
-Two things to know about the out-of-the-box experience:
+Three things to know about the out-of-the-box experience:
 
 - **The agent needs Claude credentials.** Set the `ANTHROPIC_API_KEY`
-  environment variable, or authenticate a Claude subscription with
-  `claude login`. Everything else works without it.
-- **Facility services are optional.** A Tiled data server, Keycloak single
-  sign-on, the logbook server, and real EPICS devices are deployment steps, not
-  prerequisites — the [Developer Guide](developer-guide/index.md) covers wiring
-  them up.
+  environment variable, or authenticate a Claude subscription with the Claude
+  Code CLI (`claude auth login`). Everything else works without it.
+- **Plots and the Data Browser read from a Tiled catalog.** A throwaway local
+  server is two commands — [Your First Session](user-guide/first-session.md)
+  walks through it.
+- **Facility services are optional.** A production Tiled server, Keycloak
+  single sign-on, the logbook server, and real EPICS devices are deployment
+  steps, not prerequisites — the [Developer Guide](developer-guide/index.md)
+  covers wiring them up.
 
 ## Status
 

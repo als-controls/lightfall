@@ -132,9 +132,39 @@ Click **Run**. While the scan steps the motor across the Gaussian peak:
 The remaining two steps — watching the plot and browsing past runs — read
 data back from a **Tiled** catalog, configured under **File → Settings →
 Tiled Data Catalog**. If no Tiled server is configured, the Data Browser
-shows *Disconnected*; the scan itself still runs fine. Setting up a Tiled
-server is covered in the [Developer Guide](../developer-guide/index.md).
+shows *Disconnected*; the scan itself still runs fine. No Tiled server?
+The next section starts a throwaway one.
 ```
+
+### Interlude: a throwaway Tiled server
+
+For evaluation, a local Tiled catalog is two commands. In a second terminal
+(the same virtual environment is fine):
+
+```bash
+pip install "tiled[server]"
+tiled serve catalog --temp --api-key=secret
+```
+
+`--temp` puts the catalog in a temporary directory — it is discarded when you
+stop the server, which is exactly right for a walkthrough. The server listens
+on `http://localhost:8000` by default.
+
+Then connect Lightfall to it:
+
+1. Open **File → Settings → Tiled Data Catalog**.
+2. Check **Enable Tiled integration**.
+3. Set **Server URL** to `http://localhost:8000`.
+4. Set **Authentication** to **API Key** and enter `secret`.
+5. Click **Test Connection** — it should report *Connected!* — then **OK**.
+
+Runs are streamed to the catalog as they execute, so only scans run *while
+connected* end up in it: **re-run the scan from step 5** so there is
+something to look at.
+
+At a deployed beamline none of this applies — Lightfall points at the
+facility's Tiled server instead (see
+[Deployment](../developer-guide/deployment.md)).
 
 ## 6. Watch the data in the Visualization panel
 

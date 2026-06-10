@@ -13,7 +13,7 @@ Most of the stack runs **once per facility** and is shared by every beamline:
 | Service | Role | Notes |
 |---------|------|-------|
 | **Keycloak** | Single sign-on; identity for both control and data access | Lightfall authenticates via OIDC and maps Keycloak groups/roles to application roles |
-| **Tiled server** | Data catalog; per-entry access enforcement | Must implement the auth-v2 API-key contract (`/api/v1/auth/apikey`); the ALS deployment is `als-tiled` |
+| **Tiled server** | Data catalog; per-entry access enforcement | The auth-v2 API-key contract (`/api/v1/auth/apikey`) is required only for the `keycloak` auth mode; with a static API key any stock Tiled server works. The ALS deployment is `als-tiled` |
 | **Logbook server** | Facility logbook backend | Lightfall's `LogbookClient` is local-first; entries sync to this server when configured |
 | **Error tracking** | Sentry-compatible server (the ALS runs self-hosted GlitchTip) | Optional; telemetry is disabled unless a DSN is configured |
 | **Git hosting** | Repositories for beamline plugin packages | Any git forge; plugin packages are ordinary Python packages |
@@ -32,7 +32,7 @@ Each beamline runs its **own**:
 
 ### Preferences (per installation)
 
-User-facing settings live in `PreferencesManager` and are edited in the Preferences dialog (**File → Preferences**). The keys below are the deployment-relevant ones, verified against `src/lightfall/ui/preferences/`:
+User-facing settings live in `PreferencesManager` and are edited in the Preferences dialog (**File → Settings**). The keys below are the deployment-relevant ones, verified against `src/lightfall/ui/preferences/`:
 
 **IPC / NATS** (`ipc_settings.py`):
 
@@ -107,13 +107,13 @@ Any Sentry-compatible server works. With no DSN set, all reporting functions no-
 
 ### Agent credentials
 
-The embedded Claude agent needs Anthropic credentials on each machine: set the `ANTHROPIC_API_KEY` environment variable, or authenticate a Claude subscription with `claude login`. Everything else in the application works without it.
+The embedded Claude agent needs Anthropic credentials on each machine: set the `ANTHROPIC_API_KEY` environment variable, or authenticate a Claude subscription with the Claude Code CLI (`claude auth login`). Everything else in the application works without it.
 
 ## A minimal single-machine deployment
 
 For evaluation, none of the facility services are required: install, launch, continue as guest, and use the mock device backend. Adding services is incremental from there —
 
-1. **Tiled** — point `tiled_url` at a Tiled server; runs are cataloged and browseable.
+1. **Tiled** — point `tiled_url` at a Tiled server; runs are cataloged and browseable. For evaluation, a stock local server works with the API-key auth mode: `pip install "tiled[server]"`, then `tiled serve catalog --temp --api-key=secret` (see [Your First Session](../user-guide/first-session.md)).
 2. **NATS** — point `ipc_nats_url` at a broker and choose a `ipc_topic_prefix`; external clients can now submit plans and watch runs.
 3. **Keycloak** — configure `auth.provider` in YAML; logins now mint per-service API keys, and runs are access-stamped per user and ESAF.
 4. **Logbook server** — point `logbook_url` at the facility logbook; local entries begin syncing.
