@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QAbstractButton, QLineEdit, QTextEdit, QWidget
 
 from lightfall.claude._internal.serialization import find_widget_by_name
 from lightfall.claude._internal.threading import run_on_main_thread
+from lightfall.utils.logging import logger
 
 
 def create_interaction_tools(target_window: QWidget):
@@ -70,7 +71,7 @@ def create_interaction_tools(target_window: QWidget):
                     "is_error": True
                 }
 
-            print(f"[DEBUG] click_widget: Looking for '{object_name}'")
+            logger.debug("click_widget: Looking for '{}'", object_name)
             # Run on main thread since Qt widgets can only be accessed from main thread
             result = run_on_main_thread(_do_click, target_window, object_name)
 
