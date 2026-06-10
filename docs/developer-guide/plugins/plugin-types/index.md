@@ -13,7 +13,7 @@ This section provides detailed documentation for each plugin type in Lightfall.
 | [`theme`](theme.md) | `ThemePlugin` | Define color themes | Yes |
 | [`statusbar`](statusbar.md) | `StatusBarPlugin` | Add status bar indicators | Yes |
 | [`controller`](controller.md) | `ControllerPlugin` | Device-specific control widgets | Yes |
-| [`agent`](agent.md) | `AgentPlugin` | Claude assistant expertise and tools | Yes |
+| [`agent`](agent.md) | `AgentPlugin` | Extend the embedded Claude agent: skill prompts and/or MCP tools | Yes |
 
 ## Common Interface
 
@@ -24,9 +24,14 @@ All plugin types inherit from `PluginType` and share these characteristics:
 ```python
 class PluginType(ABC):
     type_name: ClassVar[str] = "base"       # Unique type identifier
-    description: ClassVar[str] = "..."      # Human-readable description
     is_singleton: ClassVar[bool] = False    # One instance per plugin?
+
+    @property
+    def description(self) -> str:           # Human-readable description
+        return "Base plugin type"
 ```
+
+`AgentPlugin` additionally makes `description` abstract — agent plugins must provide it, since it doubles as the SKILL.md frontmatter description.
 
 ### Required Property
 
@@ -70,11 +75,11 @@ def get_introspection_data(self) -> dict[str, Any]:
 | Add a Bluesky scan plan | [`PlanPlugin`](plan.md) |
 | Add an execution backend | [`EnginePlugin`](engine.md) |
 
-### Claude Assistant
+### Claude Agent
 
 | Goal | Plugin Type |
 |------|-------------|
-| Add domain expertise and/or tools Claude can call | [`AgentPlugin`](agent.md) |
+| Add domain expertise (skill prompt) and/or tools Claude can call | [`AgentPlugin`](agent.md) |
 
 ## Documentation Template
 

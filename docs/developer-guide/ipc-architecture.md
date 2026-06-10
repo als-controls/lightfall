@@ -52,12 +52,13 @@ The user sees the app name and version and chooses "Trust for this session" or "
 ### IPCSettingsPlugin (`lightfall.ui.preferences.ipc_settings`)
 
 A `SettingsPlugin` that exposes IPC configuration in Lightfall's Preferences dialog under the
-**General > IPC** category. It reads and writes two `PreferencesManager` keys:
+**General > IPC** category. It reads and writes three `PreferencesManager` keys:
 
-| Key                | Type  | Default              | Description                         |
-|--------------------|-------|----------------------|-------------------------------------|
-| `ipc_nats_url`     | `str` | `""`                 | Full NATS broker URL                |
-| `ipc_topic_prefix` | `str` | `"als.7011"`         | Prefix prepended to all subjects    |
+| Key                | Type  | Default                                       | Description                          |
+|--------------------|-------|-----------------------------------------------|--------------------------------------|
+| `ipc_nats_url`     | `str` | `"nats://bcgnats.als.private.lbl.gov:4222"`   | Full NATS broker URL                 |
+| `ipc_topic_prefix` | `str` | `"als.7011"`                                  | Prefix prepended to all subjects     |
+| `ipc_display_name` | `str` | `""`                                          | Human-readable instance name shown to discovery clients |
 
 The plugin also displays a live connection status label and a "Trusted Applications" list with a
 "Revoke Selected" button (backed by the in-memory `TrustManager`).
@@ -173,10 +174,11 @@ ipc.publish(ipc.topic("myfeature.changed"), {"state": "active"})
 
 Configuration is stored in `PreferencesManager` and read at service creation time:
 
-| Key                | Default      | Notes                                         |
-|--------------------|--------------|-----------------------------------------------|
-| `ipc_nats_url`     | `""`         | Empty string disables IPC (`start()` is no-op)|
-| `ipc_topic_prefix` | `"als.7011"` | Prepended to every published/subscribed subject |
+| Key                | Default                                     | Notes                                           |
+|--------------------|---------------------------------------------|-------------------------------------------------|
+| `ipc_nats_url`     | `"nats://bcgnats.als.private.lbl.gov:4222"` | Set to an empty string to disable IPC (`start()` becomes a no-op) |
+| `ipc_topic_prefix` | `"als.7011"`                                | Prepended to every published/subscribed subject |
+| `ipc_display_name` | `""`                                        | Optional instance name for discovery replies    |
 
 Changes to these preferences take effect on the next Lightfall restart; the service is not
 dynamically reconfigured at runtime.

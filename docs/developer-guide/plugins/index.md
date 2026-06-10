@@ -112,11 +112,12 @@ manifest = PluginManifest(
 
 Lightfall's built-in plugins are defined in `lightfall.plugins.builtin_manifest`. This manifest is loaded directly by the application and contains core plugins like:
 
-- Theme plugins (light, slate, darkblue, islands)
-- Settings plugins (appearance, devices, claude, etc.)
+- Theme plugins (light, slate, darkblue, islands, and others)
+- Settings plugins (appearance, devices, tiled, logbook, ipc, claude, etc.)
 - Engine plugins (bluesky, mock)
-- Panel plugins (devices, bluesky, claude, etc.)
-- Status bar plugins (user, auth, connection, tiled)
+- Panel plugins (devices, bluesky, queue, claude, logbook, tiled_browser, etc.)
+- Status bar plugins (user_status, tiled_status, als_beam_status, thread_status, nats_status, etc.)
+- Agent plugins (device_tools, plan_tools, panel_design, etc.)
 
 ### External Package Manifests
 
