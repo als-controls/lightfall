@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import qtawesome as qta
 from loguru import logger
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QAction
@@ -20,8 +21,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-import qtawesome as qta
 
 from lightfall.acquire.plan_ui import PlanUI, get_plan_ui_class
 from lightfall.ui.panels.base import BasePanel, PanelMetadata

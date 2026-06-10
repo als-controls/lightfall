@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.utils.logging import logger
 from lightfall.ui.theater.proxy import TheaterProxy
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from lightfall.ui.panels.base import BasePanel
