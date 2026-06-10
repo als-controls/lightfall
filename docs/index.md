@@ -11,7 +11,14 @@ control, Bluesky plan execution, data browsing, an electronic logbook, and an
 embedded AI agent in one application — one window, one login, for the things a
 beamline shift actually consists of.
 
-> 🖼️ **Image placeholder** — *Screenshot: main Lightfall window with device control, plan execution, live visualization, and logbook panels docked*
+```{figure} _static/main-window.png
+:alt: Main Lightfall window with detector control, logbook, and the Claude assistant docked
+:width: 100%
+
+Lightfall at COSMIC-Scattering: detector control with live image view (left), the
+experiment logbook with an attached sample image (right), and the embedded assistant
+setting up an autonomous scan (bottom).
+```
 
 ## What is it?
 
