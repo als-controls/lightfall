@@ -388,3 +388,50 @@ def test_timeout_status_set_on_timeout(monkeypatch):
     assert result["reached_idle"] is False
     assert result["status"] == "timeout"
     assert result["last_run"] is None
+
+
+# ---------------------------------------------------------------------------
+# lightfall_abort_plan must report the actual outcome: engine.abort() returns
+# whether an abort was really dispatched (idle engines have nothing to abort),
+# and the tool payload must not claim success after a no-op.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAbortEngine:
+    """Engine stub whose abort() reports whether anything was dispatched."""
+
+    def __init__(self, dispatched: bool, state_name: str) -> None:
+        self._dispatched = dispatched
+        self.state_name = state_name
+        self.abort_reasons: list[str] = []
+
+    def abort(self, reason: str = "") -> bool:
+        self.abort_reasons.append(reason)
+        return self._dispatched
+
+
+def test_abort_payload_reports_failure_when_nothing_aborted(monkeypatch):
+    """Engine idle → abort() dispatches nothing → tool must report failure."""
+    engine = _FakeAbortEngine(dispatched=False, state_name="idle")
+    _patch_engine(monkeypatch, engine)
+
+    payload, is_error = et._abort_plan_payload("operator request")
+
+    assert is_error is True
+    assert payload["success"] is False
+    assert "idle" in payload["error"]
+    assert payload["state"] == "idle"
+    # The abort was still attempted (state-gating lives in the engine).
+    assert engine.abort_reasons == ["operator request"]
+
+
+def test_abort_payload_reports_success_when_dispatched(monkeypatch):
+    engine = _FakeAbortEngine(dispatched=True, state_name="aborting")
+    _patch_engine(monkeypatch, engine)
+
+    payload, is_error = et._abort_plan_payload("beam dump")
+
+    assert is_error is False
+    assert payload["success"] is True
+    assert "beam dump" in payload["message"]
+    assert payload["state"] == "aborting"

@@ -562,26 +562,35 @@ class BaseEngine(QObject):
         """
         raise NotImplementedError("Subclasses must implement resume()")
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """Request graceful stop at next safe point.
 
         Subclasses must override this method.
+
+        Returns:
+            True if a stop was actually dispatched.
         """
         raise NotImplementedError("Subclasses must implement stop()")
 
-    def abort(self, reason: str = "") -> None:
+    def abort(self, reason: str = "") -> bool:
         """Abort execution immediately.
 
         Subclasses must override this method.
 
         Args:
             reason: Optional reason for the abort.
+
+        Returns:
+            True if an abort was actually dispatched.
         """
         raise NotImplementedError("Subclasses must implement abort()")
 
-    def halt(self) -> None:
+    def halt(self) -> bool:
         """Emergency halt - immediately terminate execution.
 
         Subclasses must override this method.
+
+        Returns:
+            True if a halt was actually dispatched.
         """
         raise NotImplementedError("Subclasses must implement halt()")

@@ -196,6 +196,95 @@ class TestBlueskyEngine:
         assert hasattr(bluesky_engine, "sigDocumentYield")
 
 
+@pytest.fixture
+def offline_bluesky_engine(qapp):
+    """BlueskyEngine without its worker thread; ``_RE`` replaced with a mock.
+
+    Driving a real RunEngine to ``paused`` requires a plan blocked at a
+    checkpoint, which is timing-dependent headless — instead the RunEngine is
+    mocked so state-gating in stop()/abort()/halt() can be tested
+    deterministically.
+    """
+    pytest.importorskip("bluesky")
+
+    with patch.object(BlueskyEngine, "_start_queue_processor", lambda self: None):
+        engine = BlueskyEngine()
+    engine._RE = MagicMock()
+    return engine
+
+
+class TestStopAbortFromPaused:
+    """stop()/abort()/halt() must work from 'paused' and report the outcome.
+
+    Bluesky's RunEngine.stop()/abort() explicitly support the paused state,
+    and the GUI enables Stop/Abort while paused — gating on 'running' only
+    made both silently no-op on a paused run.
+    """
+
+    def test_stop_dispatches_when_running(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "running"
+        assert engine.stop() is True
+        engine._RE.stop.assert_called_once_with()
+
+    def test_stop_dispatches_when_paused(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        assert engine.stop() is True
+        engine._RE.stop.assert_called_once_with()
+
+    def test_stop_not_dispatched_when_idle(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "idle"
+        assert engine.stop() is False
+        engine._RE.stop.assert_not_called()
+
+    def test_stop_without_runengine_returns_false(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE = None
+        assert engine.stop() is False
+
+    def test_abort_dispatches_when_running(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "running"
+        assert engine.abort(reason="test") is True
+        engine._RE.abort.assert_called_once_with(reason="test")
+
+    def test_abort_dispatches_when_paused(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        aborts = []
+        engine.sigAbort.connect(lambda: aborts.append(True))
+        assert engine.abort(reason="paused abort") is True
+        engine._RE.abort.assert_called_once_with(reason="paused abort")
+        assert aborts == [True]
+
+    def test_abort_not_dispatched_when_idle(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "idle"
+        aborts = []
+        engine.sigAbort.connect(lambda: aborts.append(True))
+        assert engine.abort(reason="nothing running") is False
+        engine._RE.abort.assert_not_called()
+        assert aborts == []
+
+    def test_abort_without_runengine_returns_false(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE = None
+        assert engine.abort() is False
+
+    def test_halt_reports_outcome(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        assert engine.halt() is True
+        engine._RE.halt.assert_called_once_with()
+
+        engine._RE.reset_mock()
+        engine._RE.state = "idle"
+        assert engine.halt() is False
+        engine._RE.halt.assert_not_called()
+
+
 class TestEngineSingleton:
     """Tests for the engine singleton management."""
 

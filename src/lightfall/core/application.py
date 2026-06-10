@@ -439,9 +439,23 @@ class LFApplication(QObject):
         def handle_plan_abort(subject: str, data: dict, reply: str | None) -> None:
             reason = data.get("reason", "")
             try:
-                engine.abort(reason=reason)
+                aborted = engine.abort(reason=reason)
                 if reply:
-                    ipc.reply(reply, {"status": "abort_requested"})
+                    if aborted:
+                        ipc.reply(reply, {"status": "abort_requested"})
+                    else:
+                        # Nothing was running or paused — be truthful rather
+                        # than reporting an abort that never happened.
+                        ipc.reply(
+                            reply,
+                            {
+                                "status": "not_aborted",
+                                "message": (
+                                    f"Nothing to abort: engine state is "
+                                    f"'{engine.state_name}'"
+                                ),
+                            },
+                        )
             except Exception as exc:
                 if reply:
                     ipc.reply(reply, {"error": True, "message": str(exc)})

@@ -339,40 +339,62 @@ class BlueskyEngine(BaseEngine):
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
 
-    def stop(self) -> None:
-        """Stop the current plan gracefully (at next checkpoint)."""
-        if self._RE is None:
-            return
+    def stop(self) -> bool:
+        """Stop the current plan gracefully (at next checkpoint).
 
-        if self._RE.state == "running":
+        Bluesky's RunEngine.stop() supports both the running and paused
+        states; gating on "running" alone made Stop a silent no-op on a
+        paused run.
+
+        Returns:
+            True if a stop was actually dispatched to the RunEngine.
+        """
+        if self._RE is None:
+            return False
+
+        if self._RE.state in ("running", "paused"):
             logger.info("[bluesky] Stopping plan at next checkpoint")
             self._RE.stop()
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
+            return True
+        return False
 
-    def abort(self, reason: str = "") -> None:
-        """Abort the currently running plan.
+    def abort(self, reason: str = "") -> bool:
+        """Abort the currently running or paused plan.
 
         Args:
             reason: Optional reason for the abort.
+
+        Returns:
+            True if an abort was actually dispatched to the RunEngine.
         """
         if self._RE is None:
-            return
+            return False
 
-        if self._RE.state == "running":
+        if self._RE.state in ("running", "paused"):
             logger.info(f"[bluesky] Aborting plan: {reason or 'No reason given'}")
             self._RE.abort(reason=reason)
             self.sigAbort.emit()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
+            return True
+        return False
 
-    def halt(self) -> None:
-        """Halt the current plan immediately (emergency stop)."""
+    def halt(self) -> bool:
+        """Halt the current plan immediately (emergency stop).
+
+        Returns:
+            True if a halt was actually dispatched to the RunEngine.
+        """
         if self._RE is None:
-            return
+            return False
 
         if self._RE.state in ("running", "paused"):
             logger.warning("[bluesky] Halting plan immediately")
             self._RE.halt()
             self.sigAbort.emit()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
+            return True
+        return False
 
     # === Bluesky-Specific Methods ===
 

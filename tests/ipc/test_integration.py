@@ -48,11 +48,13 @@ class _FakeEngine:
         self.sigException = _FakeSignal()
         self.sigStateChanged = _FakeSignal()
 
+    state_name = "running"
+
     def submit(self, procedure: Any, *, priority: int = 1, name: str = "", **kwargs: Any) -> str:
         return "fake-proc-id"
 
-    def abort(self, reason: str = "") -> None:
-        pass
+    def abort(self, reason: str = "") -> bool:
+        return True
 
 
 class _FakeSignal:
@@ -322,6 +324,22 @@ class TestPlanCommandWiring:
             "reply.inbox.5",
             {"status": "abort_requested"},
         )
+
+    def test_plan_abort_nothing_to_abort_replies_not_aborted(self, app, engine, ipc):
+        """An idle engine dispatches nothing — the reply must say so."""
+        engine.abort = MagicMock(return_value=False)
+        engine.state_name = "idle"
+
+        with patch("lightfall.acquire.engine.get_engine", return_value=engine):
+            app._wire_plan_commands()
+
+        handler = ipc._subscriptions[ipc.topic("commands.plan.abort")].callback
+        handler("als.test.commands.plan.abort", {}, "reply.inbox.8")
+
+        ipc.reply.assert_called_once()
+        payload = ipc.reply.call_args[0][1]
+        assert payload["status"] == "not_aborted"
+        assert "idle" in payload["message"]
 
     def test_plan_abort_passes_reason(self, app, engine, ipc):
         engine.abort = MagicMock()

@@ -99,20 +99,31 @@ class Engine(Protocol):
         """Resume paused execution."""
         ...
 
-    def stop(self) -> None:
-        """Request graceful stop at next safe point."""
+    def stop(self) -> bool:
+        """Request graceful stop at next safe point.
+
+        Returns:
+            True if a stop was actually dispatched.
+        """
         ...
 
-    def abort(self, reason: str = "") -> None:
+    def abort(self, reason: str = "") -> bool:
         """Abort execution immediately.
 
         Args:
             reason: Optional reason for the abort.
+
+        Returns:
+            True if an abort was actually dispatched.
         """
         ...
 
-    def halt(self) -> None:
-        """Emergency halt - immediately terminate execution."""
+    def halt(self) -> bool:
+        """Emergency halt - immediately terminate execution.
+
+        Returns:
+            True if a halt was actually dispatched.
+        """
         ...
 
     def clear_queue(self) -> int:
