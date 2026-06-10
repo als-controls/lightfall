@@ -91,6 +91,7 @@ class BlueskyEngine(BaseEngine):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._kwargs_callables: set[Callable[[], dict[str, Any]]] = set()
         self._resume_future: QThreadFuture | None = None
+        self._interrupt_future: QThreadFuture | None = None
         self._queue_future: QThreadFuture | None = None
         self._waiting_bridge = WaitingHookBridge()
 
@@ -342,12 +343,55 @@ class BlueskyEngine(BaseEngine):
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
 
+    def _interrupt_from_paused(
+        self,
+        method: Callable[..., Any],
+        name: str,
+        pending_state: EngineState,
+        **kwargs: Any,
+    ) -> None:
+        """Dispatch a stop/abort/halt on a paused RunEngine off the caller's thread.
+
+        From "paused", bluesky's RunEngine.stop()/abort()/halt() block the
+        calling thread until the plan task fully completes cleanup
+        (RunEngine._resume_task) — unbounded with real hardware, and every
+        caller here is on the GUI thread. Same treatment as resume().
+        """
+        if self._interrupt_future is not None and self._interrupt_future.isRunning():
+            # A second dispatch would make ThreadManager cancel (eventually
+            # terminate) the thread hosting the in-flight plan cleanup.
+            logger.debug("[bluesky] Interrupt already in flight; not dispatching another")
+            return
+
+        self._interrupt_future = QThreadFuture(
+            method,
+            key="bluesky_interrupt",
+            name=name,
+            finished_slot=self._on_interrupt_finished,
+            except_slot=self._on_interrupt_error,
+            **kwargs,
+        )
+        self._interrupt_future.start()
+        self._set_state(pending_state)
+
+    def _on_interrupt_finished(self) -> None:
+        """Called when a stop/abort/halt dispatched from paused completes."""
+        if self._RE:
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
+
+    def _on_interrupt_error(self, ex: Exception) -> None:
+        """Called when a stop/abort/halt dispatched from paused fails."""
+        self.sigException.emit(ex)
+        if self._RE:
+            self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
+
     def stop(self) -> bool:
         """Stop the current plan gracefully (at next checkpoint).
 
         Bluesky's RunEngine.stop() supports both the running and paused
         states; gating on "running" alone made Stop a silent no-op on a
-        paused run.
+        paused run. From "paused" the call blocks until plan cleanup
+        completes, so it is dispatched off-thread.
 
         Returns:
             True if a stop was actually dispatched to the RunEngine.
@@ -355,15 +399,25 @@ class BlueskyEngine(BaseEngine):
         if self._RE is None:
             return False
 
-        if self._RE.state in ("running", "paused"):
-            logger.info("[bluesky] Stopping plan at next checkpoint")
+        state = self._RE.state
+        if state not in ("running", "paused"):
+            return False
+
+        logger.info("[bluesky] Stopping plan at next checkpoint")
+        if state == "paused":
+            self._interrupt_from_paused(
+                self._RE.stop, name="Bluesky Stop", pending_state=EngineState.STOPPING
+            )
+        else:
             self._RE.stop()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
-            return True
-        return False
+        return True
 
     def abort(self, reason: str = "") -> bool:
         """Abort the currently running or paused plan.
+
+        From "paused" the call blocks until plan cleanup completes, so it
+        is dispatched off-thread.
 
         Args:
             reason: Optional reason for the abort.
@@ -374,16 +428,29 @@ class BlueskyEngine(BaseEngine):
         if self._RE is None:
             return False
 
-        if self._RE.state in ("running", "paused"):
-            logger.info(f"[bluesky] Aborting plan: {reason or 'No reason given'}")
+        state = self._RE.state
+        if state not in ("running", "paused"):
+            return False
+
+        logger.info(f"[bluesky] Aborting plan: {reason or 'No reason given'}")
+        if state == "paused":
+            self._interrupt_from_paused(
+                self._RE.abort,
+                name="Bluesky Abort",
+                pending_state=EngineState.ABORTING,
+                reason=reason,
+            )
+        else:
             self._RE.abort(reason=reason)
-            self.sigAbort.emit()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
-            return True
-        return False
+        self.sigAbort.emit()
+        return True
 
     def halt(self) -> bool:
         """Halt the current plan immediately (emergency stop).
+
+        From "paused" the call blocks until the plan task unwinds, so it
+        is dispatched off-thread.
 
         Returns:
             True if a halt was actually dispatched to the RunEngine.
@@ -391,13 +458,20 @@ class BlueskyEngine(BaseEngine):
         if self._RE is None:
             return False
 
-        if self._RE.state in ("running", "paused"):
-            logger.warning("[bluesky] Halting plan immediately")
+        state = self._RE.state
+        if state not in ("running", "paused"):
+            return False
+
+        logger.warning("[bluesky] Halting plan immediately")
+        if state == "paused":
+            self._interrupt_from_paused(
+                self._RE.halt, name="Bluesky Halt", pending_state=EngineState.ABORTING
+            )
+        else:
             self._RE.halt()
-            self.sigAbort.emit()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
-            return True
-        return False
+        self.sigAbort.emit()
+        return True
 
     # === Bluesky-Specific Methods ===
 

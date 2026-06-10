@@ -3,6 +3,7 @@
 Tests the Engine protocol, BaseEngine, BlueskyEngine, and MockEngine.
 """
 
+import threading
 import time
 from queue import Empty
 from unittest.mock import MagicMock, patch
@@ -233,6 +234,17 @@ def offline_bluesky_engine(qapp):
     return engine
 
 
+def _wait_interrupt(engine, timeout_ms: int = 5000) -> None:
+    """Block until the engine's paused-interrupt worker thread finishes.
+
+    From 'paused', stop()/abort()/halt() dispatch the RunEngine call to a
+    QThreadFuture (it blocks until plan cleanup completes), so tests must
+    wait before asserting on the mock.
+    """
+    assert engine._interrupt_future is not None
+    assert engine._interrupt_future.wait(timeout_ms)
+
+
 class TestStopAbortFromPaused:
     """stop()/abort()/halt() must work from 'paused' and report the outcome.
 
@@ -251,7 +263,23 @@ class TestStopAbortFromPaused:
         engine = offline_bluesky_engine
         engine._RE.state = "paused"
         assert engine.stop() is True
+        _wait_interrupt(engine)
         engine._RE.stop.assert_called_once_with()
+
+    def test_paused_interrupt_runs_off_caller_thread(self, offline_bluesky_engine):
+        """From 'paused', RE.stop() blocks until plan cleanup completes
+        (bluesky's _resume_task), so it must never run on the caller's
+        (GUI) thread."""
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        calling_threads = []
+        engine._RE.stop.side_effect = lambda: calling_threads.append(
+            threading.current_thread()
+        )
+        assert engine.stop() is True
+        _wait_interrupt(engine)
+        assert calling_threads
+        assert calling_threads[0] is not threading.current_thread()
 
     def test_stop_not_dispatched_when_idle(self, offline_bluesky_engine):
         engine = offline_bluesky_engine
@@ -276,6 +304,7 @@ class TestStopAbortFromPaused:
         aborts = []
         engine.sigAbort.connect(lambda: aborts.append(True))
         assert engine.abort(reason="paused abort") is True
+        _wait_interrupt(engine)
         engine._RE.abort.assert_called_once_with(reason="paused abort")
         assert aborts == [True]
 
@@ -297,6 +326,7 @@ class TestStopAbortFromPaused:
         engine = offline_bluesky_engine
         engine._RE.state = "paused"
         assert engine.halt() is True
+        _wait_interrupt(engine)
         engine._RE.halt.assert_called_once_with()
 
         engine._RE.reset_mock()
