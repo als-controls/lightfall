@@ -867,11 +867,11 @@ def main() -> int:
     # Setup services (must be before Sentry so PreferencesManager has ConfigManager)
     _setup_services(app, config)
 
-    # Initialize Sentry error reporting (after services so proxy settings are available)
+    # Initialize Sentry error reporting (opt-in: requires SENTRY_DSN env var
+    # or 'telemetry_dsn' preference; after services so proxy/preference
+    # settings are available). init_sentry() logs why when inactive.
     if init_sentry():
         logger.info("Sentry error reporting initialized")
-    else:
-        logger.warning("Sentry initialization failed or disabled")
 
     # Install error collector to capture recent errors for bug reporting
     from lightfall.utils.error_collector import ErrorCollector
