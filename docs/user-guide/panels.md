@@ -1,212 +1,183 @@
 # Using Panels
 
-Lightfall uses a flexible dockable panel system. Panels can be rearranged, tabbed together, or floated as separate windows. This guide describes each panel and how to use it.
+Lightfall's interface is built from dockable panels. Panels can be opened and
+closed independently, rearranged, stacked into tabs, or floated as separate
+windows. This page explains the docking system and describes each built-in
+panel.
 
-## Managing Panels
+## Managing panels
 
-### Opening Panels
+### Opening panels
 
-To open a panel:
-- Go to **View** > **Panels** and select the panel
-- Or use the toolbar quick-access buttons (if configured)
+- **Click a sidebar icon.** Each panel has an icon in the vertical strip on
+  the left edge of the window; click to toggle the panel, hover for its name.
+  Icons in the strip's upper section open panels docked on the left; icons in
+  the lower section open panels docked along the bottom. Icons can be dragged
+  to reorder, including between sections.
+- **View → Panels.** All panels available to your role, grouped by category.
 
-### Rearranging Panels
+Panels you lack permission for (based on your [role](login.md)) do not appear
+in either place.
 
-Panels can be customized to fit your workflow:
+> 🖼️ **Image placeholder** — *Screenshot: the icon sidebar with a tooltip visible, next to the View → Panels menu open*
 
-- **Move**: Drag a panel's title bar to reposition it
-- **Tab**: Drop a panel onto another to create tabs
-- **Float**: Drag a panel outside the main window
-- **Resize**: Drag panel borders to adjust size
+### Rearranging panels
 
-### Saving Layout
+- **Move**: drag a panel's title bar to a new dock position
+- **Tab**: drop a panel onto another to stack them as tabs
+- **Float**: drag a panel out of the main window
+- **Resize**: drag the borders between panels
 
-Your panel layout is saved automatically when you close Lightfall. To explicitly save or restore layouts:
+Your layout (dock positions, open panels, window geometry) is saved
+automatically when you quit and restored on the next launch.
 
-- **File** > **Save Layout** - Save current arrangement
-- **File** > **Restore Default Layout** - Reset to default
+## Panel reference
 
-## Available Panels
+| Panel | Category | Default location | Notes |
+|-------|----------|------------------|-------|
+| Logbook | Core | Center | Always open, not closable |
+| Entries | Core | Left | Logbook entry list |
+| Bluesky | Acquisition | Left | Plan selection and execution |
+| Devices | Core | Left | Device tree and controllers |
+| Data Browser | Data | Left | Tiled catalog search |
+| Documents | Acquisition | Left | Raw Bluesky document stream |
+| Claude Assistant | Tools | Bottom | Embedded agent chat |
+| IPython Console | Tools | Bottom | Interactive Python REPL |
+| Visualization | Acquisition | Bottom | Plots of run data |
+| Logging | System | Bottom | Application log viewer |
+| Synoptic | Core | Bottom | 2D beamline layout view |
+| Queue | Acquisition | Bottom | RunEngine queue and history |
+| Threads | Developer | Bottom | Background thread monitor |
+| Data Movement | Monitoring | — | Shussebora transfer daemon status |
+| Pipeline Jobs / Pipeline Triggers | Acquisition | Bottom / Left | Data pipeline monitoring |
 
-### Bluesky Panel
-
-**Purpose**: Select and execute data acquisition plans
-
-**Features**:
-- Plan browser with search and categories
-- Dynamic parameter configuration
-- Run/Pause/Abort controls
-- User plan creation and management
-
-**Typical Use**: Primary interface for running experiments. Select a plan, configure parameters, and execute.
-
-See [Running Plans](running-plans.md) for detailed usage.
-
----
-
-### Devices Panel
-
-**Purpose**: Browse and control hardware devices
-
-**Features**:
-- Tree view of all devices organized by category
-- Search and filter by name or type
-- Device details: current value, status, metadata
-- Control widgets for adjustable devices
-- Context menu for device actions
-
-**Typical Use**: Monitor hardware status, check motor positions, adjust device parameters.
-
-**Device Information Shown**:
-- Name and type
-- Current value and units
-- Connection status
-- Component hierarchy (for complex devices)
-- Category and tags
-
-**Controlling Devices**:
-1. Select a device in the tree
-2. The details pane shows current state
-3. For controllable devices, a control widget appears
-4. Enter new values and apply
+Plugins can add further panels; agent-built user panels appear under the
+**User** category (see
+[Customizing Lightfall with the Agent](agent-customization.md)).
 
 ---
 
-### Logbook Panel
+### Bluesky
 
-**Purpose**: Document experiments automatically and manually
+**Purpose:** select, configure, and run data acquisition plans.
 
-**Features**:
-- Automatic entries from plans and device changes
-- User notes with rich text editing
-- Protected system entries (cannot be accidentally modified)
-- Active project/logbook header
-- Export capabilities
+The **Plans** tab lists every registered plan with search and category
+filtering. Selecting a plan opens a **Config** tab where each parameter gets
+an appropriate input — device dropdowns for motors and detectors, numeric
+fields with units and limits — plus **Run**, **Reset**, and **Edit** buttons.
+Title-bar buttons create a **New Plan**, **Refresh** user plans from disk,
+and open the user plans folder.
 
-**Typical Use**: Review experiment history, add notes about observations, document procedures.
-
-**Automatic Entries**:
-- Plan start with parameters
-- Plan completion or abort
-- Device state changes
-- System events
-
-**Adding Notes**:
-1. Click **Add Note** in the toolbar
-2. Enter your observation or comment
-3. The note is timestamped and saved
-
-**Entry Protection**:
-System-generated entries are protected from editing. User notes can be edited freely. The protection system prevents accidental data loss.
+See [Running Plans](running-plans.md) for the full workflow.
 
 ---
 
-### Claude Assistant Panel
+### Devices
 
-**Purpose**: AI-powered help and natural language control
+**Purpose:** browse and control hardware.
 
-**Features**:
-- Chat interface with Claude AI
-- Understands Lightfall context and capabilities
-- Can control panels and devices via MCP tools
-- Provides help and explanations
-- Executes multi-step procedures
+Two permanent tabs:
 
-**Typical Use**: Get help with procedures, control the application via natural language, automate repetitive tasks.
+- **Favorites** — devices you have starred (right-click a device in the tree
+  to toggle). Favorites persist per user.
+- **All** — the full device tree from every enabled backend, with search and
+  kind filtering.
 
-See [Claude Assistant](claude-assistant.md) for detailed usage.
-
----
-
-### Documents Panel
-
-**Purpose**: View raw Bluesky event documents
-
-**Features**:
-- Real-time document streaming during acquisition
-- Document type filtering
-- Detailed view of document contents
-
-**Typical Use**: Debug data acquisition issues, understand document flow, inspect raw metadata.
+Double-clicking a device opens a **controller tab** with live readbacks and
+the appropriate control widget — for a motor: setpoint entry with **Go**,
+relative-motion tweak buttons, **STOP**, and status flags. Devices without a
+matching controller show a read-only message.
 
 ---
 
-### IPython Panel
+### Logbook and Entries
 
-**Purpose**: Interactive Python console
+**Purpose:** the running record of your experiment.
 
-**Features**:
-- Full IPython REPL
-- Direct access to Lightfall objects (`main_window`, `app`)
-- Widget targeting mode (select UI elements for inspection)
-- Command history
+The **Logbook** panel (center, always open) shows the current entry as a
+sequence of fragments — your Markdown notes, images, and automatic records of
+plans and device changes. The **Entries** panel is the sidebar list for
+switching between entries, creating new ones (**＋ New Entry**), and sorting.
 
-**Typical Use**: Advanced scripting, debugging, automation development, one-off calculations.
-
-**Pre-loaded Objects**:
-```python
-main_window  # Main application window
-app          # LFApplication instance
-```
-
-**Widget Targeting**:
-1. Enable crosshair mode in the toolbar
-2. Click any UI element
-3. A reference appears in the console for inspection
+See [Using the Logbook](logbook.md).
 
 ---
 
-### Logging Panel
+### Claude Assistant
 
-**Purpose**: View application logs
+**Purpose:** the embedded agent — help, natural-language control, and
+building new panels and plans.
 
-**Features**:
-- Real-time log display
-- Log level filtering (DEBUG, INFO, WARNING, ERROR)
-- Search and filter capabilities
-- Copy and export logs
-
-**Typical Use**: Diagnose issues, monitor system health, debug problems.
+Chat interface with a **Send** button and a broom button to reset the
+conversation. Requires Claude credentials (see
+[Claude Assistant](claude-assistant.md)).
 
 ---
 
-### Tiled Browser Panel
+### Data Browser
 
-**Purpose**: Browse data stored in Tiled catalog
+**Purpose:** find runs in the Tiled data catalog.
 
-**Features**:
-- Query data by date range
-- Filter by plan type or exit status
-- Pagination for large datasets
-- Data preview
+Filter by date range, plan name, and exit status; results are paginated.
+Double-click a run to open it in the Visualization panel. Right-click for
+*Copy UUID*, *Copy Scan ID*, *Show Visualization*, *Show Documents*, *Run
+pipeline...*, and *Export*.
 
-**Typical Use**: Find previous experiment data, review historical results, locate specific acquisitions.
-
-**Requires**: Tiled server configuration in Preferences.
+**Requires** a Tiled server configured in **File → Settings → Tiled Data
+Catalog**; the status line at the bottom of the panel shows the connection
+state.
 
 ---
 
-### Threads Panel
+### Visualization
 
-**Purpose**: Monitor application threads and async tasks
+**Purpose:** plot run data, live or post-hoc.
 
-**Features**:
-- List of active threads
-- Thread state and stack information
-- Task status monitoring
+Given a run (from a Data Browser double-click, or from the assistant),
+the panel picks the best matching visualization — 1D line plot, heatmap,
+image stack, scatter, or table — and provides stream/field/type selectors,
+an optional fitting side panel, and data export. Runs that are still
+acquiring refresh automatically every two seconds.
 
-**Typical Use**: Advanced debugging of threading issues or hung operations.
+---
 
-## Panel Reference
+### Documents
 
-| Panel | Category | Default Position | Closable |
-|-------|----------|------------------|----------|
-| Bluesky | Acquisition | Left (tabbed) | Yes |
-| Devices | Hardware | Left (tabbed) | Yes |
-| Logbook | Documentation | Right | Yes |
-| Claude | Tools | Left (tabbed) | Yes |
-| Documents | Data | - | Yes |
-| IPython | Scripting | - | Yes |
-| Logging | System | - | Yes |
-| Tiled Browser | Data | - | Yes |
-| Threads | Advanced | - | Yes |
+**Purpose:** inspect the raw Bluesky document stream (start, descriptor,
+event, stop) during acquisition. Useful for debugging metadata and data-flow
+issues.
+
+---
+
+### IPython Console
+
+**Purpose:** an interactive Python REPL inside the application, with
+application objects pre-loaded for scripting and debugging.
+
+---
+
+### Logging
+
+**Purpose:** live application log with level filtering (DEBUG through ERROR)
+and search. The first place to look when something misbehaves.
+
+---
+
+### Synoptic
+
+**Purpose:** a 2D schematic of the beamline hardware layout. Selecting a
+device in the Devices panel highlights it here.
+
+---
+
+### Queue
+
+**Purpose:** view and manage the RunEngine's pending plan queue and recent
+execution history.
+
+---
+
+### Threads
+
+**Purpose:** monitor background threads and async tasks. A developer tool for
+diagnosing hangs.

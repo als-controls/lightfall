@@ -1,191 +1,138 @@
 # Claude Assistant
 
-Lightfall includes an integrated Claude AI assistant that understands the application and can help with experiments, answer questions, and even control panels through natural language.
+Lightfall embeds a Claude-based agent that understands the application and
+the beamline it is running on. It answers questions, but it can also *act*:
+open panels, read and move devices, run plans, inspect data — and build new
+panels and plans on request (covered separately in
+[Customizing Lightfall with the Agent](agent-customization.md)). Every action
+goes through an approval prompt unless you have allowed it.
 
-## Getting Started
+## Setup
 
-### Opening the Claude Panel
+The assistant needs Claude credentials. In **File → Settings → Claude
+Assistant**:
 
-The Claude panel is available from **View** > **Panels** > **Claude** or may already be in the default layout.
+- **API key** — paste an Anthropic API key, or set the `ANTHROPIC_API_KEY`
+  environment variable before launching.
+- **OAuth** — if you have authenticated the Claude Code CLI on this machine
+  (`claude login`), the settings page shows your OAuth status and the
+  assistant can use that instead of an API key.
 
-### Configuration
+The same page selects the **model**, the **maximum turns** per request, and
+the **permission mode** (see below).
 
-The Claude assistant requires an API key:
+## Using the assistant
 
-1. Go to **Preferences** > **Claude Assistant**
-2. Enter your Anthropic API key
-3. Optionally configure model selection and other settings
+Open the **Claude Assistant** panel from the sidebar (lower section). Type
+in the input field and press Enter to send (Shift+Enter inserts a newline).
+The broom button clears the conversation and starts fresh.
 
-Alternatively, set the `ANTHROPIC_API_KEY` environment variable before launching Lightfall.
+> 🖼️ **Image placeholder** — *Screenshot: Claude Assistant panel with a short conversation and the input field at the bottom*
 
-## Using the Assistant
+Things you can ask, with the simulated devices as examples:
 
-### Basic Interaction
+**Questions and help**
 
-Type your message in the input area and press Enter to send. Claude responds in the chat area above.
+- "How do I run a 2D grid scan?"
+- "What's the difference between an absolute and a relative scan?"
+- "Why did my last scan fail?"
 
-**Examples of what you can ask**:
+**Application control**
 
-- "How do I run a grid scan?"
-- "What detectors are available?"
-- "Show me the current motor positions"
-- "Help me understand this error message"
-
-### Natural Language Control
-
-Claude can control Lightfall through integrated tools. Instead of navigating menus, you can ask Claude to perform actions:
-
-**Panel Management**:
 - "Open the Devices panel"
-- "Show me the Bluesky panel"
-- "Close the logging panel"
-
-**Information Queries**:
 - "What panels are available?"
-- "List the open panels"
-- "Show me information about the Bluesky panel"
 
-**Device Operations**:
-- "What devices are connected?"
-- "Show the current position of motor X"
+**Device operations**
 
-## Capabilities
+- "What motors are available?"
+- "Read the temperature sensor"
+- "Move motor to 2.5"
 
-### What Claude Can Do
+**Acquisition and data**
 
-Claude has access to tools that let it:
+- "Run a 1D scan of motor from -5 to 5 with det, 21 points"
+- "What's the RunEngine doing right now?"
+- "Show me the last run in the visualization panel"
 
-1. **Manage Panels**: Open, close, activate, and query panel states
-2. **Inspect Widgets**: Examine UI components and their properties
-3. **Query Devices**: Access device information from the catalog
-4. **Understand Plans**: Explain available plans and their parameters
-5. **Provide Help**: Answer questions about Lightfall features and procedures
+The assistant sees the same application state you do — the panel registry,
+the device catalog, the plan registry, run history — so its answers are about
+*your* session, not generic Bluesky advice.
 
-### What Claude Cannot Do
+## Approval prompts
 
-For safety, some operations are restricted:
+The assistant's tools follow a whitelist design: **read-only tools run
+without asking** (listing panels and devices, reading values, checking run
+status), and **everything that changes state requires your approval** —
+moving a motor, running a plan, opening or closing panels, writing files.
 
-- Claude cannot execute plans directly without user confirmation
-- Critical device operations require user approval
-- System configuration changes must be done through Preferences
+When the assistant wants to use a tool that is not auto-approved, a prompt
+appears in the chat showing the tool name and its exact input, with three
+choices:
 
-## Skills
+- **✓ Allow** — permit this one call
+- **✗ Deny** — refuse it (the assistant is told, and can try something else)
+- **∞ Always** — permit this tool for the rest of the session without asking
+  again
 
-Claude's capabilities can be extended through skills. Skills are domain-specific knowledge and tools that Claude can use.
+> 🖼️ **Image placeholder** — *Screenshot: an approval prompt in the chat for `lightfall_move_motor` showing the motor name and target position, with Allow / Deny / Always buttons*
 
-### Viewing Available Skills
-
-Go to **Preferences** > **Claude Assistant** to see available skills. Enabled skills appear in Claude's system prompt and provide additional tools.
-
-### Using Skill Capabilities
-
-When a skill is enabled, simply ask Claude about topics in that domain. For example, if a beamline-specific skill is enabled:
-
-- "Help me with the sample alignment procedure"
-- "What's the correct energy range for this measurement?"
-
-## Example Conversations
-
-### Getting Help
-
-```
-You: How do I run a 2D scan?
-
-Claude: To run a 2D scan (grid scan) in Lightfall:
-
-1. Open the Bluesky panel from View > Panels > Bluesky
-2. Search for "grid_scan" in the plan selector
-3. Select the grid_scan plan
-4. Configure the parameters:
-   - Detectors: Select your detector(s)
-   - Motor 1 and Motor 2: Choose the two motors for X and Y
-   - Start/Stop for each motor: Define the scan range
-   - Num points: Set the grid resolution
-5. Click Run to start the scan
-
-Would you like me to open the Bluesky panel for you?
+```{note}
+Plans the assistant submits go through the same path as plans you run
+yourself — including the Sample Metadata dialog and the RunEngine queue. You
+keep the toolbar pause/stop/abort controls regardless of who started the run.
 ```
 
-### Controlling Panels
+### Permission modes
 
-```
-You: Open the devices panel and show me what motors are available
+**File → Settings → Claude Assistant → Permission Mode** adjusts the gate:
 
-Claude: I'll open the Devices panel for you.
+| Mode | Behavior |
+|------|----------|
+| `default` | Confirmation required for all non-read-only actions |
+| `acceptEdits` | File-edit tools are also auto-approved |
+| `bypassPermissions` | No confirmations (for unattended automation — use deliberately) |
 
-[Claude opens the Devices panel]
+## Skills and tools
 
-The Devices panel is now open. Based on the device catalog,
-here are the available motors:
+The assistant's capabilities come from **agent plugins** — bundles of domain
+prompts and tools. Built-in ones cover device operations, plan management,
+engine control, panel building, beamline alignment, scan planning, and
+adaptive (gpCAM/Tsuchinoko) experiment design; beamline deployments and user
+plugins can add more.
 
-- sample_x: Sample X translation
-- sample_y: Sample Y translation
-- sample_z: Sample Z translation
-- theta: Sample rotation
-- energy: Monochromator energy
+**File → Settings → Assistant Tools** lists every agent plugin with a
+checkbox to enable or disable it. Disabling a plugin removes its prompts and
+tools from the assistant entirely.
 
-Would you like details about any specific motor?
-```
+## Tips
 
-### Understanding Errors
-
-```
-You: The scan stopped with an error. What happened?
-
-Claude: Let me check the recent activity. Based on the logbook
-and logging panel, the scan stopped because:
-
-Error: Motor 'sample_x' soft limit reached at position 25.5mm
-
-This means the requested scan range exceeded the motor's
-configured soft limits. The current soft limits for sample_x
-are 0mm to 25mm.
-
-Options to resolve this:
-1. Adjust your scan range to stay within 0-25mm
-2. Contact your beamline scientist if the limits need adjustment
-
-Would you like me to help you reconfigure the scan?
-```
-
-## Tips for Effective Use
-
-### Be Specific
-
-More specific questions get better answers:
-
-- Instead of "Run a scan", try "Run a grid scan on sample_x and sample_y from -5 to 5"
-- Instead of "What's wrong?", try "Why did my last scan fail?"
-
-### Ask for Explanations
-
-Claude can explain concepts and procedures:
-
-- "Explain what fly scans are and when to use them"
-- "What's the difference between absolute and relative scans?"
-
-### Use for Learning
-
-Claude is useful for learning Lightfall's features:
-
-- "What can I do with the Logbook panel?"
-- "Show me all the keyboard shortcuts"
-- "What types of plans are available?"
+- **Be specific.** "Run a 1D scan of motor1 from -2 to 2 with det1, 41
+  points" beats "run a scan".
+- **Use it to learn.** "What plans are available?" or "explain what the
+  adaptive scan parameters mean" are fast ways into the system.
+- **Watch the prompts.** The approval dialog shows exactly what the assistant
+  is about to do, with real parameter values — read them before allowing,
+  especially for motor moves on real hardware.
+- **Reset when switching topics.** Long conversations slow responses; the
+  broom button starts a clean one.
 
 ## Troubleshooting
 
-### Claude doesn't respond
+### The assistant doesn't respond
 
-- Check that the API key is configured correctly in Preferences
-- Verify network connectivity to the Anthropic API
-- Check the Logging panel for error messages
+- Check credentials in **File → Settings → Claude Assistant** (the page has a
+  connection test).
+- Check network access to the Anthropic API (or your configured custom
+  endpoint), and the **Logging** panel for errors.
 
-### Claude can't perform an action
+### The assistant can't perform an action
 
-Some actions require appropriate permissions. Ensure you're logged in with sufficient privileges.
+- Device- and engine-control tools check *your* permissions — in a guest
+  session the assistant cannot move motors or control the RunEngine.
+- The tool's plugin may be disabled under **Assistant Tools**.
 
 ### Responses are slow
 
-- Large conversations may slow down responses
-- Start a new conversation to clear history
-- Check network latency to the API server
+- Reset the conversation to clear accumulated history.
+- Large tool results (long device lists, big scans) take time to process;
+  narrower questions help.

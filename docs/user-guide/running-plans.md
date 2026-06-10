@@ -1,199 +1,172 @@
 # Running Plans
 
-Plans are the primary way to perform data acquisition in Lightfall. A plan defines a sequence of measurements - moving motors, triggering detectors, and recording data. This guide explains how to select, configure, and run plans.
+Plans are how data acquisition happens in Lightfall. A plan is a Bluesky
+procedure — move motors, trigger detectors, record data — executed by the
+RunEngine. This page covers selecting and configuring plans, controlling
+execution, and writing your own.
 
-## The Bluesky Panel
+## The Bluesky panel
 
-The Bluesky panel is your main interface for plan execution. Open it from **View** > **Panels** > **Bluesky** if not already visible.
+Open the **Bluesky** panel from the left sidebar (or **View → Panels →
+Acquisition → Bluesky**). It is organized as tabs:
 
-The panel has three main areas:
+- **Plans** — browse the registered plans, with a search box and category
+  filter. Selecting a plan shows its description.
+- **Config: \<plan\>** — opens when you select a plan; holds the parameter
+  form and the **Run**, **Reset**, and **Edit** buttons.
 
-1. **Plan Selector** (top): Browse and select available plans
-2. **Parameter Configuration** (middle): Set up the plan parameters
-3. **Run Controls** (toolbar): Start, pause, and abort execution
+> 🖼️ **Image placeholder** — *Screenshot: Bluesky panel Plans tab with the plan list and search box*
 
-## Selecting a Plan
+## Built-in plans
 
-### Plan Categories
+These wrap the standard Bluesky plans with typed parameters, so the panel can
+generate a proper form for each:
 
-Plans are organized into categories for easier browsing:
+| Plan | Category | What it does |
+|------|----------|--------------|
+| **Count** (`count`) | Count | Read detectors *num* times, with optional delay |
+| **1D Scan** (`scan_1d`) | Scan | Step one motor from start to stop in *num* points |
+| **Relative 1D Scan** (`rel_scan_1d`) | Scan | Same, relative to the current position |
+| **2D Grid Scan** (`scan_2d`) | Scan | Two-motor grid, optional snaked inner axis |
+| **Relative 2D Grid Scan** (`rel_scan_2d`) | Scan | Same, relative to current positions |
+| **List Scan** (`list_scan_1d`) | Scan | Visit an explicit list of positions |
+| **Relative List Scan** (`rel_list_scan_1d`) | Scan | Offsets from the current position |
+| **Adaptive Scan** (`adaptive_scan`) | Scan | Step size adapts to how fast the signal changes |
+| **Tune Centroid** (`tune_centroid`) | Alignment | Iteratively center a motor on a signal peak |
+| **Tune Centroid 2D** (`tune_centroid_2d`) | Alignment | Alternate two motors onto a 2D peak |
+| **Simple Acquire** (`simple_acquire`) | Acquire | Area-detector acquisition, optional dark frame |
+| `adaptive_experiment` | Scan | gpCAM-driven adaptive experiment via Tsuchinoko (when available) |
 
-| Category | Description | Examples |
-|----------|-------------|----------|
-| **Scan** | Move motors and measure | `scan`, `rel_scan` |
-| **Grid** | 2D grid measurements | `grid_scan`, `spiral_scan` |
-| **Fly** | Continuous motion scans | `fly_scan` |
-| **Count** | Fixed-position measurements | `count` |
-| **Alignment** | Beam and sample alignment | `tune_centroid` |
-| **Calibration** | Detector/motor calibration | Various |
+Beamline deployments and user plans add to this list.
 
-### Finding Plans
+## Configuring parameters
 
-To find a specific plan:
+The Config tab renders one input per parameter:
 
-1. Use the **search box** to filter by name
-2. Or browse by **category** using the dropdown
-3. Click a plan to select it
+- **Devices** (motors, detectors): dropdowns listing only compatible devices
+  from the catalog — motor parameters offer motors, detector parameters offer
+  detectors. Multi-detector parameters allow selecting several.
+- **Numbers**: text fields, with units and minimum/maximum limits shown where
+  the plan declares them.
+- **Booleans / choices**: checkboxes and dropdowns.
 
-The plan's description appears below the list, explaining what it does and its parameters.
+**Reset** returns all parameters to their defaults. **Edit** opens the plan's
+source file in your configured editor (see
+[Preferences → External Tools](preferences.md)).
 
-## Configuring Parameters
+### Example: a 1D scan
 
-After selecting a plan, the parameter configuration area shows controls for each parameter.
+1. **detectors** — select one or more detectors to read
+2. **motor** — the motor to step
+3. **start** / **stop** — the scan range
+4. **num** — number of points (default 21)
 
-### Parameter Types
+> 🖼️ **Image placeholder** — *Screenshot: Config tab for 1D Scan with detectors, motor, start/stop/num filled in*
 
-Plans have different types of parameters:
+## Running
 
-**Devices** (Motors/Detectors):
-- Click the dropdown to see available devices
-- Only compatible devices are shown (e.g., motor parameters only show motors)
-- Multiple detectors can often be selected
+Click **Run**. A **Sample Metadata** dialog appears first, where you can
+enter a sample name and any additional key-value metadata to record with the
+run; confirm it to submit the plan to the RunEngine. Submitted plans are
+queued — if the engine is busy, the plan waits its turn (see the **Queue**
+panel for pending plans and history).
 
-**Numeric Values**:
-- Enter values directly in the text field
-- Some have minimum/maximum limits
-- Units are shown where applicable
+### Engine controls
 
-**Ranges**:
-- Start and end values define the scan range
-- Step size or number of points controls resolution
+The **RunEngine control** in the main toolbar shows the engine state and is
+where you intervene in a running plan:
 
-### Example: Configuring a 1D Scan
+- **Pause** — stop at the next checkpoint. The button becomes **Resume**.
+- **Stop** — end the run gracefully; data collected so far is kept and the
+  run is marked complete.
+- **Abort** — end the run immediately; the run is marked aborted.
 
-For a basic `scan` plan:
+> 🖼️ **Image placeholder** — *Screenshot: RunEngine control during a paused run, showing Resume, Stop, and Abort*
 
-1. **Detectors**: Select one or more detectors to read
-2. **Motor**: Choose the motor to move
-3. **Start**: Enter the starting position
-4. **Stop**: Enter the ending position
-5. **Num Points**: Enter how many measurements to take
+### Monitoring
 
-## Running the Plan
+- The **Logbook** records each run automatically — plan name, a short run ID,
+  and on completion the exit status and event counts.
+- The **Documents** panel streams the raw Bluesky documents if you want to
+  watch the firehose.
+- A **toast notification** reports success or failure when the run ends.
+- To plot the data, open the run from the **Data Browser** (double-click) —
+  runs still in progress refresh live. See
+  [Your First Session](first-session.md).
 
-### Starting Execution
+## User plans
 
-Once configured:
+You can add your own plans without touching the Lightfall source. User plans
+are Python files in `~/lightfall/plans/` — one file per plan, and the
+filename (without `.py`) becomes the plan name.
 
-1. Click **Run** in the toolbar (play button)
-2. The plan is queued for execution
-3. Execution begins automatically
+### Creating a plan
 
-During execution:
-- The toolbar shows the current state (Running)
-- Progress appears in the status area
-- Data flows to the Logbook automatically
+1. In the Bluesky panel title bar, click **New Plan**.
+2. Name it; Lightfall creates the file from a template and opens it in your
+   configured editor (VSCode or PyCharm — set under **File → Settings →
+   External Tools**).
+3. Edit and save.
 
-### Pausing and Resuming
-
-To pause a running plan:
-
-1. Click **Pause** in the toolbar
-2. The plan stops at the next safe point
-3. Click **Resume** to continue
-
-Pausing is useful for:
-- Checking intermediate results
-- Addressing unexpected conditions
-- Taking a break without losing progress
-
-### Aborting
-
-To stop a plan immediately:
-
-1. Click **Abort** in the toolbar
-2. Confirm the abort action
-3. The plan stops and cleans up
-
-**Note**: Aborted plans cannot be resumed. Data collected before abort is preserved.
-
-## Monitoring Progress
-
-### Real-Time Feedback
-
-While a plan runs:
-
-- **Logbook**: Shows automatic entries for each step
-- **Devices**: Displays current device values
-- **Status Bar**: Shows overall progress
-
-### Completion Notification
-
-When a plan finishes:
-
-- A toast notification appears indicating success or failure
-- The Logbook records the final status
-- The toolbar returns to idle state
-
-## User Plans
-
-You can create custom plans for repetitive procedures.
-
-### Creating a New Plan
-
-1. In the Bluesky panel toolbar, click **New Plan**
-2. Your configured code editor (VSCode or PyCharm) opens
-3. Write your plan using the Bluesky plan template
-4. Save the file
-
-Plans are stored in `~/lightfall/plans/` and automatically loaded.
-
-### Refreshing Plans
-
-After editing a user plan:
-
-1. Click **Refresh Plans** in the toolbar
-2. The plan registry reloads
-3. Your updated plan appears in the selector
-
-### User Plan Template
-
-A basic user plan:
+Each file must define a callable named `plan` — a generator function the
+RunEngine can execute. The generated template looks like:
 
 ```python
-"""
-My Custom Scan
+"""my_scan - Custom Bluesky plan."""
+from __future__ import annotations
 
-A description of what this plan does.
-"""
-from bluesky import plans as bp
+from typing import Any, Generator
 
-def my_custom_scan(detectors, motor, start, stop, num):
-    """
-    Perform a custom scan.
+import bluesky.plans as bp
 
-    Parameters
-    ----------
-    detectors : list
-        Detectors to read
-    motor : Motor
-        Motor to move
-    start : float
-        Starting position
-    stop : float
-        Ending position
-    num : int
-        Number of points
-    """
+
+def plan(
+    detectors: list,
+    motor: Any,
+    start: float = -10.0,
+    stop: float = 10.0,
+    num: int = 21,
+) -> Generator[Any, Any, Any]:
+    """Scan motor while reading detectors."""
     yield from bp.scan(detectors, motor, start, stop, num)
+```
+
+Type hints matter: the panel builds the parameter form from the signature,
+so annotated parameters get proper device dropdowns and numeric fields.
+
+### Reloading
+
+After editing a plan file, click **Refresh** in the Bluesky panel title bar
+to reload user plans from disk. The third title-bar button opens the plans
+folder in your file manager.
+
+Changes to files in `~/lightfall/plans/` are committed to the local git
+repository in `~/lightfall/`, so plan history is preserved — the same
+mechanism that tracks agent-built plugins (see
+[Customizing Lightfall with the Agent](agent-customization.md)).
+
+```{tip}
+You can also ask the Claude assistant to write a user plan for you — describe
+the scan and it creates the file via the same `~/lightfall/plans/` mechanism.
 ```
 
 ## Troubleshooting
 
 ### Plan won't start
 
-- Check that you're authenticated (not in guest mode)
-- Verify all required parameters are filled
-- Ensure selected devices are connected
+- Guests cannot run plans — check you are logged in with a real account.
+- Check all required parameters are filled and the selected devices are
+  connected (Devices panel).
 
-### Plan runs but no data appears
+### Plan runs but no data appears in the Data Browser
 
-- Check detector connections in the Devices panel
-- Verify Tiled data catalog is configured (if using)
-- Look for errors in the Logging panel
+- The Data Browser requires a Tiled server (**File → Settings → Tiled Data
+  Catalog**) and shows its connection status at the bottom of the panel.
+- Check the **Logging** panel for write errors.
 
-### Plan aborts unexpectedly
+### Plan fails immediately
 
-- Check the Logbook for error messages
-- Review device status for hardware issues
-- Check the Logging panel for detailed error information
+- Check the Logbook fragment for the exit status, and the **Logging** panel
+  for the underlying exception.
+- For motor scans: a target position outside the motor's limits is the most
+  common cause.

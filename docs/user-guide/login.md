@@ -1,107 +1,119 @@
 # Logging In
 
-Lightfall uses role-based access control to manage permissions. This guide explains how to log in and what access levels are available.
+Lightfall uses role-based access control: what you can see and do depends on
+who you are signed in as. The login dialog appears automatically at startup
+(and again if your session expires).
 
-## Authentication Methods
+> 🖼️ **Image placeholder** — *Screenshot: the login dialog showing the Keycloak, Linux User Login, and Continue as Guest buttons*
 
-Lightfall supports multiple authentication methods depending on your environment:
+## Authentication methods
 
-### Keycloak (Production)
+### Keycloak (production)
 
-For production use at the ALS facility, Lightfall uses Keycloak single sign-on:
+At a deployed beamline, Lightfall authenticates against the facility's
+Keycloak single sign-on:
 
-1. Launch Lightfall - the login dialog appears automatically
-2. Click **Sign in with Browser**
-3. Your web browser opens to the ALS authentication page
-4. Enter your ALS credentials
-5. After successful authentication, the browser redirects back and Lightfall completes login
+1. Click **Login with Keycloak**.
+2. A browser opens to the facility authentication page (Lightfall uses an
+   embedded browser window when available, falling back to your system
+   browser).
+3. Enter your facility credentials.
+4. The browser redirects back and Lightfall completes the login.
 
-Your session remains active for 8 hours (configurable in Preferences).
+While the browser flow is in progress the dialog shows a
+*"Waiting for browser login..."* indicator with a **Cancel** button.
 
-### Local Authentication (Development)
+### Linux user login (PAM)
 
-For development or testing environments:
+On Linux workstations, **Linux User Login** authenticates with your local
+operating-system account via PAM. This button is hidden on Windows.
 
-1. In the login dialog, click **Use local account instead**
-2. Enter your local username and password
-3. Click **Sign In**
+### Local accounts (development)
 
-### Guest Access
+For development and demo environments without Keycloak:
 
-For read-only access without authentication:
+1. Click the **Use local account instead** link at the bottom of the dialog.
+2. Enter a username and password and click **Login**.
 
-1. In the login dialog, click **Continue as Guest**
-2. You'll have limited access to view data but cannot control devices or run plans
+The local provider ships with built-in development accounts, one per role:
+`admin`/`admin`, `developer`/`developer`, `staff`/`staff`,
+`operator`/`operator`, `user`/`user`, and `guest`/`guest`. Additional local
+users can be defined in a YAML users file. **Back to Keycloak login** returns
+to the main view.
 
-## User Roles
+### Guest access
 
-Lightfall assigns roles that determine your permissions:
+**Continue as Guest** opens the application without authenticating. Guest
+access is read-only: you can view panels, devices, and data, but you cannot
+control devices or run plans, and your logbook notes stay on the local
+machine (they are not synced to a logbook server).
 
-| Role | Description | Capabilities |
-|------|-------------|--------------|
-| **Guest** | Unauthenticated access | View-only access to data and logs |
-| **User** | Standard user | Run plans, control allowed devices |
+## User roles
+
+Roles are hierarchical — each role includes the permissions of the ones below
+it:
+
+| Role | Typical user | Capabilities |
+|------|--------------|--------------|
+| **Guest** | Unauthenticated | View-only access |
+| **User** | Experimenter | Run plans, control allowed devices |
 | **Operator** | Equipment operator | Extended device control |
-| **Beamline Scientist** | BL staff | Full beamline access, custom configurations |
-| **Staff** | ALS staff | Administrative functions |
-| **Developer** | Development access | Debug features, development tools |
+| **Staff** | Facility staff | Staff-level operations |
+| **Admin** | Administrator | Administrative functions |
+| **Developer** | Developer | Debug features, development tools |
 
-Your current role is displayed in the status bar at the bottom of the window.
+Some panels and actions are only available above a given role; panels you
+lack permission for simply do not appear in the sidebar or the **View →
+Panels** menu.
 
-## Session Management
+## Sessions
 
-### Session Timeout
+### Duration
 
-Your session automatically expires after a configurable period (default: 8 hours). When your session is about to expire:
+For local accounts, the session duration is configurable in **File → Settings
+→ Login & Session** (15 minutes to 8 hours; the default is 2 hours). Keycloak
+session lifetimes are controlled by the server.
 
-1. A notification appears warning of pending expiration
-2. The status bar shows remaining session time
-3. When expired, the login dialog reappears
+When a session expires, the login dialog reappears so you can sign in again
+or continue as a guest.
 
-To adjust session duration, go to **Preferences** > **Login & Session**.
+### Service keys
 
-### Session Status
+At login, Lightfall mints short-lived per-service API keys for the Tiled data
+catalog and the logbook server on your behalf. This is automatic; if a
+service is unreachable at login time you may later see unauthenticated (401)
+errors for that one service — logging out and back in re-mints the keys.
 
-The status bar shows your authentication state:
+### Offline mode
 
-- **Green indicator**: Authenticated and connected
-- **Yellow indicator**: Session expiring soon
-- **Red indicator**: Not authenticated or session expired
+If the authentication service becomes unreachable, Lightfall drops into
+offline mode: only view operations are permitted, and the application retries
+the connection every 30 seconds. When the service comes back, your previous
+authentication state is restored — though if your service keys expired in the
+meantime, you will need to log in again.
 
-### Logging Out
+### Logging out
 
-To log out manually:
-
-1. Go to **File** > **Log Out**
-2. Or close the application
-
-Your session state is not preserved between application restarts for security.
+Use **User → Logout** in the menu bar. Logging out clears your session and
+service keys and purges already-synced logbook data from the local cache.
+Sessions are not preserved across application restarts.
 
 ## Troubleshooting
 
 ### Browser login doesn't complete
 
-If the browser authentication succeeds but Lightfall doesn't complete login:
+1. Check that the browser actually reached the authentication page (network,
+   VPN, proxy).
+2. Make sure nothing blocked the redirect back to Lightfall.
+3. Click **Cancel** and try **Login with Keycloak** again.
 
-1. Check that your browser allowed the redirect
-2. Ensure no popup blockers are interfering
-3. Try clicking **Sign in with Browser** again
+### Session expires earlier than expected
 
-### Session expires unexpectedly
-
-If your session expires before the configured timeout:
-
-1. Check your network connection to the authentication server
-2. Verify the server hasn't been restarted
-3. Contact your system administrator if the issue persists
+1. Check connectivity to the authentication server.
+2. For Keycloak logins, remember the server's session policy wins over the
+   local duration setting.
 
 ### Guest mode limitations
 
-In guest mode, you cannot:
-
-- Run data acquisition plans
-- Control hardware devices
-- Modify logbook entries
-- Access certain panels
-
-Sign in with your credentials for full access.
+In guest mode you cannot run plans, control devices, or sync logbook entries.
+Sign in with a real account for full access.

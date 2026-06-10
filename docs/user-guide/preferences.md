@@ -1,187 +1,142 @@
 # Preferences
 
-Lightfall provides extensive customization through the Preferences dialog. Access it via **Edit** > **Preferences** or `Ctrl+,`.
+All settings live in the Settings dialog: **File → Settings...** or
+`Ctrl+,`. Pages are listed on the left; most changes apply when you confirm,
+and the few that need an application restart (device backends, plugin
+enable/disable) say so on their page.
 
-## Preference Categories
+> 🖼️ **Image placeholder** — *Screenshot: Settings dialog with the page list on the left and the Appearance page selected*
 
-### Appearance
+## Appearance
 
-Customize the visual appearance of Lightfall.
+- **Theme** — pick from the built-in themes (light and several dark
+  variants); theme plugins can add more. Changes preview immediately.
+- **Font size** — interface font, 8–24 pt.
 
-**Theme**: Select from available themes:
-- **System**: Follow your operating system's light/dark setting
-- **Light**: Light color scheme
-- **Dark**: Dark color scheme
-- Additional themes may be available from plugins
+## User Profile
 
-**Font Size**: Adjust the interface font size (8pt - 24pt)
+Set a profile picture and review your identity. The avatar appears in the
+top-right corner of the main window as a visual indicator of who is signed
+in.
 
-Changes apply immediately for preview. Click **OK** to save or **Cancel** to revert.
+## Network Proxy
 
----
+Proxy configuration for outbound connections (e.g. reaching facility
+services through a SOCKS proxy from offsite). Applies to the embedded
+browser and HTTP clients.
 
-### Device Backend
+## Login & Session
 
-Configure how Lightfall connects to hardware devices.
+- **Session duration** — how long a local-account session lasts before
+  re-authentication: 15 minutes to 8 hours, default 2 hours. Keycloak
+  session lifetimes are controlled by the Keycloak server, not this setting.
 
-**Backend Selection**:
+## External Tools
 
-| Backend | Use Case |
-|---------|----------|
-| **Mock** | Development and testing without hardware |
-| **BCS** | Real hardware via the Beamline Control System |
+Selects the code editor Lightfall opens for user plans and plugin files:
 
-**Mock Backend Options**:
-- Include/exclude noisy devices for realistic simulation
+- **VSCode** — uses the `vscode://` URL protocol (registered automatically
+  by VSCode)
+- **PyCharm** — uses the `jetbrains://` protocol, which requires JetBrains
+  Toolbox
 
-**BCS Backend Options**:
-- **Host**: BCS server hostname
-- **Port**: Connection port
-- **Timeout**: Connection timeout
-- **Beamline**: Select your beamline
+The page shows the exact protocol URLs and warns if the handler is not
+detected.
 
-**Note**: Backend changes take effect on next application start.
+## Devices
 
----
+Configures the device backends. **Multiple backends can be enabled at once**;
+their devices merge into a single catalog. Changes take effect on restart.
 
-### Tiled Data Catalog
+| Backend | Use |
+|---------|-----|
+| **Mock** | Simulated devices (ophyd.sim) for development and training — enabled by default. Option to include the noisy detector. |
+| **BCS** | Real hardware via the Beamline Control System (host, port, timeout, beamline). Requires the ALS-internal `bcsophyd` package. |
+| **Happi** | Devices from a [happi](https://pcdshub.github.io/happi/) database (path, beamline filter, instantiation mode). |
 
-Configure data storage and retrieval.
+The page also holds connection settings (device instantiation mode,
+connection timeout, connect-on-startup) and **Remote Access (CA Tunnel)** for
+reaching EPICS Channel Access across networks.
 
-**Enable Tiled**: Toggle Tiled integration on/off
+## Tiled Data Catalog
 
-**Server Configuration**:
-- **URL**: Tiled server address
-- **API Key**: For API key authentication
+Connection to the Tiled data server that backs the Data Browser and
+Visualization panels and receives acquired runs:
 
-**Authentication Mode**:
-- **None**: No authentication
-- **API Key**: Use configured API key
-- **Keycloak**: Use your Lightfall login credentials
+- **Enable** toggle and **server URL**
+- **Authentication mode** — none, API key, or Keycloak (reuses your
+  Lightfall login)
 
-When using Keycloak authentication, your Lightfall session credentials are automatically used for Tiled access.
+## Logbook
 
----
+- **Enable logbook backend sync** and the **server URL**, with a connection
+  test
+- **Force offline-only mode** — local SQLite only, no sync (see
+  [Using the Logbook](logbook.md))
 
-### Claude Assistant
+## IPC
 
-Configure the AI assistant.
+NATS message-broker connection for inter-process features (e.g. Tsuchinoko
+adaptive experiments, cross-instance notifications): server URL, topic
+prefix, display name, with a connection status indicator.
 
-**API Configuration**:
-- **API Key**: Your Anthropic API key
-- **Custom API URL**: For local deployments (leave blank for default)
+## Claude Assistant
 
-**Model Settings**:
-- **Model**: Select Claude model (e.g., claude-opus-4-5)
-- **Max Turns**: Maximum conversation turns
+API endpoint and credentials (API key or Claude Code OAuth), model
+selection, max turns, and the permission mode. Covered in
+[Claude Assistant](claude-assistant.md).
 
-**Skills**: Enable or disable available skills. Enabled skills add capabilities to Claude.
+## Assistant Tools
 
-**Permission Mode**: Control how Claude interacts with the application
-- **Restrictive**: Requires confirmation for most actions
-- **Permissive**: Allows more autonomous operation
+Enable or disable individual agent plugins — the skill prompts and tool
+bundles available to the assistant.
 
----
+## Plugins
 
-### Code Editor
+Lists discovered plugins with per-plugin enable/disable and status. Plugin
+changes take effect on restart. Some plugins contribute their own settings
+pages, which appear in this dialog alongside the built-in ones.
 
-Configure the external editor for user plans.
+## Visualization
 
-**Editor Selection**:
-- **VSCode**: Visual Studio Code
-- **PyCharm**: JetBrains PyCharm
-
-**Protocol Handler**: Lightfall uses URL protocols to open files in your editor. Ensure your editor's protocol handler is installed:
-
-- VSCode: Usually automatic with installation
-- PyCharm: Requires JetBrains Toolbox for the protocol handler
-
-If the protocol handler is not detected, a warning appears with setup instructions.
-
----
-
-### Login & Session
-
-Configure authentication and session behavior.
-
-**Session Duration**: How long before automatic logout (default: 8 hours)
-
-**Session Timeout Warning**: When to show expiry warning (default: 15 minutes before)
+Defaults for the Visualization panel: automatic visualization-type selection
+(or a fixed default type), performance limits (decimation threshold, update
+rate), and plot appearance (default colormap, grid).
 
 ---
 
-### Plugins
+## Where settings are stored
 
-Manage plugin loading and configuration.
+Two mechanisms, both per-user:
 
-**Available Plugins**: List of discovered plugins
-- Enable/disable individual plugins
-- View plugin information and status
+1. **Qt state** (window geometry, dock layout, sidebar arrangement) — stored
+   via QSettings in the platform-native location (registry on Windows,
+   `~/.config` on Linux, plists on macOS).
+2. **Typed preferences** (everything in the Settings dialog) — the layered
+   config system, with user values in `%APPDATA%/ncs/` on Windows or
+   `~/.config/ncs/` on Linux/macOS, over site-wide and packaged defaults.
 
-**Plugin-Specific Settings**: Some plugins add their own preference pages
+A handful of preferences (such as device favorites) are additionally synced
+to your user profile on the settings server when one is deployed, so they
+follow you between workstations.
 
-## Preference Storage
+### Beamline overrides
 
-Preferences are stored in standard locations:
-
-| Platform | Location |
-|----------|----------|
-| Windows | `%APPDATA%\lightfall\` |
-| macOS | `~/Library/Preferences/lightfall/` |
-| Linux | `~/.config/lightfall/` |
-
-Two types of data are stored:
-
-1. **QSettings** (binary): Window geometry, dock positions
-2. **Config files** (JSON/TOML): Typed preferences with validation
-
-## Beamline-Specific Settings
-
-Some settings can be overridden at the beamline level. When you connect to a beamline:
-
-- Default device backend may be pre-configured
-- Beamline-specific themes may be available
-- Custom preferences may apply
-
-These overrides ensure consistent configuration across all workstations at a beamline.
-
-## Resetting Preferences
-
-To reset all preferences to defaults:
-
-1. Close Lightfall
-2. Delete the preference files from the storage location above
-3. Restart Lightfall
-
-**Note**: This also resets window layouts and panel positions.
-
-To reset only specific preferences:
-
-1. Go to the relevant preference page
-2. Change settings to desired values
-3. Click **OK** to save
+Deployments can ship site configuration that pre-sets defaults per beamline
+(device backend, theme, data directories). Your personal settings layer on
+top of those defaults.
 
 ## Troubleshooting
 
-### Changes don't take effect
+### A change didn't take effect
 
-Some settings require an application restart:
-- Device backend selection
-- Plugin enable/disable
+Device backend and plugin changes require a restart; their pages say so.
+Everything else applies on confirm — if a theme looks wrong after switching,
+toggle to another theme and back.
 
-The preference page indicates when a restart is required.
+### Resetting to defaults
 
-### Theme doesn't look right
-
-If theme colors appear incorrect:
-1. Try selecting a different theme, then switching back
-2. Restart the application
-3. Check if your system theme setting is interfering
-
-### Can't connect to BCS backend
-
-Verify:
-1. BCS host and port are correct
-2. Network connectivity to the BCS server
-3. Required credentials are configured
-4. Beamline selection is appropriate
+Close Lightfall and delete the user config directory (`%APPDATA%/ncs/` or
+`~/.config/ncs/`). This clears typed preferences; window layout resets if
+you also clear the Qt state (on Windows: the `ALS/NCS` key under
+`HKEY_CURRENT_USER\Software`).
