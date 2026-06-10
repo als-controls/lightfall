@@ -30,7 +30,7 @@ class PanelRegistry(QObject):
 
     PanelRegistry provides:
     - Registration of panel types (built-in and plugins)
-    - Discovery via Python entry points (ncs.panels)
+    - Discovery via Python entry points (lightfall.panels)
     - Panel instantiation with dependency injection
     - Permission filtering (panels filtered by user access)
     - Singleton management for singleton panels
@@ -182,7 +182,7 @@ class PanelRegistry(QObject):
 
         Note: Built-in panels are now registered via the plugin system
         (PanelPlugin entries in builtin_manifest). This method only discovers
-        external panels registered via the legacy ncs.panels entry point group.
+        external panels registered via the lightfall.panels entry point group.
 
         Returns:
             Number of panels discovered.

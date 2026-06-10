@@ -196,7 +196,7 @@ def _setup_services(app: LFApplication, config: ConfigManager) -> None:
     services.register_instance(PreferencesManager, prefs)
 
     # Panel registry - panels are registered via plugin system (preload plugins)
-    # External entry point panels can still use ncs.panels entry points via discover_plugins()
+    # External entry point panels can still use lightfall.panels entry points via discover_plugins()
     registry = PanelRegistry.get_instance()
     services.register_instance(PanelRegistry, registry)
 
