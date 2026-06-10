@@ -70,6 +70,10 @@ def bluesky_engine(qapp):
         qapp.processEvents()
         time.sleep(0.05)
     yield engine
+    # Stop the queue processor thread; leaked QThreads crash the interpreter
+    # at exit ("QThread: Destroyed while thread is still running").
+    if engine._queue_future is not None:
+        engine._queue_future.cancel(timeout_ms=3000)
 
 
 class TestEngineState:

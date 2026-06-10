@@ -41,6 +41,10 @@ def run_engine(qapp):
         qapp.processEvents()
         time.sleep(0.05)
     yield re
+    # Stop the queue processor thread; leaked QThreads crash the interpreter
+    # at exit ("QThread: Destroyed while thread is still running").
+    if re._queue_future is not None:
+        re._queue_future.cancel(timeout_ms=3000)
 
 
 class TestQRunEngine:
@@ -123,10 +127,15 @@ class TestGetRunEngine:
         original = engine_module._engine
         engine_module._engine = None
 
+        re1 = None
         try:
             re1 = get_engine()
             re2 = get_engine()
             assert re1 is re2
         finally:
+            # The default engine type creates a real BlueskyEngine whose
+            # queue processor thread must not outlive the test.
+            if isinstance(re1, BlueskyEngine) and re1._queue_future is not None:
+                re1._queue_future.cancel(timeout_ms=3000)
             # Restore original state
             engine_module._engine = original
