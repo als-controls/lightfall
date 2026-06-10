@@ -92,8 +92,9 @@ constructed with explicit `pen=` / `brush=` keep the caller's value across
 theme changes.
 
 For widgets that need more than per-item retheme (e.g. a custom legend or
-overlay), inherit `ThemedVisualizationMixin` from
-`lightfall.visualization.theme` and override `_apply_viz_colors`.
+overlay), connect to `ThemeManager.colors_changed` and recompute colors via
+`colors_from_theme` / `get_visualization_colors` from
+`lightfall.visualization.theme` (see `visualization/pg.py` for the pattern).
 
 ## Test runner
 
