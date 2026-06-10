@@ -140,26 +140,43 @@ class MockEngine(BaseEngine):
             self.sigResume.emit()
             logger.debug("[mock] Resumed")
 
-    def stop(self) -> None:
-        """Request graceful stop."""
+    def stop(self) -> bool:
+        """Request graceful stop.
+
+        Returns:
+            True if a stop was actually dispatched.
+        """
         if self._state in (EngineState.RUNNING, EngineState.PAUSED):
             self._set_state(EngineState.IDLE)
             logger.debug("[mock] Stopped")
+            return True
+        return False
 
-    def abort(self, reason: str = "") -> None:
+    def abort(self, reason: str = "") -> bool:
         """Abort execution immediately.
 
         Args:
             reason: Optional reason for the abort.
+
+        Returns:
+            True if an abort was actually dispatched.
         """
         if self._state in (EngineState.RUNNING, EngineState.PAUSED):
             logger.debug(f"[mock] Aborted: {reason or 'No reason'}")
             self._set_state(EngineState.IDLE)
             self.sigAbort.emit()
+            return True
+        return False
 
-    def halt(self) -> None:
-        """Emergency halt."""
+    def halt(self) -> bool:
+        """Emergency halt.
+
+        Returns:
+            True if a halt was actually dispatched.
+        """
         if self._state != EngineState.IDLE:
             logger.debug("[mock] Halted")
             self._set_state(EngineState.IDLE)
             self.sigAbort.emit()
+            return True
+        return False

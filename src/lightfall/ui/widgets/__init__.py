@@ -59,7 +59,6 @@ from lightfall.ui.widgets.plan_selector import (
 )
 from lightfall.ui.widgets.runengine_control import (
     RunEngineControlWidget,
-    RunEngineStatusBar,
     SpinnerIndicator,
 )
 from lightfall.ui.widgets.signal_control import (
@@ -67,7 +66,6 @@ from lightfall.ui.widgets.signal_control import (
     SignalControlWidget,
 )
 from lightfall.ui.widgets.tiled_filter_widget import TiledFilters, TiledFilterWidget
-from lightfall.ui.widgets.tiled_status import TiledStatusWidget
 
 __all__ = [
     # Base classes
@@ -91,7 +89,6 @@ __all__ = [
     "CameraControlWidget",
     # RunEngine control
     "RunEngineControlWidget",
-    "RunEngineStatusBar",
     "SpinnerIndicator",
     # Plan widgets
     "PlanSelectorWidget",
@@ -105,6 +102,4 @@ __all__ = [
     # Tiled filter
     "TiledFilterWidget",
     "TiledFilters",
-    # Tiled status
-    "TiledStatusWidget",
 ]

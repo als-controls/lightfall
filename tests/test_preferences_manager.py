@@ -274,6 +274,45 @@ def test_device_favorites_beamline_override_visible_through_fallback(
     assert prefs_manager.get("device_favorites", []) == ["bl_motor"]
 
 
+# ── Sensitive-value redaction ──────────────────────────────────────────
+
+
+def test_set_redacts_sensitive_values_in_logs(qapp, prefs_manager):
+    """Credential-bearing keys must never reach the logs in cleartext
+    (the app runs at DEBUG, so every set() is logged)."""
+    from lightfall.utils.logging import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(messages.append, level="DEBUG")
+    try:
+        prefs_manager.set("claude_api_key", "sk-ant-supersecret")
+        prefs_manager.set("theme", "dark")
+    finally:
+        logger.remove(sink_id)
+
+    joined = "\n".join(messages)
+    assert "sk-ant-supersecret" not in joined
+    assert "claude_api_key = <redacted>" in joined
+    # Non-sensitive values still log in cleartext.
+    assert "theme = dark" in joined
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["tiled_api_key", "auth_token", "client_secret", "db_password", "telemetry_dsn"],
+)
+def test_loggable_value_redacts_marker_keys(key):
+    from lightfall.ui.preferences.manager import _loggable_value
+
+    assert _loggable_value(key, "hunter2") == "<redacted>"
+
+
+def test_loggable_value_passes_plain_keys():
+    from lightfall.ui.preferences.manager import _loggable_value
+
+    assert _loggable_value("font_size", 14) == 14
+
+
 def test_device_favorites_subscribe_gets_local_fallback_on_user_remove(
     qapp, prefs_manager, config_manager, _patch_user_settings_client
 ):

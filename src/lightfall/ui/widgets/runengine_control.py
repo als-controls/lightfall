@@ -24,12 +24,10 @@ from PySide6.QtGui import (
     qRgba,
 )
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -473,102 +471,3 @@ class RunEngineControlWidget(QWidget):
             self._engine.abort()
         self.abort_requested.emit()
 
-
-class RunEngineStatusBar(QWidget):
-    """Extended status bar variant with more details.
-
-    Shows additional information like current plan name,
-    elapsed time, and estimated completion.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Initialize the status bar.
-
-        Args:
-            parent: Optional parent widget.
-        """
-        super().__init__(parent)
-        self._engine: Engine | None = None
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        """Set up the user interface."""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(12)
-
-        # Embed the control widget
-        self._control = RunEngineControlWidget()
-        layout.addWidget(self._control)
-
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(sep)
-
-        # Plan info
-        plan_layout = QVBoxLayout()
-        plan_layout.setSpacing(0)
-
-        self._plan_label = QLabel("Plan: --")
-        self._plan_label.setStyleSheet("font-weight: bold;")
-        plan_layout.addWidget(self._plan_label)
-
-        self._progress_label = QLabel("Progress: --")
-        plan_layout.addWidget(self._progress_label)
-
-        layout.addLayout(plan_layout)
-        layout.addStretch()
-
-    def set_engine(self, engine: Engine) -> None:
-        """Connect to an Engine instance.
-
-        Args:
-            engine: The Engine to control.
-        """
-        self._engine = engine
-        self._control.set_engine(engine)
-
-        # Connect additional signals for plan info
-        engine.sigStart.connect(self._on_run_start)
-        engine.sigFinish.connect(self._on_run_finish)
-        engine.sigOutput.connect(self._on_document)
-
-    def set_run_engine(self, re: Engine) -> None:
-        """Connect to an Engine instance.
-
-        Deprecated: Use set_engine() instead.
-
-        Args:
-            re: The Engine to control.
-        """
-        self.set_engine(re)
-
-    @Slot()
-    def _on_run_start(self) -> None:
-        """Handle run start."""
-        self._plan_label.setText("Plan: Running...")
-        self._progress_label.setText("Progress: 0%")
-
-    @Slot()
-    def _on_run_finish(self) -> None:
-        """Handle run finish."""
-        self._plan_label.setText("Plan: --")
-        self._progress_label.setText("Progress: --")
-
-    @Slot(str, dict)
-    def _on_document(self, name: str, doc: dict) -> None:
-        """Handle document from run.
-
-        Args:
-            name: Document type.
-            doc: Document data.
-        """
-        if name == "start":
-            plan_name = doc.get("plan_name", "unknown")
-            self._plan_label.setText(f"Plan: {plan_name}")
-        elif name == "event":
-            seq_num = doc.get("seq_num", 0)
-            # We don't know total, so just show count
-            self._progress_label.setText(f"Progress: {seq_num} events")

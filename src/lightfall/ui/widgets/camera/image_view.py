@@ -210,7 +210,7 @@ class OphydImageView(QWidget):
         self._progress_bar.setVisible(False)
         layout.addWidget(self._progress_bar)
 
-    def add_toolbar_action(self, action: "Any") -> "Any":
+    def add_toolbar_action(self, action: Any) -> Any:
         """Render a QAction as an icon button in the image toolbar.
 
         Lets an embedding panel (e.g. XPCS) contribute ROI/mask tools to the

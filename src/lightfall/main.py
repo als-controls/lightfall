@@ -80,8 +80,6 @@ def _configure_remote_display() -> None:
 # Configure remote display BEFORE any Qt imports
 _configure_remote_display()
 
-from PySide6.QtCore import Qt  # noqa: E402
-
 from lightfall.acquire import get_engine  # noqa: E402
 from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
 from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
@@ -90,7 +88,6 @@ from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
 from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
-from lightfall.project import ProjectService, create_welcome_project  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
 from lightfall.ui.preferences import PreferencesManager  # noqa: E402
@@ -197,13 +194,9 @@ def _setup_services(app: LFApplication, config: ConfigManager) -> None:
     services.register_instance(PreferencesManager, prefs)
 
     # Panel registry - panels are registered via plugin system (preload plugins)
-    # External entry point panels can still use ncs.panels entry points via discover_plugins()
+    # External entry point panels can still use lightfall.panels entry points via discover_plugins()
     registry = PanelRegistry.get_instance()
     services.register_instance(PanelRegistry, registry)
-
-    # Project service
-    project_service = ProjectService.get_instance()
-    services.register_instance(ProjectService, project_service)
 
     # Device catalog with mock backend
     device_catalog = DeviceCatalog.get_instance()
@@ -639,23 +632,6 @@ def _setup_user_plugins(app: LFApplication) -> None:
         logger.debug("No user plugins loaded")
 
 
-def _setup_first_launch(project_service: ProjectService) -> None:
-    """Setup the welcome project for first launch.
-
-    If no project is currently open (first launch or no recent project),
-    creates and opens the welcome project with introductory content.
-
-    Args:
-        project_service: The ProjectService instance.
-    """
-    # Check if we have a recent project to restore
-    # For now, always create welcome project (persistence comes later)
-    if not project_service.has_project:
-        logger.info("First launch detected, creating welcome project")
-        welcome = create_welcome_project()
-        project_service.open_project(welcome)
-
-
 def _show_startup_login(window: LFMainWindow) -> None:
     """Show login dialog on application startup.
 
@@ -797,72 +773,6 @@ def _check_editor_protocol(main_window: LFMainWindow) -> None:
     QTimer.singleShot(500, show_banner)
 
 
-def _setup_default_panels(window: LFMainWindow) -> None:
-    """Setup default panels for the main window.
-
-    Opens panels that should be visible by default on startup.
-    Layout: Claude, Bluesky, and Devices tabbed on left, Logbook on right.
-
-    Args:
-        window: The main window instance.
-    """
-    # Clear any saved window state to ensure our layout is applied
-    from PySide6.QtCore import QSettings
-    settings = QSettings("ALS", "NCS")
-    settings.remove("mainwindow/geometry")
-    settings.remove("mainwindow/state")
-
-    # Open Claude panel on the left first (will be a tab)
-    claude_dock = None
-    claude_panel = window.add_panel(
-        "lightfall.panels.claude",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    if claude_panel:
-        claude_dock = window._panel_docks.get("lightfall.panels.claude")
-
-    # Open Bluesky panel on the left
-    window.add_panel(
-        "lightfall.panels.bluesky",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    bluesky_dock = window._panel_docks.get("lightfall.panels.bluesky")
-
-    # Open Devices panel - add to left then tabify with Bluesky
-    window.add_panel(
-        "lightfall.panels.devices",
-        area=Qt.DockWidgetArea.LeftDockWidgetArea,
-    )
-    devices_dock = window._panel_docks.get("lightfall.panels.devices")
-
-    # Tabify Claude, Bluesky and Devices (stack as tabs)
-    if claude_dock and bluesky_dock:
-        window.tabifyDockWidget(claude_dock, bluesky_dock)
-    if bluesky_dock and devices_dock:
-        window.tabifyDockWidget(bluesky_dock, devices_dock)
-
-    # Raise Bluesky as the default visible tab
-    if bluesky_dock:
-        bluesky_dock.raise_()
-
-    # Open Logbook panel on the right
-    window.add_panel(
-        "lightfall.panels.logbook",
-        area=Qt.DockWidgetArea.RightDockWidgetArea,
-    )
-    logbook_dock = window._panel_docks.get("lightfall.panels.logbook")
-
-    # Use splitDockWidget to ensure left-right layout
-    first_left_dock = claude_dock or bluesky_dock
-    if first_left_dock and logbook_dock:
-        window.splitDockWidget(first_left_dock, logbook_dock, Qt.Orientation.Horizontal)
-
-    panels_opened = ["Bluesky", "Devices", "Logbook"]
-    if claude_dock:
-        panels_opened.insert(0, "Claude")
-    logger.info("Opened default panels: {} (left), Logbook (right)", "+".join(panels_opened[:-1]))
-
-
 def main() -> int:
     """Run the Lightfall application.
 
@@ -889,11 +799,11 @@ def main() -> int:
     # Setup services (must be before Sentry so PreferencesManager has ConfigManager)
     _setup_services(app, config)
 
-    # Initialize Sentry error reporting (after services so proxy settings are available)
+    # Initialize Sentry error reporting (opt-in: requires SENTRY_DSN env var
+    # or 'telemetry_dsn' preference; after services so proxy/preference
+    # settings are available). init_sentry() logs why when inactive.
     if init_sentry():
         logger.info("Sentry error reporting initialized")
-    else:
-        logger.warning("Sentry initialization failed or disabled")
 
     # Install error collector to capture recent errors for bug reporting
     from lightfall.utils.error_collector import ErrorCollector
@@ -933,10 +843,6 @@ def main() -> int:
 
     # Load user plugins from ~/lightfall/plugins/
     _setup_user_plugins(app)
-
-    # Setup first launch (welcome project)
-    project_service = ProjectService.get_instance()
-    _setup_first_launch(project_service)
 
     # Create and set main window (after preload plugins applied theme)
     window = LFMainWindow()

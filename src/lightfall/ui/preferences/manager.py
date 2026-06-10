@@ -76,6 +76,18 @@ GLOBAL_ONLY_PREFS = {
     "proxy_auto_detect",  # bool (default: False) - auto-enable for *.lbl.gov URLs
 }
 
+# Keys containing any of these substrings carry credentials; their values
+# must never reach the logs (the app runs at DEBUG).
+_SENSITIVE_KEY_MARKERS = ("api_key", "token", "secret", "password", "dsn")
+
+
+def _loggable_value(key: str, value: Any) -> Any:
+    """Return `value` for logging, redacted when `key` looks sensitive."""
+    key_lower = key.lower()
+    if any(marker in key_lower for marker in _SENSITIVE_KEY_MARKERS):
+        return "<redacted>"
+    return value
+
 
 class _Topic(QObject):
     """Per-key dispatcher for PreferencesManager subscriptions.
@@ -277,7 +289,7 @@ class PreferencesManager(QObject):
         """Set a preference value. Dispatches to the owning backend.
         `persist` retained for back-compat; user-portable backend ignores it."""
         self._backend_for(key).set(key, value)
-        logger.debug("Preference set: {} = {}", key, value)
+        logger.debug("Preference set: {} = {}", key, _loggable_value(key, value))
 
     def remove(self, key: str) -> None:
         """Remove a preference. Dispatches to the owning backend."""

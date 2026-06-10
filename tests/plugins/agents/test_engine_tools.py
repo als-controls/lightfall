@@ -20,14 +20,29 @@ class _FakeEngine:
     Each call to ``state`` / ``is_idle`` consumes one entry from the script
     until exhausted, then keeps returning the last one. That matches "RUNNING
     for N polls then IDLE" — the helper polls until it sees IDLE.
+
+    ``docs`` simulates the engine's document stream: each ``(name, doc)``
+    pair is replayed to a listener as soon as it subscribes. The wait helper
+    only cares *whether* start/stop documents were observed during the
+    subscription window, not when, so synchronous replay is equivalent to
+    mid-run emission.
     """
 
-    def __init__(self, states: list[EngineState]) -> None:
+    def __init__(
+        self,
+        states: list[EngineState],
+        docs: list[tuple[str, dict[str, Any]]] | None = None,
+    ) -> None:
         assert states, "need at least one state"
         self._script = list(states)
         self._idx = 0
+        self._docs = list(docs or [])
+        self._listeners: dict[int, Any] = {}
+        self._next_token = 0
+        self.reads = 0
 
     def _peek(self) -> EngineState:
+        self.reads += 1
         if self._idx < len(self._script):
             s = self._script[self._idx]
             self._idx += 1
@@ -44,6 +59,17 @@ class _FakeEngine:
         # Helper code reads is_idle once per poll inside a single closure,
         # so we keep peek() coupled to that one read.
         return self._peek() == EngineState.IDLE
+
+    def subscribe(self, listener: Any) -> int:
+        token = self._next_token
+        self._next_token += 1
+        self._listeners[token] = listener
+        for name, doc in self._docs:
+            listener(name, doc)
+        return token
+
+    def unsubscribe(self, token: int) -> None:
+        self._listeners.pop(token, None)
 
 
 def _patch_engine(monkeypatch, engine):
@@ -66,8 +92,9 @@ def _patch_last_run(monkeypatch, payload: dict[str, Any] | None):
 
 
 def test_wait_returns_immediately_when_already_idle(monkeypatch):
-    """If the engine is idle on the very first poll, elapsed ≈ 0."""
-    _patch_engine(monkeypatch, _FakeEngine([EngineState.IDLE]))
+    """If the engine is idle on the very first poll, no polling loop runs."""
+    engine = _FakeEngine([EngineState.IDLE])
+    _patch_engine(monkeypatch, engine)
     _patch_last_run(monkeypatch, {"uid": "abc", "plan_name": "count"})
 
     result = asyncio.run(
@@ -82,8 +109,13 @@ def test_wait_returns_immediately_when_already_idle(monkeypatch):
     assert result["reached_idle"] is True
     assert result["state"] == "IDLE"
     assert result["reason"] == ""
-    # No sleeps should have happened — first poll already idle.
-    assert result["elapsed_seconds"] < 0.05
+    # No sleeps should have happened — first poll already idle. The initial
+    # subscribe+snapshot reads state twice (state + is_idle); any polling
+    # would add two more reads per tick. Count reads instead of asserting a
+    # tight wall-clock bound, which flakes on slow CI.
+    assert engine.reads == 2
+    # Generous sanity bound only — well below a real poll-loop accumulation.
+    assert result["elapsed_seconds"] < 0.25
     assert result["last_run"] == {"uid": "abc", "plan_name": "count"}
 
 
@@ -208,34 +240,16 @@ def test_engine_tools_registers_wait_for_idle():
 # "engine returned to idle but the plan failed before bps.open_run". The
 # old code reported reached_idle=True with whichever last_run was on Tiled,
 # which made a failed submission look like a successful empty run.
+# Attribution is detected via the engine's document stream: a run counts as
+# "ours" iff a start/stop document was observed during the subscription.
 # ---------------------------------------------------------------------------
 
 
-def _patch_uid_sequence(monkeypatch, before: str | None, after: str | None):
-    """Stub `_last_run_payload` so the snapshot before the wait sees `before`
-    and the snapshot after the wait sees `after`.
-
-    Implemented as a 2-call sequence — the helper is called twice during a
-    successful wait (once before, once after).
-    """
-    calls = {"n": 0}
-
-    def fake_payload():
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return {"uid": before} if before else None
-        return {"uid": after} if after else None
-
-    monkeypatch.setattr(et, "_last_run_payload", fake_payload, raising=True)
-
-
-def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
-    """Wait actually slept (engine RUNNING -> IDLE) but the last uid is
-    unchanged even after the Tiled-indexing retry: the plan never opened
+def test_plan_never_started_when_no_documents_observed(monkeypatch):
+    """Wait actually slept (engine RUNNING -> IDLE) but no start/stop
+    document was emitted during the subscription: the plan never opened
     a run. status must reflect that and last_run must be None so the
-    agent doesn't fit stale data."""
-    # Shorten the retry sleep so the test isn't gated on real-time waits.
-    monkeypatch.setattr(et, "_TILED_INDEX_RETRY_S", 0.01, raising=True)
+    agent doesn't fit stale data — even though Tiled still has a prior run."""
     script = (
         [EngineState.RUNNING, EngineState.RUNNING]
         + [EngineState.RUNNING, EngineState.RUNNING]
@@ -243,7 +257,7 @@ def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
         + [EngineState.IDLE, EngineState.IDLE]
     )
     _patch_engine(monkeypatch, _FakeEngine(script))
-    _patch_uid_sequence(monkeypatch, before="old-uid", after="old-uid")
+    _patch_last_run(monkeypatch, {"uid": "old-uid", "plan_name": "previous"})
 
     result = asyncio.run(
         et._wait_for_idle_payload(
@@ -262,11 +276,11 @@ def test_plan_never_started_when_uid_unchanged_after_wait(monkeypatch):
 
 def test_idle_when_tiled_indexes_after_engine_returns(monkeypatch):
     """Race recovery: the engine flipped back to IDLE just before Tiled
-    finished indexing the new run. The first post-wait uid check sees no
-    change, but after the retry sleep Tiled has the new uid — we must
-    return status='idle' with the new run, NOT a false-positive
-    plan_never_started. This was the symptom for "the first scan thinks
-    it didn't succeed even though it did".
+    finished indexing the new run. The first post-wait Tiled fetch returns
+    the old run, but after the retry sleep Tiled has the new uid — we must
+    return status='idle' with the new run, NOT stale metadata. This was
+    the symptom for "the first scan thinks it didn't succeed even though
+    it did".
     """
     monkeypatch.setattr(et, "_TILED_INDEX_RETRY_S", 0.01, raising=True)
     script = (
@@ -274,17 +288,19 @@ def test_idle_when_tiled_indexes_after_engine_returns(monkeypatch):
         + [EngineState.RUNNING, EngineState.RUNNING]
         + [EngineState.IDLE, EngineState.IDLE]
     )
-    _patch_engine(monkeypatch, _FakeEngine(script))
+    # A start document for the new run is observed during the wait.
+    _patch_engine(
+        monkeypatch,
+        _FakeEngine(script, docs=[("start", {"uid": "new-uid"})]),
+    )
 
     calls = {"n": 0}
 
     def fake_payload():
         calls["n"] += 1
-        # Call 1: initial snapshot — old uid.
-        # Call 2: immediate after-wait check — Tiled hasn't indexed yet.
-        # Call 3: post-retry check — new run is visible.
-        # Call 4: final last_run fetch — new run.
-        if calls["n"] <= 2:
+        # Call 1: post-wait fetch — Tiled hasn't indexed the new run yet.
+        # Call 2: post-retry fetch — new run is visible.
+        if calls["n"] == 1:
             return {"uid": "old-uid", "plan_name": "previous"}
         return {"uid": "new-uid", "plan_name": "scan", "exit_status": "success"}
 
@@ -302,32 +318,25 @@ def test_idle_when_tiled_indexes_after_engine_returns(monkeypatch):
     assert result["last_run"] is not None
     assert result["last_run"]["uid"] == "new-uid"
     # The retry must have happened, otherwise the bug would still be live.
-    assert calls["n"] >= 3, (
-        f"retry never fired — Tiled-indexing race would still be a false "
-        f"positive (_last_run_payload was called {calls['n']} times)"
+    assert calls["n"] >= 2, (
+        f"retry never fired — Tiled-indexing race would still return stale "
+        f"metadata (_last_run_payload was called {calls['n']} times)"
     )
 
 
 def test_idle_status_when_new_uid_appears(monkeypatch):
-    """The good case: a new run opened during the wait → status 'idle' and
-    last_run contains the new run's metadata."""
+    """The good case: a new run opened during the wait (start document
+    observed) → status 'idle' and last_run contains the new run's metadata."""
     script = (
         [EngineState.RUNNING, EngineState.RUNNING]
         + [EngineState.IDLE, EngineState.IDLE]
     )
-    _patch_engine(monkeypatch, _FakeEngine(script))
-    calls = {"n": 0}
-
-    # Sequence: before-snapshot, after-snapshot, then the final last_run
-    # fetch (when status='idle' the helper makes one more call to populate
-    # the response payload).
-    def fake_payload():
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return {"uid": "old-uid", "plan_name": "previous"}
-        return {"uid": "new-uid", "plan_name": "scan", "exit_status": "success"}
-
-    monkeypatch.setattr(et, "_last_run_payload", fake_payload, raising=True)
+    _patch_engine(
+        monkeypatch,
+        _FakeEngine(script, docs=[("start", {"uid": "new-uid"})]),
+    )
+    payload = {"uid": "new-uid", "plan_name": "scan", "exit_status": "success"}
+    _patch_last_run(monkeypatch, payload)
 
     result = asyncio.run(
         et._wait_for_idle_payload(
@@ -338,11 +347,7 @@ def test_idle_status_when_new_uid_appears(monkeypatch):
     )
 
     assert result["status"] == "idle"
-    assert result["last_run"] == {
-        "uid": "new-uid",
-        "plan_name": "scan",
-        "exit_status": "success",
-    }
+    assert result["last_run"] == payload
 
 
 def test_already_idle_treated_as_idle_status(monkeypatch):
@@ -351,7 +356,7 @@ def test_already_idle_treated_as_idle_status(monkeypatch):
     from 'no plan was ever submitted', so we default to 'idle' and return
     whatever last_run Tiled has."""
     _patch_engine(monkeypatch, _FakeEngine([EngineState.IDLE]))
-    _patch_uid_sequence(monkeypatch, before="some-uid", after="some-uid")
+    _patch_last_run(monkeypatch, {"uid": "some-uid"})
 
     result = asyncio.run(
         et._wait_for_idle_payload(
@@ -383,3 +388,50 @@ def test_timeout_status_set_on_timeout(monkeypatch):
     assert result["reached_idle"] is False
     assert result["status"] == "timeout"
     assert result["last_run"] is None
+
+
+# ---------------------------------------------------------------------------
+# lightfall_abort_plan must report the actual outcome: engine.abort() returns
+# whether an abort was really dispatched (idle engines have nothing to abort),
+# and the tool payload must not claim success after a no-op.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAbortEngine:
+    """Engine stub whose abort() reports whether anything was dispatched."""
+
+    def __init__(self, dispatched: bool, state_name: str) -> None:
+        self._dispatched = dispatched
+        self.state_name = state_name
+        self.abort_reasons: list[str] = []
+
+    def abort(self, reason: str = "") -> bool:
+        self.abort_reasons.append(reason)
+        return self._dispatched
+
+
+def test_abort_payload_reports_failure_when_nothing_aborted(monkeypatch):
+    """Engine idle → abort() dispatches nothing → tool must report failure."""
+    engine = _FakeAbortEngine(dispatched=False, state_name="idle")
+    _patch_engine(monkeypatch, engine)
+
+    payload, is_error = et._abort_plan_payload("operator request")
+
+    assert is_error is True
+    assert payload["success"] is False
+    assert "idle" in payload["error"]
+    assert payload["state"] == "idle"
+    # The abort was still attempted (state-gating lives in the engine).
+    assert engine.abort_reasons == ["operator request"]
+
+
+def test_abort_payload_reports_success_when_dispatched(monkeypatch):
+    engine = _FakeAbortEngine(dispatched=True, state_name="aborting")
+    _patch_engine(monkeypatch, engine)
+
+    payload, is_error = et._abort_plan_payload("beam dump")
+
+    assert is_error is False
+    assert payload["success"] is True
+    assert "beam dump" in payload["message"]
+    assert payload["state"] == "aborting"

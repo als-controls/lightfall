@@ -12,10 +12,20 @@ def test_argless_construction():
     assert plugin.name == "lightfall_core_tools"
 
 
-def test_lazy_window_lookup_returns_none_outside_qt_app():
+def test_lazy_window_lookup_returns_none_outside_qt_app(monkeypatch):
     """Without an active QApplication, _window resolves to None and tools degrade gracefully."""
+    import PySide6.QtWidgets as _qtwidgets
+
+    class _NoApp:
+        # In a full-suite session a QApplication (and possibly a leaked
+        # LFMainWindow) outlives earlier tests, so the "no Qt app" premise
+        # must be forced rather than assumed.
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(_qtwidgets, "QApplication", _NoApp)
     plugin = LFCoreToolPlugin()
-    # No QApplication.instance() in this test → _window should be None
     assert plugin._window is None
 
 

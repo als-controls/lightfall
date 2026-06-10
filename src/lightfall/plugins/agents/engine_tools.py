@@ -90,6 +90,42 @@ def _most_recent_uid() -> str | None:
     return uid if isinstance(uid, str) and uid else None
 
 
+def _abort_plan_payload(reason: str) -> tuple[dict[str, Any], bool]:
+    """Build the ``lightfall_abort_plan`` result payload.
+
+    ``engine.abort()`` reports whether an abort was actually dispatched —
+    an idle engine has nothing to abort, and claiming success after that
+    no-op would mislead the agent into believing hardware was stopped.
+
+    Designed to be called on the GUI thread.
+
+    Returns:
+        ``(payload, is_error)`` for ``mcp_result``.
+    """
+    from lightfall.acquire.engine import get_engine
+
+    engine = get_engine()
+    aborted = engine.abort(reason=reason)
+    state = engine.state_name
+    if not aborted:
+        return (
+            {
+                "success": False,
+                "error": f"Nothing to abort: engine state is '{state}'",
+                "state": state,
+            },
+            True,
+        )
+    return (
+        {
+            "success": True,
+            "message": f"Plan aborted{': ' + reason if reason else ''}",
+            "state": state,
+        },
+        False,
+    )
+
+
 def _read_engine_state_snapshot() -> tuple[str, bool]:
     """Return ``(EngineState.name, is_idle)`` for the current engine.
 
@@ -479,15 +515,15 @@ class EngineToolsAgent(AgentPlugin):
                     return mcp_result({"success": False, "error": error}, is_error=True)
 
                 try:
-                    from lightfall.acquire.engine import get_engine
-                    engine = get_engine()
-                    engine.abort(reason=reason)
-                    logger.info("Plan aborted: {}", reason or "(no reason)")
-                    return mcp_result({
-                        "success": True,
-                        "message": f"Plan aborted{': ' + reason if reason else ''}",
-                        "state": engine.state_name,
-                    })
+                    payload, is_error = _abort_plan_payload(reason)
+                    if is_error:
+                        logger.info(
+                            "Plan abort requested but nothing was aborted: {}",
+                            payload.get("error", ""),
+                        )
+                    else:
+                        logger.info("Plan aborted: {}", reason or "(no reason)")
+                    return mcp_result(payload, is_error=is_error)
                 except Exception as e:
                     return mcp_result({"success": False, "error": str(e)}, is_error=True)
 

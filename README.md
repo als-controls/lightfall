@@ -140,21 +140,29 @@ mypy src
 ## Project Structure
 
 ```
-ncs/
-├── src/ncs/
-│   ├── acquire/      # Data acquisition engine
-│   ├── auth/         # Authentication & authorization
-│   ├── config/       # Configuration management
-│   ├── core/         # Core application classes
-│   ├── devices/      # Device catalog & backends
-│   ├── plugins/      # Plugin system
-│   ├── services/     # Application services (Tiled, etc.)
-│   ├── ui/           # User interface
-│   │   ├── panels/   # Panel implementations
-│   │   ├── widgets/  # Reusable widgets
+lightfall/
+├── src/lightfall/
+│   ├── acquire/        # Data acquisition engine (Bluesky RunEngine, plans)
+│   ├── auth/           # Authentication & authorization
+│   ├── claude/         # Embedded Claude agent integration
+│   ├── config/         # Configuration management
+│   ├── core/           # Core application classes
+│   ├── devices/        # Device catalog & backends
+│   ├── epics/          # EPICS (caproto) widgets & helpers
+│   ├── exporter/       # Data exporter CLI
+│   ├── ipc/            # Inter-process communication (NATS)
+│   ├── logbook/        # Logbook client
+│   ├── pipelines/      # Pipeline client
+│   ├── plugins/        # Plugin system
+│   ├── services/       # Application services (Tiled, CA tunnel, etc.)
+│   ├── settings/       # User-portable settings client
+│   ├── ui/             # User interface
+│   │   ├── panels/     # Panel implementations
+│   │   ├── widgets/    # Reusable widgets
 │   │   ├── preferences/  # Settings UI
-│   │   └── theme/    # Theming system
-│   └── utils/        # Utilities
-└── tests/            # Test suite
+│   │   └── theme/      # Theming system
+│   ├── utils/          # Utilities
+│   └── visualization/  # Plotting & live visualization
+└── tests/              # Test suite
 ```
 

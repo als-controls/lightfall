@@ -2,6 +2,10 @@
 
 Provides centralized error reporting to Sentry with automatic exception capture,
 loguru integration, and context enrichment for Qt applications.
+
+Telemetry is opt-in: it activates only when a DSN is explicitly configured via
+the SENTRY_DSN environment variable or the 'telemetry_dsn' preference (env
+wins). With no DSN configured, all reporting functions no-op.
 """
 
 from __future__ import annotations
@@ -11,9 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sentry_sdk.types import Event, Hint
-
-# Sentry DSN - can be overridden via SENTRY_DSN environment variable
-_DEFAULT_DSN = "http://00c731abfec94ce68ebf56f2c2485022@bcgglitchtip.dhcp.lbl.gov:8000/1"
 
 _initialized = False
 
@@ -37,8 +38,10 @@ def init_sentry(
     capture errors logged at ERROR level or above.
 
     Args:
-        dsn: Sentry DSN. If None, uses SENTRY_DSN env var or built-in default.
-            Set to empty string to disable Sentry.
+        dsn: Sentry DSN. If None, uses the SENTRY_DSN env var, falling back
+            to the 'telemetry_dsn' preference. If no DSN is configured
+            anywhere, telemetry stays disabled. Set to empty string to
+            disable Sentry explicitly.
         environment: Environment name (e.g., "development", "production").
             If None, auto-detects from NCS_AUTH env var.
         release: Release/version string. If None, attempts to get from package version.
@@ -58,17 +61,24 @@ def init_sentry(
     if _initialized:
         return True
 
-    # Resolve DSN
-    resolved_dsn = dsn if dsn is not None else os.environ.get("SENTRY_DSN", _DEFAULT_DSN)
+    from lightfall.utils.logging import logger
+
+    # Resolve DSN — telemetry is opt-in. An explicit dsn argument wins
+    # (empty string = explicitly disabled), then the SENTRY_DSN env var,
+    # then the 'telemetry_dsn' preference.
+    if dsn is not None:
+        resolved_dsn = dsn
+    else:
+        resolved_dsn = os.environ.get("SENTRY_DSN") or _get_preference_dsn()
     if not resolved_dsn:
-        # Empty string = explicitly disabled
+        logger.info("telemetry disabled — no DSN configured")
         return False
 
     try:
         import sentry_sdk
         from sentry_sdk.integrations.loguru import LoguruIntegration
     except ImportError:
-        # sentry-sdk not installed
+        logger.debug("sentry-sdk not installed; telemetry disabled")
         return False
 
     # Auto-detect environment
@@ -125,6 +135,21 @@ def init_sentry(
 
     _initialized = True
     return True
+
+
+def _get_preference_dsn() -> str | None:
+    """Read the 'telemetry_dsn' preference, if the preferences system is up.
+
+    Returns:
+        The configured DSN, or None when unset or preferences are unavailable
+        (e.g., early init or headless use).
+    """
+    try:
+        from lightfall.ui.preferences.manager import PreferencesManager
+
+        return PreferencesManager.get_instance().get("telemetry_dsn") or None
+    except Exception:
+        return None
 
 
 def _get_release_version() -> str | None:

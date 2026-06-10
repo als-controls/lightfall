@@ -6,7 +6,6 @@ This package provides:
 - DeviceBackend: Abstract base for storage backends
 - Device models: DeviceInfo, DeviceConfiguration, etc.
 - MockBackend: Simulated devices using ophyd.sim
-- DeviceMetricsCollector: Device monitoring and health tracking
 """
 
 from lightfall.devices.base import DeviceBackend
@@ -26,7 +25,6 @@ from lightfall.devices.model import (
     DeviceStatus,
     MaintenanceRecord,
 )
-from lightfall.devices.monitoring import DeviceHealth, DeviceMetric, DeviceMetricsCollector
 
 __all__ = [
     # Catalog
@@ -46,8 +44,4 @@ __all__ = [
     "DeviceState",
     "DeviceStatus",
     "MaintenanceRecord",
-    # Monitoring
-    "DeviceHealth",
-    "DeviceMetric",
-    "DeviceMetricsCollector",
 ]

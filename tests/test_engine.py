@@ -3,7 +3,9 @@
 Tests the Engine protocol, BaseEngine, BlueskyEngine, and MockEngine.
 """
 
+import threading
 import time
+from queue import Empty
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +21,25 @@ from lightfall.acquire.engine import (
     reset_engine,
     set_engine,
 )
+
+
+class _QueueOnlyEngine(BaseEngine):
+    """Concrete BaseEngine exposing only the queue machinery for tests."""
+
+    def pause(self, defer: bool = False) -> None:
+        pass
+
+    def resume(self) -> None:
+        pass
+
+    def stop(self) -> bool:
+        return False
+
+    def abort(self, reason: str = "") -> bool:
+        return False
+
+    def halt(self) -> bool:
+        return False
 
 
 @pytest.fixture
@@ -49,6 +70,10 @@ def bluesky_engine(qapp):
         qapp.processEvents()
         time.sleep(0.05)
     yield engine
+    # Stop the queue processor thread; leaked QThreads crash the interpreter
+    # at exit ("QThread: Destroyed while thread is still running").
+    if engine._queue_future is not None:
+        engine._queue_future.cancel(timeout_ms=3000)
 
 
 class TestEngineState:
@@ -194,6 +219,216 @@ class TestBlueskyEngine:
         assert hasattr(bluesky_engine, "sigStateChanged")
         # Backward compat
         assert hasattr(bluesky_engine, "sigDocumentYield")
+
+
+@pytest.fixture
+def offline_bluesky_engine(qapp):
+    """BlueskyEngine without its worker thread; ``_RE`` replaced with a mock.
+
+    Driving a real RunEngine to ``paused`` requires a plan blocked at a
+    checkpoint, which is timing-dependent headless — instead the RunEngine is
+    mocked so state-gating in stop()/abort()/halt() can be tested
+    deterministically.
+    """
+    pytest.importorskip("bluesky")
+
+    with patch.object(BlueskyEngine, "_start_queue_processor", lambda self: None):
+        engine = BlueskyEngine()
+    engine._RE = MagicMock()
+    return engine
+
+
+def _wait_interrupt(engine, timeout_ms: int = 5000) -> None:
+    """Block until the engine's paused-interrupt worker thread finishes.
+
+    From 'paused', stop()/abort()/halt() dispatch the RunEngine call to a
+    QThreadFuture (it blocks until plan cleanup completes), so tests must
+    wait before asserting on the mock.
+    """
+    assert engine._interrupt_future is not None
+    assert engine._interrupt_future.wait(timeout_ms)
+
+
+class TestStopAbortFromPaused:
+    """stop()/abort()/halt() must work from 'paused' and report the outcome.
+
+    Bluesky's RunEngine.stop()/abort() explicitly support the paused state,
+    and the GUI enables Stop/Abort while paused — gating on 'running' only
+    made both silently no-op on a paused run.
+    """
+
+    def test_stop_dispatches_when_running(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "running"
+        assert engine.stop() is True
+        engine._RE.stop.assert_called_once_with()
+
+    def test_stop_dispatches_when_paused(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        assert engine.stop() is True
+        _wait_interrupt(engine)
+        engine._RE.stop.assert_called_once_with()
+
+    def test_paused_interrupt_runs_off_caller_thread(self, offline_bluesky_engine):
+        """From 'paused', RE.stop() blocks until plan cleanup completes
+        (bluesky's _resume_task), so it must never run on the caller's
+        (GUI) thread."""
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        calling_threads = []
+        engine._RE.stop.side_effect = lambda: calling_threads.append(
+            threading.current_thread()
+        )
+        assert engine.stop() is True
+        _wait_interrupt(engine)
+        assert calling_threads
+        assert calling_threads[0] is not threading.current_thread()
+
+    def test_stop_not_dispatched_when_idle(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "idle"
+        assert engine.stop() is False
+        engine._RE.stop.assert_not_called()
+
+    def test_stop_without_runengine_returns_false(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE = None
+        assert engine.stop() is False
+
+    def test_abort_dispatches_when_running(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "running"
+        assert engine.abort(reason="test") is True
+        engine._RE.abort.assert_called_once_with(reason="test")
+
+    def test_abort_dispatches_when_paused(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        aborts = []
+        engine.sigAbort.connect(lambda: aborts.append(True))
+        assert engine.abort(reason="paused abort") is True
+        _wait_interrupt(engine)
+        engine._RE.abort.assert_called_once_with(reason="paused abort")
+        assert aborts == [True]
+
+    def test_abort_not_dispatched_when_idle(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "idle"
+        aborts = []
+        engine.sigAbort.connect(lambda: aborts.append(True))
+        assert engine.abort(reason="nothing running") is False
+        engine._RE.abort.assert_not_called()
+        assert aborts == []
+
+    def test_abort_without_runengine_returns_false(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE = None
+        assert engine.abort() is False
+
+    def test_halt_reports_outcome(self, offline_bluesky_engine):
+        engine = offline_bluesky_engine
+        engine._RE.state = "paused"
+        assert engine.halt() is True
+        _wait_interrupt(engine)
+        engine._RE.halt.assert_called_once_with()
+
+        engine._RE.reset_mock()
+        engine._RE.state = "idle"
+        assert engine.halt() is False
+        engine._RE.halt.assert_not_called()
+
+
+class TestQueueRaceInvariants:
+    """Deterministic interleaving tests for the queue/tracking-list lock.
+
+    The worker thread's blocking ``get()`` runs without the lock, so these
+    tests call the worker-side claim step (``_claim_queued_item``) directly
+    in the exact orderings that used to race.
+    """
+
+    @pytest.fixture
+    def engine(self, qapp):
+        return _QueueOnlyEngine(name="test")
+
+    def test_removed_item_is_never_claimed(self, engine):
+        proc_id = engine.submit("plan-a", priority=1)
+        item = engine.get_procedure_by_id(proc_id)
+
+        # Worker pops the item from the priority queue...
+        popped = engine._queue.get_nowait()
+        assert popped is item
+
+        # ...and the GUI removes it before the worker claims it.
+        assert engine.remove_from_queue(proc_id) is True
+
+        # The worker-side claim must refuse to execute it.
+        assert engine._claim_queued_item(popped) is False
+        assert engine.get_current_procedure() is None
+
+    def test_priority_rebuild_does_not_double_execute(self, engine):
+        id_a = engine.submit("plan-a", priority=1)
+        id_b = engine.submit("plan-b", priority=2)
+        item_a = engine.get_procedure_by_id(id_a)
+
+        # Worker pops A; before it claims, a priority update rebuilds the
+        # queue from the tracking list, re-queuing a duplicate of A.
+        popped = engine._queue.get_nowait()
+        assert popped is item_a
+        assert engine.update_priority(id_b, 0) is True
+
+        # First claim wins.
+        assert engine._claim_queued_item(popped) is True
+
+        # Drain the queue exactly as the worker loop would: the stale
+        # duplicate of A must be skipped, B must execute exactly once.
+        executed = []
+        while True:
+            try:
+                nxt = engine._queue.get_nowait()
+            except Empty:
+                break
+            if engine._claim_queued_item(nxt):
+                executed.append(nxt.id)
+        assert executed == [id_b]
+
+    def test_remove_after_claim_reports_false(self, engine):
+        proc_id = engine.submit("plan-a", priority=1)
+        popped = engine._queue.get_nowait()
+        assert engine._claim_queued_item(popped) is True
+
+        # Already executing — removal must not claim success.
+        assert engine.remove_from_queue(proc_id) is False
+
+    def test_clear_queue_prevents_claim(self, engine):
+        engine.submit("plan-a", priority=1)
+        popped = engine._queue.get_nowait()
+        engine.clear_queue()
+        assert engine._claim_queued_item(popped) is False
+
+    def test_equal_priority_removal_is_by_identity(self, engine):
+        # PrioritizedProcedure.__eq__ compares only priority (order=True
+        # with compare=False on every other field), so list removal must
+        # match by identity, not equality.
+        id_a = engine.submit("plan-a", priority=1)
+        id_b = engine.submit("plan-b", priority=1)
+
+        assert engine.remove_from_queue(id_b) is True
+        remaining = [item.id for item in engine.get_queue_items()]
+        assert remaining == [id_a]
+
+    def test_queue_size_ignores_stale_duplicates(self, engine):
+        id_a = engine.submit("plan-a", priority=1)
+        engine.submit("plan-b", priority=2)
+
+        # Pop A, then rebuild (re-queues a duplicate of A), then claim A.
+        popped = engine._queue.get_nowait()
+        engine.update_priority(id_a, 0)
+        assert engine._claim_queued_item(popped) is True
+
+        # Only B is really pending, even though the PriorityQueue still
+        # holds a stale duplicate of A.
+        assert engine.queue_size == 1
 
 
 class TestEngineSingleton:

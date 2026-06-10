@@ -189,7 +189,7 @@ def test_dock_panel_subtree_rule_absent_when_flat(flat_colors):
 
 def test_island_widget_polish(islands_colors):
     """Islands themes: selected tab = surface, stacked widget = surface,
-    push buttons flat/sea/borderless."""
+    push buttons sea-colored with a themed border."""
     css = generate_docking_stylesheet(islands_colors)
     # Idle tabs: surface, borderless, rounded-rect (button-like).
     assert (
@@ -239,8 +239,10 @@ def test_island_widget_polish(islands_colors):
     assert (
         f"QDialog {{\n    background-color: {islands_colors.surface};"
     ) in css
+    # Push buttons: sea with a themed border so they don't read as flat.
     assert (
-        f"QPushButton {{\n    background: {islands_colors.sea};\n    border: none;"
+        f"QPushButton {{\n    background: {islands_colors.sea};\n"
+        f"    border: 1px solid {islands_colors.border};"
     ) in css
 
 
