@@ -326,8 +326,8 @@ class IPCService(QObject):
 
         Note:
             The field name ``"tiled_token"`` is preserved as a public IPC
-            contract (see ``docs/ipc-architecture.md`` /
-            ``docs/ipc-client-guide.md``). Its *value* is now a Tiled API
+            contract (see ``docs/developer-guide/ipc-architecture.md`` /
+            ``docs/developer-guide/ipc-client-guide.md``). Its *value* is now a Tiled API
             key, not a Keycloak bearer token — external clients consume it
             as ``api_key=tiled_token`` when building their Tiled client,
             which is the intended usage. The field rename is deferred to

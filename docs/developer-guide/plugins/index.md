@@ -32,14 +32,13 @@ The plugin system consists of:
 │  ├── ThemePlugin       - Color themes                           │
 │  ├── StatusBarPlugin   - Status indicators                      │
 │  ├── ControllerPlugin  - Device control widgets                 │
-│  ├── MCPToolPlugin     - Claude assistant tools                 │
-│  └── SkillPlugin       - Claude assistant expertise             │
+│  └── AgentPlugin       - Claude assistant expertise and tools   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Plugin Types
 
-Lightfall supports 9 plugin types, each serving a specific purpose:
+Lightfall supports 8 plugin types, each serving a specific purpose:
 
 | Type | Base Class | Purpose | Singleton |
 |------|------------|---------|-----------|
@@ -50,8 +49,7 @@ Lightfall supports 9 plugin types, each serving a specific purpose:
 | `theme` | `ThemePlugin` | Define color themes | Yes |
 | `statusbar` | `StatusBarPlugin` | Add status bar indicators | Yes |
 | `controller` | `ControllerPlugin` | Device-specific control widgets | Yes |
-| `mcp_tool` | `MCPToolPlugin` | Claude assistant tools | Yes |
-| `skill` | `SkillPlugin` | Claude assistant expertise | Yes |
+| `agent` | `AgentPlugin` | Claude assistant expertise and tools | Yes |
 
 See [Plugin Type Reference](plugin-types/index.md) for detailed documentation on each type.
 

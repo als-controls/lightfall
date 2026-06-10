@@ -37,10 +37,11 @@ class AgentPlugin(PluginType):
         """Unique plugin identifier.
 
         ≤64 chars. Lowercase + hyphens/underscores. Used as:
+
         - the manifest entry name,
         - the SKILL.md frontmatter `name` field (with underscores → hyphens
           conversion at materialization, per spec Open question),
-        - the MCP server name (mcp__<name>__*),
+        - the MCP server name (``mcp__<name>__*``),
         - the settings UI preference identifier.
         """
         ...

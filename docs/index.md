@@ -16,7 +16,7 @@ Running experiments at a synchrotron beamline has traditionally meant juggling m
 
 - **One interface for everything** — Device control, data acquisition, experiment logging, and data browsing in coordinated panels
 - **AI that understands your beamline** — Ask Claude to open panels, explain procedures, or help troubleshoot errors using natural language
-- **Extensibility without limits** — A plugin system with 9 distinct extension points lets facilities and beamline scientists customize every aspect
+- **Extensibility without limits** — A plugin system with 8 distinct extension points lets facilities and beamline scientists customize every aspect
 - **Data you can trust** — FAIR-compliant data management with automatic cataloging, metadata capture, and provenance tracking
 
 ---
@@ -45,7 +45,7 @@ Lightfall includes an integrated AI assistant powered by Claude. This is not a s
 - **Explain procedures** — "How do I run a 2D grid scan?"
 - **Understand errors** — "Why did my scan stop?"
 
-The assistant is fully extensible. Beamline scientists can add custom skills and tools that give Claude domain-specific knowledge and capabilities.
+The assistant is fully extensible. Beamline scientists can add agent plugins that give Claude domain-specific knowledge and tools.
 
 ---
 
@@ -53,13 +53,13 @@ The assistant is fully extensible. Beamline scientists can add custom skills and
 
 Lightfall is **API-first**: every user-facing surface — panels, devices, and plans — has a programmatic representation that any client can discover and invoke through one uniform interface. The GUI, a script, and the embedded Claude agent are peers against that surface; none has privileged access the others lack. This uniform addressability is what lets a single agent act on panels, devices, and plans without bespoke per-type adapters.
 
-The runtime also participates in a beamline-wide [NATS](ipc-architecture.md) message bus, so external services — autonomous engines, live-analysis processes, and external agents — address the same surface as the GUI. Capabilities are added as [plugins](plugins/index.md) that register against this surface rather than against the renderer, which is why a newly installed plugin becomes agent-addressable automatically. The **Technical Foundation** section below summarizes the underlying stack.
+The runtime also participates in a beamline-wide [NATS](developer-guide/ipc-architecture.md) message bus, so external services — autonomous engines, live-analysis processes, and external agents — address the same surface as the GUI. Capabilities are added as [plugins](developer-guide/plugins/index.md) that register against this surface rather than against the renderer, which is why a newly installed plugin becomes agent-addressable automatically. The **Technical Foundation** section below summarizes the underlying stack.
 
 ---
 
 ## Plugin Architecture
 
-Lightfall's plugin system is designed for real extensibility, not just theming. Nine distinct plugin types cover the full spectrum of customization:
+Lightfall's plugin system is designed for real extensibility, not just theming. Eight distinct plugin types cover the full spectrum of customization:
 
 | Plugin Type | What You Can Add |
 |-------------|------------------|
@@ -70,63 +70,24 @@ Lightfall's plugin system is designed for real extensibility, not just theming. 
 | **Theme** | Color schemes |
 | **StatusBar** | Status indicators |
 | **Controller** | Device control widgets |
-| **MCP Tool** | Claude assistant capabilities |
-| **Skill** | Claude domain expertise |
+| **Agent** | Claude assistant expertise and tools |
 
 Plugins are distributed as Python packages and discovered automatically via entry points. No core code modification required.
 
 ---
 
-## User Guide
+## Documentation
 
-Get started with Lightfall for your experiments:
-
-- [Getting Started](user/getting-started.md) — Overview and first steps
-- [Logging In](user/login.md) — Authentication and access
-- [Running Plans](user/running-plans.md) — Execute data acquisition plans
-- [Using Panels](user/panels.md) — Work with the main application panels
-- [Claude Assistant](user/claude-assistant.md) — AI-powered help and control
-- [Preferences](user/preferences.md) — Customize your experience
+- [User Guide](user-guide/index.md) — Tutorials and instructions for running experiments
+- [Developer Guide](developer-guide/index.md) — Architecture, plugins, IPC, and deployment
+- [API Reference](api/index.md) — Formal reference for base classes and infrastructure
 
 ```{toctree}
 :maxdepth: 2
-:caption: User Guide
 :hidden:
 
-user/getting-started
-user/login
-user/running-plans
-user/panels
-user/claude-assistant
-user/preferences
-```
-
-## Developer Guide
-
-Extend Lightfall with custom functionality:
-
-- [Plugin System Overview](plugins/index.md) — Architecture and concepts
-- [Plugin Quickstart](plugins/quickstart.md) — Create your first plugin
-- [Creating Plugins](plugins/creating-plugins.md) — Step-by-step guide
-- [Plugin Types](plugins/plugin-types/index.md) — All 9 plugin types
-
-```{toctree}
-:maxdepth: 2
-:caption: Developer Guide
-:hidden:
-
-plugins/index
-```
-
-## API Reference
-
-- [Plugin Types](api/plugins.md) — Base classes and infrastructure
-
-```{toctree}
-:maxdepth: 2
-:caption: API Reference
-:hidden:
-
+user-guide/index
+developer-guide/index
 api/index
 ```
 

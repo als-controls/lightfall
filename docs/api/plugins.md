@@ -65,19 +65,10 @@ Base classes for extending Lightfall with custom functionality.
    :member-order: bysource
 ```
 
-## MCPToolPlugin
+## AgentPlugin
 
 ```{eval-rst}
-.. autoclass:: lightfall.plugins.mcp_tool.MCPToolPlugin
-   :members:
-   :show-inheritance:
-   :member-order: bysource
-```
-
-## SkillPlugin
-
-```{eval-rst}
-.. autoclass:: lightfall.plugins.skill_plugin.SkillPlugin
+.. autoclass:: lightfall.plugins.agent_plugin.AgentPlugin
    :members:
    :show-inheritance:
    :member-order: bysource

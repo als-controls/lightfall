@@ -13,8 +13,7 @@ This section provides detailed documentation for each plugin type in Lightfall.
 | [`theme`](theme.md) | `ThemePlugin` | Define color themes | Yes |
 | [`statusbar`](statusbar.md) | `StatusBarPlugin` | Add status bar indicators | Yes |
 | [`controller`](controller.md) | `ControllerPlugin` | Device-specific control widgets | Yes |
-| [`mcp_tool`](mcp_tool.md) | `MCPToolPlugin` | Claude assistant tools | Yes |
-| [`skill`](skill.md) | `SkillPlugin` | Claude assistant expertise | Yes |
+| [`agent`](agent.md) | `AgentPlugin` | Claude assistant expertise and tools | Yes |
 
 ## Common Interface
 
@@ -75,8 +74,7 @@ def get_introspection_data(self) -> dict[str, Any]:
 
 | Goal | Plugin Type |
 |------|-------------|
-| Add tools Claude can call | [`MCPToolPlugin`](mcp_tool.md) |
-| Add domain expertise/context | [`SkillPlugin`](skill.md) |
+| Add domain expertise and/or tools Claude can call | [`AgentPlugin`](agent.md) |
 
 ## Documentation Template
 
@@ -102,6 +100,5 @@ engine
 theme
 statusbar
 controller
-mcp_tool
-skill
+agent
 ```
