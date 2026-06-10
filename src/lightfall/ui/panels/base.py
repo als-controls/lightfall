@@ -43,6 +43,7 @@ class PanelMetadata:
     """Metadata describing a panel type.
 
     This metadata is used by:
+
     - PanelRegistry for discovery and instantiation
     - Claude MCP tools for introspection
     - UI for displaying panel information

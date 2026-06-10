@@ -50,7 +50,7 @@ version = "1.0.0"
 description = "Lightfall plugins for beamline 7.0.1.1"
 requires-python = ">=3.11"
 dependencies = [
-    "lightfall>=1.0.0",  # Depend on Lightfall
+    "lightfall>=0.1,<0.2",  # Pin to the released series (currently 0.1.x)
 ]
 
 [project.optional-dependencies]
@@ -380,13 +380,15 @@ def test_manifest_discovery(loader):
 
 ### Specifying Lightfall Version
 
-In `pyproject.toml`, specify compatible Lightfall versions:
+In `pyproject.toml`, specify compatible Lightfall versions. Lightfall is pre-1.0 (the current released series is 0.1.x), and plugin-facing APIs may still change between minor versions — pin to the minor series you developed against:
 
 ```toml
 dependencies = [
-    "lightfall>=1.0.0,<2.0.0",  # Compatible with Lightfall 1.x
+    "lightfall>=0.1,<0.2",  # Compatible with the 0.1.x series
 ]
 ```
+
+Once Lightfall reaches 1.0, the usual `>=1.0,<2.0` style applies.
 
 ### Handling API Changes
 

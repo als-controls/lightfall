@@ -23,11 +23,11 @@ class PanelPlugin(PluginType):
     registered with PanelRegistry when the plugin is loaded. Each plugin
     wraps a panel class and provides it to the plugin system.
 
-    Class Attributes:
-        type_name: "panel" - identifies this as a panel plugin.
-        is_singleton: True - panel plugins are singletons (the plugin
-            instance is singleton; the panel class it provides can still
-            create multiple panel instances based on its own singleton flag).
+    Class attributes:
+        - ``type_name`` is ``"panel"`` - identifies this as a panel plugin.
+        - ``is_singleton`` is ``True`` - panel plugins are singletons (the
+          plugin instance is singleton; the panel class it provides can still
+          create multiple panel instances based on its own singleton flag).
 
     Lifecycle:
         1. Plugin is instantiated on load (preload=True recommended)

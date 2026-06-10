@@ -18,6 +18,7 @@ author = "ALS Controls Team"
 extensions = [
     "myst_parser",  # Markdown support
     "sphinx.ext.autodoc",  # API documentation from docstrings
+    "sphinx.ext.napoleon",  # Google-style docstrings (Args:/Returns:/Attributes:)
     "sphinx.ext.viewcode",  # Add links to source code
     "sphinx.ext.intersphinx",  # Link to other projects' documentation
     "sphinx_immaterial",  # Material theme extensions
@@ -25,6 +26,12 @@ extensions = [
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+# Render the private _PlanFunc TypeVar (lightfall.acquire.plan_ui) as plain
+# Callable in signatures; the TypeVar itself has no documentation target.
+autodoc_type_aliases = {
+    "_PlanFunc": "collections.abc.Callable",
+}
 
 # Suppress warnings that are unavoidable in CI or in auto-generated plan docs
 suppress_warnings = [
@@ -60,8 +67,8 @@ html_theme_options = {
     "icon": {
         "repo": "fontawesome/brands/github",
     },
-    "site_url": "https://als-computing.github.io/lightfall/",
-    "repo_url": "https://github.com/als-computing/lightfall",
+    "site_url": "https://als-controls.github.io/lightfall/",
+    "repo_url": "https://github.com/als-controls/lightfall",
     "repo_name": "lightfall",
     "edit_uri": "blob/main/docs",
     "globaltoc_collapse": True,

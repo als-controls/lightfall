@@ -17,8 +17,7 @@ Select the plugin type that matches your goal:
 | Add a color theme | `ThemePlugin` |
 | Add a status indicator | `StatusBarPlugin` |
 | Add device control widgets | `ControllerPlugin` |
-| Add Claude assistant tools | `MCPToolPlugin` |
-| Add Claude assistant expertise | `SkillPlugin` |
+| Add Claude assistant expertise and tools | `AgentPlugin` |
 
 ### 2. Create the Plugin Class
 

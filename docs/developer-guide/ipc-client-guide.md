@@ -213,14 +213,14 @@ async def watch_engine_state(nc):
 
 ## Closed-loop
 
-External services participate in closed experimental loops by subscribing to Lightfall's event subjects and posting plan-parameter suggestions back through request/reply on the action subjects. The canonical loop:
+External services participate in closed experimental loops by combining the NATS bus (for notifications and suggestions) with Tiled (for the measured data). The canonical loop, as implemented by Lightfall's built-in `adaptive_experiment` plan with [Tsuchinoko](https://github.com/lbl-camera/tsuchinoko):
 
-1. Lightfall publishes Bluesky event documents on its event subjects as a scan progresses.
-2. A live-analysis service subscribes and computes a derived signal (a peak metric, an alignment offset, a correlation function).
-3. An autonomous engine consumes the analysis output, evaluates a surrogate model, and posts plan-parameter suggestions to the action subjects.
-4. Lightfall re-invokes the plan with the suggested parameters, and the loop closes.
+1. At run start, the plan publishes a bind message carrying the run UID, the Tiled URL, and a Tiled API key, so the external engine can read the run's data directly from the catalog.
+2. After each measurement (or batch), the plan publishes a notification on `{prefix}.adaptive.measured`.
+3. The autonomous engine reads the new points from Tiled, updates its surrogate model, and publishes the next measurement targets on its own subject (`tsuchinoko.targets`).
+4. The plan, polling that subject between plan messages via `NATSPlanBridge` (`lightfall.acquire.nats_bridge`), moves the motors to each target and measures — and the loop closes.
 
-No participant in this loop requires modifications to Lightfall's core: each addresses Lightfall through the same uniform surface the GUI and the embedded agent use, and each joins or leaves the loop independently. The script below is a minimal implementation of one such participant.
+No participant in this loop requires modifications to Lightfall's core: notifications and suggestions travel over the same bus described in this guide, and the data travels through the same Tiled catalog every other client uses. The script below is a minimal implementation of a simpler participant that uses only the generic action and event subjects.
 
 ## Complete Example: Tsuchinoko-Style Client
 

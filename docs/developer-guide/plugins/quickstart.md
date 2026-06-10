@@ -55,7 +55,7 @@ class MySettingsPlugin(SettingsPlugin):
 
 ## Step 2: Register in the Built-in Manifest
 
-For development, the easiest approach is to add your plugin to the built-in manifest. Edit `ncs/src/lightfall/plugins/builtin_manifest.py`:
+For development, the easiest approach is to add your plugin to the built-in manifest. Edit `src/lightfall/plugins/builtin_manifest.py`:
 
 ```python
 # Add to the plugins list:

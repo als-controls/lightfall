@@ -32,14 +32,13 @@ The plugin system consists of:
 │  ├── ThemePlugin       - Color themes                           │
 │  ├── StatusBarPlugin   - Status indicators                      │
 │  ├── ControllerPlugin  - Device control widgets                 │
-│  ├── MCPToolPlugin     - Claude assistant tools                 │
-│  └── SkillPlugin       - Claude assistant expertise             │
+│  └── AgentPlugin       - Claude assistant expertise and tools   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Plugin Types
 
-Lightfall supports 9 plugin types, each serving a specific purpose:
+Lightfall supports 8 plugin types, each serving a specific purpose:
 
 | Type | Base Class | Purpose | Singleton |
 |------|------------|---------|-----------|
@@ -50,8 +49,7 @@ Lightfall supports 9 plugin types, each serving a specific purpose:
 | `theme` | `ThemePlugin` | Define color themes | Yes |
 | `statusbar` | `StatusBarPlugin` | Add status bar indicators | Yes |
 | `controller` | `ControllerPlugin` | Device-specific control widgets | Yes |
-| `mcp_tool` | `MCPToolPlugin` | Claude assistant tools | Yes |
-| `skill` | `SkillPlugin` | Claude assistant expertise | Yes |
+| `agent` | `AgentPlugin` | Claude assistant expertise and tools | Yes |
 
 See [Plugin Type Reference](plugin-types/index.md) for detailed documentation on each type.
 
@@ -114,11 +112,12 @@ manifest = PluginManifest(
 
 Lightfall's built-in plugins are defined in `lightfall.plugins.builtin_manifest`. This manifest is loaded directly by the application and contains core plugins like:
 
-- Theme plugins (light, slate, darkblue, islands)
-- Settings plugins (appearance, devices, claude, etc.)
+- Theme plugins (light, slate, darkblue, islands, and others)
+- Settings plugins (appearance, devices, tiled, logbook, ipc, claude, etc.)
 - Engine plugins (bluesky, mock)
-- Panel plugins (devices, bluesky, claude, etc.)
-- Status bar plugins (user, auth, connection, tiled)
+- Panel plugins (devices, bluesky, queue, claude, logbook, tiled_browser, etc.)
+- Status bar plugins (user_status, tiled_status, als_beam_status, thread_status, nats_status, etc.)
+- Agent plugins (device_tools, plan_tools, panel_design, etc.)
 
 ### External Package Manifests
 

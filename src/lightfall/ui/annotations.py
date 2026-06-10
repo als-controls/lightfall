@@ -4,7 +4,8 @@ Provides dataclasses that can be used with `typing.Annotated` to add
 UI hints for plan parameters. These annotations control how the
 parameter editor renders inputs for plan functions.
 
-Usage:
+Usage::
+
     from typing import Annotated
     from lightfall.ui.annotations import Unit, Decimals, Range, DeviceFilter
 
@@ -31,7 +32,8 @@ class Unit:
     Args:
         suffix: Unit string to display (e.g., "eV", "s", "K", "mm").
 
-    Example:
+    Example::
+
         energy: Annotated[float, Unit("eV")] = 100.0
     """
 
@@ -47,7 +49,8 @@ class Decimals:
     Args:
         places: Number of decimal places (e.g., 4 for 0.0001 precision).
 
-    Example:
+    Example::
+
         step_size: Annotated[float, Decimals(4)] = 0.001
     """
 
@@ -64,7 +67,8 @@ class Range:
         min: Minimum allowed value (None for no minimum).
         max: Maximum allowed value (None for no maximum).
 
-    Example:
+    Example::
+
         num_points: Annotated[int, Range(1, 1000)] = 10
     """
 
@@ -82,7 +86,8 @@ class Default:
     Args:
         value: The default value for this parameter.
 
-    Example:
+    Example::
+
         exposure: Annotated[float, Default(1.0), Unit("s")]
     """
 
@@ -103,7 +108,8 @@ class DeviceFilter:
         source: Match device source/connection type (e.g., "epics", "simulated").
         name_pattern: Regex pattern for device name matching.
 
-    Example:
+    Example::
+
         motor: Annotated[Device, DeviceFilter(device_class="EpicsMotor")]
         detector: Annotated[Device, DeviceFilter(category="detector", group="areadetectors")]
     """
@@ -125,7 +131,8 @@ class DeviceFilterAny:
     Args:
         *filters: DeviceFilter instances to combine with OR logic.
 
-    Example:
+    Example::
+
         # Select either motors or positioners
         axis: Annotated[Device, DeviceFilterAny(
             DeviceFilter(category="motor"),
@@ -155,7 +162,8 @@ class DeviceDefault:
         *names: Device names to pre-select.
         pattern: Regex pattern to match device names for pre-selection.
 
-    Example:
+    Example::
+
         # Pre-select specific detector
         detector: Annotated[list[Detector], DeviceDefault("PI_MTE3")]
 
@@ -188,7 +196,8 @@ class DeviceIcon:
     Args:
         name: QtAwesome icon identifier (e.g., ``"mdi6.engine"``, ``"camera"``).
 
-    Example:
+    Example::
+
         motor: Annotated[Device, DeviceFilter(category="motor"), DeviceIcon("engine")]
     """
 
