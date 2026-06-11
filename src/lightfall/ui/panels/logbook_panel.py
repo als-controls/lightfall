@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from lightfall.logbook.client import LogbookClient
 from lightfall.logbook.entry_widget import EntryData, EntryWidget
 from lightfall.logbook.fragment_widgets import FragmentData, FragmentType
+from lightfall.logbook.live_updates import LogbookLiveUpdates
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.utils.logging import logger
 
@@ -65,6 +66,7 @@ class LogbookPanel(BasePanel):
         self._current_entry_id: str | None = None
         self._entries: dict[str, EntryData] = {}
         self._displayed_updated_at: str | None = None
+        self._live: LogbookLiveUpdates | None = None
         super().__init__(parent)
 
         # Deferred init (after widget is shown)
@@ -142,9 +144,11 @@ class LogbookPanel(BasePanel):
 
             self._load_entries()
             self._start_event_listener()
+            self._start_live_updates()
 
-            # Background sync after 10s
-            QTimer.singleShot(10_000, self._try_sync)
+            # Pull immediately so the cached view refreshes as soon as the
+            # server responds (was a 10 s delay).
+            QTimer.singleShot(0, self._try_sync)
 
             logger.info("LogbookPanel initialised (logbook={})", self._logbook_id)
         except Exception as e:
@@ -200,6 +204,8 @@ class LogbookPanel(BasePanel):
         self._entries = {}
         self._current_entry_id = None
         self._load_entries()
+        if getattr(self, "_live", None) is not None:
+            self._live.on_user_changed(getattr(self._client, "_server_url", None))
 
     def _update_guest_banner(self, user: Any) -> None:
         """Update guest state and refresh the warning banner."""
@@ -304,6 +310,13 @@ class LogbookPanel(BasePanel):
             listener.start()
         except Exception as e:
             logger.debug("Could not start event listener: {}", e)
+
+    def _start_live_updates(self) -> None:
+        if not self._client:
+            return
+        self._client.set_on_pull_callback(self._on_pull)
+        self._live = LogbookLiveUpdates(self._client)
+        self._live.start(getattr(self._client, "_server_url", None))
 
     # ── Entry selection ───────────────────────────────────────────
 

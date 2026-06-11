@@ -54,3 +54,28 @@ def test_on_pull_skips_rerender_when_unchanged(qapp, panel_class):
     p._client.get_entry.return_value = {"id": "e1", "updated_at": "t1"}
     p._on_pull()
     p._select_entry.assert_not_called()
+
+
+def test_pull_callback_registered_and_live_started(qapp, panel_class, monkeypatch):
+    import lightfall.ui.panels.logbook_panel as mod
+
+    class _FakeLive:
+        def __init__(self, client):
+            self.started_with = None
+        def start(self, server_url):
+            self.started_with = server_url
+        def on_user_changed(self, server_url):
+            pass
+
+    monkeypatch.setattr(mod, "LogbookLiveUpdates", _FakeLive)
+
+    p = panel_class.__new__(panel_class)
+    p._client = MagicMock()
+    p._client._server_url = "http://lb.test"
+    p._on_pull = MagicMock()
+
+    p._start_live_updates()
+
+    p._client.set_on_pull_callback.assert_called_once_with(p._on_pull)
+    assert isinstance(p._live, _FakeLive)
+    assert p._live.started_with == "http://lb.test"
