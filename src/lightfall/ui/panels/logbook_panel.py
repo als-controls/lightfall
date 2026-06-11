@@ -64,6 +64,7 @@ class LogbookPanel(BasePanel):
         self._logbook_id: str | None = None
         self._current_entry_id: str | None = None
         self._entries: dict[str, EntryData] = {}
+        self._displayed_updated_at: str | None = None
         super().__init__(parent)
 
         # Deferred init (after widget is shown)
@@ -252,6 +253,25 @@ class LogbookPanel(BasePanel):
                 self._entries_panel.select_entry(first.id)
             self._select_entry(first.id)
 
+    def _entry_widget_has_focus(self) -> bool:
+        from PySide6.QtWidgets import QApplication
+        focus = QApplication.focusWidget()
+        return focus is not None and self._entry_widget.isAncestorOf(focus)
+
+    def _on_pull(self) -> None:
+        """Refresh after a sync pull brought new data."""
+        if not self._client or not self._logbook_id:
+            return
+        self._load_entries()
+        eid = self._current_entry_id
+        if not eid:
+            return
+        row = self._client.get_entry(eid)
+        if not row:
+            return
+        if row.get("updated_at") != self._displayed_updated_at and not self._entry_widget_has_focus():
+            self._select_entry(eid)
+
     def _row_to_entry_data(self, row: dict[str, Any]) -> EntryData:
         tags = row.get("tags", "[]")
         if isinstance(tags, str):
@@ -324,6 +344,8 @@ class LogbookPanel(BasePanel):
         entry_data = self._entries.get(entry_id, EntryData(id=entry_id))
         entry_data.fragments = fragments
         self._entry_widget.set_entry(entry_data)
+        row = self._client.get_entry(entry_id) if self._client else None
+        self._displayed_updated_at = (row or {}).get("updated_at")
 
     # ── Slots ─────────────────────────────────────────────────────
 
