@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -46,6 +47,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._islands_check: QCheckBox | None = None
         self._original_theme: str = "system"
         self._original_islands: bool = True
+        self._original_font_size: int = 10
 
     @property
     def name(self) -> str:
@@ -85,6 +87,9 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         theme_mgr.set_islands_mode(bool(prefs.get("islands_mode", False)))
         # Use set_theme_by_name for string-based themes
         theme_mgr.set_theme_by_name(prefs.theme)
+        # Apply the saved base font size so it takes effect before any UI
+        # appears (mirrors the theme being applied here at preload).
+        self._apply_font_size(prefs.font_size)
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the settings widget.
@@ -114,6 +119,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._font_spin = QSpinBox()
         self._font_spin.setRange(8, 24)
         self._font_spin.setSuffix(" pt")
+        self._font_spin.valueChanged.connect(self.apply_preview)
         font_layout.addWidget(self._font_spin)
         font_layout.addStretch()
         appearance_layout.addRow("Font Size:", font_layout)
@@ -168,6 +174,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
         self._original_theme = prefs.theme
         self._original_islands = bool(prefs.get("islands_mode", False))
+        self._original_font_size = prefs.font_size
 
         # Populating the controls below is initialization, not a user edit.
         # Block widget signals so these writes don't fire apply_preview(),
@@ -242,10 +249,10 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         return []
 
     def apply_preview(self) -> None:
-        """Apply theme temporarily for live preview.
+        """Apply theme + font size temporarily for live preview.
 
-        Called when the user changes the theme selection, allowing
-        immediate visual feedback.
+        Called when the user changes the theme, islands, or font-size
+        controls, allowing immediate visual feedback.
         """
         theme_mgr = ThemeManager.get_instance()
 
@@ -258,11 +265,29 @@ class AppearanceSettingsPlugin(SettingsPlugin):
             if theme_name:
                 theme_mgr.set_theme_by_name(theme_name)
 
+        if self._font_spin is not None:
+            self._apply_font_size(self._font_spin.value())
+
     def revert_preview(self) -> None:
-        """Revert to the original theme + islands layout if user cancels.
+        """Revert to the original theme + islands layout + font size on cancel.
 
         Restores what was active when the dialog opened.
         """
         theme_mgr = ThemeManager.get_instance()
         theme_mgr.set_islands_mode(self._original_islands)
         theme_mgr.set_theme_by_name(self._original_theme)
+        self._apply_font_size(self._original_font_size)
+
+    @staticmethod
+    def _apply_font_size(size: int) -> None:
+        """Set the application-wide base font point size.
+
+        Qt propagates this to every widget that hasn't had an explicit font
+        set, and relayouts automatically.
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        font = app.font()
+        font.setPointSize(int(size))
+        app.setFont(font)
