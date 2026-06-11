@@ -6,7 +6,6 @@ backed by the offline-first ``LogbookClient`` (synchronous SQLite).
 
 from __future__ import annotations
 
-import getpass
 import json
 from datetime import datetime
 from typing import Any, ClassVar
@@ -117,18 +116,21 @@ class LogbookPanel(BasePanel):
             self._client = LogbookClient.get_instance()
             self._client.init()
 
-            user = getpass.getuser()
-            self._logbook_id = self._client.get_or_create_logbook(user)
+            self._logbook_id = self._client.get_or_create_logbook(
+                self._current_username()
+            )
 
             # Connect to the LogbookEntriesPanel sidebar
             self._connect_entries_panel()
 
-            # Show/hide guest warning based on current and future auth state
+            # Show/hide guest warning based on current and future auth state,
+            # and re-scope the logbook to the authenticated user whenever the
+            # session user changes (login/logout/switch).
             try:
                 from lightfall.auth.session import SessionManager
                 sm = SessionManager.get_instance()
                 self._update_guest_banner(sm.current_user)
-                sm.user_changed.connect(self._update_guest_banner)
+                sm.user_changed.connect(self._on_user_changed)
             except Exception:
                 pass
 
@@ -165,6 +167,39 @@ class LogbookPanel(BasePanel):
         except Exception as e:
             logger.warning("Could not connect to LogbookEntriesPanel: {}", e)
 
+    def _current_username(self) -> str:
+        """Authenticated username used to key the local logbook.
+
+        Falls back to ``"anonymous"`` (guest) when no session is available —
+        never the OS login, so different Lightfall users on a shared install
+        never share a logbook.
+        """
+        try:
+            from lightfall.auth.session import SessionManager
+            return SessionManager.get_instance().current_user.username or "anonymous"
+        except Exception:
+            return "anonymous"
+
+    @Slot(object)
+    def _on_user_changed(self, user: Any) -> None:
+        """Re-scope the logbook to the new session user and reload entries.
+
+        The previous user's in-memory entries are dropped so they never leak
+        into the next user's view on a shared install.
+        """
+        self._update_guest_banner(user)
+        if not self._client:
+            return
+        username = getattr(user, "username", None) or "anonymous"
+        try:
+            self._logbook_id = self._client.get_or_create_logbook(username)
+        except Exception as e:
+            logger.error("Failed to re-scope logbook on user change: {}", e)
+            return
+        self._entries = {}
+        self._current_entry_id = None
+        self._load_entries()
+
     def _update_guest_banner(self, user: Any) -> None:
         """Update guest state and refresh the warning banner."""
         try:
@@ -198,6 +233,9 @@ class LogbookPanel(BasePanel):
         if not self._client or not self._logbook_id:
             return
 
+        # Rebuild the in-memory map from scratch so a reload (e.g. after a user
+        # switch or pull) never retains another scope's entries.
+        self._entries = {}
         rows = self._client.list_entries(self._logbook_id)
         entry_datas: list[EntryData] = []
         for row in rows:

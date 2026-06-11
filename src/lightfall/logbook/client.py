@@ -103,6 +103,35 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
     db = sqlite3.connect(db_path)
     db.row_factory = sqlite3.Row
 
+    # Resolve the local logbook for the current user. All sync I/O is scoped to
+    # this single logbook so (a) we never push another user's pending rows under
+    # the wrong identity and (b) entries pulled from the server land in the same
+    # local logbook the panel lists from (keyed by user_id), instead of under the
+    # server's own logbook UUID — which the UI would never query.
+    local_logbook_id: str | None = None
+    if user_id:
+        row = db.execute(
+            "SELECT id FROM logbook WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if row:
+            local_logbook_id = row["id"]
+        else:
+            # INSERT OR IGNORE + re-SELECT: the panel (main thread) may create
+            # this same logbook concurrently. user_id is UNIQUE, so a plain
+            # INSERT could raise; OR IGNORE then re-read guarantees both threads
+            # converge on the *same* id (otherwise sync would push/pull under a
+            # logbook the panel never lists from — reopening Bug 2 under a race).
+            new_id = _uuid()
+            db.execute(
+                "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+                (new_id, user_id, _now()),
+            )
+            db.commit()
+            row = db.execute(
+                "SELECT id FROM logbook WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            local_logbook_id = row["id"] if row else new_id
+
     # Use proxy settings if configured
     client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
     # Per-service API key auth — reads from SessionManager cache per request
@@ -154,8 +183,18 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                 db.commit()
             except Exception as exc:
                 logger.debug("Image push phase failed: {}", exc)
-            # Push pending entries (PUT to update, POST to create if 404)
-            for row in db.execute("SELECT * FROM entry WHERE sync_status = 'pending'"):
+            # Push pending entries (PUT to update, POST to create if 404).
+            # Scoped to the current user's logbook so we never push another
+            # user's unsynced rows under this session's identity.
+            if local_logbook_id is not None:
+                pending_entries = db.execute(
+                    "SELECT * FROM entry WHERE sync_status = 'pending' AND logbook_id = ?",
+                    (local_logbook_id,),
+                ).fetchall()
+            else:
+                # No user identity -> never push another user's rows.
+                pending_entries = []
+            for row in pending_entries:
                 r = dict(row)
                 r["tags"] = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
                 try:
@@ -174,8 +213,19 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                 except Exception:
                     pass
 
-            # Push pending fragments (PUT to update, POST to create if 404)
-            for row in db.execute("SELECT * FROM fragment WHERE sync_status = 'pending'"):
+            # Push pending fragments (PUT to update, POST to create if 404).
+            # Scoped to fragments whose entry belongs to the current user.
+            if local_logbook_id is not None:
+                pending_frags = db.execute(
+                    "SELECT fragment.* FROM fragment "
+                    "JOIN entry ON fragment.entry_id = entry.id "
+                    "WHERE fragment.sync_status = 'pending' AND entry.logbook_id = ?",
+                    (local_logbook_id,),
+                ).fetchall()
+            else:
+                # No user identity -> never push another user's rows.
+                pending_frags = []
+            for row in pending_frags:
                 r = dict(row)
                 logger.debug("Syncing fragment id={} (type={}, len={})", r["id"], type(r["id"]).__name__, len(str(r["id"])))
                 if r.get("data") and isinstance(r["data"], str):
@@ -209,14 +259,20 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                     for re in remote_entries:
                         eid = str(re["id"])
                         local = db.execute("SELECT id, updated_at FROM entry WHERE id = ?", (eid,)).fetchone()
-                        logbook_id = str(re["logbook_id"])
 
-                        # Ensure logbook row exists locally
-                        if not db.execute("SELECT id FROM logbook WHERE id = ?", (logbook_id,)).fetchone():
-                            db.execute(
-                                "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
-                                (logbook_id, user_id or "unknown", re.get("created_at", _now())),
-                            )
+                        # Store under the current user's local logbook (resolved
+                        # above) so the panel — which lists by that local id —
+                        # actually displays remote entries. Only fall back to the
+                        # server's logbook UUID when we have no user identity.
+                        if local_logbook_id is not None:
+                            logbook_id = local_logbook_id
+                        else:
+                            logbook_id = str(re["logbook_id"])
+                            if not db.execute("SELECT id FROM logbook WHERE id = ?", (logbook_id,)).fetchone():
+                                db.execute(
+                                    "INSERT OR IGNORE INTO logbook (id, user_id, created_at) VALUES (?, ?, ?)",
+                                    (logbook_id, user_id or "unknown", re.get("created_at", _now())),
+                                )
 
                         if local is None:
                             db.execute(
@@ -230,9 +286,12 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                         elif local["updated_at"] < re.get("updated_at", ""):
                             cur = db.execute("SELECT sync_status FROM entry WHERE id = ?", (eid,)).fetchone()
                             if cur and cur["sync_status"] != "pending":
+                                # Also rewrite logbook_id so any legacy row that
+                                # was stranded under the server's UUID migrates
+                                # onto the user's local logbook the panel lists.
                                 db.execute(
-                                    "UPDATE entry SET title = ?, tags = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
-                                    (re.get("title"), json.dumps(re.get("tags", [])), re.get("updated_at"), eid),
+                                    "UPDATE entry SET title = ?, tags = ?, logbook_id = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+                                    (re.get("title"), json.dumps(re.get("tags", [])), logbook_id, re.get("updated_at"), eid),
                                 )
                                 pulled += 1
 
