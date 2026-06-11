@@ -149,8 +149,28 @@ def test_full_auth_v2_roundtrip(monkeypatch, httpx_mock):
     assert len(requests) == 1
     assert requests[0].headers.get("Authorization") == "Apikey logbook-secret-v2"
 
-    # 6. Logout: provider.logout receives a session with id_token restored
+    # 6. Logout: provider.logout receives a session with id_token restored.
+    # Logout also revokes the session's unleased keys (self-authenticated
+    # DELETE per service) — register those responses.
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://tiled.test/api/v1/auth/apikey?first_eight=tiled-se",
+        json={},
+    )
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://logbook.test/api/v1/auth/apikey?first_eight=logbook-",
+        json={},
+    )
     asyncio.run(sm.logout())
+
+    revokes = [r for r in httpx_mock.get_requests() if r.method == "DELETE"]
+    assert len(revokes) == 2
+    # Each key authenticates its own revocation.
+    assert {r.headers.get("Authorization") for r in revokes} == {
+        "Apikey tiled-secret-v2",
+        "Apikey logbook-secret-v2",
+    }
 
     assert len(provider.logout_calls) == 1
     logout_session = provider.logout_calls[0]

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from lightfall.auth.policy import Permission, PolicyEngine, Role
-from lightfall.auth.service_key import MintedKey, mint_service_key
+from lightfall.auth.service_key import MintedKey, mint_service_key, revoke_service_key
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -176,6 +176,16 @@ class SessionManager(QObject):
         self._service_keys: dict[str, MintedKey] = {}
         self._keys_lock = threading.RLock()
 
+        # Base URL each key was minted against, for shutdown-time revocation.
+        self._service_key_urls: dict[str, str] = {}
+
+        # Services whose key has been handed out via get_minted_key() for
+        # embedding in a dispatch payload (e.g. NATS pipeline jobs). A leased
+        # key may be in use by a detached executor that outlives this app
+        # session, so revoke_unleased_service_keys() must not touch it — the
+        # full TTL is the contract that lets long-running experiments finish.
+        self._leased_services: set[str] = set()
+
         # Auth-v2: id_token survives mint for RP-initiated logout. Set by
         # _mint_all_service_keys; consumed by logout(); cleared on logout
         # completion or on reset().
@@ -260,6 +270,8 @@ class SessionManager(QObject):
             minted = self._service_keys.get(service)
             if minted is not None and minted.is_expired:
                 return None
+            if minted is not None:
+                self._leased_services.add(service)
             return minted
 
     # Default scopes per service. See spec §"Scopes".
@@ -283,6 +295,27 @@ class SessionManager(QObject):
     }
 
     _SESSION_KEY_LIFETIME = 604800  # 7 days, per spec
+
+    @classmethod
+    def _session_key_lifetime(cls) -> int:
+        """Return the mint TTL in seconds from preferences.
+
+        Defaults to the spec's 7 days. A shorter value (set in the Tiled
+        settings page) is meant for development, where sessions are restarted
+        constantly and week-long keys pile up against the server's
+        per-principal cap. Headless contexts without a preferences subsystem
+        fall back to the default.
+        """
+        try:
+            from lightfall.ui.preferences.manager import PreferencesManager
+
+            prefs = PreferencesManager.get_instance()
+            lifetime = int(prefs.get("tiled_session_key_lifetime", cls._SESSION_KEY_LIFETIME))
+            if lifetime > 0:
+                return lifetime
+        except Exception:
+            pass
+        return cls._SESSION_KEY_LIFETIME
 
     def _mint_all_service_keys(self, bearer_token: str) -> None:
         """Mint a session key per configured service in sequence.
@@ -314,13 +347,14 @@ class SessionManager(QObject):
         )
         note = f"lightfall {hostname} {sub}"
 
+        lifetime = self._session_key_lifetime()
         for service, url in urls.items():
             scopes = self._SERVICE_SCOPES.get(service, [])
             try:
                 minted = mint_service_key(
                     url,
                     bearer_token,
-                    expires_in=self._SESSION_KEY_LIFETIME,
+                    expires_in=lifetime,
                     scopes=scopes,
                     note=note,
                 )
@@ -338,6 +372,8 @@ class SessionManager(QObject):
 
             with self._keys_lock:
                 self._service_keys[service] = minted
+                self._service_key_urls[service] = url
+                self._leased_services.discard(service)
             logger.info("session key cached for service={}", service)
 
         # Bearer + refresh + id_token are no longer used by any consumer
@@ -350,6 +386,41 @@ class SessionManager(QObject):
             self._session.token = None
             self._session.refresh_token = None
             self._session.id_token = None
+
+    def revoke_unleased_service_keys(self) -> None:
+        """Revoke this session's keys that no detached consumer holds.
+
+        Called on logout and clean app exit so that restart-heavy use (e.g.
+        development) doesn't accumulate live week-long keys against the
+        server's per-principal cap. Keys handed out via get_minted_key()
+        (embedded in pipeline-job payloads for executors that may outlive
+        this process) are skipped — they keep their full TTL.
+
+        Each key revokes itself: the Keycloak bearer is long gone by now,
+        and a principal may always delete its own keys. Best-effort
+        throughout; the TTL is the backstop.
+        """
+        with self._keys_lock:
+            to_revoke = {
+                service: (minted, self._service_key_urls.get(service))
+                for service, minted in self._service_keys.items()
+                if service not in self._leased_services and not minted.is_expired
+            }
+        for service, (minted, url) in to_revoke.items():
+            if not url:
+                continue
+            # Short timeout: app-exit calls this inside a 5s shutdown-watchdog
+            # budget, and a hung service must not eat the rest of teardown.
+            revoke_service_key(
+                url,
+                first_eight=minted.first_eight,
+                api_key=minted.secret,
+                timeout=2.0,
+            )
+            with self._keys_lock:
+                self._service_keys.pop(service, None)
+                self._service_key_urls.pop(service, None)
+            logger.info("session key revoked on exit for service={}", service)
 
     @staticmethod
     def _hostname_for_note() -> str:
@@ -470,8 +541,11 @@ class SessionManager(QObject):
 
         old_user = self._session.user
         self._session = None
+        self.revoke_unleased_service_keys()
         with self._keys_lock:
             self._service_keys.clear()
+            self._service_key_urls.clear()
+            self._leased_services.clear()
         self._set_state(AuthState.UNAUTHENTICATED)
         self.user_changed.emit(ANONYMOUS_USER)
         logger.info("User '{}' logged out", old_user.username)

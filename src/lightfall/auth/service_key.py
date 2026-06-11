@@ -137,12 +137,19 @@ def mint_service_key(
 
 def revoke_service_key(
     service_url: str,
-    bearer_token: str,
+    bearer_token: str | None = None,
     *,
     first_eight: str,
+    api_key: str | None = None,
     timeout: float = 10.0,
 ) -> None:
     """Revoke a previously-minted service key.
+
+    Authenticates with `bearer_token` (Keycloak) when given, otherwise with
+    `api_key` — typically the key being revoked, since a principal may always
+    delete its own keys. The api_key path is what shutdown-time revocation
+    uses: the Keycloak bearer is discarded right after the mint round, so the
+    key itself is the only credential still in hand.
 
     Best-effort: any error talking to the service is logged and swallowed
     (the key's TTL is the backstop). Callers can safely place this in a
@@ -150,6 +157,9 @@ def revoke_service_key(
     the original exception.
     """
     url = service_url.rstrip("/") + "/auth/apikey"
+    if bearer_token is None and api_key is None:
+        logger.warning("revoke skipped first_eight={}: no credential", first_eight)
+        return
     proxy: str | None = None
     try:
         from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
@@ -157,8 +167,11 @@ def revoke_service_key(
     except Exception:
         proxy = None
 
+    auth_header = (
+        f"Bearer {bearer_token}" if bearer_token is not None else f"Apikey {api_key}"
+    )
     delete_kwargs: dict = {
-        "headers": {"Authorization": f"Bearer {bearer_token}"},
+        "headers": {"Authorization": auth_header},
         "params": {"first_eight": first_eight},
         "timeout": timeout,
     }

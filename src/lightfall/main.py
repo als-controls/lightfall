@@ -922,6 +922,16 @@ def main() -> int:
             target=_force_exit, daemon=True, name="shutdown-watchdog"
         ).start()
 
+        # 0. Revoke this session's unleased service keys while the network
+        #    stack is still fully alive. Keys embedded in dispatched pipeline
+        #    jobs are exempt — detached executors may still be using them.
+        try:
+            from lightfall.auth.session import SessionManager
+
+            SessionManager.get_instance().revoke_unleased_service_keys()
+        except Exception:
+            pass
+
         # 1. Halt any running Bluesky plan immediately so it doesn't
         #    try to read PVs while we're tearing down connections.
         try:

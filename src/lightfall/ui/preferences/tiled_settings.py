@@ -81,6 +81,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._api_key_edit: QLineEdit | None = None
         self._test_button: QPushButton | None = None
         self._status_label: QLabel | None = None
+        self._key_lifetime_combo: QComboBox | None = None
         self._beamline_edit: QLineEdit | None = None
         self._alshub_url_edit: QLineEdit | None = None
         self._override_esaf_edit: QLineEdit | None = None
@@ -158,6 +159,20 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._api_key_label = QLabel("API Key:")
         connection_layout.addRow(self._api_key_label, self._api_key_edit)
+
+        # Session key lifetime (auth-v2 per-service API keys)
+        self._key_lifetime_combo = QComboBox()
+        self._key_lifetime_combo.addItem("7 days (default)", 604800)
+        self._key_lifetime_combo.addItem("1 day", 86400)
+        self._key_lifetime_combo.addItem("1 hour (development)", 3600)
+        self._key_lifetime_combo.setToolTip(
+            "TTL of the per-service API keys minted at login. The long "
+            "default lets detached long-running experiments finish; use a "
+            "short lifetime when restarting Lightfall frequently so stale "
+            "keys don't accumulate against the server's per-principal cap. "
+            "Applies at next login."
+        )
+        connection_layout.addRow("Session key lifetime:", self._key_lifetime_combo)
 
         # Test connection button and status
         test_layout = QHBoxLayout()
@@ -353,6 +368,16 @@ class TiledSettingsPlugin(SettingsPlugin):
         if self._api_key_edit:
             self._api_key_edit.setText(prefs.get("tiled_api_key", ""))
 
+        if self._key_lifetime_combo:
+            lifetime = int(prefs.get("tiled_session_key_lifetime", 604800))
+            index = self._key_lifetime_combo.findData(lifetime)
+            # A hand-edited value not in the preset list shows as a 4th entry
+            # rather than being silently snapped to a preset.
+            if index < 0:
+                self._key_lifetime_combo.addItem(f"{lifetime} seconds (custom)", lifetime)
+                index = self._key_lifetime_combo.count() - 1
+            self._key_lifetime_combo.setCurrentIndex(index)
+
         if self._beamline_edit:
             self._beamline_edit.setText(prefs.get("tiled_beamline", ""))
 
@@ -393,6 +418,12 @@ class TiledSettingsPlugin(SettingsPlugin):
         prefs.set("tiled_url", url)
         prefs.set("tiled_auth_mode", auth_mode)
         prefs.set("tiled_api_key", api_key or "")
+
+        if self._key_lifetime_combo:
+            prefs.set(
+                "tiled_session_key_lifetime",
+                int(self._key_lifetime_combo.currentData()),
+            )
 
         beamline = self._beamline_edit.text().strip() if self._beamline_edit else ""
         alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""

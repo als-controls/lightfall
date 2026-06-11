@@ -238,3 +238,33 @@ def test_revoke_service_key_happy_path():
     assert captured["method"] == "DELETE"
     assert "first_eight=abcdefgh" in captured["url"]
     assert captured["headers"]["authorization"] == "Bearer bearer-token-xyz"
+
+
+def test_revoke_service_key_with_api_key_auth():
+    """Self-revoke path: no bearer, the key authenticates its own deletion."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json={})
+
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        revoke_service_key(
+            "https://example/api/v1",
+            first_eight="abcdefgh",
+            api_key="secret-key-value",
+        )
+
+    assert captured["headers"]["authorization"] == "Apikey secret-key-value"
+
+
+def test_revoke_service_key_skips_without_credential():
+    """No bearer and no api_key: revoke is a no-op, never raises."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no request should be sent")
+
+    with httpx.Client(transport=_stub_transport(handler)) as client, _patched_httpx(client):
+        revoke_service_key(
+            "https://example/api/v1",
+            first_eight="abcdefgh",
+        )
