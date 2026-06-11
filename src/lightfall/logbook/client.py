@@ -183,6 +183,11 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                 db.commit()
             except Exception as exc:
                 logger.debug("Image push phase failed: {}", exc)
+            # Entries created/pushed in THIS run — excluded from pull
+            # reconciliation below so a stale GET (eventual consistency) can't
+            # delete an entry we just successfully pushed.
+            pushed_entry_ids: set[str] = set()
+
             # Push pending entries (PUT to update, POST to create if 404).
             # Scoped to the current user's logbook so we never push another
             # user's unsynced rows under this session's identity.
@@ -209,6 +214,7 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                         logger.warning("Entry sync failed ({}): {}", resp.status_code, resp.text[:200])
                     if resp.is_success:
                         db.execute("UPDATE entry SET sync_status = 'synced' WHERE id = ?", (r["id"],))
+                        pushed_entry_ids.add(str(r["id"]))
                         pushed += 1
                 except Exception:
                     pass
@@ -251,6 +257,49 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
 
             db.commit()
 
+            # Push deletions: tombstoned rows -> DELETE on server, then purge
+            # locally. A 404 means the server already lacks it (success for us).
+            # Scoped to the current user's logbook.
+            if local_logbook_id is not None:
+                deleted_entries = db.execute(
+                    "SELECT id FROM entry WHERE sync_status = 'deleted' AND logbook_id = ?",
+                    (local_logbook_id,),
+                ).fetchall()
+                deleted_frags = db.execute(
+                    "SELECT fragment.id AS id FROM fragment "
+                    "JOIN entry ON fragment.entry_id = entry.id "
+                    "WHERE fragment.sync_status = 'deleted' AND entry.logbook_id = ?",
+                    (local_logbook_id,),
+                ).fetchall()
+            else:
+                deleted_entries = []
+                deleted_frags = []
+            for row in deleted_entries:
+                eid = row["id"]
+                try:
+                    resp = client.delete(f"/logbook/entries/{eid}")
+                    if resp.is_success or resp.status_code == 404:
+                        # Server delete cascades fragments; purge locally too.
+                        db.execute("DELETE FROM fragment WHERE entry_id = ?", (eid,))
+                        db.execute("DELETE FROM entry WHERE id = ?", (eid,))
+                        pushed += 1
+                    else:
+                        logger.warning("Entry delete sync failed ({}): {}", resp.status_code, resp.text[:200])
+                except Exception:
+                    pass
+            for row in deleted_frags:
+                fid = row["id"]
+                try:
+                    resp = client.delete(f"/logbook/fragments/{fid}")
+                    if resp.is_success or resp.status_code == 404:
+                        db.execute("DELETE FROM fragment WHERE id = ?", (fid,))
+                        pushed += 1
+                    else:
+                        logger.warning("Fragment delete sync failed ({}): {}", resp.status_code, resp.text[:200])
+                except Exception:
+                    pass
+            db.commit()
+
             # ── Pull: fetch server entries and upsert locally ─────
             try:
                 resp = client.get("/logbook/entries")
@@ -285,7 +334,9 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                             pulled += 1
                         elif local["updated_at"] < re.get("updated_at", ""):
                             cur = db.execute("SELECT sync_status FROM entry WHERE id = ?", (eid,)).fetchone()
-                            if cur and cur["sync_status"] != "pending":
+                            # Never overwrite a row with unpushed local intent:
+                            # 'pending' (local edits) or 'deleted' (tombstone).
+                            if cur and cur["sync_status"] not in ("pending", "deleted"):
                                 # Also rewrite logbook_id so any legacy row that
                                 # was stranded under the server's UUID migrates
                                 # onto the user's local logbook the panel lists.
@@ -309,13 +360,29 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                                      rf.get("created_at", _now()), rf.get("updated_at", _now())),
                                 )
                                 pulled += 1
-                            elif local_frag["sync_status"] != "pending" and local_frag["updated_at"] < rf.get("updated_at", ""):
+                            elif local_frag["sync_status"] not in ("pending", "deleted") and local_frag["updated_at"] < rf.get("updated_at", ""):
                                 db.execute(
                                     "UPDATE fragment SET position = ?, content = ?, data = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
                                     (rf.get("position", 0), rf.get("content", ""),
                                      json.dumps(rf.get("data")) if rf.get("data") else None,
                                      rf.get("updated_at"), fid),
                                 )
+                                pulled += 1
+
+                    # Reconcile deletions made on other installs: a row we hold
+                    # as 'synced' that the server no longer lists was deleted
+                    # elsewhere. Leave 'pending' (new, unpushed) and 'deleted'
+                    # (awaiting push) rows untouched.
+                    if local_logbook_id is not None:
+                        server_ids = {str(e["id"]) for e in remote_entries}
+                        local_synced = db.execute(
+                            "SELECT id FROM entry WHERE logbook_id = ? AND sync_status = 'synced'",
+                            (local_logbook_id,),
+                        ).fetchall()
+                        for row in local_synced:
+                            if row["id"] not in server_ids and row["id"] not in pushed_entry_ids:
+                                db.execute("DELETE FROM fragment WHERE entry_id = ?", (row["id"],))
+                                db.execute("DELETE FROM entry WHERE id = ?", (row["id"],))
                                 pulled += 1
 
                     db.commit()
@@ -530,7 +597,8 @@ class LogbookClient:
     def list_entries(self, logbook_id: str) -> list[dict[str, Any]]:
         db = self._ensure_db()
         rows = db.execute(
-            "SELECT * FROM entry WHERE logbook_id = ? ORDER BY created_at DESC",
+            "SELECT * FROM entry WHERE logbook_id = ? AND sync_status != 'deleted' "
+            "ORDER BY created_at DESC",
             (logbook_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -559,8 +627,17 @@ class LogbookClient:
 
     def delete_entry(self, entry_id: str) -> None:
         db = self._ensure_db()
-        db.execute("DELETE FROM fragment WHERE entry_id = ?", (entry_id,))
-        db.execute("DELETE FROM entry WHERE id = ?", (entry_id,))
+        row = db.execute("SELECT sync_status FROM entry WHERE id = ?", (entry_id,)).fetchone()
+        if row is None:
+            return
+        if row["sync_status"] == "pending":
+            # Never synced -> the server doesn't know it; hard-delete locally.
+            db.execute("DELETE FROM fragment WHERE entry_id = ?", (entry_id,))
+            db.execute("DELETE FROM entry WHERE id = ?", (entry_id,))
+        else:
+            # Tombstone so the deletion is pushed to the server, then purged.
+            # (Fragments are cascaded server-side and purged on push success.)
+            db.execute("UPDATE entry SET sync_status = 'deleted' WHERE id = ?", (entry_id,))
         db.commit()
         self.schedule_sync()
 
@@ -634,14 +711,21 @@ class LogbookClient:
 
     def delete_fragment(self, fragment_id: str) -> None:
         db = self._ensure_db()
-        db.execute("DELETE FROM fragment WHERE id = ?", (fragment_id,))
+        row = db.execute("SELECT sync_status FROM fragment WHERE id = ?", (fragment_id,)).fetchone()
+        if row is None:
+            return
+        if row["sync_status"] == "pending":
+            db.execute("DELETE FROM fragment WHERE id = ?", (fragment_id,))
+        else:
+            db.execute("UPDATE fragment SET sync_status = 'deleted' WHERE id = ?", (fragment_id,))
         db.commit()
         self.schedule_sync()
 
     def list_fragments(self, entry_id: str) -> list[dict[str, Any]]:
         db = self._ensure_db()
         rows = db.execute(
-            "SELECT * FROM fragment WHERE entry_id = ? ORDER BY position",
+            "SELECT * FROM fragment WHERE entry_id = ? AND sync_status != 'deleted' "
+            "ORDER BY position",
             (entry_id,),
         ).fetchall()
         return [dict(r) for r in rows]
