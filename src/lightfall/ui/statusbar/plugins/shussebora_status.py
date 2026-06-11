@@ -15,7 +15,7 @@ from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginM
 from lightfall.services.shussebora_monitor import ShusseboraMonitor
 from lightfall.utils.logging import logger
 
-_STATE_TEXT = {"ok": "OK", "stale": "Stale", "dead": "Down", "unknown": ""}
+_STATE_TEXT = {"ok": "", "stale": "Stale", "dead": "Down", "unknown": ""}
 _FALLBACK_COLORS = {"ok": "#2ecc71", "stale": "#f39c12",
                     "dead": "#e74c3c", "unknown": "#7f8c8d"}
 
