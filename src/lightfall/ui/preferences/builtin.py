@@ -169,29 +169,51 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._original_theme = prefs.theme
         self._original_islands = bool(prefs.get("islands_mode", False))
 
-        # Islands layout checkbox
-        if self._islands_check is not None:
-            self._islands_check.setChecked(self._original_islands)
+        # Populating the controls below is initialization, not a user edit.
+        # Block widget signals so these writes don't fire apply_preview(),
+        # which would re-apply the already-active theme (a full stylesheet
+        # regen + pyqtgraph re-theme) and stutter the dialog open. Worse, the
+        # islands checkbox is set before the theme combo, so an un-blocked
+        # toggle would apply the wrong (index-0) theme and then the right one.
+        widgets = [
+            w
+            for w in (
+                self._theme_combo,
+                self._font_spin,
+                self._islands_check,
+                self._console_style_combo,
+            )
+            if w is not None
+        ]
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            # Islands layout checkbox
+            if self._islands_check is not None:
+                self._islands_check.setChecked(self._original_islands)
 
-        # Set theme combo by name
-        index = self._theme_combo.findData(prefs.theme)
-        if index >= 0:
-            self._theme_combo.setCurrentIndex(index)
-        else:
-            # Theme not found, default to system
-            index = self._theme_combo.findData("system")
+            # Set theme combo by name
+            index = self._theme_combo.findData(prefs.theme)
             if index >= 0:
                 self._theme_combo.setCurrentIndex(index)
+            else:
+                # Theme not found, default to system
+                index = self._theme_combo.findData("system")
+                if index >= 0:
+                    self._theme_combo.setCurrentIndex(index)
 
-        # Set font size
-        self._font_spin.setValue(prefs.font_size)
+            # Set font size
+            self._font_spin.setValue(prefs.font_size)
 
-        # Set console style
-        if self._console_style_combo:
-            console_style = prefs.get("console_syntax_style", "")
-            index = self._console_style_combo.findData(console_style)
-            if index >= 0:
-                self._console_style_combo.setCurrentIndex(index)
+            # Set console style
+            if self._console_style_combo:
+                console_style = prefs.get("console_syntax_style", "")
+                index = self._console_style_combo.findData(console_style)
+                if index >= 0:
+                    self._console_style_combo.setCurrentIndex(index)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
 
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
