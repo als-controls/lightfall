@@ -79,3 +79,16 @@ def test_pull_callback_registered_and_live_started(qapp, panel_class, monkeypatc
     p._client.set_on_pull_callback.assert_called_once_with(p._on_pull)
     assert isinstance(p._live, _FakeLive)
     assert p._live.started_with == "http://lb.test"
+
+
+def test_on_closing_stops_live_updates(qapp, panel_class):
+    p = panel_class.__new__(panel_class)
+    p._live = MagicMock()
+    p._on_closing()
+    p._live.stop.assert_called_once()
+
+
+def test_on_closing_safe_without_live(qapp, panel_class):
+    p = panel_class.__new__(panel_class)
+    # _live never set (e.g. init failed before _start_live_updates) — must not raise.
+    p._on_closing()

@@ -318,6 +318,12 @@ class LogbookPanel(BasePanel):
         self._live = LogbookLiveUpdates(self._client)
         self._live.start(getattr(self._client, "_server_url", None))
 
+    def _on_closing(self) -> None:
+        """Tear down live updates (NATS subscription + fallback poll timer)."""
+        live = getattr(self, "_live", None)
+        if live is not None:
+            live.stop()
+
     # ── Entry selection ───────────────────────────────────────────
 
     def _select_entry(self, entry_id: str) -> None:
