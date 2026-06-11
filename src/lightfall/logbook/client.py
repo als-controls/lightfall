@@ -447,6 +447,36 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
     return (pushed, pulled)
 
 
+def fetch_server_user_id(server_url: str, user_id: str | None = None) -> str | None:
+    """Return the server's notion of the current user's id via GET /logbook.
+
+    This is the identity the server scopes data by (X-User-Id in dev, Keycloak
+    ``sub`` in prod) — the value both sides hex-encode into the NATS subject.
+    Pure/thread-safe; designed to run inside a QThreadFuture.
+    """
+    if httpx is None:
+        return None
+    client_kwargs: dict[str, Any] = {"base_url": server_url, "timeout": 10}
+    client_kwargs["auth"] = ServiceKeyAuth("logbook")
+    if user_id:
+        client_kwargs["headers"] = {"X-User-Id": user_id}
+    try:
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(server_url)
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+    except Exception:
+        pass
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get("/logbook")
+            if resp.is_success:
+                return resp.json().get("user_id")
+    except Exception as exc:
+        logger.debug("fetch_server_user_id failed: {}", exc)
+    return None
+
+
 class LogbookClient:
     """Offline-first logbook persistence with optional remote sync.
 
