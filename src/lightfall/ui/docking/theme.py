@@ -76,7 +76,7 @@ def _is_islands_mode(colors: ThemeColors) -> bool:
 
 
 def generate_docking_stylesheet(
-    colors: ThemeColors, islands: bool | None = None
+    colors: ThemeColors, islands: bool | None = None, font_size: int = 10
 ) -> str:
     """Generate a stylesheet for the docking system.
 
@@ -88,6 +88,10 @@ def generate_docking_stylesheet(
             it on/off for any theme. When forced on for a theme without a
             distinct sea, ``sea`` falls back to ``background``, so panels read
             as surface cards on the background canvas.
+        font_size: The base UI font point size. Chrome font sizes (panel
+            titles, header sections) scale proportionally with it so they
+            track the user's Appearance > Font Size setting. At the default
+            10pt the rendered px values are unchanged from before.
 
     Returns:
         CSS stylesheet string.
@@ -105,6 +109,12 @@ def generate_docking_stylesheet(
     # than the loud primary accent. Non-islands themes keep the primary
     # highlight unchanged.
     checked_bg = island if islands else colors.primary
+
+    # Chrome font sizes scale with the base font (10pt = the original design
+    # point). Kept in px to preserve the exact look at the default size.
+    scale = font_size / 10.0
+    title_px = round(11 * scale)
+    header_px = round(12 * scale)
 
     return f"""
 /* ==========================================================================
@@ -172,7 +182,7 @@ QDockWidget {{
     color: {colors.text_secondary};
     background: transparent;
     font-weight: 600;
-    font-size: 11px;
+    font-size: {title_px}px;
 }}
 
 #PanelTitleButton {{
@@ -223,7 +233,7 @@ QDockWidget::title {{
     padding: 6px 8px;
     color: {colors.text_secondary};
     font-weight: 600;
-    font-size: 11px;
+    font-size: {title_px}px;
 }}
 
 QDockWidget::close-button,
@@ -332,7 +342,7 @@ QDockWidget QHeaderView::section {{
     border-right: 1px solid {colors.border};
     padding: 6px 8px;
     font-weight: 600;
-    font-size: 12px;
+    font-size: {header_px}px;
 }}
 
 /* Toolbars inside panels */

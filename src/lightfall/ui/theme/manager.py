@@ -887,7 +887,7 @@ QHeaderView::section {{
         try:
             from lightfall.ui.docking.theme import generate_docking_stylesheet
             base_stylesheet += (
-                f"\n{generate_docking_stylesheet(c, islands=self._islands_mode)}"
+                f"\n{generate_docking_stylesheet(c, islands=self._islands_mode, font_size=self._base_font_size)}"
             )
         except ImportError:
             pass
