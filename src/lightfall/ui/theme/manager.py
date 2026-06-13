@@ -369,6 +369,22 @@ class ThemeManager(QObject):
         logger.info("Base font size changed: {}pt", size)
         self.theme_changed.emit(self._theme_name)
 
+    def scale_pt(self, pt_at_10pt: float) -> int:
+        """Scale a font point size by the base font size.
+
+        For text whose size is baked into an inline stylesheet or otherwise
+        can't ride the cascade, this keeps it proportional to the Appearance
+        font size: ``pt_at_10pt`` is the design size at the reference 10pt base.
+        At 10pt the value is unchanged.
+
+        Args:
+            pt_at_10pt: The point size at the reference 10pt base.
+
+        Returns:
+            The scaled point size.
+        """
+        return round(pt_at_10pt * self._base_font_size / 10.0)
+
     def scale_px(self, px_at_10pt: float) -> int:
         """Scale a pixel dimension by the base font size.
 

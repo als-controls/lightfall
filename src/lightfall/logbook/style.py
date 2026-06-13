@@ -10,6 +10,25 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 
+def scaled_pt(ref_pt: float) -> int:
+    """Scale a logbook font point size to the Appearance base font size.
+
+    ``ref_pt`` is the design size at the reference 10pt base, so logbook text
+    stays proportional to the Appearance > Font Size setting. Read at the time
+    a widget/stylesheet is built, so callers pick up changes on the next
+    (re)render.
+
+    Args:
+        ref_pt: The point size at the reference 10pt base.
+
+    Returns:
+        The scaled point size.
+    """
+    from lightfall.ui.theme import ThemeManager
+
+    return ThemeManager.get_instance().scale_pt(ref_pt)
+
+
 def is_dark_theme() -> bool:
     """
     Detect if the application is using a dark theme.
@@ -224,13 +243,13 @@ class LogbookStyles:
     @staticmethod
     def editor_base() -> str:
         """Base stylesheet for editor widgets."""
-        return """
-            QPlainTextEdit, QTextEdit {
+        return f"""
+            QPlainTextEdit, QTextEdit {{
                 font-family: 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 10pt;
+                font-size: {scaled_pt(10)}pt;
                 border: 1px solid palette(mid);
                 border-radius: 4px;
-            }
+            }}
         """
 
     @staticmethod
@@ -295,12 +314,12 @@ def get_qt_html_stylesheet() -> str:
             margin-top: 16px;
             margin-bottom: 8px;
         }}
-        h1 {{ font-size: 24pt; }}
-        h2 {{ font-size: 20pt; }}
-        h3 {{ font-size: 16pt; }}
-        h4 {{ font-size: 14pt; }}
-        h5 {{ font-size: 12pt; }}
-        h6 {{ font-size: 10pt; }}
+        h1 {{ font-size: {scaled_pt(24)}pt; }}
+        h2 {{ font-size: {scaled_pt(20)}pt; }}
+        h3 {{ font-size: {scaled_pt(16)}pt; }}
+        h4 {{ font-size: {scaled_pt(14)}pt; }}
+        h5 {{ font-size: {scaled_pt(12)}pt; }}
+        h6 {{ font-size: {scaled_pt(10)}pt; }}
 
         a {{
             color: {link_color};

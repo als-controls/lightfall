@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 from lightfall.logbook.style import (
     get_code_background_color,
     is_dark_theme,
+    scaled_pt as _spt,
 )
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,7 @@ def _card_stylesheet(subtype: str) -> str:
         f"  border-radius: 4px; "
         f"  padding: 8px 12px; "
         f"  color: {text}; "
-        f"  font-size: 10pt; "
+        f"  font-size: {_spt(10)}pt; "
         f"}}"
     )
 
@@ -396,7 +397,7 @@ class TextFragmentWidget(_HoverMixin, QFrame):
         self._editor.setStyleSheet(
             "QTextEdit { "
             "  font-family: 'Cascadia Code', 'Consolas', monospace; "
-            "  font-size: 10pt; "
+            f"  font-size: {_spt(10)}pt; "
             "  border: 1px solid palette(highlight); "
             "  border-radius: 4px; "
             "  padding: 4px; "
@@ -608,7 +609,7 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
         code_bg = get_code_background_color()
         self._label.setText(
             f"<pre style='background:{code_bg}; padding:6px; "
-            f"border-radius:4px; font-size:9pt'>{raw}</pre>"
+            f"border-radius:4px; font-size:{_spt(9)}pt'>{raw}</pre>"
         )
 
     # -- interaction --
@@ -818,7 +819,7 @@ class CollapsibleGroup(QFrame):
         header_layout.addWidget(self._toggle_btn)
 
         self._header_label = QLabel()
-        self._header_label.setStyleSheet("font-size: 9pt; color: #888;")
+        self._header_label.setStyleSheet(f"font-size: {_spt(9)}pt; color: #888;")
         header_layout.addWidget(self._header_label, 1)
 
         outer.addWidget(header)

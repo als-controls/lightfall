@@ -68,6 +68,7 @@ from lightfall.logbook.fragment_widgets import (
     TextFragmentWidget,
 )
 from lightfall.logbook.style import is_dark_theme
+from lightfall.logbook.style import scaled_pt as _spt
 
 # ---------------------------------------------------------------------------
 # Lightweight entry data container
@@ -103,7 +104,7 @@ class _TagChip(QFrame):
         fg = "#c0c0e0" if is_dark_theme() else "#333366"
         self.setStyleSheet(
             f"_TagChip {{ background: {bg}; color: {fg}; border-radius: 6px; "
-            f"padding: 1px 4px; font-size: 8pt; }}"
+            f"padding: 1px 4px; font-size: {_spt(8)}pt; }}"
         )
         self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
@@ -112,14 +113,16 @@ class _TagChip(QFrame):
         layout.setSpacing(2)
 
         lbl = QLabel(tag)
-        lbl.setStyleSheet(f"color: {fg}; font-size: 8pt; background: transparent;")
+        lbl.setStyleSheet(
+            f"color: {fg}; font-size: {_spt(8)}pt; background: transparent;"
+        )
         layout.addWidget(lbl)
 
         if removable:
             close_btn = QToolButton()
             close_btn.setText("✕")
             close_btn.setStyleSheet(
-                f"QToolButton {{ border: none; color: {fg}; font-size: 7pt; padding: 0 2px; background: transparent; }} "
+                f"QToolButton {{ border: none; color: {fg}; font-size: {_spt(7)}pt; padding: 0 2px; background: transparent; }} "
                 f"QToolButton:hover {{ color: #f44336; }}"
             )
             close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -196,7 +199,7 @@ class EntryWidget(QFrame):
         self._add_btn.setFlat(True)
         self._add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._add_btn.setStyleSheet(
-            "color: #888; font-size: 9pt; padding: 8px 8px; text-align: left; "
+            f"color: #888; font-size: {_spt(9)}pt; padding: 8px 8px; text-align: left; "
             "border: 1px dashed #555; border-radius: 4px;"
         )
         self._add_btn.clicked.connect(self._add_text_fragment)
@@ -245,14 +248,14 @@ class EntryWidget(QFrame):
         self._title_edit = QLineEdit()
         self._title_edit.setPlaceholderText("Untitled entry")
         self._title_edit.setStyleSheet(
-            "font-size: 12pt; font-weight: bold; border: none; "
+            f"font-size: {_spt(12)}pt; font-weight: bold; border: none; "
             "background: transparent; padding: 2px 0;"
         )
         self._title_edit.editingFinished.connect(self._on_title_edited)
         top.addWidget(self._title_edit, 1)
 
         self._date_label = QLabel()
-        self._date_label.setStyleSheet("font-size: 8pt; color: #888;")
+        self._date_label.setStyleSheet(f"font-size: {_spt(8)}pt; color: #888;")
         top.addWidget(self._date_label)
         layout.addLayout(top)
 
@@ -284,7 +287,7 @@ class EntryWidget(QFrame):
         add_tag_btn.setText("+ tag")
         add_tag_btn.setStyleSheet(
             "QToolButton { border: 1px dashed #666; border-radius: 6px; "
-            "padding: 1px 6px; font-size: 8pt; color: #888; } "
+            f"padding: 1px 6px; font-size: {_spt(8)}pt; color: #888; }} "
             "QToolButton:hover { border-color: #aaa; color: #aaa; }"
         )
         add_tag_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -385,7 +388,7 @@ class EntryWidget(QFrame):
         tag_input.setPlaceholderText("new tag")
         tag_input.setFixedWidth(80)
         tag_input.setStyleSheet(
-            "font-size: 8pt; border: 1px solid #666; border-radius: 6px; "
+            f"font-size: {_spt(8)}pt; border: 1px solid #666; border-radius: 6px; "
             "padding: 1px 6px; background: transparent;"
         )
         # Insert before the stretch
@@ -678,6 +681,25 @@ class EntryDelegate(QStyledItemDelegate):
     def set_hovered_index(self, index: QModelIndex) -> None:
         self._hovered_index = index
 
+    @staticmethod
+    def _scaled_font(
+        option: QStyleOptionViewItem, ref_pt: float, *, bold: bool = False
+    ) -> QFont:
+        """Build a font sized relative to the view's (cascaded) base font.
+
+        ``ref_pt`` is the design size at the reference 10pt base, so the row's
+        type scale tracks the Appearance > Font Size setting. Derived from
+        ``option.font`` (the cascaded font), so the list repaints/relayouts
+        automatically when the base font changes.
+        """
+        base = option.font.pointSizeF()
+        if base <= 0:
+            base = 10.0
+        font = QFont(option.font)
+        font.setPointSizeF(ref_pt * base / 10.0)
+        font.setBold(bold)
+        return font
+
     # -- painting --
 
     def paint(
@@ -713,10 +735,8 @@ class EntryDelegate(QStyledItemDelegate):
         y0 = rect.top() + pad
         avail_w = rect.width() - 2 * pad
 
-        # Title (bold, 9pt)
-        title_font = QFont()
-        title_font.setPointSize(9)
-        title_font.setBold(True)
+        # Title (bold, 9pt at the reference base)
+        title_font = self._scaled_font(option, 9, bold=True)
         painter.setFont(title_font)
         painter.setPen(QPen(QColor("#e0e0e0" if dark else "#222222")))
         title_text = index.data(_TitleRole) or "Untitled entry"
@@ -727,8 +747,7 @@ class EntryDelegate(QStyledItemDelegate):
         # Second line: date + tag chips
         y1 = y0 + fm_title.height() + self._LINE_SPACING
 
-        date_font = QFont()
-        date_font.setPointSize(8)
+        date_font = self._scaled_font(option, 8)
         painter.setFont(date_font)
         painter.setPen(QPen(QColor("#888888")))
         date_text = index.data(_DateRole) or ""
@@ -739,8 +758,7 @@ class EntryDelegate(QStyledItemDelegate):
         tags = (index.data(_TagsRole) or [])[:3]
         chip_bg = QColor("#3a3a5c" if dark else "#e0e0f0")
         chip_fg = QColor("#c0c0e0" if dark else "#333366")
-        chip_font = QFont()
-        chip_font.setPointSize(8)
+        chip_font = self._scaled_font(option, 8)
         fm_chip = QFontMetrics(chip_font)
 
         for tag in tags:
@@ -767,9 +785,7 @@ class EntryDelegate(QStyledItemDelegate):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(del_rect, 3, 3)
 
-            del_font = QFont()
-            del_font.setPointSize(9)
-            del_font.setBold(True)
+            del_font = self._scaled_font(option, 9, bold=True)
             painter.setFont(del_font)
             painter.setPen(QPen(QColor("#f44336")))
             painter.drawText(del_rect, Qt.AlignmentFlag.AlignCenter, "✕")
@@ -779,11 +795,8 @@ class EntryDelegate(QStyledItemDelegate):
     def sizeHint(  # noqa: N802
         self, option: QStyleOptionViewItem, index: QModelIndex
     ) -> QSize:
-        title_font = QFont()
-        title_font.setPointSize(9)
-        title_font.setBold(True)
-        date_font = QFont()
-        date_font.setPointSize(8)
+        title_font = self._scaled_font(option, 9, bold=True)
+        date_font = self._scaled_font(option, 8)
         h = (
             self._ROW_PADDING
             + QFontMetrics(title_font).height()
@@ -792,7 +805,10 @@ class EntryDelegate(QStyledItemDelegate):
             + 2 * self._CHIP_V_PAD
             + self._ROW_PADDING
         )
-        return QSize(option.rect.width(), max(h, 44))
+        # Floor scales with the font so larger sizes aren't clamped.
+        base = option.font.pointSizeF()
+        floor = round(44 * (base if base > 0 else 10.0) / 10.0)
+        return QSize(option.rect.width(), max(h, floor))
 
     # -- delete click detection --
 
@@ -862,7 +878,7 @@ class EntryListWidget(QFrame):
             new_btn = QPushButton("＋ New Entry")
             new_btn.setStyleSheet(
                 "QPushButton { border: 1px solid #555; border-radius: 6px; "
-                "padding: 4px 10px; font-size: 9pt; } "
+                f"padding: 4px 10px; font-size: {_spt(9)}pt; }} "
                 "QPushButton:hover { background: #3a3a5c; }"
             )
             new_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -873,7 +889,7 @@ class EntryListWidget(QFrame):
             self._sort_combo.addItems([label for label, _ in self.SORT_OPTIONS])
             self._sort_combo.setStyleSheet(
                 "QComboBox { border: 1px solid #555; border-radius: 6px; "
-                "padding: 3px 8px; font-size: 8pt; }"
+                f"padding: 3px 8px; font-size: {_spt(8)}pt; }}"
             )
             self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
             toolbar.addWidget(self._sort_combo)
@@ -967,7 +983,7 @@ class EntryListWidget(QFrame):
         bg = "#4a4a6c" if active else "transparent"
         all_btn.setStyleSheet(
             f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
-            f"padding: 1px 6px; font-size: 8pt; background: {bg}; }} "
+            f"padding: 1px 6px; font-size: {_spt(8)}pt; background: {bg}; }} "
             f"QToolButton:hover {{ background: #4a4a6c; }}"
         )
         all_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -981,7 +997,7 @@ class EntryListWidget(QFrame):
             bg = "#4a4a6c" if active else "transparent"
             btn.setStyleSheet(
                 f"QToolButton {{ border: 1px solid #555; border-radius: 6px; "
-                f"padding: 1px 6px; font-size: 8pt; background: {bg}; }} "
+                f"padding: 1px 6px; font-size: {_spt(8)}pt; background: {bg}; }} "
                 f"QToolButton:hover {{ background: #4a4a6c; }}"
             )
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
