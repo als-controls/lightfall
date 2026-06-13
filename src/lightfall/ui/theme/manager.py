@@ -242,6 +242,11 @@ class ThemeManager(QObject):
         # theme's colors. Off by default; AppearanceSettingsPlugin syncs it
         # from prefs.
         self._islands_mode: bool = False
+        # Base UI font point size. Carried in the generated stylesheet (not
+        # just pushed via QApplication.setFont) so a runtime change re-polishes
+        # every widget — see set_font_size(). Synced from prefs by
+        # AppearanceSettingsPlugin at preload.
+        self._base_font_size: int = 10
 
         # Detect system theme
         self._update_effective_theme()
@@ -337,6 +342,31 @@ class ThemeManager(QObject):
             return
         self._islands_mode = enabled
         logger.info("Islands layout {}", "enabled" if enabled else "disabled")
+        self.theme_changed.emit(self._theme_name)
+
+    @property
+    def base_font_size(self) -> int:
+        """Current base UI font point size."""
+        return self._base_font_size
+
+    def set_font_size(self, size: int) -> None:
+        """Set the base UI font point size.
+
+        The size is baked into the generated stylesheet, so this re-applies the
+        stylesheet via the theme_changed signal (the same path a theme switch
+        uses). That re-polish is what propagates the new size to every widget:
+        QApplication.setFont() alone does not restyle widgets already shown
+        under an active global stylesheet (only pyqtgraph, which reads the app
+        font live, and menus, re-polished on show, picked it up otherwise).
+
+        Args:
+            size: New base font size in points.
+        """
+        size = int(size)
+        if size == self._base_font_size:
+            return
+        self._base_font_size = size
+        logger.info("Base font size changed: {}pt", size)
         self.theme_changed.emit(self._theme_name)
 
     @property
@@ -616,6 +646,14 @@ class ThemeManager(QObject):
         c = self._colors
         base_stylesheet = f"""
 /* NCS Global Theme Stylesheet */
+
+/* Base font size (user preference). Carried in the stylesheet so a runtime
+   change re-polishes every widget; QApplication.setFont() alone does not
+   propagate to widgets already shown while a global stylesheet is active.
+   More specific rules below (and per-widget styles) override this. */
+QWidget {{
+    font-size: {self._base_font_size}pt;
+}}
 
 /* Scrollbars */
 QScrollBar:vertical {{

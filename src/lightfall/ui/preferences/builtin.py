@@ -282,12 +282,19 @@ class AppearanceSettingsPlugin(SettingsPlugin):
     def _apply_font_size(size: int) -> None:
         """Set the application-wide base font point size.
 
-        Qt propagates this to every widget that hasn't had an explicit font
-        set, and relayouts automatically.
+        Two complementary steps:
+
+        - ``QApplication.setFont()`` updates the inherited default font, which
+          consumers that read it live (e.g. pyqtgraph plots) pick up.
+        - ``ThemeManager.set_font_size()`` bakes the size into the global
+          stylesheet and reapplies it, re-polishing every already-shown widget.
+          This is required because ``setFont()`` alone does not restyle widgets
+          created before the change while a global stylesheet is active — only
+          plots and (on next show) menus reflected it otherwise.
         """
         app = QApplication.instance()
-        if app is None:
-            return
-        font = app.font()
-        font.setPointSize(int(size))
-        app.setFont(font)
+        if app is not None:
+            font = app.font()
+            font.setPointSize(int(size))
+            app.setFont(font)
+        ThemeManager.get_instance().set_font_size(int(size))
