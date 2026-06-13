@@ -296,10 +296,13 @@ class RunEngineControlWidget(QWidget):
 
     def _make_icon_button(self, icon_name: str, tooltip: str) -> QToolButton:
         """Create a flat icon button matching the sidebar's tool buttons."""
+        from lightfall.ui.theme import ThemeManager
+
+        scale = ThemeManager.get_instance().scale_px
         btn = QToolButton()
         btn.setAutoRaise(True)
-        btn.setFixedSize(36, 36)
-        btn.setIconSize(QSize(22, 22))
+        btn.setFixedSize(scale(36), scale(36))
+        btn.setIconSize(QSize(scale(22), scale(22)))
         btn.setToolTip(tooltip)
         btn.setIcon(self._themed_icon(icon_name))
         btn.setEnabled(False)

@@ -369,6 +369,22 @@ class ThemeManager(QObject):
         logger.info("Base font size changed: {}pt", size)
         self.theme_changed.emit(self._theme_name)
 
+    def scale_px(self, px_at_10pt: float) -> int:
+        """Scale a pixel dimension by the base font size.
+
+        Imperative pixel sizes (icon sizes, fixed button boxes) cannot ride the
+        stylesheet cascade, so widgets that want to track the Appearance font
+        size scale their design values (defined at the reference 10pt) through
+        this helper. At 10pt the value is unchanged.
+
+        Args:
+            px_at_10pt: The dimension in pixels at the reference 10pt size.
+
+        Returns:
+            The scaled dimension in pixels.
+        """
+        return round(px_at_10pt * self._base_font_size / 10.0)
+
     @property
     def beamline_theme(self) -> BeamlineTheme | None:
         """Current beamline-specific theme."""

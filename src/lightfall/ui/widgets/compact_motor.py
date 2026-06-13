@@ -104,6 +104,10 @@ class CompactMotorWidget(QWidget):
     def _setup_ui(self) -> None:
         action, danger, muted = self._theme_colors()
 
+        from lightfall.ui.theme import ThemeManager
+
+        scale = ThemeManager.get_instance().scale_px
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
@@ -160,7 +164,7 @@ class CompactMotorWidget(QWidget):
         self._jog_left_btn.setIcon(
             qta.icon("ph.arrow-fat-lines-left-fill", color=action)
         )
-        self._jog_left_btn.setIconSize(QSize(18, 18))
+        self._jog_left_btn.setIconSize(QSize(scale(18), scale(18)))
         self._jog_left_btn.setFixedWidth(40)
         self._jog_left_btn.setStyleSheet(self._BUTTON_STYLE)
         self._jog_left_btn.setToolTip("Jog negative by step")
@@ -198,7 +202,7 @@ class CompactMotorWidget(QWidget):
         # _go_btn doubles as "go to target" in abs mode and "jog positive" in jog mode.
         self._go_btn = QPushButton()
         self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color=action))
-        self._go_btn.setIconSize(QSize(18, 18))
+        self._go_btn.setIconSize(QSize(scale(18), scale(18)))
         self._go_btn.setFixedWidth(40)
         self._go_btn.setStyleSheet(self._BUTTON_STYLE)
         self._go_btn.setToolTip("Move to target")
@@ -207,7 +211,7 @@ class CompactMotorWidget(QWidget):
 
         self._stop_btn = QPushButton()
         self._stop_btn.setIcon(qta.icon("mdi6.stop", color=danger))
-        self._stop_btn.setIconSize(QSize(18, 18))
+        self._stop_btn.setIconSize(QSize(scale(18), scale(18)))
         self._stop_btn.setFixedWidth(36)
         self._stop_btn.setStyleSheet(self._BUTTON_STYLE)
         self._stop_btn.setToolTip("Stop motor")

@@ -44,6 +44,11 @@ class IconStripButton(QToolButton):
     # Minimum movement before drag starts
     DRAG_THRESHOLD = 8
 
+    # Design sizes at the reference 10pt font; scaled via ThemeManager.scale_px
+    # so the strip tracks the Appearance > Font Size setting.
+    BASE_ICON_PX = 17
+    BASE_BOX_PX = 26
+
     def __init__(
         self,
         panel_id: str,
@@ -65,12 +70,25 @@ class IconStripButton(QToolButton):
         self.setToolTip(tooltip)
         self.setCheckable(True)
         self.setAutoRaise(True)
-        self.setIconSize(QSize(17, 17))
-        self.setFixedSize(26, 26)
+        self.apply_font_scale()
 
         # Drag state
         self._drag_start_pos: QPoint | None = None
         self._is_dragging: bool = False
+
+    def apply_font_scale(self) -> None:
+        """Size the icon and button box relative to the base font.
+
+        Called on construction and whenever the base font size changes so the
+        strip stays proportional to the rest of the UI.
+        """
+        from lightfall.ui.theme import ThemeManager
+
+        scale = ThemeManager.get_instance().scale_px
+        icon = scale(self.BASE_ICON_PX)
+        box = scale(self.BASE_BOX_PX)
+        self.setIconSize(QSize(icon, icon))
+        self.setFixedSize(box, box)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Handle mouse press - start potential drag."""
@@ -166,11 +184,21 @@ class IconStripSidebar(QFrame):
 
         self._setup_ui()
 
+    # Strip width at the reference 10pt font; scaled with the base font size.
+    BASE_WIDTH_PX = 34
+
     def _setup_ui(self) -> None:
         """Setup the sidebar UI."""
         self.setFrameStyle(QFrame.Shape.NoFrame)
-        self.setFixedWidth(34)
         self.setObjectName("IconStripSidebar")
+
+        from lightfall.ui.theme import ThemeManager
+
+        theme_mgr = ThemeManager.get_instance()
+        self.setFixedWidth(theme_mgr.scale_px(self.BASE_WIDTH_PX))
+        # Font-size changes emit theme_changed; icon/box/strip pixel sizes are
+        # imperative (no stylesheet cascade), so rescale them here.
+        theme_mgr.theme_changed.connect(self._apply_font_scale)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 8, 4, 8)
@@ -179,6 +207,14 @@ class IconStripSidebar(QFrame):
 
         # Create drop indicator (hidden by default)
         self._drop_indicator = DropIndicator(self)
+
+    def _apply_font_scale(self, *_args: object) -> None:
+        """Rescale the strip width and every button to the base font size."""
+        from lightfall.ui.theme import ThemeManager
+
+        self.setFixedWidth(ThemeManager.get_instance().scale_px(self.BASE_WIDTH_PX))
+        for button in self._buttons.values():
+            button.apply_font_scale()
 
     def _create_button(
         self, panel_id: str, icon_name: str, tooltip: str
