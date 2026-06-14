@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.ui.theater.manager import theater_manager
-from lightfall.ui.theme import scaled_px
 from lightfall.ui.theater.proxy import TheaterProxy
+from lightfall.ui.theme import scaled_px
 from lightfall.visualization.base_visualization import BaseVisualization
 from lightfall.visualization.fitting.panel import FitPanel
 

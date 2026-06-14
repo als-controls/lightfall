@@ -41,6 +41,8 @@ from PySide6.QtWidgets import (
 from lightfall.logbook.style import (
     get_code_background_color,
     is_dark_theme,
+)
+from lightfall.logbook.style import (
     scaled_pt as _spt,
 )
 
