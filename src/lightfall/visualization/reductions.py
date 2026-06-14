@@ -30,7 +30,10 @@ class ReductionOperator:
         min_frames: Minimum frames in the sub-cube for this operator to apply.
         point_scalar: ``(n_frames, H, W) -> float`` collapse for the left map.
         per_frame: ``(n_frames, H, W) -> (n_frames,)`` NaN-padded series for the
-            Image Stack curve, or ``None`` if no meaningful per-frame value exists.
+            Image Stack curve. NaN for undefined frames (leading frame(s) for
+            consecutive/vs-first operators; both leading and trailing for the
+            central-difference derivative), or ``None`` if no meaningful per-frame
+            value exists.
     """
 
     name: str
@@ -106,22 +109,22 @@ REDUCTION_OPERATORS: list[ReductionOperator] = [
     ReductionOperator(
         "Mean", "Mean", 1,
         lambda c: float(np.nanmean(c)),
-        lambda c: _frames_2d(c).mean(axis=1),
+        lambda c: np.nanmean(_frames_2d(c), axis=1),
     ),
     ReductionOperator(
         "Min", "Min", 1,
         lambda c: float(np.nanmin(c)),
-        lambda c: _frames_2d(c).min(axis=1),
+        lambda c: np.nanmin(_frames_2d(c), axis=1),
     ),
     ReductionOperator(
         "Max", "Max", 1,
         lambda c: float(np.nanmax(c)),
-        lambda c: _frames_2d(c).max(axis=1),
+        lambda c: np.nanmax(_frames_2d(c), axis=1),
     ),
     ReductionOperator(
         "Sum", "Sum", 1,
         lambda c: float(np.nansum(c)),
-        lambda c: _frames_2d(c).sum(axis=1),
+        lambda c: np.nansum(_frames_2d(c), axis=1),
     ),
     ReductionOperator(
         "Frame-wise Std (pixel-avg)", "Frame-wise Std (pixel-avg)", 2,

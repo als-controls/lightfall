@@ -78,3 +78,10 @@ def test_list_operators_nonempty_and_named():
     ops = list_operators()
     assert ops, "registry must not be empty"
     assert all(op.display_name for op in ops)
+
+
+def test_norm_abs_derivative_per_frame_nan_at_both_ends():
+    series = REDUCTIONS_BY_NAME["Norm Abs Derivative"].per_frame(_cube())
+    assert np.isnan(series[0])
+    assert np.isnan(series[-1])  # central difference: trailing frame undefined
+    assert np.isfinite(series[1])  # interior is defined
