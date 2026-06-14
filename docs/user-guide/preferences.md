@@ -51,7 +51,7 @@ their devices merge into a single catalog. Changes take effect on restart.
 | Backend | Use |
 |---------|-----|
 | **Mock** | Simulated devices (ophyd.sim) for development and training — enabled by default. Option to include the noisy detector. |
-| **BCS** | Real hardware via the Beamline Control System (host, port, timeout, beamline). Requires the ALS-internal `bcsophyd` package. |
+| **BCS** | Real hardware via the Beamline Control System (host, port, timeout, beamline). |
 | **Happi** | Devices from a [happi](https://pcdshub.github.io/happi/) database (path, beamline filter, instantiation mode). |
 
 The page also holds connection settings (device instantiation mode,
