@@ -30,6 +30,7 @@ from lightfall.ui.panels.synoptic.models import (
     PrimitiveShape,
     ViewPreset,
 )
+from lightfall.ui.theme import scaled_pt
 
 if TYPE_CHECKING:
     from lightfall.ui.panels.synoptic.items import Device2DItem
@@ -73,7 +74,7 @@ class SynopticPropertyEditor(QWidget):
 
         # Header with device name
         self._header_label = QLabel("No Selection")
-        self._header_label.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        self._header_label.setStyleSheet(f"font-weight: bold; font-size: {scaled_pt(11)}pt;")
         layout.addWidget(self._header_label)
 
         # Position group

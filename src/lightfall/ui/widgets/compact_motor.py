@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from lightfall.epics.widgets.ophyd_label import OphydLabel
 from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lightfall.epics.widgets.status_indicator import StatusIndicator
+from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 # Fallback colors when ThemeManager isn't available (e.g. headless tests).
@@ -66,7 +67,6 @@ class CompactMotorWidget(QWidget):
     control_error = Signal(str)
 
     WIDGET_HEIGHT = 42
-    _BUTTON_STYLE = "QPushButton { padding: 2px 6px; font-size: 10pt; }"
 
     def __init__(
         self,
@@ -107,6 +107,9 @@ class CompactMotorWidget(QWidget):
         from lightfall.ui.theme import ThemeManager
 
         scale = ThemeManager.get_instance().scale_px
+        # Built per-instance (not a class attr) so the font size reflects the
+        # base size at widget-creation time, not import time.
+        button_style = f"QPushButton {{ padding: 2px 6px; font-size: {scaled_pt(10)}pt; }}"
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
@@ -136,7 +139,7 @@ class CompactMotorWidget(QWidget):
         # via _resolve_units() so they always show.
         self._rbv_display = OphydLabel(precision=precision, show_units=False)
         self._rbv_display._value_label.setStyleSheet(
-            "font-family: monospace; font-size: 10pt;"
+            f"font-family: monospace; font-size: {scaled_pt(10)}pt;"
         )
         self._rbv_display._value_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -148,13 +151,13 @@ class CompactMotorWidget(QWidget):
         layout.addWidget(self._rbv_display, 1)
 
         self._units_label = QLabel(units)
-        self._units_label.setStyleSheet(f"color: {muted}; font-size: 10pt;")
+        self._units_label.setStyleSheet(f"color: {muted}; font-size: {scaled_pt(10)}pt;")
         self._units_label.setFixedWidth(28)
         layout.addWidget(self._units_label)
 
         self._mode_btn = QPushButton("Abs")
         self._mode_btn.setFixedWidth(56)
-        self._mode_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._mode_btn.setStyleSheet(button_style)
         self._mode_btn.setToolTip("Toggle between Absolute and Jog (relative) mode")
         self._mode_btn.setCheckable(True)
         self._mode_btn.clicked.connect(self._on_mode_toggled)
@@ -166,7 +169,7 @@ class CompactMotorWidget(QWidget):
         )
         self._jog_left_btn.setIconSize(QSize(scale(18), scale(18)))
         self._jog_left_btn.setFixedWidth(40)
-        self._jog_left_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._jog_left_btn.setStyleSheet(button_style)
         self._jog_left_btn.setToolTip("Jog negative by step")
         self._jog_left_btn.setVisible(False)
         self._jog_left_btn.clicked.connect(self._on_jog_left_clicked)
@@ -204,7 +207,7 @@ class CompactMotorWidget(QWidget):
         self._go_btn.setIcon(qta.icon("ph.arrow-fat-right-fill", color=action))
         self._go_btn.setIconSize(QSize(scale(18), scale(18)))
         self._go_btn.setFixedWidth(40)
-        self._go_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._go_btn.setStyleSheet(button_style)
         self._go_btn.setToolTip("Move to target")
         self._go_btn.clicked.connect(self._on_go_clicked)
         layout.addWidget(self._go_btn)
@@ -213,7 +216,7 @@ class CompactMotorWidget(QWidget):
         self._stop_btn.setIcon(qta.icon("mdi6.stop", color=danger))
         self._stop_btn.setIconSize(QSize(scale(18), scale(18)))
         self._stop_btn.setFixedWidth(36)
-        self._stop_btn.setStyleSheet(self._BUTTON_STYLE)
+        self._stop_btn.setStyleSheet(button_style)
         self._stop_btn.setToolTip("Stop motor")
         self._stop_btn.clicked.connect(self._on_stop_clicked)
         layout.addWidget(self._stop_btn)
@@ -344,7 +347,7 @@ class CompactMotorWidget(QWidget):
         the widget without rebuilding it.
         """
         action, danger, muted = self._theme_colors()
-        self._units_label.setStyleSheet(f"color: {muted}; font-size: 10pt;")
+        self._units_label.setStyleSheet(f"color: {muted}; font-size: {scaled_pt(10)}pt;")
         self._jog_left_btn.setIcon(
             qta.icon("ph.arrow-fat-lines-left-fill", color=action)
         )

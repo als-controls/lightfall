@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_pt, scaled_px
 from lightfall.ui.widgets.camera.dark_frames import DarkFrameManager
 from lightfall.utils.logging import logger
 
@@ -159,7 +160,7 @@ class OphydImageView(QWidget):
 
         # ROI stats overlay
         self._stats_text = pg.TextItem(anchor=(1, 0), color="#00FF00")
-        self._stats_text.setFont(pg.QtGui.QFont("monospace", 9))
+        self._stats_text.setFont(pg.QtGui.QFont("monospace", scaled_pt(9)))
         self._stats_text.setVisible(False)
         self._plot_item.addItem(self._stats_text)
 
@@ -199,7 +200,7 @@ class OphydImageView(QWidget):
         self._coords_label = QLabel("")
         self._coords_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._coords_label.setFixedHeight(20)
-        self._coords_label.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self._coords_label.setStyleSheet(f"font-family: monospace; font-size: {scaled_px(11)}px;")
         layout.addWidget(self._coords_label)
 
         # Progress bar

@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_px
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -193,24 +194,24 @@ class TutorialCallout(QFrame):
                 border-radius: 8px;
             }}
             #TutorialCalloutTitle {{
-                font-size: 14px;
+                font-size: {scaled_px(14)}px;
                 font-weight: bold;
                 color: {c.text};
             }}
             #TutorialCalloutMessage {{
-                font-size: 12px;
+                font-size: {scaled_px(12)}px;
                 color: {c.text_secondary};
                 line-height: 1.4;
             }}
             #TutorialCalloutStep {{
-                font-size: 11px;
+                font-size: {scaled_px(11)}px;
                 color: {c.text_secondary};
             }}
             #TutorialSkipBtn {{
                 background: transparent;
                 border: none;
                 color: {c.text_secondary};
-                font-size: 11px;
+                font-size: {scaled_px(11)}px;
                 padding: 4px;
             }}
             #TutorialSkipBtn:hover {{
@@ -221,7 +222,7 @@ class TutorialCallout(QFrame):
                 border: 1px solid {c.border};
                 border-radius: 4px;
                 color: {c.text};
-                font-size: 11px;
+                font-size: {scaled_px(11)}px;
                 padding: 4px;
             }}
             #TutorialBackBtn:hover {{
@@ -232,7 +233,7 @@ class TutorialCallout(QFrame):
                 border: none;
                 border-radius: 4px;
                 color: white;
-                font-size: 12px;
+                font-size: {scaled_px(12)}px;
                 font-weight: bold;
                 padding: 6px;
             }}

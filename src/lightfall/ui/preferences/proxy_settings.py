@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -401,7 +402,7 @@ class ProxySettingsPlugin(SettingsPlugin):
         )
         info_text.setWordWrap(True)
         info_text.setOpenExternalLinks(True)
-        info_text.setStyleSheet("color: #666; font-size: 9pt;")
+        info_text.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
         layout.addWidget(info_text)
 
         return group

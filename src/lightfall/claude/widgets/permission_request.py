@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_pt
+
 
 class PermissionRequestWidget(QFrame):
     """
@@ -132,9 +134,9 @@ class PermissionRequestWidget(QFrame):
             self.input_display.setPlainText(self._format_full_input(self.tool_input))
             self.input_display.setMaximumHeight(120)
             self.input_display.setStyleSheet(
-                "QTextEdit { background-color: rgba(128, 128, 128, 0.1); "
-                "border: 1px solid rgba(128, 128, 128, 0.3); border-radius: 4px; "
-                "font-family: monospace; font-size: 9pt; }"
+                f"QTextEdit {{ background-color: rgba(128, 128, 128, 0.1); "
+                f"border: 1px solid rgba(128, 128, 128, 0.3); border-radius: 4px; "
+                f"font-family: monospace; font-size: {scaled_pt(9)}pt; }}"
             )
             details_layout.addWidget(self.input_display)
 

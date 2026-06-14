@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.dialogs.base import LFDialog
+from lightfall.ui.theme import scaled_pt, scaled_px
 from lightfall.utils.logging import logger
 
 
@@ -65,7 +66,7 @@ class AboutDialog(LFDialog):
         if not logo_loaded:
             fallback_label = QLabel("Lightfall")
             fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fallback_label.setStyleSheet("font-size: 32px; font-weight: bold;")
+            fallback_label.setStyleSheet(f"font-size: {scaled_px(32)}px; font-weight: bold;")
             layout.addWidget(fallback_label)
 
         # App name (below logo since logo includes text)
@@ -74,7 +75,7 @@ class AboutDialog(LFDialog):
         # Full name
         full_name = QLabel("Advanced Light Source Control System")
         full_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        full_name.setStyleSheet("color: gray; font-size: 11px;")
+        full_name.setStyleSheet(f"color: gray; font-size: {scaled_px(11)}px;")
         layout.addWidget(full_name)
 
         layout.addSpacing(8)
@@ -94,7 +95,7 @@ class AboutDialog(LFDialog):
         version_label = QLabel("Version: Development")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_font = QFont()
-        version_font.setPointSize(10)
+        version_font.setPointSize(scaled_pt(10))
         version_label.setFont(version_font)
         version_label.setStyleSheet("color: gray;")
         layout.addWidget(version_label)
@@ -104,7 +105,7 @@ class AboutDialog(LFDialog):
         # Copyright
         copyright_label = QLabel("Copyright 2024-2026 ALS Controls Team")
         copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        copyright_label.setStyleSheet("color: gray; font-size: 10px;")
+        copyright_label.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
         layout.addWidget(copyright_label)
 
         # OK button

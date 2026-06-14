@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.dialogs.base import LFDialog
+from lightfall.ui.theme import scaled_px
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -208,7 +209,7 @@ class OAuthBrowserDialog(LFDialog):
             "QtWebEngine is not available in your PySide6 installation.\n"
             "Please close this dialog and use the external browser flow."
         )
-        warning_label.setStyleSheet("font-size: 14px;")
+        warning_label.setStyleSheet(f"font-size: {scaled_px(14)}px;")
         warning_label.setWordWrap(True)
         layout.addWidget(warning_label)
 

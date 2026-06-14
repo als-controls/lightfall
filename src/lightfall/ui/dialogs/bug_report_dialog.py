@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.dialogs.base import LFDialog
+from lightfall.ui.theme import scaled_px
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -118,7 +119,9 @@ class BugReportDialog(LFDialog):
         self._preview_text = QTextEdit()
         self._preview_text.setReadOnly(True)
         self._preview_text.setMaximumHeight(120)
-        self._preview_text.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self._preview_text.setStyleSheet(
+            f"font-family: monospace; font-size: {scaled_px(11)}px;"
+        )
         preview_layout.addWidget(self._preview_text)
 
         layout.addWidget(self._preview_group)

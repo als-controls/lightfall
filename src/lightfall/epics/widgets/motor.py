@@ -32,6 +32,7 @@ from lightfall.epics.widgets.style import (
     get_success_color,
     get_warning_color,
 )
+from lightfall.ui.theme import scaled_pt
 
 
 class PVMotor(QWidget):
@@ -153,13 +154,13 @@ class PVMotor(QWidget):
         # Readback (RBV) - prominent display
         pos_layout.addWidget(QLabel("Readback:"), 0, 0)
         self._rbv_display = PVLabel(show_units=True)
-        self._rbv_display.setStyleSheet("""
-            QLabel {
-                font-size: 18pt;
+        self._rbv_display.setStyleSheet(f"""
+            QLabel {{
+                font-size: {scaled_pt(18)}pt;
                 font-weight: bold;
                 font-family: monospace;
                 padding: 4px 8px;
-            }
+            }}
         """)
         pos_layout.addWidget(self._rbv_display, 0, 1, 1, 2)
 

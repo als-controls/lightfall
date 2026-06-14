@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from lightfall.ui.theme import scaled_px
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -92,7 +93,7 @@ class DismissableWarningBanner(QFrame):
 
         # Warning icon (using unicode character)
         icon_label = QLabel("\u26a0")  # Warning sign
-        icon_label.setStyleSheet("font-size: 18px;")
+        icon_label.setStyleSheet(f"font-size: {scaled_px(18)}px;")
         layout.addWidget(icon_label)
 
         # Text content

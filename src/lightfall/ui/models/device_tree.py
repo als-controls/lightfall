@@ -21,6 +21,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
+from lightfall.ui.theme import scaled_px
+
 if TYPE_CHECKING:
     from lightfall.devices import DeviceCatalog, DeviceInfo
 
@@ -455,7 +457,7 @@ class DeviceTreeModel(QAbstractItemModel):
         # Draw symbol
         painter.setPen(QColor(color))
         font = painter.font()
-        font.setPixelSize(10)
+        font.setPixelSize(scaled_px(10))
         painter.setFont(font)
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, symbol)
 
@@ -481,7 +483,7 @@ class DeviceTreeModel(QAbstractItemModel):
         painter.setPen(QColor("white"))
         font = painter.font()
         font.setBold(True)
-        font.setPixelSize(10)
+        font.setPixelSize(scaled_px(10))
         painter.setFont(font)
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, letter)
 

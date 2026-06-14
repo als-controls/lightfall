@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
+from lightfall.ui.theme import ThemeManager, scaled_px
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture, thread_manager
 
@@ -113,7 +113,7 @@ class _ProgressOverlay(QFrame):
 
         name = getattr(thread, "_name", None) or "Thread"
         label = QLabel(name)
-        label.setStyleSheet("font-size: 11px;")
+        label.setStyleSheet(f"font-size: {scaled_px(11)}px;")
         row_layout.addWidget(label)
 
         bar = QProgressBar()
@@ -187,7 +187,7 @@ class _ProgressOverlay(QFrame):
 
         label = QLabel(name)
         subdued = self._subdued_text_color()
-        label.setStyleSheet(f"font-size: 11px; color: {subdued};")
+        label.setStyleSheet(f"font-size: {scaled_px(11)}px; color: {subdued};")
         row_layout.addWidget(label)
 
         bar = QProgressBar()
@@ -266,7 +266,7 @@ class _ProgressOverlay(QFrame):
         row_layout.setSpacing(2)
 
         label = QLabel("Scan")
-        label.setStyleSheet("font-size: 11px; font-weight: bold;")
+        label.setStyleSheet(f"font-size: {scaled_px(11)}px; font-weight: bold;")
         row_layout.addWidget(label)
 
         bar = QProgressBar()

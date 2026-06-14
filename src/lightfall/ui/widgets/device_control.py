@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.logbook import DeviceActionLogger
+from lightfall.ui.theme import scaled_px
 from lightfall.ui.widgets.base_control import BaseControlWidget
 from lightfall.ui.widgets.controller_matcher import ControllerMatch, ControllerMatcher
 from lightfall.utils.logging import logger
@@ -71,7 +72,7 @@ class InactiveDeviceWidget(QWidget):
         layout.addStretch()
 
         label = QLabel("Device Inactive")
-        label.setStyleSheet("color: #9E9E9E; font-style: italic; font-size: 14px;")
+        label.setStyleSheet(f"color: #9E9E9E; font-style: italic; font-size: {scaled_px(14)}px;")
         from PySide6.QtCore import Qt
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)

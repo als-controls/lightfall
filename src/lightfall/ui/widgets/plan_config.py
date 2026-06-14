@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_pt
 from lightfall.utils.editor_launcher import CodeEditor, get_editor_from_string, open_in_editor
 
 try:
@@ -376,7 +377,7 @@ class PlanConfigWidget(QWidget):
 
         # Header
         self._header_label = QLabel("No plan selected")
-        self._header_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
+        self._header_label.setStyleSheet(f"font-weight: bold; font-size: {scaled_pt(12)}pt;")
         layout.addWidget(self._header_label)
 
         self._desc_label = QLabel("")

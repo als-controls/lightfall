@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.theme import scaled_pt
 from lightfall.ui.widgets.plan_edit_dialog import PlanEditDialog
 from lightfall.ui.widgets.queue_view import (
     QueueModel,
@@ -81,11 +82,11 @@ class RunningHeaderWidget(QFrame):
         top_row = QHBoxLayout()
 
         self._status_icon = QLabel("\u25B6")  # Play symbol
-        self._status_icon.setStyleSheet("font-size: 14pt; color: #4CAF50;")
+        self._status_icon.setStyleSheet(f"font-size: {scaled_pt(14)}pt; color: #4CAF50;")
         top_row.addWidget(self._status_icon)
 
         self._name_label = QLabel("Idle")
-        self._name_label.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        self._name_label.setStyleSheet(f"font-weight: bold; font-size: {scaled_pt(11)}pt;")
         top_row.addWidget(self._name_label)
 
         top_row.addStretch()
@@ -118,7 +119,7 @@ class RunningHeaderWidget(QFrame):
     def _set_idle_state(self) -> None:
         """Set the widget to idle state."""
         self._status_icon.setText("\u23F8")  # Pause symbol
-        self._status_icon.setStyleSheet("font-size: 14pt; color: palette(text);")
+        self._status_icon.setStyleSheet(f"font-size: {scaled_pt(14)}pt; color: palette(text);")
         self._name_label.setText("Idle")
         self._priority_label.setText("")
         self._elapsed_label.setText("")
@@ -138,7 +139,7 @@ class RunningHeaderWidget(QFrame):
         self._total_points = 0
 
         self._status_icon.setText("\u25B6")  # Play symbol
-        self._status_icon.setStyleSheet("font-size: 14pt; color: #4CAF50;")
+        self._status_icon.setStyleSheet(f"font-size: {scaled_pt(14)}pt; color: #4CAF50;")
         self._name_label.setText(procedure.name or "procedure")
         self._priority_label.setText(f"Priority: {procedure.priority}")
         self._elapsed_label.setText("Elapsed: 00:00")

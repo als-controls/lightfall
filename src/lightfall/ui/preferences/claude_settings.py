@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -427,7 +428,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             "try using the direct Anthropic API endpoint instead."
         )
         proxy_note.setWordWrap(True)
-        proxy_note.setStyleSheet("color: #666; font-size: 9pt;")
+        proxy_note.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
         layout.addRow(proxy_note)
 
         return group

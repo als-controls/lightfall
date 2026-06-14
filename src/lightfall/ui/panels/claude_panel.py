@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.theme import scaled_pt, scaled_px
 from lightfall.ui.toast import ToastManager
 from lightfall.utils.logging import logger
 
@@ -315,12 +316,12 @@ class ClaudePanel(BasePanel):
         self._loading_label = QLabel("Loading plugins...")
         self._loading_label.setWordWrap(True)
         self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_label.setStyleSheet("""
-            QLabel {
+        self._loading_label.setStyleSheet(f"""
+            QLabel {{
                 color: #888;
                 padding: 40px;
-                font-size: 12pt;
-            }
+                font-size: {scaled_pt(12)}pt;
+            }}
         """)
         self._layout.addWidget(self._loading_label)
 
@@ -577,12 +578,12 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """
         error_label = QLabel(f"Claude Assistant Unavailable\n\n{message}")
         error_label.setWordWrap(True)
-        error_label.setStyleSheet("""
-            QLabel {
+        error_label.setStyleSheet(f"""
+            QLabel {{
                 color: #888;
                 padding: 20px;
-                font-size: 12pt;
-            }
+                font-size: {scaled_pt(12)}pt;
+            }}
         """)
         self._layout.addWidget(error_label)
 
@@ -620,7 +621,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         approve_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         approve_btn.setStyleSheet(
             "QPushButton { background: #22c55e; color: white; border: none; "
-            "border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: 11px; }"
+            f"border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: {scaled_px(11)}px; }}"
             "QPushButton:hover { background: #16a34a; }"
         )
 
@@ -629,7 +630,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         deny_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         deny_btn.setStyleSheet(
             "QPushButton { background: #ef4444; color: white; border: none; "
-            "border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: 11px; }"
+            f"border-radius: 4px; padding: 2px 10px; font-weight: bold; font-size: {scaled_px(11)}px; }}"
             "QPushButton:hover { background: #dc2626; }"
         )
 

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.ui.theater.manager import theater_manager
+from lightfall.ui.theme import scaled_px
 from lightfall.ui.theater.proxy import TheaterProxy
 from lightfall.visualization.base_visualization import BaseVisualization
 from lightfall.visualization.fitting.panel import FitPanel
@@ -110,7 +111,7 @@ class VisualizationPanel(BasePanel):
         placeholder_layout.addStretch()
         self._placeholder_label = QLabel("No data\nStart a scan to visualize")
         self._placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder_label.setStyleSheet("color: gray; font-size: 14px;")
+        self._placeholder_label.setStyleSheet(f"color: gray; font-size: {scaled_px(14)}px;")
         placeholder_layout.addWidget(self._placeholder_label)
         placeholder_layout.addStretch()
         self._viz_stack.addWidget(placeholder)

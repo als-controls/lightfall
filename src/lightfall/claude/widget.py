@@ -23,6 +23,7 @@ from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
 from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+from lightfall.ui.theme import scaled_pt
 
 
 @dataclass
@@ -803,7 +804,7 @@ class ClaudeAssistantWidget(QWidget):
             lbl = QLabel(label.upper())
             lc = label_color or "#888"
             lbl.setStyleSheet(
-                f"font-weight: bold; font-size: 8pt; color: {lc}; "
+                f"font-weight: bold; font-size: {scaled_pt(8)}pt; color: {lc}; "
                 f"letter-spacing: 1px;"
             )
             card_layout.addWidget(lbl)
@@ -826,7 +827,7 @@ class ClaudeAssistantWidget(QWidget):
         if italic:
             style_parts.append("font-style: italic;")
         if small:
-            style_parts.append("font-size: 9pt;")
+            style_parts.append(f"font-size: {scaled_pt(9)}pt;")
         if style_parts:
             body_label.setStyleSheet(" ".join(style_parts))
 
@@ -892,7 +893,7 @@ class ClaudeAssistantWidget(QWidget):
         lbl.setText(self._escape_html(message))
         lbl.setStyleSheet(
             f"QLabel {{ color: {colors['system']}; font-style: italic; "
-            f"font-size: 9pt; padding: 2px 4px; }}"
+            f"font-size: {scaled_pt(9)}pt; padding: 2px 4px; }}"
         )
         self._add_widget(lbl)
 

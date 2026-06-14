@@ -32,6 +32,7 @@ from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
 from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lightfall.epics.widgets.status_indicator import StatusIndicator
 from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
+from lightfall.ui.theme import scaled_pt
 from lightfall.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lightfall.ui.widgets.camera.image_view import OphydImageView
 from lightfall.utils.logging import logger
@@ -289,7 +290,7 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         """Setup the camera control UI."""
         # Device name header
         self._name_label = QLabel("No Camera Selected")
-        self._name_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self._name_label.setStyleSheet(f"font-size: {scaled_pt(14)}pt; font-weight: bold;")
         self._layout.addWidget(self._name_label)
 
         # Status bar with connection indicator
@@ -360,36 +361,36 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
 
         self._acquire_btn = QPushButton("ACQUIRE")
         self._acquire_btn.setMinimumHeight(36)
-        self._acquire_btn.setStyleSheet("""
-            QPushButton {
+        self._acquire_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #4CAF50;
                 color: white;
                 font-weight: bold;
-                font-size: 11pt;
+                font-size: {scaled_pt(11)}pt;
                 padding: 6px 20px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #28a745; }
-            QPushButton:pressed { background-color: #1e7e34; }
-            QPushButton:disabled { background-color: #666666; }
+            }}
+            QPushButton:hover {{ background-color: #28a745; }}
+            QPushButton:pressed {{ background-color: #1e7e34; }}
+            QPushButton:disabled {{ background-color: #666666; }}
         """)
         self._acquire_btn.clicked.connect(self._on_acquire_clicked)
         btn_layout.addWidget(self._acquire_btn)
 
         self._abort_btn = QPushButton("ABORT")
         self._abort_btn.setMinimumHeight(36)
-        self._abort_btn.setStyleSheet("""
-            QPushButton {
+        self._abort_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #F44336;
                 color: white;
                 font-weight: bold;
-                font-size: 11pt;
+                font-size: {scaled_pt(11)}pt;
                 padding: 6px 20px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #ff0000; }
-            QPushButton:pressed { background-color: #990000; }
-            QPushButton:disabled { background-color: #666666; }
+            }}
+            QPushButton:hover {{ background-color: #ff0000; }}
+            QPushButton:pressed {{ background-color: #990000; }}
+            QPushButton:disabled {{ background-color: #666666; }}
         """)
         self._abort_btn.clicked.connect(self._on_abort_clicked)
         btn_layout.addWidget(self._abort_btn)
@@ -398,23 +399,23 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._tv_mode_btn = QPushButton("TV MODE")
         self._tv_mode_btn.setMinimumHeight(36)
         self._tv_mode_btn.setCheckable(True)
-        self._tv_mode_btn.setStyleSheet("""
-            QPushButton {
+        self._tv_mode_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: #2196F3;
                 color: white;
                 font-weight: bold;
-                font-size: 11pt;
+                font-size: {scaled_pt(11)}pt;
                 padding: 6px 20px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #1976D2; }
-            QPushButton:pressed { background-color: #0D47A1; }
-            QPushButton:checked {
+            }}
+            QPushButton:hover {{ background-color: #1976D2; }}
+            QPushButton:pressed {{ background-color: #0D47A1; }}
+            QPushButton:checked {{
                 background-color: #FF9800;
                 border: 2px solid #F57C00;
-            }
-            QPushButton:checked:hover { background-color: #F57C00; }
-            QPushButton:disabled { background-color: #666666; }
+            }}
+            QPushButton:checked:hover {{ background-color: #F57C00; }}
+            QPushButton:disabled {{ background-color: #666666; }}
         """)
         self._tv_mode_btn.clicked.connect(self._on_tv_mode_clicked)
         btn_layout.addWidget(self._tv_mode_btn)

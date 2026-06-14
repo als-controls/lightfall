@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_pt
+
 try:
     import qtawesome as qta
 except ImportError:  # pragma: no cover - qtawesome is a hard dep elsewhere
@@ -88,7 +90,7 @@ class TaskCard(QFrame):
         header_row.addWidget(self.title_label, 1)
 
         self.counter_label = QLabel()
-        self.counter_label.setStyleSheet("color: gray; font-size: 9pt;")
+        self.counter_label.setStyleSheet(f"color: gray; font-size: {scaled_pt(9)}pt;")
         header_row.addWidget(self.counter_label)
 
         layout.addLayout(header_row)
@@ -106,7 +108,7 @@ class TaskCard(QFrame):
         d.addWidget(self.detail_description)
 
         self.detail_last_tool = QLabel()
-        self.detail_last_tool.setStyleSheet("color: gray; font-size: 9pt;")
+        self.detail_last_tool.setStyleSheet(f"color: gray; font-size: {scaled_pt(9)}pt;")
         d.addWidget(self.detail_last_tool)
 
         self.detail_summary = QLabel()

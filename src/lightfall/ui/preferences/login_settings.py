@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.theme import scaled_px
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -123,7 +124,7 @@ class LoginSettingsPlugin(SettingsPlugin):
             "This setting applies to local accounts only.\n"
             "Keycloak sessions are controlled by the server."
         )
-        info_label.setStyleSheet("color: gray; font-size: 10px;")
+        info_label.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
         info_label.setWordWrap(True)
         session_layout.addRow("", info_label)
 

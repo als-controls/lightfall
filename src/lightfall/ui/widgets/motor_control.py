@@ -28,6 +28,7 @@ from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lightfall.epics.widgets.status_indicator import StatusIndicator
 from lightfall.logbook import DeviceActionLogger
 from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
+from lightfall.ui.theme import scaled_pt
 from lightfall.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lightfall.utils.logging import logger
 
@@ -283,7 +284,7 @@ class MotorControlWidget(BaseControlWidget):
         """Setup the motor control UI."""
         # Motor name header
         self._name_label = QLabel("No Motor Selected")
-        self._name_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self._name_label.setStyleSheet(f"font-size: {scaled_pt(14)}pt; font-weight: bold;")
         self._layout.addWidget(self._name_label)
 
         # Status bar - main motion state
@@ -305,13 +306,13 @@ class MotorControlWidget(BaseControlWidget):
         # Readback display (OphydLabel handles subscription to user_readback)
         pos_layout.addWidget(QLabel("Current:"), 0, 0)
         self._rbv_display = OphydLabel(precision=self._precision)
-        self._rbv_display._value_label.setStyleSheet("""
-            QLabel {
-                font-size: 16pt;
+        self._rbv_display._value_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: {scaled_pt(16)}pt;
                 font-weight: bold;
                 font-family: monospace;
                 padding: 4px 8px;
-            }
+            }}
         """)
         pos_layout.addWidget(self._rbv_display, 0, 1)
         self._units_label = QLabel("")
@@ -745,7 +746,7 @@ class MotorRowWidget(QWidget):
 
         # Position display (OphydLabel handles subscription to readback)
         self._pos_label = OphydLabel(precision=self._precision)
-        self._pos_label._value_label.setStyleSheet("font-family: monospace; font-size: 11pt;")
+        self._pos_label._value_label.setStyleSheet(f"font-family: monospace; font-size: {scaled_pt(11)}pt;")
         self._pos_label._value_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -906,7 +907,7 @@ class MultiMotorControlWidget(BaseControlWidget):
         header_layout = QHBoxLayout()
 
         header_label = QLabel("Multi-Motor Control")
-        header_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        header_label.setStyleSheet(f"font-size: {scaled_pt(14)}pt; font-weight: bold;")
         header_layout.addWidget(header_label)
 
         header_layout.addStretch()

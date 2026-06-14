@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -140,7 +141,7 @@ class TiledSettingsPlugin(SettingsPlugin):
         self._url_edit.setPlaceholderText("http://localhost:8000")
         self._url_edit.editingFinished.connect(self._validate_url)
         self._url_error_label = QLabel()
-        self._url_error_label.setStyleSheet("color: #f44336; font-size: 9pt;")
+        self._url_error_label.setStyleSheet(f"color: #f44336; font-size: {scaled_pt(9)}pt;")
         self._url_error_label.hide()
         connection_layout.addRow("Server URL:", self._url_edit)
         connection_layout.addRow("", self._url_error_label)

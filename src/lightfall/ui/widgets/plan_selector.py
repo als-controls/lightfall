@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ui.theme import scaled_px
+
 if TYPE_CHECKING:
     from lightfall.acquire.plans import PlanInfo, PlanRegistry
 
@@ -53,7 +55,7 @@ def create_plan_icon(color: str, letter: str, size: int = 16) -> QIcon:
     painter.setPen(QColor("white"))
     font = painter.font()
     font.setBold(True)
-    font.setPixelSize(10)
+    font.setPixelSize(scaled_px(10))
     painter.setFont(font)
     painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, letter)
 

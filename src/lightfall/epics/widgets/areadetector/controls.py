@@ -31,6 +31,7 @@ from lightfall.epics.widgets.style import (
     get_error_color,
     get_success_color,
 )
+from lightfall.ui.theme import scaled_pt
 
 # AreaDetector image modes
 IMAGE_MODES = ["Single", "Multiple", "Continuous"]
@@ -201,7 +202,7 @@ class PVAreaDetectorControls(QWidget):
                 background-color: {get_success_color()};
                 color: white;
                 font-weight: bold;
-                font-size: 12pt;
+                font-size: {scaled_pt(12)}pt;
                 padding: 8px 24px;
                 border-radius: 4px;
             }}
@@ -225,7 +226,7 @@ class PVAreaDetectorControls(QWidget):
                 background-color: {get_error_color()};
                 color: white;
                 font-weight: bold;
-                font-size: 12pt;
+                font-size: {scaled_pt(12)}pt;
                 padding: 8px 24px;
                 border-radius: 4px;
             }}
