@@ -50,4 +50,4 @@ def test_engine_emits_points_then_finished(qtbot):
     with qtbot.waitSignal(engine.finished, timeout=5000):
         engine.start(3, lambda p: cubes[p], op)
 
-    assert sorted(received) == [(0, 0.0), (1, 1.0), (2, 2.0)]
+    assert received == [(0, 0.0), (1, 1.0), (2, 2.0)]

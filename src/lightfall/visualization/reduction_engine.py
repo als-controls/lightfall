@@ -57,7 +57,13 @@ class ReductionEngine(QObject):
         self._done = 0
 
     def cancel(self) -> None:
-        """Supersede any in-flight walk."""
+        """Supersede any in-flight walk.
+
+        Non-blocking: bumps the generation counter and requests interruption
+        but does not wait for the worker thread to finish. A slow ``fetch_point``
+        may run briefly after this returns; the generation guard makes any late
+        ``pointComputed``/``finished`` callbacks harmless no-ops.
+        """
         self._generation += 1
         if self._future is not None:
             self._future.cancel(timeout_ms=0)
