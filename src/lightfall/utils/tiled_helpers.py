@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 
@@ -59,10 +59,10 @@ def read_events(stream: Any) -> Any | None:
     return None
 
 
-Slice = "int | tuple[int, int] | None"
+Slice: TypeAlias = "int | tuple[int, int] | None"
 
 
-def _build_slice_string(slices: tuple) -> str:
+def _build_slice_string(slices: tuple[Slice, ...]) -> str:
     """Build a Tiled ``/array/full/`` slice string.
 
     Each element of ``slices`` is an ``int`` (single index, drops the axis),
@@ -79,7 +79,7 @@ def _build_slice_string(slices: tuple) -> str:
     return ",".join(parts)
 
 
-def _subcube_shape(slices: tuple, full_shape: tuple[int, ...]) -> tuple[int, ...]:
+def _subcube_shape(slices: tuple[Slice, ...], full_shape: tuple[int, ...]) -> tuple[int, ...]:
     """Resulting shape after applying ``slices`` to an array of ``full_shape``.
 
     Integer-indexed axes are dropped; ranged and full axes are kept.
@@ -94,7 +94,7 @@ def _subcube_shape(slices: tuple, full_shape: tuple[int, ...]) -> tuple[int, ...
     return tuple(out)
 
 
-def fetch_subcube(dataset: ArrayClient, slices: tuple) -> np.ndarray:
+def fetch_subcube(dataset: ArrayClient, slices: tuple[Slice, ...]) -> np.ndarray:
     """Fetch an arbitrary rectangular sub-volume via server-side slicing.
 
     Like :func:`fetch_frame` but for any combination of single-index and ranged
@@ -105,8 +105,14 @@ def fetch_subcube(dataset: ArrayClient, slices: tuple) -> np.ndarray:
     Returns:
         Array with integer-indexed axes dropped.
     """
+    full_shape = tuple(dataset.shape)
+    if len(slices) != len(full_shape):
+        raise ValueError(
+            f"fetch_subcube: got {len(slices)} slice elements for a "
+            f"{len(full_shape)}-D array {full_shape}"
+        )
     slice_str = _build_slice_string(slices)
-    out_shape = _subcube_shape(slices, tuple(dataset.shape))
+    out_shape = _subcube_shape(slices, full_shape)
 
     url_path = dataset.uri.replace("/metadata/", "/array/full/", 1)
     response = dataset.context.http_client.get(

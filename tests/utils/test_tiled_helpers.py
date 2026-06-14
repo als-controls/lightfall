@@ -1,7 +1,14 @@
 """Tests for tiled slice-string helpers."""
 from __future__ import annotations
 
+import pytest
+
 from lightfall.utils.tiled_helpers import _build_slice_string, _subcube_shape
+
+
+class _FakeDataset:
+    def __init__(self, shape):
+        self.shape = shape
 
 
 def test_build_slice_string_mixed():
@@ -28,3 +35,10 @@ def test_subcube_shape_single_frame_is_2d():
 def test_subcube_shape_3d_cube_point_roi():
     full = (40, 256, 256)  # (n_points, H, W), one frame per point
     assert _subcube_shape((3, (0, 16), (0, 8)), full) == (16, 8)
+
+
+def test_fetch_subcube_rejects_wrong_length_slices():
+    from lightfall.utils.tiled_helpers import fetch_subcube
+    ds = _FakeDataset((10, 20, 30))  # 3-D
+    with pytest.raises(ValueError):
+        fetch_subcube(ds, (0, None))  # only 2 slice elements
