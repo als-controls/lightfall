@@ -59,30 +59,54 @@ def read_events(stream: Any) -> Any | None:
     return None
 
 
-def fetch_frame(dataset: ArrayClient, index: int) -> np.ndarray:
-    """Fetch a single slice along axis 0 from a Tiled ArrayClient.
+Slice = "int | tuple[int, int] | None"
 
-    The normal client indexing path (``dataset[i]``) goes through the
-    dask/chunk layer and downloads the *entire* chunk, which can be all
-    frames.  This function hits the ``/array/full/`` endpoint directly
-    with a ``slice`` parameter so only the requested row is transferred.
 
-    Works for any ndim >= 2 (image stacks, flat GP arrays, etc.).
+def _build_slice_string(slices: tuple) -> str:
+    """Build a Tiled ``/array/full/`` slice string.
 
-    Args:
-        dataset: A Tiled ArrayClient with shape ``(N, ...)``.
-        index: Index along the first axis.
+    Each element of ``slices`` is an ``int`` (single index, drops the axis),
+    a ``(start, stop)`` tuple (half-open range), or ``None`` (whole axis).
+    """
+    parts: list[str] = []
+    for sl in slices:
+        if sl is None:
+            parts.append("::")
+        elif isinstance(sl, tuple):
+            parts.append(f"{int(sl[0])}:{int(sl[1])}")
+        else:
+            parts.append(str(int(sl)))
+    return ",".join(parts)
+
+
+def _subcube_shape(slices: tuple, full_shape: tuple[int, ...]) -> tuple[int, ...]:
+    """Resulting shape after applying ``slices`` to an array of ``full_shape``.
+
+    Integer-indexed axes are dropped; ranged and full axes are kept.
+    """
+    out: list[int] = []
+    for sl, dim in zip(slices, full_shape):
+        if sl is None:
+            out.append(int(dim))
+        elif isinstance(sl, tuple):
+            out.append(int(sl[1]) - int(sl[0]))
+        # int -> axis dropped
+    return tuple(out)
+
+
+def fetch_subcube(dataset: ArrayClient, slices: tuple) -> np.ndarray:
+    """Fetch an arbitrary rectangular sub-volume via server-side slicing.
+
+    Like :func:`fetch_frame` but for any combination of single-index and ranged
+    axes. ``slices`` must have one element per array dimension (see
+    :func:`_build_slice_string`). Avoids the dask/chunk layer so only the
+    requested bytes transfer.
 
     Returns:
-        Array with shape ``dataset.shape[1:]``.
+        Array with integer-indexed axes dropped.
     """
-    n_frames = dataset.shape[0]
-    index = int(max(0, min(index, n_frames - 1)))
-    frame_shape = dataset.shape[1:]
-
-    # Build slice string for arbitrary ndim: "idx,::,::,..."
-    slice_parts = [str(index)] + ["::" for _ in range(len(dataset.shape) - 1)]
-    slice_str = ",".join(slice_parts)
+    slice_str = _build_slice_string(slices)
+    out_shape = _subcube_shape(slices, tuple(dataset.shape))
 
     url_path = dataset.uri.replace("/metadata/", "/array/full/", 1)
     response = dataset.context.http_client.get(
@@ -93,4 +117,21 @@ def fetch_frame(dataset: ArrayClient, index: int) -> np.ndarray:
     response.raise_for_status()
 
     dtype = dataset.structure().data_type.to_numpy_dtype()
-    return np.frombuffer(response.content, dtype=dtype).reshape(frame_shape)
+    return np.frombuffer(response.content, dtype=dtype).reshape(out_shape)
+
+
+def fetch_frame(dataset: ArrayClient, index: int) -> np.ndarray:
+    """Fetch a single slice along axis 0 from a Tiled ArrayClient.
+
+    The normal client indexing path (``dataset[i]``) goes through the
+    dask/chunk layer and downloads the *entire* chunk. This hits the
+    ``/array/full/`` endpoint with a ``slice`` parameter so only the requested
+    row transfers. Works for any ndim >= 2.
+
+    Returns:
+        Array with shape ``dataset.shape[1:]``.
+    """
+    n_frames = dataset.shape[0]
+    index = int(max(0, min(index, n_frames - 1)))
+    slices = (index,) + (None,) * (len(dataset.shape) - 1)
+    return fetch_subcube(dataset, slices)
