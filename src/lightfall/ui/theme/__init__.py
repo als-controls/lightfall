@@ -7,7 +7,13 @@ This package provides:
 - Dark/light mode detection and switching
 """
 
-from lightfall.ui.theme.manager import Theme, ThemeColors, ThemeManager
+from lightfall.ui.theme.manager import (
+    Theme,
+    ThemeColors,
+    ThemeManager,
+    scaled_pt,
+    scaled_px,
+)
 from lightfall.ui.theme.registry import ThemeRegistry
 
 __all__ = [
@@ -15,4 +21,6 @@ __all__ = [
     "ThemeColors",
     "ThemeManager",
     "ThemeRegistry",
+    "scaled_pt",
+    "scaled_px",
 ]

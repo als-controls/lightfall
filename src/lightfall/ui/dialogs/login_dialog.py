@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.auth.session import AuthState, SessionManager
 from lightfall.ui.dialogs.base import LFDialog
+from lightfall.ui.theme import scaled_px
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -157,7 +158,7 @@ class LoginDialog(LFDialog):
             )
 
         header = QLabel(header_text)
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
+        header.setStyleSheet(f"font-size: {scaled_px(18)}px; font-weight: bold;")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
 
@@ -173,24 +174,24 @@ class LoginDialog(LFDialog):
         self._keycloak_btn = QPushButton("Login with Keycloak")
         self._keycloak_btn.setMinimumHeight(44)
         self._keycloak_btn.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 background-color: #0066cc;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 14px;
+                font-size: {scaled_px(14)}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #0055aa;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #004488;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #cccccc;
-            }
+            }}
             """
         )
         self._keycloak_btn.clicked.connect(self._on_keycloak_login)
@@ -232,7 +233,9 @@ class LoginDialog(LFDialog):
 
         # Error label (hidden by default)
         self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000; font-size: 12px;")
+        self._error_label.setStyleSheet(
+            f"color: #cc0000; font-size: {scaled_px(12)}px;"
+        )
         self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_label.setVisible(False)
         layout.addWidget(self._error_label)
@@ -241,24 +244,24 @@ class LoginDialog(LFDialog):
         self._pam_btn = QPushButton("Linux User Login")
         self._pam_btn.setMinimumHeight(40)
         self._pam_btn.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 background-color: #2e7d32;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 13px;
+                font-size: {scaled_px(13)}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #256428;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #1b5e20;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #cccccc;
-            }
+            }}
             """
         )
         self._pam_btn.clicked.connect(self._on_pam_login)
@@ -280,18 +283,18 @@ class LoginDialog(LFDialog):
         self._local_link.setFlat(True)
         self._local_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self._local_link.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 color: #0066cc;
                 text-decoration: underline;
                 border: none;
                 background: transparent;
-                font-size: 11px;
+                font-size: {scaled_px(11)}px;
                 padding: 4px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 color: #004488;
-            }
+            }}
             """
         )
         self._local_link.clicked.connect(self._show_local_page)
@@ -301,7 +304,7 @@ class LoginDialog(LFDialog):
         self._info_label = QLabel(
             "Guest access provides read-only permissions."
         )
-        self._info_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._info_label.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._info_label)
 
@@ -334,24 +337,24 @@ class LoginDialog(LFDialog):
         self._local_login_btn = QPushButton("Login")
         self._local_login_btn.setMinimumHeight(40)
         self._local_login_btn.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 background-color: #0066cc;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 14px;
+                font-size: {scaled_px(14)}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #0055aa;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #004488;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #cccccc;
-            }
+            }}
             """
         )
         self._local_login_btn.clicked.connect(self._on_local_login)
@@ -362,17 +365,17 @@ class LoginDialog(LFDialog):
         self._keycloak_link.setFlat(True)
         self._keycloak_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self._keycloak_link.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 color: #0066cc;
                 text-decoration: underline;
                 border: none;
                 background: transparent;
-                font-size: 11px;
-            }
-            QPushButton:hover {
+                font-size: {scaled_px(11)}px;
+            }}
+            QPushButton:hover {{
                 color: #004488;
-            }
+            }}
             """
         )
         self._keycloak_link.clicked.connect(self._show_keycloak_page)
@@ -380,7 +383,7 @@ class LoginDialog(LFDialog):
 
         # Dev hint
         hint = QLabel("Dev accounts: admin/admin, user/user, operator/operator")
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 

@@ -981,3 +981,18 @@ QHeaderView::section {{
         else:
             # Lighten for light theme
             return self._adjust_color(base_color, 100)
+
+
+def scaled_pt(ref_pt: float) -> int:
+    """Module-level shortcut for ``ThemeManager.scale_pt``.
+
+    For inline stylesheets that bake an absolute font size: pass the design
+    size at the reference 10pt base and the result tracks the Appearance >
+    Font Size setting. Read when the stylesheet is built.
+    """
+    return ThemeManager.get_instance().scale_pt(ref_pt)
+
+
+def scaled_px(ref_px: float) -> int:
+    """Module-level shortcut for ``ThemeManager.scale_px`` (see ``scaled_pt``)."""
+    return ThemeManager.get_instance().scale_px(ref_px)
