@@ -50,7 +50,7 @@ def test_unknown_before_any_heartbeat(qtbot):
 def test_heartbeat_shows_ok_with_queue(qtbot):
     plugin, monitor = make_plugin(qtbot)
     monitor.ingest_status(STATUS)
-    assert plugin._button.text() == "OK · 3 queued"
+    assert plugin._button.text() == "3 queued"
     assert "suzume: OK" in plugin._button.toolTip()
     assert "7 ok / 1 failed" in plugin._button.toolTip()
 

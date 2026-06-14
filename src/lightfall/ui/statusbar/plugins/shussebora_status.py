@@ -15,7 +15,7 @@ from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginM
 from lightfall.services.shussebora_monitor import ShusseboraMonitor
 from lightfall.utils.logging import logger
 
-_STATE_TEXT = {"ok": "", "stale": "Stale", "dead": "Down", "unknown": ""}
+_STATE_TEXT = {"ok": "OK", "stale": "Stale", "dead": "Down", "unknown": ""}
 _FALLBACK_COLORS = {"ok": "#2ecc71", "stale": "#f39c12",
                     "dead": "#e74c3c", "unknown": "#7f8c8d"}
 
@@ -130,8 +130,11 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
                 f"{counts.get('failed_24h', 0)} failed")
 
         text = _STATE_TEXT.get(state, state)
-        if queue_depth and state == "ok":
-            text = f"{text} · {queue_depth} queued"
+        if state == "ok":
+            # Healthy: the snail icon already conveys health, so the button
+            # shows only the queue depth (or nothing when idle) rather than
+            # an "OK" label. The "OK" label still appears in the tooltip.
+            text = f"{queue_depth} queued" if queue_depth else ""
         self.set_text(text)
         self.set_color(color)
         self.set_tooltip("Shussebora data movement\n" + "\n".join(tooltip_lines)
