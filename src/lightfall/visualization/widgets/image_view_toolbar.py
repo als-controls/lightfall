@@ -13,6 +13,10 @@ import pyqtgraph as pg
 import qtawesome as qta
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton
 
+from lightfall.utils.threads import QThreadFuture
+from lightfall.utils.tiled_helpers import fetch_subcube
+from lightfall.visualization.reductions import REDUCTIONS_BY_NAME
+
 
 class ImageViewToolbarMixin:
     """Mixin providing Reset LUT, Reset Axes, Log Intensity, and ROI controls.
@@ -73,7 +77,12 @@ class ImageViewToolbarMixin:
 
         # ROI statistic selector (hidden until ROI is enabled)
         self._roi_stat_combo = QComboBox()
-        self._roi_stat_combo.addItems(["Mean", "Sum", "Max", "Min", "Std"])
+        _basic = ["Mean", "Sum", "Max", "Min", "Std"]
+        _variation = [
+            name for name, op in REDUCTIONS_BY_NAME.items()
+            if op.per_frame is not None and name not in _basic
+        ]
+        self._roi_stat_combo.addItems(_basic + _variation)
         self._roi_stat_combo.setToolTip("Statistic to plot over the ROI")
         self._roi_stat_combo.currentTextChanged.connect(self._on_roi_stat_changed)
         self._roi_stat_combo.hide()
@@ -193,10 +202,49 @@ class ImageViewToolbarMixin:
             self._clear_roi_curves()
             return
 
+        stat_name = self._roi_stat_combo.currentText()
+        op = REDUCTIONS_BY_NAME.get(stat_name)
+
+        # Variation operators need consecutive frames -> fetch the ROI sub-cube
+        # across all frames in the background and apply operator.per_frame.
+        if op is not None and op.per_frame is not None and stat_name not in (
+            "Mean", "Sum", "Max", "Min", "Std",
+        ):
+            client = getattr(self._image_view, "_client", None)
+            if client is None:
+                return
+
+            def compute() -> tuple:
+                import numpy as _np
+                cube = fetch_subcube(client, (None, (y0, y1), (x0, x1)))
+                cube = _np.asarray(cube, dtype=_np.float64)
+                series = op.per_frame(cube)
+                tvals = getattr(self._image_view, "tVals", None)
+                if tvals is not None and len(tvals):
+                    xs = _np.asarray(tvals)
+                else:
+                    xs = _np.arange(len(series), dtype=float)
+                return xs[: len(series)], series
+
+            def on_result(result: tuple) -> None:
+                xs, series = result
+                self._clear_roi_curves()
+                mask = np.isfinite(series)
+                if mask.any():
+                    curve = self._image_view.ui.roiPlot.plot(
+                        x=xs[mask], y=series[mask],
+                        pen=pg.mkPen("c", width=2), name=f"ROI {stat_name}",
+                    )
+                    self._roi_curves.append(curve)
+
+            QThreadFuture(compute, callback_slot=on_result, register=False).start()
+            return
+
+        # Basic stats: fast per-frame subsample path
         stat_func = {
             "Mean": np.mean, "Sum": np.sum, "Max": np.max,
             "Min": np.min, "Std": np.std,
-        }.get(self._roi_stat_combo.currentText(), np.mean)
+        }.get(stat_name, np.mean)
 
         max_roi_frames = 200
         if n_frames > max_roi_frames:
@@ -222,6 +270,6 @@ class ImageViewToolbarMixin:
                 x=time_vals[:n_points],
                 y=roi_values[:n_points],
                 pen=pg.mkPen("c", width=2),
-                name=f"ROI {self._roi_stat_combo.currentText()}",
+                name=f"ROI {stat_name}",
             )
             self._roi_curves.append(curve)
