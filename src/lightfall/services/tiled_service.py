@@ -166,6 +166,11 @@ class TiledService(QObject):
         return self._state == TiledConnectionState.CONNECTED
 
     @property
+    def client(self) -> Any:
+        """The connected Tiled root client, or ``None`` if not connected."""
+        return self._client
+
+    @property
     def error_message(self) -> str:
         """Last error message if state is ERROR."""
         return self._error_message
