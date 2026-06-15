@@ -62,3 +62,13 @@ def test_image_fields_only(qtbot):
     w.set_run(_scan_with_images())
     w.set_stream("primary")
     assert w.get_fields() == ["det_image"]
+
+
+def test_detect_layout_empty_shape_is_safe(qtbot):
+    w = ScanViewerVisualization()
+    qtbot.addWidget(w)
+    w._data_keys = {"x": {"shape": []}}
+    # a fake client with empty shape must not raise
+    class _C: shape = ()
+    w._detect_layout("x", _C())
+    assert w._n_points == 0

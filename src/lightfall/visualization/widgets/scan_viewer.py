@@ -53,10 +53,13 @@ class ScanViewerVisualization(BaseVisualization):
         try:
             start = run.metadata.get("start", {}) or {}
             dims = start.get("hints", {}).get("dimensions", []) or []
-            data_keys = run["primary"].metadata.get("data_keys", {})
         except Exception:
             return 0
         if not dims or not (1 <= len(dims) <= 2):
+            return 0
+        try:
+            data_keys = run["primary"].metadata.get("data_keys", {})
+        except Exception:
             return 0
         has_image = any(len(dk.get("shape", [])) >= 2 for dk in data_keys.values())
         return 90 if has_image else 0
@@ -81,6 +84,7 @@ class ScanViewerVisualization(BaseVisualization):
             self._data_keys = self._stream.metadata.get("data_keys", {})
         except Exception as e:
             logger.debug("ScanViewer: could not open stream '{}': {}", stream_name, e)
+            self._stream = None
             self._data_keys = {}
         fields = self.get_fields()
         if fields:
@@ -131,12 +135,17 @@ class ScanViewerVisualization(BaseVisualization):
         """Determine n_points / n_frames / frame_shape from the array shape."""
         full = tuple(client.shape)
         dk_shape = self._data_keys.get(field_name, {}).get("shape", [])
+        if not full:
+            self._n_points, self._n_frames, self._frame_shape = 0, 1, ()
+            logger.debug("ScanViewer layout: empty shape for field '{}'", field_name)
+            return
+        frame_shape = tuple(dk_shape[-2:]) if len(dk_shape) >= 2 else tuple(full[-2:])
         if len(full) >= 4:
             self._n_points, self._n_frames = full[0], full[1]
-            self._frame_shape = tuple(dk_shape[-2:]) if len(dk_shape) >= 2 else full[-2:]
+            self._frame_shape = frame_shape
         elif len(full) == 3:
             self._n_points, self._n_frames = full[0], 1
-            self._frame_shape = tuple(dk_shape[-2:]) if len(dk_shape) >= 2 else full[-2:]
+            self._frame_shape = frame_shape
         else:
             self._n_points, self._n_frames, self._frame_shape = full[0], 1, ()
         logger.debug(
