@@ -66,6 +66,13 @@ class ScanViewerVisualization(BaseVisualization):
         self._roi_debounce.setInterval(250)
         self._roi_debounce.timeout.connect(self._restart_engine)
 
+        self._map_repaint_timer = QTimer(self)
+        self._map_repaint_timer.setSingleShot(True)
+        self._map_repaint_timer.setInterval(66)  # ~15 Hz
+        self._map_repaint_timer.timeout.connect(self._redraw_map)
+
+        self._cached_motor_positions: tuple[np.ndarray, np.ndarray] | None = None
+
         self._build_ui()
 
     # ---- UI ----------------------------------------------------------------
@@ -146,6 +153,7 @@ class ScanViewerVisualization(BaseVisualization):
         return names
 
     def set_stream(self, stream_name: str) -> None:
+        self._cached_motor_positions = None
         self._stream_name = stream_name
         try:
             self._stream = self._run[stream_name]
@@ -348,12 +356,14 @@ class ScanViewerVisualization(BaseVisualization):
     def _on_point_computed(self, p: int, value: float) -> None:
         if 0 <= p < len(self._point_values):
             self._point_values[p] = value
-        self._redraw_map()
+        if not self._map_repaint_timer.isActive():
+            self._map_repaint_timer.start()
 
     def _on_engine_progress(self, done: int, total: int) -> None:
         self._progress_label.setText(f"{done}/{total}")
 
     def _on_engine_finished(self) -> None:
+        self._map_repaint_timer.stop()
         self._redraw_map()
 
     # ---- Left map drawing & selection ------------------------------------
@@ -367,7 +377,14 @@ class ScanViewerVisualization(BaseVisualization):
                 grid[i // nx, i % nx] = self._point_values[i]
             self._map_scatter.setVisible(False)
             self._map_image.setVisible(True)
-            self._map_image.setImage(grid.T, autoLevels=True)
+            finite = self._point_values[np.isfinite(self._point_values)]
+            if finite.size >= 2 and float(finite.min()) < float(finite.max()):
+                self._map_image.setImage(
+                    grid.T, autoLevels=False,
+                    levels=(float(finite.min()), float(finite.max())),
+                )
+            else:
+                self._map_image.setImage(grid.T, autoLevels=False)
         else:
             self._map_image.setVisible(False)
             self._map_scatter.setVisible(True)
@@ -376,14 +393,17 @@ class ScanViewerVisualization(BaseVisualization):
     def _draw_scatter_map(self) -> None:
         if len(self._geometry.motors) < 2:
             return
-        events = read_events(self._stream)
-        if events is None:
-            return
-        try:
-            xs = np.asarray(events[self._geometry.motors[0]], dtype=np.float64)
-            ys = np.asarray(events[self._geometry.motors[1]], dtype=np.float64)
-        except Exception:
-            return
+        if self._cached_motor_positions is None:
+            events = read_events(self._stream)
+            if events is None:
+                return
+            try:
+                xs = np.asarray(events[self._geometry.motors[0]], dtype=np.float64)
+                ys = np.asarray(events[self._geometry.motors[1]], dtype=np.float64)
+            except Exception:
+                return
+            self._cached_motor_positions = (xs, ys)
+        xs, ys = self._cached_motor_positions
         n = min(len(xs), len(ys), len(self._point_values))
         z = self._point_values[:n]
         finite = z[np.isfinite(z)]
