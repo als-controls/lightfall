@@ -100,7 +100,15 @@ class ThreadedTiledWriter:
             except Exception as e:
                 with self._lock:
                     self._error_count += 1
-                logger.debug("TiledWriter error on '{}' document: {}", name, e)
+                # A failure here means data silently does NOT reach Tiled — e.g. a
+                # run's array node is left at its initial 0-row shape because the
+                # stream_datum/stop flush never completed, so the image 500s on read.
+                # Surface it loudly with a traceback instead of hiding it at DEBUG.
+                logger.opt(exception=True).error(
+                    "TiledWriter failed on '{}' document (data not written): {}",
+                    name,
+                    e,
+                )
                 if self._error_callback:
                     try:
                         self._error_callback(name, doc, e)
