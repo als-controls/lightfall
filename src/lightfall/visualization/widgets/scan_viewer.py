@@ -191,8 +191,18 @@ class ScanViewerVisualization(BaseVisualization):
         self._render()
 
     def refresh(self) -> None:
-        """Poll for new scan points (live runs)."""
-        self._render()
+        """Poll for new scan points on live runs.
+
+        Re-reads the array shape so the map grows as points are acquired, and
+        only re-renders (re-walks the reduction) when the point count changes —
+        avoids a redundant full re-walk every poll on an unchanged scan.
+        """
+        if self._image_client is None or not self._field_name:
+            return
+        prev_points = self._n_points
+        self._detect_layout(self._field_name, self._image_client)
+        if self._n_points != prev_points:
+            self._render()
 
     # ---- helpers ---------------------------------------------------------
 
@@ -459,3 +469,11 @@ class ScanViewerVisualization(BaseVisualization):
         )
         if n_frames > 0:
             self._image_view.setCurrentIndex(n_frames - 1)
+
+    # ---- Cleanup ---------------------------------------------------------
+
+    def closeEvent(self, event) -> None:
+        self._engine.cancel()
+        self._roi_debounce.stop()
+        self._map_repaint_timer.stop()
+        super().closeEvent(event)

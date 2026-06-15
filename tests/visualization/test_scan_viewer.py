@@ -196,3 +196,34 @@ def test_scan_viewer_fills_map_and_selects_point(qtbot, monkeypatch):
     # Selecting a point loads its frames on the right without error
     w.select_point(2)
     assert w._selected_point == 2
+
+
+def test_refresh_regrows_on_live_append(qtbot, monkeypatch):
+    from lightfall.visualization.widgets import scan_viewer as sv
+
+    fpp = 5
+    # start with 4 points worth of frames (20 rows)
+    arr0 = np.zeros((4 * fpp, 8, 8), dtype=np.float64)
+    client = _FakeArrayClientWithData(arr0, fpp)
+
+    run = _grid_run_3d()
+    stream = run["primary"]
+    stream.__class__.__getitem__ = lambda self, key: client if key == "det_image" else (_ for _ in ()).throw(KeyError(key))
+    monkeypatch.setattr(sv, "fetch_subcube", lambda c, slices: c.subcube(slices))
+
+    w = ScanViewerVisualization(); qtbot.addWidget(w)
+    w.set_run(run)
+    with qtbot.waitSignal(w._engine.finished, timeout=5000):
+        w.set_stream("primary")
+    assert w._n_points == 4
+
+    # Simulate live append: array grows to 6 points worth of rows
+    client._a = np.zeros((6 * fpp, 8, 8), dtype=np.float64)
+    client.shape = client._a.shape
+    with qtbot.waitSignal(w._engine.finished, timeout=5000):
+        w.refresh()
+    assert w._n_points == 6
+
+    # No growth -> refresh must not raise (and need not re-walk)
+    w.refresh()
+    assert w._n_points == 6
