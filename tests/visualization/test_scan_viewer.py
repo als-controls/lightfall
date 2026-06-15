@@ -122,3 +122,77 @@ def test_detect_layout_3d_one_frame_per_point_fallback(qtbot):
     assert w._layout == "3d"
     assert w._n_frames == 1
     assert w._n_points == 30
+
+
+# ---------------------------------------------------------------------------
+# Task 6: smoke test – map fill + point selection
+# ---------------------------------------------------------------------------
+
+import numpy as np
+
+
+class _FakeArrayClientWithData:
+    """In-memory 3-D (n_points*fpp, H, W) client; subcube() does numpy slicing."""
+
+    def __init__(self, array, frame_per_point):
+        self._a = array
+        self.shape = array.shape
+        self.metadata = {"frame_per_point": frame_per_point}
+
+    def subcube(self, slices):
+        idx = tuple(
+            (sl if isinstance(sl, int)
+             else slice(sl[0], sl[1]) if isinstance(sl, tuple)
+             else slice(None))
+            for sl in slices
+        )
+        return np.asarray(self._a[idx], dtype=np.float64)
+
+
+def _grid_run_3d():
+    # 6 points (2x3 grid), fpp=4, 8x8 frames; point p's rows all == p
+    return _FakeRun(
+        start={
+            "hints": {"dimensions": [[["motor_y"], "primary"], [["motor_x"], "primary"]]},
+            "shape": [2, 3],
+            "num_points": 6,
+        },
+        data_keys={
+            "motor_y": {"shape": [], "dtype": "number"},
+            "motor_x": {"shape": [], "dtype": "number"},
+            "det_image": {"shape": [4, 8, 8], "dtype": "array"},
+        },
+    )
+
+
+def test_scan_viewer_fills_map_and_selects_point(qtbot, monkeypatch):
+    from lightfall.visualization.widgets import scan_viewer as sv
+
+    fpp, n_points, H, W = 4, 6, 8, 8
+    arr = np.zeros((n_points * fpp, H, W), dtype=np.float64)
+    for p in range(n_points):
+        arr[p * fpp:(p + 1) * fpp] = float(p)
+    client = _FakeArrayClientWithData(arr, fpp)
+
+    run = _grid_run_3d()
+    # Make the stream resolve det_image to our fake client:
+    stream = run["primary"]
+    stream.__class__.__getitem__ = lambda self, key: client if key == "det_image" else (_ for _ in ()).throw(KeyError(key))
+
+    monkeypatch.setattr(sv, "fetch_subcube", lambda c, slices: c.subcube(slices))
+
+    w = ScanViewerVisualization()
+    qtbot.addWidget(w)
+    w.set_run(run)
+    with qtbot.waitSignal(w._engine.finished, timeout=5000):
+        w.set_stream("primary")
+
+    assert w._layout == "3d"
+    assert w._n_points == 6 and w._n_frames == 4
+    # Mean reduction of point p's sub-cube == p
+    assert w._point_values[0] == 0.0
+    assert w._point_values[5] == 5.0
+
+    # Selecting a point loads its frames on the right without error
+    w.select_point(2)
+    assert w._selected_point == 2
