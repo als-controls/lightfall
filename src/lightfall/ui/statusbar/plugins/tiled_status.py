@@ -15,6 +15,16 @@ from lightfall.ui.theme import ThemeManager
 from lightfall.utils.logging import logger
 
 
+def _versions_mismatch(client_version: str | None, server_version: str | None) -> bool:
+    """True only when both Tiled versions are known and differ.
+
+    Tiled is pre-1.0; even patch releases change the write API (e.g. a 0.2.5
+    server rejected a 0.2.11 client's data_source shape PATCH, silently storing
+    image arrays with 0 frames), so any difference is worth flagging.
+    """
+    return bool(client_version and server_version and client_version != server_version)
+
+
 class TiledStatusPlugin(StatusBarPlugin):
     """Status bar plugin showing Tiled connection state.
 
@@ -139,8 +149,38 @@ class TiledStatusPlugin(StatusBarPlugin):
         self.set_tooltip(tooltip)
 
     def _update_display_connected(self) -> None:
-        # Icon only: the green color already signals "connected".
-        self._set_state("", self._colors.success, "Connected to Tiled server")
+        client_v, server_v = self._tiled_versions()
+        if _versions_mismatch(client_v, server_v):
+            # Warning color: connected but client/server tiled versions differ,
+            # which can silently break writes (image arrays stored as 0 frames).
+            self._set_state(
+                "v≠",
+                self._colors.warning,
+                f"Connected, but Tiled version mismatch: client {client_v}, "
+                f"server {server_v}. Writes can silently fail (image arrays "
+                "stored with 0 frames) — align the versions.",
+            )
+        else:
+            # Icon only: the green color already signals "connected".
+            suffix = f" (v{server_v})" if server_v else ""
+            self._set_state("", self._colors.success, f"Connected to Tiled server{suffix}")
+
+    def _tiled_versions(self) -> tuple[str | None, str | None]:
+        """Return ``(client tiled version, server tiled version)``; either may be None."""
+        try:
+            import tiled
+
+            client_v = getattr(tiled, "__version__", None)
+        except Exception:
+            client_v = None
+        server_v = None
+        try:
+            from lightfall.services.tiled_service import TiledService
+
+            server_v = TiledService.get_instance().server_version
+        except Exception:
+            pass
+        return client_v, server_v
 
     def _update_display_connecting(self) -> None:
         self._set_state(

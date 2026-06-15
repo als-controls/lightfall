@@ -171,6 +171,22 @@ class TiledService(QObject):
         return self._client
 
     @property
+    def server_version(self) -> str | None:
+        """Tiled ``library_version`` reported by the connected server, or ``None``.
+
+        Used to detect a client/server version skew, which silently breaks
+        writes (external-array shapes get stored as 0, so images 500 on read).
+        Degrades to ``None`` if unavailable rather than raising.
+        """
+        client = self._client
+        if client is None:
+            return None
+        try:
+            return client.context.server_info.library_version
+        except Exception:
+            return None
+
+    @property
     def error_message(self) -> str:
         """Last error message if state is ERROR."""
         return self._error_message
