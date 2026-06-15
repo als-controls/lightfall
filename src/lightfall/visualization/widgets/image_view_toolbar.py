@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QPushButton
 
 from lightfall.utils.threads import QThreadFuture
 from lightfall.utils.tiled_helpers import fetch_subcube
-from lightfall.visualization.reductions import REDUCTIONS_BY_NAME
+from lightfall.visualization.reductions import REDUCTION_OPERATORS, REDUCTIONS_BY_NAME
 
 
 class ImageViewToolbarMixin:
@@ -38,6 +38,7 @@ class ImageViewToolbarMixin:
         self._log_mode: bool = False
         self._roi: pg.RectROI | None = None
         self._roi_curves: list[pg.PlotDataItem] = []
+        self._roi_variation_gen: int = 0
 
     # ---- Toolbar construction --------------------------------------------
 
@@ -79,8 +80,8 @@ class ImageViewToolbarMixin:
         self._roi_stat_combo = QComboBox()
         _basic = ["Mean", "Sum", "Max", "Min", "Std"]
         _variation = [
-            name for name, op in REDUCTIONS_BY_NAME.items()
-            if op.per_frame is not None and name not in _basic
+            op.name for op in REDUCTION_OPERATORS
+            if op.per_frame is not None and op.name not in _basic
         ]
         self._roi_stat_combo.addItems(_basic + _variation)
         self._roi_stat_combo.setToolTip("Statistic to plot over the ROI")
@@ -214,6 +215,9 @@ class ImageViewToolbarMixin:
             if client is None:
                 return
 
+            self._roi_variation_gen += 1
+            _gen = self._roi_variation_gen
+
             def compute() -> tuple:
                 import numpy as _np
                 cube = fetch_subcube(client, (None, (y0, y1), (x0, x1)))
@@ -227,6 +231,8 @@ class ImageViewToolbarMixin:
                 return xs[: len(series)], series
 
             def on_result(result: tuple) -> None:
+                if _gen != self._roi_variation_gen:
+                    return  # a newer ROI/operator change superseded this result
                 xs, series = result
                 self._clear_roi_curves()
                 mask = np.isfinite(series)
