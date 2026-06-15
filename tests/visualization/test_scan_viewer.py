@@ -69,6 +69,56 @@ def test_detect_layout_empty_shape_is_safe(qtbot):
     qtbot.addWidget(w)
     w._data_keys = {"x": {"shape": []}}
     # a fake client with empty shape must not raise
-    class _C: shape = ()
+    class _C: shape = (); metadata = {}
     w._detect_layout("x", _C())
+    assert w._layout == "empty"
     assert w._n_points == 0
+
+
+class _FakeArrayClient:
+    def __init__(self, shape, frame_per_point=None):
+        self.shape = shape
+        self.metadata = {}
+        if frame_per_point is not None:
+            self.metadata["frame_per_point"] = frame_per_point
+
+
+def test_detect_layout_3d_with_frame_per_point(qtbot):
+    run = _scan_with_images()  # data_keys det_image shape [100,256,256], start shape [4,5]
+    w = ScanViewerVisualization(); qtbot.addWidget(w)
+    w.set_run(run); w._stream = run["primary"]; w._data_keys = run["primary"].metadata["data_keys"]
+    client = _FakeArrayClient((360, 256, 256), frame_per_point=10)
+    w._detect_layout("det_image", client)
+    assert w._layout == "3d"
+    assert w._n_frames == 10
+    assert w._n_points == 36
+    assert w._frame_shape == (256, 256)
+
+
+def test_detect_layout_4d(qtbot):
+    run = _scan_with_images()
+    w = ScanViewerVisualization(); qtbot.addWidget(w)
+    w.set_run(run); w._stream = run["primary"]; w._data_keys = run["primary"].metadata["data_keys"]
+    client = _FakeArrayClient((36, 10, 256, 256))
+    w._detect_layout("det_image", client)
+    assert w._layout == "4d"
+    assert w._n_points == 36
+    assert w._n_frames == 10
+    assert w._frame_shape == (256, 256)
+
+
+def test_detect_layout_3d_one_frame_per_point_fallback(qtbot):
+    # No frame_per_point metadata, data_keys shape is 2-D -> fpp falls back to 1
+    run = _FakeRun(
+        start={"hints": {"dimensions": [[["mx"], "primary"], [["my"], "primary"]]}, "num_points": 30},
+        data_keys={"mx": {"shape": [], "dtype": "number"},
+                   "my": {"shape": [], "dtype": "number"},
+                   "det_image": {"shape": [256, 256], "dtype": "array"}},
+    )
+    w = ScanViewerVisualization(); qtbot.addWidget(w)
+    w.set_run(run); w._stream = run["primary"]; w._data_keys = run["primary"].metadata["data_keys"]
+    client = _FakeArrayClient((30, 256, 256))  # no fpp metadata; 30 == num_points
+    w._detect_layout("det_image", client)
+    assert w._layout == "3d"
+    assert w._n_frames == 1
+    assert w._n_points == 30

@@ -6,9 +6,10 @@ right image viewer shows the selected point's frames with frame scrolling and
 the ROI that defines the reduction region.
 
 Handles two cube layouts:
-  * 4-D ``(n_points, n_frames, H, W)`` — multiple frames per point.
-  * 3-D ``(n_points, H, W)`` — one frame per point (frame scrubber hidden,
-    frame-difference operators disabled).
+  * 4-D ``(n_points, n_frames, H, W)`` — file-per-acquisition writing.
+  * 3-D ``(n_points * frame_per_point, H, W)`` — single long file; point
+    ``p`` occupies rows ``[p*fpp : (p+1)*fpp]``. ``fpp`` comes from
+    ``frame_per_point`` metadata on the array client.
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ class ScanViewerVisualization(BaseVisualization):
         self._n_points: int = 0
         self._n_frames: int = 0
         self._frame_shape: tuple[int, ...] = ()
+        self._layout: str = "empty"   # one of: "empty", "3d", "4d", "other"
         self._build_ui()
 
     # ---- UI (fleshed out in Task 6) -------------------------------------
@@ -132,26 +134,66 @@ class ScanViewerVisualization(BaseVisualization):
             return None
 
     def _detect_layout(self, field_name: str, client: Any) -> None:
-        """Determine n_points / n_frames / frame_shape from the array shape."""
+        """Determine layout, n_points, n_frames, frame_shape from the array.
+
+        Two servable forms are supported:
+          * 4-D ``(n_points, n_frames, H, W)`` — file-per-acquisition writing.
+          * 3-D ``(n_points * frame_per_point, H, W)`` — single long file; point
+            ``p`` occupies rows ``[p*fpp : (p+1)*fpp]``. ``fpp`` comes from
+            ``frame_per_point`` metadata (see :meth:`_read_frame_per_point`).
+        """
         full = tuple(client.shape)
         dk_shape = self._data_keys.get(field_name, {}).get("shape", [])
+        frame_shape = tuple(dk_shape[-2:]) if len(dk_shape) >= 2 else tuple(full[-2:])
+        fpp = self._read_frame_per_point(field_name, client, dk_shape)
         if not full:
+            self._layout = "empty"
             self._n_points, self._n_frames, self._frame_shape = 0, 1, ()
             logger.debug("ScanViewer layout: empty shape for field '{}'", field_name)
             return
-        frame_shape = tuple(dk_shape[-2:]) if len(dk_shape) >= 2 else tuple(full[-2:])
         if len(full) >= 4:
+            self._layout = "4d"
             self._n_points, self._n_frames = full[0], full[1]
             self._frame_shape = frame_shape
         elif len(full) == 3:
-            self._n_points, self._n_frames = full[0], 1
+            self._layout = "3d"
+            n_total = full[0]
+            self._n_frames = max(1, fpp)
+            self._n_points = (n_total // self._n_frames) if n_total else 0
             self._frame_shape = frame_shape
         else:
+            self._layout = "other"
             self._n_points, self._n_frames, self._frame_shape = full[0], 1, ()
         logger.debug(
-            "ScanViewer layout: n_points={} n_frames={} frame_shape={}",
-            self._n_points, self._n_frames, self._frame_shape,
+            "ScanViewer layout={} n_points={} n_frames={} frame_shape={}",
+            self._layout, self._n_points, self._n_frames, self._frame_shape,
         )
+
+    def _read_frame_per_point(
+        self, field_name: str, client: Any, dk_shape: Any
+    ) -> int:
+        """Frames recorded per scan point.
+
+        Prefers ``client.metadata['frame_per_point']``; falls back to the leading
+        dimension of the descriptor ``data_keys`` shape, then to
+        ``n_total / start.num_points``, then 1.
+        """
+        try:
+            fpp = client.metadata.get("frame_per_point")
+            if fpp:
+                return int(fpp)
+        except Exception:
+            pass
+        if len(dk_shape) >= 3:
+            return int(dk_shape[0])
+        try:
+            n_total = int(client.shape[0])
+            num_points = int(self._run.metadata.get("start", {}).get("num_points", 0))
+            if num_points and n_total and n_total % num_points == 0:
+                return n_total // num_points
+        except Exception:
+            pass
+        return 1
 
     def _render(self) -> None:  # replaced in Task 6
         pass
