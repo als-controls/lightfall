@@ -182,8 +182,17 @@ class DeviceCatalog(QObject):
         if not connected:
             logger.warning("Backend '{}' failed to connect", backend.name)
             return
+        before = set(self._device_cache.keys())
         self._load_backend_devices(backend)
+        new_ids = set(self._device_cache.keys()) - before
         self.backend_connected.emit(backend.name)
+        # Notify UI consumers (device tree, favorites, synoptic) which refresh
+        # off device_added — backend_connected alone has no consumers, so late
+        # devices would otherwise not appear until a manual refresh.
+        for device_id in new_ids:
+            device = self._device_cache.get(device_id)
+            if device is not None:
+                self.device_added.emit(device)
         self._connect_to_connection_manager()
         logger.info(
             "Device backend '{}' connected late ({} devices total)",

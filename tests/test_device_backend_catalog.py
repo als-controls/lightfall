@@ -69,12 +69,18 @@ def test_finish_backend_connect_merges_devices_and_emits_signal():
     backend = _FakeBackend()
     backend.connect()
     catalog.add_backend(backend)  # register so get_all_devices can reach it
-    seen = []
-    catalog.backend_connected.connect(seen.append)
+
+    backend_seen = []
+    added = []
+    catalog.backend_connected.connect(backend_seen.append)
+    catalog.device_added.connect(added.append)
+
     catalog._finish_backend_connect(backend, True)
+
     names = {d.name for d in catalog.get_all_devices()}
     assert {"fake_dev1", "fake_dev2"} <= names
-    assert seen == ["fake"]
+    assert backend_seen == ["fake"]
+    assert {d.name for d in added} == {"fake_dev1", "fake_dev2"}
 
 
 def test_finish_backend_connect_failed_does_not_merge():
@@ -84,12 +90,15 @@ def test_finish_backend_connect_failed_does_not_merge():
     catalog.add_backend(backend)   # register so the cache/merge path is reachable
 
     seen = []
+    added = []
     catalog.backend_connected.connect(seen.append)
+    catalog.device_added.connect(added.append)
 
     catalog._finish_backend_connect(backend, False)
 
     assert all(d.name not in {"fake_dev1", "fake_dev2"} for d in catalog.get_all_devices())
     assert seen == [], f"backend_connected emitted unexpectedly: {seen}"
+    assert added == [], f"device_added emitted unexpectedly on failure: {added}"
 
 
 def test_on_backend_connect_error_treats_as_failed():
