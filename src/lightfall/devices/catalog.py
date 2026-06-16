@@ -25,6 +25,8 @@ from lightfall.devices.model import (
     MaintenanceRecord,
 )
 
+from lightfall.utils.threads import QThreadFuture
+
 if TYPE_CHECKING:
     pass
 
@@ -150,6 +152,38 @@ class DeviceCatalog(QObject):
             self._backend = backend  # first one becomes primary
         self._backends[backend.name] = backend
         logger.info("Added device backend: {}", backend.name)
+
+    def add_and_connect_backend(self, backend: DeviceBackend) -> None:
+        """Add a backend after startup and connect it off the UI thread.
+
+        Unlike connect() (which runs at startup before the window exists),
+        this is used when a plugin contributes a backend later. The backend is
+        registered immediately; backend.connect() (potentially slow, e.g. a
+        profile-collection exec) runs on a worker thread; device merge and the
+        backend_connected signal fire back on the main thread.
+        """
+        self.add_backend(backend)
+        future = QThreadFuture(
+            backend.connect,
+            callback_slot=lambda ok: self._finish_backend_connect(backend, bool(ok)),
+            key=f"connect_backend_{backend.name}",
+            name=f"connect_{backend.name}",
+        )
+        future.start()
+
+    def _finish_backend_connect(self, backend: DeviceBackend, connected: bool) -> None:
+        """Main-thread completion for add_and_connect_backend."""
+        if not connected:
+            logger.warning("Backend '{}' failed to connect", backend.name)
+            return
+        self._load_backend_devices(backend)
+        self.backend_connected.emit(backend.name)
+        self._connect_to_connection_manager()
+        logger.info(
+            "Device backend '{}' connected late ({} devices total)",
+            backend.name,
+            len(self._device_cache),
+        )
 
     def remove_backend(self, name: str) -> None:
         """Remove a backend by name.
