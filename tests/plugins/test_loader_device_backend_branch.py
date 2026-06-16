@@ -45,6 +45,10 @@ class _StubBackendPlugin(DeviceBackendPlugin):
 def fresh_catalog(monkeypatch):
     catalog = DeviceCatalog()
     monkeypatch.setattr(DeviceCatalog, "get_instance", classmethod(lambda cls: catalog))
+    # Avoid launching a real QThreadFuture in unit tests (no event loop to join it);
+    # exercise only the synchronous registration the loader branch depends on.
+    monkeypatch.setattr(DeviceCatalog, "add_and_connect_backend",
+                        lambda self, backend: self.add_backend(backend))
     return catalog
 
 

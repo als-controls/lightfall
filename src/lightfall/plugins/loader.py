@@ -711,6 +711,8 @@ class PluginLoader(QObject):
                         "Device backend plugin '{}' disabled, not adding", plugin.name
                     )
             except Exception as e:
+                # Use plugin_info.name (the manifest entry name): it is always
+                # available even if instance creation or plugin.name itself raised.
                 logger.error(
                     "Failed to register device backend plugin '{}': {}",
                     plugin_info.name,
