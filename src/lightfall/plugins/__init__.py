@@ -78,6 +78,7 @@ The plugin system is typically used via the ServiceRegistry::
 
 from lightfall.plugins.agent_plugin import AgentPlugin
 from lightfall.plugins.controller_plugin import ControllerPlugin
+from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
 from lightfall.plugins.errors import (
     PluginError,
     PluginInitError,
@@ -106,6 +107,7 @@ __all__ = [
     # Plugin types
     "AgentPlugin",
     "ControllerPlugin",
+    "DeviceBackendPlugin",
     "PanelPlugin",
     "PlanPlugin",
     "SettingsPlugin",
