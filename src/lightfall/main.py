@@ -552,6 +552,7 @@ def _setup_plugins(app: LFApplication) -> None:
     from lightfall.plugins.builtin_manifest import builtin_manifest
     from lightfall.plugins.controller_plugin import ControllerPlugin
     from lightfall.plugins.engine_plugin import EnginePlugin
+    from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
     from lightfall.plugins.panel_plugin import PanelPlugin
     from lightfall.plugins.settings_plugin import SettingsPlugin
     from lightfall.plugins.statusbar_plugin import StatusBarPlugin
@@ -572,6 +573,7 @@ def _setup_plugins(app: LFApplication) -> None:
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
     loader.register_plugin_type("panel", PanelPlugin)
+    loader.register_plugin_type("device_backend", DeviceBackendPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
