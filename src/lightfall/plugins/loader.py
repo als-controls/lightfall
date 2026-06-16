@@ -693,6 +693,30 @@ class PluginLoader(QObject):
                     "VisualizationRegistry not available, skipping visualization registration"
                 )
 
+        elif plugin_info.type_name == "device_backend":
+            try:
+                from lightfall.devices import DeviceCatalog
+                from lightfall.ui.preferences.manager import PreferencesManager
+
+                plugin = plugin_info.instance
+                prefs = PreferencesManager.get_instance()
+                if prefs.get(f"device_plugin_{plugin.name}_enabled", True):
+                    backend = plugin.create_backend()
+                    DeviceCatalog.get_instance().add_and_connect_backend(backend)
+                    logger.debug(
+                        "Device backend plugin '{}' added to catalog", plugin.name
+                    )
+                else:
+                    logger.info(
+                        "Device backend plugin '{}' disabled, not adding", plugin.name
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to register device backend plugin '{}': {}",
+                    plugin_info.name,
+                    e,
+                )
+
     def get_plugin_by_name(
         self,
         name: str,
