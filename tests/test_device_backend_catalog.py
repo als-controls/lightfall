@@ -44,11 +44,24 @@ class _FakeBackend(DeviceBackend):
     def add_maintenance_record(self, record): return False
 
 
-def test_add_and_connect_backend_registers_backend_synchronously():
+def test_add_and_connect_backend_registers_backend_synchronously(monkeypatch):
+    started = {"count": 0}
+
+    class _FakeFuture:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            started["count"] += 1
+
+    import lightfall.devices.catalog as catalog_mod
+    monkeypatch.setattr(catalog_mod, "QThreadFuture", _FakeFuture)
+
     catalog = DeviceCatalog()
     backend = _FakeBackend()
     catalog.add_and_connect_backend(backend)
-    assert "fake" in catalog.backends
+
+    assert "fake" in catalog.backends      # registered synchronously, before connect
+    assert started["count"] == 1           # worker was launched
 
 
 def test_finish_backend_connect_merges_devices_and_emits_signal():
@@ -67,5 +80,27 @@ def test_finish_backend_connect_merges_devices_and_emits_signal():
 def test_finish_backend_connect_failed_does_not_merge():
     catalog = DeviceCatalog()
     backend = _FakeBackend(ok=False)
+    backend.connect()              # is_connected True so list_devices is reachable
+    catalog.add_backend(backend)   # register so the cache/merge path is reachable
+
+    seen = []
+    catalog.backend_connected.connect(seen.append)
+
     catalog._finish_backend_connect(backend, False)
+
+    assert all(d.name not in {"fake_dev1", "fake_dev2"} for d in catalog.get_all_devices())
+    assert seen == [], f"backend_connected emitted unexpectedly: {seen}"
+
+
+def test_on_backend_connect_error_treats_as_failed():
+    catalog = DeviceCatalog()
+    backend = _FakeBackend()
+    catalog.add_backend(backend)
+
+    seen = []
+    catalog.backend_connected.connect(seen.append)
+
+    catalog._on_backend_connect_error(backend, RuntimeError("boom"))
+
+    assert seen == []
     assert all(d.name not in {"fake_dev1", "fake_dev2"} for d in catalog.get_all_devices())

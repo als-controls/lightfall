@@ -166,10 +166,16 @@ class DeviceCatalog(QObject):
         future = QThreadFuture(
             backend.connect,
             callback_slot=lambda ok: self._finish_backend_connect(backend, bool(ok)),
+            except_slot=lambda exc: self._on_backend_connect_error(backend, exc),
             key=f"connect_backend_{backend.name}",
             name=f"connect_{backend.name}",
         )
         future.start()
+
+    def _on_backend_connect_error(self, backend: DeviceBackend, exc: Exception) -> None:
+        """Worker-thread error path for add_and_connect_backend."""
+        logger.error("Backend '{}' raised during connect: {}", backend.name, exc)
+        self._finish_backend_connect(backend, False)
 
     def _finish_backend_connect(self, backend: DeviceBackend, connected: bool) -> None:
         """Main-thread completion for add_and_connect_backend."""
