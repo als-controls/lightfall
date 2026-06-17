@@ -177,8 +177,11 @@ class BlueskyEngine(BaseEngine):
     def _process_queue(self) -> None:
         """Background thread loop that processes queued plans.
 
-        Creates its own asyncio event loop and RunEngine instance.
-        Runs indefinitely, processing plans from the priority queue.
+        On the non-adopted path (when :py:meth:`adopt` was not called) this
+        method creates its own asyncio event loop and a fresh RunEngine
+        instance. On the adopted path it reuses the externally-provided
+        RunEngine that was wired in by :py:meth:`adopt`. In both cases the
+        loop then runs indefinitely, processing plans from the priority queue.
         """
         from queue import Empty
 

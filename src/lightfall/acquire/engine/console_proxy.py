@@ -16,12 +16,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from loguru import logger
 from PySide6.QtCore import QEventLoop
 
 
 class ConsoleREProxy:
-    """Callable proxy over a Lightfall engine, delegating attrs to ``engine.RE``."""
+    """Callable proxy over a Lightfall engine, delegating attrs to ``engine.RE``.
+
+    Notes
+    -----
+    Single-submission assumption
+        This proxy assumes a SINGLE in-flight submission. The engine's terminal
+        signals (``sigFinish``/``sigAbort``/``sigException``) are global with no
+        per-run token, so ``__call__`` must not be relied on to correlate
+        completion when other plans are concurrently queued on the same engine.
+
+    RunEngine availability
+        Attribute access and assignment delegate to ``engine.RE``, which must be
+        present (i.e. the engine must have been adopted or started) before any
+        attribute is accessed. Use :py:meth:`BlueskyEngine.adopt` or start the
+        engine before binding this proxy into the console namespace.
+    """
 
     def __init__(self, engine: Any) -> None:
         # Bypass our own __setattr__ (which delegates to the RE).
@@ -61,10 +75,20 @@ class ConsoleREProxy:
     def __getattr__(self, item: str) -> Any:
         # Only called when normal attribute lookup fails — delegate to the RE.
         engine = object.__getattribute__(self, "_engine")
+        if engine.RE is None:
+            raise RuntimeError(
+                "ConsoleREProxy: engine has no RunEngine yet "
+                "(call BlueskyEngine.adopt() or start the engine before using the console RE)"
+            )
         return getattr(engine.RE, item)
 
     def __setattr__(self, key: str, value: Any) -> None:
         engine = object.__getattribute__(self, "_engine")
+        if engine.RE is None:
+            raise RuntimeError(
+                "ConsoleREProxy: engine has no RunEngine yet "
+                "(call BlueskyEngine.adopt() or start the engine before using the console RE)"
+            )
         setattr(engine.RE, key, value)
 
     def __repr__(self) -> str:

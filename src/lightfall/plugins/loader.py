@@ -726,7 +726,7 @@ class PluginLoader(QObject):
                 AuthProviderRegistry.get_instance().register(plugin_info.instance)
                 logger.debug(
                     "Registered auth provider '{}' with AuthProviderRegistry",
-                    plugin_info.instance.name,
+                    plugin_info.name,
                 )
             except ImportError:
                 logger.debug(

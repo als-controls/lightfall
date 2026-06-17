@@ -384,6 +384,8 @@ class LoginDialog(LFDialog):
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
         self._progress_widget.setVisible(False)
+        self._cred_form.setVisible(False)
+        self._pending_plugin = None
 
     def _show_error(self, message: str) -> None:
         """Show an error message in the dialog.
