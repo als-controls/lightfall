@@ -291,6 +291,31 @@ class TiledService(QObject):
             logger.error("Failed to connect to Tiled: {}", e)
             return False
 
+    def adopt_client(self, client: Any, url: str = "") -> None:
+        """Adopt an externally-created, already-authenticated Tiled client.
+
+        Used when an NSLS-II profile-collection run has already produced a
+        Duo-authenticated, node-scoped reading client (e.g. ``mig`` →
+        ``from_uri(...)['cms/migration']``). Reading through that client reuses
+        the warmed token and inherits node scoping, so this skips ``from_uri``,
+        auth-mode handling, and proxy patching entirely.
+
+        Args:
+            client: A ready Tiled client (already authenticated and scoped).
+            url: Optional server URL, recorded for display/health only.
+        """
+        if self._state in (TiledConnectionState.CONNECTED, TiledConnectionState.CONNECTING):
+            self.disconnect()
+
+        self._config = TiledConfig(
+            url=url, api_key=None, enabled=True, auth_mode=TiledAuthMode.NONE
+        )
+        self._client = client
+        self._set_state(TiledConnectionState.CONNECTED, "Adopted external Tiled client")
+        # Reuse the existing periodic health check against the adopted client.
+        self._health_timer.start(self.HEALTH_CHECK_INTERVAL_MS)
+        logger.info("Tiled adopted external client (url={})", url or "<unspecified>")
+
     def connect_async(self) -> None:
         """Connect to the Tiled server asynchronously.
 
