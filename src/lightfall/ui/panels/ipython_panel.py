@@ -269,6 +269,26 @@ class IPythonPanel(BasePanel):
 
         logger.info("IPython console initialized")
 
+    def ensure_kernel(self) -> bool:
+        """Ensure the in-process IPython kernel exists.
+
+        Initializes the kernel (and Jupyter widget) if it has not been
+        created yet. Returns True if a kernel is available afterwards.
+        """
+        if self._kernel_manager is not None:
+            return True
+        if not self._qtconsole_available:
+            return False
+        self._setup_jupyter_widget()
+        return self._kernel_manager is not None
+
+    @property
+    def shell(self):
+        """The live IPython InteractiveShell, or None if no kernel."""
+        if self._kernel_manager is None:
+            return None
+        return self._kernel_manager.kernel.shell
+
     def _apply_console_style(self) -> None:
         """Apply syntax style to the Jupyter widget based on the current theme.
 
