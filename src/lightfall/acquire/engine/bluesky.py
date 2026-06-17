@@ -87,6 +87,7 @@ class BlueskyEngine(BaseEngine):
         super().__init__(name="bluesky", toast_notifications=toast_notifications)
 
         self._RE: RunEngine | None = None
+        self._adopted: bool = False
         self._re_kwargs = kwargs
         self._loop: asyncio.AbstractEventLoop | None = None
         self._kwargs_callables: set[Callable[[], dict[str, Any]]] = set()
@@ -105,6 +106,30 @@ class BlueskyEngine(BaseEngine):
     def RE(self) -> RunEngine | None:
         """Access the underlying Bluesky RunEngine."""
         return self._RE
+
+    def adopt(self, run_engine: RunEngine) -> None:
+        """Adopt an externally-created RunEngine instead of building one.
+
+        Used when another environment (e.g. an NSLS-II profile-collection run
+        in the embedded console) has already created a RunEngine that carries
+        its own document subscriptions (Kafka, TiledWriter), preprocessors
+        (SupplementalData), and metadata store (Redis-backed ``RE.md``). Those
+        must be preserved, so this seeds the engine with that exact object
+        rather than constructing a fresh one.
+
+        Wires the engine's waiting-hook bridge and document stream onto the
+        adopted RE and marks the engine adopted so the background queue
+        processor will not create or overwrite it.
+
+        Args:
+            run_engine: The already-configured Bluesky RunEngine to drive.
+        """
+        self._RE = run_engine
+        self._adopted = True
+        run_engine.waiting_hook = self._waiting_bridge
+        run_engine.subscribe(lambda name, doc: self._emit_output(name, doc))
+        logger.info("[bluesky] Adopted external RunEngine")
+        self._set_state(EngineState.IDLE)
 
     @property
     def waiting_bridge(self) -> WaitingHookBridge:
@@ -157,26 +182,29 @@ class BlueskyEngine(BaseEngine):
         """
         from queue import Empty
 
-        # Create dedicated event loop for this thread
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        if not self._adopted:
+            # Create dedicated event loop for this thread
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
 
-        # Create the RunEngine
-        self._RE = RunEngine(
-            context_managers=[],
-            during_task=DuringTask(),
-            loop=self._loop,
-            **self._re_kwargs,
-        )
+            # Create the RunEngine
+            self._RE = RunEngine(
+                context_managers=[],
+                during_task=DuringTask(),
+                loop=self._loop,
+                **self._re_kwargs,
+            )
 
-        # Wire up waiting hook for device progress tracking
-        self._RE.waiting_hook = self._waiting_bridge
+            # Wire up waiting hook for device progress tracking
+            self._RE.waiting_hook = self._waiting_bridge
 
-        # Subscribe to document stream
-        self._RE.subscribe(lambda name, doc: self._emit_output(name, doc))
+            # Subscribe to document stream
+            self._RE.subscribe(lambda name, doc: self._emit_output(name, doc))
 
-        logger.info("[bluesky] RunEngine initialized and ready")
-        self._set_state(EngineState.IDLE)
+            logger.info("[bluesky] RunEngine initialized and ready")
+            self._set_state(EngineState.IDLE)
+        else:
+            logger.info("[bluesky] Queue processor using adopted RunEngine")
 
         # Main processing loop - check for interruption request to allow clean shutdown
         while not QThread.currentThread().isInterruptionRequested():
