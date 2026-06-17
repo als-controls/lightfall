@@ -719,6 +719,20 @@ class PluginLoader(QObject):
                     e,
                 )
 
+        elif plugin_info.type_name == "auth_provider":
+            try:
+                from lightfall.auth.provider_registry import AuthProviderRegistry
+
+                AuthProviderRegistry.get_instance().register(plugin_info.instance)
+                logger.debug(
+                    "Registered auth provider '{}' with AuthProviderRegistry",
+                    plugin_info.instance.name,
+                )
+            except ImportError:
+                logger.debug(
+                    "AuthProviderRegistry not available, skipping auth provider registration"
+                )
+
     def get_plugin_by_name(
         self,
         name: str,

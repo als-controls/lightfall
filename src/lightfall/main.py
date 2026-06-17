@@ -574,6 +574,8 @@ def _setup_plugins(app: LFApplication) -> None:
     loader.register_plugin_type("controller", ControllerPlugin)
     loader.register_plugin_type("panel", PanelPlugin)
     loader.register_plugin_type("device_backend", DeviceBackendPlugin)
+    from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
+    loader.register_plugin_type("auth_provider", AuthProviderPlugin)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
