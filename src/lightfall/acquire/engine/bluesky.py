@@ -125,10 +125,10 @@ class BlueskyEngine(BaseEngine):
             run_engine: The already-configured Bluesky RunEngine to drive.
         """
         self._RE = run_engine
-        self._adopted = True
         run_engine.waiting_hook = self._waiting_bridge
         run_engine.subscribe(lambda name, doc: self._emit_output(name, doc))
         logger.info("[bluesky] Adopted external RunEngine")
+        self._adopted = True
         self._set_state(EngineState.IDLE)
 
     @property
