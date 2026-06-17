@@ -21,7 +21,6 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from datetime import timedelta  # noqa: E402
 from typing import TYPE_CHECKING  # noqa: E402
 
 
@@ -82,7 +81,6 @@ _configure_remote_display()
 
 from lightfall.acquire import get_engine  # noqa: E402
 from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
-from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
 from lightfall.auth.session import SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
@@ -122,57 +120,22 @@ def _setup_auth(config: ConfigManager) -> None:
         provider_type = env_auth
         logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
 
-    if provider_type == "keycloak" and auth_config.provider.server_url:
-        # Use Keycloak if configured
-        try:
-            from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
+    import sys as _sys
 
-            kc_config = KeycloakConfig(
-                server_url=auth_config.provider.server_url,
-                realm=auth_config.provider.realm,
-                client_id=auth_config.provider.client_id,
-                client_secret=auth_config.provider.client_secret or None,
-                redirect_uri=auth_config.provider.redirect_uri,
-            )
-            provider = KeycloakAuthProvider(kc_config)
-            logger.info("Using Keycloak authentication provider")
-        except ImportError:
-            logger.warning("aiohttp not available, falling back to local auth")
-            provider = LocalAuthProvider(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
-            )
-    elif provider_type == "pam":
-        try:
-            # Build group→role map from config if provided
-            from lightfall.auth.policy import Role as _Role
-            from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
+    from lightfall.auth.provider_registry import AuthProviderRegistry
+    from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
 
-            group_role_map = {}
-            for group_name, role_str in auth_config.provider.pam_group_role_map.items():
-                try:
-                    group_role_map[group_name] = _Role(role_str)
-                except ValueError:
-                    logger.warning("Unknown role '{}' in pam_group_role_map", role_str)
+    registry = AuthProviderRegistry.get_instance()
+    register_builtin_auth_plugins(
+        registry, config=config, include_pam=(_sys.platform != "win32")
+    )
 
-            pam_config = PamConfig(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes),
-            )
-            if group_role_map:
-                pam_config.group_role_map = group_role_map
-
-            provider = PamAuthProvider(pam_config)
-            logger.info("Using Linux system authentication provider")
-        except ImportError:
-            logger.warning("python-pam not available, falling back to local auth")
-            provider = LocalAuthProvider(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
-            )
-    else:
-        # Use local auth provider for development
-        provider = LocalAuthProvider(
-            session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
-        )
-        logger.info("Using local development authentication provider")
+    # Pick the startup default provider (used for token refresh before any
+    # dialog login). The dialog will call set_provider again on actual login.
+    default_name = provider_type if registry.has(provider_type) else "local"
+    default_plugin = registry.get(default_name) or registry.get("local")
+    provider = default_plugin.create_provider()
+    logger.info("Default auth provider: {}", default_plugin.name)
 
     session_manager.set_provider(provider)
 
