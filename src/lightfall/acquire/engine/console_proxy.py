@@ -24,11 +24,11 @@ class ConsoleREProxy:
 
     Notes
     -----
-    Single-submission assumption
-        This proxy assumes a SINGLE in-flight submission. The engine's terminal
-        signals (``sigFinish``/``sigAbort``/``sigException``) are global with no
-        per-run token, so ``__call__`` must not be relied on to correlate
-        completion when other plans are concurrently queued on the same engine.
+    Completion correlation
+        ``__call__`` submits via the engine (which returns the procedure id)
+        and blocks only until *that* procedure's ``sigProcedureFinished`` fires
+        — identified by id — so a concurrently queued GUI/console plan
+        completing first does not prematurely release this call.
 
     RunEngine availability
         Attribute access and assignment delegate to ``engine.RE``, which must be
@@ -42,35 +42,40 @@ class ConsoleREProxy:
         object.__setattr__(self, "_engine", engine)
 
     def __call__(self, *args: Any, **kwargs: Any) -> None:
-        """Submit a plan and block (pumping Qt) until it terminates."""
+        """Submit a plan and block (pumping Qt) until *that* plan terminates.
+
+        Correlates on the procedure id returned by the engine's submit, so a
+        different plan completing on the shared engine does not release this
+        call. Re-raises the plan's exception if it ended in error.
+        """
         engine = object.__getattribute__(self, "_engine")
 
         loop = QEventLoop()
-        captured: dict[str, BaseException] = {}
+        state: dict[str, Any] = {"id": None, "done": False, "error": None}
 
-        def _on_finish() -> None:
-            loop.quit()
+        def _on_finished(procedure_id: str, error: Any) -> None:
+            # Ignore completions for other procedures on the shared engine.
+            if state["id"] is not None and procedure_id == state["id"]:
+                state["error"] = error
+                state["done"] = True
+                loop.quit()
 
-        def _on_abort() -> None:
-            loop.quit()
-
-        def _on_exception(exc: BaseException) -> None:
-            captured["error"] = exc
-            loop.quit()
-
-        engine.sigFinish.connect(_on_finish)
-        engine.sigAbort.connect(_on_abort)
-        engine.sigException.connect(_on_exception)
+        engine.sigProcedureFinished.connect(_on_finished)
         try:
-            engine.__call__(*args, **kwargs)  # non-blocking submit (instance __call__ respected)
-            loop.exec()                       # pump GUI until a terminal signal
+            # submit is non-blocking and returns this procedure's id (instance
+            # __call__ is respected for test doubles). None means a pre-submit
+            # hook cancelled it — nothing will run, so don't block.
+            state["id"] = engine.__call__(*args, **kwargs)
+            if state["id"] is None:
+                return
+            if not state["done"]:
+                loop.exec()  # pump GUI until this procedure's completion fires
         finally:
-            engine.sigFinish.disconnect(_on_finish)
-            engine.sigAbort.disconnect(_on_abort)
-            engine.sigException.disconnect(_on_exception)
+            engine.sigProcedureFinished.disconnect(_on_finished)
 
-        if "error" in captured:
-            raise captured["error"]
+        error = state["error"]
+        if error is not None:
+            raise error
 
     def __getattr__(self, item: str) -> Any:
         # Only called when normal attribute lookup fails — delegate to the RE.

@@ -333,6 +333,7 @@ class BlueskyEngine(BaseEngine):
         assert self._RE is not None
 
         success = False
+        error: BaseException | None = None
         try:
             self._RE(plan, **kwargs)
         except RunEngineInterrupted:
@@ -341,6 +342,7 @@ class BlueskyEngine(BaseEngine):
         except Exception as ex:
             logger.error(f"[bluesky] Error during plan execution: {ex}")
             logger.exception(ex)
+            error = ex
             self.sigException.emit(ex)
         else:
             success = True
@@ -350,6 +352,11 @@ class BlueskyEngine(BaseEngine):
             re_state = self._RE.state if self._RE else "idle"
             mapped = _RE_STATE_MAP.get(re_state, EngineState.IDLE)
             self._set_state(mapped)
+            # Per-procedure terminal signal so a caller (e.g. ConsoleREProxy)
+            # can correlate completion with the exact plan it submitted. error
+            # is None on success and on user abort (abort returns normally to
+            # the caller, matching the broad-signal behavior).
+            self.sigProcedureFinished.emit(item.id, error)
             if on_complete is not None:
                 self._invoke_on_complete(on_complete, success)
 
