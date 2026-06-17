@@ -120,21 +120,30 @@ def _setup_auth(config: ConfigManager) -> None:
         provider_type = env_auth
         logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
 
-    import sys as _sys
-
     from lightfall.auth.provider_registry import AuthProviderRegistry
     from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
 
     registry = AuthProviderRegistry.get_instance()
     register_builtin_auth_plugins(
-        registry, config=config, include_pam=(_sys.platform != "win32")
+        registry, config=config, include_pam=(sys.platform != "win32")
     )
 
     # Pick the startup default provider (used for token refresh before any
     # dialog login). The dialog will call set_provider again on actual login.
     default_name = provider_type if registry.has(provider_type) else "local"
+    # Keycloak needs a configured server_url; otherwise fall back to local
+    # (parity with the previous _setup_auth guard).
+    if default_name == "keycloak" and not auth_config.provider.server_url:
+        default_name = "local"
     default_plugin = registry.get(default_name) or registry.get("local")
-    provider = default_plugin.create_provider()
+    try:
+        provider = default_plugin.create_provider()
+    except Exception as exc:
+        logger.warning(
+            "Failed to create '{}' auth provider ({}); falling back to local",
+            default_plugin.name, exc,
+        )
+        provider = registry.get("local").create_provider()
     logger.info("Default auth provider: {}", default_plugin.name)
 
     session_manager.set_provider(provider)

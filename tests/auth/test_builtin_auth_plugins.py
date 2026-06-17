@@ -22,6 +22,7 @@ def test_keycloak_and_pam_need_no_form():
     assert KeycloakAuthPlugin().requires_username is False
     assert KeycloakAuthPlugin().requires_password is False
     assert PamAuthPlugin().requires_username is False
+    assert PamAuthPlugin().requires_password is False
 
 
 def test_register_builtins_respects_pam_flag():
