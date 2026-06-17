@@ -1,20 +1,18 @@
 """Login dialog for Lightfall authentication.
 
-Provides a modal dialog for users to authenticate via Keycloak
-or a local development account.
+Provides a modal dialog for users to authenticate via any registered
+AuthProviderPlugin. Renders one button per provider from the registry.
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import UTC
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -32,6 +30,7 @@ from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
     from lightfall.auth.providers.base import AuthProvider
+    from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
 
 
 class LoginResult(Enum):
@@ -45,8 +44,8 @@ class LoginResult(Enum):
 class LoginDialog(LFDialog):
     """Modal dialog for user authentication.
 
-    Presents options to login via Keycloak (opens browser) or
-    use a local development account.
+    Renders one button per provider registered in AuthProviderRegistry.
+    Shared credential form is revealed only for providers that need it.
 
     Signals:
         login_started: Emitted when login process begins.
@@ -170,106 +169,45 @@ class LoginDialog(LFDialog):
 
         layout.addSpacing(8)
 
-        # Keycloak login button
-        self._keycloak_btn = QPushButton("Login with Keycloak")
-        self._keycloak_btn.setMinimumHeight(44)
-        self._keycloak_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: #0066cc;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: {scaled_px(14)}px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #0055aa;
-            }}
-            QPushButton:pressed {{
-                background-color: #004488;
-            }}
-            QPushButton:disabled {{
-                background-color: #cccccc;
-            }}
-            """
-        )
-        self._keycloak_btn.clicked.connect(self._on_keycloak_login)
-        layout.addWidget(self._keycloak_btn)
+        # Shared credential form (revealed only for providers that need it).
+        self._cred_form = self._create_cred_form()
+        self._cred_form.setVisible(False)
+        layout.addWidget(self._cred_form)
 
-        # Local login form (hidden by default)
-        self._local_form = self._create_local_form()
-        self._local_form.setVisible(False)
-        layout.addWidget(self._local_form)
-
-        # Progress indicator (hidden by default)
+        # Progress indicator (hidden by default) — unchanged from before.
         self._progress_widget = QWidget()
         progress_layout = QVBoxLayout(self._progress_widget)
         progress_layout.setContentsMargins(0, 0, 0, 0)
         progress_layout.setSpacing(8)
-
-        # Progress bar and label row
         progress_row = QHBoxLayout()
         progress_row.setContentsMargins(0, 0, 0, 0)
-
         self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 0)  # Indeterminate
+        self._progress_bar.setRange(0, 0)
         self._progress_bar.setTextVisible(False)
         progress_row.addWidget(self._progress_bar)
-
         self._progress_label = QLabel("Logging in...")
         progress_row.addWidget(self._progress_label)
-
         progress_layout.addLayout(progress_row)
-
-        # Cancel button for aborting login
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setMinimumHeight(32)
         self._cancel_btn.clicked.connect(self._on_cancel_login)
         progress_layout.addWidget(self._cancel_btn)
-
         self._progress_widget.setVisible(False)
         layout.addWidget(self._progress_widget)
 
-        # Error label (hidden by default)
+        # Error label (hidden by default).
         self._error_label = QLabel()
-        self._error_label.setStyleSheet(
-            f"color: #cc0000; font-size: {scaled_px(12)}px;"
-        )
+        self._error_label.setStyleSheet(f"color: #cc0000; font-size: {scaled_px(12)}px;")
         self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_label.setVisible(False)
         layout.addWidget(self._error_label)
 
-        # Linux User Login button (PAM auth)
-        self._pam_btn = QPushButton("Linux User Login")
-        self._pam_btn.setMinimumHeight(40)
-        self._pam_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: #2e7d32;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: {scaled_px(13)}px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #256428;
-            }}
-            QPushButton:pressed {{
-                background-color: #1b5e20;
-            }}
-            QPushButton:disabled {{
-                background-color: #cccccc;
-            }}
-            """
-        )
-        self._pam_btn.clicked.connect(self._on_pam_login)
-        if sys.platform == "win32":
-            self._pam_btn.setVisible(False)
-        layout.addWidget(self._pam_btn)
+        # One button per registered provider.
+        self._provider_buttons: list[QPushButton] = []
+        self._pending_plugin: AuthProviderPlugin | None = None
+        self._add_provider_buttons(layout)
 
-        # Guest button
+        # Guest button.
         if self._allow_guest:
             self._guest_btn = QPushButton("Continue as Guest")
             self._guest_btn.setMinimumHeight(36)
@@ -278,161 +216,114 @@ class LoginDialog(LFDialog):
         else:
             self._guest_btn = None
 
-        # Link to switch to local login (in main layout, below guest button)
-        self._local_link = QPushButton("Use local account instead")
-        self._local_link.setFlat(True)
-        self._local_link.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._local_link.setStyleSheet(
-            f"""
-            QPushButton {{
-                color: #0066cc;
-                text-decoration: underline;
-                border: none;
-                background: transparent;
-                font-size: {scaled_px(11)}px;
-                padding: 4px;
-            }}
-            QPushButton:hover {{
-                color: #004488;
-            }}
-            """
-        )
-        self._local_link.clicked.connect(self._show_local_page)
-        layout.addWidget(self._local_link, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Info text
-        self._info_label = QLabel(
-            "Guest access provides read-only permissions."
-        )
+        self._info_label = QLabel("Guest access provides read-only permissions.")
         self._info_label.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._info_label)
 
-    def _create_local_form(self) -> QWidget:
-        """Create the local login form with username/password fields."""
+    def _create_cred_form(self) -> QWidget:
+        """Username/password form, reused by any provider that needs input."""
         form = QWidget()
         layout = QVBoxLayout(form)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Username/password form
-        form_layout = QFormLayout()
-        form_layout.setSpacing(8)
-
         self._username_edit = QLineEdit()
-        self._username_edit.setPlaceholderText("Enter username")
+        self._username_edit.setPlaceholderText("Username")
         self._username_edit.setMinimumHeight(32)
-        form_layout.addRow("Username:", self._username_edit)
+        layout.addWidget(self._username_edit)
 
         self._password_edit = QLineEdit()
-        self._password_edit.setPlaceholderText("Enter password")
+        self._password_edit.setPlaceholderText("Password")
         self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_edit.setMinimumHeight(32)
-        self._password_edit.returnPressed.connect(self._on_local_login)
-        form_layout.addRow("Password:", self._password_edit)
+        self._password_edit.returnPressed.connect(self._on_form_submit)
+        layout.addWidget(self._password_edit)
 
-        layout.addLayout(form_layout)
-
-        # Local login button
-        self._local_login_btn = QPushButton("Login")
-        self._local_login_btn.setMinimumHeight(40)
-        self._local_login_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: #0066cc;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: {scaled_px(14)}px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #0055aa;
-            }}
-            QPushButton:pressed {{
-                background-color: #004488;
-            }}
-            QPushButton:disabled {{
-                background-color: #cccccc;
-            }}
-            """
-        )
-        self._local_login_btn.clicked.connect(self._on_local_login)
-        layout.addWidget(self._local_login_btn)
-
-        # Link to go back to Keycloak
-        self._keycloak_link = QPushButton("Back to Keycloak login")
-        self._keycloak_link.setFlat(True)
-        self._keycloak_link.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._keycloak_link.setStyleSheet(
-            f"""
-            QPushButton {{
-                color: #0066cc;
-                text-decoration: underline;
-                border: none;
-                background: transparent;
-                font-size: {scaled_px(11)}px;
-            }}
-            QPushButton:hover {{
-                color: #004488;
-            }}
-            """
-        )
-        self._keycloak_link.clicked.connect(self._show_keycloak_page)
-        layout.addWidget(self._keycloak_link, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Dev hint
-        hint = QLabel("Dev accounts: admin/admin, user/user, operator/operator")
-        hint.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(hint)
-
+        self._cred_submit_btn = QPushButton("Login")
+        self._cred_submit_btn.setMinimumHeight(40)
+        self._cred_submit_btn.clicked.connect(self._on_form_submit)
+        layout.addWidget(self._cred_submit_btn)
         return form
 
-    def _show_keycloak_page(self) -> None:
-        """Switch to Keycloak login view."""
-        self._keycloak_btn.setVisible(True)
-        self._pam_btn.setVisible(True)
-        self._local_form.setVisible(False)
-        self._local_link.setVisible(True)
-        self._error_label.setVisible(False)
+    def _add_provider_buttons(self, layout) -> None:
+        from lightfall.auth.provider_registry import AuthProviderRegistry
 
-    def _show_local_page(self) -> None:
-        """Switch to local login view."""
-        self._keycloak_btn.setVisible(False)
-        self._pam_btn.setVisible(False)
-        self._local_form.setVisible(True)
-        self._local_link.setVisible(False)
+        for plugin in AuthProviderRegistry.get_instance().get_all():
+            btn = QPushButton(plugin.display_name)
+            btn.setMinimumHeight(42)
+            btn.clicked.connect(lambda _c=False, p=plugin: self._on_provider_login(p))
+            layout.addWidget(btn)
+            self._provider_buttons.append(btn)
+            logger.debug("Login dialog: added provider button '{}'", plugin.name)
+
+    def _on_provider_login(self, plugin: AuthProviderPlugin) -> None:
+        """Provider button clicked: auth immediately, or reveal the form."""
+        if not plugin.requires_username and not plugin.requires_password:
+            self._start_provider_login(plugin, "", "")
+            return
+        # Needs credentials — reveal the form bound to this plugin.
+        self._pending_plugin = plugin
+        self._cred_form.setVisible(True)
+        self._password_edit.setVisible(plugin.requires_password)
         self._error_label.setVisible(False)
         self._username_edit.setFocus()
 
-    @property
-    def login_result(self) -> LoginResult:
-        """Get the login result after dialog closes."""
-        return self._login_result
+    def _on_form_submit(self) -> None:
+        plugin = self._pending_plugin
+        if plugin is None:
+            return
+        username = self._username_edit.text().strip()
+        password = self._password_edit.text() if plugin.requires_password else ""
+        if plugin.requires_username and not username:
+            self._show_error("Please enter a username")
+            return
+        if plugin.requires_password and not password:
+            self._show_error("Please enter a password")
+            return
+        self._start_provider_login(plugin, username, password)
 
-    def _on_keycloak_login(self) -> None:
-        """Handle Keycloak login button click."""
-        self._login_cancelled = False  # Reset cancel flag
-        self._keycloak_btn.setEnabled(False)
-        self._local_link.setVisible(False)
+    def _start_provider_login(self, plugin: AuthProviderPlugin, username: str, password: str) -> None:
+        self._login_cancelled = False
+        for b in self._provider_buttons:
+            b.setEnabled(False)
+        self._cred_submit_btn.setEnabled(False)
         if self._guest_btn:
             self._guest_btn.setEnabled(False)
-        self._progress_label.setText("Waiting for browser login...")
+        self._progress_label.setText(f"Logging in via {plugin.display_name}...")
         self._progress_widget.setVisible(True)
         self._error_label.setVisible(False)
-
         self.login_started.emit()
-        logger.info("Starting Keycloak login flow")
+        logger.info("Starting login via provider '{}'", plugin.name)
 
-        # Run Keycloak login in background thread
         self._login_thread = QThreadFuture(
-            self._do_keycloak_login,
+            self._do_provider_login,
+            plugin,
+            username,
+            password,
             callback_slot=self._on_login_complete,
             except_slot=self._on_login_error,
-            name="keycloak_login",
+            name=f"{plugin.name}_login",
         )
         self._login_thread.start()
+
+    def _do_provider_login(self, plugin: AuthProviderPlugin, username: str, password: str) -> bool:
+        from datetime import datetime
+
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
+
+        provider = plugin.create_provider()
+        self._current_provider = provider
+        session = asyncio.run(
+            provider.authenticate(username=username or None, password=password or None)
+        )
+        if session:
+            duration = LoginSettingsProvider.get_session_duration()
+            session.user.expires_at = datetime.now(UTC) + duration
+            self._session_manager.set_provider(provider)
+            self._session_manager.attach_session(session)
+            return True
+        return False
 
     def _on_cancel_login(self) -> None:
         """Handle cancel button click during login."""
@@ -446,181 +337,10 @@ class LoginDialog(LFDialog):
         # Reset UI immediately
         self._reset_ui()
 
-    def _do_keycloak_login(self) -> bool:
-        """Perform Keycloak login (runs in background thread)."""
-        from datetime import datetime
-
-        from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
-        from lightfall.config import ConfigManager
-        from lightfall.core import LFApplication
-        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
-
-        # Get Keycloak config
-        app = LFApplication.get_instance()
-        config: ConfigManager = app.services.get(ConfigManager)
-        auth_config = config.model.auth.provider
-
-        kc_config = KeycloakConfig(
-            server_url=auth_config.server_url,
-            realm=auth_config.realm,
-            client_id=auth_config.client_id,
-            client_secret=auth_config.client_secret or None,
-            redirect_uri=auth_config.redirect_uri,
-        )
-
-        provider = KeycloakAuthProvider(kc_config)
-        self._current_provider = provider
-
-        # Run async authenticate
-        session = asyncio.run(provider.authenticate())
-
-        if session:
-            # Apply app session duration (starts now, not when token was issued)
-            duration = LoginSettingsProvider.get_session_duration()
-            session.user.expires_at = datetime.now(UTC) + duration
-
-            # Hand the session to SessionManager. attach_session caches it,
-            # mints per-service API keys (auth-v2), transitions to
-            # AUTHENTICATED, and emits user_changed.
-            self._session_manager.set_provider(provider)
-            self._session_manager.attach_session(session)
-            return True
-
-        return False
-
-    def _on_local_login(self) -> None:
-        """Handle local login button click."""
-        username = self._username_edit.text().strip()
-        password = self._password_edit.text()
-
-        if not username or not password:
-            self._show_error("Please enter username and password")
-            return
-
-        self._login_cancelled = False  # Reset cancel flag
-        self._local_login_btn.setEnabled(False)
-        self._username_edit.setEnabled(False)
-        self._password_edit.setEnabled(False)
-        self._keycloak_link.setEnabled(False)
-        if self._guest_btn:
-            self._guest_btn.setEnabled(False)
-        self._progress_label.setText("Logging in...")
-        self._progress_widget.setVisible(True)
-        self._error_label.setVisible(False)
-
-        self.login_started.emit()
-        logger.info("Starting local login flow")
-
-        self._login_thread = QThreadFuture(
-            self._do_local_login,
-            username,
-            password,
-            callback_slot=self._on_login_complete,
-            except_slot=self._on_login_error,
-            name="local_login",
-        )
-        self._login_thread.start()
-
-    def _do_local_login(self, username: str, password: str) -> bool:
-        """Perform local login (runs in background thread)."""
-        from datetime import datetime
-
-        from lightfall.auth.providers.local import LocalAuthProvider
-        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
-
-        duration = LoginSettingsProvider.get_session_duration()
-        provider = LocalAuthProvider(session_duration=duration)
-        self._current_provider = provider
-
-        # Run async authenticate
-        session = asyncio.run(provider.authenticate(username=username, password=password))
-
-        if session:
-            # Apply app session duration (ensure it starts now)
-            session.user.expires_at = datetime.now(UTC) + duration
-
-            # Hand the session to SessionManager. attach_session caches it,
-            # mints per-service API keys (auth-v2), transitions to
-            # AUTHENTICATED, and emits user_changed.
-            self._session_manager.set_provider(provider)
-            self._session_manager.attach_session(session)
-            return True
-
-        return False
-
-    def _on_pam_login(self) -> None:
-        """Handle Linux User Login button click.
-
-        Authenticates immediately using the current OS username
-        and group membership — no password prompt needed.
-        """
-        self._login_cancelled = False
-        self._pam_btn.setEnabled(False)
-        self._keycloak_btn.setEnabled(False)
-        self._local_link.setVisible(False)
-        if self._guest_btn:
-            self._guest_btn.setEnabled(False)
-        self._progress_label.setText("Logging in as system user...")
-        self._progress_widget.setVisible(True)
-        self._error_label.setVisible(False)
-
-        self.login_started.emit()
-        logger.info("Starting Linux system user login")
-
-        self._login_thread = QThreadFuture(
-            self._do_pam_login,
-            callback_slot=self._on_login_complete,
-            except_slot=self._on_login_error,
-            name="pam_login",
-        )
-        self._login_thread.start()
-
-    def _do_pam_login(self) -> bool:
-        """Create session from current OS identity (runs in background thread)."""
-        from datetime import datetime
-
-        from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
-        from lightfall.config import ConfigManager
-        from lightfall.core import LFApplication
-        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
-
-        duration = LoginSettingsProvider.get_session_duration()
-
-        # Build config from app settings if available
-        try:
-            app = LFApplication.get_instance()
-            config: ConfigManager = app.services.get(ConfigManager)
-            auth_config = config.model.auth.provider
-
-            from lightfall.auth.policy import Role as _Role
-
-            group_role_map = {}
-            for group_name, role_str in auth_config.pam_group_role_map.items():
-                try:
-                    group_role_map[group_name] = _Role(role_str)
-                except ValueError:
-                    pass
-
-            pam_config = PamConfig(session_duration=duration)
-            if group_role_map:
-                pam_config.group_role_map = group_role_map
-        except Exception:
-            pam_config = PamConfig(session_duration=duration)
-
-        provider = PamAuthProvider(pam_config)
-        self._current_provider = provider
-
-        # authenticate() ignores username/password — uses OS identity
-        session = asyncio.run(provider.authenticate())
-
-        if session:
-            session.user.expires_at = datetime.now(UTC) + duration
-
-            self._session_manager.set_provider(provider)
-            self._session_manager.attach_session(session)
-            return True
-
-        return False
+    @property
+    def login_result(self) -> LoginResult:
+        """Get the login result after dialog closes."""
+        return self._login_result
 
     def _on_login_complete(self, success: bool) -> None:
         """Handle login completion (called in main thread).
@@ -637,10 +357,7 @@ class LoginDialog(LFDialog):
             self.accept()
         else:
             self._reset_ui()
-            if self._local_form.isVisible():
-                self._show_error("Invalid username or password")
-            else:
-                self._show_error("Login failed or was cancelled")
+            self._show_error("Login failed or was cancelled")
 
     def _on_login_error(self, error: Exception) -> None:
         """Handle login error (called in main thread).
@@ -657,29 +374,16 @@ class LoginDialog(LFDialog):
         self._show_error(f"Login failed: {error}")
 
     def _reset_ui(self) -> None:
-        """Reset UI after failed login attempt."""
-        # Keycloak
-        self._keycloak_btn.setEnabled(True)
-
-        # PAM
-        self._pam_btn.setEnabled(True)
-
-        # Local form
-        self._local_login_btn.setEnabled(True)
+        """Reset UI after a failed/cancelled login attempt."""
+        for b in self._provider_buttons:
+            b.setEnabled(True)
+        self._cred_submit_btn.setEnabled(True)
         self._username_edit.setEnabled(True)
         self._password_edit.setEnabled(True)
         self._password_edit.clear()
-        self._keycloak_link.setEnabled(True)
-
-        # Common
         if self._guest_btn:
             self._guest_btn.setEnabled(True)
-        self._local_link.setVisible(self._keycloak_btn.isVisible())
         self._progress_widget.setVisible(False)
-
-        # Focus appropriate field
-        if self._local_form.isVisible():
-            self._password_edit.setFocus()
 
     def _show_error(self, message: str) -> None:
         """Show an error message in the dialog.
