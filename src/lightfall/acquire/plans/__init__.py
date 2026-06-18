@@ -19,6 +19,13 @@ from lightfall.acquire.plans.registry import (
     get_registry,
     name_to_display_name,
 )
+from lightfall.acquire.plans.stubs import (
+    IMAGE_MODE_CONTINUOUS,
+    IMAGE_MODE_MULTIPLE,
+    IMAGE_MODE_SINGLE,
+    set_image_mode,
+    set_multiple_mode,
+)
 from lightfall.acquire.plans.user_plans import UserPlanService
 
 __all__ = [
@@ -33,6 +40,12 @@ __all__ = [
     # NCS plans
     "scan_1d",
     "rel_scan_1d",
+    # Shared plan stubs
+    "set_image_mode",
+    "set_multiple_mode",
+    "IMAGE_MODE_SINGLE",
+    "IMAGE_MODE_MULTIPLE",
+    "IMAGE_MODE_CONTINUOUS",
     # User plans
     "UserPlanService",
 ]
