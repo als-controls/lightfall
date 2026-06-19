@@ -279,12 +279,31 @@ class LFApplication(QObject):
     # ------------------------------------------------------------------
 
     def _create_ipc_service(self, trust_manager: TrustManager) -> IPCService:
-        """Factory that builds a configured :class:`IPCService`."""
+        """Factory that builds a configured :class:`IPCService`.
+
+        When ``ipc_use_local_nats`` is set, start a bundled local nats-server
+        and connect to it instead of the site broker.
+        """
+        from lightfall.ipc.local_server import LocalNatsServer
         from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
-        nats_url = prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222")
         topic_prefix = prefs.get("ipc_topic_prefix", "als.7011")
+        self._local_nats = None
+
+        if prefs.get("ipc_use_local_nats", False):
+            port = int(prefs.get("ipc_local_nats_port", 4222))
+            manager = LocalNatsServer(port=port)
+            try:
+                manager.start()
+                self._local_nats = manager
+                nats_url = f"nats://127.0.0.1:{port}"
+            except Exception:
+                logger.exception("Failed to start local nats-server; IPC disabled")
+                nats_url = ""
+        else:
+            nats_url = prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222")
+
         svc = IPCService(nats_url=nats_url, topic_prefix=topic_prefix)
         svc.set_trust_manager(trust_manager)
         svc.register_meta_endpoints()
@@ -703,6 +722,15 @@ class LFApplication(QObject):
                 ipc.stop()
         except Exception:
             logger.exception("Error stopping IPC service")
+
+        # Stop the local nats-server if we started one
+        local_nats = getattr(self, "_local_nats", None)
+        if local_nats is not None:
+            try:
+                local_nats.stop()
+            except Exception:
+                logger.exception("Error stopping local nats-server")
+            self._local_nats = None
 
         # Clear services
         self._services.clear()
