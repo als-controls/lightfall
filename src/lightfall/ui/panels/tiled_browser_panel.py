@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import httpx
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -523,10 +524,23 @@ class TiledBrowserPanel(BasePanel):
         start = page * page_size
         end = start + page_size
 
+        # Sort newest-first so the first page is the most recent runs. .sort()
+        # is lazy, so a server-side failure on the sort query param (e.g. a
+        # client/server version mismatch on sort=-start.time, seen as a 500)
+        # surfaces HERE, when .items() is materialized -- not in _build_query.
+        # Fall back to an unsorted listing so the browser still loads.
+        try:
+            page_items = list(result.sort(("start.time", -1)).items()[start:end])
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "Tiled server-side sort failed ({}); listing without sort", e
+            )
+            page_items = list(result.items()[start:end])
+
         records: list[TiledRecord] = []
         plan_names: set[str] = set()
 
-        for key, entry in result.items()[start:end]:
+        for key, entry in page_items:
             try:
                 record = self._entry_to_record(key, entry)
                 records.append(record)
@@ -587,13 +601,9 @@ class TiledBrowserPanel(BasePanel):
             except Exception as e:
                 logger.debug("Failed to apply exit_status filter: {}", e)
 
-        # Sort by start time descending so the first PAGE_SIZE slice
-        # returns the most recent runs, not the oldest.
-        try:
-            result = result.sort(("start.time", -1))
-        except Exception as e:
-            logger.debug("Failed to apply server-side sort: {}", e)
-
+        # NOTE: sorting is applied by the caller (_do_fetch), not here. .sort()
+        # is lazy, so its server-side failure must be caught where the query is
+        # materialized (.items()) to fall back to an unsorted listing.
         return result
 
     def _entry_to_record(self, key: str, entry: Any) -> TiledRecord:
