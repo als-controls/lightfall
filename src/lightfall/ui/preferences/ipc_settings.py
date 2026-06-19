@@ -52,6 +52,8 @@ class IPCSettingsPlugin(SettingsPlugin):
     - ``ipc_nats_url``: str — NATS broker URL
     - ``ipc_topic_prefix``: str — topic prefix for all published messages
     - ``ipc_display_name``: str — human-readable name for this Lightfall instance
+    - ``ipc_use_local_nats``: bool — run a bundled local nats-server instead of the site broker
+    - ``ipc_local_nats_port``: int — port for the local nats-server (default 4222)
     """
 
     def __init__(self) -> None:

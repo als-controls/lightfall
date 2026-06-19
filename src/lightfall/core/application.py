@@ -292,10 +292,15 @@ class LFApplication(QObject):
         self._local_nats = None
 
         if prefs.get("ipc_use_local_nats", False):
-            port = int(prefs.get("ipc_local_nats_port", 4222))
+            try:
+                port = int(prefs.get("ipc_local_nats_port", 4222))
+            except (ValueError, TypeError):
+                logger.warning("ipc_local_nats_port is not a valid integer; falling back to 4222")
+                port = 4222
             manager = LocalNatsServer(port=port)
             try:
                 manager.start()
+                # Must be assigned immediately after start() so _shutdown can stop it if later construction raises.
                 self._local_nats = manager
                 nats_url = f"nats://127.0.0.1:{port}"
             except Exception:

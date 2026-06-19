@@ -79,3 +79,22 @@ def test_shutdown_stops_local_nats(monkeypatch):
 
     app._shutdown()
     fake_mgr.stop.assert_called_once()
+    assert app._local_nats is None
+
+
+def test_enabled_bad_port_pref_does_not_crash(qapp, monkeypatch):
+    _patch_prefs(monkeypatch, {
+        "ipc_nats_url": "nats://site:4222",
+        "ipc_topic_prefix": "als.7011",
+        "ipc_use_local_nats": True,
+        "ipc_local_nats_port": "abc",
+    })
+    fake_mgr = MagicMock()
+    import lightfall.ipc.local_server as ls
+    monkeypatch.setattr(ls, "LocalNatsServer", MagicMock(return_value=fake_mgr))
+
+    app = _app_without_init()
+    svc = app._create_ipc_service(MagicMock())
+    # Bad port must not crash; falls back to 4222
+    assert svc.nats_url == "nats://127.0.0.1:4222"
+    fake_mgr.start.assert_called_once()
