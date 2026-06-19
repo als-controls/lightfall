@@ -6,14 +6,13 @@ communication, including topic prefix and trusted application management.
 
 from __future__ import annotations
 
-import json
 import logging
-import socket
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -25,6 +24,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ipc.local_server import (
+    nats_binary_version,
+    probe_nats,
+    resolve_nats_binary,
+)
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
 
@@ -60,6 +64,9 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._trusted_list: QListWidget | None = None
         self._revoke_btn: QPushButton | None = None
         self._trust_manager: TrustManager | None = None
+        self._local_enable_cb: QCheckBox | None = None
+        self._local_port_edit: QLineEdit | None = None
+        self._local_status_label: QLabel | None = None
 
     @property
     def name(self) -> str:
@@ -85,6 +92,23 @@ class IPCSettingsPlugin(SettingsPlugin):
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        # --- Local NATS Server group ---
+        local_group = QGroupBox("Local NATS Server")
+        local_layout = QFormLayout(local_group)
+
+        self._local_enable_cb = QCheckBox("Run a local NATS server (instead of the site broker)")
+        self._local_enable_cb.toggled.connect(self._on_local_toggled)
+        local_layout.addRow("", self._local_enable_cb)
+
+        self._local_port_edit = QLineEdit()
+        self._local_port_edit.setPlaceholderText("4222")
+        local_layout.addRow("Port:", self._local_port_edit)
+
+        self._local_status_label = QLabel()
+        local_layout.addRow("Binary:", self._local_status_label)
+
+        layout.addWidget(local_group)
 
         # --- NATS Connection group ---
         connection_group = QGroupBox("NATS Connection")
@@ -137,6 +161,25 @@ class IPCSettingsPlugin(SettingsPlugin):
         """Set the TrustManager reference so revoke() can be called."""
         self._trust_manager = trust_manager
 
+    def _on_local_toggled(self, checked: bool) -> None:
+        """Grey out the Server URL field when the local server is enabled."""
+        if self._url_edit is not None:
+            self._url_edit.setEnabled(not checked)
+
+    def _refresh_binary_status(self) -> None:
+        """Detect and display the resolved nats-server binary."""
+        if self._local_status_label is None:
+            return
+        path = resolve_nats_binary()
+        if path is None:
+            self._local_status_label.setText("nats-server not found")
+            self._local_status_label.setStyleSheet("color: red;")
+            return
+        version = nats_binary_version(path)
+        ver = f"v{version}" if version else "(version unknown)"
+        self._local_status_label.setText(f"{ver} — {path}")
+        self._local_status_label.setStyleSheet("color: green;")
+
     def _on_test_connection(self) -> None:
         """Test TCP connectivity to the configured NATS server."""
         if not self._status_label:
@@ -156,36 +199,13 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._status_label.setStyleSheet("color: gray;")
         QCoreApplication.processEvents()
 
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5.0)
-            sock.connect((host, port))
-
-            # NATS servers send "INFO {...}\r\n" immediately on connect
-            data = sock.recv(4096).decode("utf-8", errors="replace")
-            sock.close()
-
-            if data.startswith("INFO "):
-                info = json.loads(data[5:].strip())
-                self._status_label.setText(f"Connected — NATS v{info.get('version', '?')}")
-                self._status_label.setStyleSheet("color: green;")
-            else:
-                self._status_label.setText("Connected, but not a NATS server")
-                self._status_label.setStyleSheet("color: orange;")
-
-        except TimeoutError:
-            self._status_label.setText("Connection timeout")
+        info = probe_nats(host, port, timeout=5.0)
+        if info is not None:
+            self._status_label.setText(f"Connected — NATS v{info.get('version', '?')}")
+            self._status_label.setStyleSheet("color: green;")
+        else:
+            self._status_label.setText("Could not reach a NATS server")
             self._status_label.setStyleSheet("color: red;")
-        except ConnectionRefusedError:
-            self._status_label.setText("Connection refused")
-            self._status_label.setStyleSheet("color: red;")
-        except socket.gaierror as e:
-            self._status_label.setText(f"DNS error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-        except Exception as e:
-            self._status_label.setText(f"Error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-            logger.error("NATS test connection error: %s", e)
 
     def _on_revoke(self) -> None:
         if not self._trusted_list:
@@ -207,6 +227,13 @@ class IPCSettingsPlugin(SettingsPlugin):
             self._prefix_edit.setText(prefs.get("ipc_topic_prefix", "als.7011"))
         if self._display_name_edit:
             self._display_name_edit.setText(prefs.get("ipc_display_name", ""))
+        if self._local_enable_cb:
+            use_local = bool(prefs.get("ipc_use_local_nats", False))
+            self._local_enable_cb.setChecked(use_local)
+            self._on_local_toggled(use_local)
+        if self._local_port_edit:
+            self._local_port_edit.setText(str(prefs.get("ipc_local_nats_port", 4222)))
+        self._refresh_binary_status()
 
     def save_settings(self) -> None:
         prefs = PreferencesManager.get_instance()
@@ -218,12 +245,34 @@ class IPCSettingsPlugin(SettingsPlugin):
         prefs.set("ipc_nats_url", url)
         prefs.set("ipc_topic_prefix", prefix)
         prefs.set("ipc_display_name", display_name)
+        use_local = self._local_enable_cb.isChecked() if self._local_enable_cb else False
+        prefs.set("ipc_use_local_nats", use_local)
+        port_text = self._local_port_edit.text().strip() if self._local_port_edit else ""
+        try:
+            port = int(port_text) if port_text else 4222
+        except ValueError:
+            port = 4222
+        prefs.set("ipc_local_nats_port", port)
 
     def validate(self) -> list[str]:
         errors: list[str] = []
 
-        url = self._url_edit.text().strip() if self._url_edit else ""
-        if url and not url.startswith("nats://"):
-            errors.append("NATS server URL must start with 'nats://' (or leave empty to disable IPC)")
+        use_local = self._local_enable_cb.isChecked() if self._local_enable_cb else False
+
+        if use_local:
+            port_text = self._local_port_edit.text().strip() if self._local_port_edit else ""
+            try:
+                port = int(port_text) if port_text else 4222
+            except ValueError:
+                errors.append("Local NATS port must be a number")
+            else:
+                if not (1 <= port <= 65535):
+                    errors.append("Local NATS port must be between 1 and 65535")
+            if resolve_nats_binary() is None:
+                errors.append("nats-server binary not found (install the nats-server-bin package)")
+        else:
+            url = self._url_edit.text().strip() if self._url_edit else ""
+            if url and not url.startswith("nats://"):
+                errors.append("NATS server URL must start with 'nats://' (or leave empty to disable IPC)")
 
         return errors
