@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from bluesky import RunEngine
-from bluesky.utils import DuringTask, RunEngineInterrupted
+from bluesky.utils import DuringTask, RunEngineInterrupted, SigintHandler
 from PySide6.QtCore import QThread, Signal
 
 from lightfall.acquire.engine.base import BaseEngine, PrioritizedProcedure
@@ -138,6 +138,17 @@ class BlueskyEngine(BaseEngine):
             orphan_loop = self._loop if orphan is not None else None
 
             self._RE = run_engine
+            # The adopted RE is driven from the engine worker thread (see
+            # _execute_plan), but bluesky's default context_managers install a
+            # SigintHandler whose __enter__ calls signal.signal() — which raises
+            # "signal only works in main thread of the main interpreter" off the
+            # main thread. Strip it, matching the created-RE path's
+            # context_managers=[]. Profile-collection builds its RE with the
+            # default [SigintHandler], so this is required for CMS.
+            run_engine.context_managers = [
+                mgr for mgr in run_engine.context_managers
+                if not (isinstance(mgr, type) and issubclass(mgr, SigintHandler))
+            ]
             run_engine.waiting_hook = self._waiting_bridge
             run_engine.subscribe(lambda name, doc: self._emit_output(name, doc))
             self._adopted = True

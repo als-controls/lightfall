@@ -4,6 +4,7 @@ import time
 from unittest.mock import MagicMock
 
 from bluesky import RunEngine
+from bluesky.utils import SigintHandler
 
 from lightfall.acquire.engine.bluesky import BlueskyEngine
 
@@ -22,6 +23,7 @@ def _adopted_mock_re() -> MagicMock:
     re = MagicMock(name="AdoptedRE")
     re.state = "idle"
     re.subscribe.return_value = 1
+    re.context_managers = [SigintHandler]
     return re
 
 
@@ -32,6 +34,7 @@ def test_adopt_uses_external_run_engine():
     fake_re.state = "idle"
     # subscribe must return an int token like the real RE
     fake_re.subscribe.return_value = 1
+    fake_re.context_managers = [SigintHandler]
 
     engine.adopt(fake_re)
 
@@ -42,6 +45,22 @@ def test_adopt_uses_external_run_engine():
     assert fake_re.waiting_hook is engine.waiting_bridge
     # The engine is marked adopted so the queue processor won't rebuild it.
     assert engine._adopted is True
+
+
+def test_adopt_strips_sigint_handler():
+    """An adopted RE (e.g. a profile-collection RunEngine built with default
+    ``context_managers=[SigintHandler]``) is driven from the engine worker
+    thread, where ``signal.signal()`` raises "signal only works in main
+    thread". adopt() must remove SigintHandler so plan execution doesn't crash.
+    """
+    engine = BlueskyEngine(toast_notifications=False)
+
+    external_re = RunEngine(context_managers=None)
+    assert SigintHandler in external_re.context_managers  # default has it
+
+    engine.adopt(external_re)
+
+    assert SigintHandler not in external_re.context_managers
 
 
 def test_adopt_disposes_orphan_eager_run_engine():
