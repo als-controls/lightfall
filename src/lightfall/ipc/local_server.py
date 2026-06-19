@@ -100,3 +100,76 @@ def probe_nats(host: str, port: int, timeout: float = 5.0) -> dict | None:
         except json.JSONDecodeError:
             return None
     return None
+
+
+class LocalNatsServer:
+    """Owns a local ``nats-server`` subprocess (core NATS, no JetStream)."""
+
+    def __init__(
+        self,
+        port: int = 4222,
+        host: str = "127.0.0.1",
+        poll_interval: float = 0.05,
+    ) -> None:
+        self._port = port
+        self._host = host
+        self._poll_interval = poll_interval
+        self._proc: subprocess.Popen | None = None
+
+    def is_running(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def start(self, timeout_s: float = 5.0) -> None:
+        """Launch nats-server and block until it answers, or raise."""
+        if self.is_running():
+            return
+
+        binary = resolve_nats_binary()
+        if binary is None:
+            raise NatsBinaryNotFoundError(
+                "nats-server not found (expected the nats-server-bin package)"
+            )
+
+        args = [binary, "-a", self._host, "-p", str(self._port)]
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        logger.info("Starting local nats-server: {}", " ".join(args))
+        self._proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags,
+        )
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            code = self._proc.poll()
+            if code is not None:
+                self._proc = None
+                raise NatsPortInUseError(
+                    f"nats-server exited immediately (code {code}); "
+                    f"port {self._port} may be in use"
+                )
+            if probe_nats(self._host, self._port, timeout=self._poll_interval) is not None:
+                logger.info("Local nats-server ready on {}:{}", self._host, self._port)
+                return
+            time.sleep(self._poll_interval)
+
+        self.stop()
+        raise NatsReadinessTimeoutError(
+            f"nats-server did not become ready within {timeout_s}s"
+        )
+
+    def stop(self) -> None:
+        """Terminate the subprocess if running. Idempotent."""
+        proc = self._proc
+        if proc is None:
+            return
+        self._proc = None
+        if proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.warning("nats-server did not terminate; killing")
+            proc.kill()
