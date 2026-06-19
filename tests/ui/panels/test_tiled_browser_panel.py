@@ -1,19 +1,19 @@
-"""Regression tests for TiledBrowserPanel._do_fetch sort + backend fallback.
+"""Regression tests for TiledBrowserPanel sort-key backend detection.
 
-The Tiled ``.sort(...)`` call is lazy: a server-side failure on the sort query
-param does not raise where ``.sort()`` is called -- it surfaces when ``.items()``
-is materialized. The correct key is backend-dependent and the two are mutually
-incompatible:
+The two bluesky catalog backends sort runs on different, incompatible keys:
 
-* tiled SQL catalog: sorts nested ``start.time``; ``time`` is silently wrong.
-* mongo_normalized (databroker): sorts top-level ``time``; ``start.time`` 500s.
+* tiled SQL catalog (CatalogOfBlueskyRuns v2+): nested ``start.time``; ``time``
+  is silently wrong.
+* mongo_normalized (databroker; CatalogOfBlueskyRuns v1): top-level ``time``;
+  ``start.time`` 500s.
 
-So ``_do_fetch`` tries ``start.time`` first (correct on SQL, a loud 500 on
-mongo), falls back to ``time`` on a 500 (never the reverse -- ``time`` on SQL is
-silently wrong), caches the working key, and lists unsorted if both 500.
+``_detect_sort_key`` picks the key deterministically from the catalog spec
+version (NOT by interpreting a 500, which can occur for unrelated reasons). The
+lazy ``.sort()`` failure still falls back to an unsorted listing per page, but
+the cached key is not changed.
 
-``_do_fetch`` is pure Python (no Qt access), so we call it unbound with a stub
-``self`` -- no QApplication required.
+``_do_fetch``/``_detect_sort_key`` are pure Python (no Qt), so we call them
+unbound with a stub ``self`` -- no QApplication required.
 """
 from __future__ import annotations
 
@@ -52,8 +52,7 @@ class _SortResult:
 
 
 class _Result:
-    """A fake Tiled container. ``fail_keys`` are sort keys whose listing 500s
-    (e.g. {"start.time"} models a mongo backend; () models the SQL catalog)."""
+    """Fake container. ``fail_keys`` are sort keys whose listing 500s."""
 
     def __init__(self, fail_keys=()) -> None:
         self._fail_keys = set(fail_keys)
@@ -71,50 +70,62 @@ class _Result:
         return _Items(fail=False)  # unsorted listing always works
 
 
+def _client(*specs):
+    """Build a fake client whose .specs are (name, version) pairs."""
+    return SimpleNamespace(
+        specs=[SimpleNamespace(name=n, version=v) for n, v in specs]
+    )
+
+
 def _stub(result: _Result) -> SimpleNamespace:
     return SimpleNamespace(
         _build_query=lambda client, filters: result,
         _entry_to_record=lambda key, entry: MagicMock(plan_name="count"),
-        _sort_key="start.time",
+        _sort_key=None,
+        _detect_sort_key=TiledBrowserPanel._detect_sort_key,  # exercise real detection
     )
 
 
-def _fetch(stub):
+def _fetch(stub, client):
     return TiledBrowserPanel._do_fetch(
-        stub, client=None, filters=None, page=0, page_size=10
+        stub, client=client, filters=None, page=0, page_size=10
     )
 
 
-def test_sql_backend_sorts_on_start_time_no_fallback():
-    result = _Result(fail_keys=())  # SQL catalog: start.time works
+def test_mongo_v1_spec_detected_as_time():
+    result = _Result()
     stub = _stub(result)
 
-    records, total, _ = _fetch(stub)
+    _fetch(stub, _client(("CatalogOfBlueskyRuns", "1")))
 
-    assert total == 2
-    assert len(records) == 2
-    assert result.sort_calls == ["start.time"]  # never tries the silently-wrong "time"
+    assert stub._sort_key == "time"
+    assert result.sort_calls == ["time"]
+
+
+def test_sql_v3_spec_detected_as_start_time():
+    result = _Result()
+    stub = _stub(result)
+
+    _fetch(stub, _client(("CatalogOfBlueskyRuns", "3.0")))
+
     assert stub._sort_key == "start.time"
+    assert result.sort_calls == ["start.time"]
 
 
-def test_mongo_backend_falls_back_to_time_and_caches():
-    result = _Result(fail_keys={"start.time"})  # mongo: start.time 500s
+def test_unknown_spec_defaults_to_start_time():
+    # Unknown backend -> start.time, which fails loudly (not silently wrong).
+    assert TiledBrowserPanel._detect_sort_key(_client()) == "start.time"
+    assert TiledBrowserPanel._detect_sort_key(SimpleNamespace()) == "start.time"
+
+
+def test_500_falls_back_to_unsorted_without_changing_key():
+    # SQL backend (start.time is correct) but a genuine/transient 500 occurs.
+    result = _Result(fail_keys={"start.time"})
     stub = _stub(result)
 
-    records, total, _ = _fetch(stub)
-
-    assert total == 2
-    assert len(records) == 2
-    assert result.sort_calls == ["start.time", "time"]  # loud 500 -> fall back
-    assert stub._sort_key == "time"  # cached so later pages skip start.time
-
-
-def test_both_keys_500_lists_unsorted():
-    result = _Result(fail_keys={"start.time", "time"})
-    stub = _stub(result)
-
-    records, total, plan_names = _fetch(stub)
+    records, total, _ = _fetch(stub, _client(("CatalogOfBlueskyRuns", "3.0")))
 
     assert total == 2
     assert len(records) == 2  # unsorted fallback still loads the browser
-    assert plan_names == ["count"]
+    assert stub._sort_key == "start.time"  # NOT flipped to the wrong key
+    assert result.sort_calls == ["start.time"]  # only the detected key tried

@@ -85,12 +85,9 @@ class TiledBrowserPanel(BasePanel):
         self._current_filters = TiledFilters()
         self._loading = False
         self._fetch_thread: QThreadFuture | None = None
-        # Sort key for browsing runs newest-first. Backend-dependent: the tiled
-        # SQL catalog sorts nested "start.time"; mongo_normalized (databroker)
-        # sorts the top-level "time" and 500s on "start.time". Default to the
-        # SQL key; _do_fetch auto-falls-back to "time" on a 500 and caches the
-        # working key here.
-        self._sort_key = "start.time"
+        # Run-sort key, detected from the catalog backend on first fetch
+        # (see _detect_sort_key / _do_fetch) and cached. None until detected.
+        self._sort_key: str | None = None
 
         # Create models
         self._model = TiledRecordModel()
@@ -530,34 +527,30 @@ class TiledBrowserPanel(BasePanel):
         start = page * page_size
         end = start + page_size
 
-        # Sort newest-first. The correct key is backend-dependent and .sort() is
-        # lazy, so a failure only surfaces HERE when .items() is materialized:
-        #   * tiled SQL catalog sorts nested "start.time".
-        #   * mongo_normalized (databroker) sorts top-level "time" and 500s on
-        #     "start.time".
-        # Try "start.time" first (correct on SQL; a *loud* 500 on mongo) and
-        # fall back to "time" -- never the other way, because "time" on a SQL
-        # catalog sorts a nonexistent key and is SILENTLY wrong. Cache the
-        # working key so later pages skip the failing attempt; if both 500, list
-        # unsorted so the browser still loads.
+        # Sort newest-first. The correct key is backend-dependent and the two
+        # bluesky catalogs need different, incompatible keys (a single key would
+        # silently misorder one of them), so detect the backend ONCE from the
+        # catalog spec version -- deterministic, not by interpreting a 500 (which
+        # can occur for unrelated/transient reasons):
+        #   * CatalogOfBlueskyRuns v1  -> databroker mongo_normalized -> "time"
+        #   * CatalogOfBlueskyRuns v2+ -> tiled SQL catalog           -> "start.time"
+        if self._sort_key is None:
+            self._sort_key = self._detect_sort_key(client)
+
+        # .sort() is lazy, so a server-side failure surfaces HERE when .items()
+        # is materialized. The key is already chosen by backend, so a 500 here is
+        # a genuine/transient error (not a key mismatch) -- fall back to an
+        # unsorted listing for this page so the browser still loads, without
+        # changing the cached key.
         try:
             page_items = list(result.sort((self._sort_key, -1)).items()[start:end])
-        except httpx.HTTPStatusError as exc:
-            alt = "time" if self._sort_key == "start.time" else "start.time"
+        except httpx.HTTPStatusError as e:
             logger.warning(
-                "Tiled sort on {!r} failed (HTTP {}); retrying with {!r}",
+                "Tiled sort on {!r} failed ({}); listing without sort",
                 self._sort_key,
-                exc.response.status_code,
-                alt,
+                e,
             )
-            try:
-                page_items = list(result.sort((alt, -1)).items()[start:end])
-                self._sort_key = alt  # remember the working key for later pages
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    "Tiled sort failed on both keys ({}); listing without sort", e
-                )
-                page_items = list(result.items()[start:end])
+            page_items = list(result.items()[start:end])
 
         records: list[TiledRecord] = []
         plan_names: set[str] = set()
@@ -573,6 +566,30 @@ class TiledBrowserPanel(BasePanel):
                 continue
 
         return records, total_count, list(plan_names)
+
+    @staticmethod
+    def _detect_sort_key(client: Any) -> str:
+        """Pick the run-time sort key from the catalog backend, by spec version.
+
+        The two bluesky catalog backends sort runs on different, incompatible
+        keys, and the spec version distinguishes them deterministically:
+
+        * ``CatalogOfBlueskyRuns`` v1  -> databroker ``mongo_normalized``: sorts
+          the top-level ``time`` field (nested ``start.time`` 500s).
+        * ``CatalogOfBlueskyRuns`` v2+ -> tiled SQL catalog: sorts nested
+          ``start.time`` (``time`` resolves to a nonexistent key, silently wrong).
+
+        Unknown/missing spec defaults to ``start.time``: a wrong guess there
+        fails loudly (500 -> unsorted fallback) rather than silently misordering.
+        """
+        try:
+            for spec in getattr(client, "specs", None) or []:
+                if getattr(spec, "name", None) == "CatalogOfBlueskyRuns":
+                    version = str(getattr(spec, "version", "") or "")
+                    return "time" if version.startswith("1") else "start.time"
+        except Exception as e:
+            logger.debug("Could not detect Tiled backend for sort key: {}", e)
+        return "start.time"
 
     def _build_query(self, client: Any, filters: TiledFilters) -> Any:
         """Build Tiled query from filters.
