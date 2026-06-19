@@ -6,6 +6,7 @@ with filtering, pagination, and record selection.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -524,16 +525,26 @@ class TiledBrowserPanel(BasePanel):
         start = page * page_size
         end = start + page_size
 
-        # Sort newest-first so the first page is the most recent runs. .sort()
-        # is lazy, so a server-side failure on the sort query param (e.g. a
-        # client/server version mismatch on sort=-start.time, seen as a 500)
-        # surfaces HERE, when .items() is materialized -- not in _build_query.
-        # Fall back to an unsorted listing so the browser still loads.
+        # Sort newest-first so the first page is the most recent runs. The
+        # correct sort key is backend-dependent and the two cannot be unified:
+        #   * mongo_normalized (databroker; e.g. NSLS-II cms/raw) sorts on the
+        #     top-level "time" field -- nested "start.time" 500s.
+        #   * the tiled SQL catalog (e.g. the ALS deployment) sorts nested
+        #     "start.time" (metadata_["start"]["time"]); "time" resolves to a
+        #     nonexistent top-level metadata key and silently yields wrong order.
+        # So the key is per-deployment via LIGHTFALL_TILED_SORT_KEY (default
+        # "start.time" for the SQL catalog; mongo deployments set "time").
+        # .sort() is lazy, so a server-side failure surfaces HERE when .items()
+        # is materialized; fall back to an unsorted listing so the browser loads.
+        sort_key = os.environ.get("LIGHTFALL_TILED_SORT_KEY", "start.time")
         try:
-            page_items = list(result.sort(("start.time", -1)).items()[start:end])
+            page_items = list(result.sort((sort_key, -1)).items()[start:end])
         except httpx.HTTPStatusError as e:
             logger.warning(
-                "Tiled server-side sort failed ({}); listing without sort", e
+                "Tiled sort on {!r} failed ({}); listing without sort. If this is "
+                "a mongo/SQL backend mismatch, set LIGHTFALL_TILED_SORT_KEY.",
+                sort_key,
+                e,
             )
             page_items = list(result.items()[start:end])
 

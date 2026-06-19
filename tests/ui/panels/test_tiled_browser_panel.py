@@ -57,7 +57,8 @@ class _Result:
     def __len__(self) -> int:
         return 2
 
-    def sort(self, *_args):
+    def sort(self, *args):
+        self.sort_args = args
         return _SortFails() if self._sort_fails else _SortOk()
 
     def items(self) -> _Items:
@@ -96,3 +97,26 @@ def test_do_fetch_uses_sorted_results_when_sort_works():
 
     assert total == 2
     assert len(records) == 2
+
+
+def test_do_fetch_default_sort_key_is_start_time(monkeypatch):
+    """Default targets the tiled SQL catalog (the modern default backend):
+    nested "start.time" (metadata_["start"]["time"]). mongo deployments
+    override via LIGHTFALL_TILED_SORT_KEY."""
+    monkeypatch.delenv("LIGHTFALL_TILED_SORT_KEY", raising=False)
+    result = _Result(sort_fails=False)
+    TiledBrowserPanel._do_fetch(
+        _stub(result), client=None, filters=None, page=0, page_size=10
+    )
+    assert result.sort_args == (("start.time", -1),)
+
+
+def test_do_fetch_sort_key_overridable_via_env(monkeypatch):
+    """mongo_normalized backends (e.g. NSLS-II cms/raw) need the top-level
+    "time" key, which would 500 as nested "start.time"."""
+    monkeypatch.setenv("LIGHTFALL_TILED_SORT_KEY", "time")
+    result = _Result(sort_fails=False)
+    TiledBrowserPanel._do_fetch(
+        _stub(result), client=None, filters=None, page=0, page_size=10
+    )
+    assert result.sort_args == (("time", -1),)
