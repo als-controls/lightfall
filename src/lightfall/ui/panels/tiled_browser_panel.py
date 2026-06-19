@@ -85,6 +85,12 @@ class TiledBrowserPanel(BasePanel):
         self._current_filters = TiledFilters()
         self._loading = False
         self._fetch_thread: QThreadFuture | None = None
+        # Sort key for browsing runs newest-first. Backend-dependent: the tiled
+        # SQL catalog sorts nested "start.time"; mongo_normalized (databroker)
+        # sorts the top-level "time" and 500s on "start.time". Default to the
+        # SQL key; _do_fetch auto-falls-back to "time" on a 500 and caches the
+        # working key here.
+        self._sort_key = "start.time"
 
         # Create models
         self._model = TiledRecordModel()
@@ -524,18 +530,34 @@ class TiledBrowserPanel(BasePanel):
         start = page * page_size
         end = start + page_size
 
-        # Sort newest-first so the first page is the most recent runs. .sort()
-        # is lazy, so a server-side failure on the sort query param (e.g. a
-        # client/server version mismatch on sort=-start.time, seen as a 500)
-        # surfaces HERE, when .items() is materialized -- not in _build_query.
-        # Fall back to an unsorted listing so the browser still loads.
+        # Sort newest-first. The correct key is backend-dependent and .sort() is
+        # lazy, so a failure only surfaces HERE when .items() is materialized:
+        #   * tiled SQL catalog sorts nested "start.time".
+        #   * mongo_normalized (databroker) sorts top-level "time" and 500s on
+        #     "start.time".
+        # Try "start.time" first (correct on SQL; a *loud* 500 on mongo) and
+        # fall back to "time" -- never the other way, because "time" on a SQL
+        # catalog sorts a nonexistent key and is SILENTLY wrong. Cache the
+        # working key so later pages skip the failing attempt; if both 500, list
+        # unsorted so the browser still loads.
         try:
-            page_items = list(result.sort(("start.time", -1)).items()[start:end])
-        except httpx.HTTPStatusError as e:
+            page_items = list(result.sort((self._sort_key, -1)).items()[start:end])
+        except httpx.HTTPStatusError as exc:
+            alt = "time" if self._sort_key == "start.time" else "start.time"
             logger.warning(
-                "Tiled server-side sort failed ({}); listing without sort", e
+                "Tiled sort on {!r} failed (HTTP {}); retrying with {!r}",
+                self._sort_key,
+                exc.response.status_code,
+                alt,
             )
-            page_items = list(result.items()[start:end])
+            try:
+                page_items = list(result.sort((alt, -1)).items()[start:end])
+                self._sort_key = alt  # remember the working key for later pages
+            except httpx.HTTPStatusError as e:
+                logger.warning(
+                    "Tiled sort failed on both keys ({}); listing without sort", e
+                )
+                page_items = list(result.items()[start:end])
 
         records: list[TiledRecord] = []
         plan_names: set[str] = set()
