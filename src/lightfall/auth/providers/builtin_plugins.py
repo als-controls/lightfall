@@ -32,6 +32,10 @@ class KeycloakAuthPlugin(AuthProviderPlugin):
         return "Keycloak"
 
     @property
+    def accent_color(self) -> str:
+        return "#0066cc"
+
+    @property
     def requires_username(self) -> bool:
         return False  # browser-based
 
@@ -96,6 +100,10 @@ class PamAuthPlugin(AuthProviderPlugin):
     @property
     def display_name(self) -> str:
         return "Linux User"
+
+    @property
+    def accent_color(self) -> str:
+        return "#2e7d32"
 
     @property
     def requires_username(self) -> bool:

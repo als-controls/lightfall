@@ -250,12 +250,47 @@ class LoginDialog(LFDialog):
         from lightfall.auth.provider_registry import AuthProviderRegistry
 
         for plugin in AuthProviderRegistry.get_instance().get_all():
-            btn = QPushButton(plugin.display_name)
-            btn.setMinimumHeight(42)
+            btn = QPushButton(plugin.button_label)
+            btn.setMinimumHeight(44)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(self._provider_button_style(plugin.accent_color))
             btn.clicked.connect(lambda _c=False, p=plugin: self._on_provider_login(p))
             layout.addWidget(btn)
             self._provider_buttons.append(btn)
             logger.debug("Login dialog: added provider button '{}'", plugin.name)
+
+    @staticmethod
+    def _provider_button_style(accent: str) -> str:
+        """Build a styled-button stylesheet from a single accent color.
+
+        Hover/pressed shades are derived by darkening the accent, so a plugin
+        only needs to specify one color.
+        """
+        from PySide6.QtGui import QColor
+
+        base = QColor(accent)
+        hover = base.darker(115).name()
+        pressed = base.darker(130).name()
+        return f"""
+            QPushButton {{
+                background-color: {base.name()};
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: {scaled_px(14)}px;
+                font-weight: bold;
+                padding: 8px 16px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed};
+            }}
+            QPushButton:disabled {{
+                background-color: #cccccc;
+            }}
+            """
 
     def _on_provider_login(self, plugin: AuthProviderPlugin) -> None:
         """Provider button clicked: auth immediately, or reveal the form."""

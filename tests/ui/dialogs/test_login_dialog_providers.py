@@ -38,7 +38,7 @@ def test_dialog_renders_button_per_registered_provider(qapp):
 
     dialog = LoginDialog(allow_guest=True)
     labels = [b.text() for b in dialog.findChildren(QPushButton)]
-    assert "NSLS-II (CMS)" in labels
+    assert "Login with NSLS-II (CMS)" in labels
     AuthProviderRegistry.reset()
 
 

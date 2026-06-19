@@ -37,6 +37,19 @@ class AuthProviderPlugin(PluginType):
         return self.name.replace("_", " ").title()
 
     @property
+    def button_label(self) -> str:
+        """Full text shown on the provider's login button."""
+        return f"Login with {self.display_name}"
+
+    @property
+    def accent_color(self) -> str:
+        """Hex accent color for the provider's login button.
+
+        Hover/pressed shades are derived from this automatically.
+        """
+        return "#4a5568"
+
+    @property
     def requires_username(self) -> bool:
         """Whether the dialog should collect a username before authenticating."""
         return True
@@ -61,6 +74,8 @@ class AuthProviderPlugin(PluginType):
             "type": self.type_name,
             "name": self.name,
             "display_name": self.display_name,
+            "button_label": self.button_label,
+            "accent_color": self.accent_color,
             "requires_username": self.requires_username,
             "requires_password": self.requires_password,
             "priority": self.priority,

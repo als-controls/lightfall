@@ -32,6 +32,8 @@ def test_auth_provider_plugin_contract():
     assert plugin.is_singleton is True
     assert plugin.name == "nsls2_tiled"
     assert plugin.display_name == "Nsls2 Tiled"
+    assert plugin.button_label == "Login with Nsls2 Tiled"
+    assert plugin.accent_color.startswith("#")
     assert plugin.requires_username is True
     assert plugin.requires_password is False
     assert plugin.priority == 100
