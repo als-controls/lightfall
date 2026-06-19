@@ -135,8 +135,8 @@ class LocalNatsServer:
         logger.info("Starting local nats-server: {}", " ".join(args))
         self._proc = subprocess.Popen(
             args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=creationflags,
         )
 

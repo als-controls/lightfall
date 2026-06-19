@@ -115,6 +115,8 @@ class TestLocalNatsServer:
         srv = local_server.LocalNatsServer(port=4299)
         with pytest.raises(local_server.NatsPortInUseError):
             srv.start(timeout_s=1.0)
+        assert srv.is_running() is False
+        assert srv._proc is None
 
     def test_start_readiness_timeout_kills(self, monkeypatch):
         proc = _FakeProc()  # alive but never ready
