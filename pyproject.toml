@@ -67,6 +67,8 @@ dependencies = [
     "claude-agent-sdk>=0.2.82",
     "happi>=2.0",
     "nats-py>=2.0",
+    # bundled nats-server binary for the optional local-broker feature
+    "nats-server-bin>=2.14",
 ]
 
 [project.optional-dependencies]
@@ -208,6 +210,7 @@ requires = [
     "httpx[socks]>=0.27",
     "PySocks>=1.7",
     "nats-py>=2.0",
+    "nats-server-bin>=2.14",
 
     # EPICS
     "caproto>=1.1",
