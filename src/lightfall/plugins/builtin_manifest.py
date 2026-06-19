@@ -6,6 +6,8 @@ It is loaded directly by the application, not via entry points.
 
 from __future__ import annotations
 
+import sys
+
 from lightfall.plugins.manifest import PluginEntry, PluginManifest
 
 builtin_manifest = PluginManifest(
@@ -350,5 +352,34 @@ builtin_manifest = PluginManifest(
             import_path="lightfall.ui.panels.plugins.pipeline_triggers_plugin:PipelineTriggersPanelPlugin",
             preload=True,
         ),
+        # Auth provider plugins. Preloaded so they're registered before the
+        # startup login dialog. _setup_auth also registers these early (the
+        # dialog can appear before background plugin loading); the loader's
+        # auth_provider bridge is idempotent, so listing them here is what
+        # makes them appear (and be toggleable) in the Plugins settings page.
+        # PAM is appended below only on non-Windows platforms.
+        PluginEntry(
+            type_name="auth_provider",
+            name="keycloak",
+            import_path="lightfall.auth.providers.builtin_plugins:KeycloakAuthPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="auth_provider",
+            name="local",
+            import_path="lightfall.auth.providers.builtin_plugins:LocalAuthPlugin",
+            preload=True,
+        ),
     ],
 )
+
+# PAM auth is Linux/Unix only (uses the OS identity); never offer it on Windows.
+if sys.platform != "win32":
+    builtin_manifest.plugins.append(
+        PluginEntry(
+            type_name="auth_provider",
+            name="pam",
+            import_path="lightfall.auth.providers.builtin_plugins:PamAuthPlugin",
+            preload=True,
+        )
+    )

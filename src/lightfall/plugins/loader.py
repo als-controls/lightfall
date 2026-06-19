@@ -723,11 +723,22 @@ class PluginLoader(QObject):
             try:
                 from lightfall.auth.provider_registry import AuthProviderRegistry
 
-                AuthProviderRegistry.get_instance().register(plugin_info.instance)
-                logger.debug(
-                    "Registered auth provider '{}' with AuthProviderRegistry",
-                    plugin_info.name,
-                )
+                reg = AuthProviderRegistry.get_instance()
+                provider_name = plugin_info.instance.name
+                # Built-in providers are registered early by _setup_auth (the
+                # login dialog can appear before background loading). Don't
+                # re-register / clobber them here.
+                if reg.has(provider_name):
+                    logger.debug(
+                        "Auth provider '{}' already registered, skipping",
+                        provider_name,
+                    )
+                else:
+                    reg.register(plugin_info.instance)
+                    logger.debug(
+                        "Registered auth provider '{}' with AuthProviderRegistry",
+                        plugin_info.name,
+                    )
             except ImportError:
                 logger.debug(
                     "AuthProviderRegistry not available, skipping auth provider registration"

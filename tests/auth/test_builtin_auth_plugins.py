@@ -38,3 +38,44 @@ def test_register_builtins_respects_pam_flag():
     register_builtin_auth_plugins(reg, config=None, include_pam=True)
     assert "pam" in set(reg.get_names())
     AuthProviderRegistry.reset()
+
+
+def test_register_builtins_respects_disabled_preference(monkeypatch):
+    import lightfall.auth.providers.builtin_plugins as bp
+
+    monkeypatch.setattr(
+        bp, "_disabled_plugin_ids", lambda: {"auth_provider:keycloak"}
+    )
+    AuthProviderRegistry.reset()
+    reg = AuthProviderRegistry.get_instance()
+    register_builtin_auth_plugins(reg, config=None, include_pam=False)
+    names = set(reg.get_names())
+    assert "keycloak" not in names  # disabled
+    assert "local" in names  # always the fallback
+    AuthProviderRegistry.reset()
+
+
+def test_local_is_always_registered_even_if_disabled(monkeypatch):
+    import lightfall.auth.providers.builtin_plugins as bp
+
+    monkeypatch.setattr(
+        bp, "_disabled_plugin_ids", lambda: {"auth_provider:local"}
+    )
+    AuthProviderRegistry.reset()
+    reg = AuthProviderRegistry.get_instance()
+    register_builtin_auth_plugins(reg, config=None, include_pam=False)
+    assert "local" in set(reg.get_names())
+    AuthProviderRegistry.reset()
+
+
+def test_builtin_manifest_declares_auth_providers():
+    """The Plugins settings list is built from manifests; built-in auth
+    providers must be declared there to appear (and be toggleable)."""
+    from lightfall.plugins.builtin_manifest import builtin_manifest
+
+    auth_names = {e.name for e in builtin_manifest.get_plugins_by_type("auth_provider")}
+    assert {"keycloak", "local"} <= auth_names
+    # All declared as preload so they're registered before the login dialog.
+    assert all(
+        e.preload for e in builtin_manifest.get_plugins_by_type("auth_provider")
+    )

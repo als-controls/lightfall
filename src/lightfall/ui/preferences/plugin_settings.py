@@ -47,7 +47,9 @@ class PluginTableModel(QAbstractTableModel):
     COLUMNS = ["Name", "Type", "Status", "Manifest"]
 
     # Plugins that cannot be disabled (would lock user out)
-    PROTECTED_PLUGINS = {"settings:plugins"}
+    # auth_provider:local is the ultimate login fallback and is always
+    # re-registered at startup, so disabling it would be a no-op.
+    PROTECTED_PLUGINS = {"settings:plugins", "auth_provider:local"}
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the plugin table model."""

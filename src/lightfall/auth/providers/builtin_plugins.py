@@ -140,11 +140,44 @@ class PamAuthPlugin(AuthProviderPlugin):
         return PamAuthProvider(pam_config)
 
 
+def _disabled_plugin_ids() -> set[str]:
+    """Read the user's disabled-plugins preference (unique_id strings).
+
+    Mirrors PluginLoader._get_disabled_plugin_ids so built-in auth providers
+    honor the same Plugins-settings toggles as manifest-loaded providers.
+    Returns an empty set if preferences aren't available (e.g. early startup
+    or tests).
+    """
+    try:
+        from lightfall.ui.preferences.manager import PreferencesManager
+
+        disabled = PreferencesManager.get_instance().get("disabled_plugins", [])
+        if isinstance(disabled, list):
+            return set(disabled)
+    except Exception as e:
+        logger.debug("Could not load disabled plugins preference: {}", e)
+    return set()
+
+
 def register_builtin_auth_plugins(
     registry: Any, *, config: Any = None, include_pam: bool = True
 ) -> None:
-    """Register the built-in auth provider plugins into the registry."""
-    registry.register(KeycloakAuthPlugin())
-    registry.register(LocalAuthPlugin())
+    """Register the built-in auth provider plugins into the registry.
+
+    Honors the user's ``disabled_plugins`` preference so providers turned off
+    in the Plugins settings page aren't offered at login. The ``local``
+    provider is always registered as the ultimate fallback.
+    """
+    disabled = _disabled_plugin_ids()
+    optional = [KeycloakAuthPlugin()]
     if include_pam:
-        registry.register(PamAuthPlugin())
+        optional.append(PamAuthPlugin())
+    for plugin in optional:
+        if f"auth_provider:{plugin.name}" in disabled:
+            logger.info(
+                "Built-in auth provider '{}' disabled, not registering", plugin.name
+            )
+            continue
+        registry.register(plugin)
+    # Local is the hard fallback used when no other provider is configured.
+    registry.register(LocalAuthPlugin())
