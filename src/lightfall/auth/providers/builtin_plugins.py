@@ -140,6 +140,13 @@ class PamAuthPlugin(AuthProviderPlugin):
         return PamAuthProvider(pam_config)
 
 
+# Plugins that ship disabled by default. Seeded into the disabled_plugins
+# preference once (see seed_default_disabled_plugins); after that the user's
+# explicit Plugins-settings choices are authoritative.
+DEFAULT_DISABLED_PLUGIN_IDS = ("auth_provider:local",)
+_DEFAULTS_SEEDED_PREF = "default_disabled_plugins_seeded"
+
+
 def _disabled_plugin_ids() -> set[str]:
     """Read the user's disabled-plugins preference (unique_id strings).
 
@@ -159,25 +166,47 @@ def _disabled_plugin_ids() -> set[str]:
     return set()
 
 
+def seed_default_disabled_plugins() -> None:
+    """One-time: turn off plugins that should ship disabled by default.
+
+    Adds DEFAULT_DISABLED_PLUGIN_IDS to the ``disabled_plugins`` preference
+    exactly once (gated by a marker pref). Afterward the user is free to
+    re-enable them in the Plugins settings page and the choice sticks — we
+    never re-disable. Safe to call before preferences are usable (no-op).
+    """
+    try:
+        from lightfall.ui.preferences.manager import PreferencesManager
+
+        prefs = PreferencesManager.get_instance()
+    except Exception as e:
+        logger.debug("Cannot seed default-disabled plugins: {}", e)
+        return
+    if prefs.get(_DEFAULTS_SEEDED_PREF, False):
+        return
+    disabled = set(prefs.get("disabled_plugins", []) or [])
+    disabled.update(DEFAULT_DISABLED_PLUGIN_IDS)
+    prefs.set("disabled_plugins", sorted(disabled))
+    prefs.set(_DEFAULTS_SEEDED_PREF, True)
+    logger.info("Seeded default-disabled plugins: {}", list(DEFAULT_DISABLED_PLUGIN_IDS))
+
+
 def register_builtin_auth_plugins(
     registry: Any, *, config: Any = None, include_pam: bool = True
 ) -> None:
     """Register the built-in auth provider plugins into the registry.
 
     Honors the user's ``disabled_plugins`` preference so providers turned off
-    in the Plugins settings page aren't offered at login. The ``local``
-    provider is always registered as the ultimate fallback.
+    in the Plugins settings page (including ``local``, which ships disabled by
+    default) aren't offered at login.
     """
     disabled = _disabled_plugin_ids()
-    optional = [KeycloakAuthPlugin()]
+    candidates = [KeycloakAuthPlugin(), LocalAuthPlugin()]
     if include_pam:
-        optional.append(PamAuthPlugin())
-    for plugin in optional:
+        candidates.append(PamAuthPlugin())
+    for plugin in candidates:
         if f"auth_provider:{plugin.name}" in disabled:
             logger.info(
                 "Built-in auth provider '{}' disabled, not registering", plugin.name
             )
             continue
         registry.register(plugin)
-    # Local is the hard fallback used when no other provider is configured.
-    registry.register(LocalAuthPlugin())

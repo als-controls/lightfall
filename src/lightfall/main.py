@@ -121,7 +121,14 @@ def _setup_auth(config: ConfigManager) -> None:
         logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
 
     from lightfall.auth.provider_registry import AuthProviderRegistry
-    from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
+    from lightfall.auth.providers.builtin_plugins import (
+        register_builtin_auth_plugins,
+        seed_default_disabled_plugins,
+    )
+
+    # Apply ship-disabled-by-default plugin state once, before registration so
+    # the disabled ones (e.g. local) are honored here and by the plugin loader.
+    seed_default_disabled_plugins()
 
     registry = AuthProviderRegistry.get_instance()
     register_builtin_auth_plugins(
@@ -136,15 +143,29 @@ def _setup_auth(config: ConfigManager) -> None:
     if default_name == "keycloak" and not auth_config.provider.server_url:
         default_name = "local"
     default_plugin = registry.get(default_name) or registry.get("local")
-    try:
-        provider = default_plugin.create_provider()
-    except Exception as exc:
-        logger.warning(
-            "Failed to create '{}' auth provider ({}); falling back to local",
-            default_plugin.name, exc,
+
+    provider = None
+    if default_plugin is not None:
+        try:
+            provider = default_plugin.create_provider()
+            logger.info("Default auth provider: {}", default_plugin.name)
+        except Exception as exc:
+            logger.warning(
+                "Failed to create '{}' auth provider ({}); falling back to local",
+                default_plugin.name, exc,
+            )
+    if provider is None:
+        # The chosen provider may be unregistered/disabled (e.g. local ships
+        # disabled by default and nothing else is configured). Use a direct
+        # LocalAuthProvider purely for pre-login session plumbing — this does
+        # not add a login button (those come from the registry).
+        from lightfall.auth.providers.local import LocalAuthProvider
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
+
+        provider = LocalAuthProvider(
+            session_duration=LoginSettingsProvider.get_session_duration()
         )
-        provider = registry.get("local").create_provider()
-    logger.info("Default auth provider: {}", default_plugin.name)
+        logger.info("Default auth provider: local (direct fallback)")
 
     session_manager.set_provider(provider)
 

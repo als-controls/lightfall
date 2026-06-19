@@ -55,7 +55,7 @@ def test_register_builtins_respects_disabled_preference(monkeypatch):
     AuthProviderRegistry.reset()
 
 
-def test_local_is_always_registered_even_if_disabled(monkeypatch):
+def test_local_respects_disabled_preference(monkeypatch):
     import lightfall.auth.providers.builtin_plugins as bp
 
     monkeypatch.setattr(
@@ -64,8 +64,49 @@ def test_local_is_always_registered_even_if_disabled(monkeypatch):
     AuthProviderRegistry.reset()
     reg = AuthProviderRegistry.get_instance()
     register_builtin_auth_plugins(reg, config=None, include_pam=False)
-    assert "local" in set(reg.get_names())
+    names = set(reg.get_names())
+    assert "local" not in names  # disabled, so not offered at login
+    assert "keycloak" in names
     AuthProviderRegistry.reset()
+
+
+def test_local_is_disabled_by_default():
+    from lightfall.auth.providers.builtin_plugins import DEFAULT_DISABLED_PLUGIN_IDS
+
+    assert "auth_provider:local" in DEFAULT_DISABLED_PLUGIN_IDS
+
+
+def test_seed_default_disabled_plugins(monkeypatch):
+    """Seeding adds the defaults to disabled_plugins once, then leaves the
+    user's explicit choices alone."""
+    import lightfall.auth.providers.builtin_plugins as bp
+
+    store: dict = {}
+
+    class _FakePrefs:
+        def get(self, key, default=None):
+            return store.get(key, default)
+
+        def set(self, key, value):
+            store[key] = value
+
+    class _FakePrefsManager:
+        @staticmethod
+        def get_instance():
+            return _FakePrefs()
+
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.manager.PreferencesManager", _FakePrefsManager
+    )
+
+    bp.seed_default_disabled_plugins()
+    assert "auth_provider:local" in store["disabled_plugins"]
+    assert store[bp._DEFAULTS_SEEDED_PREF] is True
+
+    # User re-enables local; seeding must not undo it on a later run.
+    store["disabled_plugins"] = []
+    bp.seed_default_disabled_plugins()
+    assert store["disabled_plugins"] == []
 
 
 def test_builtin_manifest_declares_auth_providers():
