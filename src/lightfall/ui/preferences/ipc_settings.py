@@ -169,14 +169,34 @@ class IPCSettingsPlugin(SettingsPlugin):
             self._url_edit.setEnabled(not checked)
 
     def _refresh_binary_status(self) -> None:
-        """Detect and display the resolved nats-server binary."""
+        """Detect the nats-server binary and gate the local-server option on it.
+
+        The option is only available when a ``nats-server`` executable is found
+        (bundled via the optional ``local-nats`` extra, or installed on PATH).
+        When absent, the checkbox is disabled and force-unchecked so the panel
+        falls back to the site broker.
+        """
         if self._local_status_label is None:
             return
         path = resolve_nats_binary()
-        if path is None:
-            self._local_status_label.setText("nats-server not found")
-            self._local_status_label.setStyleSheet("color: red;")
+        available = path is not None
+
+        if self._local_enable_cb is not None:
+            self._local_enable_cb.setEnabled(available)
+            if not available and self._local_enable_cb.isChecked():
+                # Drop a stale "use local" pref when the binary has gone away;
+                # this re-enables the Server URL field via _on_local_toggled.
+                self._local_enable_cb.setChecked(False)
+        if self._local_port_edit is not None:
+            self._local_port_edit.setEnabled(available)
+
+        if not available:
+            self._local_status_label.setText(
+                "nats-server not found — install it or `pip install lightfall[local-nats]`"
+            )
+            self._local_status_label.setStyleSheet("color: gray;")
             return
+
         version = nats_binary_version(path)
         ver = f"v{version}" if version else "(version unknown)"
         self._local_status_label.setText(f"{ver} — {path}")
@@ -271,7 +291,7 @@ class IPCSettingsPlugin(SettingsPlugin):
                 if not (1 <= port <= 65535):
                     errors.append("Local NATS port must be between 1 and 65535")
             if resolve_nats_binary() is None:
-                errors.append("nats-server binary not found (install the nats-server-bin package)")
+                errors.append("nats-server not found (install it or `pip install lightfall[local-nats]`)")
         else:
             url = self._url_edit.text().strip() if self._url_edit else ""
             if url and not url.startswith("nats://"):

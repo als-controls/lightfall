@@ -100,6 +100,10 @@ class TestLocalNatsServerGroup:
     def test_load_and_save_roundtrip(self, qapp, monkeypatch):
         from lightfall.ui.preferences import ipc_settings as mod
 
+        # nats-server-bin is an optional extra; don't assume it's installed.
+        monkeypatch.setattr(mod, "resolve_nats_binary", lambda: "/x/nats-server")
+        monkeypatch.setattr(mod, "nats_binary_version", lambda p: "2.14.2")
+
         store = {}
         mock_prefs = MagicMock()
         mock_prefs.get = MagicMock(side_effect=lambda k, d=None: {
@@ -122,3 +126,39 @@ class TestLocalNatsServerGroup:
         plugin.save_settings()
         assert store["ipc_use_local_nats"] is True
         assert store["ipc_local_nats_port"] == 4299
+
+
+class TestLocalNatsDetection:
+    """The local-server option is gated on detecting a nats-server executable."""
+
+    def test_checkbox_enabled_when_binary_present(self, qapp, monkeypatch):
+        from lightfall.ui.preferences import ipc_settings as mod
+
+        monkeypatch.setattr(mod, "resolve_nats_binary", lambda: "/x/nats-server")
+        monkeypatch.setattr(mod, "nats_binary_version", lambda p: "2.14.2")
+        plugin = IPCSettingsPlugin()
+        plugin.create_widget()
+        plugin._refresh_binary_status()
+        assert plugin._local_enable_cb.isEnabled()
+        assert "2.14.2" in plugin._local_status_label.text()
+
+    def test_checkbox_disabled_when_binary_absent(self, qapp, monkeypatch):
+        from lightfall.ui.preferences import ipc_settings as mod
+
+        monkeypatch.setattr(mod, "resolve_nats_binary", lambda: None)
+        plugin = IPCSettingsPlugin()
+        plugin.create_widget()
+        plugin._refresh_binary_status()
+        assert not plugin._local_enable_cb.isEnabled()
+        assert not plugin._local_port_edit.isEnabled()
+
+    def test_absent_binary_force_unchecks_and_restores_url(self, qapp, monkeypatch):
+        from lightfall.ui.preferences import ipc_settings as mod
+
+        monkeypatch.setattr(mod, "resolve_nats_binary", lambda: None)
+        plugin = IPCSettingsPlugin()
+        plugin.create_widget()
+        plugin._local_enable_cb.setChecked(True)  # simulate a stale pref
+        plugin._refresh_binary_status()
+        assert not plugin._local_enable_cb.isChecked()
+        assert plugin._url_edit.isEnabled()
