@@ -452,6 +452,29 @@ class ClaudeAssistantWidget(QWidget):
         # Show confirmation
         self._append_system_message("Conversation reset")
 
+    def load_transcript(self, messages: list) -> None:
+        """Repaint a restored session's conversation into the chat.
+
+        Resume restores the model's context; the chat itself keeps no history
+        model, so we re-render user prompts + assistant text + tool-call chips
+        from the SDK SessionMessage list.
+        """
+        from lightfall.claude.transcript import extract_message_text
+
+        for sm in messages:
+            role, text, tools = extract_message_text(sm)
+            if role == "user":
+                if text:
+                    self._append_user_message(text)
+            elif role == "assistant":
+                if text:
+                    self._append_assistant_message(text)
+                for tool in tools:
+                    self._append_system_message(
+                        f"⚙ {self._format_tool_name(tool)}"
+                    )
+        self._append_system_message("— restored session —")
+
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
         from lightfall.ui.preferences.claude_settings import (
