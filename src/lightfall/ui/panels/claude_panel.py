@@ -677,6 +677,8 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
     def _on_pick_model(self, preset: str) -> None:
         from lightfall.ui.preferences.claude_settings import resolve_model_alias
         from lightfall.ui.preferences.manager import PreferencesManager
+        # Persist the raw combo preset (the menu re-checks against it); send the
+        # CLI-resolved alias to the live agent.
         PreferencesManager.get_instance().set("claude_model", preset)
         if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
             self._claude_widget.agent.set_model(resolve_model_alias(preset))

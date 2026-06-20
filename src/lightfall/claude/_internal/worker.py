@@ -554,6 +554,9 @@ class PersistentClaudeWorker(QThread):
 
         Live model switch — no reconnect. Takes effect on the next turn.
         """
+        if self._is_processing:
+            logger.debug("set_model ignored: a query is in flight")
+            return
         self._run_on_loop(lambda: self.client.set_model(model), f"set_model({model})")
 
     @property
