@@ -196,6 +196,7 @@ class QtClaudeAgent(QObject):
     result_received = Signal(dict)
     context_usage = Signal(dict)  # context-window usage after each turn
     cockpit_reset = Signal()  # title-bar cockpit should zero (new/reset session)
+    session_id_changed = Signal(str)  # current SDK session id
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     question_requested = Signal(str, list)  # request_id, questions
     # Partial streaming
@@ -407,6 +408,7 @@ class QtClaudeAgent(QObject):
         # Persistent worker reference
         self._worker: PersistentClaudeWorker | None = None
         self._is_connected = False
+        self.session_id_changed.connect(self._store_session_id)
 
     def _ensure_connected(self) -> bool:
         """
@@ -435,6 +437,7 @@ class QtClaudeAgent(QObject):
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
         self._worker.context_usage.connect(self.context_usage)
+        self._worker.session_id_changed.connect(self.session_id_changed)
 
         # Partial streaming forwards
         self._worker.partial_block_started.connect(self.partial_block_started)
@@ -611,6 +614,15 @@ class QtClaudeAgent(QObject):
         """
         if self._permission_manager:
             self._permission_manager.respond_to_question(request_id, answers)
+
+    def _store_session_id(self, session_id: str) -> None:
+        """Remember + persist the current session id for restore/auto-restore."""
+        self._current_session_id = session_id
+        try:
+            from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+            ClaudeSettingsProvider.set_last_session_id(session_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not persist last session id: {}", exc)
 
     def reset_conversation(self) -> None:
         """Reset the conversation by stopping the worker.

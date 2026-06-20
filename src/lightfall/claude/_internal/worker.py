@@ -51,6 +51,7 @@ class PersistentClaudeWorker(QThread):
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
     context_usage = Signal(dict)  # ContextUsageResponse after each turn
+    session_id_changed = Signal(str)  # current session id from ResultMessage
     connected = Signal()
     # Partial streaming (content_block_* events from StreamEvent)
     partial_block_started = Signal(str, str)  # block_id, kind
@@ -320,6 +321,9 @@ class PersistentClaudeWorker(QThread):
                         "session_id": getattr(msg, "session_id", "") or "",
                     })
                     self.query_completed.emit()
+                    sid = getattr(msg, "session_id", "") or ""
+                    if sid:
+                        self.session_id_changed.emit(sid)
                     # Refresh context-window usage for the cockpit. Best-effort:
                     # we are on the worker loop between turns, so we can await the
                     # SDK control call directly. Bounded so a wedged CLI can't
