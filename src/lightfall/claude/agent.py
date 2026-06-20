@@ -557,6 +557,17 @@ class QtClaudeAgent(QObject):
             return self._worker.cancel_current_query()
         return False
 
+    def set_model(self, model: str | None) -> None:
+        """Switch the model live (no reconnect). Applies on the next turn.
+
+        Stores the choice so a later reconnect (e.g. an effort change) keeps
+        the same model. If the worker is not connected yet, the stored value
+        is picked up by ``_ensure_connected`` via the options.
+        """
+        self._model = model
+        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+            self._worker.request_set_model(model)
+
     # --- Permission API ---
 
     @property

@@ -516,21 +516,20 @@ class PersistentClaudeWorker(QThread):
             return True
         return False
 
-    def _request_sdk_interrupt(self) -> None:
-        """Schedule ``client.interrupt()`` on the worker's event loop.
+    def _run_on_loop(self, coro_factory, label: str) -> None:
+        """Schedule an SDK client coroutine on the worker's event loop.
 
-        Safe to call from any thread. Best-effort: logs and swallows any
-        failure (loop closed, transport gone, control request timeout)
-        because the cancel flag and permission-cancel paths still ensure
-        we terminate eventually; the interrupt just makes it fast.
+        Safe to call from any thread. Best-effort: logs and swallows failures
+        (loop closed, transport gone, control-request timeout). ``coro_factory``
+        is a zero-arg callable returning the coroutine, so we only create the
+        coroutine once we know the loop is live (avoids 'coroutine was never
+        awaited' warnings when the loop is gone).
         """
         loop = self._loop
         if loop is None or loop.is_closed():
             return
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self.client.interrupt(), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
         except RuntimeError:
             # Loop stopped between the check above and the schedule call.
             return
@@ -538,11 +537,20 @@ class PersistentClaudeWorker(QThread):
         def _log_if_failed(fut: Any) -> None:
             exc = fut.exception()
             if exc is not None:
-                logger.warning(
-                    "Claude SDK interrupt() raised: {}", exc
-                )
+                logger.warning("Claude SDK {} raised: {}", label, exc)
 
         future.add_done_callback(_log_if_failed)
+
+    def _request_sdk_interrupt(self) -> None:
+        """Schedule ``client.interrupt()`` on the worker's event loop."""
+        self._run_on_loop(lambda: self.client.interrupt(), "interrupt()")
+
+    def request_set_model(self, model: str | None) -> None:
+        """Schedule ``client.set_model(model)`` on the worker's event loop.
+
+        Live model switch — no reconnect. Takes effect on the next turn.
+        """
+        self._run_on_loop(lambda: self.client.set_model(model), f"set_model({model})")
 
     @property
     def is_processing(self) -> bool:
