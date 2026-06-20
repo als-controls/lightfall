@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import httpx
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -84,6 +85,9 @@ class TiledBrowserPanel(BasePanel):
         self._current_filters = TiledFilters()
         self._loading = False
         self._fetch_thread: QThreadFuture | None = None
+        # Run-sort key, detected from the catalog backend on first fetch
+        # (see _detect_sort_key / _do_fetch) and cached. None until detected.
+        self._sort_key: str | None = None
 
         # Create models
         self._model = TiledRecordModel()
@@ -523,10 +527,35 @@ class TiledBrowserPanel(BasePanel):
         start = page * page_size
         end = start + page_size
 
+        # Sort newest-first. The correct key is backend-dependent and the two
+        # bluesky catalogs need different, incompatible keys (a single key would
+        # silently misorder one of them), so detect the backend ONCE from the
+        # catalog spec version -- deterministic, not by interpreting a 500 (which
+        # can occur for unrelated/transient reasons):
+        #   * CatalogOfBlueskyRuns v1  -> databroker mongo_normalized -> "time"
+        #   * CatalogOfBlueskyRuns v2+ -> tiled SQL catalog           -> "start.time"
+        if self._sort_key is None:
+            self._sort_key = self._detect_sort_key(client)
+
+        # .sort() is lazy, so a server-side failure surfaces HERE when .items()
+        # is materialized. The key is already chosen by backend, so a 500 here is
+        # a genuine/transient error (not a key mismatch) -- fall back to an
+        # unsorted listing for this page so the browser still loads, without
+        # changing the cached key.
+        try:
+            page_items = list(result.sort((self._sort_key, -1)).items()[start:end])
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "Tiled sort on {!r} failed ({}); listing without sort",
+                self._sort_key,
+                e,
+            )
+            page_items = list(result.items()[start:end])
+
         records: list[TiledRecord] = []
         plan_names: set[str] = set()
 
-        for key, entry in result.items()[start:end]:
+        for key, entry in page_items:
             try:
                 record = self._entry_to_record(key, entry)
                 records.append(record)
@@ -537,6 +566,30 @@ class TiledBrowserPanel(BasePanel):
                 continue
 
         return records, total_count, list(plan_names)
+
+    @staticmethod
+    def _detect_sort_key(client: Any) -> str:
+        """Pick the run-time sort key from the catalog backend, by spec version.
+
+        The two bluesky catalog backends sort runs on different, incompatible
+        keys, and the spec version distinguishes them deterministically:
+
+        * ``CatalogOfBlueskyRuns`` v1  -> databroker ``mongo_normalized``: sorts
+          the top-level ``time`` field (nested ``start.time`` 500s).
+        * ``CatalogOfBlueskyRuns`` v2+ -> tiled SQL catalog: sorts nested
+          ``start.time`` (``time`` resolves to a nonexistent key, silently wrong).
+
+        Unknown/missing spec defaults to ``start.time``: a wrong guess there
+        fails loudly (500 -> unsorted fallback) rather than silently misordering.
+        """
+        try:
+            for spec in getattr(client, "specs", None) or []:
+                if getattr(spec, "name", None) == "CatalogOfBlueskyRuns":
+                    version = str(getattr(spec, "version", "") or "")
+                    return "time" if version.startswith("1") else "start.time"
+        except Exception as e:
+            logger.debug("Could not detect Tiled backend for sort key: {}", e)
+        return "start.time"
 
     def _build_query(self, client: Any, filters: TiledFilters) -> Any:
         """Build Tiled query from filters.
@@ -587,13 +640,9 @@ class TiledBrowserPanel(BasePanel):
             except Exception as e:
                 logger.debug("Failed to apply exit_status filter: {}", e)
 
-        # Sort by start time descending so the first PAGE_SIZE slice
-        # returns the most recent runs, not the oldest.
-        try:
-            result = result.sort(("start.time", -1))
-        except Exception as e:
-            logger.debug("Failed to apply server-side sort: {}", e)
-
+        # NOTE: sorting is applied by the caller (_do_fetch), not here. .sort()
+        # is lazy, so its server-side failure must be caught where the query is
+        # materialized (.items()) to fall back to an unsorted listing.
         return result
 
     def _entry_to_record(self, key: str, entry: Any) -> TiledRecord:

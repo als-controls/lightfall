@@ -370,6 +370,42 @@ def _setup_ca_tunnel() -> None:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
 
+_UNSET = object()
+
+
+def _resolve_enabled_backends(get: Any) -> tuple[bool, bool, bool]:
+    """Decide which built-in device backends are enabled, from a prefs ``get``.
+
+    ``get`` is a ``prefs.get(key, default)``-style callable. Returns
+    ``(mock_enabled, bcs_enabled, happi_enabled)``.
+
+    Rules:
+    * Explicit ``device_{mock,bcs,happi}_enabled`` flags win verbatim.
+    * Absent flags fall back to legacy ``device_backend`` ("mock"/"bcs").
+    * The mock fallback fires ONLY for a fresh config where the user has
+      expressed no backend preference at all (no flags AND no legacy key) — so a
+      deliberate all-off (e.g. relying solely on a plugin-contributed backend
+      like the CMS happi backend) is honored instead of being forced back to
+      mock. This is the bug fix: previously an explicit all-false re-enabled mock.
+    """
+    legacy_backend = get("device_backend", _UNSET)
+    legacy_is_mock = legacy_backend == "mock" if legacy_backend is not _UNSET else False
+    legacy_is_bcs = legacy_backend == "bcs" if legacy_backend is not _UNSET else False
+    mock_enabled = bool(get("device_mock_enabled", legacy_is_mock))
+    bcs_enabled = bool(get("device_bcs_enabled", legacy_is_bcs))
+    happi_enabled = bool(get("device_happi_enabled", False))
+
+    no_preference = (
+        legacy_backend is _UNSET
+        and get("device_mock_enabled", _UNSET) is _UNSET
+        and get("device_bcs_enabled", _UNSET) is _UNSET
+        and get("device_happi_enabled", _UNSET) is _UNSET
+    )
+    if no_preference and not any([mock_enabled, bcs_enabled, happi_enabled]):
+        mock_enabled = True
+    return mock_enabled, bcs_enabled, happi_enabled
+
+
 def _setup_devices() -> None:
     """Setup the device catalog based on user preferences.
 
@@ -380,15 +416,7 @@ def _setup_devices() -> None:
     catalog = DeviceCatalog.get_instance()
     prefs = PreferencesManager.get_instance()
 
-    # Check which backends are enabled (with legacy compat)
-    legacy_backend = prefs.get("device_backend", "mock")
-    mock_enabled = prefs.get("device_mock_enabled", legacy_backend == "mock")
-    bcs_enabled = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
-    happi_enabled = prefs.get("device_happi_enabled", False)
-
-    # If nothing is explicitly enabled, fall back to mock
-    if not any([mock_enabled, bcs_enabled, happi_enabled]):
-        mock_enabled = True
+    mock_enabled, bcs_enabled, happi_enabled = _resolve_enabled_backends(prefs.get)
 
     if mock_enabled:
         include_noisy = prefs.get("device_mock_include_noisy", True)

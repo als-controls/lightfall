@@ -325,8 +325,10 @@ class DeviceSelectionFilterProxy(QSortFilterProxyModel):
         self.setRecursiveFilteringEnabled(True)
 
     def _apply_filter(self) -> None:
-        self.beginFilterChange()
-        self.endFilterChange()
+        # invalidateFilter() runs the full re-filter cycle (layoutAboutToBeChanged
+        # -> filterAcceptsRow -> layoutChanged). PySide6 exposes beginFilterChange()
+        # but NOT endFilterChange(), so the old begin/end pair raised AttributeError.
+        self.invalidateFilter()
 
     def set_categories(self, categories: set | None) -> None:
         self._categories = categories

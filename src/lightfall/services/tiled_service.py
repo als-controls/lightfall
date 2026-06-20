@@ -120,6 +120,9 @@ class TiledService(QObject):
         self._config = TiledConfig()
         self._state = TiledConnectionState.DISCONNECTED
         self._client: Any = None
+        # When True, an external client was adopted (adopt_client); auto-connects
+        # (e.g. the Keycloak auth handler) must not clobber it.
+        self._adopted: bool = False
         self._writer: Any = None
         self._subscription_token: int | None = None
         self._error_message: str = ""
@@ -311,6 +314,7 @@ class TiledService(QObject):
             url=url, api_key=None, enabled=True, auth_mode=TiledAuthMode.NONE
         )
         self._client = client
+        self._adopted = True
         self._set_state(TiledConnectionState.CONNECTED, "Adopted external Tiled client")
         # Reuse the existing periodic health check against the adopted client.
         self._health_timer.start(self.HEALTH_CHECK_INTERVAL_MS)
@@ -328,6 +332,10 @@ class TiledService(QObject):
         """
         if not self._config.enabled:
             logger.debug("Tiled not enabled, skipping connection")
+            return
+
+        if self._adopted:
+            logger.debug("Skipping auto-connect: an external Tiled client was adopted")
             return
 
         if not self._config.url:
@@ -609,6 +617,17 @@ class TiledService(QObject):
         if client is None:
             return
 
+        # An external client was adopted while this (auto) connect was in flight
+        # -- e.g. the Keycloak auth handler started a connect to the configured
+        # URL, which only completed AFTER the CMS bootstrap adopted its
+        # write-scoped client. Keep the adopted client; don't clobber it.
+        if self._adopted:
+            logger.info(
+                "Ignoring auto-connect result: external Tiled client adopted "
+                "(keeping adopted client)"
+            )
+            return
+
         self._client = client
 
         # Subscribe writer to engine (must be done in main thread)
@@ -676,6 +695,7 @@ class TiledService(QObject):
 
         # Clear client
         self._client = None
+        self._adopted = False
 
         self._set_state(TiledConnectionState.DISCONNECTED, "Disconnected from Tiled server")
         logger.info("Disconnected from Tiled server")
