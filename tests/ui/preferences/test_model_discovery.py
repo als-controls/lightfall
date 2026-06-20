@@ -69,16 +69,23 @@ def test_openai_shape_returns_ids(fake_httpx):
 
 
 def test_401_retries_with_bearer(fake_httpx):
+    seen_headers: list = []
+
     def responder(url, headers):
+        seen_headers.append(dict(headers))
         if "x-api-key" in headers:
             return _FakeResp(401, {})
-        assert headers.get("Authorization") == "Bearer k"
         return _FakeResp(200, {"data": [{"id": "m1"}]})
+
     fake_httpx._responder = responder
-    assert cs.fetch_available_models("https://gw.example", "k") == ["m1"]
+    result = cs.fetch_available_models("https://gw.example", "k")
+    assert result == ["m1"]
+    # the retry must use the Bearer header (asserted OUTSIDE the swallow zone)
+    assert any(h.get("Authorization") == "Bearer k" for h in seen_headers)
+    assert "x-api-key" in seen_headers[0]  # first attempt used Anthropic auth
 
 
-def test_non_200_after_retry_returns_none(fake_httpx):
+def test_non_200_returns_none(fake_httpx):
     fake_httpx._responder = lambda url, h: _FakeResp(404, {})
     assert cs.fetch_available_models("https://x", "k") is None
 
