@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import pytest
 from claude_agent_sdk.types import ResultMessage
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
 
 class _CtxStubClient:
@@ -65,13 +70,6 @@ def test_worker_survives_get_context_usage_error(qtbot):
     finally:
         worker.stop()
         assert worker.wait(3000)
-
-
-from unittest.mock import MagicMock
-
-import pytest
-
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
 
 
 @pytest.fixture
