@@ -140,11 +140,18 @@ class ClaudeSettingsProvider:
     def get_model() -> str:
         """Get the configured model name.
 
+        Default is "" meaning "do not force a model" — lightfall omits the
+        ``--model`` option and lets the configured backend/CLI use its own
+        default. This is the only backend-agnostic choice: the Anthropic API,
+        the LBL cborg gateway, and an Azure-hosted backend each accept
+        different model identifiers, so forcing a hardcoded model string
+        breaks every backend except the one it was written for.
+
         Returns:
-            The model name string.
+            The model name string, or "" to use the backend default.
         """
         prefs = PreferencesManager.get_instance()
-        return prefs.get("claude_model", "claude-sonnet")
+        return prefs.get("claude_model", "")
 
     @staticmethod
     def get_max_turns() -> int:
@@ -739,7 +746,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Load model
         if self._model_combo:
-            model = prefs.get("claude_model", "claude-sonnet")
+            model = prefs.get("claude_model", "")
             index = self._model_combo.findText(model)
             if index >= 0:
                 self._model_combo.setCurrentIndex(index)
