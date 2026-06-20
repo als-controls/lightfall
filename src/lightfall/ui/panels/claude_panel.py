@@ -199,6 +199,9 @@ class ClaudePanel(BasePanel):
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
 
+        # Session restore state
+        self._pending_resume_session_id: str | None = None
+
         # Title-bar cockpit (cost / context% / tokens)
         self._cockpit = CockpitState()
         self._cost_label: QLabel | None = None
@@ -413,6 +416,12 @@ class ClaudePanel(BasePanel):
         from lightfall.ui.preferences.claude_settings import resolve_model_alias
         resume = getattr(self, "_pending_resume_session_id", None)
         self._pending_resume_session_id = None
+        if resume is None and ClaudeSettingsProvider.get_auto_restore():
+            last = ClaudeSettingsProvider.get_last_session_id()
+            if last:
+                resume = last
+                # Repaint the restored chat once the widget is constructed.
+                QTimer.singleShot(0, lambda sid=last: self._repaint_restored(sid))
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
@@ -437,6 +446,13 @@ class ClaudePanel(BasePanel):
             self._cost_label.setToolTip(self._cockpit.tooltip())
             self.add_title_bar_widget(self._cost_label)
 
+        # Session history / restore (title-bar menu — per spec §4.3)
+        from PySide6.QtWidgets import QMenu
+        self._sessions_menu = QMenu()
+        self._sessions_menu.aboutToShow.connect(self._populate_sessions_menu)
+        self.add_title_bar_button("mdi6.history", "Restore a past session",
+                                  menu=self._sessions_menu)
+
         # Connect permission signals to toast notifications and icon state
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
         self._claude_widget.approval_needed.connect(
@@ -457,6 +473,68 @@ class ClaudePanel(BasePanel):
         self._connect_icon_signals()
 
         logger.info("Claude assistant panel initialized")
+
+    def _populate_sessions_menu(self) -> None:
+        from claude_agent_sdk import list_sessions
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        menu = self._sessions_menu
+        menu.clear()
+        try:
+            infos = list_sessions(directory=lightfall_agent_cwd(), limit=15)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_sessions failed: {}", exc)
+            infos = []
+        if not infos:
+            act = menu.addAction("No saved sessions")
+            act.setEnabled(False)
+            return
+        for info in infos:
+            title = (
+                getattr(info, "custom_title", None)
+                or getattr(info, "first_prompt", None)
+                or getattr(info, "summary", None)
+                or info.session_id[:8]
+            )
+            title = (title[:60] + "…") if len(title) > 60 else title
+            act = menu.addAction(title)
+            sid = info.session_id
+            act.triggered.connect(
+                lambda _checked=False, s=sid: self.restore_session(s)
+            )
+
+    def restore_session(self, session_id: str) -> None:
+        """Rebuild the agent resuming ``session_id`` and repaint its chat."""
+        from claude_agent_sdk import get_session_messages
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        self._pending_resume_session_id = session_id
+        self._reload_agent()  # _setup_claude_widget passes resume= then clears it
+        try:
+            messages = get_session_messages(
+                session_id, directory=lightfall_agent_cwd()
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not load transcript for {}: {}", session_id, exc)
+            messages = []
+        if self._claude_widget is not None and messages:
+            self._claude_widget.load_transcript(messages)
+
+    def _repaint_restored(self, session_id: str) -> None:
+        from claude_agent_sdk import get_session_messages
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        if self._claude_widget is None:
+            return
+        try:
+            messages = get_session_messages(
+                session_id, directory=lightfall_agent_cwd()
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("auto-restore transcript load failed: {}", exc)
+            return
+        if messages:
+            self._claude_widget.load_transcript(messages)
 
     def _build_ncs_system_prompt(self) -> str:
         """Build the NCS-specific system prompt addition.

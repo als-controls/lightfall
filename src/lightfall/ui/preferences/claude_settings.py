@@ -281,6 +281,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._max_turns_spin: QSpinBox | None = None
         # Behavior Configuration
         self._permission_combo: QComboBox | None = None
+        self._auto_restore_checkbox: QCheckBox | None = None
 
     @property
     def name(self) -> str:
@@ -485,6 +486,13 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         proxy_note.setWordWrap(True)
         proxy_note.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
         layout.addRow(proxy_note)
+
+        # Auto-restore last session on launch
+        self._auto_restore_checkbox = QCheckBox("Restore last session on launch")
+        self._auto_restore_checkbox.setToolTip(
+            "Resume the most recent conversation when the panel opens."
+        )
+        layout.addRow("", self._auto_restore_checkbox)
 
         return group
 
@@ -755,6 +763,11 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             if index >= 0:
                 self._permission_combo.setCurrentIndex(index)
 
+        if getattr(self, "_auto_restore_checkbox", None):
+            self._auto_restore_checkbox.setChecked(
+                bool(prefs.get("claude_auto_restore", False))
+            )
+
         # Update status labels
         if self._status_label:
             self._status_label.setText("")
@@ -804,6 +817,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if self._permission_combo:
             mode = self._permission_combo.currentData()
             prefs.set("claude_permission_mode", mode)
+
+        if getattr(self, "_auto_restore_checkbox", None):
+            prefs.set("claude_auto_restore", self._auto_restore_checkbox.isChecked())
 
         logger.info("Claude settings saved")
 
