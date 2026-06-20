@@ -88,6 +88,80 @@ def resolve_model_alias(name: str) -> str:
     return _MODEL_ALIASES.get(name, name)
 
 
+# Session cache of discovered models, keyed by base_url. Only successful
+# lookups are cached (a failed probe should retry next time).
+_MODELS_CACHE: dict[str, list[str]] = {}
+
+
+def fetch_available_models(
+    base_url: str | None,
+    api_key: str | None,
+    *,
+    timeout: float = 5.0,
+) -> list[str] | None:
+    """Query a backend's ``GET /v1/models`` and return the model ids.
+
+    Backend-agnostic: Anthropic and OpenAI-compatible gateways (e.g. cborg)
+    both return ``{"data": [{"id": ...}, ...]}``. Tries Anthropic auth
+    (``x-api-key`` + ``anthropic-version``), retrying once with
+    ``Authorization: Bearer`` on 401. Routes ``*.lbl.gov`` (cborg) through the
+    configured SOCKS proxy. Never raises — returns ``None`` on any failure so
+    callers fall back to the free-text picker.
+    """
+    if not base_url or not api_key:
+        return None
+
+    import httpx
+
+    url = f"{base_url.rstrip('/')}/v1/models"
+    client_kwargs: dict = {"timeout": timeout}
+    try:
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+    except Exception:  # noqa: BLE001 - proxy is best-effort
+        pass
+
+    anthropic_headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    bearer_headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get(url, headers=anthropic_headers)
+            if resp.status_code == 401:
+                resp = client.get(url, headers=bearer_headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json().get("data")
+            if not isinstance(data, list):
+                return None
+            ids = [
+                m["id"] for m in data
+                if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]
+            ]
+            return ids or None
+    except Exception as exc:  # noqa: BLE001 - discovery is best-effort
+        logger.debug("fetch_available_models failed for {}: {}", base_url, exc)
+        return None
+
+
+def get_cached_models(
+    base_url: str | None,
+    api_key: str | None,
+    *,
+    refresh: bool = False,
+) -> list[str] | None:
+    """Session-cached ``fetch_available_models``. Only successes are cached."""
+    if not base_url:
+        return None
+    if not refresh and base_url in _MODELS_CACHE:
+        return _MODELS_CACHE[base_url]
+    models = fetch_available_models(base_url, api_key)
+    if models:
+        _MODELS_CACHE[base_url] = models
+    return models
+
+
 # Permission mode options
 PERMISSION_MODES = {
     "default": "Requires confirmation for actions",
