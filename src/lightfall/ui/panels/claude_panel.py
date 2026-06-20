@@ -205,6 +205,7 @@ class ClaudePanel(BasePanel):
         # Title-bar cockpit (cost / context% / tokens)
         self._cockpit = CockpitState()
         self._cost_label: QLabel | None = None
+        self._sessions_menu = None
 
         # Icon animation state
         self._thinking_timer: QTimer | None = None
@@ -447,11 +448,12 @@ class ClaudePanel(BasePanel):
             self.add_title_bar_widget(self._cost_label)
 
         # Session history / restore (title-bar menu — per spec §4.3)
-        from PySide6.QtWidgets import QMenu
-        self._sessions_menu = QMenu()
-        self._sessions_menu.aboutToShow.connect(self._populate_sessions_menu)
-        self.add_title_bar_button("mdi6.history", "Restore a past session",
-                                  menu=self._sessions_menu)
+        if self._sessions_menu is None:
+            from PySide6.QtWidgets import QMenu
+            self._sessions_menu = QMenu()
+            self._sessions_menu.aboutToShow.connect(self._populate_sessions_menu)
+            self.add_title_bar_button("mdi6.history", "Restore a past session",
+                                      menu=self._sessions_menu)
 
         # Connect permission signals to toast notifications and icon state
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
