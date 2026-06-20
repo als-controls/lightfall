@@ -756,6 +756,53 @@ class DeviceCatalog(QObject):
 
         return False
 
+    def mark_device_live(
+        self,
+        device_id: UUID | str,
+        ophyd_device: Any,
+        *,
+        connected: bool | None = None,
+    ) -> bool:
+        """Attach a live ophyd instance to a cached device and refresh its state.
+
+        For devices instantiated *outside* the DeviceConnectionManager — e.g.
+        injected into the console kernel by a beamline bootstrap — so the
+        catalog and UI reflect that they are live instead of staying UNKNOWN.
+        Sets the ophyd instance and an ONLINE/CONNECTING state, then emits the
+        state-change signals. Unlike :meth:`update_device`, this does NOT write
+        through to the backend's persistent store (no happi JSON rewrite); it
+        only updates in-memory state and notifies listeners.
+
+        Args:
+            device_id: Device UUID or string id.
+            ophyd_device: The live ophyd instance to attach.
+            connected: Force the connected flag; if None, probe
+                ``ophyd_device.connected`` (a freshly instantiated device whose
+                CA channels are still connecting reports CONNECTING).
+
+        Returns:
+            True if the device was found and updated.
+        """
+        device = self.get_device(device_id)
+        if device is None:
+            return False
+
+        if connected is None:
+            connected = bool(getattr(ophyd_device, "connected", False))
+
+        device._ophyd_device = ophyd_device
+        device._state = DeviceState(
+            device_id=device.id,
+            status=DeviceStatus.ONLINE if connected else DeviceStatus.CONNECTING,
+            connected=connected,
+        )
+
+        device_id_str = str(device.id)
+        self.device_state_changed.emit(device_id_str, device._state)
+        if connected:
+            self.device_connected.emit(device_id_str)
+        return True
+
     def remove_device(self, device_id: UUID | str) -> bool:
         """Remove a device.
 
