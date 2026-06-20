@@ -170,6 +170,8 @@ class ClaudeAssistantWidget(QWidget):
     query_started = Signal()                     # Emitted when a query begins processing
     approval_needed = Signal(str, str, dict)   # request_id, tool_name, tool_input
     approval_resolved = Signal(str, bool)       # request_id, was_allowed
+    model_change_requested = Signal(str)   # combo preset the user picked
+    effort_change_requested = Signal(str)  # effort level the user picked
 
     def __init__(
         self,
@@ -307,6 +309,18 @@ class ClaudeAssistantWidget(QWidget):
         self.send_button.clicked.connect(self._on_send_button_clicked)
         input_layout.addWidget(self.send_button)
 
+        from PySide6.QtWidgets import QMenu, QToolButton
+        self.tune_button = QToolButton()
+        self.tune_button.setIcon(qta.icon("mdi6.tune-variant"))
+        self.tune_button.setFixedWidth(32)
+        self.tune_button.setToolTip("Model / reasoning effort")
+        self.tune_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tune_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._tune_menu = QMenu(self.tune_button)
+        self._tune_menu.aboutToShow.connect(self._build_tune_menu)
+        self.tune_button.setMenu(self._tune_menu)
+        input_layout.addWidget(self.tune_button)
+
         self.reset_button = QPushButton(qta.icon("mdi6.broom"), "")
         self.reset_button.setFixedWidth(32)
         self.reset_button.setToolTip("Reset conversation")
@@ -438,6 +452,39 @@ class ClaudeAssistantWidget(QWidget):
         # Show confirmation
         self._append_system_message("Conversation reset")
 
+    def _build_tune_menu(self) -> None:
+        """Populate the input-row model/effort popup from current settings."""
+        from lightfall.ui.preferences.claude_settings import (
+            EFFORT_OPTIONS,
+            MODEL_OPTIONS,
+            ClaudeSettingsProvider,
+        )
+        menu = self._tune_menu
+        menu.clear()
+        current_model = ClaudeSettingsProvider.get_model()
+        current_effort = ClaudeSettingsProvider.get_effort()
+
+        menu.addSection("Model (live)")
+        for preset in MODEL_OPTIONS:
+            act = menu.addAction(preset or "Default (CLI)")
+            act.setCheckable(True)
+            act.setChecked(preset == current_model)
+            act.triggered.connect(
+                lambda _c=False, p=preset: self.model_change_requested.emit(p)
+            )
+
+        menu.addSection("Effort (restarts conversation)")
+        for level in EFFORT_OPTIONS:
+            act = menu.addAction(level or "Default (high)")
+            act.setCheckable(True)
+            act.setChecked(level == current_effort)
+            # xhigh/max are Opus-only; disable them for non-opus models.
+            if level in ("xhigh", "max") and "opus" not in (current_model or ""):
+                act.setEnabled(False)
+            act.triggered.connect(
+                lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
+            )
+
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.
 
@@ -455,6 +502,7 @@ class ClaudeAssistantWidget(QWidget):
             self.send_button.setText("Cancel")
             self.send_button.setEnabled(True)
             self.reset_button.setEnabled(False)
+            self.tune_button.setEnabled(False)
         else:
             # Enable input, restore placeholder, change button back
             self.input_field.setEnabled(True)
@@ -463,6 +511,7 @@ class ClaudeAssistantWidget(QWidget):
             self.send_button.setText("Send")
             self.send_button.setEnabled(True)
             self.reset_button.setEnabled(True)
+            self.tune_button.setEnabled(True)
             self.input_field.setFocus()
 
     @Slot(str)

@@ -410,6 +410,9 @@ class ClaudePanel(BasePanel):
         ncs_system_prompt = self._build_ncs_system_prompt()
 
         permission_mode = ClaudeSettingsProvider.get_permission_mode()
+        from lightfall.ui.preferences.claude_settings import resolve_model_alias
+        resume = getattr(self, "_pending_resume_session_id", None)
+        self._pending_resume_session_id = None
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
@@ -417,6 +420,9 @@ class ClaudePanel(BasePanel):
             additional_system_prompt=ncs_system_prompt,
             permission_mode=permission_mode,
             require_approval=(permission_mode != "bypassPermissions"),
+            model=resolve_model_alias(ClaudeSettingsProvider.get_model()),
+            effort=ClaudeSettingsProvider.get_effort() or None,
+            resume=resume,
             parent=self,
         )
 
@@ -443,6 +449,9 @@ class ClaudePanel(BasePanel):
 
         # Connect icon state: query_started for immediate feedback
         self._claude_widget.query_started.connect(lambda: self._icon_set_thinking())
+
+        self._claude_widget.model_change_requested.connect(self._on_pick_model)
+        self._claude_widget.effort_change_requested.connect(self._on_pick_effort)
 
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
@@ -584,6 +593,30 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 """
 
         return base_prompt
+
+    def _on_pick_model(self, preset: str) -> None:
+        from lightfall.ui.preferences.claude_settings import resolve_model_alias
+        from lightfall.ui.preferences.manager import PreferencesManager
+        PreferencesManager.get_instance().set("claude_model", preset)
+        if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
+            self._claude_widget.agent.set_model(resolve_model_alias(preset))
+
+    def _on_pick_effort(self, level: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+        from lightfall.ui.preferences.manager import PreferencesManager
+        if level == ClaudeSettingsProvider.get_effort():
+            return
+        reply = QMessageBox.question(
+            self, "Change effort",
+            "Changing reasoning effort restarts the conversation "
+            "(a fresh session). Continue?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        PreferencesManager.get_instance().set("claude_effort", level)
+        self._reload_agent()  # rebuilds widget+agent; effort read at construction
 
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available.
