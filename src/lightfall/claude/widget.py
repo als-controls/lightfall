@@ -180,6 +180,9 @@ class ClaudeAssistantWidget(QWidget):
         additional_system_prompt: str | None = None,
         permission_mode: str = "default",
         require_approval: bool = True,
+        model: str | None = None,
+        effort: str | None = None,
+        resume: str | None = None,
         parent: QWidget | None = None
     ):
         """
@@ -234,6 +237,9 @@ class ClaudeAssistantWidget(QWidget):
                 max_turns=ClaudeSettingsProvider.get_max_turns(),
                 additional_system_prompt=additional_system_prompt,
                 require_approval=require_approval,
+                model=model,
+                effort=effort,
+                resume=resume,
                 parent=self,
             )
         except ValueError as e:

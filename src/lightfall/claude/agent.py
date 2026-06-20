@@ -21,6 +21,18 @@ from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
 
 
+def lightfall_agent_cwd() -> str:
+    """Stable working directory for the Claude agent subprocess.
+
+    Pinned to ``~/lightfall`` (created if missing) so the SDK groups session
+    transcripts under one deterministic project dir across launches, and so
+    ``list_sessions(directory=...)`` matches the dir the CLI wrote to.
+    """
+    path = Path.home() / "lightfall"
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
 def _patch_sdk_for_windows_cmdline_limit():
     """
     Monkey-patch the Claude Agent SDK to handle Windows command line length limits.
@@ -206,6 +218,9 @@ class QtClaudeAgent(QObject):
         max_turns: int = 20,
         additional_system_prompt: str | None = None,
         require_approval: bool = True,
+        model: str | None = None,
+        effort: str | None = None,
+        resume: str | None = None,
         parent: QObject | None = None
     ):
         """
@@ -312,8 +327,15 @@ class QtClaudeAgent(QObject):
         if additional_system_prompt:
             system_prompt = f"{system_prompt}\n\n{additional_system_prompt}"
 
+        self._model = model
+        self._effort = effort
+        self._resume_session_id = resume
+        self._current_session_id: str | None = None
+        self._project_cwd = lightfall_agent_cwd()
+
         # Configure Claude options
         options_dict = {
+            "cwd": self._project_cwd,
             "plugins": [{"type": "local", "path": str(self._session_plugin_dir)}],
             "mcp_servers": mcp_servers,
             "allowed_tools": allowed_tools,
@@ -329,6 +351,12 @@ class QtClaudeAgent(QObject):
             # partial_* signals and the widget appends as they arrive.
             "include_partial_messages": True,
         }
+        if self._model:
+            options_dict["model"] = self._model
+        if self._effort:
+            options_dict["effort"] = self._effort
+        if self._resume_session_id:
+            options_dict["resume"] = self._resume_session_id
 
         # Add CLI path if provided
         if cli_path:
