@@ -87,6 +87,7 @@ def resolve_model_alias(name: str) -> str:
         return ""
     return _MODEL_ALIASES.get(name, name)
 
+
 # Permission mode options
 PERMISSION_MODES = {
     "default": "Requires confirmation for actions",
