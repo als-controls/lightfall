@@ -60,6 +60,9 @@ GLOBAL_ONLY_PREFS = {
     "claude_model",
     "claude_max_turns",
     "claude_permission_mode",
+    "claude_effort",
+    "claude_auto_restore",
+    "claude_last_session_id",
     # Plugin settings
     "disabled_plugins",
     # Tool/skill settings (AgentPlugin overrides)

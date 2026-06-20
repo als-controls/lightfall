@@ -61,12 +61,31 @@ API_ENDPOINTS = {
     "custom": ("Custom...", ""),
 }
 
-# Default model options
+# Model combo presets. "" = let the CLI pick its default model.
 MODEL_OPTIONS = [
-    "claude-sonnet",
+    "",  # Default (CLI default)
     "claude-opus",
+    "claude-sonnet",
     "claude-haiku",
 ]
+
+# Combo preset -> model string the Claude Code CLI accepts. Anything not in
+# this map (custom entry, full id) passes through unchanged.
+_MODEL_ALIASES = {
+    "claude-opus": "opus",
+    "claude-sonnet": "sonnet",
+    "claude-haiku": "haiku",
+}
+
+# Reasoning effort. "" = leave the SDK default (high). xhigh/max are Opus-only.
+EFFORT_OPTIONS = ["", "low", "medium", "high", "xhigh", "max"]
+
+
+def resolve_model_alias(name: str) -> str:
+    """Resolve a model combo preset to a CLI model string (passthrough else)."""
+    if not name:
+        return ""
+    return _MODEL_ALIASES.get(name, name)
 
 # Permission mode options
 PERMISSION_MODES = {
@@ -145,6 +164,30 @@ class ClaudeSettingsProvider:
         """
         prefs = PreferencesManager.get_instance()
         return prefs.get("claude_permission_mode", "default")
+
+    @staticmethod
+    def get_effort() -> str:
+        """Get the configured reasoning effort ('' = SDK default)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("claude_effort", "")
+
+    @staticmethod
+    def get_auto_restore() -> bool:
+        """Whether to auto-restore the last session on launch."""
+        prefs = PreferencesManager.get_instance()
+        return bool(prefs.get("claude_auto_restore", False))
+
+    @staticmethod
+    def get_last_session_id() -> str:
+        """Get the persisted last-session id ('' if none)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("claude_last_session_id", "") or ""
+
+    @staticmethod
+    def set_last_session_id(session_id: str) -> None:
+        """Persist the current session id for auto-restore."""
+        prefs = PreferencesManager.get_instance()
+        prefs.set("claude_last_session_id", session_id or "")
 
     @staticmethod
     def is_oauth_authenticated() -> bool:
@@ -233,6 +276,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._status_label: QLabel | None = None
         # Model Configuration
         self._model_combo: QComboBox | None = None
+        self._effort_combo: QComboBox | None = None
         self._max_turns_spin: QSpinBox | None = None
         # Behavior Configuration
         self._permission_combo: QComboBox | None = None
@@ -383,6 +427,16 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         for model in MODEL_OPTIONS:
             self._model_combo.addItem(model)
         layout.addRow("Model:", self._model_combo)
+
+        # Reasoning effort selector
+        self._effort_combo = QComboBox()
+        for level in EFFORT_OPTIONS:
+            self._effort_combo.addItem(level or "default (high)", level)
+        self._effort_combo.setToolTip(
+            "Reasoning effort. xhigh/max are Opus-only and fall back to high "
+            "on other models. Changing this restarts the conversation."
+        )
+        layout.addRow("Effort:", self._effort_combo)
 
         # Max turns spinner
         self._max_turns_spin = QSpinBox()
@@ -683,6 +737,12 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             else:
                 self._model_combo.setEditText(model)
 
+        # Load effort
+        if getattr(self, "_effort_combo", None):
+            effort = prefs.get("claude_effort", "")
+            idx = self._effort_combo.findData(effort)
+            self._effort_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
         # Load max turns
         if self._max_turns_spin:
             self._max_turns_spin.setValue(prefs.get("claude_max_turns", 20))
@@ -730,6 +790,10 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         # Save model
         if self._model_combo:
             prefs.set("claude_model", self._model_combo.currentText())
+
+        # Save effort
+        if getattr(self, "_effort_combo", None):
+            prefs.set("claude_effort", self._effort_combo.currentData())
 
         # Save max turns
         if self._max_turns_spin:
