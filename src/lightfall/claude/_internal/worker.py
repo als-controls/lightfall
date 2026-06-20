@@ -50,6 +50,7 @@ class PersistentClaudeWorker(QThread):
     query_completed = Signal()
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
+    context_usage = Signal(dict)  # ContextUsageResponse after each turn
     connected = Signal()
     # Partial streaming (content_block_* events from StreamEvent)
     partial_block_started = Signal(str, str)  # block_id, kind
@@ -316,8 +317,21 @@ class PersistentClaudeWorker(QThread):
                         "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
                         "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
                         "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
+                        "session_id": getattr(msg, "session_id", "") or "",
                     })
                     self.query_completed.emit()
+                    # Refresh context-window usage for the cockpit. Best-effort:
+                    # we are on the worker loop between turns, so we can await the
+                    # SDK control call directly. Bounded so a wedged CLI can't
+                    # stall the worker; never let it break the turn.
+                    try:
+                        ctx = await asyncio.wait_for(
+                            self.client.get_context_usage(), timeout=2.0
+                        )
+                        if ctx:
+                            self.context_usage.emit(dict(ctx))
+                    except Exception as exc:  # noqa: BLE001 - best-effort telemetry
+                        logger.debug("[sdk-stream] get_context_usage failed: {}", exc)
                     exit_reason = "result_message"
                     break
                 else:

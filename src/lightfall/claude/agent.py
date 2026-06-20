@@ -182,6 +182,7 @@ class QtClaudeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
+    context_usage = Signal(dict)  # context-window usage after each turn
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     question_requested = Signal(str, list)  # request_id, questions
     # Partial streaming
@@ -404,6 +405,7 @@ class QtClaudeAgent(QObject):
         self._worker.query_completed.connect(self.query_completed)
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
+        self._worker.context_usage.connect(self.context_usage)
 
         # Partial streaming forwards
         self._worker.partial_block_started.connect(self.partial_block_started)
