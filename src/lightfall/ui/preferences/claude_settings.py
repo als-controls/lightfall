@@ -820,6 +820,15 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Load model
         if self._model_combo:
+            discovered = get_cached_models(
+                self._get_effective_base_url(), self._get_effective_api_key()
+            )
+            self._model_combo.blockSignals(True)
+            self._model_combo.clear()
+            self._model_combo.addItem("")  # Default (no forced model)
+            for m in (discovered if discovered else [x for x in MODEL_OPTIONS if x]):
+                self._model_combo.addItem(m)
+            self._model_combo.blockSignals(False)
             model = prefs.get("claude_model", "")
             index = self._model_combo.findText(model)
             if index >= 0:

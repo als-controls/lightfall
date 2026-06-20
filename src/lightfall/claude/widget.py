@@ -487,14 +487,26 @@ class ClaudeAssistantWidget(QWidget):
         current_model = ClaudeSettingsProvider.get_model()
         current_effort = ClaudeSettingsProvider.get_effort()
 
+        from lightfall.ui.preferences.claude_settings import get_cached_models
+        discovered = get_cached_models(
+            ClaudeSettingsProvider.get_base_url(),
+            ClaudeSettingsProvider.get_api_key(),
+        )
+        # Always offer "Default" (no forced model). Then either the backend's
+        # real model ids (A) or the static alias hints (B fallback).
+        model_values = [""] + (discovered if discovered else [
+            m for m in MODEL_OPTIONS if m
+        ])
         menu.addSection("Model (live)")
-        for preset in MODEL_OPTIONS:
-            act = menu.addAction(preset or "Default (CLI)")
+        for value in model_values:
+            act = menu.addAction(value or "Default (CLI)")
             act.setCheckable(True)
-            act.setChecked(preset == current_model)
+            act.setChecked(value == current_model)
             act.triggered.connect(
-                lambda _c=False, p=preset: self.model_change_requested.emit(p)
+                lambda _c=False, v=value: self.model_change_requested.emit(v)
             )
+        refresh_act = menu.addAction("↻ Refresh models")
+        refresh_act.triggered.connect(self._refresh_models)
 
         menu.addSection("Effort (restarts conversation)")
         for level in EFFORT_OPTIONS:
@@ -507,6 +519,19 @@ class ClaudeAssistantWidget(QWidget):
             act.triggered.connect(
                 lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
             )
+
+    def _refresh_models(self) -> None:
+        """Re-query the backend's model list (clears the session cache)."""
+        from lightfall.ui.preferences.claude_settings import (
+            ClaudeSettingsProvider,
+            get_cached_models,
+        )
+        get_cached_models(
+            ClaudeSettingsProvider.get_base_url(),
+            ClaudeSettingsProvider.get_api_key(),
+            refresh=True,
+        )
+        # Next aboutToShow rebuild reflects the refreshed cache.
 
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.
