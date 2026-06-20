@@ -65,3 +65,29 @@ def test_worker_survives_get_context_usage_error(qtbot):
     finally:
         worker.stop()
         assert worker.wait(3000)
+
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+
+
+@pytest.fixture
+def _mock_sdk(monkeypatch):
+    monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
+
+
+def test_reset_conversation_emits_cockpit_reset(_mock_sdk, qtbot, monkeypatch):
+    AgentRegistry.reset_instance()
+    from PySide6.QtWidgets import QWidget
+
+    from lightfall.claude.agent import QtClaudeAgent
+
+    target = QWidget()
+    qtbot.addWidget(target)
+    agent = QtClaudeAgent(target_window=target, require_approval=False)
+    with qtbot.waitSignal(agent.cockpit_reset, timeout=1000):
+        agent.reset_conversation()
+    AgentRegistry.reset_instance()

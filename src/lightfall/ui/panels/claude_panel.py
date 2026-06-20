@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.claude.cockpit import CockpitState
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.ui.theme import scaled_pt, scaled_px
 from lightfall.ui.toast import ToastManager
+from lightfall.utils.crash_diagnostics import gui_thread_only, safe_call
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -197,6 +199,10 @@ class ClaudePanel(BasePanel):
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
 
+        # Title-bar cockpit (cost / context% / tokens)
+        self._cockpit = CockpitState()
+        self._cost_label: QLabel | None = None
+
         # Icon animation state
         self._thinking_timer: QTimer | None = None
         self._thinking_icon_toggle = False
@@ -353,6 +359,7 @@ class ClaudePanel(BasePanel):
         currently registered tools.
         """
         logger.info("Reloading Claude agent with new tools")
+        self._reset_cockpit()
 
         # Stop current agent
         if self._claude_widget and hasattr(self._claude_widget, 'agent'):
@@ -415,6 +422,14 @@ class ClaudePanel(BasePanel):
 
         # Add to layout
         self._layout.addWidget(self._claude_widget)
+
+        # Title-bar cockpit label (cost / context% / tokens)
+        if self._cost_label is None:
+            self._cost_label = QLabel(self._cockpit.format())
+            self._cost_label.setObjectName("ClaudeCockpitLabel")
+            self._cost_label.setStyleSheet("color: palette(mid); padding: 0 6px;")
+            self._cost_label.setToolTip(self._cockpit.tooltip())
+            self.add_title_bar_widget(self._cost_label)
 
         # Connect permission signals to toast notifications and icon state
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
@@ -721,7 +736,30 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         agent.query_completed.connect(self._icon_set_idle)
         agent.query_cancelled.connect(self._icon_set_idle)
         agent.error_occurred.connect(self._icon_set_error)
+        agent.result_received.connect(self._on_cockpit_result)
+        agent.context_usage.connect(self._on_cockpit_context)
+        agent.cockpit_reset.connect(self._reset_cockpit)
         logger.info("Connected Claude agent icon signals")
+
+    @gui_thread_only
+    def _on_cockpit_result(self, info: dict) -> None:
+        self._cockpit.add_result(info)
+        self._refresh_cockpit_label()
+
+    @gui_thread_only
+    def _on_cockpit_context(self, info: dict) -> None:
+        self._cockpit.set_context(info)
+        self._refresh_cockpit_label()
+
+    @gui_thread_only
+    def _reset_cockpit(self) -> None:
+        self._cockpit.reset()
+        self._refresh_cockpit_label()
+
+    def _refresh_cockpit_label(self) -> None:
+        if self._cost_label is not None:
+            safe_call(self._cost_label, "setText", self._cockpit.format())
+            safe_call(self._cost_label, "setToolTip", self._cockpit.tooltip())
 
     def _icon_set_idle(self) -> None:
         """Set sidebar icon to idle state (respects emotion override)."""

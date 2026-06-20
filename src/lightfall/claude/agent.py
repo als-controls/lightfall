@@ -183,6 +183,7 @@ class QtClaudeAgent(QObject):
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
     context_usage = Signal(dict)  # context-window usage after each turn
+    cockpit_reset = Signal()  # title-bar cockpit should zero (new/reset session)
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     question_requested = Signal(str, list)  # request_id, questions
     # Partial streaming
@@ -578,6 +579,7 @@ class QtClaudeAgent(QObject):
         The next query will automatically reconnect with a fresh
         conversation via ``_ensure_connected()``.
         """
+        self.cockpit_reset.emit()
         self.stop()
         logger.info("Claude conversation reset")
 
