@@ -1,14 +1,15 @@
-"""Tests for the LFMainWindow proactive-init latch.
+"""Tests for the LFMainWindow post-login layout + proactive-init latch.
 
-The latch methods only touch a handful of attributes, so they are
-tested on a minimal stand-in object rather than a full LFMainWindow
-(which drags in engine/session/services setup).
+The latch methods only touch a handful of attributes, so they are tested on a
+minimal stand-in object rather than a full LFMainWindow (which drags in
+engine/session/services setup).
+
+Under post-login plugin loading, the background plugin wave runs after login;
+its ``loading_complete`` drives ``_on_plugin_loading_complete``, which builds the
+default layout once and then — only when the window is also shown — restores any
+saved state and starts proactive panel init.
 """
 
-from PySide6.QtCore import QObject, Signal
-
-from lightfall.core.services import ServiceRegistry
-from lightfall.plugins import PluginLoader
 from lightfall.ui.mainwindow import LFMainWindow
 
 
@@ -23,56 +24,64 @@ class _FakeDocking:
 class _Host:
     """Minimal stand-in carrying the latch attributes + real methods."""
 
-    _watch_plugin_loading = LFMainWindow._watch_plugin_loading
     _on_plugin_loading_complete = LFMainWindow._on_plugin_loading_complete
+    _ensure_default_layout = LFMainWindow._ensure_default_layout
+    _finalize_layout_if_ready = LFMainWindow._finalize_layout_if_ready
     _maybe_start_proactive_init = LFMainWindow._maybe_start_proactive_init
 
     def __init__(self):
         self._window_shown = False
         self._plugins_loaded = False
+        self._default_layout_built = False
+        self._default_layout_applied = True  # first-run: nothing to restore
+        self._layout_finalized = False
+        self._config_manager = None  # restore is skipped without a config
         self._docking_manager = _FakeDocking()
+        self.layout_build_count = 0
+        self.restore_count = 0
+
+    # Heavy real methods stubbed out for the stand-in.
+    def setup_default_layout(self):
+        self.layout_build_count += 1
+
+    def _restore_window_state(self):
+        self.restore_count += 1
 
 
-class _FakeLoader(QObject):
-    loading_complete = Signal(int, int)
-
-    def __init__(self, loading: bool):
-        super().__init__()
-        self.is_loading = loading
-
-
-class TestProactiveLatch:
-    def setup_method(self):
-        ServiceRegistry.reset()
-
-    def teardown_method(self):
-        ServiceRegistry.reset()
-
-    def test_no_loader_starts_immediately(self):
+class TestPostLoginLatch:
+    def test_starts_when_shown_then_loaded(self):
         host = _Host()
         host._window_shown = True
-        host._watch_plugin_loading()
+        host._on_plugin_loading_complete(3, 0)
+        assert host.layout_build_count == 1
         assert host._docking_manager.started == 1
 
-    def test_loader_finished_starts_immediately(self):
-        loader = _FakeLoader(loading=False)
-        ServiceRegistry.get_instance().register_instance(PluginLoader, loader)
+    def test_starts_when_loaded_then_shown(self):
         host = _Host()
-        host._window_shown = True
-        host._watch_plugin_loading()
-        assert host._docking_manager.started == 1
+        # Plugins finish while the window is still hidden (during login).
+        host._on_plugin_loading_complete(3, 0)
+        assert host.layout_build_count == 1  # layout built immediately
+        assert host._docking_manager.started == 0  # but not finalized yet
 
-    def test_waits_for_loading_complete(self):
-        loader = _FakeLoader(loading=True)
-        ServiceRegistry.get_instance().register_instance(PluginLoader, loader)
-        host = _Host()
         host._window_shown = True
-        host._watch_plugin_loading()
-        assert host._docking_manager.started == 0
-        loader.loading_complete.emit(3, 0)
+        host._finalize_layout_if_ready()
         assert host._docking_manager.started == 1
 
     def test_requires_window_shown(self):
         host = _Host()
-        host._watch_plugin_loading()  # window not shown yet
+        host._on_plugin_loading_complete(1, 0)  # window not shown yet
         assert host._docking_manager.started == 0
+
+    def test_requires_plugins_loaded(self):
+        host = _Host()
+        host._window_shown = True
+        host._finalize_layout_if_ready()  # plugins not loaded yet
+        assert host._docking_manager.started == 0
+
+    def test_layout_and_finalize_run_once(self):
+        host = _Host()
+        host._window_shown = True
+        host._on_plugin_loading_complete(1, 0)
+        host._on_plugin_loading_complete(1, 0)
+        assert host.layout_build_count == 1
+        assert host._docking_manager.started == 1

@@ -73,6 +73,8 @@ class LFMainWindow(QMainWindow):
         self._config_manager: ConfigManager | None = None
         self._docking_manager: DockingManager | None = None
         self._default_layout_applied: bool = False
+        self._default_layout_built: bool = False
+        self._layout_finalized: bool = False
         self._initial_show_done: bool = False
         self._window_shown: bool = False
         self._plugins_loaded: bool = False
@@ -925,41 +927,64 @@ class LFMainWindow(QMainWindow):
         """Handle show event."""
         super().showEvent(event)
 
-        # Only restore state on the first show - subsequent shows should not
-        # re-trigger the full state restoration
+        # Only act on the first show - subsequent shows must not re-trigger
+        # layout finalization / state restoration.
         if self._initial_show_done:
             return
         self._initial_show_done = True
 
-        # Kick the proactive panel-init latch: starts once the window is
-        # shown AND background plugin loading is complete.
+        # The window shows behind (or just after) the modal login dialog, before
+        # the post-login plugin wave has registered any panels. Record that the
+        # window is up; the default layout is built, any saved docking state is
+        # restored, and proactive panel init is started from the post-login
+        # loading_complete path (_on_plugin_loading_complete ->
+        # _finalize_layout_if_ready), gated on this flag. Whichever of (show,
+        # loading_complete) happens last triggers the finalize.
         self._window_shown = True
-        self._watch_plugin_loading()
-
-        # Skip restoration if we just applied a fresh default layout
-        if self._default_layout_applied:
-            self._default_layout_applied = False
-            return
-
-        # Restore window state if preference set
-        if self._config_manager and self._config_manager.get("ui.remember_geometry", True):
-            self._restore_window_state()
-
-    def _watch_plugin_loading(self) -> None:
-        """Mark plugins loaded now, or when background loading completes."""
-        from lightfall.core.services import ServiceRegistry
-        from lightfall.plugins import PluginLoader
-
-        loader = ServiceRegistry.get_instance().get(PluginLoader, None)
-        if loader is not None and loader.is_loading:
-            loader.loading_complete.connect(self._on_plugin_loading_complete)
-            return
-        self._plugins_loaded = True
-        self._maybe_start_proactive_init()
+        self._finalize_layout_if_ready()
 
     def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
-        """Background plugin loading finished."""
+        """The post-login plugin wave finished.
+
+        Panels register with PanelRegistry during the wave, so the default
+        layout is built here (not pre-login). Restoration of any saved docking
+        state and proactive panel init are deferred to _finalize_layout_if_ready
+        so they run only once the window is shown too — preserving the invariant
+        that panels are registered before the layout referencing them is applied.
+        """
         self._plugins_loaded = True
+        self._ensure_default_layout()
+        self._finalize_layout_if_ready()
+
+    def _ensure_default_layout(self) -> None:
+        """Build the default panel layout exactly once (panels now registered)."""
+        if self._default_layout_built:
+            return
+        self._default_layout_built = True
+        self.setup_default_layout()
+
+    def _finalize_layout_if_ready(self) -> None:
+        """Restore saved layout (if any) and start proactive init — once.
+
+        Runs only after BOTH the window is shown AND the post-login plugin wave
+        has completed (so panels are registered). setup_default_layout sets
+        ``_default_layout_applied``: True on a first run (fresh default applied,
+        nothing to restore) or False when a saved layout exists and should be
+        restored on top of the freshly-registered panels.
+        """
+        if not (self._window_shown and self._plugins_loaded):
+            return
+        if self._layout_finalized:
+            return
+        self._layout_finalized = True
+
+        if (
+            not self._default_layout_applied
+            and self._config_manager
+            and self._config_manager.get("ui.remember_geometry", True)
+        ):
+            self._restore_window_state()
+
         self._maybe_start_proactive_init()
 
     def _maybe_start_proactive_init(self) -> None:

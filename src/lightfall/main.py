@@ -81,7 +81,7 @@ _configure_remote_display()
 
 from lightfall.acquire import get_engine  # noqa: E402
 from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
-from lightfall.auth.session import SessionManager  # noqa: E402
+from lightfall.auth.session import AuthState, SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
@@ -99,7 +99,9 @@ from lightfall.utils.sentry import init_sentry  # noqa: E402
 from lightfall.utils.sentry import set_user as sentry_set_user  # noqa: E402
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Callable
+
+    from lightfall.plugins import PluginLoader
 
 
 def _setup_auth(config: ConfigManager) -> None:
@@ -618,10 +620,55 @@ def _setup_plugins(app: LFApplication) -> None:
     services.register_instance(PluginRegistry, registry)
     services.register_instance(PluginLoader, loader)
 
-    # Start background loading for remaining plugins
-    loader.start_loading()
+    # NOTE: the background plugin wave (loader.start_loading) is intentionally
+    # NOT started here. Only login-window plugins (auth providers, theme) load
+    # before login via load_preload_plugins() above; everything else loads after
+    # authentication. main() arms the wave via _arm_post_login_plugin_load().
+    # See docs/superpowers/specs/2026-06-20-post-login-plugin-loading-design.md.
 
     logger.debug("Plugin system initialized")
+
+
+def _arm_post_login_plugin_load(
+    loader: PluginLoader, session_manager: SessionManager
+) -> Callable[[], None]:
+    """Arm a one-shot that starts the background plugin wave after login.
+
+    ``loader.start_loading`` is deferred from startup to the first
+    ``AUTHENTICATED`` transition, so non-login plugins (and any I/O they do on
+    load/first render) never run while the modal login screen is up.
+
+    Returns a ``fire()`` callable for the caller to invoke once the startup
+    login dialog has closed: guest / cancelled outcomes never reach
+    ``AUTHENTICATED`` but the app still runs (anonymously), so it must still
+    load the post-login wave. ``fire()`` is idempotent — whichever of (the
+    ``AUTHENTICATED`` transition, the already-authenticated guard, the caller's
+    ``fire()``) happens first starts the wave; the rest are no-ops.
+
+    See docs/superpowers/specs/2026-06-20-post-login-plugin-loading-design.md.
+    """
+    state = {"fired": False}
+
+    def fire() -> None:
+        if state["fired"]:
+            return
+        state["fired"] = True
+        logger.info("Starting post-login plugin wave")
+        loader.start_loading()
+
+    def _on_state_changed(new_state: AuthState, _old_state: AuthState) -> None:
+        if new_state == AuthState.AUTHENTICATED:
+            fire()
+
+    session_manager.state_changed.connect(_on_state_changed)
+
+    # Defensive: a cached token / auto-login / NCS_AUTH dev override may already
+    # be authenticated before we arm — fire now so we don't wait for a
+    # transition that won't come.
+    if session_manager.is_authenticated:
+        fire()
+
+    return fire
 
 
 def _setup_user_plugins(app: LFApplication) -> None:
@@ -878,8 +925,10 @@ def main() -> int:
     engine = get_engine()
     window.set_engine(engine)
 
-    # Setup default panel layout
-    window.setup_default_layout()
+    # NOTE: the default panel layout is built from the PanelRegistry, which is
+    # populated by the post-login plugin wave. It is therefore driven from the
+    # main window's loading_complete handler (see _on_plugin_loading_complete),
+    # not here pre-login.
 
     # Register built-in tutorials
     from lightfall.ui.tutorial import register_builtin_tutorials
@@ -891,8 +940,33 @@ def main() -> int:
     # Setup session expiry handler
     _setup_session_expiry_handler(window)
 
+    # Wire the post-login plugin wave. start_loading() is deferred (see
+    # _setup_plugins) so only login-window plugins load before login. The main
+    # window builds its default layout and restores saved state off
+    # loading_complete; connect that BEFORE arming so an already-authenticated
+    # fast start can't emit loading_complete before the slot is connected.
+    from lightfall.plugins import PluginLoader
+
+    session_manager = SessionManager.get_instance()
+    loader = app.services.get(PluginLoader, None)
+    if loader is not None:
+        loader.loading_complete.connect(window._on_plugin_loading_complete)
+        fire_plugin_wave = _arm_post_login_plugin_load(loader, session_manager)
+    else:
+        logger.warning(
+            "PluginLoader service missing; post-login plugin wave not armed"
+        )
+
+        def fire_plugin_wave() -> None:
+            return None
+
     # Show login dialog on startup
     _show_startup_login(window)
+
+    # Guest / cancelled login never reaches AUTHENTICATED, but the app still
+    # runs anonymously — start the wave now that the login screen is dismissed
+    # (no-op if the AUTHENTICATED transition already started it).
+    fire_plugin_wave()
 
     # Register cleanup on exit — order matters:
     # 1. Stop CA tunnel (kills relay sockets, stops new data arriving)
