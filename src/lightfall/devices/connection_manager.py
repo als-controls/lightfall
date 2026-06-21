@@ -6,6 +6,7 @@ using Qt threading utilities for proper UI integration.
 
 from __future__ import annotations
 
+import collections
 import threading
 import time
 from dataclasses import dataclass, field
@@ -268,226 +269,164 @@ class DeviceConnectionManager(QObject):
             effective_timeout,
         )
 
-    def connect_all(
+    def connect_devices(
         self,
-        devices: list[tuple[DeviceInfo, Any]],
+        backend: Any,
+        infos: list[DeviceInfo],
         timeout: float | None = None,
+        max_concurrency: int = 12,
     ) -> None:
-        """Queue multiple devices for background connection.
+        """Connect a list of devices using a backend, with bounded concurrency.
+
+        Must be called from the main (GUI) thread. At most ``max_concurrency``
+        per-device worker threads run at once; the rest are queued and started
+        as each slot becomes free.
 
         Args:
-            devices: List of (DeviceInfo, happi_result) tuples.
-            timeout: Optional timeout override for all devices.
+            backend: A :class:`~lightfall.devices.base.DeviceBackend` whose
+                ``instantiate`` and ``check_connection`` hooks are used.
+            infos: Devices to connect.
+            timeout: Per-device timeout in seconds. ``None`` uses the manager
+                default (``self.default_timeout``).
+            max_concurrency: Maximum number of simultaneous worker threads.
         """
-        if not devices:
+        if not infos:
             return
 
-        logger.info("Starting background connection for {} devices", len(devices))
+        effective_timeout = timeout if timeout is not None else self.default_timeout
 
-        for device_info, happi_result in devices:
-            self.connect_device(device_info, happi_result, timeout)
+        # Pending queue of (info, backend, timeout) yet to be started.
+        pending: collections.deque[DeviceInfo] = collections.deque(infos)
 
-    def connect_all_phased(
-        self,
-        devices: list[tuple[DeviceInfo, Any]],
-        timeout: float | None = None,
-    ) -> None:
-        """Connect devices in two phases to avoid caproto search serialization.
+        # Track how many workers are currently in flight (only accessed from
+        # the main thread via callback_slot, so no lock is needed).
+        in_flight: list[int] = [0]  # mutable cell — avoids nonlocal in older Pythons
 
-        Phase 1 (single thread): Instantiate all ophyd devices via
-        ``happi_result.get()``.  This registers every PV name with
-        caproto's broadcaster so the first search round covers all PVs.
+        def _start_next() -> None:
+            """Pull from the pending queue and start a worker if a slot is free."""
+            while in_flight[0] < max_concurrency and pending:
+                info = pending.popleft()
+                self._connection_states[info.id] = ConnectionState.CONNECTING
+                self.device_connecting.emit(str(info.id))
+                in_flight[0] += 1
 
-        Phase 2 (parallel threads): Call ``wait_for_connection`` on each
-        device concurrently.
+                def _make_callback(captured_info: DeviceInfo):
+                    def _on_done(result: ConnectionResult) -> None:
+                        # Runs on the main thread (Qt signal marshalling).
+                        self._active_threads.pop(captured_info.id, None)
+                        self._connection_states[result.device_id] = result.state
+                        self._connection_results[result.device_id] = result
 
-        Args:
-            devices: List of (DeviceInfo, happi_result) tuples.
-            timeout: Optional per-device timeout override in seconds.
-        """
-        if not devices:
-            return
+                        if result.state == ConnectionState.CONNECTED:
+                            captured_info._ophyd_device = result.ophyd_device
+                            self.device_connected.emit(result)
+                        else:
+                            self.device_failed.emit(result)
 
-        logger.info(
-            "Starting phased connection for {} devices", len(devices)
-        )
+                        in_flight[0] -= 1
+                        _start_next()
 
-        # Track pending count for the whole batch up front
-        with self._pending_lock:
-            self._pending_count += len(devices)
+                    return _on_done
 
-        # Mark all as CONNECTING and emit signals
-        for device_info, _ in devices:
-            self._connection_states[device_info.id] = ConnectionState.CONNECTING
-            self.device_connecting.emit(str(device_info.id))
+                def _make_error_handler(captured_info: DeviceInfo):
+                    def _on_error(exc: Exception) -> None:
+                        # Runs on the main thread.
+                        self._active_threads.pop(captured_info.id, None)
+                        logger.error(
+                            "connect_devices: unexpected error for '{}': {}",
+                            captured_info.name,
+                            exc,
+                        )
+                        fail_result = ConnectionResult(
+                            device_id=captured_info.id,
+                            device_name=captured_info.name,
+                            state=ConnectionState.FAILED,
+                            error=str(exc),
+                        )
+                        self._connection_states[captured_info.id] = ConnectionState.FAILED
+                        self._connection_results[captured_info.id] = fail_result
+                        self.device_failed.emit(fail_result)
+                        in_flight[0] -= 1
+                        _start_next()
 
-        def _phase1_instantiate():
-            """Instantiate all ophyd devices on a single thread."""
-            instantiated: list[tuple[DeviceInfo, Any, float]] = []
-            failed: list[tuple[DeviceInfo, str, float]] = []
+                    return _on_error
 
-            for device_info, happi_result in devices:
-                start = time.monotonic()
-                try:
-                    if not hasattr(happi_result, "get"):
-                        raise ValueError("happi_result has no get() method")
-                    ophyd_device = happi_result.get()
-                    if ophyd_device is None:
-                        raise ValueError("happi_result.get() returned None")
-                    elapsed = (time.monotonic() - start) * 1000
-                    instantiated.append((device_info, ophyd_device, elapsed))
-                    logger.debug(
-                        "Instantiated '{}' in {:.1f}ms",
-                        device_info.name,
-                        elapsed,
-                    )
-                except Exception as e:
-                    elapsed = (time.monotonic() - start) * 1000
-                    failed.append((device_info, str(e), elapsed))
-                    logger.warning(
-                        "Failed to instantiate '{}': {}", device_info.name, e
-                    )
-
-            return instantiated, failed
-
-        def _on_phase1_done(result):
-            """Start phase 2: parallel wait_for_connection threads."""
-            instantiated, failed = result
-
-            # Emit failures immediately
-            for device_info, error, elapsed in failed:
-                fail_result = ConnectionResult(
-                    device_id=device_info.id,
-                    device_name=device_info.name,
-                    state=ConnectionState.FAILED,
-                    error=error,
-                    elapsed_ms=elapsed,
-                )
-                self._connection_states[device_info.id] = ConnectionState.FAILED
-                self._connection_results[device_info.id] = fail_result
-                self.device_failed.emit(fail_result)
-                self._check_batch_complete()
-
-            # Start parallel wait threads for successfully instantiated devices
-            for device_info, ophyd_device, inst_elapsed in instantiated:
-                effective_timeout = timeout or self.get_device_timeout(
-                    device_info.id
-                )
                 thread = QThreadFuture(
-                    self._do_wait_for_connection,
-                    device_info,
-                    ophyd_device,
+                    self._instantiate_and_connect,
+                    backend,
+                    info,
                     effective_timeout,
-                    inst_elapsed,
-                    callback_slot=self._on_connection_complete,
-                    except_slot=self._on_connection_error,
-                    name=f"wait_{device_info.name}",
-                    key=f"device_connect_{device_info.id}",
+                    callback_slot=_make_callback(info),
+                    except_slot=_make_error_handler(info),
+                    name=f"connect_{info.name}",
+                    key=f"device_connect_batch_{info.id}",
                 )
-                self._active_threads[device_info.id] = thread
+                self._active_threads[info.id] = thread
                 thread.start()
 
-        def _on_phase1_error(error):
-            """Handle unexpected error in the instantiation phase."""
-            logger.error("Phase 1 instantiation failed: {}", error)
-            # Fail all devices in the batch
-            for device_info, _ in devices:
-                fail_result = ConnectionResult(
-                    device_id=device_info.id,
-                    device_name=device_info.name,
-                    state=ConnectionState.FAILED,
-                    error=str(error),
-                )
-                self._connection_states[device_info.id] = ConnectionState.FAILED
-                self._connection_results[device_info.id] = fail_result
-                self.device_failed.emit(fail_result)
-                self._check_batch_complete()
+        _start_next()
 
-        phase1_thread = QThreadFuture(
-            _phase1_instantiate,
-            callback_slot=_on_phase1_done,
-            except_slot=_on_phase1_error,
-            name="phased-instantiate-all",
-        )
-        phase1_thread.start()
-
-    def _do_wait_for_connection(
+    def _instantiate_and_connect(
         self,
-        device_info: DeviceInfo,
-        ophyd_device: Any,
+        backend: Any,
+        info: DeviceInfo,
         timeout: float,
-        inst_elapsed_ms: float,
     ) -> ConnectionResult:
-        """Wait for an already-instantiated ophyd device to connect.
+        """Worker: instantiate then check connection for one device.
+
+        Runs in a background thread. Returns a :class:`ConnectionResult` —
+        never raises, so the ``except_slot`` only fires on truly unexpected
+        errors outside this try/except.
 
         Args:
-            device_info: The DeviceInfo.
-            ophyd_device: Already-instantiated ophyd device.
+            backend: The device backend.
+            info: Device to instantiate and connect.
             timeout: Connection timeout in seconds.
-            inst_elapsed_ms: Time already spent on instantiation.
 
         Returns:
-            ConnectionResult with success/failure info.
+            :class:`ConnectionResult` with the final state.
         """
-        device_id = device_info.id
-        device_name = device_info.name
-        start_time = time.monotonic()
-
+        start = time.monotonic()
         try:
-            if hasattr(ophyd_device, "wait_for_connection"):
-                ophyd_device.wait_for_connection(timeout=timeout)
-            elif hasattr(ophyd_device, "connected"):
-                deadline = time.monotonic() + timeout
-                while not ophyd_device.connected and time.monotonic() < deadline:
-                    time.sleep(0.1)
-                if not ophyd_device.connected:
-                    raise TimeoutError(
-                        f"Device did not connect within {timeout}s"
-                    )
-
-            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
-            logger.info(
-                "Device '{}' connected in {:.1f}ms (inst+wait)",
-                device_name,
-                elapsed,
-            )
+            obj = backend.instantiate(info)
+            ok = backend.check_connection(obj, timeout)
+            elapsed = (time.monotonic() - start) * 1000
+            state = ConnectionState.CONNECTED if ok else ConnectionState.TIMEOUT
             return ConnectionResult(
-                device_id=device_id,
-                device_name=device_name,
-                state=ConnectionState.CONNECTED,
-                ophyd_device=ophyd_device,
+                device_id=info.id,
+                device_name=info.name,
+                state=state,
+                ophyd_device=obj if ok else None,
                 elapsed_ms=elapsed,
             )
-
-        except TimeoutError as e:
-            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
+        except TimeoutError as exc:
+            # Real ophyd wait_for_connection() raises TimeoutError on expiry.
+            # Map this to TIMEOUT so the catalog shows OFFLINE, not ERROR.
+            elapsed = (time.monotonic() - start) * 1000
             logger.warning(
-                "Device '{}' timed out after {:.1f}ms: {}",
-                device_name,
-                elapsed,
-                e,
+                "connect_devices: '{}' timed out: {}",
+                info.name,
+                exc,
             )
             return ConnectionResult(
-                device_id=device_id,
-                device_name=device_name,
+                device_id=info.id,
+                device_name=info.name,
                 state=ConnectionState.TIMEOUT,
-                error=str(e),
+                error=str(exc),
                 elapsed_ms=elapsed,
             )
-
-        except Exception as e:
-            elapsed = inst_elapsed_ms + (time.monotonic() - start_time) * 1000
+        except Exception as exc:
+            elapsed = (time.monotonic() - start) * 1000
             logger.warning(
-                "Device '{}' connection failed after {:.1f}ms: {}",
-                device_name,
-                elapsed,
-                e,
+                "connect_devices: '{}' failed: {}",
+                info.name,
+                exc,
             )
             return ConnectionResult(
-                device_id=device_id,
-                device_name=device_name,
+                device_id=info.id,
+                device_name=info.name,
                 state=ConnectionState.FAILED,
-                error=str(e),
+                error=str(exc),
                 elapsed_ms=elapsed,
             )
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -220,8 +219,20 @@ class HappiBackend(DeviceBackend):
         return True
 
     def connect(self) -> bool:
-        """Connect to the happi database and load devices."""
-        logger.info("HappiBackend.connect() START (instantiate={})", self._instantiate_mode)
+        """Establish the happi JSON client and populate the in-memory device cache.
+
+        Initialises ``self._client``, then calls :meth:`load_metadata` to
+        populate ``self._devices`` (the CRUD cache).  :meth:`load_metadata` is
+        the single population point, so the CRUD API, the catalog's
+        ``_device_cache``, and ``connect_devices`` all operate on the same
+        DeviceInfo instances (same UUIDs).
+
+        Under the unified load pipeline the catalog's worker calls this method
+        then calls :meth:`load_metadata` again separately — :meth:`load_metadata`
+        resets ``_devices`` before rebuilding it, so the second call replaces the
+        first with identical objects; no ophyd instantiation occurs in either
+        call.
+        """
         if self._connected:
             return True
 
@@ -264,25 +275,25 @@ class HappiBackend(DeviceBackend):
                 # Use default happi config (env vars, etc.)
                 self._client = happi.Client.from_config()
 
-            self._discover_devices()
             self._connected = True
+
+            # Populate the CRUD cache via load_metadata() — the single
+            # population point — so the CRUD API works without a separate
+            # load_metadata() call (e.g. in tests that call connect() directly).
+            self.load_metadata()
+
             logger.info(
                 "Happi backend connected ({} devices from {}, mode={})",
                 len(self._devices),
                 self._path or "default config",
                 self._instantiate_mode,
             )
-
-            # Start background connections if in background mode
-            if self._instantiate_mode == "background":
-                self._start_background_connections()
-
-            logger.info("HappiBackend.connect() END")
             return True
 
         except Exception as e:
             logger.error("Failed to connect Happi backend: {}", e)
             self._client = None
+            self._connected = False
             return False
 
     def disconnect(self) -> None:
@@ -304,128 +315,6 @@ class HappiBackend(DeviceBackend):
             except Exception as e:
                 name = getattr(result, "name", "?")
                 logger.warning("Failed to load happi device '{}': {}", name, e)
-
-    def _start_background_connections(self) -> None:
-        """Start background connections for all devices with pending happi results."""
-        import importlib
-
-        from lightfall.devices.connection_manager import DeviceConnectionManager
-
-        manager = DeviceConnectionManager.get_instance()
-
-        # Connect the manager's signals to update our device cache
-        manager.device_connected.connect(self._on_device_connected)
-        manager.device_failed.connect(self._on_device_failed)
-
-        # Collect devices that need connection
-        to_connect: list[tuple[DeviceInfo, Any]] = []
-        for device in self._devices.values():
-            if not device.active:
-                continue
-            happi_result = device.metadata.pop("_happi_result", None)
-            if happi_result is not None:
-                to_connect.append((device, happi_result))
-
-        if to_connect:
-            # Pre-import all device classes on the main thread to avoid
-            # import lock deadlocks when multiple background threads try
-            # to import from the same package simultaneously.
-            seen_modules: set[str] = set()
-            for device, _happi_result in to_connect:
-                device_class = device.device_class or ""
-                if "." in device_class:
-                    module_path = device_class.rsplit(".", 1)[0]
-                    if module_path not in seen_modules:
-                        seen_modules.add(module_path)
-                        try:
-                            importlib.import_module(module_path)
-                            logger.debug("Pre-imported device module: {}", module_path)
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to pre-import device module '{}': {}",
-                                module_path,
-                                e,
-                            )
-
-            logger.info(
-                "Starting background connection for {} happi devices",
-                len(to_connect),
-            )
-            manager.connect_all_phased(to_connect, timeout=self._connection_timeout)
-
-    def _on_device_connected(self, result: Any) -> None:
-        """Handle successful device connection from ConnectionManager."""
-        from lightfall.devices.connection_manager import ConnectionResult
-
-        if not isinstance(result, ConnectionResult):
-            return
-
-        device = self._devices.get(result.device_id)
-        if device is None:
-            return
-
-        if not device.active:
-            device._state = DeviceState(
-                device_id=device.id,
-                status=DeviceStatus.INACTIVE,
-                connected=False,
-            )
-            logger.debug("Device '{}' is inactive, skipping connection", device.name)
-            return
-
-        # Update the device with the ophyd instance
-        device._ophyd_device = result.ophyd_device
-        device._state = DeviceState(
-            device_id=device.id,
-            status=DeviceStatus.ONLINE,
-            connected=True,
-        )
-        logger.debug("Happi device '{}' connected", device.name)
-
-    def _on_device_failed(self, result: Any) -> None:
-        """Handle failed device connection from ConnectionManager."""
-        from lightfall.devices.connection_manager import ConnectionResult, ConnectionState
-
-        if not isinstance(result, ConnectionResult):
-            return
-
-        device = self._devices.get(result.device_id)
-        if device is None:
-            return
-
-        # When CA tunnel is active, keep devices in CONNECTING state on
-        # first failure — the auto-retry cycle will try again. Only mark
-        # as OFFLINE after retries give up (via reconnect_failed_devices).
-        ca_tunnel_active = os.environ.get("EPICS_CA_ADDR_LIST", "") != ""
-        if ca_tunnel_active and device.name not in self._permanently_failed:
-            device._state = DeviceState(
-                device_id=device.id,
-                status=DeviceStatus.CONNECTING,
-                connected=False,
-            )
-            logger.debug(
-                "Happi device '{}' initial connection failed, will retry: {}",
-                device.name,
-                result.error,
-            )
-            return
-
-        # No tunnel or permanently failed — mark offline/error
-        if result.state == ConnectionState.TIMEOUT:
-            status = DeviceStatus.OFFLINE
-        else:
-            status = DeviceStatus.ERROR
-
-        device._state = DeviceState(
-            device_id=device.id,
-            status=status,
-            connected=False,
-        )
-        logger.debug(
-            "Happi device '{}' connection failed: {}",
-            device.name,
-            result.error,
-        )
 
     def _add_device_from_result(self, result: Any) -> None:
         """Create DeviceInfo from a happi SearchResult."""
@@ -696,10 +585,10 @@ class HappiBackend(DeviceBackend):
             d.name: d for d in self._devices.values()
         }
 
-        self._devices.clear()
-        self._configurations.clear()
-        self._maintenance.clear()
-        self._discover_devices()
+        # load_metadata() resets _devices/_configurations/_maintenance and
+        # rebuilds them from the freshly-created client.  Use it as the
+        # single population point so CRUD and the unified pipeline stay in sync.
+        self.load_metadata()
 
         # Re-key new entries with the old UUIDs (and copy runtime state)
         # for names that survived the reload. Anything else is genuinely
@@ -731,12 +620,182 @@ class HappiBackend(DeviceBackend):
         if hasattr(self, "_fail_counts"):
             self._fail_counts.clear()
 
-        # Queue any newly-introduced (or repaired) devices for connection.
-        if self._instantiate_mode == "background":
-            self._start_background_connections()
-
         logger.info("Reloaded happi backend: {} devices", len(self._devices))
         return True
+
+    # === Unified Load Pipeline Hooks ===
+
+    def load_metadata(self) -> list[DeviceInfo]:
+        """Return device metadata for all entries in the happi database.
+
+        Performs the happi search and builds DeviceInfo objects without
+        instantiating any ophyd devices. Each returned DeviceInfo has the
+        raw happi SearchResult stashed as ``info.metadata["_happi_result"]``
+        so that a subsequent :meth:`instantiate` call can construct the
+        ophyd object.
+
+        This is the SOLE population point for ``self._devices``.  The old
+        ``_discover_devices`` path is no longer called from :meth:`connect`
+        so that the catalog's ``_device_cache``, ``connect_devices``, and
+        the CRUD API all operate on the same DeviceInfo instances (same UUIDs).
+
+        The backend does NOT need to be connected first; a temporary client
+        is created from ``self._path`` if needed.
+
+        Returns:
+            List of DeviceInfo objects with ``_happi_result`` in metadata.
+        """
+        # Build a temporary client if we don't have one yet
+        client = self._client
+        if client is None:
+            try:
+                import happi
+                from happi.backends.json_db import JSONBackend
+
+                if self._path:
+                    db = JSONBackend(self._path)
+                    client = happi.Client(database=db)
+                else:
+                    client = happi.Client.from_config()
+            except Exception as e:
+                logger.warning("load_metadata: could not create happi client: {}", e)
+                return []
+
+        # Reset and repopulate the CRUD cache so CRUD API serves the same
+        # DeviceInfo objects that the catalog will register.
+        self._devices.clear()
+        self._configurations.clear()
+        self._maintenance.clear()
+
+        results: list[DeviceInfo] = []
+        for result in client.search():
+            try:
+                info = self._build_device_info(result)
+                if info is not None:
+                    # Set initial state for inactive devices so callers can
+                    # inspect _state without going through the connection pipeline.
+                    if not info.active:
+                        info._state = DeviceState(
+                            device_id=info.id,
+                            status=DeviceStatus.INACTIVE,
+                            connected=False,
+                        )
+                    self._devices[info.id] = info
+                    self._configurations[info.id] = []
+                    self._maintenance[info.id] = []
+                    results.append(info)
+            except Exception as e:
+                name = getattr(getattr(result, "item", result), "name", "?")
+                logger.warning("load_metadata: skipping '{}': {}", name, e)
+
+        logger.debug("load_metadata: populated {} devices", len(results))
+        return results
+
+    def _build_device_info(self, result: Any) -> DeviceInfo | None:
+        """Build a DeviceInfo from a happi SearchResult, stashing the result.
+
+        This is the metadata-only core used by :meth:`load_metadata`.
+        It:
+        - Always stashes ``_happi_result`` in metadata.
+        - Never calls ``result.get()`` (no ophyd instantiation).
+        - Returns the DeviceInfo rather than mutating instance state.
+
+        Returns:
+            DeviceInfo or None if the item is filtered out (e.g. wrong beamline).
+        """
+        item = result.item if hasattr(result, "item") else result
+
+        item_name = getattr(item, "name", str(item))
+        device_class = getattr(item, "device_class", "") or ""
+        beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
+        location = getattr(item, "location_group", "") or ""
+        func_group = getattr(item, "functional_group", "") or ""
+
+        # Filter by beamline if configured
+        if self._beamline and beamline and beamline != self._beamline:
+            return None
+
+        category = _guess_category(item)
+        connection_type = _guess_connection_type(item)
+
+        # Build tags
+        tags = ["happi"]
+        if func_group:
+            tags.append(func_group.lower())
+
+        # Collect all happi metadata
+        metadata: dict[str, Any] = {}
+        if hasattr(item, "post"):
+            for field in item.info_names:
+                try:
+                    metadata[field] = getattr(item, field, None)
+                except Exception:
+                    pass
+        elif isinstance(item, dict):
+            metadata = dict(item)
+
+        # Stash the raw happi result so instantiate() can call result.get()
+        metadata["_happi_result"] = result
+
+        # Read Lightfall-specific fields from extraneous or metadata
+        extraneous = getattr(item, "extraneous", {}) or {}
+        prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
+        display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
+        icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
+        group = extraneous.get("group", "") or metadata.get("group", "") or ""
+        active = getattr(item, "active", True)
+        if isinstance(active, str):
+            active = active.lower() != "false"
+
+        return DeviceInfo(
+            name=item_name,
+            description=f"Happi: {device_class}" if device_class else f"Happi device: {item_name}",
+            category=category,
+            device_class=device_class,
+            connection_type=connection_type,
+            prefix=prefix,
+            beamline=beamline,
+            location=location,
+            tags=tags,
+            metadata=metadata,
+            display_name=display_name,
+            icon_override=icon_override,
+            group=group,
+            active=active,
+        )
+
+    def instantiate(self, info: DeviceInfo) -> Any:
+        """Build and return the ophyd device object for *info*.
+
+        Looks for a stashed happi SearchResult in
+        ``info.metadata["_happi_result"]`` and calls ``.get()`` on it.
+        If no stash is present, falls back to searching the happi client
+        by ``info.name`` and calling ``.get()`` on the first match.
+
+        Args:
+            info: A DeviceInfo previously returned by :meth:`load_metadata`.
+
+        Returns:
+            The constructed ophyd device object, or None if not found.
+        """
+        happi_result = info.metadata.get("_happi_result")
+        if happi_result is not None:
+            return happi_result.get()
+
+        # Fallback: search the client by name
+        client = self._client
+        if client is None:
+            logger.warning(
+                "instantiate: no stashed result and no client for '{}'", info.name
+            )
+            return None
+
+        results = client.search(name=info.name)
+        if not results:
+            logger.warning("instantiate: '{}' not found in happi client", info.name)
+            return None
+
+        return results[0].get()
 
     # === Device CRUD ===
 
