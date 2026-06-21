@@ -123,14 +123,16 @@ def test_load_and_connect_backend_merges_devices_and_emits_signal(qtbot):
     assert catalog.get_device_by_name("fake_dev2") is not None
 
 
-def test_load_metadata_raising_emits_backend_connected_with_no_devices(qtbot):
-    """When load_metadata() raises, backend_connected fires with 0 devices in the cache.
+def test_load_metadata_raising_suppresses_backend_connected(qtbot):
+    """When load_metadata() raises, backend_connected must NOT fire.
 
-    Replaces the old direct _finish_backend_connect(backend, False) call.
-    The backend itself is still registered (so backend fallback queries still
-    work), but no devices are placed in the catalog's _device_cache via the
-    pipeline.
+    Pre-refactor contract: a backend whose load failed does not signal connected.
+    No devices must be placed in the catalog's _device_cache either.
     """
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
     catalog = DeviceCatalog.get_instance()
     backend = _FakeBackend(load_raises=True)
 
@@ -141,8 +143,21 @@ def test_load_metadata_raising_emits_backend_connected_with_no_devices(qtbot):
 
     catalog.add_and_connect_backend(backend)
 
-    # backend_connected still fires — backend "loaded" with 0 devices
-    qtbot.waitUntil(lambda: backend_seen == ["fake"], timeout=3000)
+    # Wait for the worker thread to finish and _on_error to run on main thread.
+    deadline = 2.0
+    step = 0.1
+    elapsed = 0.0
+    app = QApplication.instance()
+    while elapsed < deadline:
+        time.sleep(step)
+        elapsed += step
+        if app:
+            app.processEvents()
+
+    # backend_connected must NOT have fired
+    assert backend_seen == [], (
+        f"backend_connected must NOT fire on load failure, got: {backend_seen}"
+    )
 
     # No devices contributed via the pipeline (cache is empty)
     assert added == []
@@ -150,11 +165,16 @@ def test_load_metadata_raising_emits_backend_connected_with_no_devices(qtbot):
     assert len(catalog._name_index) == 0
 
 
-def test_unexpected_worker_error_treated_as_empty_load(qtbot):
-    """When the load worker raises unexpectedly, backend_connected fires with 0 devices.
+def test_unexpected_worker_error_suppresses_backend_connected(qtbot):
+    """When the load worker raises unexpectedly, backend_connected must NOT fire.
 
-    Replaces the old direct _on_backend_connect_error() call.
+    Any exception from load_metadata() routes through _on_error which must
+    suppress the signal and register no devices.
     """
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
     catalog = DeviceCatalog.get_instance()
 
     class _BombBackend(_FakeBackend):
@@ -171,5 +191,18 @@ def test_unexpected_worker_error_treated_as_empty_load(qtbot):
 
     catalog.add_and_connect_backend(backend)
 
-    qtbot.waitUntil(lambda: backend_seen == ["bomber"], timeout=3000)
+    # Wait for worker + _on_error to run on the main thread.
+    deadline = 2.0
+    step = 0.1
+    elapsed = 0.0
+    app = QApplication.instance()
+    while elapsed < deadline:
+        time.sleep(step)
+        elapsed += step
+        if app:
+            app.processEvents()
+
+    assert backend_seen == [], (
+        f"backend_connected must NOT fire when load_metadata() raises, got: {backend_seen}"
+    )
     assert added == []

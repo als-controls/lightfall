@@ -244,8 +244,16 @@ def test_connect_startup_path_async_pipeline(qtbot):
 # Test 3 — load_metadata raising: treated as no-devices, no crash
 # ---------------------------------------------------------------------------
 
-def test_load_metadata_error_treated_as_empty(qtbot):
-    """When load_metadata() raises, the backend contributes zero devices and no crash."""
+# ---------------------------------------------------------------------------
+# Test 3 -- load_metadata raising: backend_connected suppressed, no devices
+# ---------------------------------------------------------------------------
+
+def test_load_metadata_error_suppresses_backend_connected(qtbot):
+    """When load_metadata() raises, backend_connected must NOT fire and no devices registered.
+
+    Pre-refactor contract: a failed backend does not signal connected.
+    This also exercises the except_slot (_on_error) path in QThreadFuture.
+    """
 
     class _RaisingBackend(FakeUnifiedBackend):
         def load_metadata(self) -> list[DeviceInfo]:
@@ -261,9 +269,61 @@ def test_load_metadata_error_treated_as_empty(qtbot):
 
     catalog.add_and_connect_backend(backend)
 
-    # backend_connected still fires (backend "loaded" with 0 devices)
-    qtbot.waitUntil(lambda: backend.name in backend_seen, timeout=3000)
+    # Give the worker thread time to run and invoke _on_error on the main thread.
+    # We wait longer than a successful load would take so any false positive signal
+    # would have had ample time to arrive.
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    deadline = 2.0  # seconds
+    step = 0.1
+    elapsed = 0.0
+    app = QApplication.instance()
+    while elapsed < deadline:
+        time.sleep(step)
+        elapsed += step
+        if app:
+            app.processEvents()
+
+    # backend_connected must NOT have fired on a failed load
+    assert backend.name not in backend_seen, (
+        f"backend_connected should NOT fire when load_metadata() raises, got: {backend_seen}"
+    )
 
     # No devices contributed
+    assert added == []
+    assert len(catalog._device_cache) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 4 -- load_metadata returning [] (empty success): backend_connected fires
+# ---------------------------------------------------------------------------
+
+def test_load_metadata_empty_success_emits_backend_connected(qtbot):
+    """When load_metadata() returns [] with no exception, backend_connected MUST fire.
+
+    The backend successfully connected -- it just has no devices yet.  The
+    signal distinguishes "connected but empty" from "failed to load".
+    """
+
+    class _EmptyBackend(FakeUnifiedBackend):
+        def load_metadata(self) -> list[DeviceInfo]:
+            return []  # no exception -- legitimately empty
+
+    catalog = DeviceCatalog.get_instance()
+    backend = _EmptyBackend(name="empty_backend")
+
+    backend_seen: list[str] = []
+    added: list[object] = []
+    catalog.backend_connected.connect(lambda n: backend_seen.append(n))
+    catalog.device_added.connect(lambda info: added.append(info))
+
+    catalog.add_and_connect_backend(backend)
+
+    # backend_connected MUST fire for an empty-but-successful load
+    qtbot.waitUntil(lambda: backend.name in backend_seen, timeout=3000)
+
+    # No devices (the list was empty)
     assert added == []
     assert len(catalog._device_cache) == 0

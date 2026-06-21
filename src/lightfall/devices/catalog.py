@@ -169,7 +169,7 @@ class DeviceCatalog(QObject):
         instantiate+connect via DeviceConnectionManager.connect_devices.
 
         Step 1 (worker): optionally call backend.connect() if not yet connected,
-        then call backend.load_metadata() — gracefully treats exceptions as no devices.
+        then call backend.load_metadata() -- exceptions propagate to _on_error (suppresses backend_connected).
 
         Step 2 (main-thread callback): register the infos in the catalog's cache
         structures (_device_cache / _name_index / _device_backend_map); ensure the
@@ -181,34 +181,37 @@ class DeviceCatalog(QObject):
         _on_device_connected/_on_device_failed handlers.
         """
         def _worker() -> list[DeviceInfo]:
-            """Run on a background thread: connect backend (if needed) + load metadata."""
+            """Run on a background thread: connect backend (if needed) + load metadata.
+
+            Exceptions from connect() are swallowed (backend may already be up).
+            Exceptions from load_metadata() propagate so QThreadFuture routes them
+            to _on_error -- a failed load must NOT emit backend_connected.
+            """
             if hasattr(backend, "connect") and not backend.is_connected:
                 try:
                     backend.connect()
                 except Exception as exc:
                     logger.warning(
-                        "Backend '{}' connect() raised during load pipeline: {}",
+                        "Backend \'{}\' connect() raised during load pipeline: {}",
                         backend.name,
                         exc,
                     )
-            try:
-                return backend.load_metadata()
-            except Exception as exc:
-                logger.error(
-                    "Backend '{}' load_metadata() raised — treating as no devices: {}",
-                    backend.name,
-                    exc,
-                )
-                return []
+            # Do NOT catch load_metadata() -- let it propagate to _on_error
+            return backend.load_metadata()
 
         def _on_loaded(infos: list[DeviceInfo]) -> None:
-            """Main-thread callback: register devices, wire signals, kick connect_devices."""
-            # Register each info into the catalog structures
+            """Main-thread callback (success path only): register devices, wire signals,
+            kick connect_devices.  Called even for an empty list (backend connected but
+            has no devices) -- the key invariant is that NO exception was raised.
+            """
+            # Register each info into the catalog structures; track which ones
+            # actually made it into the cache (skipped on name/id conflict).
+            registered: list[DeviceInfo] = []
             before = set(self._device_cache.keys())
             for info in infos:
                 if info.name in self._name_index:
                     logger.warning(
-                        "Device name '{}' from backend '{}' conflicts with existing device, skipping",
+                        "Device name \'{}\' from backend \'{}\' conflicts with existing device, skipping",
                         info.name,
                         backend.name,
                     )
@@ -216,6 +219,7 @@ class DeviceCatalog(QObject):
                 self._device_cache[info.id] = info
                 self._name_index[info.name] = info.id
                 self._device_backend_map[info.id] = backend.name
+                registered.append(info)
 
             new_ids = set(self._device_cache.keys()) - before
 
@@ -232,35 +236,42 @@ class DeviceCatalog(QObject):
                     self.device_added.emit(device)
 
             logger.info(
-                "Device backend '{}' loaded ({} devices, {} new)",
+                "Device backend \'{}\' loaded ({} devices, {} new)",
                 backend.name,
                 len(self._device_cache),
                 len(new_ids),
             )
 
-            # Step 3: kick off concurrent instantiation + connection
-            if infos:
+            # Step 3: kick off concurrent instantiation + connection for the
+            # devices that were actually registered (not skipped due to conflicts).
+            if registered:
                 timeout = getattr(backend, "connection_timeout", None)
                 try:
                     from lightfall.devices.connection_manager import DeviceConnectionManager
 
                     manager = DeviceConnectionManager.get_instance()
-                    manager.connect_devices(backend, infos, timeout=timeout)
+                    manager.connect_devices(backend, registered, timeout=timeout)
                 except Exception as exc:
                     logger.error(
-                        "connect_devices failed for backend '{}': {}",
+                        "connect_devices failed for backend \'{}\': {}",
                         backend.name,
                         exc,
                     )
 
         def _on_error(exc: Exception) -> None:
-            """Main-thread error handler: treat as empty load."""
+            """Main-thread error handler for a failed backend load.
+
+            A backend whose load_metadata() raised must NOT emit backend_connected
+            and must NOT register any devices -- the pre-refactor contract.
+            """
             logger.error(
-                "Unexpected error in _load_and_connect_backend worker for '{}': {}",
+                "Backend \'{}\' failed to load: {}",
                 backend.name,
                 exc,
             )
-            _on_loaded([])
+            # Do NOT emit backend_connected; do NOT register devices; do NOT
+            # call connect_devices.  The backend remains in _backends so the
+            # caller can retry, but it contributes no devices to the catalog.
 
         future = QThreadFuture(
             _worker,
