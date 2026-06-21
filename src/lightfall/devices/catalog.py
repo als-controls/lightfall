@@ -153,51 +153,123 @@ class DeviceCatalog(QObject):
         logger.info("Added device backend: {}", backend.name)
 
     def add_and_connect_backend(self, backend: DeviceBackend) -> None:
-        """Add a backend after startup and connect it off the UI thread.
+        """Add a backend after startup and load+connect it via the unified pipeline.
 
-        Unlike connect() (which runs at startup before the window exists),
-        this is used when a plugin contributes a backend later. The backend is
-        registered immediately; backend.connect() (potentially slow, e.g. a
-        profile-collection exec) runs on a worker thread; device merge and the
-        backend_connected signal fire back on the main thread.
+        The backend is registered synchronously. Then ``_load_and_connect_backend``
+        is called: metadata loads on a worker thread; device registration,
+        ``backend_connected``, and ``DeviceConnectionManager.connect_devices``
+        all run back on the main thread.
         """
         self.add_backend(backend)
+        self._load_and_connect_backend(backend)
+
+    def _load_and_connect_backend(self, backend: DeviceBackend) -> None:
+        """Unified pipeline (startup AND late): load metadata on a worker, then on
+        the main thread register devices + emit device_added, then concurrently
+        instantiate+connect via DeviceConnectionManager.connect_devices.
+
+        Step 1 (worker): optionally call backend.connect() if not yet connected,
+        then call backend.load_metadata() — gracefully treats exceptions as no devices.
+
+        Step 2 (main-thread callback): register the infos in the catalog's cache
+        structures (_device_cache / _name_index / _device_backend_map); ensure the
+        connection manager is wired; emit backend_connected and device_added for
+        each new device.
+
+        Step 3 (still main thread): DeviceConnectionManager.connect_devices drives
+        per-device CONNECTING → CONNECTED/FAILED via the existing
+        _on_device_connected/_on_device_failed handlers.
+        """
+        def _worker() -> list[DeviceInfo]:
+            """Run on a background thread: connect backend (if needed) + load metadata."""
+            if hasattr(backend, "connect") and not backend.is_connected:
+                try:
+                    backend.connect()
+                except Exception as exc:
+                    logger.warning(
+                        "Backend '{}' connect() raised during load pipeline: {}",
+                        backend.name,
+                        exc,
+                    )
+            try:
+                return backend.load_metadata()
+            except Exception as exc:
+                logger.error(
+                    "Backend '{}' load_metadata() raised — treating as no devices: {}",
+                    backend.name,
+                    exc,
+                )
+                return []
+
+        def _on_loaded(infos: list[DeviceInfo]) -> None:
+            """Main-thread callback: register devices, wire signals, kick connect_devices."""
+            # Register each info into the catalog structures
+            before = set(self._device_cache.keys())
+            for info in infos:
+                if info.name in self._name_index:
+                    logger.warning(
+                        "Device name '{}' from backend '{}' conflicts with existing device, skipping",
+                        info.name,
+                        backend.name,
+                    )
+                    continue
+                self._device_cache[info.id] = info
+                self._name_index[info.name] = info.id
+                self._device_backend_map[info.id] = backend.name
+
+            new_ids = set(self._device_cache.keys()) - before
+
+            # Wire the connection manager before emitting any signals so that
+            # _on_device_connected/_on_device_failed are in place when
+            # connect_devices fires its first signal.
+            self._connect_to_connection_manager()
+
+            # backend_connected first, then device_added for each new device
+            self.backend_connected.emit(backend.name)
+            for device_id in new_ids:
+                device = self._device_cache.get(device_id)
+                if device is not None:
+                    self.device_added.emit(device)
+
+            logger.info(
+                "Device backend '{}' loaded ({} devices, {} new)",
+                backend.name,
+                len(self._device_cache),
+                len(new_ids),
+            )
+
+            # Step 3: kick off concurrent instantiation + connection
+            if infos:
+                timeout = getattr(backend, "connection_timeout", None)
+                try:
+                    from lightfall.devices.connection_manager import DeviceConnectionManager
+
+                    manager = DeviceConnectionManager.get_instance()
+                    manager.connect_devices(backend, infos, timeout=timeout)
+                except Exception as exc:
+                    logger.error(
+                        "connect_devices failed for backend '{}': {}",
+                        backend.name,
+                        exc,
+                    )
+
+        def _on_error(exc: Exception) -> None:
+            """Main-thread error handler: treat as empty load."""
+            logger.error(
+                "Unexpected error in _load_and_connect_backend worker for '{}': {}",
+                backend.name,
+                exc,
+            )
+            _on_loaded([])
+
         future = QThreadFuture(
-            backend.connect,
-            callback_slot=lambda ok: self._finish_backend_connect(backend, bool(ok)),
-            except_slot=lambda exc: self._on_backend_connect_error(backend, exc),
-            key=f"connect_backend_{backend.name}",
-            name=f"connect_{backend.name}",
+            _worker,
+            callback_slot=_on_loaded,
+            except_slot=_on_error,
+            key=f"load_backend_{backend.name}",
+            name=f"load_{backend.name}",
         )
         future.start()
-
-    def _on_backend_connect_error(self, backend: DeviceBackend, exc: Exception) -> None:
-        """Worker-thread error path for add_and_connect_backend."""
-        logger.error("Backend '{}' raised during connect: {}", backend.name, exc)
-        self._finish_backend_connect(backend, False)
-
-    def _finish_backend_connect(self, backend: DeviceBackend, connected: bool) -> None:
-        """Main-thread completion for add_and_connect_backend."""
-        if not connected:
-            logger.warning("Backend '{}' failed to connect", backend.name)
-            return
-        before = set(self._device_cache.keys())
-        self._load_backend_devices(backend)
-        new_ids = set(self._device_cache.keys()) - before
-        self.backend_connected.emit(backend.name)
-        # Notify UI consumers (device tree, favorites, synoptic) which refresh
-        # off device_added — backend_connected alone has no consumers, so late
-        # devices would otherwise not appear until a manual refresh.
-        for device_id in new_ids:
-            device = self._device_cache.get(device_id)
-            if device is not None:
-                self.device_added.emit(device)
-        self._connect_to_connection_manager()
-        logger.info(
-            "Device backend '{}' connected late ({} devices total)",
-            backend.name,
-            len(self._device_cache),
-        )
 
     def remove_backend(self, name: str) -> None:
         """Remove a backend by name.
@@ -226,34 +298,23 @@ class DeviceCatalog(QObject):
         logger.info("Removed device backend: {}", name)
 
     def connect(self) -> bool:
-        """Connect all registered backends.
+        """Connect all registered backends via the unified load pipeline.
+
+        Each backend's metadata load and device instantiation run off the UI
+        thread; this method returns immediately once workers are enqueued.
 
         Returns:
-            True if at least one backend connected successfully.
+            True if at least one backend is registered (workers enqueued).
         """
         if not self._backends:
             logger.error("No backend configured")
             return False
 
-        any_connected = False
-        for name, backend in self._backends.items():
-            try:
-                if backend.connect():
-                    self._load_backend_devices(backend)
-                    self.backend_connected.emit(name)
-                    any_connected = True
-                    logger.info("Backend '{}' connected", name)
-                else:
-                    logger.warning("Backend '{}' failed to connect", name)
-            except Exception as e:
-                logger.error("Error connecting backend '{}': {}", name, e)
+        for backend in self._backends.values():
+            self._load_and_connect_backend(backend)
 
-        if any_connected:
-            logger.info("Device catalog connected ({} devices)", len(self._device_cache))
-            # Connect to DeviceConnectionManager for background connection updates
-            self._connect_to_connection_manager()
-
-        return any_connected
+        logger.info("Device catalog connect() enqueued {} backend(s)", len(self._backends))
+        return True
 
     def disconnect(self) -> None:
         """Disconnect all backends."""
