@@ -87,15 +87,20 @@ class DeviceBackend(ABC):
 
     # === Loading Hooks ===
 
-    @abstractmethod
     def load_metadata(self) -> list[DeviceInfo]:
-        """Return device metadata only. No instantiation or connection."""
-        ...
+        """Return device metadata only. No instantiation or connection.
 
-    @abstractmethod
+        Default raises; backends implement this as they migrate to the unified
+        load pipeline.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement load_metadata()")
+
     def instantiate(self, info: DeviceInfo) -> Any:
-        """Build and return the device object for `info`."""
-        ...
+        """Build and return the device object for `info`.
+
+        Default raises; backends implement this as they migrate.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement instantiate()")
 
     def check_connection(self, obj: Any, timeout: float) -> bool:
         """Block until `obj` is connected or `timeout` elapses; return connected.
