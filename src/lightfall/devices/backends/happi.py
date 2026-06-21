@@ -221,17 +221,17 @@ class HappiBackend(DeviceBackend):
     def connect(self) -> bool:
         """Establish the happi JSON client and populate the in-memory device cache.
 
-        Initialises ``self._client``, calls :meth:`_discover_devices` to
-        populate ``self._devices`` (needed for the CRUD API), and sets
-        ``is_connected``.
+        Initialises ``self._client``, then calls :meth:`load_metadata` to
+        populate ``self._devices`` (the CRUD cache).  :meth:`load_metadata` is
+        the single population point, so the CRUD API, the catalog's
+        ``_device_cache``, and ``connect_devices`` all operate on the same
+        DeviceInfo instances (same UUIDs).
 
-        Under the unified load pipeline the catalog calls this method then
-        calls :meth:`load_metadata` separately to get the device list for
-        concurrent instantiation.  The discovery done here is therefore
-        harmless (it only populates the CRUD cache) but :meth:`load_metadata`
-        re-reads the happi client independently — no double-connection of ophyd
-        devices occurs because no instantiation or background connection is
-        started here.
+        Under the unified load pipeline the catalog's worker calls this method
+        then calls :meth:`load_metadata` again separately — :meth:`load_metadata`
+        resets ``_devices`` before rebuilding it, so the second call replaces the
+        first with identical objects; no ophyd instantiation occurs in either
+        call.
         """
         if self._connected:
             return True
@@ -275,12 +275,13 @@ class HappiBackend(DeviceBackend):
                 # Use default happi config (env vars, etc.)
                 self._client = happi.Client.from_config()
 
-            # Populate the in-memory CRUD cache.  This does NOT instantiate any
-            # ophyd objects and does NOT start background connections — those are
-            # handled exclusively by the unified load pipeline
-            # (load_metadata → connect_devices).
-            self._discover_devices()
             self._connected = True
+
+            # Populate the CRUD cache via load_metadata() — the single
+            # population point — so the CRUD API works without a separate
+            # load_metadata() call (e.g. in tests that call connect() directly).
+            self.load_metadata()
+
             logger.info(
                 "Happi backend connected ({} devices from {}, mode={})",
                 len(self._devices),
@@ -292,6 +293,7 @@ class HappiBackend(DeviceBackend):
         except Exception as e:
             logger.error("Failed to connect Happi backend: {}", e)
             self._client = None
+            self._connected = False
             return False
 
     def disconnect(self) -> None:
@@ -583,10 +585,10 @@ class HappiBackend(DeviceBackend):
             d.name: d for d in self._devices.values()
         }
 
-        self._devices.clear()
-        self._configurations.clear()
-        self._maintenance.clear()
-        self._discover_devices()
+        # load_metadata() resets _devices/_configurations/_maintenance and
+        # rebuilds them from the freshly-created client.  Use it as the
+        # single population point so CRUD and the unified pipeline stay in sync.
+        self.load_metadata()
 
         # Re-key new entries with the old UUIDs (and copy runtime state)
         # for names that survived the reload. Anything else is genuinely
@@ -632,10 +634,13 @@ class HappiBackend(DeviceBackend):
         so that a subsequent :meth:`instantiate` call can construct the
         ophyd object.
 
+        This is the SOLE population point for ``self._devices``.  The old
+        ``_discover_devices`` path is no longer called from :meth:`connect`
+        so that the catalog's ``_device_cache``, ``connect_devices``, and
+        the CRUD API all operate on the same DeviceInfo instances (same UUIDs).
+
         The backend does NOT need to be connected first; a temporary client
-        is created from ``self._path`` if needed. The internal ``_devices``
-        cache is NOT populated — this is a pure read operation for the
-        unified load pipeline.
+        is created from ``self._path`` if needed.
 
         Returns:
             List of DeviceInfo objects with ``_happi_result`` in metadata.
@@ -656,26 +661,43 @@ class HappiBackend(DeviceBackend):
                 logger.warning("load_metadata: could not create happi client: {}", e)
                 return []
 
+        # Reset and repopulate the CRUD cache so CRUD API serves the same
+        # DeviceInfo objects that the catalog will register.
+        self._devices.clear()
+        self._configurations.clear()
+        self._maintenance.clear()
+
         results: list[DeviceInfo] = []
         for result in client.search():
             try:
                 info = self._build_device_info(result)
                 if info is not None:
+                    # Set initial state for inactive devices so callers can
+                    # inspect _state without going through the connection pipeline.
+                    if not info.active:
+                        info._state = DeviceState(
+                            device_id=info.id,
+                            status=DeviceStatus.INACTIVE,
+                            connected=False,
+                        )
+                    self._devices[info.id] = info
+                    self._configurations[info.id] = []
+                    self._maintenance[info.id] = []
                     results.append(info)
             except Exception as e:
                 name = getattr(getattr(result, "item", result), "name", "?")
                 logger.warning("load_metadata: skipping '{}': {}", name, e)
 
+        logger.debug("load_metadata: populated {} devices", len(results))
         return results
 
     def _build_device_info(self, result: Any) -> DeviceInfo | None:
         """Build a DeviceInfo from a happi SearchResult, stashing the result.
 
-        This is the DRY core shared by :meth:`load_metadata` and the
-        existing :meth:`_add_device_from_result` path.  Unlike
-        ``_add_device_from_result`` this method:
+        This is the metadata-only core used by :meth:`load_metadata`.
+        It:
         - Always stashes ``_happi_result`` in metadata.
-        - Never touches ``self._devices`` or the connection state.
+        - Never calls ``result.get()`` (no ophyd instantiation).
         - Returns the DeviceInfo rather than mutating instance state.
 
         Returns:

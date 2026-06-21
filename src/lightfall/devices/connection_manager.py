@@ -313,6 +313,7 @@ class DeviceConnectionManager(QObject):
                 def _make_callback(captured_info: DeviceInfo):
                     def _on_done(result: ConnectionResult) -> None:
                         # Runs on the main thread (Qt signal marshalling).
+                        self._active_threads.pop(captured_info.id, None)
                         self._connection_states[result.device_id] = result.state
                         self._connection_results[result.device_id] = result
 
@@ -330,6 +331,7 @@ class DeviceConnectionManager(QObject):
                 def _make_error_handler(captured_info: DeviceInfo):
                     def _on_error(exc: Exception) -> None:
                         # Runs on the main thread.
+                        self._active_threads.pop(captured_info.id, None)
                         logger.error(
                             "connect_devices: unexpected error for '{}': {}",
                             captured_info.name,
@@ -395,6 +397,22 @@ class DeviceConnectionManager(QObject):
                 device_name=info.name,
                 state=state,
                 ophyd_device=obj if ok else None,
+                elapsed_ms=elapsed,
+            )
+        except TimeoutError as exc:
+            # Real ophyd wait_for_connection() raises TimeoutError on expiry.
+            # Map this to TIMEOUT so the catalog shows OFFLINE, not ERROR.
+            elapsed = (time.monotonic() - start) * 1000
+            logger.warning(
+                "connect_devices: '{}' timed out: {}",
+                info.name,
+                exc,
+            )
+            return ConnectionResult(
+                device_id=info.id,
+                device_name=info.name,
+                state=ConnectionState.TIMEOUT,
+                error=str(exc),
                 elapsed_ms=elapsed,
             )
         except Exception as exc:

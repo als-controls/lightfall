@@ -218,8 +218,7 @@ def test_connect_startup_path_async_pipeline(qtbot):
 
     assert result is True, "connect() must return True when a backend is registered"
 
-    # Non-blocking: must not already be fully connected
-    assert len(connected_ids) < len(backend.device_names) or True  # async check below
+    # Non-blocking: devices are connected asynchronously; we check below with waitUntil
 
     # Devices eventually appear via device_added
     qtbot.waitUntil(
@@ -327,3 +326,78 @@ def test_load_metadata_empty_success_emits_backend_connected(qtbot):
     # No devices (the list was empty)
     assert added == []
     assert len(catalog._device_cache) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 5 -- single DeviceInfo population: connected IDs == catalog IDs
+# ---------------------------------------------------------------------------
+
+def test_single_population_connected_ids_match_catalog(qtbot):
+    """REGRESSION: device_connected signals carry the same UUIDs as catalog.get_all_devices().
+
+    Root cause fixed: backends that build DeviceInfo objects in load_metadata()
+    must populate self._devices with those SAME objects so that
+    catalog.get_device(id) and catalog.get_all_devices() serve the same UUIDs
+    that device_connected / device_state_changed carry.
+
+    This test uses a happi-shaped fake whose load_metadata() builds fresh
+    DeviceInfos AND stores them in self._devices (simulating the fixed
+    HappiBackend/BCSBackend behaviour).  A backend that builds two independent
+    populations would cause get_device(connected_id) to return None, making
+    this test fail.
+    """
+
+    class HappiShapedBackend(FakeUnifiedBackend):
+        """Simulates the fixed happi/BCS backend: load_metadata populates _devices."""
+
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            # _infos is the SOLE source -- load_metadata returns AND stores these
+            self._devices_cache: dict = {}  # renamed to avoid shadowing
+
+        def load_metadata(self) -> list[DeviceInfo]:
+            # Rebuild from self._infos (single source of truth).
+            # Store into self._devices_cache so CRUD methods serve same objects.
+            self._devices_cache = {info.id: info for info in self._infos}
+            return list(self._infos)
+
+        def get_device(self, device_id):
+            return self._devices_cache.get(device_id)
+
+        def get_device_by_name(self, name):
+            return next((d for d in self._devices_cache.values() if d.name == name), None)
+
+        def list_devices(self, category=None, beamline=None, active_only=True):
+            return list(self._devices_cache.values())
+
+        def get_all_devices(self):
+            return list(self._devices_cache.values())
+
+    catalog = DeviceCatalog.get_instance()
+    backend = HappiShapedBackend(n_devices=3, name="happi_shaped")
+
+    connected_ids: list[str] = []
+    catalog.device_connected.connect(lambda did: connected_ids.append(did))
+
+    catalog.add_and_connect_backend(backend)
+
+    # Wait for all devices to connect
+    qtbot.waitUntil(
+        lambda: len(connected_ids) >= 3,
+        timeout=5000,
+    )
+
+    # CRITICAL assertion: every ID emitted via device_connected must be findable
+    # in the catalog via get_device AND must appear in get_all_devices().
+    all_catalog_ids = {d.id for d in catalog.get_all_devices()}
+    for id_str in connected_ids:
+        from uuid import UUID
+        dev_id = UUID(id_str)
+        assert catalog.get_device(dev_id) is not None, (
+            f"device_connected emitted id {id_str} but catalog.get_device() returned None "
+            "(UUID set mismatch — two-population bug)"
+        )
+        assert dev_id in all_catalog_ids, (
+            f"device_connected id {id_str} not in catalog.get_all_devices() UUIDs "
+            "(UUID set mismatch — two-population bug)"
+        )

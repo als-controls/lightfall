@@ -155,10 +155,15 @@ class BCSBackend(DeviceBackend):
             # Run async connect in dedicated thread
             self._run_async(self._manager.connect())
 
-            # Discover and populate devices from Happi client
-            self._discover_devices()
-
             self._connected = True
+
+            # Populate the CRUD cache via load_metadata() — the single
+            # population point — so the CRUD API works without a separate
+            # load_metadata() call and the catalog's _device_cache,
+            # connect_devices, and the CRUD API all operate on the same
+            # DeviceInfo instances (same UUIDs).
+            self.load_metadata()
+
             logger.info(
                 "BCS backend connected to {}:{} with {} devices",
                 self._host,
@@ -170,6 +175,7 @@ class BCSBackend(DeviceBackend):
         except Exception as e:
             logger.error("Failed to connect BCS backend: {}", e)
             self._manager = None
+            self._connected = False
             return False
 
     def disconnect(self) -> None:
@@ -300,6 +306,11 @@ class BCSBackend(DeviceBackend):
         Stashes the raw happi item as ``info.metadata["_bcs_happi_item"]`` so that
         a subsequent :meth:`instantiate` call can construct the ophyd object.
 
+        This is the SOLE population point for ``self._devices``.  The old
+        ``_discover_devices`` path is no longer called from :meth:`connect`
+        so that the catalog's ``_device_cache``, ``connect_devices``, and
+        the CRUD API all operate on the same DeviceInfo instances (same UUIDs).
+
         Returns:
             List of DeviceInfo objects with ``_bcs_happi_item`` in metadata.
         """
@@ -307,14 +318,24 @@ class BCSBackend(DeviceBackend):
             logger.warning("load_metadata: no BCS manager/client available")
             return []
 
+        # Reset and repopulate the CRUD cache so CRUD API serves the same
+        # DeviceInfo objects that the catalog will register.
+        self._devices.clear()
+        self._configurations.clear()
+        self._maintenance.clear()
+
         results: list[DeviceInfo] = []
         for item_name, happi_item in self._manager.client.items():
             try:
                 info = self._build_device_info(happi_item)
                 if info is not None:
+                    self._devices[info.id] = info
+                    self._configurations[info.id] = []
+                    self._maintenance[info.id] = []
                     results.append(info)
             except Exception as e:
                 logger.warning("load_metadata: skipping '{}': {}", item_name, e)
+        logger.debug("load_metadata: populated {} BCS devices", len(results))
         return results
 
     def _build_device_info(self, happi_item: Any) -> DeviceInfo | None:
