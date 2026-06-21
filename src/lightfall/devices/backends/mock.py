@@ -483,6 +483,42 @@ class MockBackend(DeviceBackend):
             connected=device._ophyd_device is not None,
         )
 
+    # === Unified Load Pipeline Hooks ===
+
+    def load_metadata(self) -> list[DeviceInfo]:
+        """Return device metadata for all simulated devices.
+
+        Builds the simulated device set if not already done (idempotent).
+        Does not require :meth:`connect` to have been called.
+
+        Returns:
+            List of DeviceInfo objects for all simulated devices.
+        """
+        if not self._devices:
+            self._create_simulated_devices()
+        return list(self._devices.values())
+
+    def instantiate(self, info: DeviceInfo) -> Any:
+        """Return the simulated ophyd object for *info*.
+
+        If the devices have not been built yet, builds them first.
+        Looks up the ophyd object from the internal ``_ophyd_devices``
+        dict by name.
+
+        Args:
+            info: A DeviceInfo previously returned by :meth:`load_metadata`.
+
+        Returns:
+            The simulated ophyd object, or None if not found.
+        """
+        if not self._ophyd_devices:
+            self._create_simulated_devices()
+        return self._ophyd_devices.get(info.name)
+
+    def check_connection(self, obj: Any, timeout: float) -> bool:
+        """Simulated devices are always connected; return True immediately."""
+        return True
+
     # === Device CRUD Operations ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
