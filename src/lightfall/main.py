@@ -620,6 +620,16 @@ def _setup_plugins(app: LFApplication) -> None:
     services.register_instance(PluginRegistry, registry)
     services.register_instance(PluginLoader, loader)
 
+    # Initialize the main-thread invoker now, at startup. It used to be set up
+    # as a side effect of loader.start_loading() running here; deferring the
+    # wave to post-login (below) moved that init too late, so anything using
+    # invoke_in_main_thread() before/during login (e.g. an auth provider
+    # marshaling work to the GUI thread) silently dropped its callback. Set it
+    # up explicitly so cross-thread marshaling works from startup onward.
+    from lightfall.utils.threads import initialize_main_thread_invoker
+
+    initialize_main_thread_invoker()
+
     # NOTE: the background plugin wave (loader.start_loading) is intentionally
     # NOT started here. Only login-window plugins (auth providers, theme) load
     # before login via load_preload_plugins() above; everything else loads after

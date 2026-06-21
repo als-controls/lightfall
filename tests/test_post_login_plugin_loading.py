@@ -69,6 +69,35 @@ def test_setup_plugins_does_not_start_loading(qapp, monkeypatch):
     assert len(loader._load_queue) > 0
 
 
+def test_setup_plugins_initializes_main_thread_invoker(qapp, monkeypatch):
+    """The main-thread invoker must be set up at startup, not deferred with the
+    post-login wave — otherwise invoke_in_main_thread() silently drops callbacks
+    used before/during login (e.g. an auth provider marshaling to the GUI thread).
+
+    Before the fix this was a side effect of start_loading() running here; the
+    post-login deferral moved it too late.
+    """
+    import lightfall.utils.threads as threads
+    from lightfall import main as main_mod
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.plugins.loader import PluginLoader
+
+    monkeypatch.setattr(PluginLoader, "start_loading", lambda self: None)
+    monkeypatch.setattr(PluginLoader, "load_preload_plugins", lambda self: (0, 0))
+
+    init_calls: list[int] = []
+    monkeypatch.setattr(
+        threads, "initialize_main_thread_invoker", lambda: init_calls.append(1)
+    )
+
+    class _FakeApp:
+        def __init__(self) -> None:
+            self.services = ServiceRegistry()
+
+    main_mod._setup_plugins(_FakeApp())
+    assert init_calls == [1], "the main-thread invoker must be initialized at startup"
+
+
 # --- arming the post-login wave ---------------------------------------------
 
 
