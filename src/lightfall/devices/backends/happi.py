@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -220,8 +219,20 @@ class HappiBackend(DeviceBackend):
         return True
 
     def connect(self) -> bool:
-        """Connect to the happi database and load devices."""
-        logger.info("HappiBackend.connect() START (instantiate={})", self._instantiate_mode)
+        """Establish the happi JSON client and populate the in-memory device cache.
+
+        Initialises ``self._client``, calls :meth:`_discover_devices` to
+        populate ``self._devices`` (needed for the CRUD API), and sets
+        ``is_connected``.
+
+        Under the unified load pipeline the catalog calls this method then
+        calls :meth:`load_metadata` separately to get the device list for
+        concurrent instantiation.  The discovery done here is therefore
+        harmless (it only populates the CRUD cache) but :meth:`load_metadata`
+        re-reads the happi client independently — no double-connection of ophyd
+        devices occurs because no instantiation or background connection is
+        started here.
+        """
         if self._connected:
             return True
 
@@ -264,6 +275,10 @@ class HappiBackend(DeviceBackend):
                 # Use default happi config (env vars, etc.)
                 self._client = happi.Client.from_config()
 
+            # Populate the in-memory CRUD cache.  This does NOT instantiate any
+            # ophyd objects and does NOT start background connections — those are
+            # handled exclusively by the unified load pipeline
+            # (load_metadata → connect_devices).
             self._discover_devices()
             self._connected = True
             logger.info(
@@ -272,12 +287,6 @@ class HappiBackend(DeviceBackend):
                 self._path or "default config",
                 self._instantiate_mode,
             )
-
-            # Start background connections if in background mode
-            if self._instantiate_mode == "background":
-                self._start_background_connections()
-
-            logger.info("HappiBackend.connect() END")
             return True
 
         except Exception as e:
@@ -304,128 +313,6 @@ class HappiBackend(DeviceBackend):
             except Exception as e:
                 name = getattr(result, "name", "?")
                 logger.warning("Failed to load happi device '{}': {}", name, e)
-
-    def _start_background_connections(self) -> None:
-        """Start background connections for all devices with pending happi results."""
-        import importlib
-
-        from lightfall.devices.connection_manager import DeviceConnectionManager
-
-        manager = DeviceConnectionManager.get_instance()
-
-        # Connect the manager's signals to update our device cache
-        manager.device_connected.connect(self._on_device_connected)
-        manager.device_failed.connect(self._on_device_failed)
-
-        # Collect devices that need connection
-        to_connect: list[tuple[DeviceInfo, Any]] = []
-        for device in self._devices.values():
-            if not device.active:
-                continue
-            happi_result = device.metadata.pop("_happi_result", None)
-            if happi_result is not None:
-                to_connect.append((device, happi_result))
-
-        if to_connect:
-            # Pre-import all device classes on the main thread to avoid
-            # import lock deadlocks when multiple background threads try
-            # to import from the same package simultaneously.
-            seen_modules: set[str] = set()
-            for device, _happi_result in to_connect:
-                device_class = device.device_class or ""
-                if "." in device_class:
-                    module_path = device_class.rsplit(".", 1)[0]
-                    if module_path not in seen_modules:
-                        seen_modules.add(module_path)
-                        try:
-                            importlib.import_module(module_path)
-                            logger.debug("Pre-imported device module: {}", module_path)
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to pre-import device module '{}': {}",
-                                module_path,
-                                e,
-                            )
-
-            logger.info(
-                "Starting background connection for {} happi devices",
-                len(to_connect),
-            )
-            manager.connect_all_phased(to_connect, timeout=self._connection_timeout)
-
-    def _on_device_connected(self, result: Any) -> None:
-        """Handle successful device connection from ConnectionManager."""
-        from lightfall.devices.connection_manager import ConnectionResult
-
-        if not isinstance(result, ConnectionResult):
-            return
-
-        device = self._devices.get(result.device_id)
-        if device is None:
-            return
-
-        if not device.active:
-            device._state = DeviceState(
-                device_id=device.id,
-                status=DeviceStatus.INACTIVE,
-                connected=False,
-            )
-            logger.debug("Device '{}' is inactive, skipping connection", device.name)
-            return
-
-        # Update the device with the ophyd instance
-        device._ophyd_device = result.ophyd_device
-        device._state = DeviceState(
-            device_id=device.id,
-            status=DeviceStatus.ONLINE,
-            connected=True,
-        )
-        logger.debug("Happi device '{}' connected", device.name)
-
-    def _on_device_failed(self, result: Any) -> None:
-        """Handle failed device connection from ConnectionManager."""
-        from lightfall.devices.connection_manager import ConnectionResult, ConnectionState
-
-        if not isinstance(result, ConnectionResult):
-            return
-
-        device = self._devices.get(result.device_id)
-        if device is None:
-            return
-
-        # When CA tunnel is active, keep devices in CONNECTING state on
-        # first failure — the auto-retry cycle will try again. Only mark
-        # as OFFLINE after retries give up (via reconnect_failed_devices).
-        ca_tunnel_active = os.environ.get("EPICS_CA_ADDR_LIST", "") != ""
-        if ca_tunnel_active and device.name not in self._permanently_failed:
-            device._state = DeviceState(
-                device_id=device.id,
-                status=DeviceStatus.CONNECTING,
-                connected=False,
-            )
-            logger.debug(
-                "Happi device '{}' initial connection failed, will retry: {}",
-                device.name,
-                result.error,
-            )
-            return
-
-        # No tunnel or permanently failed — mark offline/error
-        if result.state == ConnectionState.TIMEOUT:
-            status = DeviceStatus.OFFLINE
-        else:
-            status = DeviceStatus.ERROR
-
-        device._state = DeviceState(
-            device_id=device.id,
-            status=status,
-            connected=False,
-        )
-        logger.debug(
-            "Happi device '{}' connection failed: {}",
-            device.name,
-            result.error,
-        )
 
     def _add_device_from_result(self, result: Any) -> None:
         """Create DeviceInfo from a happi SearchResult."""
@@ -730,10 +617,6 @@ class HappiBackend(DeviceBackend):
         self._permanently_failed.clear()
         if hasattr(self, "_fail_counts"):
             self._fail_counts.clear()
-
-        # Queue any newly-introduced (or repaired) devices for connection.
-        if self._instantiate_mode == "background":
-            self._start_background_connections()
 
         logger.info("Reloaded happi backend: {} devices", len(self._devices))
         return True

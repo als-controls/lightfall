@@ -1,4 +1,4 @@
-"""Tests for HappiBackend.load_metadata() and HappiBackend.instantiate() hooks."""
+"""Tests for HappiBackend.load_metadata(), .instantiate(), and .connect() hooks."""
 
 from __future__ import annotations
 
@@ -115,3 +115,51 @@ def test_instantiate_fallback_by_name(tmp_path: Path) -> None:
     obj = backend.instantiate(info)
     # ophyd.sim.SynAxis should be constructable without a real PV
     assert obj is not None
+
+
+# ---------------------------------------------------------------------------
+# Test 4: connect() is session-only — does NOT build devices or run background
+# connections
+# ---------------------------------------------------------------------------
+
+def test_connect_does_not_start_background_connections(tmp_path: Path) -> None:
+    """connect() must NOT instantiate ophyd objects or start background
+    connection threads.
+
+    Regression guard for the double-connect bug: the unified load pipeline
+    calls backend.connect() + backend.load_metadata() + connect_devices().
+    Under the old (broken) code, connect() in "background" mode also called
+    _start_background_connections() which ran the phased path — devices would
+    be connected twice.
+
+    The fix: _start_background_connections is deleted entirely; connect() may
+    populate the CRUD cache (_devices) via _discover_devices() but must never
+    call happi_result.get() / instantiate any ophyd object.
+    """
+    db_path = _make_happi_db(tmp_path)
+
+    backend = HappiBackend(path=str(db_path), instantiate="background")
+    assert not backend.is_connected
+
+    ok = backend.connect()
+
+    assert ok, "connect() must return True for a valid happi path"
+    assert backend.is_connected, "is_connected must be True after connect()"
+
+    # The happi client must be ready for use (load_metadata() needs it).
+    assert backend._client is not None, "connect() must initialise _client"
+
+    # After connect(), no device in the CRUD cache must have an ophyd object —
+    # instantiation is the exclusive job of the unified load pipeline's
+    # instantiate() step via connect_devices().
+    for device in backend._devices.values():
+        assert device._ophyd_device is None, (
+            f"connect() must NOT instantiate ophyd devices; "
+            f"'{device.name}' already has _ophyd_device set"
+        )
+
+    # Verify _start_background_connections no longer exists on the class —
+    # deleting it prevents accidental re-introduction of the old phased path.
+    assert not hasattr(backend, "_start_background_connections"), (
+        "_start_background_connections must be removed from HappiBackend"
+    )

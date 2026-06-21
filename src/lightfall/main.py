@@ -463,9 +463,8 @@ def _setup_devices() -> None:
         )
 
     if catalog.connect():
-        device_count = len(catalog.get_all_devices())
         backends_str = ", ".join(catalog.backends.keys())
-        logger.info("Device catalog initialized: {} devices from [{}]", device_count, backends_str)
+        logger.info("Device catalog loading from [{}] (devices connect in the background)", backends_str)
     else:
         logger.error("Failed to connect device catalog")
 

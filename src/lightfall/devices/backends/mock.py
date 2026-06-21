@@ -69,18 +69,18 @@ class MockBackend(DeviceBackend):
         return self._connected
 
     def connect(self) -> bool:
-        """Connect and initialize simulated devices."""
+        """Mark the mock backend as connected (session only).
+
+        Device creation is deferred to :meth:`load_metadata` so that
+        the unified load pipeline (connect → load_metadata → instantiate)
+        does not build devices twice.
+        """
         if self._connected:
             return True
 
-        try:
-            self._create_simulated_devices()
-            self._connected = True
-            logger.info("Mock backend connected with {} devices", len(self._devices))
-            return True
-        except Exception as e:
-            logger.error("Failed to connect mock backend: {}", e)
-            return False
+        self._connected = True
+        logger.info("Mock backend session established")
+        return True
 
     def disconnect(self) -> None:
         """Disconnect and cleanup."""
@@ -519,14 +519,27 @@ class MockBackend(DeviceBackend):
         """Simulated devices are always connected; return True immediately."""
         return True
 
+    def _ensure_devices(self) -> None:
+        """Lazily build simulated devices on first access.
+
+        Idempotent — safe to call multiple times; ``_create_simulated_devices``
+        is only invoked once because it checks ``self._devices`` itself, and
+        this guard is an additional early-exit for callers that just want to
+        read the cache.
+        """
+        if not self._devices:
+            self._create_simulated_devices()
+
     # === Device CRUD Operations ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
         """Get a device by ID."""
+        self._ensure_devices()
         return self._devices.get(device_id)
 
     def get_device_by_name(self, name: str) -> DeviceInfo | None:
         """Get a device by name."""
+        self._ensure_devices()
         for device in self._devices.values():
             if device.name == name:
                 return device
@@ -534,6 +547,7 @@ class MockBackend(DeviceBackend):
 
     def get_device_by_prefix(self, prefix: str) -> DeviceInfo | None:
         """Get a device by connection prefix."""
+        self._ensure_devices()
         for device in self._devices.values():
             if device.prefix == prefix:
                 return device
@@ -546,6 +560,7 @@ class MockBackend(DeviceBackend):
         active_only: bool = True,
     ) -> list[DeviceInfo]:
         """List devices with optional filtering."""
+        self._ensure_devices()
         result = []
         for device in self._devices.values():
             if active_only and not device.active:
@@ -559,6 +574,7 @@ class MockBackend(DeviceBackend):
 
     def search_devices(self, query: str) -> list[DeviceInfo]:
         """Search devices by query string."""
+        self._ensure_devices()
         return [d for d in self._devices.values() if d.matches_search(query)]
 
     def add_device(self, device: DeviceInfo) -> bool:
@@ -658,6 +674,7 @@ class MockBackend(DeviceBackend):
         Returns:
             The ophyd device or None.
         """
+        self._ensure_devices()
         return self._ophyd_devices.get(name)
 
     def get_all_ophyd_devices(self) -> dict[str, Any]:
