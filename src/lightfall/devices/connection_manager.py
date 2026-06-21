@@ -453,9 +453,6 @@ class DeviceConnectionManager(QObject):
                 self.device_connecting.emit(str(info.id))
                 in_flight[0] += 1
 
-                # Capture loop variable for the closure.
-                _info = info
-
                 def _make_callback(captured_info: DeviceInfo):
                     def _on_done(result: ConnectionResult) -> None:
                         # Runs on the main thread (Qt signal marshalling).
@@ -498,14 +495,14 @@ class DeviceConnectionManager(QObject):
                 thread = QThreadFuture(
                     self._instantiate_and_connect,
                     backend,
-                    _info,
+                    info,
                     effective_timeout,
-                    callback_slot=_make_callback(_info),
-                    except_slot=_make_error_handler(_info),
-                    name=f"connect_{_info.name}",
-                    key=f"device_connect_{_info.id}",
+                    callback_slot=_make_callback(info),
+                    except_slot=_make_error_handler(info),
+                    name=f"connect_{info.name}",
+                    key=f"device_connect_batch_{info.id}",
                 )
-                self._active_threads[_info.id] = thread
+                self._active_threads[info.id] = thread
                 thread.start()
 
         _start_next()
