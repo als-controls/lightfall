@@ -6,6 +6,7 @@ using Qt threading utilities for proper UI integration.
 
 from __future__ import annotations
 
+import collections
 import threading
 import time
 from dataclasses import dataclass, field
@@ -410,6 +411,152 @@ class DeviceConnectionManager(QObject):
             name="phased-instantiate-all",
         )
         phase1_thread.start()
+
+    def connect_devices(
+        self,
+        backend: Any,
+        infos: list[DeviceInfo],
+        timeout: float | None = None,
+        max_concurrency: int = 12,
+    ) -> None:
+        """Connect a list of devices using a backend, with bounded concurrency.
+
+        Must be called from the main (GUI) thread. At most ``max_concurrency``
+        per-device worker threads run at once; the rest are queued and started
+        as each slot becomes free.
+
+        Args:
+            backend: A :class:`~lightfall.devices.base.DeviceBackend` whose
+                ``instantiate`` and ``check_connection`` hooks are used.
+            infos: Devices to connect.
+            timeout: Per-device timeout in seconds. ``None`` uses the manager
+                default (``self.default_timeout``).
+            max_concurrency: Maximum number of simultaneous worker threads.
+        """
+        if not infos:
+            return
+
+        effective_timeout = timeout if timeout is not None else self.default_timeout
+
+        # Pending queue of (info, backend, timeout) yet to be started.
+        pending: collections.deque[DeviceInfo] = collections.deque(infos)
+
+        # Track how many workers are currently in flight (only accessed from
+        # the main thread via callback_slot, so no lock is needed).
+        in_flight: list[int] = [0]  # mutable cell — avoids nonlocal in older Pythons
+
+        def _start_next() -> None:
+            """Pull from the pending queue and start a worker if a slot is free."""
+            while in_flight[0] < max_concurrency and pending:
+                info = pending.popleft()
+                self._connection_states[info.id] = ConnectionState.CONNECTING
+                self.device_connecting.emit(str(info.id))
+                in_flight[0] += 1
+
+                # Capture loop variable for the closure.
+                _info = info
+
+                def _make_callback(captured_info: DeviceInfo):
+                    def _on_done(result: ConnectionResult) -> None:
+                        # Runs on the main thread (Qt signal marshalling).
+                        self._connection_states[result.device_id] = result.state
+                        self._connection_results[result.device_id] = result
+
+                        if result.state == ConnectionState.CONNECTED:
+                            captured_info._ophyd_device = result.ophyd_device
+                            self.device_connected.emit(result)
+                        else:
+                            self.device_failed.emit(result)
+
+                        in_flight[0] -= 1
+                        _start_next()
+
+                    return _on_done
+
+                def _make_error_handler(captured_info: DeviceInfo):
+                    def _on_error(exc: Exception) -> None:
+                        # Runs on the main thread.
+                        logger.error(
+                            "connect_devices: unexpected error for '{}': {}",
+                            captured_info.name,
+                            exc,
+                        )
+                        fail_result = ConnectionResult(
+                            device_id=captured_info.id,
+                            device_name=captured_info.name,
+                            state=ConnectionState.FAILED,
+                            error=str(exc),
+                        )
+                        self._connection_states[captured_info.id] = ConnectionState.FAILED
+                        self._connection_results[captured_info.id] = fail_result
+                        self.device_failed.emit(fail_result)
+                        in_flight[0] -= 1
+                        _start_next()
+
+                    return _on_error
+
+                thread = QThreadFuture(
+                    self._instantiate_and_connect,
+                    backend,
+                    _info,
+                    effective_timeout,
+                    callback_slot=_make_callback(_info),
+                    except_slot=_make_error_handler(_info),
+                    name=f"connect_{_info.name}",
+                    key=f"device_connect_{_info.id}",
+                )
+                self._active_threads[_info.id] = thread
+                thread.start()
+
+        _start_next()
+
+    def _instantiate_and_connect(
+        self,
+        backend: Any,
+        info: DeviceInfo,
+        timeout: float,
+    ) -> ConnectionResult:
+        """Worker: instantiate then check connection for one device.
+
+        Runs in a background thread. Returns a :class:`ConnectionResult` —
+        never raises, so the ``except_slot`` only fires on truly unexpected
+        errors outside this try/except.
+
+        Args:
+            backend: The device backend.
+            info: Device to instantiate and connect.
+            timeout: Connection timeout in seconds.
+
+        Returns:
+            :class:`ConnectionResult` with the final state.
+        """
+        start = time.monotonic()
+        try:
+            obj = backend.instantiate(info)
+            ok = backend.check_connection(obj, timeout)
+            elapsed = (time.monotonic() - start) * 1000
+            state = ConnectionState.CONNECTED if ok else ConnectionState.TIMEOUT
+            return ConnectionResult(
+                device_id=info.id,
+                device_name=info.name,
+                state=state,
+                ophyd_device=obj if ok else None,
+                elapsed_ms=elapsed,
+            )
+        except Exception as exc:
+            elapsed = (time.monotonic() - start) * 1000
+            logger.warning(
+                "connect_devices: '{}' failed: {}",
+                info.name,
+                exc,
+            )
+            return ConnectionResult(
+                device_id=info.id,
+                device_name=info.name,
+                state=ConnectionState.FAILED,
+                error=str(exc),
+                elapsed_ms=elapsed,
+            )
 
     def _do_wait_for_connection(
         self,
