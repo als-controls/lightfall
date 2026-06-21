@@ -139,7 +139,7 @@ def _patch_layout_recorders(window, monkeypatch, calls, *, default_layout_applie
         window._default_layout_applied = default_layout_applied
 
     monkeypatch.setattr(window, "setup_default_layout", _layout)
-    monkeypatch.setattr(window, "_restore_window_state", lambda: calls.append("restore"))
+    monkeypatch.setattr(window, "_restore_dock_state", lambda: calls.append("restore"))
     monkeypatch.setattr(
         window, "_maybe_start_proactive_init", lambda: calls.append("proactive")
     )
@@ -228,3 +228,48 @@ def test_proactive_waits_for_window_shown(qapp, monkeypatch):
     window._window_shown = True
     window._finalize_layout_if_ready()
     assert "proactive" in calls
+
+
+# --- early window-geometry restore (avoids default-size -> saved-size flash) --
+
+
+def test_restore_window_geometry_applies_saved(qapp, monkeypatch):
+    """Geometry is restored from saved settings (up-front, no panels needed)."""
+    import PySide6.QtCore as QtCore
+
+    from lightfall.ui import LFMainWindow
+
+    window = LFMainWindow()
+    saved = window.saveGeometry()  # real, valid QByteArray geometry
+
+    class _FakeSettings:
+        def value(self, key):
+            return saved if key == "mainwindow/geometry" else None
+
+    monkeypatch.setattr(QtCore, "QSettings", lambda *a, **k: _FakeSettings())
+    restored = []
+    monkeypatch.setattr(
+        window, "restoreGeometry", lambda g: restored.append(g) or True
+    )
+
+    assert window._restore_window_geometry() is True
+    assert restored == [saved]
+
+
+def test_restore_window_geometry_noop_without_saved(qapp, monkeypatch):
+    import PySide6.QtCore as QtCore
+
+    from lightfall.ui import LFMainWindow
+
+    window = LFMainWindow()
+
+    class _FakeSettings:
+        def value(self, key):
+            return None
+
+    monkeypatch.setattr(QtCore, "QSettings", lambda *a, **k: _FakeSettings())
+    restored = []
+    monkeypatch.setattr(window, "restoreGeometry", lambda g: restored.append(g))
+
+    assert window._restore_window_geometry() is False
+    assert restored == []

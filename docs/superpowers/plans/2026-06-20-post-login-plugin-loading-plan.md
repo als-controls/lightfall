@@ -55,7 +55,21 @@ shaped the implementation:
       `_watch_plugin_loading`.
 - [x] Unit tests: loader/arming seam + layout-latch sequencing
       (`tests/test_post_login_plugin_loading.py`); update `test_proactive_latch.py`.
-- [x] Full suite green (1469 passed, 3 skipped — integration deps / gpcam).
+- [x] Adversarial review (3 lenses + per-finding verification); 2 findings
+      confirmed and fixed:
+  - [x] **No-loader regression**: the defensive `loader is None` branch now calls
+        `window._on_plugin_loading_complete(0, 0)` so the window still builds a
+        (empty) layout instead of staying blank. (Near-unreachable, but correct.)
+  - [x] **Geometry flash**: because the window shows before `loading_complete`,
+        deferring the *whole* restore caused a default-size → saved-size jump.
+        `showEvent` now restores window **geometry** up-front
+        (`_restore_window_geometry`); only the **dock-panel** state
+        (`_restore_dock_state`) stays in the post-login `_finalize_layout_if_ready`
+        (it needs panels registered first). No size jump; panels still populate
+        post-login (inherent).
+- [x] Full suite green (1469 passed, 3 skipped — integration deps / gpcam; one
+      unrelated pre-existing flaky test, `test_user_portable_set_emits_through_topic`,
+      passes in isolation / on re-run).
 - [ ] **Box validation on ws5** (below).
 
 ## Box validation plan (ws5, restart-by-restart)
@@ -69,7 +83,11 @@ the deployment box, watching the startup log each restart:
 2. After login: **status bar and panels populate** (look for "Starting
    post-login plugin wave" → `plugin_loaded` → `Plugin loading complete`).
 3. **Saved layout restores correctly** on a second launch (existing
-   `mainwindow/geometry` / docking state).
+   `mainwindow/geometry` / docking state). Watch that the window appears at its
+   saved **size/position/maximize immediately** (geometry is restored up-front
+   in `showEvent`); panels then populate post-login (the dock layout restores
+   once the wave registers them). There should be no default-size → saved-size
+   resize jump.
 4. **First-run default layout** builds correctly on a cleared profile (no saved
    state).
 5. **Guest mode**: choosing "Continue as Guest" still loads the wave (status bar

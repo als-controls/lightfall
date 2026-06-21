@@ -44,7 +44,7 @@ class _Host:
     def setup_default_layout(self):
         self.layout_build_count += 1
 
-    def _restore_window_state(self):
+    def _restore_dock_state(self):
         self.restore_count += 1
 
 

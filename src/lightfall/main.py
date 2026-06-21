@@ -957,6 +957,12 @@ def main() -> int:
             "PluginLoader service missing; post-login plugin wave not armed"
         )
 
+        # No loader means no wave and no loading_complete to drive the layout.
+        # Build the (empty) default layout directly so the window is still
+        # usable rather than blank. Mirrors the pre-change unconditional
+        # setup_default_layout()/proactive-init path.
+        window._on_plugin_loading_complete(0, 0)
+
         def fire_plugin_wave() -> None:
             return None
 
