@@ -291,6 +291,106 @@ class BCSBackend(DeviceBackend):
             connected=device._ophyd_device is not None,
         )
 
+    # === Unified Load Pipeline Hooks ===
+
+    def load_metadata(self) -> list[DeviceInfo]:
+        """Return device metadata for all BCS devices without instantiating ophyd objects.
+
+        Requires the backend to be connected (the BCS ZMQ query IS the metadata load).
+        Stashes the raw happi item as ``info.metadata["_bcs_happi_item"]`` so that
+        a subsequent :meth:`instantiate` call can construct the ophyd object.
+
+        Returns:
+            List of DeviceInfo objects with ``_bcs_happi_item`` in metadata.
+        """
+        if self._manager is None or self._manager.client is None:
+            logger.warning("load_metadata: no BCS manager/client available")
+            return []
+
+        results: list[DeviceInfo] = []
+        for item_name, happi_item in self._manager.client.items():
+            try:
+                info = self._build_device_info(happi_item)
+                if info is not None:
+                    results.append(info)
+            except Exception as e:
+                logger.warning("load_metadata: skipping '{}': {}", item_name, e)
+        return results
+
+    def _build_device_info(self, happi_item: Any) -> DeviceInfo | None:
+        """Build a DeviceInfo from a BCS happi item, stashing the item.
+
+        This is the metadata-only equivalent of :meth:`_add_device_from_happi`.
+        Unlike that method it:
+        - Never calls ``happi_item.get()`` (no ophyd instantiation).
+        - Stashes ``_bcs_happi_item`` in metadata for :meth:`instantiate`.
+        - Returns the DeviceInfo rather than mutating instance state.
+
+        Returns:
+            DeviceInfo or None on error.
+        """
+        metadata = happi_item.metadata if hasattr(happi_item, "metadata") else {}
+
+        item_type = metadata.get("itemType") or metadata.get("item_type", "other")
+        category = BCS_TYPE_MAP.get(str(item_type).lower(), DeviceCategory.CONTROLLER)
+
+        name = metadata.get("name", str(happi_item))
+        original_name = metadata.get("originalName") or metadata.get(
+            "original_name", name
+        )
+        units = metadata.get("units") or metadata.get("egu", "")
+
+        device_class_map = {
+            "motor": "bcsophyd.zmq.bcs_motor.BCSMotor",
+            "ai": "bcsophyd.zmq.bcs_signal.BCSSignal",
+            "detector": "bcsophyd.zmq.bcs_area_detector.BCSAreaDetector",
+        }
+        device_class = device_class_map.get(
+            str(item_type).lower(), "bcsophyd.zmq.bcs_device.BCSDevice"
+        )
+
+        return DeviceInfo(
+            name=name,
+            description=f"BCS {item_type}: {original_name}",
+            category=category,
+            device_class=device_class,
+            connection_type=ConnectionType.BCS_ZMQ,
+            prefix=original_name,
+            beamline=self._beamline,
+            location="",
+            tags=["bcs", str(item_type).lower()],
+            metadata={
+                "host": self._host,
+                "port": self._port,
+                "original_name": original_name,
+                "units": units,
+                "bcs_type": str(item_type),
+                "_bcs_happi_item": happi_item,
+            },
+        )
+
+    def instantiate(self, info: DeviceInfo) -> Any:
+        """Build and return the ophyd device object for *info*.
+
+        Looks for a stashed BCS happi item in ``info.metadata["_bcs_happi_item"]``
+        and calls ``.get()`` on it.
+
+        Args:
+            info: A DeviceInfo previously returned by :meth:`load_metadata`.
+
+        Returns:
+            The constructed ophyd device object, or None if no item is stashed.
+        """
+        happi_item = info.metadata.get("_bcs_happi_item")
+        if happi_item is None:
+            logger.warning("instantiate: no stashed '_bcs_happi_item' for '{}'", info.name)
+            return None
+        try:
+            return happi_item.get()
+        except Exception as e:
+            logger.warning("instantiate: failed to build ophyd device '{}': {}", info.name, e)
+            return None
+
     # === Device CRUD Operations ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
