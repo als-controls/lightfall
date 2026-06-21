@@ -10,6 +10,7 @@ Different backends can be used depending on deployment needs:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from time import monotonic, sleep
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -83,6 +84,34 @@ class DeviceBackend(ABC):
     def disconnect(self) -> None:
         """Disconnect from the backend storage."""
         ...
+
+    # === Loading Hooks ===
+
+    @abstractmethod
+    def load_metadata(self) -> list[DeviceInfo]:
+        """Return device metadata only. No instantiation or connection."""
+        ...
+
+    @abstractmethod
+    def instantiate(self, info: DeviceInfo) -> Any:
+        """Build and return the device object for `info`."""
+        ...
+
+    def check_connection(self, obj: Any, timeout: float) -> bool:
+        """Block until `obj` is connected or `timeout` elapses; return connected.
+
+        Default ophyd semantics; override for a different device layer.
+        """
+        if hasattr(obj, "wait_for_connection"):
+            obj.wait_for_connection(timeout=timeout)
+            return True
+        elif hasattr(obj, "connected"):
+            deadline = monotonic() + timeout
+            while not obj.connected and monotonic() < deadline:
+                sleep(0.05)
+            return bool(obj.connected)
+        else:
+            return True
 
     # === Device CRUD Operations ===
 
