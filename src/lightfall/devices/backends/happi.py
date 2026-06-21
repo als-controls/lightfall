@@ -738,6 +738,160 @@ class HappiBackend(DeviceBackend):
         logger.info("Reloaded happi backend: {} devices", len(self._devices))
         return True
 
+    # === Unified Load Pipeline Hooks ===
+
+    def load_metadata(self) -> list[DeviceInfo]:
+        """Return device metadata for all entries in the happi database.
+
+        Performs the happi search and builds DeviceInfo objects without
+        instantiating any ophyd devices. Each returned DeviceInfo has the
+        raw happi SearchResult stashed as ``info.metadata["_happi_result"]``
+        so that a subsequent :meth:`instantiate` call can construct the
+        ophyd object.
+
+        The backend does NOT need to be connected first; a temporary client
+        is created from ``self._path`` if needed. The internal ``_devices``
+        cache is NOT populated — this is a pure read operation for the
+        unified load pipeline.
+
+        Returns:
+            List of DeviceInfo objects with ``_happi_result`` in metadata.
+        """
+        # Build a temporary client if we don't have one yet
+        client = self._client
+        if client is None:
+            try:
+                import happi
+                from happi.backends.json_db import JSONBackend
+
+                if self._path:
+                    db = JSONBackend(self._path)
+                    client = happi.Client(database=db)
+                else:
+                    client = happi.Client.from_config()
+            except Exception as e:
+                logger.warning("load_metadata: could not create happi client: {}", e)
+                return []
+
+        results: list[DeviceInfo] = []
+        for result in client.search():
+            try:
+                info = self._build_device_info(result)
+                if info is not None:
+                    results.append(info)
+            except Exception as e:
+                name = getattr(getattr(result, "item", result), "name", "?")
+                logger.warning("load_metadata: skipping '{}': {}", name, e)
+
+        return results
+
+    def _build_device_info(self, result: Any) -> DeviceInfo | None:
+        """Build a DeviceInfo from a happi SearchResult, stashing the result.
+
+        This is the DRY core shared by :meth:`load_metadata` and the
+        existing :meth:`_add_device_from_result` path.  Unlike
+        ``_add_device_from_result`` this method:
+        - Always stashes ``_happi_result`` in metadata.
+        - Never touches ``self._devices`` or the connection state.
+        - Returns the DeviceInfo rather than mutating instance state.
+
+        Returns:
+            DeviceInfo or None if the item is filtered out (e.g. wrong beamline).
+        """
+        item = result.item if hasattr(result, "item") else result
+
+        item_name = getattr(item, "name", str(item))
+        device_class = getattr(item, "device_class", "") or ""
+        beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
+        location = getattr(item, "location_group", "") or ""
+        func_group = getattr(item, "functional_group", "") or ""
+
+        # Filter by beamline if configured
+        if self._beamline and beamline and beamline != self._beamline:
+            return None
+
+        category = _guess_category(item)
+        connection_type = _guess_connection_type(item)
+
+        # Build tags
+        tags = ["happi"]
+        if func_group:
+            tags.append(func_group.lower())
+
+        # Collect all happi metadata
+        metadata: dict[str, Any] = {}
+        if hasattr(item, "post"):
+            for field in item.info_names:
+                try:
+                    metadata[field] = getattr(item, field, None)
+                except Exception:
+                    pass
+        elif isinstance(item, dict):
+            metadata = dict(item)
+
+        # Stash the raw happi result so instantiate() can call result.get()
+        metadata["_happi_result"] = result
+
+        # Read Lightfall-specific fields from extraneous or metadata
+        extraneous = getattr(item, "extraneous", {}) or {}
+        prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
+        display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
+        icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
+        group = extraneous.get("group", "") or metadata.get("group", "") or ""
+        active = getattr(item, "active", True)
+        if isinstance(active, str):
+            active = active.lower() != "false"
+
+        return DeviceInfo(
+            name=item_name,
+            description=f"Happi: {device_class}" if device_class else f"Happi device: {item_name}",
+            category=category,
+            device_class=device_class,
+            connection_type=connection_type,
+            prefix=prefix,
+            beamline=beamline,
+            location=location,
+            tags=tags,
+            metadata=metadata,
+            display_name=display_name,
+            icon_override=icon_override,
+            group=group,
+            active=active,
+        )
+
+    def instantiate(self, info: DeviceInfo) -> Any:
+        """Build and return the ophyd device object for *info*.
+
+        Looks for a stashed happi SearchResult in
+        ``info.metadata["_happi_result"]`` and calls ``.get()`` on it.
+        If no stash is present, falls back to searching the happi client
+        by ``info.name`` and calling ``.get()`` on the first match.
+
+        Args:
+            info: A DeviceInfo previously returned by :meth:`load_metadata`.
+
+        Returns:
+            The constructed ophyd device object, or None if not found.
+        """
+        happi_result = info.metadata.get("_happi_result")
+        if happi_result is not None:
+            return happi_result.get()
+
+        # Fallback: search the client by name
+        client = self._client
+        if client is None:
+            logger.warning(
+                "instantiate: no stashed result and no client for '{}'", info.name
+            )
+            return None
+
+        results = client.search(name=info.name)
+        if not results:
+            logger.warning("instantiate: '{}' not found in happi client", info.name)
+            return None
+
+        return results[0].get()
+
     # === Device CRUD ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
