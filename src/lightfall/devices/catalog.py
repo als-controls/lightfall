@@ -24,7 +24,6 @@ from lightfall.devices.model import (
     DeviceStatus,
     MaintenanceRecord,
 )
-
 from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:

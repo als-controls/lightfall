@@ -39,8 +39,8 @@ def _widget_classes() -> list[type[BaseVisualization]]:
     )
     from lightfall.visualization.widgets.heatmap import HeatmapVisualization
     from lightfall.visualization.widgets.image_stack import ImageStackVisualization
-    from lightfall.visualization.widgets.scan_viewer import ScanViewerVisualization
     from lightfall.visualization.widgets.plot_1d import Plot1DVisualization
+    from lightfall.visualization.widgets.scan_viewer import ScanViewerVisualization
     from lightfall.visualization.widgets.scatter import ScatterVisualization
     from lightfall.visualization.widgets.table import TableVisualization
 

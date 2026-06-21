@@ -21,7 +21,7 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from typing import TYPE_CHECKING  # noqa: E402
+from typing import TYPE_CHECKING, Any  # noqa: E402
 
 
 def _configure_remote_display() -> None:
@@ -574,8 +574,8 @@ def _setup_plugins(app: LFApplication) -> None:
     from lightfall.plugins import AgentPlugin, PluginLoader, PluginRegistry
     from lightfall.plugins.builtin_manifest import builtin_manifest
     from lightfall.plugins.controller_plugin import ControllerPlugin
-    from lightfall.plugins.engine_plugin import EnginePlugin
     from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
+    from lightfall.plugins.engine_plugin import EnginePlugin
     from lightfall.plugins.panel_plugin import PanelPlugin
     from lightfall.plugins.settings_plugin import SettingsPlugin
     from lightfall.plugins.statusbar_plugin import StatusBarPlugin

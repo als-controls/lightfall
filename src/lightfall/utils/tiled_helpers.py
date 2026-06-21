@@ -85,7 +85,7 @@ def _subcube_shape(slices: tuple[Slice, ...], full_shape: tuple[int, ...]) -> tu
     Integer-indexed axes are dropped; ranged and full axes are kept.
     """
     out: list[int] = []
-    for sl, dim in zip(slices, full_shape):
+    for sl, dim in zip(slices, full_shape, strict=False):
         if sl is None:
             out.append(int(dim))
         elif isinstance(sl, tuple):
