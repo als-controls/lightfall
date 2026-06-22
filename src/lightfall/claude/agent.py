@@ -222,6 +222,7 @@ class QtClaudeAgent(QObject):
         model: str | None = None,
         effort: str | None = None,
         resume: str | None = None,
+        disable_betas: bool = False,
         parent: QObject | None = None
     ):
         """
@@ -370,6 +371,17 @@ class QtClaudeAgent(QObject):
             os.environ["ANTHROPIC_API_KEY"] = self.api_key
         if self.api_url:
             os.environ["ANTHROPIC_BASE_URL"] = self.api_url
+        if disable_betas:
+            # Proxy gateways (Azure AI Foundry, cborg, ...) reject the CLI's
+            # default beta headers -- e.g. Azure 400s on
+            # `anthropic-beta: advisor-tool-2026-03-01`. This env var makes the
+            # CLI drop the nonessential traffic that carries those headers, so
+            # the request is accepted. Verified against the CMS Azure Foundry
+            # backend (with a current model id).
+            # Set-only: we never unset it here, so a manually-exported override
+            # survives. (Cost: toggling the pref off in-app needs a restart to
+            # re-enable betas -- rare, and worth not clobbering a manual export.)
+            os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
         # Register can_use_tool + PreToolUse hook ALWAYS. They serve two
