@@ -58,7 +58,7 @@ def test_initial_state(qtbot):
     assert panel._live_run_uid is None
     assert panel._is_live is False
     assert panel._sync_retries == 0
-    assert panel._follow_action is None
+    assert panel._follow_action is not None  # title-bar toggle created in _setup_ui
 
 
 def test_shown_uid(qtbot):
@@ -242,3 +242,39 @@ def test_start_while_inactive_defers_until_activate(qtbot, monkeypatch):
     # Activate: now it opens.
     panel.activate()
     opened.assert_called_once_with(entry, from_user=False)
+
+
+def test_follow_button_default_checked(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    assert panel._follow_action is not None
+    assert panel._follow_action.isChecked() is True
+    assert panel._follow_live is True
+
+
+def test_toggle_off_sets_follow_false(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._follow_action.trigger()  # checked True -> False, emits triggered(False)
+    assert panel._follow_live is False
+
+
+def test_toggle_on_resyncs(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._follow_action.setChecked(False)  # 'toggled' only, no triggered
+    panel._follow_live = False
+    sync = MagicMock()
+    monkeypatch.setattr(panel, "_sync_to_live_run", sync)
+    panel._follow_action.trigger()  # -> checked True, triggered(True)
+    assert panel._follow_live is True
+    sync.assert_called_once()
+
+
+def test_user_open_run_unchecks_follow_button(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: None)
+    panel.open_run(_StubEntry("u1"), from_user=True)
+    assert panel._follow_live is False
+    assert panel._follow_action.isChecked() is False

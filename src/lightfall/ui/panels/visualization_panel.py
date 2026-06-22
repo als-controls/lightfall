@@ -140,6 +140,16 @@ class VisualizationPanel(BasePanel):
         container.setLayout(main_layout)
         self._layout.addWidget(container)
 
+        # "Follow live" toggle (title bar). Default on. Disengaged when the
+        # user opens a run manually; re-engaging jumps to the executing run.
+        self._follow_action = self.add_title_bar_button(
+            "mdi6.access-point",
+            "Follow live run",
+            on_triggered=self._on_follow_toggled,
+            checkable=True,
+            checked=True,
+        )
+
         # Subscribe to the engine document stream for live-run follow.
         self._connect_engine()
 
@@ -409,6 +419,12 @@ class VisualizationPanel(BasePanel):
         self._activate_widget(best_cls, self._entry)
 
     # ---- Live-run follow --------------------------------------------------
+
+    def _on_follow_toggled(self, checked: bool) -> None:
+        """Title-bar 'Follow live' toggled by the user."""
+        self._follow_live = checked
+        if checked:
+            self._sync_to_live_run()
 
     def _resolve_entry(self, uid: str) -> Any | None:
         """Resolve a run uid to a Tiled entry, or None if unavailable.
