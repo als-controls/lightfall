@@ -87,6 +87,12 @@ class VisualizationPanel(BasePanel):
         self._current_widget: BaseVisualization | None = None
         self._current_proxy: TheaterProxy | None = None
         self._refresh_timer: QTimer | None = None
+        # Live-run follow state
+        self._follow_live: bool = True       # auto-switch to the executing run
+        self._live_run_uid: str | None = None  # uid of the run currently running
+        self._is_live: bool = False          # displayed run is incomplete
+        self._sync_retries: int = 0          # bounded retries for writer lag
+        self._follow_action: Any | None = None  # title-bar toggle (Task 5)
         super().__init__(parent)
 
     # ---- UI setup --------------------------------------------------------
@@ -185,15 +191,36 @@ class VisualizationPanel(BasePanel):
 
     # ---- Main entry point ------------------------------------------------
 
-    def open_run(self, entry: Any) -> None:
-        """Open a tiled BlueskyRun for visualization.
+    def _shown_uid(self) -> str | None:
+        """uid of the currently displayed run, or None."""
+        if self._entry is None:
+            return None
+        try:
+            return self._entry.metadata.get("start", {}).get("uid")
+        except Exception:
+            return None
 
-        Scores all registered widget classes, creates the winner,
-        and drives the set_run / set_stream / set_field flow.
+    def _set_follow_live(self, value: bool) -> None:
+        """Set follow state and reflect it on the toggle button if it exists."""
+        self._follow_live = value
+        if self._follow_action is not None:
+            # setChecked emits 'toggled', not 'triggered' — no recursion into
+            # _on_follow_toggled (which is wired to 'triggered').
+            self._follow_action.setChecked(value)
+
+    def open_run(self, entry: Any, *, from_user: bool = True) -> None:
+        """Open a tiled BlueskyRun for visualization.
 
         Args:
             entry: A tiled BlueskyRun (or compatible mapping).
+            from_user: True when the open is an explicit user/agent action
+                (Tiled browser, MCP open_run). Such opens disengage live-follow
+                so a new scan won't yank the user off the run they chose. The
+                auto-follow path passes False.
         """
+        if from_user:
+            self._set_follow_live(False)
+
         import time as _time
         t0 = _time.monotonic()
 
@@ -205,7 +232,7 @@ class VisualizationPanel(BasePanel):
         # Score and pick winner (or honour manual override)
         best_cls = self._pick_widget_class(classes, entry)
         t1 = _time.monotonic()
-        logger.debug("open_run: scoring took {:.1f}s → {}", t1 - t0, best_cls.viz_name if best_cls else None)
+        logger.debug("open_run: scoring took {:.1f}s → {}", t1 - t0, getattr(best_cls, "viz_name", None) if best_cls else None)
 
         if best_cls is None:
             logger.warning("No visualization can handle this run")
