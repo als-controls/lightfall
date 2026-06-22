@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.ui.theater.manager import theater_manager
 from lightfall.ui.theater.proxy import TheaterProxy
 from lightfall.ui.theme import scaled_px
@@ -81,12 +82,19 @@ class VisualizationPanel(BasePanel):
     )
 
     visualization_changed = Signal(str)  # viz_name
+    MAX_SYNC_RETRIES: ClassVar[int] = 8
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._entry: Any | None = None
         self._current_widget: BaseVisualization | None = None
         self._current_proxy: TheaterProxy | None = None
         self._refresh_timer: QTimer | None = None
+        # Live-run follow state
+        self._follow_live: bool = True       # auto-switch to the executing run
+        self._live_run_uid: str | None = None  # uid of the run currently running
+        self._is_live: bool = False          # displayed run is incomplete
+        self._sync_retries: int = 0          # bounded retries for writer lag
+        self._follow_action: Any | None = None  # title-bar toggle (Task 5)
         super().__init__(parent)
 
     # ---- UI setup --------------------------------------------------------
@@ -131,6 +139,19 @@ class VisualizationPanel(BasePanel):
         container = QWidget()
         container.setLayout(main_layout)
         self._layout.addWidget(container)
+
+        # "Follow live" toggle (title bar). Default on. Disengaged when the
+        # user opens a run manually; re-engaging jumps to the executing run.
+        self._follow_action = self.add_title_bar_button(
+            "mdi6.access-point",
+            "Follow live run",
+            on_triggered=self._on_follow_toggled,
+            checkable=True,
+            checked=True,
+        )
+
+        # Subscribe to the engine document stream for live-run follow.
+        self._connect_engine()
 
     def _create_toolbar(self) -> QHBoxLayout:
         """Create the toolbar with stream/field/viz combos and buttons."""
@@ -185,15 +206,39 @@ class VisualizationPanel(BasePanel):
 
     # ---- Main entry point ------------------------------------------------
 
-    def open_run(self, entry: Any) -> None:
+    def _shown_uid(self) -> str | None:
+        """uid of the currently displayed run, or None."""
+        if self._entry is None:
+            return None
+        try:
+            return self._entry.metadata.get("start", {}).get("uid")
+        except Exception:
+            return None
+
+    def _set_follow_live(self, value: bool) -> None:
+        """Set follow state and reflect it on the toggle button if it exists."""
+        self._follow_live = value
+        if self._follow_action is not None:
+            # setChecked emits 'toggled', not 'triggered' — no recursion into
+            # _on_follow_toggled (which is wired to 'triggered').
+            self._follow_action.setChecked(value)
+
+    def open_run(self, entry: Any, *, from_user: bool = True) -> None:
         """Open a tiled BlueskyRun for visualization.
 
-        Scores all registered widget classes, creates the winner,
-        and drives the set_run / set_stream / set_field flow.
+        Scores all registered widget classes, creates the winner, and drives
+        the set_run / set_stream / set_field flow.
 
         Args:
             entry: A tiled BlueskyRun (or compatible mapping).
+            from_user: True when the open is an explicit user/agent action
+                (Tiled browser, MCP open_run). Such opens disengage live-follow
+                so a new scan won't yank the user off the run they chose. The
+                auto-follow path passes False.
         """
+        if from_user:
+            self._set_follow_live(False)
+
         import time as _time
         t0 = _time.monotonic()
 
@@ -281,9 +326,10 @@ class VisualizationPanel(BasePanel):
 
         self.visualization_changed.emit(cls.viz_name)
 
-        # Start refresh timer for live runs (no stop doc)
-        if entry.metadata.get("stop") is None:
-            self._start_refresh()
+        # Live runs (no stop doc) poll for new data, but only while the panel
+        # is active — see _update_refresh.
+        self._is_live = entry.metadata.get("stop") is None
+        self._update_refresh()
 
         logger.info("Opened run with visualization '{}'", cls.viz_display_name)
 
@@ -372,7 +418,82 @@ class VisualizationPanel(BasePanel):
         self._stop_refresh()
         self._activate_widget(best_cls, self._entry)
 
+    # ---- Live-run follow --------------------------------------------------
+
+    def _on_follow_toggled(self, checked: bool) -> None:
+        """Title-bar 'Follow live' toggled by the user."""
+        self._follow_live = checked
+        if checked:
+            self._sync_to_live_run()
+
+    def _resolve_entry(self, uid: str) -> Any | None:
+        """Resolve a run uid to a Tiled entry, or None if unavailable.
+
+        Returns None (never raises) when Tiled is disconnected or the uid is
+        not yet written — the threaded TiledWriter lags the start document.
+        """
+        try:
+            from lightfall.services.tiled_service import TiledService
+
+            service = TiledService.get_instance()
+            client = service._client
+            if client is None or not service.is_connected:
+                return None
+            return client[uid]
+        except KeyError:
+            return None
+        except Exception as e:
+            logger.debug("Could not resolve live run {}: {}", uid, e)
+            return None
+
+    def _schedule_sync_retry(self) -> None:
+        """Retry the live-run sync shortly, to ride out TiledWriter lag."""
+        if self._sync_retries >= self.MAX_SYNC_RETRIES:
+            logger.debug("Live-run sync gave up after {} retries", self._sync_retries)
+            return
+        self._sync_retries += 1
+        QTimer.singleShot(750, self._sync_to_live_run)
+
+    def _sync_to_live_run(self) -> None:
+        """Switch the panel to the executing run when conditions allow.
+
+        No-op unless following, a run is executing, and the panel is active.
+        Defers (returns) when inactive — `_on_activated` re-runs this. Retries
+        when the entry is not yet resolvable in Tiled.
+        """
+        if not (self._follow_live and self._live_run_uid and self.is_active):
+            return
+        if self._live_run_uid == self._shown_uid():
+            return
+        entry = self._resolve_entry(self._live_run_uid)
+        if entry is None:
+            self._schedule_sync_retry()
+            return
+        self._sync_retries = 0
+        self.open_run(entry, from_user=False)
+
     # ---- Refresh timer (live runs) ---------------------------------------
+
+    def _update_refresh(self) -> None:
+        """Run the refresh timer iff a live run is shown AND the panel is active."""
+        if self._is_live and self.is_active:
+            self._start_refresh()
+        else:
+            self._stop_refresh()
+
+    def _on_activated(self) -> None:
+        """Panel shown: pick up the live run, catch up, resume polling."""
+        self._sync_to_live_run()
+        if self._is_live and self._current_widget is not None:
+            try:
+                self._current_widget.refresh()
+            except Exception as e:
+                logger.warning("Catch-up refresh error: {}", e)
+        self._update_refresh()
+
+    def _on_deactivated(self) -> None:
+        """Panel hidden/collapsed: pause polling (keep _is_live)."""
+        self._stop_refresh()
 
     def _start_refresh(self) -> None:
         """Start polling for new data every 2 seconds."""
@@ -407,6 +528,7 @@ class VisualizationPanel(BasePanel):
                 self._entry.refresh()
             if self._entry.metadata.get("stop") is not None:
                 logger.info("Live run completed, stopping refresh")
+                self._is_live = False
                 self._stop_refresh()
         except Exception as e:
             logger.warning("Error checking stop doc: {}", e)
@@ -451,11 +573,57 @@ class VisualizationPanel(BasePanel):
             logger.error("Export failed: {}", e)
             QMessageBox.warning(self, "Export Error", str(e))
 
+    # ---- Engine document stream ------------------------------------------
+
+    def _connect_engine(self) -> None:
+        """Subscribe to the engine's document stream (best-effort)."""
+        self._engine = None
+        try:
+            from lightfall.acquire import get_engine
+
+            engine = get_engine()
+            engine.sigOutput.connect(self._on_engine_document)
+            self._engine = engine
+        except Exception as e:
+            logger.warning("Visualization panel could not subscribe to engine: {}", e)
+
+    @Slot(str, dict)
+    @gui_thread_only
+    def _on_engine_document(self, name: str, doc: dict) -> None:
+        """Track the executing run from start/descriptor/stop documents."""
+        if name == "start":
+            self._live_run_uid = doc.get("uid")
+            self._sync_retries = 0
+            self._sync_to_live_run()
+        elif name == "descriptor":
+            # Recover the live uid if we missed the start doc (panel built late).
+            if self._live_run_uid is None:
+                self._live_run_uid = doc.get("run_start")
+                self._sync_retries = 0
+            self._sync_to_live_run()
+        elif name == "stop":
+            if doc.get("run_start") == self._live_run_uid:
+                self._live_run_uid = None
+                # If we're displaying this run, settle it: final refresh + stop.
+                if self._is_live and self._current_widget is not None:
+                    try:
+                        self._current_widget.refresh()
+                    except Exception as e:
+                        logger.warning("Final refresh error: {}", e)
+                    self._is_live = False
+                    self._update_refresh()
+
     # ---- Cleanup ---------------------------------------------------------
 
     def _on_closing(self) -> None:
         """Clean up on panel close."""
         self._stop_refresh()
+        engine = getattr(self, "_engine", None)
+        if engine is not None:
+            try:
+                engine.sigOutput.disconnect(self._on_engine_document)
+            except (RuntimeError, TypeError):
+                pass
 
     # ---- Introspection ---------------------------------------------------
 
