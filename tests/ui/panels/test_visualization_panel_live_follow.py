@@ -57,6 +57,8 @@ def test_initial_state(qtbot):
     assert panel._follow_live is True
     assert panel._live_run_uid is None
     assert panel._is_live is False
+    assert panel._sync_retries == 0
+    assert panel._follow_action is None
 
 
 def test_shown_uid(qtbot):
@@ -71,8 +73,7 @@ def test_open_run_from_user_disengages_follow(qtbot, monkeypatch):
     panel = VisualizationPanel()
     qtbot.addWidget(panel)
     # Avoid the heavy widget machinery — only the follow flag matters here.
-    monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: object)
-    monkeypatch.setattr(panel, "_activate_widget", lambda *a, **k: None)
+    monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: None)
     panel.open_run(_StubEntry("u1"), from_user=True)
     assert panel._follow_live is False
 
@@ -80,7 +81,6 @@ def test_open_run_from_user_disengages_follow(qtbot, monkeypatch):
 def test_open_run_auto_keeps_follow(qtbot, monkeypatch):
     panel = VisualizationPanel()
     qtbot.addWidget(panel)
-    monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: object)
-    monkeypatch.setattr(panel, "_activate_widget", lambda *a, **k: None)
+    monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: None)
     panel.open_run(_StubEntry("u1"), from_user=False)
     assert panel._follow_live is True

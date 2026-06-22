@@ -211,6 +211,9 @@ class VisualizationPanel(BasePanel):
     def open_run(self, entry: Any, *, from_user: bool = True) -> None:
         """Open a tiled BlueskyRun for visualization.
 
+        Scores all registered widget classes, creates the winner, and drives
+        the set_run / set_stream / set_field flow.
+
         Args:
             entry: A tiled BlueskyRun (or compatible mapping).
             from_user: True when the open is an explicit user/agent action
@@ -232,7 +235,7 @@ class VisualizationPanel(BasePanel):
         # Score and pick winner (or honour manual override)
         best_cls = self._pick_widget_class(classes, entry)
         t1 = _time.monotonic()
-        logger.debug("open_run: scoring took {:.1f}s → {}", t1 - t0, getattr(best_cls, "viz_name", None) if best_cls else None)
+        logger.debug("open_run: scoring took {:.1f}s → {}", t1 - t0, best_cls.viz_name if best_cls else None)
 
         if best_cls is None:
             logger.warning("No visualization can handle this run")
