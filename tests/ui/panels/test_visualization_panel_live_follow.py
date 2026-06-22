@@ -153,3 +153,41 @@ def test_sync_schedules_retry_when_unresolvable(qtbot, monkeypatch):
     panel._sync_to_live_run()
     opened.assert_not_called()
     sched.assert_called_once()
+
+
+def test_timer_runs_when_live_and_active(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._is_live = True
+    panel.activate()  # _on_activated -> _update_refresh
+    assert panel._refresh_timer is not None
+    assert panel._refresh_timer.isActive()
+
+
+def test_deactivate_pauses_timer(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._is_live = True
+    panel.activate()
+    assert panel._refresh_timer is not None
+    panel.deactivate()
+    assert panel._refresh_timer is None  # _stop_refresh tears it down
+
+
+def test_activate_does_catchup_refresh(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    widget = MagicMock()
+    panel._current_widget = widget
+    panel._is_live = True
+    panel.activate()
+    widget.refresh.assert_called()  # immediate catch-up
+    assert panel._refresh_timer is not None and panel._refresh_timer.isActive()
+
+
+def test_no_timer_when_not_live(qtbot):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._is_live = False
+    panel.activate()
+    assert panel._refresh_timer is None

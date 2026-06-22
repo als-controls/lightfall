@@ -312,9 +312,10 @@ class VisualizationPanel(BasePanel):
 
         self.visualization_changed.emit(cls.viz_name)
 
-        # Start refresh timer for live runs (no stop doc)
-        if entry.metadata.get("stop") is None:
-            self._start_refresh()
+        # Live runs (no stop doc) poll for new data, but only while the panel
+        # is active — see _update_refresh.
+        self._is_live = entry.metadata.get("stop") is None
+        self._update_refresh()
 
         logger.info("Opened run with visualization '{}'", cls.viz_display_name)
 
@@ -453,6 +454,27 @@ class VisualizationPanel(BasePanel):
 
     # ---- Refresh timer (live runs) ---------------------------------------
 
+    def _update_refresh(self) -> None:
+        """Run the refresh timer iff a live run is shown AND the panel is active."""
+        if self._is_live and self.is_active:
+            self._start_refresh()
+        else:
+            self._stop_refresh()
+
+    def _on_activated(self) -> None:
+        """Panel shown: pick up the live run, catch up, resume polling."""
+        self._sync_to_live_run()
+        if self._is_live and self._current_widget is not None:
+            try:
+                self._current_widget.refresh()
+            except Exception as e:
+                logger.warning("Catch-up refresh error: {}", e)
+        self._update_refresh()
+
+    def _on_deactivated(self) -> None:
+        """Panel hidden/collapsed: pause polling (keep _is_live)."""
+        self._stop_refresh()
+
     def _start_refresh(self) -> None:
         """Start polling for new data every 2 seconds."""
         if self._refresh_timer is not None:
@@ -486,6 +508,7 @@ class VisualizationPanel(BasePanel):
                 self._entry.refresh()
             if self._entry.metadata.get("stop") is not None:
                 logger.info("Live run completed, stopping refresh")
+                self._is_live = False
                 self._stop_refresh()
         except Exception as e:
             logger.warning("Error checking stop doc: {}", e)
