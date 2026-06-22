@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QGridLayout,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -35,6 +35,7 @@ from lightfall.ui.models.device_tree import DeviceTreeItem, NodeType
 from lightfall.ui.theme import scaled_pt
 from lightfall.ui.widgets.base_control import BaseControlWidget, register_control_widget
 from lightfall.ui.widgets.camera.image_view import OphydImageView
+from lightfall.ui.widgets.flow_layout import FlowLayout
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -314,46 +315,41 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._image_layout.setContentsMargins(0, 0, 0, 0)
         self._layout.addWidget(self._image_container, stretch=1)
 
-        # Acquisition panel
+        # Acquisition panel. Parameters are laid out as a simple label/control
+        # form; the box itself flows alongside the other group boxes (see the
+        # panels FlowLayout below).
         acq_group = QGroupBox("Acquisition")
-        acq_layout = QGridLayout(acq_group)
-        acq_layout.setSpacing(8)
+        acq_outer = QVBoxLayout(acq_group)
+        acq_outer.setSpacing(8)
 
-        row = 0
+        params_form = QFormLayout()
+        params_form.setContentsMargins(0, 0, 0, 0)
+        params_form.setSpacing(8)
 
         # State display
-        acq_layout.addWidget(QLabel("State:"), row, 0)
         self._state_label = QLabel("---")
         self._state_label.setStyleSheet("font-weight: bold;")
-        acq_layout.addWidget(self._state_label, row, 1)
+        params_form.addRow("State:", self._state_label)
 
         # Shutter mode
-        acq_layout.addWidget(QLabel("Shutter:"), row, 2)
         self._shutter_combo = OphydComboBox(write_on_change=True)
         self._shutter_combo.set_items(SHUTTER_MODES)
-        acq_layout.addWidget(self._shutter_combo, row, 3)
-
-        row += 1
+        params_form.addRow("Shutter:", self._shutter_combo)
 
         # Acquire time
-        acq_layout.addWidget(QLabel("Acquire Time:"), row, 0)
         self._acquire_time_edit = OphydLineEdit(precision=6, write_on_enter=True)
-        acq_layout.addWidget(self._acquire_time_edit, row, 1)
+        params_form.addRow("Acquire Time:", self._acquire_time_edit)
 
         # Image mode
-        acq_layout.addWidget(QLabel("Image Mode:"), row, 2)
         self._image_mode_combo = OphydComboBox(write_on_change=True)
         self._image_mode_combo.set_items(IMAGE_MODES)
-        acq_layout.addWidget(self._image_mode_combo, row, 3)
-
-        row += 1
+        params_form.addRow("Image Mode:", self._image_mode_combo)
 
         # Num images
-        acq_layout.addWidget(QLabel("Num Images:"), row, 0)
         self._num_images_edit = OphydLineEdit(precision=0, write_on_enter=True)
-        acq_layout.addWidget(self._num_images_edit, row, 1)
+        params_form.addRow("Num Images:", self._num_images_edit)
 
-        row += 1
+        acq_outer.addLayout(params_form)
 
         # Acquire/Abort buttons
         btn_layout = QHBoxLayout()
@@ -420,19 +416,23 @@ class CameraControlWidget(BaseControlWidget, TVModeMixin):
         self._tv_mode_btn.clicked.connect(self._on_tv_mode_clicked)
         btn_layout.addWidget(self._tv_mode_btn)
 
-        acq_layout.addLayout(btn_layout, row, 0, 1, 4)
+        acq_outer.addLayout(btn_layout)
 
-        self._layout.addWidget(acq_group)
+        # All control group boxes live in a FlowLayout so they pack into as
+        # many columns as the panel width allows — a single column when narrow,
+        # multiple columns when the panel is enlarged. The Acquisition box and
+        # any device-specific panels stack/flow together.
+        self._panels_container = QWidget()
+        self._panels_layout = FlowLayout(
+            self._panels_container, margin=0, h_spacing=16, v_spacing=8
+        )
+        self._layout.addWidget(self._panels_container)
 
-        # Device-specific panels container
-        self._device_panels_container = QWidget()
-        self._device_panels_layout = QVBoxLayout(self._device_panels_container)
-        self._device_panels_layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.addWidget(self._device_panels_container)
+        self._panels_layout.addWidget(acq_group)
 
         # Add device-specific panels (subclasses override)
         for panel in self._create_device_panels():
-            self._device_panels_layout.addWidget(panel)
+            self._panels_layout.addWidget(panel)
 
         # Initial state - disabled until connected
         self._set_controls_enabled(False)
