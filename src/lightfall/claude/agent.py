@@ -378,6 +378,9 @@ class QtClaudeAgent(QObject):
             # CLI drop the nonessential traffic that carries those headers, so
             # the request is accepted. Verified against the CMS Azure Foundry
             # backend (with a current model id).
+            # Set-only: we never unset it here, so a manually-exported override
+            # survives. (Cost: toggling the pref off in-app needs a restart to
+            # re-enable betas -- rare, and worth not clobbering a manual export.)
             os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
