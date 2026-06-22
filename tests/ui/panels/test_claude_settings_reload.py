@@ -186,10 +186,12 @@ def test_do_reload_shows_banner_when_busy(panel, fake_prefs, monkeypatch):
     assert calls == ["banner"]
 
 
-def test_do_reload_noop_when_agent_not_ready(panel, monkeypatch):
-    # Settings changed while plugins still loading: the agent isn't built yet,
-    # so construction will read the fresh prefs -- nothing to reload.
+def test_do_reload_noop_while_still_loading(panel, monkeypatch):
+    # Settings changed while plugins are still loading (no prior build, so no
+    # error): the agent isn't built yet, construction will read fresh prefs --
+    # nothing to reload.
     panel._is_agent_ready = False
+    panel._error_message = None  # never attempted a build yet
     panel._claude_widget = None
     panel._settings_reload_pending = True
 
@@ -202,6 +204,52 @@ def test_do_reload_noop_when_agent_not_ready(panel, monkeypatch):
     panel._do_claude_settings_reload()
 
     assert calls == []
+
+
+def test_failed_build_recovers_on_settings_change(panel, monkeypatch):
+    # The headline case: the agent failed to build (e.g. no/invalid API key),
+    # so it's in the error state (_error_message set, not ready). The user then
+    # fixes the setting -> the change must re-attempt the build, NOT bail on the
+    # not-ready guard (which would require the restart this feature eliminates).
+    panel._is_agent_ready = False
+    panel._error_message = "Claude authentication not configured."
+    panel._claude_widget = None
+    panel._settings_reload_pending = True
+
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+    monkeypatch.setattr(
+        panel, "_show_settings_reload_banner", lambda: calls.append("banner")
+    )
+
+    panel._do_claude_settings_reload()
+
+    assert calls == ["reload"]
+
+
+def test_reload_agent_disposes_settings_banner(panel, monkeypatch):
+    # A non-button reload path (effort change, session restore, recovery) must
+    # not leave the settings banner orphaned in the layout.
+    from PySide6.QtWidgets import QLabel
+
+    monkeypatch.setattr(panel, "_initialize_claude_widget", lambda: None)
+    monkeypatch.setattr(panel, "_reset_cockpit", lambda: None)
+
+    banner = QLabel()
+    panel._layout.insertWidget(0, banner)
+    panel._reload_banner = banner
+    assert panel._layout.indexOf(banner) != -1
+
+    panel._reload_agent()
+
+    assert panel._reload_banner is None
+    assert panel._layout.indexOf(banner) == -1  # actually removed, not just deref'd
+
+
+def test_disable_betas_not_watched(panel):
+    # claude_disable_betas is not wired into the agent, so toggling it must not
+    # churn the agent. It is intentionally excluded until betas is wired.
+    assert "claude_disable_betas" not in ClaudePanel._WATCHED_CLAUDE_KEYS
 
 
 # --- picker live-switch updates tracked config so it doesn't double-reload ----

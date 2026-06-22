@@ -188,6 +188,10 @@ class ClaudePanel(BasePanel):
     # Preference keys that determine which backend/model/behavior the agent
     # connects with. A change to any of these (e.g. from the Preferences dialog)
     # must rebuild the running agent instead of waiting for a lightfall restart.
+    # NOTE: claude_disable_betas is intentionally absent -- it is not wired into
+    # the agent (no consumer), so watching it would rebuild the agent without
+    # changing anything. Add it here AND to _current_claude_config() once betas
+    # is actually threaded through to the agent.
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
         "claude_effort",
@@ -196,7 +200,6 @@ class ClaudePanel(BasePanel):
         "claude_api_key",
         "claude_max_turns",
         "claude_permission_mode",
-        "claude_disable_betas",
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -208,6 +211,7 @@ class ClaudePanel(BasePanel):
         self._claude_widget = None
         self._agent = None
         self._error_message: str | None = None
+        self._error_label: QLabel | None = None
         self._loading_label: QLabel | None = None
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
@@ -413,8 +417,20 @@ class ClaudePanel(BasePanel):
         # Clear pending plugins list
         self._pending_plugins.clear()
 
-        # Clear reload banner reference
+        # Dispose any reload banner -- dropping just the reference leaves the
+        # QFrame parented and visible (a stale, possibly stacked banner).
+        if self._reload_banner is not None:
+            self._layout.removeWidget(self._reload_banner)
+            self._reload_banner.deleteLater()
         self._reload_banner = None
+
+        # Remove a prior "Unavailable" error label so a recovery rebuild doesn't
+        # stack the new widget beneath it, and clear the error state.
+        if self._error_label is not None:
+            self._layout.removeWidget(self._error_label)
+            self._error_label.deleteLater()
+            self._error_label = None
+        self._error_message = None
 
         # Re-initialize
         self._is_agent_ready = False
@@ -781,7 +797,6 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
             p.get_api_key(),
             p.get_max_turns(),
             p.get_permission_mode(),
-            p.get_disable_betas(),
         )
 
     def _on_claude_pref_changed(self, value: object) -> None:
@@ -810,6 +825,17 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """
         self._settings_reload_pending = False
         if not self._is_agent_ready:
+            # Two distinct not-ready states:
+            #  * Still loading plugins (no prior build, _error_message is None):
+            #    the agent will be built shortly and read fresh prefs -- nothing
+            #    to do here.
+            #  * A prior build FAILED (_error_message set): a settings change is
+            #    the user fixing it (e.g. entering a valid key / endpoint). Re-
+            #    attempt the build so the panel recovers without a restart --
+            #    which is the whole point of this feature. Skip the config-diff
+            #    gate: _active_agent_config is stale/None in the error state.
+            if self._error_message is not None:
+                self._reload_agent()
             return
         if self._current_claude_config() == self._active_agent_config:
             return  # nothing the agent cares about changed
@@ -848,6 +874,9 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
                 font-size: {scaled_pt(12)}pt;
             }}
         """)
+        # Keep a reference so a later recovery rebuild can remove it (otherwise
+        # the new agent widget stacks beneath an orphaned error label).
+        self._error_label = error_label
         self._layout.addWidget(error_label)
 
     def _on_approval_needed(
