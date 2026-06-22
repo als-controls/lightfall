@@ -72,7 +72,12 @@ class DockingState:
 
         settings.beginGroup(self._settings_group)
         state = settings.value(self.STATE_KEY)
-        version = settings.value("version", 0)
+        # Read with an explicit type: QSettings can hand a stored int back as a
+        # string (notably IniFormat, the native backend on Linux/ws5), and a
+        # bare ``"6" != 6`` would treat a valid saved layout as a version
+        # mismatch and silently discard it. ``type=int`` coerces (and falls back
+        # to the default on a non-numeric value).
+        version = settings.value("version", 0, type=int)
         settings.endGroup()
 
         # Handle version mismatch
