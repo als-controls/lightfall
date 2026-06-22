@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.ui.theater.manager import theater_manager
 from lightfall.ui.theater.proxy import TheaterProxy
 from lightfall.ui.theme import scaled_px
@@ -138,6 +139,9 @@ class VisualizationPanel(BasePanel):
         container = QWidget()
         container.setLayout(main_layout)
         self._layout.addWidget(container)
+
+        # Subscribe to the engine document stream for live-run follow.
+        self._connect_engine()
 
     def _create_toolbar(self) -> QHBoxLayout:
         """Create the toolbar with stream/field/viz combos and buttons."""
@@ -553,11 +557,57 @@ class VisualizationPanel(BasePanel):
             logger.error("Export failed: {}", e)
             QMessageBox.warning(self, "Export Error", str(e))
 
+    # ---- Engine document stream ------------------------------------------
+
+    def _connect_engine(self) -> None:
+        """Subscribe to the engine's document stream (best-effort)."""
+        self._engine = None
+        try:
+            from lightfall.acquire import get_engine
+
+            engine = get_engine()
+            engine.sigOutput.connect(self._on_engine_document)
+            self._engine = engine
+        except Exception as e:
+            logger.warning("Visualization panel could not subscribe to engine: {}", e)
+
+    @Slot(str, dict)
+    @gui_thread_only
+    def _on_engine_document(self, name: str, doc: dict) -> None:
+        """Track the executing run from start/descriptor/stop documents."""
+        if name == "start":
+            self._live_run_uid = doc.get("uid")
+            self._sync_retries = 0
+            self._sync_to_live_run()
+        elif name == "descriptor":
+            # Recover the live uid if we missed the start doc (panel built late).
+            if self._live_run_uid is None:
+                self._live_run_uid = doc.get("run_start")
+                self._sync_retries = 0
+            self._sync_to_live_run()
+        elif name == "stop":
+            if doc.get("run_start") == self._live_run_uid:
+                self._live_run_uid = None
+                # If we're displaying this run, settle it: final refresh + stop.
+                if self._is_live and self._current_widget is not None:
+                    try:
+                        self._current_widget.refresh()
+                    except Exception as e:
+                        logger.warning("Final refresh error: {}", e)
+                    self._is_live = False
+                    self._update_refresh()
+
     # ---- Cleanup ---------------------------------------------------------
 
     def _on_closing(self) -> None:
         """Clean up on panel close."""
         self._stop_refresh()
+        engine = getattr(self, "_engine", None)
+        if engine is not None:
+            try:
+                engine.sigOutput.disconnect(self._on_engine_document)
+            except (RuntimeError, TypeError):
+                pass
 
     # ---- Introspection ---------------------------------------------------
 

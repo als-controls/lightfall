@@ -191,3 +191,54 @@ def test_no_timer_when_not_live(qtbot):
     panel._is_live = False
     panel.activate()
     assert panel._refresh_timer is None
+
+
+def test_start_doc_sets_live_uid_and_syncs(qtbot, monkeypatch):
+    engine = _install_fake_engine(monkeypatch)
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    sync = MagicMock()
+    monkeypatch.setattr(panel, "_sync_to_live_run", sync)
+    engine.sigOutput.emit("start", {"uid": "u1"})
+    assert panel._live_run_uid == "u1"
+    sync.assert_called()
+
+
+def test_descriptor_recovers_live_uid(qtbot, monkeypatch):
+    engine = _install_fake_engine(monkeypatch)
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    sync = MagicMock()
+    monkeypatch.setattr(panel, "_sync_to_live_run", sync)
+    # No prior 'start' seen -> recover uid from descriptor.run_start.
+    engine.sigOutput.emit("descriptor", {"run_start": "u9", "name": "primary"})
+    assert panel._live_run_uid == "u9"
+    sync.assert_called()
+
+
+def test_stop_doc_clears_live_uid_and_stops(qtbot, monkeypatch):
+    engine = _install_fake_engine(monkeypatch)
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._live_run_uid = "u1"
+    panel._is_live = True
+    panel._current_widget = MagicMock()
+    engine.sigOutput.emit("stop", {"run_start": "u1"})
+    assert panel._live_run_uid is None
+    assert panel._is_live is False
+
+
+def test_start_while_inactive_defers_until_activate(qtbot, monkeypatch):
+    engine = _install_fake_engine(monkeypatch)
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    entry = _StubEntry("u1")
+    monkeypatch.setattr(panel, "_resolve_entry", lambda uid: entry)
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    # Inactive: start doc is cached but not opened.
+    engine.sigOutput.emit("start", {"uid": "u1"})
+    opened.assert_not_called()
+    # Activate: now it opens.
+    panel.activate()
+    opened.assert_called_once_with(entry, from_user=False)
