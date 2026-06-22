@@ -81,6 +81,7 @@ class VisualizationPanel(BasePanel):
     )
 
     visualization_changed = Signal(str)  # viz_name
+    MAX_SYNC_RETRIES: ClassVar[int] = 8
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._entry: Any | None = None
@@ -401,6 +402,54 @@ class VisualizationPanel(BasePanel):
 
         self._stop_refresh()
         self._activate_widget(best_cls, self._entry)
+
+    # ---- Live-run follow --------------------------------------------------
+
+    def _resolve_entry(self, uid: str) -> Any | None:
+        """Resolve a run uid to a Tiled entry, or None if unavailable.
+
+        Returns None (never raises) when Tiled is disconnected or the uid is
+        not yet written — the threaded TiledWriter lags the start document.
+        """
+        try:
+            from lightfall.services.tiled_service import TiledService
+
+            service = TiledService.get_instance()
+            client = service._client
+            if client is None or not service.is_connected:
+                return None
+            return client[uid]
+        except KeyError:
+            return None
+        except Exception as e:
+            logger.debug("Could not resolve live run {}: {}", uid, e)
+            return None
+
+    def _schedule_sync_retry(self) -> None:
+        """Retry the live-run sync shortly, to ride out TiledWriter lag."""
+        if self._sync_retries >= self.MAX_SYNC_RETRIES:
+            logger.debug("Live-run sync gave up after {} retries", self._sync_retries)
+            return
+        self._sync_retries += 1
+        QTimer.singleShot(750, self._sync_to_live_run)
+
+    def _sync_to_live_run(self) -> None:
+        """Switch the panel to the executing run when conditions allow.
+
+        No-op unless following, a run is executing, and the panel is active.
+        Defers (returns) when inactive — `_on_activated` re-runs this. Retries
+        when the entry is not yet resolvable in Tiled.
+        """
+        if not (self._follow_live and self._live_run_uid and self.is_active):
+            return
+        if self._live_run_uid == self._shown_uid():
+            return
+        entry = self._resolve_entry(self._live_run_uid)
+        if entry is None:
+            self._schedule_sync_retry()
+            return
+        self._sync_retries = 0
+        self.open_run(entry, from_user=False)
 
     # ---- Refresh timer (live runs) ---------------------------------------
 

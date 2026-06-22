@@ -84,3 +84,72 @@ def test_open_run_auto_keeps_follow(qtbot, monkeypatch):
     monkeypatch.setattr(panel, "_pick_widget_class", lambda *a, **k: None)
     panel.open_run(_StubEntry("u1"), from_user=False)
     assert panel._follow_live is True
+
+
+def test_sync_opens_when_active_follow_and_resolvable(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel.activate()  # is_active True
+    panel._follow_live = True
+    panel._live_run_uid = "u1"
+    entry = _StubEntry("u1")
+    monkeypatch.setattr(panel, "_resolve_entry", lambda uid: entry)
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    panel._sync_to_live_run()
+    opened.assert_called_once_with(entry, from_user=False)
+
+
+def test_sync_noop_when_inactive(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    # inactive by default (is_active False)
+    panel._follow_live = True
+    panel._live_run_uid = "u1"
+    monkeypatch.setattr(panel, "_resolve_entry", lambda uid: _StubEntry("u1"))
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    panel._sync_to_live_run()
+    opened.assert_not_called()
+
+
+def test_sync_noop_when_follow_off(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel.activate()
+    panel._follow_live = False
+    panel._live_run_uid = "u1"
+    monkeypatch.setattr(panel, "_resolve_entry", lambda uid: _StubEntry("u1"))
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    panel._sync_to_live_run()
+    opened.assert_not_called()
+
+
+def test_sync_noop_when_already_shown(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel.activate()
+    panel._follow_live = True
+    panel._live_run_uid = "u1"
+    panel._entry = _StubEntry("u1")  # already showing u1
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    panel._sync_to_live_run()
+    opened.assert_not_called()
+
+
+def test_sync_schedules_retry_when_unresolvable(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel.activate()
+    panel._follow_live = True
+    panel._live_run_uid = "u1"
+    monkeypatch.setattr(panel, "_resolve_entry", lambda uid: None)
+    sched = MagicMock()
+    monkeypatch.setattr(panel, "_schedule_sync_retry", sched)
+    opened = MagicMock()
+    monkeypatch.setattr(panel, "open_run", opened)
+    panel._sync_to_live_run()
+    opened.assert_not_called()
+    sched.assert_called_once()
