@@ -188,10 +188,6 @@ class ClaudePanel(BasePanel):
     # Preference keys that determine which backend/model/behavior the agent
     # connects with. A change to any of these (e.g. from the Preferences dialog)
     # must rebuild the running agent instead of waiting for a lightfall restart.
-    # NOTE: claude_disable_betas is intentionally absent -- it is not wired into
-    # the agent (no consumer), so watching it would rebuild the agent without
-    # changing anything. Add it here AND to _current_claude_config() once betas
-    # is actually threaded through to the agent.
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
         "claude_effort",
@@ -200,6 +196,7 @@ class ClaudePanel(BasePanel):
         "claude_api_key",
         "claude_max_turns",
         "claude_permission_mode",
+        "claude_disable_betas",
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -481,6 +478,7 @@ class ClaudePanel(BasePanel):
             model=resolve_model_alias(ClaudeSettingsProvider.get_model()),
             effort=ClaudeSettingsProvider.get_effort() or None,
             resume=resume,
+            disable_betas=ClaudeSettingsProvider.get_disable_betas(),
             parent=self,
         )
 
@@ -797,6 +795,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
             p.get_api_key(),
             p.get_max_turns(),
             p.get_permission_mode(),
+            p.get_disable_betas(),
         )
 
     def _on_claude_pref_changed(self, value: object) -> None:

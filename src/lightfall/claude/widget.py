@@ -185,6 +185,7 @@ class ClaudeAssistantWidget(QWidget):
         model: str | None = None,
         effort: str | None = None,
         resume: str | None = None,
+        disable_betas: bool = False,
         parent: QWidget | None = None
     ):
         """
@@ -242,6 +243,7 @@ class ClaudeAssistantWidget(QWidget):
                 model=model,
                 effort=effort,
                 resume=resume,
+                disable_betas=disable_betas,
                 parent=self,
             )
         except ValueError as e:

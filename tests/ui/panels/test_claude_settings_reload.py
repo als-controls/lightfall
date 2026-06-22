@@ -246,10 +246,11 @@ def test_reload_agent_disposes_settings_banner(panel, monkeypatch):
     assert panel._layout.indexOf(banner) == -1  # actually removed, not just deref'd
 
 
-def test_disable_betas_not_watched(panel):
-    # claude_disable_betas is not wired into the agent, so toggling it must not
-    # churn the agent. It is intentionally excluded until betas is wired.
-    assert "claude_disable_betas" not in ClaudePanel._WATCHED_CLAUDE_KEYS
+def test_disable_betas_is_watched(panel):
+    # claude_disable_betas is now wired into the agent (it sets
+    # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC), so toggling it must rebuild the
+    # agent for the change to take effect.
+    assert "claude_disable_betas" in ClaudePanel._WATCHED_CLAUDE_KEYS
 
 
 # --- picker live-switch updates tracked config so it doesn't double-reload ----
