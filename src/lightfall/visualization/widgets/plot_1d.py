@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.utils.tiled_helpers import stream_data_keys
 from lightfall.visualization.base_visualization import BaseVisualization
 
 
@@ -101,7 +102,7 @@ class Plot1DVisualization(BaseVisualization):
 
         # Check primary stream for scalar data_keys
         try:
-            data_keys = run["primary"].metadata.get("data_keys", {})
+            data_keys = stream_data_keys(run["primary"])
         except Exception:
             return 0
         for dk in data_keys.values():
@@ -126,7 +127,7 @@ class Plot1DVisualization(BaseVisualization):
         self._stream_name = stream_name
         try:
             self._stream = self._run[stream_name]
-            self._data_keys = self._stream.metadata.get("data_keys", {})
+            self._data_keys = stream_data_keys(self._stream)
         except Exception as e:
             logger.debug("Plot1D: could not open stream '{}': {}", stream_name, e)
             self._data_keys = {}

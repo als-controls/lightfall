@@ -88,19 +88,14 @@ class CameraImageView(QWidget):
 
     @staticmethod
     def _to_pg(img: np.ndarray) -> np.ndarray:
-        """Reorder axes for pyqtgraph's ImageItem convention: (cols, rows[, channels]).
+        """Pass a camera frame straight through to pyqtgraph's ImageItem.
 
-        pyqtgraph expects:
-          * grayscale : (W, H)        — swap rows/cols with .T
-          * color     : (W, H, C)     — swap only the spatial axes, keep channels last
-
-        A full ``.T`` on a 3-D array produces (C, W, H) which pyqtgraph rejects
-        with "data.shape[2] must be <= 4" when C happens to be 3 or 4 but the
-        spatial dimensions are much larger.
+        With row-major axis order (set globally at startup) pyqtgraph indexes
+        arrays as (row, col[, channel]) — i.e. (H, W) grayscale and (H, W, C)
+        color — which is exactly the native camera frame layout. No axis
+        reordering is needed.
         """
-        if img.ndim == 3:
-            return img.transpose(1, 0, 2)
-        return img.T
+        return img
 
     @staticmethod
     def _dtype_levels(img: np.ndarray) -> tuple[int, int]:

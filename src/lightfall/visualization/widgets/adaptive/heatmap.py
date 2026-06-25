@@ -262,10 +262,12 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
             return
 
         # tsuchinoko ravels meshgrid(*grids, indexing="ij") so
-        # flat[i*Ny + j] = posterior(grid_x[i], grid_y[j]).  Reshape to
-        # (Nx, Ny) — LazyImageView's col-major axisOrder already maps
-        # axis 0 to plot-x, so no transpose is needed.
-        frame_shape = (gs[0], gs[1])
+        # flat[i*Ny + j] = posterior(grid_x[i], grid_y[j]).  Reshaping gives
+        # M[i, j] with axis 0 = grid_x, axis 1 = grid_y.  Under row-major
+        # axis order (set globally), array axis 0 maps to plot-y and axis 1 to
+        # plot-x, so transpose to (Ny, Nx) to keep grid_x on the x-axis (and
+        # aligned with the measurement scatter overlays / setRect extent).
+        frame_shape = (gs[1], gs[0])
         self._frame_shape = frame_shape
 
         # Build a closure that fetches one iteration via server-side
@@ -277,7 +279,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
 
         def fetch_iteration(index: int) -> np.ndarray:
             flat = _fetch_frame(arr_client, index)
-            return flat.reshape(grid_shape)
+            return flat.reshape(grid_shape).T
 
         # Hand off to LazyImageView — the real ArrayClient provides
         # .shape[0] for frame count; fetch_func handles the rest.

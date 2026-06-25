@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.utils.tiled_helpers import stream_data_keys
 from lightfall.visualization.base_visualization import BaseVisualization
 
 
@@ -133,7 +134,7 @@ class HeatmapVisualization(BaseVisualization):
         self._stream_name = stream_name
         try:
             self._stream = self._run[stream_name]
-            self._data_keys = self._stream.metadata.get("data_keys", {})
+            self._data_keys = stream_data_keys(self._stream)
         except Exception as e:
             logger.debug("Heatmap: could not open stream '{}': {}", stream_name, e)
             self._data_keys = {}
@@ -250,8 +251,9 @@ class HeatmapVisualization(BaseVisualization):
             if ix < grid_shape[0] and iy < grid_shape[1]:
                 grid[ix, iy] = z_arr[i]
 
-        # ImageItem expects (cols, rows) for display — transpose for row-major
-        self._image_item.setImage(grid.T)
+        # Row-major axis order (set globally): grid axis-0 (outer motor) -> y,
+        # axis-1 (inner motor) -> x, matching the bottom/left axis labels below.
+        self._image_item.setImage(grid)
 
         plot_item = self._plot_widget.getPlotItem()
         if plot_item and len(self._motors) >= 2:

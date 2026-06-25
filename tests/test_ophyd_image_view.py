@@ -48,13 +48,13 @@ class TestOphydImageViewBasic:
         assert view._plot_item.axes["left"]["item"].isVisible()
         view.close()
 
-    def test_image_orientation_col_major(self, qapp):
-        """ImageItem should use col-major axis order (Xi-CAM convention)."""
+    def test_image_orientation_row_major(self, qapp):
+        """ImageItem should use row-major axis order (array (row, col) = (y, x))."""
         device = _make_mock_device()
         view = OphydImageView(device)
 
-        assert view._image_item.axisOrder == "col-major"
-        # No Y inversion needed with col-major
+        assert view._image_item.axisOrder == "row-major"
+        # No Y inversion needed with row-major
         assert not view._plot_item.getViewBox().yInverted()
         view.close()
 
@@ -289,7 +289,7 @@ class TestCrosshair:
         view = OphydImageView(device)
         view._display_array(data)
 
-        # With col-major, view (x, y) maps to array[x, y]
+        # With row-major, view (x, y) maps to array[int(y), int(x)]
         text = view._format_coordinates(50.0, 25.0)
         assert "x=50.0" in text
         assert "y=25.0" in text

@@ -13,6 +13,15 @@ import os
 # OPHYD_CONTROL_LAYER (e.g. for the gated integration suites) still wins.
 os.environ.setdefault("OPHYD_CONTROL_LAYER", "dummy")
 
+# Match production's global pyqtgraph image axis order. In the app this is set
+# at startup by apply_pyqtgraph_theme(); pyqtgraph's built-in default is
+# col-major, but Lightfall indexes images row-major ((row, col) = (y, x)) so
+# ImageItems don't transpose the display. Set at import time, before any widget
+# test constructs an ImageItem.
+import pyqtgraph as _pg  # noqa: E402
+
+_pg.setConfigOption("imageAxisOrder", "row-major")
+
 import pytest  # noqa: E402
 
 # pytest-qt provides the `qapp` and `qtbot` fixtures automatically.
