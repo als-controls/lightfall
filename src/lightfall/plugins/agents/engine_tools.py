@@ -35,6 +35,36 @@ _PLAN_START_GRACE_S = 0.05
 _TILED_INDEX_RETRY_S = 0.5
 
 
+def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
+    """Return the most-recent runs (newest first) with a single bounded request.
+
+    Tiled indexers slice server-side, so this fetches at most ``limit`` entries
+    instead of walking the catalog. We sort by ``time`` descending and take the
+    head; if the server can't sort on time we fall back to the tail of the
+    default order (positive offsets, then reversed -- Tiled rejects negative
+    slice starts unless ``step == -1``).
+
+    NEVER iterate ``list(client)`` (returns only the first page, default 100, so
+    "the last one" is wrong) or ``client.items()`` (walks every entry -- millions
+    on CMS, minutes of network, and it blocks the Qt main thread). Those are the
+    greedy patterns this helper exists to replace.
+    """
+    limit = max(1, int(limit))
+    try:
+        return list(client.sort(("time", -1)).values_indexer[:limit])
+    except Exception:
+        pass  # server can't sort on time -> fall back to default order
+    try:
+        n = len(client)  # single bounded count request
+        if n == 0:
+            return []
+        runs = list(client.values_indexer[max(0, n - limit):n])
+        runs.reverse()  # default order is time-ascending; newest first
+        return runs
+    except Exception:
+        return []
+
+
 def _last_run_payload() -> dict[str, Any] | None:
     """Return metadata for the most recent Tiled run, or None if unavailable.
 
@@ -50,22 +80,22 @@ def _last_run_payload() -> dict[str, Any] | None:
             return None
 
         client = service._client
-        keys = [k for k, _ in client.items()]
-        if not keys:
+        runs = _recent_runs(client, 1)
+        if not runs:
             return None
 
-        uid = keys[-1]
-        run = client[uid]
+        run = runs[0]
         metadata = run.metadata
-        start = metadata.get("start", {})
-        stop = metadata.get("stop", {})
+        start = metadata.get("start", {}) or {}
+        stop = metadata.get("stop", {}) or {}
         return {
-            "uid": uid,
+            # For a bluesky catalog the entry key IS the start-doc uid.
+            "uid": start.get("uid"),
             "plan_name": start.get("plan_name", "unknown"),
             "start_time": start.get("time"),
             "stop_time": stop.get("time"),
             "exit_status": stop.get("exit_status", "unknown"),
-            "num_points": stop.get("num_events", {}).get("primary"),
+            "num_points": (stop.get("num_events") or {}).get("primary"),
             "streams": list(run),
         }
     except Exception:
@@ -561,26 +591,23 @@ class EngineToolsAgent(AgentPlugin):
                         }, is_error=True)
 
                     client = service._client
+                    # Fetch only the newest `limit` runs server-side (bounded).
+                    # Do NOT walk the catalog -- see _recent_runs for why.
                     runs = []
-                    # Tiled client is a catalog; iterate in reverse for most recent.
-                    # NOTE: list(client) only returns the first page (default 100).
-                    # Use client.items() to get ALL entries.
-                    keys = [k for k, _ in client.items()]
-                    for uid in reversed(keys[-limit:]):
+                    for run in _recent_runs(client, limit):
                         try:
-                            run = client[uid]
                             metadata = run.metadata
-                            start = metadata.get("start", {})
-                            stop = metadata.get("stop", {})
+                            start = metadata.get("start", {}) or {}
+                            stop = metadata.get("stop", {}) or {}
                             runs.append({
-                                "uid": uid,
+                                "uid": start.get("uid"),
                                 "plan_name": start.get("plan_name", "unknown"),
                                 "time": start.get("time"),
                                 "exit_status": stop.get("exit_status", "unknown"),
-                                "num_points": stop.get("num_events", {}).get("primary"),
+                                "num_points": (stop.get("num_events") or {}).get("primary"),
                             })
                         except Exception as e:
-                            runs.append({"uid": uid, "error": str(e)})
+                            runs.append({"error": str(e)})
 
                     return mcp_result({
                         "success": True,
@@ -645,7 +672,10 @@ class EngineToolsAgent(AgentPlugin):
                             "uid": uid,
                         })
 
-                    from lightfall.utils.tiled_helpers import read_events
+                    from lightfall.utils.tiled_helpers import (
+                        read_events,
+                        stream_data_keys,
+                    )
                     stream = run["primary"]
                     events = read_events(stream)
 
@@ -657,35 +687,84 @@ class EngineToolsAgent(AgentPlugin):
                             "uid": uid,
                         })
 
-                    # events is an xarray Dataset (or similar mapping).
-                    # Use dict-style access — .keys() and dataset[col].
                     import numpy as np
-                    all_cols = list(events.keys())
-                    # Filter out timestamp columns (ts_*) for cleaner output
-                    columns = [c for c in all_cols if not c.startswith("ts_")]
-                    n_rows = len(np.asarray(events[columns[0]])) if columns else 0
-                    shape = [n_rows, len(columns)]
 
-                    # Build row dicts from the column arrays
-                    rows = []
+                    # data_keys describes each field; it lives either at the top
+                    # level (TiledWriter runs) or nested inside the descriptors
+                    # (databroker-style/migrated runs). The helper handles both.
+                    data_keys = stream_data_keys(stream)
+                    # Array-valued fields (detector images, spectra, ...) cannot
+                    # be expanded into a JSON table cell, and materializing them
+                    # can pull GBs of pixels. Summarize them by shape/dtype
+                    # instead — this also fixes the "can only convert an array of
+                    # size 1 to a Python scalar" crash from calling .item() on an
+                    # image row.
+                    array_columns = {
+                        name: {
+                            "shape": list(dk.get("shape", []) or []),
+                            "dtype": dk.get("dtype"),
+                        }
+                        for name, dk in data_keys.items()
+                        if len(dk.get("shape", []) or []) >= 1
+                    }
+
+                    # events is an xarray Dataset (or similar mapping).
+                    all_cols = list(events.keys())
+
+                    def _is_scalar_col(c: str) -> bool:
+                        # Drop timestamp helpers and any array/image field. The
+                        # data_keys check catches known arrays; the ndim check is
+                        # a lazy (no-download) safety net for anything not in
+                        # data_keys.
+                        if c.startswith("ts_") or c in array_columns:
+                            return False
+                        return int(getattr(events[c], "ndim", 1)) <= 1
+
+                    columns = [c for c in all_cols if _is_scalar_col(c)]
+
+                    def _to_scalar(val: Any) -> Any:
+                        """JSON-safe scalar; summarize an unexpected array."""
+                        arr = np.asarray(val)
+                        if arr.ndim == 0:
+                            return arr.item()
+                        if arr.size == 1:
+                            return arr.reshape(-1)[0].item()
+                        return {
+                            "__array__": True,
+                            "shape": list(arr.shape),
+                            "dtype": str(arr.dtype),
+                        }
+
+                    # Row count without touching array columns: a scalar column
+                    # if we have one, else the stop document's num_events.
+                    if columns:
+                        n_rows = int(np.asarray(events[columns[0]]).shape[0])
+                    else:
+                        num_events = (run.metadata.get("stop") or {}).get(
+                            "num_events", {}
+                        ) or {}
+                        n_rows = int(num_events.get("primary", 0) or 0)
+
                     limit = min(n_rows, max_rows)
                     col_arrays = {c: np.asarray(events[c])[:limit] for c in columns}
+                    rows = []
                     for i in range(limit):
-                        row = {}
-                        for c in columns:
-                            val = col_arrays[c][i]
-                            # Convert numpy types to Python natives for JSON
-                            row[c] = val.item() if hasattr(val, "item") else val
-                        rows.append(row)
+                        rows.append({c: _to_scalar(col_arrays[c][i]) for c in columns})
 
-                    return mcp_result({
+                    result = {
                         "success": True,
                         "uid": uid,
                         "columns": columns,
-                        "shape": shape,
+                        "shape": [n_rows, len(columns)],
                         "rows_returned": len(rows),
                         "data": rows,
-                    })
+                    }
+                    if array_columns:
+                        # Surface image/array fields (name -> shape/dtype) so the
+                        # caller knows the run has image data even though it is
+                        # not expanded into the table.
+                        result["array_columns"] = array_columns
+                    return mcp_result(result)
                 except Exception as e:
                     return mcp_result({"success": False, "error": str(e)}, is_error=True)
 
@@ -711,20 +790,21 @@ class EngineToolsAgent(AgentPlugin):
                         }, is_error=True)
 
                     client = service._client
-                    # NOTE: list(client) only returns the first page (default 100).
-                    # Use client.items() to get ALL entries.
-                    keys = [k for k, _ in client.items()]
-                    if not keys:
+                    # Fetch ONLY the most-recent run, server-side and bounded
+                    # (see _recent_runs -- never walk the catalog here).
+                    runs = _recent_runs(client, 1)
+                    if not runs:
                         return mcp_result({
                             "success": False,
                             "error": "No runs found in catalog",
                         })
 
-                    uid = keys[-1]
-                    run = client[uid]
+                    run = runs[0]
                     metadata = run.metadata
-                    start = metadata.get("start", {})
-                    stop = metadata.get("stop", {})
+                    start = metadata.get("start", {}) or {}
+                    stop = metadata.get("stop", {}) or {}
+                    # For a bluesky catalog the entry key IS the start-doc uid.
+                    uid = start.get("uid")
 
                     return mcp_result({
                         "success": True,
@@ -733,7 +813,7 @@ class EngineToolsAgent(AgentPlugin):
                         "start_time": start.get("time"),
                         "stop_time": stop.get("time"),
                         "exit_status": stop.get("exit_status", "unknown"),
-                        "num_points": stop.get("num_events", {}).get("primary"),
+                        "num_points": (stop.get("num_events") or {}).get("primary"),
                         "streams": list(run),
                     })
                 except Exception as e:

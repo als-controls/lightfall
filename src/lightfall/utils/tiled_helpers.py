@@ -59,6 +59,85 @@ def read_events(stream: Any) -> Any | None:
     return None
 
 
+def stream_data_keys(stream: Any) -> dict[str, Any]:
+    """Return the ``data_keys`` mapping for a Bluesky event stream.
+
+    Bluesky describes every field of a stream in its Event Descriptor's
+    ``data_keys`` (``name -> {shape, dtype, source, ...}``). *Where* that
+    mapping lives in Tiled depends on how the run was written:
+
+    * **TiledWriter / modern ``BlueskyEventStream`` nodes** hoist a single
+      merged ``data_keys`` to the top level of the stream metadata, so
+      ``stream.metadata["data_keys"]`` is populated.
+    * **Older databroker-style runs** (and some migrated data) only expose it
+      nested inside the descriptor documents, at
+      ``stream.metadata["descriptors"][i]["data_keys"]``, with no top-level
+      key.
+
+    Code that reads ``stream.metadata.get("data_keys", {})`` directly works on
+    the first layout but silently sees ``{}`` on the second — which makes
+    visualizations think a run has no fields (e.g. an image run that won't
+    open in the Image Stack viewer). Use this helper instead.
+
+    Returns the data_keys regardless of layout, merging across descriptors
+    when several are present, or an empty dict if none can be found. Reads
+    only already-fetched metadata (no extra Tiled round-trip).
+    """
+    if stream is None:
+        return {}
+    try:
+        md = stream.metadata
+    except Exception:
+        return {}
+
+    top = md.get("data_keys")
+    if top:
+        return dict(top)
+
+    merged: dict[str, Any] = {}
+    for desc in md.get("descriptors") or []:
+        if isinstance(desc, dict):
+            dk = desc.get("data_keys")
+            if dk:
+                merged.update(dk)
+    return merged
+
+
+def resolve_field_client(stream: Any, field_name: str) -> Any | None:
+    """Resolve a field's Tiled ``ArrayClient`` across stream layouts.
+
+    Array fields (detector images, spectra, ...) sit in different places
+    depending on how the run was written:
+
+    * **V3 CompositeClient:** the field is a direct child of the stream
+      (``stream[field]``).
+    * **V2-SQL / databroker-style:** fields live under a ``data/`` subnode
+      (``stream["data"][field]``).
+    * **External-asset layouts:** under an ``external/`` subnode
+      (``stream["external"][field]``).
+
+    Code that only tries ``stream[field]`` (and maybe ``external``) silently
+    fails to find images on the ``data/``-subnode layout — the visualization
+    is selected but renders nothing. Try each layout and return the first
+    that resolves, or ``None``.
+    """
+    if stream is None:
+        return None
+    getters = (
+        lambda: stream[field_name],
+        lambda: stream["data"][field_name],
+        lambda: stream["external"][field_name],
+    )
+    for getter in getters:
+        try:
+            client = getter()
+        except Exception:
+            continue
+        if client is not None:
+            return client
+    return None
+
+
 Slice: TypeAlias = "int | tuple[int, int] | None"
 
 

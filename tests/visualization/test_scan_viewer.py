@@ -56,6 +56,16 @@ def test_can_handle_rejects_imagestack_without_scan_dims():
     assert ScanViewerVisualization.can_handle(run) == 0
 
 
+def test_can_handle_rejects_count_time_only_dimension():
+    """A `count` plan carries only the default 'time' axis (no independent
+    axis), so Scan Viewer must defer to Image Stack."""
+    run = _FakeRun(
+        start={"hints": {"dimensions": [[["time"], "primary"]]}, "num_points": 10},
+        data_keys={"det_image": {"shape": [10, 256, 256], "dtype": "array"}},
+    )
+    assert ScanViewerVisualization.can_handle(run) == 0
+
+
 def test_image_fields_only(qtbot):
     w = ScanViewerVisualization()
     qtbot.addWidget(w)

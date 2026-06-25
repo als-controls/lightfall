@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.utils.tiled_helpers import stream_data_keys
 from lightfall.visualization.base_visualization import BaseVisualization
 
 
@@ -123,7 +124,7 @@ class ScatterVisualization(BaseVisualization):
         self._stream_name = stream_name
         try:
             self._stream = self._run[stream_name]
-            self._data_keys = self._stream.metadata.get("data_keys", {})
+            self._data_keys = stream_data_keys(self._stream)
         except Exception as e:
             logger.debug("Scatter: could not open stream '{}': {}", stream_name, e)
             self._data_keys = {}

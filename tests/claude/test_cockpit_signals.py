@@ -89,3 +89,38 @@ def test_reset_conversation_emits_cockpit_reset(_mock_sdk, qtbot, monkeypatch):
     with qtbot.waitSignal(agent.cockpit_reset, timeout=1000):
         agent.reset_conversation()
     AgentRegistry.reset_instance()
+
+
+def test_reset_conversation_starts_fresh_session(qtbot, monkeypatch):
+    """Reset must actually drop the session: forget the session id and rebuild a
+    NEW client with resume/continue cleared — not just stop the worker (which
+    would reuse the same client and resume the old conversation)."""
+    AgentRegistry.reset_instance()
+    from PySide6.QtWidgets import QWidget
+
+    from lightfall.claude.agent import QtClaudeAgent
+
+    # Each ClaudeSDKClient(...) call returns a distinct object so we can assert a
+    # brand-new client is built on reset (not the original reused).
+    monkeypatch.setattr(
+        "lightfall.claude.agent.ClaudeSDKClient",
+        MagicMock(side_effect=lambda **kw: MagicMock(name="sdk_client")),
+    )
+    target = QWidget()
+    qtbot.addWidget(target)
+    agent = QtClaudeAgent(
+        target_window=target, require_approval=False, resume="old-session"
+    )
+    original_client = agent.client
+    assert agent.options.resume == "old-session"
+    agent._current_session_id = "live-session"  # pretend a session was running
+
+    agent.reset_conversation()
+
+    # Session forgotten and a fresh, non-resuming client built.
+    assert agent._resume_session_id is None
+    assert agent._current_session_id is None
+    assert agent.options.resume is None
+    assert agent.options.continue_conversation is False
+    assert agent.client is not original_client
+    AgentRegistry.reset_instance()

@@ -363,17 +363,18 @@ class TestSetField:
         w.set_run(run)
         w.set_stream("adaptive")
 
-        # grid_shape = [Nx, Ny] = [8, 8] → frame_shape (Nx, Ny).
+        # grid_shape = [Nx, Ny] = [8, 8] → frame_shape (Ny, Nx) under row-major.
         assert w._frame_shape == (8, 8)
 
-    def test_frame_orientation_axis0_is_x(self, qtbot):
-        """Reshaped frame axis-0 must track grid_x, not grid_y.
+    def test_frame_orientation_axis1_is_x(self, qtbot):
+        """Displayed frame axis-1 must track grid_x, not grid_y.
 
         The tsuchinoko writer ravels ``meshgrid(*grids, indexing='ij')``
         so ``flat[i*Ny + j] = posterior(grid_x[i], grid_y[j])``.  With
-        LazyImageView's col-major axisOrder, the displayed array must
-        have shape ``(Nx, Ny)`` with axis 0 indexing grid_x — otherwise
-        the heatmap appears transposed relative to the scatter overlays.
+        the global row-major axis order, array axis 1 maps to plot-x, so
+        the displayed frame is transposed to shape ``(Ny, Nx)`` with
+        axis 1 indexing grid_x — otherwise the heatmap appears transposed
+        relative to the scatter overlays.
         """
         from lightfall.visualization.widgets.adaptive.heatmap import (
             AdaptiveHeatmapVisualization,
@@ -382,7 +383,7 @@ class TestSetField:
         N = 5  # grid resolution (square)
         # Deterministic posterior depends only on the x-index i.
         # Under the ij-meshgrid convention, position k=i*N+j carries
-        # the value i, so reshape((N, N)) must yield arr[i, j] = i.
+        # the value i, so reshape((N, N)).T must yield arr[j, i] = i.
         flat = np.zeros((1, N * N), dtype=float)
         for i in range(N):
             for j in range(N):
@@ -398,10 +399,10 @@ class TestSetField:
 
         frame = w._image_view._fetch_func(0)
         assert frame.shape == (N, N)
-        # Axis 0 = grid_x: rows must be constant, varying with i.
+        # Axis 1 = grid_x: columns must be constant, varying with i.
         for i in range(N):
-            assert np.all(frame[i, :] == float(i)), (
-                f"row {i} not constant at {i}: {frame[i, :]}"
+            assert np.all(frame[:, i] == float(i)), (
+                f"column {i} not constant at {i}: {frame[:, i]}"
             )
 
     def test_grid_rect_matches_axes(self, qtbot):

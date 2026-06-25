@@ -291,6 +291,10 @@ class DeviceConnectionManager(QObject):
             max_concurrency: Maximum number of simultaneous worker threads.
         """
         if not infos:
+            # Empty batch: nothing to connect, but still announce completion so
+            # listeners (e.g. the CMS session gate) are never left waiting on a
+            # backend that registered no devices.
+            self.all_connections_complete.emit()
             return
 
         effective_timeout = timeout if timeout is not None else self.default_timeout
@@ -325,6 +329,11 @@ class DeviceConnectionManager(QObject):
 
                         in_flight[0] -= 1
                         _start_next()
+                        if in_flight[0] == 0 and not pending:
+                            # Whole batch has reached a terminal state. This is
+                            # the "devices loaded" event the CMS session gate
+                            # waits on; emit once per drained batch.
+                            self.all_connections_complete.emit()
 
                     return _on_done
 
@@ -348,6 +357,8 @@ class DeviceConnectionManager(QObject):
                         self.device_failed.emit(fail_result)
                         in_flight[0] -= 1
                         _start_next()
+                        if in_flight[0] == 0 and not pending:
+                            self.all_connections_complete.emit()
 
                     return _on_error
 
