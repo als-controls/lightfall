@@ -180,3 +180,78 @@ def test_all_fast_devices_connected_and_ophyd_set(qtbot):
     # All states recorded as CONNECTED
     for info in infos:
         assert manager.get_state(info.id) == ConnectionState.CONNECTED
+
+
+# ---------------------------------------------------------------------------
+# Test 3 — all_connections_complete fires once when the batch drains
+#
+# These drive a QApplication directly (rather than pytest-qt's qtbot) so they
+# run in a runtime venv without the test extras; QApplication.instance() reuses
+# pytest-qt's qapp when the full suite runs in CI.
+# ---------------------------------------------------------------------------
+
+def _spin(app, cond, timeout=3.0):
+    """Pump the Qt event loop until *cond* is true or *timeout* elapses."""
+    deadline = time.monotonic() + timeout
+    while not cond() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    app.processEvents()
+
+
+def test_all_connections_complete_emitted_once_after_batch():
+    """``all_connections_complete`` fires exactly once after every device in
+    the batch reaches a terminal state — this is the "devices loaded" event
+    the CMS session gate waits on. Today the batch path never emits it."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    infos = _make_infos("m1", "m2", "m3")
+    backend = _make_backend(infos)
+    manager = DeviceConnectionManager.get_instance()
+
+    completed: list[int] = []
+    manager.all_connections_complete.connect(lambda: completed.append(1))
+
+    manager.connect_devices(backend, infos, timeout=1.0, max_concurrency=2)
+
+    _spin(app, lambda: completed == [1])
+    # Give any stray late emission a chance to (incorrectly) arrive.
+    time.sleep(0.1)
+    app.processEvents()
+    assert completed == [1]
+
+
+def test_all_connections_complete_emitted_even_with_timeout():
+    """A device that times out must NOT prevent the batch-complete signal —
+    otherwise the CMS gate would hang whenever an IOC is down."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    infos = _make_infos("fast", "slow")
+    backend = _make_backend(infos)
+    manager = DeviceConnectionManager.get_instance()
+
+    completed: list[int] = []
+    manager.all_connections_complete.connect(lambda: completed.append(1))
+
+    manager.connect_devices(backend, infos, timeout=0.2, max_concurrency=2)
+
+    _spin(app, lambda: completed == [1])
+    time.sleep(0.1)
+    app.processEvents()
+    assert completed == [1]
+
+
+def test_all_connections_complete_emitted_for_empty_batch():
+    """An empty device set still fires the signal (synchronously) so the gate
+    never hangs waiting on a backend that registered no devices."""
+    backend = _make_backend([])
+    manager = DeviceConnectionManager.get_instance()
+
+    completed: list[int] = []
+    manager.all_connections_complete.connect(lambda: completed.append(1))
+
+    manager.connect_devices(backend, [], timeout=1.0)
+
+    assert completed == [1]

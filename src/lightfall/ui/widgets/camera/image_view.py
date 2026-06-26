@@ -3,7 +3,7 @@
 Displays live image data with:
 - Axis ticks via PlotItem
 - Histogram/LUT control
-- Correct orientation (col-major axis order, matching Xi-CAM convention)
+- Correct orientation (row-major axis order: array (row, col) = (y, x))
 - Background-threaded device polling and data preprocessing
 
 Device I/O (array_data.get(), roi stats, progress counters) and numpy
@@ -62,8 +62,9 @@ class OphydImageView(QWidget):
     The main thread timer picks up the latest preprocessed frame and
     only does Qt widget updates.
 
-    Image orientation uses col-major axis order (matching Xi-CAM convention)
-    with no Y-axis inversion, so no QTransform or data preprocessing needed.
+    Image orientation uses row-major axis order (array (row, col) = (y, x),
+    set globally at startup) with no Y-axis inversion, so frames are displayed
+    in their native (height, width) order with no transpose or QTransform.
     """
 
     _STAT_FIELDS = (
@@ -153,9 +154,10 @@ class OphydImageView(QWidget):
         self._plot_item.setLabel("bottom", "x (px)")
         self._plot_item.setLabel("left", "y (px)")
 
-        # ImageItem uses col-major axis order (Xi-CAM convention).
+        # ImageItem uses row-major axis order (array axis-0 -> y, axis-1 -> x),
+        # set globally at startup via apply_pyqtgraph_theme(). Frames are fed in
+        # their native (height, width) = (rows, cols) order with no transpose.
         self._image_item = pg.ImageItem()
-        self._image_item.setOpts(axisOrder="col-major")
         self._plot_item.addItem(self._image_item)
 
         # ROI stats overlay
@@ -624,14 +626,14 @@ class OphydImageView(QWidget):
     def _format_coordinates(self, x: float, y: float) -> str:
         """Format pixel coordinates and intensity at view position (x, y).
 
-        With col-major axis order, view (x, y) maps directly to
-        array[int(x), int(y)] — x is the row axis, y is the column axis.
+        With row-major axis order, view (x, y) maps to array[int(y), int(x)] —
+        y is the row axis, x is the column axis.
         """
         image = self._raw_image
         if image is None:
             return ""
 
-        row, col = int(x), int(y)
+        row, col = int(y), int(x)
         if row < 0 or col < 0 or row >= image.shape[0] or col >= image.shape[1]:
             return ""
 

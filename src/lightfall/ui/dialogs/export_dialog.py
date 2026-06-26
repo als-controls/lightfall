@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.ui.dialogs.base import LFDialog
 from lightfall.utils.logging import logger
+from lightfall.utils.tiled_helpers import stream_data_keys
 
 if TYPE_CHECKING:
     from lightfall.services.tiled_service import TiledService
@@ -140,7 +141,7 @@ def load_sample_frame(client: Any, run_key: str) -> Any:
 
     run = client[run_key]
     stream = run["primary"]
-    data_keys = stream.metadata.get("data_keys", {})
+    data_keys = stream_data_keys(stream)
 
     # Find first field with ndim >= 2
     image_field = None
@@ -320,7 +321,10 @@ class ExportDialog(LFDialog):
         """Handle successful image load — display and add ROI."""
         import pyqtgraph as pg
 
-        self._image_view.setImage(frame.T)  # transpose for pyqtgraph (col-major)
+        # Row-major axis order (set globally): feed the native (rows, cols)
+        # frame directly. Display x spans cols, y spans rows — the same on-screen
+        # orientation as before, so the ROI (X->col, Y->row) mapping is unchanged.
+        self._image_view.setImage(frame)
         self._frame_shape = frame.shape  # (rows, cols) = (h, w)
 
         # Add RectROI covering full frame

@@ -637,14 +637,64 @@ class QtClaudeAgent(QObject):
             logger.debug("Could not persist last session id: {}", exc)
 
     def reset_conversation(self) -> None:
-        """Reset the conversation by stopping the worker.
+        """Reset the conversation: stop the worker AND start a brand-new session.
 
-        The next query will automatically reconnect with a fresh
-        conversation via ``_ensure_connected()``.
+        Stopping the worker alone is not enough. ``_ensure_connected()`` rebuilds
+        the worker around the SAME ``self.client``, and that client resumes the
+        existing CLI conversation — so the chat would clear visually while the
+        model still carried the old context. So here we also:
+
+        * forget the in-memory + persisted session id (so nothing auto-resumes),
+        * re-materialize the per-session plugin dir (``stop()`` deletes it), and
+        * rebuild a fresh ``ClaudeSDKClient`` with ``resume`` /
+          ``continue_conversation`` cleared,
+
+        so the next query opens a genuinely new conversation.
         """
+        import dataclasses
+
+        from lightfall.claude._session_assembly import (
+            init_session_plugin_dir,
+            materialize_skill,
+        )
+        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+
         self.cockpit_reset.emit()
-        self.stop()
-        logger.info("Claude conversation reset")
+        self.stop()  # stops the worker; also rmtree's the session plugin dir
+
+        # Forget the prior session so neither the rebuilt client nor auto-restore
+        # resumes it.
+        self._resume_session_id = None
+        self._current_session_id = None
+        try:
+            from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+            ClaudeSettingsProvider.set_last_session_id("")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not clear last session id on reset: {}", exc)
+
+        # Re-materialize the per-session plugin dir (stop() removed it) and
+        # rebuild a fresh SDK client that does NOT resume the old conversation.
+        # dataclasses.replace keeps every other option (tools, hooks, mcp
+        # servers, model, effort, permission callbacks) intact.
+        try:
+            plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
+            init_session_plugin_dir(plugin_dir)
+            for plugin in AgentRegistry.get_instance().enabled_plugins():
+                materialize_skill(plugin, plugin_dir)
+            self._session_plugin_dir = plugin_dir
+
+            self.options = dataclasses.replace(
+                self.options,
+                resume=None,
+                continue_conversation=False,
+                plugins=[{"type": "local", "path": str(plugin_dir)}],
+            )
+            self.client = ClaudeSDKClient(options=self.options)
+        except Exception:
+            logger.exception("Failed to rebuild Claude client on reset")
+
+        logger.info("Claude conversation reset (new session)")
 
     def add_always_allowed_tool(self, tool_name: str) -> None:
         """

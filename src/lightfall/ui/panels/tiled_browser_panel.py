@@ -75,7 +75,7 @@ class TiledBrowserPanel(BasePanel):
     record_double_clicked = Signal(object)  # TiledRecord on double-click
 
     # Page size for pagination
-    PAGE_SIZE = 100
+    PAGE_SIZE = 20
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the Tiled browser panel."""

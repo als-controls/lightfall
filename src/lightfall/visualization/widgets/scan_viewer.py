@@ -28,7 +28,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.utils.tiled_helpers import fetch_subcube, read_events
+from lightfall.utils.tiled_helpers import (
+    fetch_subcube,
+    read_events,
+    resolve_field_client,
+    stream_data_keys,
+)
 from lightfall.visualization.base_visualization import BaseVisualization
 from lightfall.visualization.reduction_engine import ReductionEngine
 from lightfall.visualization.reductions import REDUCTIONS_BY_NAME, operators_for_frame_count
@@ -124,16 +129,34 @@ class ScanViewerVisualization(BaseVisualization):
 
     @staticmethod
     def can_handle(run: Any) -> int:
-        """Score 90 for scans with a >= 2-D per-point field; 0 otherwise."""
+        """Score 90 for scans with a >= 2-D per-point field over a real
+        (motor) independent axis; 0 otherwise.
+
+        Bluesky gives single-point / non-scanning plans (e.g. ``count``) the
+        default ``[(['time'], 'primary')]`` dimensions hint. That ``time``
+        placeholder is not an independent axis to map per-point reductions
+        over, so such runs belong to Image Stack — they score 0 here, letting
+        Image Stack win the Auto selection.
+        """
         try:
             start = run.metadata.get("start", {}) or {}
             dims = start.get("hints", {}).get("dimensions", []) or []
         except Exception:
             return 0
-        if not dims or not (1 <= len(dims) <= 2):
+        # Keep only real independent axes, dropping the default 'time'
+        # placeholder bluesky assigns to non-scanning plans.
+        real_dims = []
+        for entry in dims:
+            try:
+                fields = list(entry[0])
+            except (TypeError, IndexError, KeyError):
+                continue
+            if fields != ["time"]:
+                real_dims.append(fields)
+        if not real_dims or not (1 <= len(real_dims) <= 2):
             return 0
         try:
-            data_keys = run["primary"].metadata.get("data_keys", {})
+            data_keys = stream_data_keys(run["primary"])
         except Exception:
             return 0
         has_image = any(len(dk.get("shape", [])) >= 2 for dk in data_keys.values())
@@ -157,7 +180,7 @@ class ScanViewerVisualization(BaseVisualization):
         self._stream_name = stream_name
         try:
             self._stream = self._run[stream_name]
-            self._data_keys = self._stream.metadata.get("data_keys", {})
+            self._data_keys = stream_data_keys(self._stream)
         except Exception as e:
             logger.debug("ScanViewer: could not open stream '{}': {}", stream_name, e)
             self._stream = None
@@ -207,15 +230,10 @@ class ScanViewerVisualization(BaseVisualization):
     # ---- helpers ---------------------------------------------------------
 
     def _resolve_client(self, field_name: str) -> Any | None:
-        try:
-            return self._stream[field_name]
-        except Exception:
-            pass
-        try:
-            return self._stream["external"][field_name]
-        except Exception:
+        client = resolve_field_client(self._stream, field_name)
+        if client is None:
             logger.warning("ScanViewer: could not resolve ArrayClient for '{}'", field_name)
-            return None
+        return client
 
     def _detect_layout(self, field_name: str, client: Any) -> None:
         """Determine layout, n_points, n_frames, frame_shape from the array.
@@ -388,13 +406,15 @@ class ScanViewerVisualization(BaseVisualization):
             self._map_scatter.setVisible(False)
             self._map_image.setVisible(True)
             finite = self._point_values[np.isfinite(self._point_values)]
+            # Row-major axis order (set globally): grid axis-0 (row, slow) -> y,
+            # axis-1 (col, fast) -> x, so no transpose is needed.
             if finite.size >= 2 and float(finite.min()) < float(finite.max()):
                 self._map_image.setImage(
-                    grid.T, autoLevels=False,
+                    grid, autoLevels=False,
                     levels=(float(finite.min()), float(finite.max())),
                 )
             else:
-                self._map_image.setImage(grid.T, autoLevels=False)
+                self._map_image.setImage(grid, autoLevels=False)
         else:
             self._map_image.setVisible(False)
             self._map_scatter.setVisible(True)
@@ -434,7 +454,8 @@ class ScanViewerVisualization(BaseVisualization):
         pt = vb.mapSceneToView(ev.scenePos())
         if self._geometry.is_rectilinear and len(self._geometry.grid_shape) >= 2:
             ny, nx = self._geometry.grid_shape[0], self._geometry.grid_shape[1]
-            ix, iy = int(pt.y()), int(pt.x())  # map image is displayed transposed
+            # Row-major: grid row (axis-0) is the y-axis, col (axis-1) the x-axis.
+            ix, iy = int(pt.y()), int(pt.x())
             if 0 <= ix < ny and 0 <= iy < nx:
                 self.select_point(ix * nx + iy)
         else:

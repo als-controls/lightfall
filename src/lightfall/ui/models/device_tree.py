@@ -973,6 +973,17 @@ class DeviceFilterProxyModel(QSortFilterProxyModel):
         self.setRecursiveFilteringEnabled(True)
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
+        # Don't auto re-filter on every source dataChanged. This tree is large
+        # (often 10k+ rows) and recursive filtering is O(N) on the GUI thread;
+        # with Qt's default (dynamicSortFilter=True) the DeviceTreeModel's 2s
+        # value poll would trigger a full recursive re-filter every tick and
+        # freeze the UI for seconds. The filter depends only on name/kind/
+        # active — never on the polled value — so we disable automatic
+        # re-filtering and invalidate explicitly when those criteria actually
+        # change (set_visible_kinds / set_show_inactive / the text filter, and
+        # device-edit refreshes in DeviceTreeTab).
+        self.setDynamicSortFilter(False)
+
         # Kind filter: set of kinds to show (None means show all)
         self._visible_kinds: set[str] | None = None
         self._show_inactive: bool = False

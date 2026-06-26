@@ -103,8 +103,9 @@ class LazyImageView(pg.ImageView):
 
         super().__init__(parent=parent, view=view, **kwargs)
 
-        # Col-major axis order (Xi-CAM convention), matching OphydImageView.
-        self.imageItem.setOpts(axisOrder="col-major")
+        # Image axis order is row-major (array axis-0 -> y, axis-1 -> x), set
+        # globally at startup via apply_pyqtgraph_theme(). Frames are fed in
+        # their native (rows, cols) = (y, x) order with no transpose.
 
         self._client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
@@ -182,8 +183,8 @@ class LazyImageView(pg.ImageView):
         self.setImage(
             self._proxy,
             xvals=self.tVals,
-            # Col-major: frame axes are (x, y), not (y, x).
-            axes={"t": 0, "x": 1, "y": 2},
+            # Row-major: each frame's axes are (y, x) = (rows, cols).
+            axes={"t": 0, "y": 1, "x": 2},
             autoLevels=False,
             autoRange=False,
         )
