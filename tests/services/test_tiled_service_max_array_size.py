@@ -6,9 +6,20 @@ table. Setting max_array_size=0 on TiledWriter achieves this — the upstream
 writer routes ALL per-event array keys to standalone zarr array nodes rather
 than the tabular table, regardless of size.
 
-`TiledWriter` is imported at module-level in tiled_service so it is patchable
-there. `get_engine` and `ThreadedTiledWriter` are local imports inside the
-method; patch them at their source modules so sys.modules provides the mock.
+Patch targets (verified empirically):
+
+* ``TiledWriter`` is imported at module level in ``tiled_service`` (line 16),
+  so it is patched at ``lightfall.services.tiled_service.TiledWriter``.
+* ``get_engine`` and ``ThreadedTiledWriter`` are LOCAL imports inside
+  ``_subscribe_writer`` (``from lightfall.services.threaded_tiled_writer
+  import ThreadedTiledWriter`` etc.). A local ``from X import Y`` executes at
+  call time and resolves ``Y`` from the SOURCE module ``X``'s namespace — so
+  these are patched at their source modules
+  (``lightfall.services.threaded_tiled_writer.ThreadedTiledWriter``,
+  ``lightfall.acquire.get_engine``). Patching ``tiled_service.<name>`` would
+  NOT work here: the name does not exist on ``tiled_service`` at module level
+  (it is never bound there), and even with ``create=True`` the local
+  ``from ... import`` reads the source module, bypassing the created name.
 """
 from __future__ import annotations
 
@@ -39,8 +50,9 @@ def test_subscribe_writer_passes_max_array_size_zero():
                 "lightfall.services.tiled_service.TiledWriter",
                 return_value=mock_raw_writer,
             ) as mock_tw,
-            # ThreadedTiledWriter is a local import inside _subscribe_writer;
-            # patch its source module so the `from ... import` picks up the mock.
+            # ThreadedTiledWriter is a LOCAL import inside _subscribe_writer;
+            # the local `from ... import` resolves it from the source module at
+            # call time, so patching the source module is what takes effect.
             patch(
                 "lightfall.services.threaded_tiled_writer.ThreadedTiledWriter",
                 return_value=mock_threaded_writer,
@@ -53,16 +65,11 @@ def test_subscribe_writer_passes_max_array_size_zero():
         ):
             svc._subscribe_writer()
 
-        # The patched TiledWriter must have been called exactly once …
-        mock_tw.assert_called_once()
-        _, kwargs = mock_tw.call_args
-        # … with batch_size=1 (existing contract) …
-        assert kwargs.get("batch_size") == 1, (
-            f"expected batch_size=1, got {kwargs.get('batch_size')!r}"
-        )
-        # … and max_array_size=0 (the new requirement).
-        assert kwargs.get("max_array_size") == 0, (
-            f"expected max_array_size=0, got {kwargs.get('max_array_size')!r}"
+        # The raw TiledWriter must be constructed exactly once with the fake
+        # client positionally and both keyword knobs: the existing batch_size=1
+        # and the new max_array_size=0 (per-event arrays -> streamable nodes).
+        mock_tw.assert_called_once_with(
+            fake_client, batch_size=1, max_array_size=0
         )
 
     finally:
