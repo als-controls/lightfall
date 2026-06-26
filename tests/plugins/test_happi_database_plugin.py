@@ -46,7 +46,11 @@ def test_create_backend_returns_configured_happi_backend(tmp_path):
     plugin = _plugin_for_path(str(db), beamline="7.0.1", instantiate="background")
     backend = plugin.create_backend()
     assert isinstance(backend, HappiBackend)
-    assert backend.name  # has a name
+    # Backend must be named after the plugin so it is keyed uniquely in the
+    # DeviceCatalog and does not collide with (overwrite) the base "happi"
+    # backend, which would make the base backend's devices vanish.
+    assert backend.name == plugin.name == "test_happi_plugin"
+    assert backend.name != "happi"
     assert str(db) in str(getattr(backend, "_path"))
     assert getattr(backend, "_beamline") == "7.0.1"
 

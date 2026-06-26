@@ -66,9 +66,14 @@ class HappiDatabasePlugin(DeviceBackendPlugin):
         return path
 
     def create_backend(self) -> DeviceBackend:
-        """Vend a HappiBackend over the resolved packaged database."""
+        """Vend a HappiBackend over the resolved packaged database.
+
+        The backend is named after the plugin so it is keyed uniquely in the
+        DeviceCatalog and never collides with the base "happi" backend.
+        """
         return HappiBackend(
             path=str(self.database_path()),
             beamline=self.beamline,
             instantiate=self.instantiate,
+            name=self.name,
         )
