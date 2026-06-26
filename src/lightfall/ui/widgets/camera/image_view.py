@@ -186,7 +186,10 @@ class OphydImageView(QWidget):
         # HistogramLUTItem — manually wired so we can decouple log display
         # from linear histogram.
         self._histogram = pg.HistogramLUTItem()
-        self._histogram.sigLevelsChanged.connect(self._apply_display_levels)
+        # sigLevelsChanged emits the HistogramLUTItem itself; swallow it so it
+        # is never bound to _apply_display_levels(log_mode=...) and mistaken for
+        # a truthy log_mode (which would log-scale the image mid-drag).
+        self._histogram.sigLevelsChanged.connect(lambda *_: self._apply_display_levels())
         self._histogram.gradient.sigGradientChanged.connect(
             self._on_gradient_changed,
         )
