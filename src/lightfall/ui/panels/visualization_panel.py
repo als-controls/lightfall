@@ -32,7 +32,14 @@ from lightfall.visualization.stream_bridge import StreamBridge
 
 
 def _widget_classes() -> list[type[BaseVisualization]]:
-    """Import and return all available visualization widget classes."""
+    """Import and return all available visualization widget classes.
+
+    Returns the 8 built-in visualizations plus any classes contributed by
+    plugins registered in VisualizationRegistry (via type_name="visualization").
+    Registry entries are appended after the built-ins, deduplicated.  Any
+    plugin whose get_viz_class() raises is silently skipped so a bad plugin
+    never prevents the panel from opening.
+    """
     from lightfall.visualization.widgets.adaptive.heatmap import (
         AdaptiveHeatmapVisualization,
     )
@@ -46,7 +53,7 @@ def _widget_classes() -> list[type[BaseVisualization]]:
     from lightfall.visualization.widgets.scatter import ScatterVisualization
     from lightfall.visualization.widgets.table import TableVisualization
 
-    return [
+    classes: list[type[BaseVisualization]] = [
         ImageStackVisualization,
         ScanViewerVisualization,
         Plot1DVisualization,
@@ -56,6 +63,21 @@ def _widget_classes() -> list[type[BaseVisualization]]:
         AdaptiveHeatmapVisualization,
         AdaptivePlotVisualization,
     ]
+
+    try:
+        from lightfall.visualization.registry import VisualizationRegistry
+
+        for plugin in VisualizationRegistry.get_instance().get_all_visualizations():
+            try:
+                cls = plugin.get_viz_class()
+            except Exception:
+                continue
+            if cls is not None and cls not in classes:
+                classes.append(cls)
+    except Exception:
+        pass  # registry unavailable — built-ins only
+
+    return classes
 
 
 class VisualizationPanel(BasePanel):
