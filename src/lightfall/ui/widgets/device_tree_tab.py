@@ -174,6 +174,13 @@ class DeviceTreeTab(QWidget):
         self._tree_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._catalog.device_added.connect(self._on_device_changed)
         self._catalog.device_removed.connect(self._on_device_changed)
+        # device_updated fires only on explicit metadata edits (edit dialog,
+        # active toggle, agent device-tools) — never during the startup
+        # connection storm — so refreshing here re-applies the filter (e.g. an
+        # active toggle hides/shows the row) with no startup-lag risk. Needed
+        # because DeviceFilterProxyModel no longer auto-re-filters on every
+        # dataChanged.
+        self._catalog.device_updated.connect(self._on_device_changed)
 
     @Slot(str)
     def _on_search_changed(self, text: str) -> None:
