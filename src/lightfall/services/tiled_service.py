@@ -766,7 +766,7 @@ class TiledService(QObject):
 
             engine = get_engine()
 
-            raw_writer = TiledWriter(self._client, batch_size=1)
+            raw_writer = TiledWriter(self._client, batch_size=1, max_array_size=0)
 
             # Wrap in ThreadedTiledWriter to prevent blocking
             self._writer = ThreadedTiledWriter(
