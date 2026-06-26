@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.devices.model import DeviceCategory
 from lightfall.epics.widgets.ophyd_combobox import OphydComboBox
 from lightfall.epics.widgets.ophyd_lineedit import OphydLineEdit
 from lightfall.epics.widgets.status_indicator import StatusIndicator
@@ -80,17 +79,39 @@ def is_area_detector(item: DeviceTreeItem) -> bool:
     if item.node_type != NodeType.DEVICE:
         return False
 
-    # Check device category from device_info - only CAMERA, not DETECTOR
-    if item.device_info:
-        if item.device_info.category == DeviceCategory.DETECTOR:
-            return True
+    # NOTE: We deliberately do NOT match on the bare DETECTOR category. That
+    # category is overloaded - it covers scalar "point" detectors (ion
+    # chambers, electrometers, shutter-status PVs) as well as area detectors.
+    # Matching the whole category here makes this widget collide with
+    # SignalControlWidget on every detector; disambiguation is by the markers
+    # below, which identify a genuine 2D-image area detector.
 
-    # Check ophyd object class name for area detector patterns
+    # Definitive marker: ophyd AreaDetector/ADBase devices expose a 'cam'
+    # component. Scalar EpicsSignal-style detectors do not.
+    if item.ophyd_obj is not None and hasattr(item.ophyd_obj, "cam"):
+        return True
+
+    # Fall back to class-name / device_class patterns. This also covers the
+    # case where the ophyd object isn't instantiated yet (lazy/offline device).
+    names: list[str] = []
     if item.ophyd_obj is not None:
-        class_name = type(item.ophyd_obj).__name__.lower()
-        # Only match area detector patterns, not generic "detector"
-        if any(kw in class_name for kw in ("camera", "areadetector", "simdetector", "img")):
-            return True
+        names.append(type(item.ophyd_obj).__name__)
+    if item.device_info and item.device_info.device_class:
+        names.append(item.device_info.device_class)
+    blob = " ".join(names).lower()
+    # Only match area-detector patterns, not generic "detector".
+    if any(
+        kw in blob
+        for kw in (
+            "areadetector",
+            "area_detector",
+            "camera",
+            "prosilica",
+            "pilatus",
+            "simdetector",
+        )
+    ):
+        return True
 
     return False
 
