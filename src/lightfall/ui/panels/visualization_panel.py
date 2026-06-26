@@ -558,22 +558,49 @@ class VisualizationPanel(BasePanel):
             field = self._field_combo.currentText()
         return field or ""
 
+    @staticmethod
+    def _structure_family(node: Any) -> str | None:
+        """Best-effort ``structure_family`` of a Tiled client node ('' if N/A).
+
+        Tiled exposes a ``StructureFamily`` str-enum (``"array"``, ``"table"``,
+        ``"container"``, ...) on every client node. Returns it as a plain ``str``
+        (the enum compares equal to its string value) or None if the node
+        doesn't carry one (a bare/stubbed object).
+        """
+        sf = getattr(node, "structure_family", None)
+        if sf is None:
+            return None
+        try:
+            return str(sf.value)  # StructureFamily(str, Enum) -> "array"/"table"/...
+        except AttributeError:
+            return str(sf)
+
     def _resolve_active_node(self) -> Any | None:
-        """Resolve the Tiled data node the active viz is displaying.
+        """Resolve a **subscribable** Tiled node for the active viz.
 
-        The viz reads from ``self._entry[stream]`` (a stream container). Tiled
-        data pushes arrive on a per-data-node subscription, so we point the
-        bridge at the node for the **active field** — the array/table child the
-        displayed viz actually reads. This matters for an override viz (e.g. the
-        Task 5 STXM map) whose ``on_stream_update`` blits the pushed line from
-        ITS specific array: subscribing to a different child (e.g. SampleX
-        instead of the displayed Counter1/STXMLineFlyer) would hand it the wrong
-        payload. Only when no active field is set do we fall back to the first
-        hinted/data_keys child. (The default refresh-on-push viz re-reads
-        everything either way.)
+        Tiled's WS push is only served by catalog node adapters that carry a
+        ``make_ws_handler`` — namely **array** nodes and the stream's first-class
+        **``internal`` table** node. A per-event *scalar* field is merely a
+        COLUMN of ``internal``; ``stream[field]`` for such a field resolves to a
+        plain column-facet ``ArrayAdapter`` with **no** ``make_ws_handler``, so
+        subscribing to it 500s and hangs ``start_in_thread`` forever (Task 4d
+        bug). We therefore never return a scalar column facet.
 
-        Returns the node to subscribe, or None if it can't be resolved (Tiled
-        not yet caught up, no stream selected, etc.) — never raises.
+        Preference order:
+
+        1. If the active field resolves to a first-class **array** node
+           (``structure_family == "array"`` — e.g. the STXM map, image_stack's
+           detector array), return THAT array node, so an override viz whose
+           ``on_stream_update`` blits the pushed line gets ITS ``array-data``.
+        2. Else return the stream's **``internal`` table node**
+           (``run[stream]["internal"]``, ``structure_family == "table"``). Its
+           per-event ``table-data`` pushes drive a ``refresh()`` for
+           scalar/table-displaying viz (Plot1D / Scatter / Heatmap / Table).
+        3. Otherwise (no array node, no ``internal``) log + return None: the
+           bridge simply isn't connected — graceful, no 500 / no hang. We never
+           fall back to a column facet.
+
+        Returns the node to subscribe, or None — never raises.
         """
         if self._entry is None or self._current_widget is None:
             return None
@@ -584,39 +611,36 @@ class VisualizationPanel(BasePanel):
             logger.debug("Could not resolve active stream '{}': {}", stream_name, e)
             return None
 
-        try:
-            data_keys = stream.metadata.get("data_keys", {})
-        except Exception:
-            data_keys = {}
-
-        # Subscribe to the ACTIVE FIELD's node first (the child the viz reads),
-        # then fall back to hinted/other data_keys children, then the container.
-        candidates: list[str] = []
+        # 1. Active field that is a first-class ARRAY node -> subscribe it.
+        #    (A scalar field's child is a column facet, structure_family != "array",
+        #    so it is rejected here and falls through to the internal table.)
         active_field = self._active_field()
-        if active_field and active_field in data_keys:
-            candidates.append(active_field)
-        try:
-            hinted = stream.metadata.get("hints", {}).get("fields", [])
-        except Exception:
-            hinted = []
-        candidates += [k for k in hinted if k in data_keys and k not in candidates]
-        candidates += [k for k in data_keys if k not in candidates]
-
-        for key in candidates:
+        if active_field:
             try:
-                return stream[key]
+                child = stream[active_field]
             except Exception:
-                continue
-        # No resolvable child node — subscribe the stream container. (Container
-        # subs only deliver child-created, NOT inline array/table data, so an
-        # override viz gets no per-node payload on this path; the default viz
-        # still re-reads on the child-created signal.)
+                child = None
+            if child is not None and self._structure_family(child) == "array":
+                return child
+
+        # 2. The stream's `internal` table node (WS-subscribable; table-data
+        #    pushes drive refresh for scalar/table viz). Verify it is a table —
+        #    never return a non-table child masquerading under that key.
+        try:
+            internal = stream["internal"]
+        except Exception:
+            internal = None
+        if internal is not None and self._structure_family(internal) == "table":
+            return internal
+
+        # 3. Nothing subscribable. Do NOT fall back to a scalar column facet
+        #    (that 500s + hangs start_in_thread). Leave the bridge unconnected.
         logger.debug(
-            "Subscribed to stream container '{}' (no resolvable data child; "
-            "no per-node data expected)",
+            "No subscribable node for stream '{}' (no array node, no internal "
+            "table); stream bridge not connected",
             stream_name,
         )
-        return stream
+        return None
 
     def _update_streaming(self) -> None:
         """Subscribe the bridge iff a live run is shown AND the panel is active.
