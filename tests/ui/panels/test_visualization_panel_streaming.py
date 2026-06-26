@@ -325,6 +325,19 @@ def test_resolve_internal_when_no_active_field(qtbot, monkeypatch):
     assert node is stream["internal"]
 
 
+def test_resolve_internal_when_array_present_but_no_field_selected(qtbot, monkeypatch):
+    """Array node exists but NO field is selected -> the `internal` table node,
+    NOT the array. Step 1 is gated on a truthy active field, so we must never
+    auto-pick an arbitrary array node when the viz hasn't selected a field."""
+    stream = _StubStream(array_fields=["Img"], scalar_fields=["Counter1"])
+    panel = _panel_with_stream(
+        qtbot, monkeypatch, stream, active_field="", combo_field=""
+    )
+    node = panel._resolve_active_node()
+    assert node is stream["internal"]
+    assert node is not stream["Img"]
+
+
 def test_resolve_combo_array_field_picks_array_node(qtbot, monkeypatch):
     """Widget field blank -> combo field; if it is an array node, pick it."""
     stream = _StubStream(array_fields=["Img"], scalar_fields=["Counter1"])

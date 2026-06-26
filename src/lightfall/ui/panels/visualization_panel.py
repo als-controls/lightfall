@@ -560,7 +560,7 @@ class VisualizationPanel(BasePanel):
 
     @staticmethod
     def _structure_family(node: Any) -> str | None:
-        """Best-effort ``structure_family`` of a Tiled client node ('' if N/A).
+        """Best-effort ``structure_family`` of a Tiled client node (None if N/A).
 
         Tiled exposes a ``StructureFamily`` str-enum (``"array"``, ``"table"``,
         ``"container"``, ...) on every client node. Returns it as a plain ``str``
