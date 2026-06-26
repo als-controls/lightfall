@@ -105,8 +105,19 @@ class DeviceBackend(ABC):
     def check_connection(self, obj: Any, timeout: float) -> bool:
         """Block until `obj` is connected or `timeout` elapses; return connected.
 
-        Default ophyd semantics; override for a different device layer.
+        ophyd-async devices require an awaited ``connect()``; for those, drive
+        it on the engine loop (see ``connect_async_device``). The optional
+        per-backend ``_connect_mock`` attribute (default False) selects
+        ``connect(mock=...)``. Classic ophyd uses ``wait_for_connection`` /
+        ``connected``; objects with neither are assumed ready.
         """
+        # Lazy import: base.py is a foundational early import; async_connect
+        # pulls in the engine, so import it only when actually connecting.
+        from lightfall.devices import async_connect
+
+        if async_connect.is_async_connectable(obj):
+            mock = bool(getattr(self, "_connect_mock", False))
+            return async_connect.connect_async_device(obj, mock=mock, timeout=timeout)
         if hasattr(obj, "wait_for_connection"):
             obj.wait_for_connection(timeout=timeout)
             return True
