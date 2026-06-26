@@ -24,6 +24,8 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from lightfall.ui.theme import scaled_px
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from lightfall.devices import DeviceCatalog, DeviceInfo
 
 
@@ -396,6 +398,11 @@ class DeviceTreeModel(QAbstractItemModel):
         self._value_pool = ManagedThreadPool(max_workers=1, name="dev-values")
         self._value_future: Future | None = None
 
+        # Optional view-supplied callback returning the set of expanded
+        # top-level source rows. Lets the 2s value refresh skip dataChanged
+        # for collapsed (invisible) children — see set_expanded_rows_provider.
+        self._expanded_rows_provider: Callable[[], set[int]] | None = None
+
         self._value_timer = QTimer(self)
         self._value_timer.timeout.connect(self._poll_value_refresh)
         self._value_timer.start(2000)  # Every 2 seconds
@@ -655,15 +662,45 @@ class DeviceTreeModel(QAbstractItemModel):
         for child in item.children:
             self._fetch_item_values(child)
 
+    def set_expanded_rows_provider(
+        self, provider: Callable[[], set[int]] | None
+    ) -> None:
+        """Register a callback returning the expanded top-level source rows.
+
+        When set, the periodic value refresh only emits dataChanged for the
+        children of expanded (visible) devices. Emitting for collapsed
+        children is wasted work: the filter proxy must map tens of thousands
+        of invisible rows on the GUI thread, which froze the UI for >1s every
+        2s on large catalogs. With no provider (e.g. headless/tests) the model
+        falls back to emitting all children.
+        """
+        self._expanded_rows_provider = provider
+
     def _emit_value_changed(self) -> None:
-        """Emit dataChanged for the Value column across all rows."""
+        """Emit dataChanged for the Value column across visible rows.
+
+        Always refreshes the top-level device rows. Child (signal) rows are
+        only refreshed for expanded devices when an expansion provider is
+        registered — collapsed children aren't visible, and emitting
+        dataChanged across all of them forces the filter proxy to map a huge
+        invisible range, freezing the GUI.
+        """
         if not self._root.children:
             return
         top_left = self.index(0, 1)
         bottom_right = self.index(self._root.child_count() - 1, 1)
         self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
 
+        expanded = (
+            self._expanded_rows_provider()
+            if self._expanded_rows_provider is not None
+            else None
+        )
         for row in range(self._root.child_count()):
+            # Skip collapsed devices' children — not visible, not worth the
+            # proxy-mapping cost. expanded=None means "no provider": emit all.
+            if expanded is not None and row not in expanded:
+                continue
             parent_index = self.index(row, 0)
             child_count = self.rowCount(parent_index)
             if child_count > 0:
