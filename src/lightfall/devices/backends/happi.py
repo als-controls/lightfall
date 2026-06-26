@@ -44,6 +44,10 @@ _BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
     ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
     ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
     ("ophyd.signal", "Signal", DeviceCategory.DETECTOR),
+    # ophyd-async devices subclass bluesky protocols directly (in MRO)
+    ("bluesky.protocols", "Movable", DeviceCategory.MOTOR),
+    ("bluesky.protocols", "Triggerable", DeviceCategory.DETECTOR),
+    ("bluesky.protocols", "Flyable", DeviceCategory.DETECTOR),
 ]
 
 # Fallback: happi functional_group / item type keywords

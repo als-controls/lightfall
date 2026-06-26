@@ -1,4 +1,5 @@
-"""Tests for HappiBackend.load_metadata(), .instantiate(), and .connect() hooks."""
+"""Tests for HappiBackend.load_metadata(), .instantiate(), and .connect() hooks,
+and for _guess_category_from_mro() protocol-class mapping."""
 
 from __future__ import annotations
 
@@ -163,3 +164,31 @@ def test_connect_does_not_start_background_connections(tmp_path: Path) -> None:
     assert not hasattr(backend, "_start_background_connections"), (
         "_start_background_connections must be removed from HappiBackend"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: _guess_category_from_mro maps bluesky protocol subclasses correctly
+# ---------------------------------------------------------------------------
+
+def test_guess_category_maps_bluesky_protocols() -> None:
+    """Bluesky-protocol subclasses (ophyd-async devices) get the right category.
+
+    Regression guard: ophyd-async devices don't inherit from classic ophyd
+    base classes.  Their MRO contains bluesky.protocols.Movable / Triggerable /
+    Flyable instead.  _guess_category_from_mro() must resolve these correctly
+    so that PystxmAxis → MOTOR, PystxmCounter → DETECTOR, PystxmLineFlyer → DETECTOR.
+    """
+    from bluesky.protocols import Flyable, Movable, Triggerable
+
+    from lightfall.devices.backends.happi import _guess_category_from_mro
+    from lightfall.devices.model import DeviceCategory
+
+    class _M(Movable): ...  # noqa: E701
+
+    class _T(Triggerable): ...  # noqa: E701
+
+    class _F(Flyable): ...  # noqa: E701
+
+    assert _guess_category_from_mro(_M) == DeviceCategory.MOTOR
+    assert _guess_category_from_mro(_T) == DeviceCategory.DETECTOR
+    assert _guess_category_from_mro(_F) == DeviceCategory.DETECTOR
