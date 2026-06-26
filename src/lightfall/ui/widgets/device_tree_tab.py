@@ -182,6 +182,27 @@ class DeviceTreeTab(QWidget):
         # dataChanged.
         self._catalog.device_updated.connect(self._on_device_changed)
 
+        # Let the model's periodic value refresh skip collapsed (invisible)
+        # device children — emitting dataChanged for all of them froze the GUI
+        # for >1s every 2s on large catalogs.
+        self._model.set_expanded_rows_provider(self._expanded_source_rows)
+
+    def _expanded_source_rows(self) -> set[int]:
+        """Top-level source rows currently expanded in the view.
+
+        Maps each expanded top-level proxy row back to its source row so the
+        model can refresh only the devices whose children are actually
+        visible.
+        """
+        rows: set[int] = set()
+        proxy = self._proxy_model
+        view = self._tree_view
+        for prow in range(proxy.rowCount()):
+            pidx = proxy.index(prow, 0)
+            if view.isExpanded(pidx):
+                rows.add(proxy.mapToSource(pidx).row())
+        return rows
+
     @Slot(str)
     def _on_search_changed(self, text: str) -> None:
         self._proxy_model.setFilterRegularExpression(text)
