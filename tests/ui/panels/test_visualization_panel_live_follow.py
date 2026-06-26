@@ -155,42 +155,64 @@ def test_sync_schedules_retry_when_unresolvable(qtbot, monkeypatch):
     sched.assert_called_once()
 
 
-def test_timer_runs_when_live_and_active(qtbot):
-    panel = VisualizationPanel()
-    qtbot.addWidget(panel)
-    panel._is_live = True
-    panel.activate()  # _on_activated -> _update_refresh
-    assert panel._refresh_timer is not None
-    assert panel._refresh_timer.isActive()
+# NOTE (Task 4): the 2s QTimer poll was replaced by Tiled streaming push.
+# These four tests were re-pointed from `_refresh_timer` assertions to the
+# StreamBridge subscribe/disconnect lifecycle; the live-follow behavior they
+# guard (subscribe when live+active, tear down on deactivate, catch-up refresh
+# on activate, no subscription when not live) is unchanged.
 
 
-def test_deactivate_pauses_timer(qtbot):
+def test_streaming_subscribes_when_live_and_active(qtbot, monkeypatch):
     panel = VisualizationPanel()
     qtbot.addWidget(panel)
+    panel._current_widget = MagicMock()
     panel._is_live = True
+    node = object()
+    monkeypatch.setattr(panel, "_resolve_active_node", lambda: node)
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
+    panel.activate()  # _on_activated -> _update_streaming
+    bridge.connect_node.assert_called_once_with(node)
+
+
+def test_deactivate_tears_down_subscription(qtbot, monkeypatch):
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    panel._current_widget = MagicMock()
+    panel._is_live = True
+    monkeypatch.setattr(panel, "_resolve_active_node", lambda: object())
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
     panel.activate()
-    assert panel._refresh_timer is not None
+    panel._bridge = bridge  # ensure_bridge is patched; wire the disconnect target
     panel.deactivate()
-    assert panel._refresh_timer is None  # _stop_refresh tears it down
+    bridge.disconnect.assert_called()  # subscription torn down
 
 
-def test_activate_does_catchup_refresh(qtbot):
+def test_activate_does_catchup_refresh(qtbot, monkeypatch):
     panel = VisualizationPanel()
     qtbot.addWidget(panel)
     widget = MagicMock()
     panel._current_widget = widget
     panel._is_live = True
+    node = object()
+    monkeypatch.setattr(panel, "_resolve_active_node", lambda: node)
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
     panel.activate()
     widget.refresh.assert_called()  # immediate catch-up
-    assert panel._refresh_timer is not None and panel._refresh_timer.isActive()
+    bridge.connect_node.assert_called_once_with(node)
 
 
-def test_no_timer_when_not_live(qtbot):
+def test_no_subscription_when_not_live(qtbot, monkeypatch):
     panel = VisualizationPanel()
     qtbot.addWidget(panel)
+    panel._current_widget = MagicMock()
     panel._is_live = False
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
     panel.activate()
-    assert panel._refresh_timer is None
+    bridge.connect_node.assert_not_called()  # no live subscription opened
 
 
 def test_start_doc_sets_live_uid_and_syncs(qtbot, monkeypatch):
