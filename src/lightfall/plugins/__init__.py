@@ -95,6 +95,7 @@ from lightfall.plugins.plan_plugin import PlanPlugin
 from lightfall.plugins.registry import PluginRegistry
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.plugins.types import PluginType
+from lightfall.plugins.visualization_plugin import VisualizationPlugin
 
 __all__ = [
     # Core classes
@@ -111,6 +112,7 @@ __all__ = [
     "PanelPlugin",
     "PlanPlugin",
     "SettingsPlugin",
+    "VisualizationPlugin",
     # Status and errors
     "PluginStatus",
     "PluginError",

@@ -581,6 +581,7 @@ def _register_builtin_plugin_types(loader: "PluginLoader") -> None:
     from lightfall.plugins.settings_plugin import SettingsPlugin
     from lightfall.plugins.statusbar_plugin import StatusBarPlugin
     from lightfall.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.visualization_plugin import VisualizationPlugin
 
     loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
@@ -591,6 +592,7 @@ def _register_builtin_plugin_types(loader: "PluginLoader") -> None:
     loader.register_plugin_type("panel", PanelPlugin)
     loader.register_plugin_type("device_backend", DeviceBackendPlugin)
     loader.register_plugin_type("plan", PlanPlugin)
+    loader.register_plugin_type("visualization", VisualizationPlugin)
     loader.register_plugin_type("auth_provider", AuthProviderPlugin)
 
 
