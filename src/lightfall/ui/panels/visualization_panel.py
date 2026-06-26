@@ -402,12 +402,16 @@ class VisualizationPanel(BasePanel):
             return
         self._current_widget.set_stream(stream_name)
         self._populate_field_combo()
+        # Follow the newly displayed node with the live subscription.
+        self._update_streaming()
 
     def _on_field_changed(self, field_name: str) -> None:
         """User changed the field combo."""
         if not field_name or self._current_widget is None:
             return
         self._current_widget.set_field(field_name)
+        # Re-point the subscription at the new field's node mid-run.
+        self._update_streaming()
 
     def _on_viz_selection_changed(self, index: int) -> None:
         """User changed the visualization type combo."""
@@ -520,15 +524,31 @@ class VisualizationPanel(BasePanel):
         except Exception as e:
             logger.warning("Stream update error: {}", e)
 
+    def _active_field(self) -> str:
+        """The field the active viz is currently displaying ('' if none).
+
+        Prefer the widget's own current field (set by set_field) over the combo
+        text — the combo may be hidden (single-field streams) or lag the widget.
+        """
+        widget = self._current_widget
+        field = getattr(widget, "_field_name", "") if widget is not None else ""
+        if not field:
+            field = self._field_combo.currentText()
+        return field or ""
+
     def _resolve_active_node(self) -> Any | None:
         """Resolve the Tiled data node the active viz is displaying.
 
         The viz reads from ``self._entry[stream]`` (a stream container). Tiled
         data pushes arrive on a per-data-node subscription, so we point the
-        bridge at the active stream's primary array/table node. Per the Task 1
-        spike, an update on any of a stream's data nodes signals "new data"
-        (per-event columns/arrays grow together), and the viz's default
-        ``on_stream_update`` re-reads everything via ``refresh()``.
+        bridge at the node for the **active field** — the array/table child the
+        displayed viz actually reads. This matters for an override viz (e.g. the
+        Task 5 STXM map) whose ``on_stream_update`` blits the pushed line from
+        ITS specific array: subscribing to a different child (e.g. SampleX
+        instead of the displayed Counter1/STXMLineFlyer) would hand it the wrong
+        payload. Only when no active field is set do we fall back to the first
+        hinted/data_keys child. (The default refresh-on-push viz re-reads
+        everything either way.)
 
         Returns the node to subscribe, or None if it can't be resolved (Tiled
         not yet caught up, no stream selected, etc.) — never raises.
@@ -542,17 +562,23 @@ class VisualizationPanel(BasePanel):
             logger.debug("Could not resolve active stream '{}': {}", stream_name, e)
             return None
 
-        # Prefer a hinted/primary data field's node (an array/table child of the
-        # stream). Fall back to the stream container itself if no child resolves
-        # — StreamBridge.connect_node only needs something with .subscribe().
-        candidates: list[str] = []
         try:
             data_keys = stream.metadata.get("data_keys", {})
-            hinted = stream.metadata.get("hints", {}).get("fields", [])
-            candidates = [k for k in hinted if k in data_keys]
-            candidates += [k for k in data_keys if k not in candidates]
         except Exception:
-            candidates = []
+            data_keys = {}
+
+        # Subscribe to the ACTIVE FIELD's node first (the child the viz reads),
+        # then fall back to hinted/other data_keys children, then the container.
+        candidates: list[str] = []
+        active_field = self._active_field()
+        if active_field and active_field in data_keys:
+            candidates.append(active_field)
+        try:
+            hinted = stream.metadata.get("hints", {}).get("fields", [])
+        except Exception:
+            hinted = []
+        candidates += [k for k in hinted if k in data_keys and k not in candidates]
+        candidates += [k for k in data_keys if k not in candidates]
 
         for key in candidates:
             try:
@@ -560,8 +586,14 @@ class VisualizationPanel(BasePanel):
             except Exception:
                 continue
         # No resolvable child node — subscribe the stream container. (Container
-        # subs only deliver child-created, but that still signals new data and
-        # the viz re-reads; better than no live updates.)
+        # subs only deliver child-created, NOT inline array/table data, so an
+        # override viz gets no per-node payload on this path; the default viz
+        # still re-reads on the child-created signal.)
+        logger.debug(
+            "Subscribed to stream container '{}' (no resolvable data child; "
+            "no per-node data expected)",
+            stream_name,
+        )
         return stream
 
     def _update_streaming(self) -> None:

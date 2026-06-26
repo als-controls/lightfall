@@ -203,6 +203,115 @@ def test_update_streaming_disconnects_when_not_live(qtbot, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 3b. Node resolution follows the ACTIVE FIELD (override-viz correctness)
+# ---------------------------------------------------------------------------
+
+
+class _StubStream:
+    """Stand-in for a Tiled stream container with per-field child nodes."""
+
+    def __init__(self, data_keys, hints_fields=None, children=None):
+        self.metadata = {
+            "data_keys": {k: {} for k in data_keys},
+            "hints": {"fields": list(hints_fields or [])},
+        }
+        # child nodes keyed by field name; default to a unique sentinel each.
+        self._children = children or {k: f"node:{k}" for k in data_keys}
+
+    def __getitem__(self, key):
+        return self._children[key]
+
+
+def _panel_with_stream(qtbot, monkeypatch, stream, *, active_field="", combo_field=""):
+    """Build a panel wired so _resolve_active_node sees `stream` + a field."""
+    panel = VisualizationPanel()
+    qtbot.addWidget(panel)
+    widget = MagicMock()
+    widget._field_name = active_field
+    panel._current_widget = widget
+    panel._entry = _StubEntry("u1", streams={"primary": stream})
+    # Stream combo: make currentText() resolve to "primary".
+    monkeypatch.setattr(panel._stream_combo, "currentText", lambda: "primary")
+    monkeypatch.setattr(panel._field_combo, "currentText", lambda: combo_field)
+    return panel
+
+
+def test_resolve_returns_active_field_node_not_first_child(qtbot, monkeypatch):
+    """With a field selected, the bridge node is THAT field's child, not the first."""
+    # data_keys order + hints would otherwise pick SampleX first.
+    stream = _StubStream(
+        data_keys=["SampleX", "Counter1"],
+        hints_fields=["SampleX"],
+    )
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="Counter1")
+    node = panel._resolve_active_node()
+    assert node == "node:Counter1"  # the ACTIVE FIELD's node, not "node:SampleX"
+
+
+def test_resolve_falls_back_to_hinted_when_no_active_field(qtbot, monkeypatch):
+    """No active field -> first hinted/data_keys child (prior behavior)."""
+    stream = _StubStream(
+        data_keys=["SampleX", "Counter1"],
+        hints_fields=["SampleX"],
+    )
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="")
+    node = panel._resolve_active_node()
+    assert node == "node:SampleX"  # first hinted child
+
+
+def test_resolve_uses_combo_field_when_widget_field_blank(qtbot, monkeypatch):
+    """When the widget exposes no field, fall back to the field combo text."""
+    stream = _StubStream(data_keys=["SampleX", "Counter1"], hints_fields=["SampleX"])
+    panel = _panel_with_stream(
+        qtbot, monkeypatch, stream, active_field="", combo_field="Counter1"
+    )
+    node = panel._resolve_active_node()
+    assert node == "node:Counter1"
+
+
+def test_field_change_resubscribes_to_new_field_node(qtbot, monkeypatch):
+    """_on_field_changed re-points the bridge at the new field's node."""
+    stream = _StubStream(data_keys=["SampleX", "Counter1"], hints_fields=["SampleX"])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="SampleX")
+    panel._is_live = True
+    panel.activate()  # is_active True
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
+
+    # User picks Counter1: the widget updates its field, panel re-subscribes.
+    def _set_field(name):
+        panel._current_widget._field_name = name
+
+    panel._current_widget.set_field.side_effect = _set_field
+    panel._on_field_changed("Counter1")
+
+    panel._current_widget.set_field.assert_called_once_with("Counter1")
+    bridge.connect_node.assert_called_once_with("node:Counter1")
+
+
+def test_stream_change_resubscribes(qtbot, monkeypatch):
+    """_on_stream_changed re-points the bridge after switching streams."""
+    stream = _StubStream(data_keys=["Counter1"], hints_fields=["Counter1"])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="Counter1")
+    panel._is_live = True
+    panel.activate()
+    bridge = MagicMock()
+    monkeypatch.setattr(panel, "_ensure_bridge", lambda: bridge)
+    monkeypatch.setattr(panel, "_populate_field_combo", lambda: None)
+
+    panel._on_stream_changed("primary")
+    bridge.connect_node.assert_called_once_with("node:Counter1")
+
+
+def test_resolve_container_fallback_when_no_data_child(qtbot, monkeypatch):
+    """No resolvable data child -> subscribe the stream container."""
+    stream = _StubStream(data_keys=[], hints_fields=[])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="")
+    node = panel._resolve_active_node()
+    assert node is stream  # the container itself
+
+
+# ---------------------------------------------------------------------------
 # 4. Teardown / run-switch / stop-doc disconnect the bridge
 # ---------------------------------------------------------------------------
 
