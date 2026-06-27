@@ -26,7 +26,7 @@ def is_async_connectable(obj: Any) -> bool:
     return inspect.iscoroutinefunction(getattr(obj, "connect", None))
 
 
-def _get_engine_loop(loop_wait: float) -> "asyncio.AbstractEventLoop | None":
+def _get_engine_loop(loop_wait: float) -> asyncio.AbstractEventLoop | None:
     """Return the engine's running event loop, waiting up to *loop_wait* seconds."""
     deadline = time.monotonic() + loop_wait
     while True:

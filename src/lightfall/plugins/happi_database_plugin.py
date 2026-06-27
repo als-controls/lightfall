@@ -32,8 +32,8 @@ class HappiDatabasePlugin(DeviceBackendPlugin):
 
     #: Either ("package", "resource.json") for a packaged resource, or a
     #: filesystem path string.
-    database_resource: ClassVar["tuple[str, str] | str"]
-    beamline: ClassVar["str | None"] = None
+    database_resource: ClassVar[tuple[str, str] | str]
+    beamline: ClassVar[str | None] = None
     instantiate: ClassVar[str] = "background"
 
     @property

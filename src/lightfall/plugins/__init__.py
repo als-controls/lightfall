@@ -79,7 +79,6 @@ The plugin system is typically used via the ServiceRegistry::
 from lightfall.plugins.agent_plugin import AgentPlugin
 from lightfall.plugins.controller_plugin import ControllerPlugin
 from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
-from lightfall.plugins.happi_database_plugin import HappiDatabasePlugin
 from lightfall.plugins.errors import (
     PluginError,
     PluginInitError,
@@ -88,6 +87,7 @@ from lightfall.plugins.errors import (
     PluginStatus,
     PluginTypeNotFoundError,
 )
+from lightfall.plugins.happi_database_plugin import HappiDatabasePlugin
 from lightfall.plugins.info import PluginInfo
 from lightfall.plugins.loader import PluginLoader
 from lightfall.plugins.manifest import PluginEntry, PluginManifest
