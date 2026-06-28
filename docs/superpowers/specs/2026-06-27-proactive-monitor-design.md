@@ -1,7 +1,7 @@
 # Proactive measurement monitor — design
 
 **Date:** 2026-06-27
-**Status:** Draft — pending Ron's review
+**Status:** Approved (design) — pending implementation plan
 **Branch:** `feature/proactive-monitor`
 
 > **Implementation note — use a separate git worktree.** Do the implementation
@@ -19,16 +19,20 @@ the dynamics have been sufficiently captured. It runs **fully separate** from th
 existing reactive chat agent so it never blocks chat input and never pollutes
 that conversation.
 
-The guiding principle, settled in brainstorming:
+The guiding principles, settled in brainstorming:
 
-- **Deterministic code does the sensing.** Speckle contrast, g₂ decay,
-  count-rate collapse, saturation — these are numpy, not an LLM.
-- **The LLM is an opt-in layer** that only does what code cannot: *fuse*
-  heterogeneous signals against experiment intent, put a finding into plain
-  language with a recommendation, and *triage* whether something is worth
-  interrupting the user for. It ships in v1 but is **off by default**.
-- **Evaluation is on a user time scale (15–60 s),** not per frame. This makes the
-  concurrency simple and the LLM cost a non-issue.
+- **No data analysis runs in the Lightfall process.** Heavy data reduction
+  (correlation/g₂, FFT, fitting) lives in external services (e.g. the `xpcs_live`
+  CUDA correlator) or in detector IOCs. Monitor feeds **consume already-reduced
+  signals** — IOC-computed ROI stats, `xpcs_live` g₂/metrics — and apply cheap,
+  deterministic *judgment* (thresholds, decay/trend checks) against experiment
+  intent. A feed never correlates raw frames.
+- **Deterministic code does the sensing/judging; the LLM is an opt-in layer** that
+  only does what code cannot: *fuse* heterogeneous signals against intent, put a
+  finding into plain language with a recommendation, and *triage* whether it is
+  worth interrupting the user. It ships in v1 but is **off by default**.
+- **Evaluation is on a user time scale (15–60 s),** not per frame — concurrency
+  stays simple and LLM cost is a non-issue.
 
 ### On pystxmcontrol / Osprey (why this is new, not a port)
 
@@ -47,7 +51,8 @@ fit for an embedded Qt app already standardised on the Claude Agent SDK).
 In:
 
 1. A pluggable **`MonitorFeed`** abstraction: deterministic
-   `evaluate(...) -> Observation | None`, interval, user-toggle, config.
+   `evaluate(...) -> Observation | None` over **already-reduced** signals,
+   interval, user-toggle, config.
 2. **`MonitorPlugin` / `MonitorRegistry`** rails mirroring
    `AgentPlugin` / `AgentRegistry`, so any plugin (including domain plugins like
    `lightfall-endstation-7011`) ships feeds.
@@ -59,15 +64,16 @@ In:
 5. **Notification surface:** toasts for warn/critical + a new dockable
    **Monitor panel** holding the per-run, severity-coded observation log, with a
    **"discuss in assistant"** hand-off into the reactive chat agent.
-6. **Two reference monitors:** a beamline-agnostic **acquisition-health** feed and
-   an **XPCS speckle / dynamics** feed (`lightfall-endstation-7011`).
+6. **Two reference monitors:** a beamline-agnostic **acquisition-health** feed
+   (IOC-provided scalars) and an **XPCS speckle / dynamics** feed
+   (`lightfall-endstation-7011`) that reads `xpcs_live`'s pre-computed metrics.
 7. An **optional LLM advisor** (second `QtClaudeAgent`, headless, limited tools,
    off by default) that consumes a batch of `Observation`s and emits a single
    fused, plain-language message.
 
 Out (YAGNI for v1):
 
-- Per-frame / high-rate analysis.
+- Per-frame / high-rate analysis, and **any** in-process data reduction.
 - The monitor **acting on hardware** — v1 is advisory only. Aborting/adjusting
   stays with the user or, via hand-off, the reactive chat agent (which already
   has the toolset).
@@ -92,11 +98,11 @@ context. So the monitor is its own subsystem; the optional advisor is its own
    │  documents (start/descriptor/event/stop) via engine.subscribe(cb)  [non-blocking enqueue]
    ▼
  MonitorScheduler  ── arms on 'start' (uid from doc), disarms on 'stop'/abort
-   │  • maintains a cheap in-process RollingBuffer (inline event scalars)
+   │  • maintains a cheap in-process RollingBuffer (inline reduced event scalars)
    │  • QTimer (15–60 s) on GUI thread
    ▼  each tick → for each enabled MonitorFeed:
  QThreadFuture(feed.evaluate, key="monitor:<feed>")   [off UI thread; key dedupes slow ticks]
-   │      DataWindow = {inline events (buffer)  +  lazy frame fetch (Tiled-by-uid)}
+   │      DataWindow = {inline events (buffer) + derived metrics (xpcs_live Tiled stream)}
    │      ExperimentContext (from start-doc metadata)
    ▼  Observation | None  → callback_slot on GUI thread
  RateLimiter (surface once on state-change, not every tick)
@@ -116,12 +122,10 @@ finds nothing). Template: forge `XPCSParams`
 Minimum v1 fields:
 - `experiment_type: str` (e.g. `"xpcs"`, `"generic"`)
 - `intent: str` (free text — what good looks like; seeds the advisor)
-- `feed_config: dict[str, dict]` — per-feed thresholds / ROI / q-range, keyed by
-  feed name.
-- XPCS-specific (under `feed_config["xpcs_speckle"]`): `roi` (pixel rect or q-ring),
-  `frame_time_s`, `pixel_size_m`, `sample_camera_distance_m`, `energy_kev`,
-  `direct_beam_xy`, `expected_tau_s` (optional), `min_frames`, `contrast_warn`,
-  `g2_normalization` (`"symm"`).
+- `feed_config: dict[str, dict]` — per-feed thresholds / ROI / expectations, keyed
+  by feed name.
+- XPCS-specific (under `feed_config["xpcs_speckle"]`): `roi_id` (which `xpcs_live`
+  ROI to judge), `expected_tau_s` (optional), `min_frames`, `contrast_warn`.
 
 It is read by feeds and the advisor; it is **not** mutated at runtime.
 
@@ -147,9 +151,11 @@ class MonitorFeed:
                  window: DataWindow,
                  prior: list[Observation]) -> Observation | None: ...
 ```
-Pure / deterministic by contract (testable as a function). `prior` lets a feed
-express "low **and not improving**" without ad-hoc state. Heavy numerics are fine
-— evaluation runs off-thread (§ Threading).
+Pure / deterministic by contract (testable as a function), and **cheap** — it
+*judges* reduced signals, it does not reduce raw data. `prior` lets a feed express
+"low **and not improving**" without ad-hoc state. Evaluation runs off-thread
+(§ Threading) so even a feed that reads a small Tiled metric stream never touches
+the UI thread.
 
 ### `MonitorPlugin` / `MonitorRegistry` (rails — mirror the agent rails)
 Mirror `AgentPlugin`/`AgentRegistry` exactly so behaviour and settings are
@@ -202,25 +208,23 @@ Greenfield (`src/lightfall/monitor/scheduler.py`). Responsibilities:
   toasts once, not every 30 s.
 
 ### `DataWindow`
-What a feed sees each tick. Two facets, because XPCS frames are an **external
-HDF5 asset**, not inline event data:
+What a feed sees each tick — **reduced signals only**, never raw pixel data to
+analyse:
 
-- **`events`** — the cheap inline scalar table from the rolling buffer
-  (`roi_stat1` per-frame stats, count rates, monitors). The acquisition-health
-  feed uses only this and never touches an asset.
-- **`frames(roi, last_k)`** — a *lazy* handle that fetches pixel frames for the
-  live run via Tiled-by-uid (`TiledService.get_instance().client[uid]`) using
-  `utils/tiled_helpers.py` server-side slicing (`fetch_subcube`, `:106-138`;
-  field discovery via `stream_data_keys`/`resolve_field_client`, `:62-103`). Only
-  the XPCS feed uses this.
+- **`events`** — the cheap inline scalar table from the rolling buffer:
+  IOC-computed `roi_stat1` per-frame stats, count rates, monitors. The
+  acquisition-health feed uses only this.
+- **`derived(name)`** — already-computed metrics produced by an external service,
+  read from the run's recorded Tiled streams (for XPCS: `xpcs_live`'s `xpcs`
+  stream — g₂, τ, contrast, fit metrics). Small arrays, not images.
+- **`pv_get(pv)`** — an *escape hatch* only: a single direct caproto PV get for a
+  live value if a feed ever truly needs one. Expected to be **rare and
+  infrequent**, never used for in-process analysis.
 
-> **Open item (see Risks):** reading an **in-flight** run's arrays. Bluesky-written
-> Tiled array nodes sit at 0-row shape until the stop flush and 500 on read
-> (`services/threaded_tiled_writer.py:103-111`). The Andor image is written via
-> **SWMR HDF5**, and the existing XPCS panel already follows live frames during a
-> run — so a working live-frame path exists, but the exact mechanism
-> (SWMR-through-Tiled vs direct) must be confirmed in the plan. The
-> acquisition-health feed (inline scalars only) is unaffected and de-risks v1.
+There is deliberately **no raw-frame facet**. Per the no-in-process-analysis rule
+the XPCS feed judges `xpcs_live`'s g₂/metrics rather than correlating frames, which
+also sidesteps the in-flight Tiled image-array read hazard (0-row shape / 500
+until stop-flush, `services/threaded_tiled_writer.py:103-111`) entirely.
 
 ### Monitor panel (notification surface)
 A new `PanelPlugin` (`plugins/panel_plugin.py:19`; copy the ~15-line template
@@ -265,51 +269,42 @@ instantiated unless enabled.
 ## The two v1 reference monitors
 
 ### 1. Acquisition-health (beamline-agnostic) — `lightfall.monitor.feeds`
-Inline scalars only (no asset reads), so it works on any run and de-risks the
-framework. Deterministic checks over the rolling-buffer `events`:
+IOC-provided scalars only (no asset reads, no reduction), so it works on any run
+and de-risks the framework. Deterministic checks over the rolling-buffer `events`:
 - **Count-rate collapse / dead detector:** primary counts / `roi_stat1` total
   drop to ~0 (or below a configured floor) for N consecutive frames.
-- **Saturation:** max/ROI-mean exceeds a configured fraction of detector full
-  scale.
+- **Saturation:** the IOC-computed ROI max stat exceeds a configured fraction of
+  detector full scale.
 - **Stalled run:** no new events for ≫ expected frame time.
 Severity → `warn`/`critical`; messages name the offending field + value.
 
 ### 2. XPCS speckle / dynamics — `lightfall-endstation-7011`
 Ships as a `MonitorPlugin` in the endstation plugin (XPCS is the Andor
 areaDetector there — `lightfall-endstation-7011/devices/andor.py`; runs bind by
-uid in `xpcs/binding.py`). **Reuse** the self-contained, no-skbeam forge code
-(vendor the ~4 small modules; prefer CPU numpy over a torch dependency in the GUI
-process):
-- `compute_g2(...)`
-  (`forge_XPCS_tiled_finch/backend/xpcs/correlate.py:26-228`)
-- `fit_g2_exponential(...) -> G2Fit{beta, gamma, tau_c_s, r_squared}`
-  (`.../fitting.py:20-126`)
-- ROI / q-map helpers (`.../roi.py`, `.../geometry.py`).
+uid in `xpcs/binding.py`). Per the no-in-process-analysis rule, this feed does
+**not** correlate frames. The g₂/τ/contrast/fit metrics are computed by the
+external `xpcs_live` CUDA correlator, which records them into the bound run's
+**`xpcs` Tiled stream** (payload: `{tau, g2:{average, <roi>}, intensity, metrics,
+frames_count, ...}` — `lightfall-endstation-7011/.../xpcs/plots.py:76-83`; design
+doc `2026-06-05-xpcs-lightfall-port-design.md:138-145`). The feed **reads those
+metrics** via `DataWindow.derived` and applies deterministic judgment:
 
-Because the frame rate is **slow (~5.5 s/frame ⇒ ~10 new frames/min)**, both
-detectors compute on **cumulative frames-so-far** (not a sliding time window) and
-**gate on a minimum frame/photon count** before emitting a verdict (else report
-"insufficient signal", not a false alarm).
+- **No coherent speckle** (Detector 1): contrast `β = g₂(τ→0) − 1` taken from the
+  provided g₂. **warn** when `β < contrast_warn` (default ≈ 0.02–0.05; real XPCS
+  contrast is ~0.1–1.0). Gate on a minimum `frames_count` first (at ~5.5 s/frame a
+  60 s tick adds only ~10 frames) → otherwise "insufficient signal".
+- **Dynamics captured** (Detector 2): from the provided fit/decay metrics
+  (`tau_c`, fit quality) and the g₂ curve — declare **captured** when the fit is
+  good and g₂ has decayed within the measured lag range (`g₂(0)−1` fallen below
+  ~1/e·β, or `tau_c` comfortably below the longest measured lag). If g₂ is still
+  flat at the longest lag → **info/warn** "dynamics not yet captured — extend
+  acquisition".
 
-- **No coherent speckle** (Detector 1): speckle contrast
-  `β = g₂(τ→0) − 1` over the ROI (equivalently the shot-noise-corrected
-  `mean_t((var_t − mean_t)/mean_t²)` for photon-counting). **warn** when
-  `β < contrast_warn` (default ≈ 0.02–0.05; real XPCS contrast is ~0.1–1.0).
-  Require min ROI pixels + min frames + min photons first.
-- **Dynamics captured** (Detector 2): fit g₂(τ) → `tau_c_s`, `r_squared`. Declare
-  **captured** when the fit is good (`r² ≳ 0.8`), g₂ has actually decayed within
-  the measured lag range (`g₂(0)−1` fallen below ~1/e·β at some measured τ, or
-  `tau_c < ~0.3 · N_frames/2`). If g₂ is still flat at the longest measured lag →
-  **info/warn** "dynamics not yet captured — extend acquisition" (optionally
-  estimate frames needed ~ a few · `tau_c`).
-
-**Data-source choice (open item):** live g₂ is *also* computed by a separate CUDA
-service `xpcs_live` (publishes over NATS; optionally records an `xpcs` Tiled
-stream). v1 recommendation: the monitor **computes its own** contrast/g₂ from
-frames on CPU (slow frame rate makes this cheap; no GPU-service/NATS coupling),
-and *may* read the `xpcs` Tiled stream when present to skip recompute. **Do not
-add a NATS subscriber** — the `xpcs_live` bind is single-occupant and would
-collide with the XPCS panel.
+**Reading without subscribing to NATS:** consume the recorded `xpcs` Tiled stream
+(or another already-recorded sink), **not** a NATS subscription — `xpcs_live`'s
+bind is single-occupant and a second subscriber would collide with the XPCS panel.
+If `xpcs_live` is not running, the feed reports "no live g₂ available" and stays
+quiet rather than computing anything itself.
 
 ## ExperimentContext injection (at launch)
 
@@ -329,7 +324,8 @@ callables.)
 
 v1 UX for supplying intent: a lightweight "experiment context" affordance at
 launch (defaults per `experiment_type`; XPCS fields pre-filled from the active
-Andor device where possible). The chat-agent-arming path is deferred.
+Andor device / XPCS binding where possible). The chat-agent-arming path is
+deferred.
 
 ## Threading & concurrency (summary)
 
@@ -337,7 +333,7 @@ Andor device where possible). The chat-agent-arming path is deferred.
 |---|---|---|
 | Document ingest (`engine.subscribe`) | engine worker | enqueue/append only — never block |
 | Tick timer | GUI | cheap; just launches futures |
-| `feed.evaluate` | `QThreadFuture` pool | heavy numerics OK; `key=` dedupes |
+| `feed.evaluate` | `QThreadFuture` pool | reads small reduced metrics; `key=` dedupes |
 | Observation handling / rate-limit / UI | GUI (via callback signal) | toast + panel |
 | Advisor SDK turn | its own worker thread + asyncio loop | isolated session |
 
@@ -364,15 +360,16 @@ agent.
   logged, disabled for the run, and surfaces a single `warn` ("monitor X failed")
   — it must not crash the engine or the app. The engine's subscriber fan-out
   already swallows+warns (`base.py:545`); add explicit reporting on top.
-- **Tolerate missing/partial data.** Slow frames, SWMR lag, a not-yet-present
-  image field on non-XPCS runs → "insufficient signal", not a false alarm.
+- **Tolerate missing/partial data.** Slow frames, `xpcs_live` not running, a
+  not-yet-present metric stream → "insufficient signal" / "no live g₂ available",
+  not a false alarm.
 
 ## Testing strategy
 
 - **Feeds** are pure functions → unit-test with canned `DataWindow` +
-  `ExperimentContext` (synthetic speckle stacks from the forge synthetic
-  generator give known β / γ ground truth:
-  `forge_XPCS_tiled_finch/backend/scripts/generate_xpcs_synthetic.py`).
+  `ExperimentContext`. The XPCS feed is tested against canned `xpcs_live`-style
+  g₂/metric payloads (good-contrast, washed-out, not-yet-decayed cases) — there is
+  no frame correlation to test.
 - **Scheduler** with a fake engine emitting synthetic documents + a fake clock;
   assert arm/disarm on start/stop/abort, non-blocking ingest, and `key=` dedupe.
 - **Rate-limiter** — assert surface-once-per-state-change.
@@ -382,24 +379,20 @@ agent.
 
 ## Open decisions / risks (for review)
 
-1. **Live-frame read mechanism** for an in-flight XPCS run (SWMR-through-Tiled vs
-   direct) — confirm against how the XPCS panel does live follow. The
-   acquisition-health feed (scalars only) ships regardless.
-2. **XPCS data source:** self-compute on CPU (recommended default) vs read the
-   `xpcs_live` `xpcs` Tiled stream when present. No NATS subscriber either way.
-3. **Absolute vs relative speckle threshold.** A fixed β cutoff depends on
-   beamline coherence/flux; a "contrast collapsed vs start-of-run" relative
-   criterion may be more robust. v1: configurable absolute with a relative
-   fallback.
-4. **Where `ExperimentContext` lives in the start doc** (own key vs merged into
-   existing metadata) — no convention exists today; propose a dedicated
+1. **Speckle threshold:** fixed β cutoff vs "contrast collapsed vs start-of-run".
+   A fixed cutoff depends on beamline coherence/flux; v1 uses a configurable
+   absolute value with a relative-trend fallback.
+2. **Where `ExperimentContext` lives in the start doc** (own key vs merged into
+   existing metadata) — no convention exists today; proposed dedicated
    `experiment_context` key.
-5. **Shot-noise model** for contrast: needs the Andor photon-statistics mode
-   (true counting vs analog gain/offset). If unknown, fall back to relative
-   trending.
-6. **forge code packaging:** vendor the ~4 small `xpcs/` modules into the
-   endstation plugin vs depend on a published package; avoid a hard torch
-   dependency in the GUI process.
+3. **Reading `xpcs_live` metrics mid-run:** confirm the recorded `xpcs` stream is
+   readable while the run is in flight (small metric arrays, but the in-flight
+   Tiled caveat should be checked); fall back to "no live g₂ available" if not.
+
+Resolved in review: live raw-frame reads are **not** needed (escape hatch is a
+rare direct caproto PV get — never Tiled, never for analysis); the XPCS feed
+**reads pre-computed g₂/metrics from `xpcs_live`** rather than analysing frames
+in-process; **no data analysis runs in the Lightfall process**.
 
 ## Build sequence (for the plan)
 
@@ -409,12 +402,15 @@ agent.
 3. `MonitorScheduler` (arm/disarm, rolling buffer, tick, rate-limit) against a
    fake engine + tests.
 4. Monitor panel (`PanelPlugin`) + toast wiring + "discuss in assistant" hand-off.
-5. Acquisition-health feed (inline scalars) — first end-to-end proof.
+5. Acquisition-health feed (IOC scalars) — first end-to-end proof.
 6. `ExperimentContext` launch injection (pre-submit hook) + minimal launch UX.
-7. XPCS speckle/dynamics feed in `lightfall-endstation-7011` (vendor forge code) +
-   resolve open items #1/#2/#5.
+7. XPCS speckle/dynamics feed in `lightfall-endstation-7011` — reads `xpcs_live`'s
+   recorded g₂/metrics (no in-process correlation) + resolve open item #3.
 8. Optional LLM advisor (second `QtClaudeAgent`, headless, gated off) + settings.
 9. Settings pages (per-feed table + advisor switch + interval).
+
+Suggested split into two plans: **(A)** steps 1–6 (framework + health feed +
+panel + context), then **(B)** steps 7–9 (XPCS feed + advisor + settings polish).
 
 ## Key file references
 
@@ -435,6 +431,8 @@ agent.
   `ui/panels/claude_panel.py:505-509,762-775`, `claude/_session_assembly.py:91`.
 - Threads/settings: `utils/threads.py:452-466,830-861`,
   `plugins/settings_plugin.py:20-168`, `preferences/manager.py:277-301`.
-- XPCS reuse: `lightfall-endstation-7011/devices/andor.py`,
+- XPCS: `lightfall-endstation-7011/devices/andor.py`,
   `lightfall-endstation-7011/src/.../xpcs/binding.py`,
-  `als-computing/forge_XPCS_tiled_finch/backend/xpcs/{correlate,fitting,roi,geometry,types}.py`.
+  `lightfall-endstation-7011/src/.../xpcs/plots.py:76-83` (g₂/metrics payload
+  recorded by `xpcs_live`); design doc
+  `lightfall-endstation-7011/docs/superpowers/specs/2026-06-05-xpcs-lightfall-port-design.md:138-145`.
