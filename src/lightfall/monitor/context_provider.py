@@ -40,8 +40,8 @@ def experiment_context_pre_submit(plan_name: str, kwargs: dict[str, Any]) -> dic
     """Pre-submit hook: merge the current ExperimentContext into the start doc.
 
     Returns a dict merged into plan kwargs (and thus the start doc), or None to
-    change nothing. Does not overwrite an explicit per-plan context."""
+    *cancel* the submission.  Does not overwrite an explicit per-plan context."""
     if "experiment_context" in kwargs:
-        return None
+        return {}  # merge nothing; preserve the explicit value, do NOT cancel (None == cancel)
     ctx = ExperimentContextProvider.get_instance().current()
     return {"experiment_context": ctx.to_dict()}

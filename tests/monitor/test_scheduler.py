@@ -117,6 +117,63 @@ def test_start_stop_cycle_no_duplicate_connections(_app, _registry):
     assert eng.sigException.connection_count() == 0
 
 
+def test_interval_gate_prevents_early_re_evaluation(_app, _registry):
+    """A feed with default_interval_s > 0 must NOT be re-evaluated until the
+    interval has elapsed.  Uses the injectable fake clock (eval_async=False).
+
+    Sequence:
+      t=0  arm + tick  -> feed runs (last_eval set to 0)
+      t=0  tick again  -> interval not elapsed, feed skipped
+      t=5  tick        -> interval (5 s) elapsed, feed runs again
+    """
+
+    class _IntervalFeed(MonitorFeed):
+        name = "interval_feed"
+        default_interval_s = 5.0  # only due every 5 s
+        eval_count = 0
+
+        def evaluate(self, ctx, window, prior):
+            _IntervalFeed.eval_count += 1
+            return None
+
+    class _IntervalPlugin(
+        __import__("lightfall.monitor.monitor_plugin", fromlist=["MonitorPlugin"]).MonitorPlugin
+    ):
+        @property
+        def name(self): return "interval_plugin"
+        @property
+        def description(self): return "d"
+        def create_feeds(self): return [_IntervalFeed()]
+
+    MonitorRegistry.reset_instance()
+    reg = MonitorRegistry.get_instance()
+    reg.register(_IntervalPlugin())
+    reg._read_list_pref = lambda key: []
+
+    t = [0.0]
+    eng = _FakeEngine()
+    sched = MonitorScheduler(eng, registry=reg, clock=lambda: t[0], eval_async=False)
+    sched.start()
+
+    # Arm the scheduler.
+    eng.emit("start", {"uid": "u1", "time": 0.0})
+
+    # First tick at t=0 -> feed evaluates (count becomes 1).
+    sched._tick()
+    assert _IntervalFeed.eval_count == 1
+
+    # Second tick still at t=0 -> interval not elapsed, skipped.
+    sched._tick()
+    assert _IntervalFeed.eval_count == 1
+
+    # Advance clock past the interval and tick -> feed evaluates again.
+    t[0] = 5.0
+    sched._tick()
+    assert _IntervalFeed.eval_count == 2
+
+    MonitorRegistry.reset_instance()
+
+
 def test_stop_disconnects_signals_so_disarm_not_called_after_stop(_app, _registry):
     """After stop(), an engine abort must not trigger _disarm on this scheduler."""
     eng = _FakeEngine()

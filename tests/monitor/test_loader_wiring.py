@@ -1,8 +1,17 @@
+import pytest
+
 from lightfall.monitor.feed import MonitorFeed
 from lightfall.monitor.monitor_plugin import MonitorPlugin
 from lightfall.monitor.registry import MonitorRegistry
 from lightfall.plugins.loader import PluginLoader
 from lightfall.plugins.registry import PluginRegistry
+
+
+@pytest.fixture(autouse=True)
+def _reset_monitor_registry():
+    MonitorRegistry.reset_instance()
+    yield
+    MonitorRegistry.reset_instance()
 
 
 class _Feed(MonitorFeed):

@@ -2,7 +2,7 @@ import pytest
 from lightfall.monitor.feed import MonitorFeed
 from lightfall.monitor.monitor_plugin import MonitorPlugin
 from lightfall.monitor.registry import (
-    DISABLED_MONITORS_PREF, MonitorRegistry,
+    DISABLED_MONITORS_PREF, FORCED_ENABLED_MONITORS_PREF, MonitorRegistry,
 )
 
 
@@ -39,6 +39,24 @@ def test_enabled_plugins_respects_opt_out(monkeypatch):
                         lambda key: ["a"] if key == DISABLED_MONITORS_PREF else [])
     names = [p.name for p in reg.enabled_plugins()]
     assert names == ["b"]
+
+
+def test_forced_enabled_overrides_disabled_by_default(monkeypatch):
+    """A plugin with enabled_by_default=False that appears in
+    FORCED_ENABLED_MONITORS_PREF must appear in enabled_plugins()."""
+    reg = MonitorRegistry.get_instance()
+    reg.register(_plugin("opt_out", enabled=False))
+    reg.register(_plugin("normal"))
+
+    def _prefs(key):
+        if key == FORCED_ENABLED_MONITORS_PREF:
+            return ["opt_out"]
+        return []  # nothing disabled
+
+    monkeypatch.setattr(reg, "_read_list_pref", _prefs)
+    names = [p.name for p in reg.enabled_plugins()]
+    assert "opt_out" in names, "force-enabled plugin must appear in enabled_plugins()"
+    assert "normal" in names, "default-enabled plugin must still appear"
 
 
 def test_enabled_feeds_flattens(monkeypatch):
