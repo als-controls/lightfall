@@ -30,6 +30,14 @@ class MonitorService(QObject):
         self._scheduler = self._build_scheduler()
         if self._scheduler is not None:
             self._scheduler.observation.connect(self._on_observation)
+        from PySide6.QtCore import QTimer
+        self._advisor = None
+        self._advisor_batch: list[Observation] = []
+        self._advise_async = True
+        self._advisor_timer = QTimer(self)
+        self._advisor_timer.setSingleShot(True)
+        self._advisor_timer.setInterval(5000)  # debounce window (ms)
+        self._advisor_timer.timeout.connect(self._flush_advisor)
 
     def _build_scheduler(self):
         from lightfall.acquire.engine import get_engine
@@ -63,6 +71,52 @@ class MonitorService(QObject):
         self._recent.append(obs)
         if obs.severity in ("warn", "critical"):
             self._toast(obs)
+        self.observation.emit(obs)
+        if obs.feed_name != "advisor" and self._advisor_enabled():
+            self._advisor_batch.append(obs)
+            self._advisor_timer.start()  # (re)arm debounce
+
+    def set_advisor(self, advisor) -> None:
+        self._advisor = advisor
+
+    def _advisor_enabled(self) -> bool:
+        try:
+            from lightfall.ui.preferences.manager import PreferencesManager
+            return bool(PreferencesManager.get_instance().get("monitor_advisor_enabled", False))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _ensure_advisor(self):
+        if self._advisor is None:
+            from lightfall.monitor.advisor import MonitorAdvisor
+            self._advisor = MonitorAdvisor()
+        return self._advisor
+
+    def _flush_advisor(self) -> None:
+        batch, self._advisor_batch = self._advisor_batch, []
+        if not batch or not self._advisor_enabled():
+            return
+        advisor = self._ensure_advisor()
+        if self._advise_async:
+            from lightfall.utils.threads import QThreadFuture
+            QThreadFuture(advisor.advise, batch,
+                          callback_slot=self._on_advisor_reply,
+                          key="monitor:advisor").start()
+        else:
+            self._on_advisor_reply(advisor.advise(batch))
+
+    def _on_advisor_reply(self, reply: str) -> None:
+        reply = (reply or "").strip()
+        if not reply or reply.lower() == "nothing to report":
+            return
+        import time
+        obs = Observation(
+            severity="info", feed_name="advisor",
+            run_uid=self._recent[-1].run_uid if self._recent else "",
+            title="Advisor", message=reply, state_key="advisor:summary",
+            ts=time.time(),
+        )
+        self._recent.append(obs)
         self.observation.emit(obs)
 
     def _toast(self, obs: Observation) -> None:
