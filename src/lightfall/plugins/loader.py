@@ -643,6 +643,23 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("AgentRegistry not available, skipping agent registration")
 
+        elif plugin_info.type_name == "monitor":
+            try:
+                from lightfall.monitor.monitor_plugin import MonitorPlugin
+                from lightfall.monitor.registry import MonitorRegistry
+
+                instance = plugin_info.instance
+                if not isinstance(instance, MonitorPlugin):
+                    logger.error(
+                        "Monitor plugin '{}' class {} is not a MonitorPlugin subclass; skipping",
+                        plugin_info.name, type(instance).__name__,
+                    )
+                else:
+                    MonitorRegistry.get_instance().register(instance)
+                    logger.debug("Registered monitor plugin '{}' with MonitorRegistry", instance.name)
+            except ImportError:
+                logger.debug("MonitorRegistry not available, skipping monitor registration")
+
         elif plugin_info.type_name == "panel":
             try:
                 from lightfall.ui.panels.registry import PanelRegistry
