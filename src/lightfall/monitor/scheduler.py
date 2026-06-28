@@ -95,6 +95,9 @@ class MonitorScheduler(QObject):
         self._active = False
         self._timer.stop()
 
+    def set_tick_interval_s(self, seconds: float) -> None:
+        self._timer.setInterval(int(max(1.0, seconds) * 1000))
+
     def _derived(self, name: str) -> dict | None:
         """Provider for DataWindow.derived(name). For "xpcs": read xpcs_live's
         latest recorded Tiled snapshot for the active run. Reduced metrics only

@@ -63,6 +63,23 @@ class MonitorService(QObject):
     def start(self) -> None:
         if self._scheduler is not None:
             self._scheduler.start()
+            self._apply_tick_interval()
+            try:
+                from lightfall.ui.preferences.manager import PreferencesManager
+                PreferencesManager.get_instance().subscribe(
+                    "monitor_tick_interval", lambda _v: self._apply_tick_interval())
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _apply_tick_interval(self) -> None:
+        if self._scheduler is None:
+            return
+        try:
+            from lightfall.ui.preferences.manager import PreferencesManager
+            secs = int(PreferencesManager.get_instance().get("monitor_tick_interval", 60))
+        except Exception:  # noqa: BLE001
+            secs = 60
+        self._scheduler.set_tick_interval_s(secs)
 
     def recent_observations(self) -> list[Observation]:
         return list(self._recent)

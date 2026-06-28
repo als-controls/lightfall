@@ -132,6 +132,12 @@ builtin_manifest = PluginManifest(
             name="claude_tools",
             import_path="lightfall.ui.preferences.tool_settings:ClaudeToolsSettingsPlugin",
         ),
+        # Monitor settings (enable/disable MonitorPlugin feeds, advisor, tick interval)
+        PluginEntry(
+            type_name="settings",
+            name="monitor",
+            import_path="lightfall.ui.preferences.monitor_settings:MonitorSettingsPlugin",
+        ),
         # Plugin management settings
         PluginEntry(
             type_name="settings",
