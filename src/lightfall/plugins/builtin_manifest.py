@@ -255,6 +255,15 @@ builtin_manifest = PluginManifest(
             name="current_esaf",
             import_path="lightfall.plugins.agents.current_esaf:CurrentEsafAgent",
         ),
+        # Monitor plugins (proactive measurement feeds).
+        PluginEntry(
+            type_name="monitor",
+            name="acquisition_health",
+            import_path=(
+                "lightfall.monitor.feeds.acquisition_health:"
+                "AcquisitionHealthMonitorPlugin"
+            ),
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
