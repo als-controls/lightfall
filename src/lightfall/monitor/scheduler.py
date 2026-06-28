@@ -95,11 +95,64 @@ class MonitorScheduler(QObject):
         self._active = False
         self._timer.stop()
 
+    def _derived(self, name: str) -> dict | None:
+        """Provider for DataWindow.derived(name). For "xpcs": read xpcs_live's
+        latest recorded Tiled snapshot for the active run. Reduced metrics only
+        (no analysis). Runs on the eval thread; degrades to None on any miss."""
+        if name != "xpcs":
+            return None
+        uid = self._buffer.active_uid
+        if not uid:
+            return None
+        try:
+            from lightfall.services.tiled_service import TiledService
+            svc = TiledService.get_instance()
+            client = svc.client
+            if client is None or not svc.is_connected:
+                return None
+            run = client[uid]                 # KeyError if writer still lagging
+            xpcs = run["xpcs"]                # KeyError until first snapshot
+            snaps = sorted(k for k in xpcs.keys() if k.startswith("snapshot_"))
+            if not snaps:
+                return None
+            snap = xpcs[snaps[-1]]
+        except KeyError:
+            return None
+        except Exception:  # noqa: BLE001 — advisory; never crash the tick
+            logger.debug("monitor _derived('xpcs') read failed for {}", uid)
+            return None
+
+        def arr(k):
+            try:
+                return snap[k].read()
+            except Exception:  # noqa: BLE001
+                return None
+
+        keys = list(snap.keys())
+        g2 = {"average": arr("g2_average")}
+        for k in keys:
+            if k.startswith("g2_roi_"):
+                g2[k[len("g2_roi_"):]] = arr(k)
+        fc = arr("frames_count")
+        try:
+            frames_count = int(fc) if fc is not None else 0
+        except (TypeError, ValueError):
+            frames_count = 0
+        return {
+            "tau": arr("tau"),
+            "g2": g2,
+            "frames_count": frames_count,
+            "metrics": {k: arr(k) for k in keys if k.startswith("metrics_")},
+            "intensity_average": arr("intensity_average"),
+            "snapshot": snaps[-1],
+        }
+
     def _tick(self) -> None:
         if not self._active:
             return
         now = self._clock()
         window = self._buffer.snapshot(now=time.time())
+        window.derived_provider = self._derived
         for feed in self._registry.enabled_feeds():
             last = self._last_eval.get(feed.name, float("-inf"))
             if now - last < feed.default_interval_s:
