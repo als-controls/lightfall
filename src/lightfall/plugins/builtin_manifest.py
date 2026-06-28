@@ -309,6 +309,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="monitor",
+            import_path="lightfall.ui.panels.plugins.monitor_panel_plugin:MonitorPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
+        ),
+        PluginEntry(
+            type_name="panel",
             name="threads",
             import_path="lightfall.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
             preload=True,
