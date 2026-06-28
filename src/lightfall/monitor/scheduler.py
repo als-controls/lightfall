@@ -48,6 +48,7 @@ class MonitorScheduler(QObject):
         self._last_eval: dict[str, float] = {}
         self._active = False
         self._token: int | None = None
+        self._exception_slot: Callable | None = None  # lambda stored for disconnect
         self._timer = QTimer(self)
         self._timer.setInterval(int(tick_granularity_s * 1000))
         self._timer.timeout.connect(self._tick)
@@ -55,13 +56,21 @@ class MonitorScheduler(QObject):
     def start(self) -> None:
         if self._token is None:
             self._token = self._engine.subscribe(self._on_document)
-        self._engine.sigAbort.connect(self._disarm)
-        self._engine.sigException.connect(lambda _e: self._disarm())
+            # Connect abort/exception signals exactly once per start/stop cycle.
+            # Store the lambda so we can disconnect it symmetrically in stop().
+            self._exception_slot = lambda _e: self._disarm()
+            self._engine.sigAbort.connect(self._disarm)
+            self._engine.sigException.connect(self._exception_slot)
 
     def stop(self) -> None:
         if self._token is not None:
             self._engine.unsubscribe(self._token)
             self._token = None
+            # Disconnect the signals that were connected in start().
+            self._engine.sigAbort.disconnect(self._disarm)
+            if self._exception_slot is not None:
+                self._engine.sigException.disconnect(self._exception_slot)
+                self._exception_slot = None
         self._timer.stop()
 
     # --- engine worker thread ---

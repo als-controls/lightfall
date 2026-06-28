@@ -12,6 +12,20 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
+class _Sig:  # minimal stand-in for a Qt signal
+    def __init__(self):
+        self._slots: list = []
+
+    def connect(self, slot, *_a, **_k):
+        self._slots.append(slot)
+
+    def disconnect(self, slot):
+        self._slots.remove(slot)
+
+    def connection_count(self) -> int:
+        return len(self._slots)
+
+
 class _FakeEngine:
     def __init__(self):
         self._cb = None
@@ -21,10 +35,6 @@ class _FakeEngine:
     def unsubscribe(self, token): self._cb = None
     def emit(self, name, doc):
         if self._cb: self._cb(name, doc)
-
-
-class _Sig:  # minimal stand-in for a Qt signal
-    def connect(self, *_a, **_k): pass
 
 
 class _CountFeed(MonitorFeed):
@@ -85,3 +95,39 @@ def test_disarm_on_stop_stops_emitting(_app, _registry):
     eng.emit("stop", {"run_start": "u1"})
     sched._tick()
     assert received == []  # disarmed
+
+
+def test_start_stop_cycle_no_duplicate_connections(_app, _registry):
+    """start()/stop() must not accumulate sigAbort/sigException connections."""
+    eng = _FakeEngine()
+    sched = MonitorScheduler(eng, registry=_registry, clock=lambda: 0.0, eval_async=False)
+    sched.start()
+    assert eng.sigAbort.connection_count() == 1
+    assert eng.sigException.connection_count() == 1
+    sched.stop()
+    # After stop() the connections are removed.
+    assert eng.sigAbort.connection_count() == 0
+    assert eng.sigException.connection_count() == 0
+    # Second start/stop cycle must still give exactly one connection each.
+    sched.start()
+    assert eng.sigAbort.connection_count() == 1
+    assert eng.sigException.connection_count() == 1
+    sched.stop()
+    assert eng.sigAbort.connection_count() == 0
+    assert eng.sigException.connection_count() == 0
+
+
+def test_stop_disconnects_signals_so_disarm_not_called_after_stop(_app, _registry):
+    """After stop(), an engine abort must not trigger _disarm on this scheduler."""
+    eng = _FakeEngine()
+    sched = MonitorScheduler(eng, registry=_registry, clock=lambda: 0.0, eval_async=False)
+    sched.start()
+    eng.emit("start", {"uid": "u1", "time": 0.0})
+    sched.stop()
+    # Manually fire all remaining slots — there should be none for sigAbort.
+    disarm_called = []
+    original_disarm = sched._disarm
+    sched._disarm = lambda: disarm_called.append(1) or original_disarm()
+    for slot in list(eng.sigAbort._slots):
+        slot()
+    assert disarm_called == [], "_disarm fired after stop() — signal not disconnected"
