@@ -560,6 +560,42 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     services.register(TiledService, TiledService.get_instance)
 
 
+def _register_builtin_plugin_types(loader: "PluginLoader") -> None:
+    """Register every built-in plugin type with the loader.
+
+    Manifest entries whose ``type_name`` is not registered here are silently
+    skipped by ``PluginLoader._process_manifest``, so this list is the single
+    source of truth for which plugin types Lightfall understands. Theme must be
+    registered first so it can load before appearance settings.
+
+    Args:
+        loader: The plugin loader to configure.
+    """
+    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
+    from lightfall.plugins.controller_plugin import ControllerPlugin
+    from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
+    from lightfall.plugins.engine_plugin import EnginePlugin
+    from lightfall.plugins.panel_plugin import PanelPlugin
+    from lightfall.plugins.plan_plugin import PlanPlugin
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
+    from lightfall.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.visualization_plugin import VisualizationPlugin
+
+    loader.register_plugin_type("theme", ThemePlugin)
+    loader.register_plugin_type("settings", SettingsPlugin)
+    loader.register_plugin_type("engine", EnginePlugin)
+    loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("statusbar", StatusBarPlugin)
+    loader.register_plugin_type("controller", ControllerPlugin)
+    loader.register_plugin_type("panel", PanelPlugin)
+    loader.register_plugin_type("device_backend", DeviceBackendPlugin)
+    loader.register_plugin_type("plan", PlanPlugin)
+    loader.register_plugin_type("visualization", VisualizationPlugin)
+    loader.register_plugin_type("auth_provider", AuthProviderPlugin)
+
+
 def _setup_plugins(app: LFApplication) -> None:
     """Setup the plugin system and load preload plugins.
 
@@ -570,14 +606,8 @@ def _setup_plugins(app: LFApplication) -> None:
     Args:
         app: The Lightfall application instance.
     """
-    from lightfall.plugins import AgentPlugin, PluginLoader, PluginRegistry
+    from lightfall.plugins import PluginLoader, PluginRegistry
     from lightfall.plugins.builtin_manifest import builtin_manifest
-    from lightfall.plugins.controller_plugin import ControllerPlugin
-    from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
-    from lightfall.plugins.engine_plugin import EnginePlugin
-    from lightfall.plugins.panel_plugin import PanelPlugin
-    from lightfall.plugins.settings_plugin import SettingsPlugin
-    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
 
@@ -586,18 +616,7 @@ def _setup_plugins(app: LFApplication) -> None:
     loader = PluginLoader(registry)
 
     # Register plugin types (theme must be first to load before appearance settings)
-    from lightfall.plugins.theme_plugin import ThemePlugin
-
-    loader.register_plugin_type("theme", ThemePlugin)
-    loader.register_plugin_type("settings", SettingsPlugin)
-    loader.register_plugin_type("engine", EnginePlugin)
-    loader.register_plugin_type("agent", AgentPlugin)
-    loader.register_plugin_type("statusbar", StatusBarPlugin)
-    loader.register_plugin_type("controller", ControllerPlugin)
-    loader.register_plugin_type("panel", PanelPlugin)
-    loader.register_plugin_type("device_backend", DeviceBackendPlugin)
-    from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
-    loader.register_plugin_type("auth_provider", AuthProviderPlugin)
+    _register_builtin_plugin_types(loader)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
