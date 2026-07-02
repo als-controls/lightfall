@@ -111,3 +111,59 @@ def _reset_theme_manager():
         ThemeManager.reset()
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_qt_service_singletons():
+    """Reset QObject-singleton services + theater manager after each test.
+
+    These singletons own resources that outlive the test that created them:
+    ``TiledService`` (a health-check ``QTimer``), ``ALSBeamStatusService`` (a
+    poll ``QTimer``), ``DeviceConnectionManager`` (background connection
+    workers), and the module-global ``theater_manager`` (proxy widgets + the
+    ``partial`` slots wired to their ``expand_requested`` signals). Their
+    ``reset``/``reset_instance`` methods stop the timer/worker and drop the
+    instance, but today only the few test files that opt in call them — so
+    under xdist a singleton created in one file can leak a live timer/worker
+    into a later file on the same worker, whose deferred callback then fires
+    into deleted Qt objects (the arbitrary-test crash class documented above).
+    Resetting them here makes the guarantee process-wide.
+
+    This is the *targeted* set the flakiness audit flagged as high/medium risk,
+    not a blanket reset of every singleton: plain registries that deliberately
+    seed state within a file (PanelRegistry, AgentRegistry, ...) are left to
+    their own fixtures. Best-effort — cleanup must never fail a passed test.
+    """
+    yield
+    try:
+        from lightfall.services.tiled_service import TiledService
+
+        TiledService.reset()
+    except Exception:
+        pass
+    try:
+        from lightfall.services.als_beam_status import ALSBeamStatusService
+
+        ALSBeamStatusService.reset()
+    except Exception:
+        pass
+    try:
+        from lightfall.devices.connection_manager import DeviceConnectionManager
+
+        DeviceConnectionManager.reset_instance()
+    except Exception:
+        pass
+    try:
+        from lightfall.devices.catalog import DeviceCatalog
+
+        DeviceCatalog.reset_instance()
+    except Exception:
+        pass
+    try:
+        from lightfall.ui.theater.manager import theater_manager
+
+        theater_manager._proxies.clear()
+        theater_manager._slots.clear()
+        theater_manager._overlay = None
+    except Exception:
+        pass
