@@ -24,7 +24,7 @@ class MonitorPanel(BasePanel):
         id="lightfall.panels.monitor",
         name="Monitor",
         description="Proactive feedback about the running measurement.",
-        icon="activity",
+        icon="heart-pulse",
         category="Data",
         default_area="right",
         proactive_init=False,  # stay lazy until opened
