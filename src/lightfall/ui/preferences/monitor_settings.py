@@ -200,8 +200,14 @@ class MonitorSettingsPlugin(SettingsPlugin):
 
     def create_widget(self, parent=None):
         from PySide6.QtWidgets import (
-            QCheckBox, QFormLayout, QHeaderView, QLabel, QSpinBox,
-            QTableView, QVBoxLayout, QWidget,
+            QCheckBox,
+            QFormLayout,
+            QHeaderView,
+            QLabel,
+            QSpinBox,
+            QTableView,
+            QVBoxLayout,
+            QWidget,
         )
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)

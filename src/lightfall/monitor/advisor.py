@@ -16,11 +16,15 @@ from lightfall.utils.logging import logger
 try:  # pragma: no cover - exercised indirectly
     from claude_agent_sdk.types import (
         AssistantMessage as _AssistantMessage,
+    )
+    from claude_agent_sdk.types import (
         ResultMessage as _ResultMessage,
+    )
+    from claude_agent_sdk.types import (
         TextBlock as _TextBlock,
     )
 except Exception:  # noqa: BLE001 - SDK optional at import time
-    _AssistantMessage = _ResultMessage = _TextBlock = tuple()  # type: ignore[assignment]
+    _AssistantMessage = _ResultMessage = _TextBlock = ()  # type: ignore[assignment]
 
 ADVISOR_SYSTEM_PROMPT = (
     "You are a measurement-quality advisor for a synchrotron beamline. You receive "

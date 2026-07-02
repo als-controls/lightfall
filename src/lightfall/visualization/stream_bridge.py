@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal
 from loguru import logger
+from PySide6.QtCore import QObject, Signal
 
 
 class StreamBridge(QObject):
