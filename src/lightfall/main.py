@@ -560,6 +560,19 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     services.register(TiledService, TiledService.get_instance)
 
 
+def _setup_monitor(app, window) -> None:
+    """Start the proactive monitor service (subscribes to the engine, surfaces
+    observations to toasts + the Monitor panel + the Claude hand-off)."""
+    from lightfall.monitor.service import MonitorService
+    svc = MonitorService.get_instance()
+    svc.set_window(window)
+    svc.start()
+    try:
+        app.services.register(MonitorService, MonitorService.get_instance)
+    except Exception:  # noqa: BLE001 — service registry is best-effort
+        logger.debug("could not register MonitorService with app.services")
+
+
 def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     """Register every built-in plugin type with the loader.
 
@@ -571,6 +584,7 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     Args:
         loader: The plugin loader to configure.
     """
+    from lightfall.monitor.monitor_plugin import MonitorPlugin
     from lightfall.plugins.agent_plugin import AgentPlugin
     from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
     from lightfall.plugins.controller_plugin import ControllerPlugin
@@ -587,6 +601,7 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
     loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("monitor", MonitorPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
     loader.register_plugin_type("panel", PanelPlugin)
@@ -952,6 +967,9 @@ def main() -> int:
     # Connect engine to menubar control
     engine = get_engine()
     window.set_engine(engine)
+
+    # Start the proactive monitor service (subscribes to engine, surfaces observations)
+    _setup_monitor(app, window)
 
     # NOTE: the default panel layout is built from the PanelRegistry, which is
     # populated by the post-login plugin wave. It is therefore driven from the

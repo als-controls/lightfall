@@ -1170,6 +1170,18 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 
         return False
 
+    def submit_external_prompt(self, text: str) -> bool:
+        """Raise the Claude panel and submit a programmatic user prompt to
+        the reactive agent. Returns False if the agent widget isn't built yet."""
+        win = self._get_main_window()
+        if win is not None:
+            win.activate_panel(self.panel_metadata.id)
+        if self._claude_widget is None:
+            return False
+        self._claude_widget.input_field.setText(text)
+        self._claude_widget._send_query()  # auto-connects via agent.query_sync
+        return True
+
     def action_clear_chat(self) -> bool:
         """Clear the chat display.
 
