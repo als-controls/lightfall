@@ -95,7 +95,9 @@ def assemble_mcp_servers(
 
     The returned dict has one server per plugin that has tools, keyed by
     plugin.name. Server names follow the SDK convention: tools become
-    `mcp__<plugin.name>__<tool_name>` in `allowed_tools`.
+    `mcp__<plugin.name>__<tool_name>` in `allowed_tools`. It also contains
+    external stdio server entries contributed via `create_external_servers()`,
+    keyed by their declared server name (namespace `mcp__<server_name>__*`).
 
     Caller is expected to merge this with the always-on `qt` server and
     its allowed_tools entries.
