@@ -21,6 +21,18 @@ from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
 
 
+def lightfall_agent_cwd() -> str:
+    """Stable working directory for the Claude agent subprocess.
+
+    Pinned to ``~/lightfall`` (created if missing) so the SDK groups session
+    transcripts under one deterministic project dir across launches, and so
+    ``list_sessions(directory=...)`` matches the dir the CLI wrote to.
+    """
+    path = Path.home() / "lightfall"
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
 def _patch_sdk_for_windows_cmdline_limit():
     """
     Monkey-patch the Claude Agent SDK to handle Windows command line length limits.
@@ -182,6 +194,9 @@ class QtClaudeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
+    context_usage = Signal(dict)  # context-window usage after each turn
+    cockpit_reset = Signal()  # title-bar cockpit should zero (new/reset session)
+    session_id_changed = Signal(str)  # current SDK session id
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
     question_requested = Signal(str, list)  # request_id, questions
     # Partial streaming
@@ -204,6 +219,10 @@ class QtClaudeAgent(QObject):
         max_turns: int = 20,
         additional_system_prompt: str | None = None,
         require_approval: bool = True,
+        model: str | None = None,
+        effort: str | None = None,
+        resume: str | None = None,
+        disable_betas: bool = False,
         parent: QObject | None = None
     ):
         """
@@ -310,8 +329,15 @@ class QtClaudeAgent(QObject):
         if additional_system_prompt:
             system_prompt = f"{system_prompt}\n\n{additional_system_prompt}"
 
+        self._model = model
+        self._effort = effort
+        self._resume_session_id = resume
+        self._current_session_id: str | None = None
+        self._project_cwd = lightfall_agent_cwd()
+
         # Configure Claude options
         options_dict = {
+            "cwd": self._project_cwd,
             "plugins": [{"type": "local", "path": str(self._session_plugin_dir)}],
             "mcp_servers": mcp_servers,
             "allowed_tools": allowed_tools,
@@ -327,6 +353,12 @@ class QtClaudeAgent(QObject):
             # partial_* signals and the widget appends as they arrive.
             "include_partial_messages": True,
         }
+        if self._model:
+            options_dict["model"] = self._model
+        if self._effort:
+            options_dict["effort"] = self._effort
+        if self._resume_session_id:
+            options_dict["resume"] = self._resume_session_id
 
         # Add CLI path if provided
         if cli_path:
@@ -339,6 +371,17 @@ class QtClaudeAgent(QObject):
             os.environ["ANTHROPIC_API_KEY"] = self.api_key
         if self.api_url:
             os.environ["ANTHROPIC_BASE_URL"] = self.api_url
+        if disable_betas:
+            # Proxy gateways (Azure AI Foundry, cborg, ...) reject the CLI's
+            # default beta headers -- e.g. Azure 400s on
+            # `anthropic-beta: advisor-tool-2026-03-01`. This env var makes the
+            # CLI drop the nonessential traffic that carries those headers, so
+            # the request is accepted. Verified against the CMS Azure Foundry
+            # backend (with a current model id).
+            # Set-only: we never unset it here, so a manually-exported override
+            # survives. (Cost: toggling the pref off in-app needs a restart to
+            # re-enable betas -- rare, and worth not clobbering a manual export.)
+            os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
         # Register can_use_tool + PreToolUse hook ALWAYS. They serve two
@@ -377,6 +420,7 @@ class QtClaudeAgent(QObject):
         # Persistent worker reference
         self._worker: PersistentClaudeWorker | None = None
         self._is_connected = False
+        self.session_id_changed.connect(self._store_session_id)
 
     def _ensure_connected(self) -> bool:
         """
@@ -404,6 +448,8 @@ class QtClaudeAgent(QObject):
         self._worker.query_completed.connect(self.query_completed)
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
+        self._worker.context_usage.connect(self.context_usage)
+        self._worker.session_id_changed.connect(self.session_id_changed)
 
         # Partial streaming forwards
         self._worker.partial_block_started.connect(self.partial_block_started)
@@ -526,6 +572,17 @@ class QtClaudeAgent(QObject):
             return self._worker.cancel_current_query()
         return False
 
+    def set_model(self, model: str | None) -> None:
+        """Switch the model live (no reconnect). Applies on the next turn.
+
+        Stores the choice so a later reconnect (e.g. an effort change) keeps
+        the same model. If the worker is not connected yet, the stored value
+        is picked up by ``_ensure_connected`` via the options.
+        """
+        self._model = model
+        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+            self._worker.request_set_model(model)
+
     # --- Permission API ---
 
     @property
@@ -570,14 +627,74 @@ class QtClaudeAgent(QObject):
         if self._permission_manager:
             self._permission_manager.respond_to_question(request_id, answers)
 
-    def reset_conversation(self) -> None:
-        """Reset the conversation by stopping the worker.
+    def _store_session_id(self, session_id: str) -> None:
+        """Remember + persist the current session id for restore/auto-restore."""
+        self._current_session_id = session_id
+        try:
+            from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+            ClaudeSettingsProvider.set_last_session_id(session_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not persist last session id: {}", exc)
 
-        The next query will automatically reconnect with a fresh
-        conversation via ``_ensure_connected()``.
+    def reset_conversation(self) -> None:
+        """Reset the conversation: stop the worker AND start a brand-new session.
+
+        Stopping the worker alone is not enough. ``_ensure_connected()`` rebuilds
+        the worker around the SAME ``self.client``, and that client resumes the
+        existing CLI conversation — so the chat would clear visually while the
+        model still carried the old context. So here we also:
+
+        * forget the in-memory + persisted session id (so nothing auto-resumes),
+        * re-materialize the per-session plugin dir (``stop()`` deletes it), and
+        * rebuild a fresh ``ClaudeSDKClient`` with ``resume`` /
+          ``continue_conversation`` cleared,
+
+        so the next query opens a genuinely new conversation.
         """
-        self.stop()
-        logger.info("Claude conversation reset")
+        import dataclasses
+
+        from lightfall.claude._session_assembly import (
+            init_session_plugin_dir,
+            materialize_skill,
+        )
+        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+
+        self.cockpit_reset.emit()
+        self.stop()  # stops the worker; also rmtree's the session plugin dir
+
+        # Forget the prior session so neither the rebuilt client nor auto-restore
+        # resumes it.
+        self._resume_session_id = None
+        self._current_session_id = None
+        try:
+            from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+            ClaudeSettingsProvider.set_last_session_id("")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not clear last session id on reset: {}", exc)
+
+        # Re-materialize the per-session plugin dir (stop() removed it) and
+        # rebuild a fresh SDK client that does NOT resume the old conversation.
+        # dataclasses.replace keeps every other option (tools, hooks, mcp
+        # servers, model, effort, permission callbacks) intact.
+        try:
+            plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
+            init_session_plugin_dir(plugin_dir)
+            for plugin in AgentRegistry.get_instance().enabled_plugins():
+                materialize_skill(plugin, plugin_dir)
+            self._session_plugin_dir = plugin_dir
+
+            self.options = dataclasses.replace(
+                self.options,
+                resume=None,
+                continue_conversation=False,
+                plugins=[{"type": "local", "path": str(plugin_dir)}],
+            )
+            self.client = ClaudeSDKClient(options=self.options)
+        except Exception:
+            logger.exception("Failed to rebuild Claude client on reset")
+
+        logger.info("Claude conversation reset (new session)")
 
     def add_always_allowed_tool(self, tool_name: str) -> None:
         """

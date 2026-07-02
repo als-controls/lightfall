@@ -318,7 +318,6 @@ class TestAdaptiveLoopE2E:
             nats_client=None,  # will be set after Core starts
             tiled_reader=fake_reader,
             lightfall_prefix=lightfall_prefix,
-            run_uid=run_uid,
         )
 
         # -- Tsuchinoko Core -----------------------------------------------
@@ -478,18 +477,29 @@ class TestTiledSchemaCanHandle:
     """Verify viz widget compatibility with Tsuchinoko's Tiled schema."""
 
     def test_can_handle_returns_90_for_2d(self, tiled_env):
-        """A run with adaptive container + 2D grid config scores 90."""
+        """A run with adaptive container + 2D grid config scores 90.
+
+        ``can_handle`` reads the evaluation grids from descriptor metadata
+        (``configuration.tsuchinoko.data``), the layout that
+        ``TiledPublisher._build_grid_config`` actually emits — not from child
+        ``config`` / ``iter_NNN`` containers.
+        """
         client = tiled_env
         run = client.create_container(key="viz-test-run")
         adaptive = run.create_container(key="adaptive")
-        adaptive.update_metadata({"adaptive_engine": "tsuchinoko"})
-        config = adaptive.create_container(key="config")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_x")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_y")
-
-        # Create at least one iteration
-        iter_000 = adaptive.create_container(key="iter_000")
-        iter_000.write_array(np.array([[10, 20]]), key="targets")
+        adaptive.update_metadata(
+            {
+                "adaptive_engine": "tsuchinoko",
+                "configuration": {
+                    "tsuchinoko": {
+                        "data": {
+                            "evaluation_grid_x": np.linspace(0, 100, 50).tolist(),
+                            "evaluation_grid_y": np.linspace(0, 100, 50).tolist(),
+                        }
+                    }
+                },
+            }
+        )
 
         score = AdaptiveHeatmapVisualization.can_handle(
             client["viz-test-run"]
@@ -501,11 +511,20 @@ class TestTiledSchemaCanHandle:
         client = tiled_env
         run = client.create_container(key="viz-test-3d")
         adaptive = run.create_container(key="adaptive")
-        adaptive.update_metadata({"adaptive_engine": "tsuchinoko"})
-        config = adaptive.create_container(key="config")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_x")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_y")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_z")
+        adaptive.update_metadata(
+            {
+                "adaptive_engine": "tsuchinoko",
+                "configuration": {
+                    "tsuchinoko": {
+                        "data": {
+                            "evaluation_grid_x": np.linspace(0, 100, 50).tolist(),
+                            "evaluation_grid_y": np.linspace(0, 100, 50).tolist(),
+                            "evaluation_grid_z": np.linspace(0, 100, 50).tolist(),
+                        }
+                    }
+                },
+            }
+        )
 
         score = AdaptiveHeatmapVisualization.can_handle(
             client["viz-test-3d"]
@@ -517,9 +536,19 @@ class TestTiledSchemaCanHandle:
         client = tiled_env
         run = client.create_container(key="viz-test-no-engine")
         adaptive = run.create_container(key="adaptive")
-        config = adaptive.create_container(key="config")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_x")
-        config.write_array(np.linspace(0, 100, 50), key="evaluation_grid_y")
+        # Grids present, but no adaptive_engine tag -> not ours.
+        adaptive.update_metadata(
+            {
+                "configuration": {
+                    "tsuchinoko": {
+                        "data": {
+                            "evaluation_grid_x": np.linspace(0, 100, 50).tolist(),
+                            "evaluation_grid_y": np.linspace(0, 100, 50).tolist(),
+                        }
+                    }
+                },
+            }
+        )
 
         score = AdaptiveHeatmapVisualization.can_handle(
             client["viz-test-no-engine"]

@@ -6,6 +6,8 @@ It is loaded directly by the application, not via entry points.
 
 from __future__ import annotations
 
+import sys
+
 from lightfall.plugins.manifest import PluginEntry, PluginManifest
 
 builtin_manifest = PluginManifest(
@@ -130,6 +132,12 @@ builtin_manifest = PluginManifest(
             name="claude_tools",
             import_path="lightfall.ui.preferences.tool_settings:ClaudeToolsSettingsPlugin",
         ),
+        # Monitor settings (enable/disable MonitorPlugin feeds, advisor, tick interval)
+        PluginEntry(
+            type_name="settings",
+            name="monitor",
+            import_path="lightfall.ui.preferences.monitor_settings:MonitorSettingsPlugin",
+        ),
         # Plugin management settings
         PluginEntry(
             type_name="settings",
@@ -253,6 +261,15 @@ builtin_manifest = PluginManifest(
             name="current_esaf",
             import_path="lightfall.plugins.agents.current_esaf:CurrentEsafAgent",
         ),
+        # Monitor plugins (proactive measurement feeds).
+        PluginEntry(
+            type_name="monitor",
+            name="acquisition_health",
+            import_path=(
+                "lightfall.monitor.feeds.acquisition_health:"
+                "AcquisitionHealthMonitorPlugin"
+            ),
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
@@ -295,6 +312,12 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="lightfall.ui.panels.plugins.claude_plugin:ClaudePanelPlugin",
             preload=True,  # Preload for metadata; panel instantiation is deferred until clicked
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="monitor",
+            import_path="lightfall.ui.panels.plugins.monitor_panel_plugin:MonitorPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
         ),
         PluginEntry(
             type_name="panel",
@@ -350,5 +373,34 @@ builtin_manifest = PluginManifest(
             import_path="lightfall.ui.panels.plugins.pipeline_triggers_plugin:PipelineTriggersPanelPlugin",
             preload=True,
         ),
+        # Auth provider plugins. Preloaded so they're registered before the
+        # startup login dialog. _setup_auth also registers these early (the
+        # dialog can appear before background plugin loading); the loader's
+        # auth_provider bridge is idempotent, so listing them here is what
+        # makes them appear (and be toggleable) in the Plugins settings page.
+        # PAM is appended below only on non-Windows platforms.
+        PluginEntry(
+            type_name="auth_provider",
+            name="keycloak",
+            import_path="lightfall.auth.providers.builtin_plugins:KeycloakAuthPlugin",
+            preload=True,
+        ),
+        PluginEntry(
+            type_name="auth_provider",
+            name="local",
+            import_path="lightfall.auth.providers.builtin_plugins:LocalAuthPlugin",
+            preload=True,
+        ),
     ],
 )
+
+# PAM auth is Linux/Unix only (uses the OS identity); never offer it on Windows.
+if sys.platform != "win32":
+    builtin_manifest.plugins.append(
+        PluginEntry(
+            type_name="auth_provider",
+            name="pam",
+            import_path="lightfall.auth.providers.builtin_plugins:PamAuthPlugin",
+            preload=True,
+        )
+    )

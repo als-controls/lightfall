@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.claude.cockpit import CockpitState
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.ui.theme import scaled_pt, scaled_px
 from lightfall.ui.toast import ToastManager
+from lightfall.utils.crash_diagnostics import gui_thread_only, safe_call
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -40,6 +42,7 @@ class ReloadBannerWidget(QFrame):
         plugin_names: list[str],
         on_reload: callable,
         parent: QWidget | None = None,
+        message: str | None = None,
     ) -> None:
         """Initialize the reload banner.
 
@@ -47,12 +50,28 @@ class ReloadBannerWidget(QFrame):
             plugin_names: Names of newly registered plugins.
             on_reload: Callback to invoke when Reload is clicked.
             parent: Parent widget.
+            message: Optional fixed message (rich text) shown verbatim instead
+                of the plugin-name summary -- used for non-plugin reload
+                prompts such as a settings change.
         """
         super().__init__(parent)
         self._plugin_names = plugin_names
         self._on_reload = on_reload
+        self._fixed_message = message
         self._setup_ui()
         self._apply_theme_style()
+
+    def _compose_message(self) -> str:
+        """Build the banner text from the fixed message or the plugin list."""
+        if self._fixed_message is not None:
+            return self._fixed_message
+        count = len(self._plugin_names)
+        if count == 1:
+            return f"\U0001F504 New tool plugin: <b>{self._plugin_names[0]}</b>"
+        names = ", ".join(self._plugin_names[:3])
+        if count > 3:
+            names += f" (+{count - 3} more)"
+        return f"\U0001F504 {count} new tool plugins: <b>{names}</b>"
 
     def _setup_ui(self) -> None:
         """Setup the banner UI."""
@@ -64,16 +83,7 @@ class ReloadBannerWidget(QFrame):
         layout.setSpacing(8)
 
         # Icon and message
-        count = len(self._plugin_names)
-        if count == 1:
-            message = f"\U0001F504 New tool plugin: <b>{self._plugin_names[0]}</b>"
-        else:
-            names = ", ".join(self._plugin_names[:3])
-            if count > 3:
-                names += f" (+{count - 3} more)"
-            message = f"\U0001F504 {count} new tool plugins: <b>{names}</b>"
-
-        self.info_label = QLabel(message)
+        self.info_label = QLabel(self._compose_message())
         self.info_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self.info_label, 1)
 
@@ -141,15 +151,7 @@ class ReloadBannerWidget(QFrame):
 
     def _update_message(self) -> None:
         """Update the message label with current plugin count."""
-        count = len(self._plugin_names)
-        if count == 1:
-            message = f"\U0001F504 New tool plugin: <b>{self._plugin_names[0]}</b>"
-        else:
-            names = ", ".join(self._plugin_names[:3])
-            if count > 3:
-                names += f" (+{count - 3} more)"
-            message = f"\U0001F504 {count} new tool plugins: <b>{names}</b>"
-        self.info_label.setText(message)
+        self.info_label.setText(self._compose_message())
 
 
 class ClaudePanel(BasePanel):
@@ -183,6 +185,20 @@ class ClaudePanel(BasePanel):
         warmup_import="lightfall.claude",
     )
 
+    # Preference keys that determine which backend/model/behavior the agent
+    # connects with. A change to any of these (e.g. from the Preferences dialog)
+    # must rebuild the running agent instead of waiting for a lightfall restart.
+    _WATCHED_CLAUDE_KEYS = (
+        "claude_model",
+        "claude_effort",
+        "claude_endpoint",
+        "claude_custom_url",
+        "claude_api_key",
+        "claude_max_turns",
+        "claude_permission_mode",
+        "claude_disable_betas",
+    )
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the Claude panel.
 
@@ -192,10 +208,33 @@ class ClaudePanel(BasePanel):
         self._claude_widget = None
         self._agent = None
         self._error_message: str | None = None
+        self._error_label: QLabel | None = None
         self._loading_label: QLabel | None = None
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
+
+        # Claude-settings hot-reload state.
+        #   _settings_reload_pending: a debounced reload is already scheduled,
+        #     so a burst of pref writes (one Preferences-dialog OK calls
+        #     save_settings() on every plugin, touching several keys) coalesces
+        #     into a single rebuild.
+        #   _active_agent_config: the resolved settings the live agent was built
+        #     with. A pref change only rebuilds when the *effective* config
+        #     differs from this -- so an unrelated Preferences OK (which
+        #     re-writes Claude prefs to identical values) does not churn the
+        #     agent, and the in-panel picker's live switch (which updates this)
+        #     isn't immediately undone.
+        self._settings_reload_pending = False
+        self._active_agent_config: tuple | None = None
+
+        # Session restore state
+        self._pending_resume_session_id: str | None = None
+
+        # Title-bar cockpit (cost / context% / tokens)
+        self._cockpit = CockpitState()
+        self._cost_label: QLabel | None = None
+        self._sessions_menu = None
 
         # Icon animation state
         self._thinking_timer: QTimer | None = None
@@ -215,6 +254,10 @@ class ClaudePanel(BasePanel):
         """
         # Subscribe to plugin registration signals for hot-reload
         self._subscribe_to_plugin_signals()
+
+        # Subscribe to Claude settings so a Preferences change rebuilds the
+        # agent without a lightfall restart.
+        self._subscribe_to_claude_settings()
 
         # Check if plugin loading is complete
         if self._is_plugin_loading_complete():
@@ -353,6 +396,7 @@ class ClaudePanel(BasePanel):
         currently registered tools.
         """
         logger.info("Reloading Claude agent with new tools")
+        self._reset_cockpit()
 
         # Stop current agent
         if self._claude_widget and hasattr(self._claude_widget, 'agent'):
@@ -370,8 +414,20 @@ class ClaudePanel(BasePanel):
         # Clear pending plugins list
         self._pending_plugins.clear()
 
-        # Clear reload banner reference
+        # Dispose any reload banner -- dropping just the reference leaves the
+        # QFrame parented and visible (a stale, possibly stacked banner).
+        if self._reload_banner is not None:
+            self._layout.removeWidget(self._reload_banner)
+            self._reload_banner.deleteLater()
         self._reload_banner = None
+
+        # Remove a prior "Unavailable" error label so a recovery rebuild doesn't
+        # stack the new widget beneath it, and clear the error state.
+        if self._error_label is not None:
+            self._layout.removeWidget(self._error_label)
+            self._error_label.deleteLater()
+            self._error_label = None
+        self._error_message = None
 
         # Re-initialize
         self._is_agent_ready = False
@@ -403,6 +459,15 @@ class ClaudePanel(BasePanel):
         ncs_system_prompt = self._build_ncs_system_prompt()
 
         permission_mode = ClaudeSettingsProvider.get_permission_mode()
+        from lightfall.ui.preferences.claude_settings import resolve_model_alias
+        resume = getattr(self, "_pending_resume_session_id", None)
+        self._pending_resume_session_id = None
+        if resume is None and ClaudeSettingsProvider.get_auto_restore():
+            last = ClaudeSettingsProvider.get_last_session_id()
+            if last:
+                resume = last
+                # Repaint the restored chat once the widget is constructed.
+                QTimer.singleShot(0, lambda sid=last: self._repaint_restored(sid))
         self._claude_widget = ClaudeAssistantWidget(
             target_window=main_window,
             api_key=ClaudeSettingsProvider.get_api_key(),
@@ -410,11 +475,31 @@ class ClaudePanel(BasePanel):
             additional_system_prompt=ncs_system_prompt,
             permission_mode=permission_mode,
             require_approval=(permission_mode != "bypassPermissions"),
+            model=resolve_model_alias(ClaudeSettingsProvider.get_model()),
+            effort=ClaudeSettingsProvider.get_effort() or None,
+            resume=resume,
+            disable_betas=ClaudeSettingsProvider.get_disable_betas(),
             parent=self,
         )
 
         # Add to layout
         self._layout.addWidget(self._claude_widget)
+
+        # Title-bar cockpit label (cost / context% / tokens)
+        if self._cost_label is None:
+            self._cost_label = QLabel(self._cockpit.format())
+            self._cost_label.setObjectName("ClaudeCockpitLabel")
+            self._cost_label.setStyleSheet("color: palette(mid); padding: 0 6px;")
+            self._cost_label.setToolTip(self._cockpit.tooltip())
+            self.add_title_bar_widget(self._cost_label)
+
+        # Session history / restore (title-bar menu — per spec §4.3)
+        if self._sessions_menu is None:
+            from PySide6.QtWidgets import QMenu
+            self._sessions_menu = QMenu()
+            self._sessions_menu.aboutToShow.connect(self._populate_sessions_menu)
+            self.add_title_bar_button("mdi6.history", "Restore a past session",
+                                      menu=self._sessions_menu)
 
         # Connect permission signals to toast notifications and icon state
         self._claude_widget.approval_needed.connect(self._on_approval_needed)
@@ -429,10 +514,79 @@ class ClaudePanel(BasePanel):
         # Connect icon state: query_started for immediate feedback
         self._claude_widget.query_started.connect(lambda: self._icon_set_thinking())
 
+        self._claude_widget.model_change_requested.connect(self._on_pick_model)
+        self._claude_widget.effort_change_requested.connect(self._on_pick_effort)
+
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
 
+        # Record the settings this agent was built with, so a later preference
+        # change only rebuilds when something the agent cares about differs.
+        self._active_agent_config = self._current_claude_config()
+
         logger.info("Claude assistant panel initialized")
+
+    def _populate_sessions_menu(self) -> None:
+        from claude_agent_sdk import list_sessions
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        menu = self._sessions_menu
+        menu.clear()
+        try:
+            infos = list_sessions(directory=lightfall_agent_cwd(), limit=15)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_sessions failed: {}", exc)
+            infos = []
+        if not infos:
+            act = menu.addAction("No saved sessions")
+            act.setEnabled(False)
+            return
+        for info in infos:
+            title = (
+                getattr(info, "custom_title", None)
+                or getattr(info, "first_prompt", None)
+                or getattr(info, "summary", None)
+                or info.session_id[:8]
+            )
+            title = (title[:60] + "…") if len(title) > 60 else title
+            act = menu.addAction(title)
+            sid = info.session_id
+            act.triggered.connect(
+                lambda _checked=False, s=sid: self.restore_session(s)
+            )
+
+    def restore_session(self, session_id: str) -> None:
+        """Rebuild the agent resuming ``session_id`` and repaint its chat."""
+        from claude_agent_sdk import get_session_messages
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        self._pending_resume_session_id = session_id
+        self._reload_agent()  # _setup_claude_widget passes resume= then clears it
+        try:
+            messages = get_session_messages(
+                session_id, directory=lightfall_agent_cwd()
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not load transcript for {}: {}", session_id, exc)
+            messages = []
+        if self._claude_widget is not None and messages:
+            self._claude_widget.load_transcript(messages)
+
+    def _repaint_restored(self, session_id: str) -> None:
+        from claude_agent_sdk import get_session_messages
+
+        from lightfall.claude.agent import lightfall_agent_cwd
+        if self._claude_widget is None:
+            return
+        try:
+            messages = get_session_messages(
+                session_id, directory=lightfall_agent_cwd()
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("auto-restore transcript load failed: {}", exc)
+            return
+        if messages:
+            self._claude_widget.load_transcript(messages)
 
     def _build_ncs_system_prompt(self) -> str:
         """Build the NCS-specific system prompt addition.
@@ -570,6 +724,140 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
 
         return base_prompt
 
+    def _on_pick_model(self, preset: str) -> None:
+        from lightfall.ui.preferences.claude_settings import resolve_model_alias
+        from lightfall.ui.preferences.manager import PreferencesManager
+        # Persist the raw combo preset (the menu re-checks against it); send the
+        # CLI-resolved alias to the live agent.
+        PreferencesManager.get_instance().set("claude_model", preset)
+        if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
+            self._claude_widget.agent.set_model(resolve_model_alias(preset))
+        # The agent now reflects the new model (applied live, no rebuild). Update
+        # the tracked config so the debounced subscription sees no change and
+        # does not tear the live conversation down with a full reload.
+        self._active_agent_config = self._current_claude_config()
+
+    def _on_pick_effort(self, level: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+        from lightfall.ui.preferences.manager import PreferencesManager
+        if level == ClaudeSettingsProvider.get_effort():
+            return
+        reply = QMessageBox.question(
+            self, "Change effort",
+            "Changing reasoning effort restarts the conversation "
+            "(a fresh session). Continue?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        PreferencesManager.get_instance().set("claude_effort", level)
+        # _reload_agent() rebuilds the agent and refreshes _active_agent_config,
+        # so the debounced subscription sees no further change and won't reload
+        # a second time. Effort is read at construction.
+        self._reload_agent()
+
+    # --- Claude-settings hot-reload ------------------------------------------
+
+    def _subscribe_to_claude_settings(self) -> None:
+        """Rebuild the agent when a watched Claude preference changes.
+
+        The Preferences dialog only writes ``claude_*`` prefs; without this, a
+        model/endpoint/key change would not reach the already-built agent until
+        the next lightfall restart. The subscription closes that gap. Bound-
+        method slots are held weakly by the preferences manager, so this
+        auto-clears when the panel is destroyed.
+        """
+        from lightfall.ui.preferences.manager import PreferencesManager
+
+        prefs = PreferencesManager.get_instance()
+        for key in self._WATCHED_CLAUDE_KEYS:
+            prefs.subscribe(key, self._on_claude_pref_changed)
+
+    def _current_claude_config(self) -> tuple:
+        """Snapshot the settings the agent is (re)built from.
+
+        Used to decide whether a preference change actually changed anything the
+        agent cares about. The model is resolved through ``resolve_model_alias``
+        because that is the exact string handed to the agent (at construction
+        and on a live switch); endpoint + custom URL collapse into the base URL.
+        """
+        from lightfall.ui.preferences.claude_settings import (
+            ClaudeSettingsProvider,
+            resolve_model_alias,
+        )
+
+        p = ClaudeSettingsProvider
+        return (
+            resolve_model_alias(p.get_model()),
+            p.get_effort(),
+            p.get_base_url(),
+            p.get_api_key(),
+            p.get_max_turns(),
+            p.get_permission_mode(),
+            p.get_disable_betas(),
+        )
+
+    def _on_claude_pref_changed(self, value: object) -> None:
+        """A watched Claude preference changed -> schedule one debounced reload.
+
+        Coalesces a burst of writes (one Preferences-dialog OK calls
+        save_settings() on every plugin) into a single rebuild via a 0-delay
+        timer. Whether the rebuild actually happens is decided in
+        ``_do_claude_settings_reload`` by comparing the effective config -- so
+        a no-op save is cheap and harmless.
+        """
+        if self._settings_reload_pending:
+            return
+        self._settings_reload_pending = True
+        QTimer.singleShot(0, self._do_claude_settings_reload)
+
+    def _do_claude_settings_reload(self) -> None:
+        """Apply pending Claude-settings changes by rebuilding the agent.
+
+        Rebuilds only when the effective config actually changed (so an
+        unrelated Preferences OK, or the picker's already-applied live switch,
+        is a no-op). Rebuilds immediately when the agent is idle; if a query is
+        in flight, defers to the reload banner so the running conversation isn't
+        dropped. No-op while the agent isn't built yet (construction reads fresh
+        prefs).
+        """
+        self._settings_reload_pending = False
+        if not self._is_agent_ready:
+            # Two distinct not-ready states:
+            #  * Still loading plugins (no prior build, _error_message is None):
+            #    the agent will be built shortly and read fresh prefs -- nothing
+            #    to do here.
+            #  * A prior build FAILED (_error_message set): a settings change is
+            #    the user fixing it (e.g. entering a valid key / endpoint). Re-
+            #    attempt the build so the panel recovers without a restart --
+            #    which is the whole point of this feature. Skip the config-diff
+            #    gate: _active_agent_config is stale/None in the error state.
+            if self._error_message is not None:
+                self._reload_agent()
+            return
+        if self._current_claude_config() == self._active_agent_config:
+            return  # nothing the agent cares about changed
+        widget = self._claude_widget
+        agent = getattr(widget, "agent", None) if widget is not None else None
+        if agent is not None and agent.is_busy():
+            self._show_settings_reload_banner()
+        else:
+            self._reload_agent()
+
+    def _show_settings_reload_banner(self) -> None:
+        """Offer a reload (rather than interrupting a running query)."""
+        if self._reload_banner is not None:
+            self._reload_banner.show()
+            return
+        self._reload_banner = ReloadBannerWidget(
+            plugin_names=[],
+            on_reload=self._reload_agent,
+            message="⚙ Claude settings changed",
+            parent=self,
+        )
+        self._layout.insertWidget(0, self._reload_banner)
+
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available.
 
@@ -585,6 +873,9 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
                 font-size: {scaled_pt(12)}pt;
             }}
         """)
+        # Keep a reference so a later recovery rebuild can remove it (otherwise
+        # the new agent widget stacks beneath an orphaned error label).
+        self._error_label = error_label
         self._layout.addWidget(error_label)
 
     def _on_approval_needed(
@@ -721,7 +1012,30 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         agent.query_completed.connect(self._icon_set_idle)
         agent.query_cancelled.connect(self._icon_set_idle)
         agent.error_occurred.connect(self._icon_set_error)
+        agent.result_received.connect(self._on_cockpit_result)
+        agent.context_usage.connect(self._on_cockpit_context)
+        agent.cockpit_reset.connect(self._reset_cockpit)
         logger.info("Connected Claude agent icon signals")
+
+    @gui_thread_only
+    def _on_cockpit_result(self, info: dict) -> None:
+        self._cockpit.add_result(info)
+        self._refresh_cockpit_label()
+
+    @gui_thread_only
+    def _on_cockpit_context(self, info: dict) -> None:
+        self._cockpit.set_context(info)
+        self._refresh_cockpit_label()
+
+    @gui_thread_only
+    def _reset_cockpit(self) -> None:
+        self._cockpit.reset()
+        self._refresh_cockpit_label()
+
+    def _refresh_cockpit_label(self) -> None:
+        if self._cost_label is not None:
+            safe_call(self._cost_label, "setText", self._cockpit.format())
+            safe_call(self._cost_label, "setToolTip", self._cockpit.tooltip())
 
     def _icon_set_idle(self) -> None:
         """Set sidebar icon to idle state (respects emotion override)."""
@@ -855,6 +1169,18 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
             return True
 
         return False
+
+    def submit_external_prompt(self, text: str) -> bool:
+        """Raise the Claude panel and submit a programmatic user prompt to
+        the reactive agent. Returns False if the agent widget isn't built yet."""
+        win = self._get_main_window()
+        if win is not None:
+            win.activate_panel(self.panel_metadata.id)
+        if self._claude_widget is None:
+            return False
+        self._claude_widget.input_field.setText(text)
+        self._claude_widget._send_query()  # auto-connects via agent.query_sync
+        return True
 
     def action_clear_chat(self) -> bool:
         """Clear the chat display.

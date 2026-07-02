@@ -643,6 +643,23 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug("AgentRegistry not available, skipping agent registration")
 
+        elif plugin_info.type_name == "monitor":
+            try:
+                from lightfall.monitor.monitor_plugin import MonitorPlugin
+                from lightfall.monitor.registry import MonitorRegistry
+
+                instance = plugin_info.instance
+                if not isinstance(instance, MonitorPlugin):
+                    logger.error(
+                        "Monitor plugin '{}' class {} is not a MonitorPlugin subclass; skipping",
+                        plugin_info.name, type(instance).__name__,
+                    )
+                else:
+                    MonitorRegistry.get_instance().register(instance)
+                    logger.debug("Registered monitor plugin '{}' with MonitorRegistry", instance.name)
+            except ImportError:
+                logger.debug("MonitorRegistry not available, skipping monitor registration")
+
         elif plugin_info.type_name == "panel":
             try:
                 from lightfall.ui.panels.registry import PanelRegistry
@@ -691,6 +708,57 @@ class PluginLoader(QObject):
             except ImportError:
                 logger.debug(
                     "VisualizationRegistry not available, skipping visualization registration"
+                )
+
+        elif plugin_info.type_name == "device_backend":
+            try:
+                from lightfall.devices import DeviceCatalog
+                from lightfall.ui.preferences.manager import PreferencesManager
+
+                plugin = plugin_info.instance
+                prefs = PreferencesManager.get_instance()
+                if prefs.get(f"device_plugin_{plugin.name}_enabled", True):
+                    backend = plugin.create_backend()
+                    DeviceCatalog.get_instance().add_and_connect_backend(backend)
+                    logger.debug(
+                        "Device backend plugin '{}' added to catalog", plugin.name
+                    )
+                else:
+                    logger.info(
+                        "Device backend plugin '{}' disabled, not adding", plugin.name
+                    )
+            except Exception as e:
+                # Use plugin_info.name (the manifest entry name): it is always
+                # available even if instance creation or plugin.name itself raised.
+                logger.error(
+                    "Failed to register device backend plugin '{}': {}",
+                    plugin_info.name,
+                    e,
+                )
+
+        elif plugin_info.type_name == "auth_provider":
+            try:
+                from lightfall.auth.provider_registry import AuthProviderRegistry
+
+                reg = AuthProviderRegistry.get_instance()
+                provider_name = plugin_info.instance.name
+                # Built-in providers are registered early by _setup_auth (the
+                # login dialog can appear before background loading). Don't
+                # re-register / clobber them here.
+                if reg.has(provider_name):
+                    logger.debug(
+                        "Auth provider '{}' already registered, skipping",
+                        provider_name,
+                    )
+                else:
+                    reg.register(plugin_info.instance)
+                    logger.debug(
+                        "Registered auth provider '{}' with AuthProviderRegistry",
+                        plugin_info.name,
+                    )
+            except ImportError:
+                logger.debug(
+                    "AuthProviderRegistry not available, skipping auth provider registration"
                 )
 
     def get_plugin_by_name(

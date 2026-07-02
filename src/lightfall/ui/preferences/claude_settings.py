@@ -61,12 +61,106 @@ API_ENDPOINTS = {
     "custom": ("Custom...", ""),
 }
 
-# Default model options
+# Model combo presets. "" = let the CLI pick its default model.
 MODEL_OPTIONS = [
-    "claude-sonnet",
+    "",  # Default (CLI default)
     "claude-opus",
+    "claude-sonnet",
     "claude-haiku",
 ]
+
+# Combo preset -> model string the Claude Code CLI accepts. Anything not in
+# this map (custom entry, full id) passes through unchanged.
+_MODEL_ALIASES = {
+    "claude-opus": "opus",
+    "claude-sonnet": "sonnet",
+    "claude-haiku": "haiku",
+}
+
+# Reasoning effort. "" = leave the SDK default (high). xhigh/max are Opus-only.
+EFFORT_OPTIONS = ["", "low", "medium", "high", "xhigh", "max"]
+
+
+def resolve_model_alias(name: str) -> str:
+    """Resolve a model combo preset to a CLI model string (passthrough else)."""
+    if not name:
+        return ""
+    return _MODEL_ALIASES.get(name, name)
+
+
+# Session cache of discovered models, keyed by base_url. Only successful
+# lookups are cached (a failed probe should retry next time).
+_MODELS_CACHE: dict[str, list[str]] = {}
+
+
+def fetch_available_models(
+    base_url: str | None,
+    api_key: str | None,
+    *,
+    timeout: float = 5.0,
+) -> list[str] | None:
+    """Query a backend's ``GET /v1/models`` and return the model ids.
+
+    Backend-agnostic: Anthropic and OpenAI-compatible gateways (e.g. cborg)
+    both return ``{"data": [{"id": ...}, ...]}``. Tries Anthropic auth
+    (``x-api-key`` + ``anthropic-version``), retrying once with
+    ``Authorization: Bearer`` on 401. Routes ``*.lbl.gov`` (cborg) through the
+    configured SOCKS proxy. Never raises — returns ``None`` on any failure so
+    callers fall back to the free-text picker.
+    """
+    if not base_url or not api_key:
+        return None
+
+    import httpx
+
+    url = f"{base_url.rstrip('/')}/v1/models"
+    client_kwargs: dict = {"timeout": timeout}
+    try:
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+    except Exception:  # noqa: BLE001 - proxy is best-effort
+        pass
+
+    anthropic_headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    bearer_headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get(url, headers=anthropic_headers)
+            if resp.status_code == 401:
+                resp = client.get(url, headers=bearer_headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json().get("data")
+            if not isinstance(data, list):
+                return None
+            ids = [
+                m["id"] for m in data
+                if isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"]
+            ]
+            return ids or None
+    except Exception as exc:  # noqa: BLE001 - discovery is best-effort
+        logger.debug("fetch_available_models failed for {}: {}", base_url, exc)
+        return None
+
+
+def get_cached_models(
+    base_url: str | None,
+    api_key: str | None,
+    *,
+    refresh: bool = False,
+) -> list[str] | None:
+    """Session-cached ``fetch_available_models``. Only successes are cached."""
+    if not base_url:
+        return None
+    if not refresh and base_url in _MODELS_CACHE:
+        return _MODELS_CACHE[base_url]
+    models = fetch_available_models(base_url, api_key)
+    if models:
+        _MODELS_CACHE[base_url] = models
+    return models
+
 
 # Permission mode options
 PERMISSION_MODES = {
@@ -120,11 +214,18 @@ class ClaudeSettingsProvider:
     def get_model() -> str:
         """Get the configured model name.
 
+        Default is "" meaning "do not force a model" — lightfall omits the
+        ``--model`` option and lets the configured backend/CLI use its own
+        default. This is the only backend-agnostic choice: the Anthropic API,
+        the LBL cborg gateway, and an Azure-hosted backend each accept
+        different model identifiers, so forcing a hardcoded model string
+        breaks every backend except the one it was written for.
+
         Returns:
-            The model name string.
+            The model name string, or "" to use the backend default.
         """
         prefs = PreferencesManager.get_instance()
-        return prefs.get("claude_model", "claude-sonnet")
+        return prefs.get("claude_model", "")
 
     @staticmethod
     def get_max_turns() -> int:
@@ -145,6 +246,30 @@ class ClaudeSettingsProvider:
         """
         prefs = PreferencesManager.get_instance()
         return prefs.get("claude_permission_mode", "default")
+
+    @staticmethod
+    def get_effort() -> str:
+        """Get the configured reasoning effort ('' = SDK default)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("claude_effort", "")
+
+    @staticmethod
+    def get_auto_restore() -> bool:
+        """Whether to auto-restore the last session on launch."""
+        prefs = PreferencesManager.get_instance()
+        return bool(prefs.get("claude_auto_restore", False))
+
+    @staticmethod
+    def get_last_session_id() -> str:
+        """Get the persisted last-session id ('' if none)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("claude_last_session_id", "") or ""
+
+    @staticmethod
+    def set_last_session_id(session_id: str) -> None:
+        """Persist the current session id for auto-restore."""
+        prefs = PreferencesManager.get_instance()
+        prefs.set("claude_last_session_id", session_id or "")
 
     @staticmethod
     def is_oauth_authenticated() -> bool:
@@ -233,9 +358,11 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._status_label: QLabel | None = None
         # Model Configuration
         self._model_combo: QComboBox | None = None
+        self._effort_combo: QComboBox | None = None
         self._max_turns_spin: QSpinBox | None = None
         # Behavior Configuration
         self._permission_combo: QComboBox | None = None
+        self._auto_restore_checkbox: QCheckBox | None = None
 
     @property
     def name(self) -> str:
@@ -384,6 +511,16 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             self._model_combo.addItem(model)
         layout.addRow("Model:", self._model_combo)
 
+        # Reasoning effort selector
+        self._effort_combo = QComboBox()
+        for level in EFFORT_OPTIONS:
+            self._effort_combo.addItem(level or "default (high)", level)
+        self._effort_combo.setToolTip(
+            "Reasoning effort. xhigh/max are Opus-only and fall back to high "
+            "on other models. Changing this restarts the conversation."
+        )
+        layout.addRow("Effort:", self._effort_combo)
+
         # Max turns spinner
         self._max_turns_spin = QSpinBox()
         self._max_turns_spin.setRange(1, 10000)
@@ -430,6 +567,13 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         proxy_note.setWordWrap(True)
         proxy_note.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
         layout.addRow(proxy_note)
+
+        # Auto-restore last session on launch
+        self._auto_restore_checkbox = QCheckBox("Restore last session on launch")
+        self._auto_restore_checkbox.setToolTip(
+            "Resume the most recent conversation when the panel opens."
+        )
+        layout.addRow("", self._auto_restore_checkbox)
 
         return group
 
@@ -676,12 +820,27 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Load model
         if self._model_combo:
-            model = prefs.get("claude_model", "claude-sonnet")
+            discovered = get_cached_models(
+                self._get_effective_base_url(), self._get_effective_api_key()
+            )
+            self._model_combo.blockSignals(True)
+            self._model_combo.clear()
+            self._model_combo.addItem("")  # Default (no forced model)
+            for m in (discovered if discovered else [x for x in MODEL_OPTIONS if x]):
+                self._model_combo.addItem(m)
+            self._model_combo.blockSignals(False)
+            model = prefs.get("claude_model", "")
             index = self._model_combo.findText(model)
             if index >= 0:
                 self._model_combo.setCurrentIndex(index)
             else:
                 self._model_combo.setEditText(model)
+
+        # Load effort
+        if getattr(self, "_effort_combo", None):
+            effort = prefs.get("claude_effort", "")
+            idx = self._effort_combo.findData(effort)
+            self._effort_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         # Load max turns
         if self._max_turns_spin:
@@ -693,6 +852,11 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             index = self._permission_combo.findData(mode)
             if index >= 0:
                 self._permission_combo.setCurrentIndex(index)
+
+        if getattr(self, "_auto_restore_checkbox", None):
+            self._auto_restore_checkbox.setChecked(
+                bool(prefs.get("claude_auto_restore", False))
+            )
 
         # Update status labels
         if self._status_label:
@@ -731,6 +895,10 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if self._model_combo:
             prefs.set("claude_model", self._model_combo.currentText())
 
+        # Save effort
+        if getattr(self, "_effort_combo", None):
+            prefs.set("claude_effort", self._effort_combo.currentData())
+
         # Save max turns
         if self._max_turns_spin:
             prefs.set("claude_max_turns", self._max_turns_spin.value())
@@ -739,6 +907,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if self._permission_combo:
             mode = self._permission_combo.currentData()
             prefs.set("claude_permission_mode", mode)
+
+        if getattr(self, "_auto_restore_checkbox", None):
+            prefs.set("claude_auto_restore", self._auto_restore_checkbox.isChecked())
 
         logger.info("Claude settings saved")
 

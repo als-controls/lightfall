@@ -272,6 +272,75 @@ class VoigtFitter(BaseFitter):
         return "y = A·V(x-x₀; σ, γ) + b"
 
 
+class StepFitter(BaseFitter):
+    """Error-function step / edge: y = background + amplitude·½·(1 + erf((x-center)/(√2·width))).
+
+    Models a smooth edge (knife-edge / absorption step). ``center`` is the 50%
+    point — the alignment target — and ``amplitude`` is the *signed* step height,
+    so a single model fits both rising (amplitude > 0) and falling (amplitude < 0)
+    edges. ``width`` is the edge width (σ of the underlying Gaussian). Unlike the
+    peak fitters, amplitude is unbounded in sign.
+    """
+
+    @property
+    def name(self) -> str:
+        return "step"
+
+    @property
+    def display_name(self) -> str:
+        return "Error-Function Step (Edge)"
+
+    @property
+    def parameter_names(self) -> list[str]:
+        return ["amplitude", "center", "width", "background"]
+
+    def model(
+        self,
+        x: np.ndarray,
+        amplitude: float,
+        center: float,
+        width: float,
+        background: float,
+    ) -> np.ndarray:
+        from scipy.special import erf
+
+        # width is the Gaussian sigma of the edge; guard against zero.
+        w = width if width != 0 else 1e-10
+        return background + amplitude * 0.5 * (1.0 + erf((x - center) / (np.sqrt(2.0) * w)))
+
+    def estimate_initial(self, x: np.ndarray, y: np.ndarray) -> list[float]:
+        n = len(x)
+        q = max(1, n // 4)
+        # Model limits: y(-inf) = background, y(+inf) = background + amplitude.
+        # So background is the low-x plateau and amplitude is the signed step
+        # (works for both rising and falling edges).
+        low_x_level = float(np.median(y[:q]))
+        high_x_level = float(np.median(y[-q:]))
+        background = low_x_level
+        amplitude = high_x_level - low_x_level
+
+        # Center: where the signal changes fastest (steepest |gradient|).
+        try:
+            grad = np.gradient(np.asarray(y, dtype=float), np.asarray(x, dtype=float))
+            center = float(x[int(np.argmax(np.abs(grad)))])
+        except Exception:
+            center = float(x[n // 2])
+
+        span = float(x.max() - x.min())
+        width = max(span / 10.0, 1e-6)
+        return [amplitude, center, width, background]
+
+    def get_bounds(self) -> tuple[list[float], list[float]]:
+        # Amplitude signed (rising or falling edge); width > 0.
+        return (
+            [-np.inf, -np.inf, 1e-10, -np.inf],
+            [np.inf, np.inf, np.inf, np.inf],
+        )
+
+    def get_formula(self) -> str:
+        return "y = b + A·½·(1 + erf((x-x₀)/(√2·w)))"
+
+
 # Registry of available fitters
 AVAILABLE_FITTERS: dict[str, type[BaseFitter]] = {
     "linear": LinearFitter,
@@ -280,6 +349,7 @@ AVAILABLE_FITTERS: dict[str, type[BaseFitter]] = {
     "polynomial_2": lambda: PolynomialFitter(2),
     "polynomial_3": lambda: PolynomialFitter(3),
     "voigt": VoigtFitter,
+    "step": StepFitter,
 }
 
 

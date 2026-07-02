@@ -48,13 +48,13 @@ class TestOphydImageViewBasic:
         assert view._plot_item.axes["left"]["item"].isVisible()
         view.close()
 
-    def test_image_orientation_col_major(self, qapp):
-        """ImageItem should use col-major axis order (Xi-CAM convention)."""
+    def test_image_orientation_row_major(self, qapp):
+        """ImageItem should use row-major axis order (array (row, col) = (y, x))."""
         device = _make_mock_device()
         view = OphydImageView(device)
 
-        assert view._image_item.axisOrder == "col-major"
-        # No Y inversion needed with col-major
+        assert view._image_item.axisOrder == "row-major"
+        # No Y inversion needed with row-major
         assert not view._plot_item.getViewBox().yInverted()
         view.close()
 
@@ -147,6 +147,29 @@ class TestLUTBehavior:
         lo, hi = view._histogram.getLevels()
         # Should have recalculated from the data
         assert hi > 1
+        view.close()
+
+    def test_dragging_levels_maps_linearly_in_linear_mode(self, qapp):
+        """Dragging the histogram level bars must map levels 1:1 to the image.
+
+        Regression: HistogramLUTItem.sigLevelsChanged emits the item itself as
+        its argument. Connected directly to _apply_display_levels(log_mode=...),
+        that truthy object was treated as log_mode=True, so during a drag the
+        displayed image was momentarily log1p-scaled in linear mode.
+        """
+        data = np.random.randint(10, 1000, (100, 100), dtype=np.uint16)
+        device = _make_mock_device(data)
+        view = OphydImageView(device)
+        view._display_array(data)
+        assert view._log_mode is False
+
+        view._histogram.setLevels(100.0, 800.0)
+        # Reproduce exactly what a drag does (HistogramLUTItem.regionChanging):
+        view._histogram.sigLevelsChanged.emit(view._histogram)
+
+        img_lo, img_hi = view._image_item.levels
+        assert img_lo == pytest.approx(100.0)
+        assert img_hi == pytest.approx(800.0)
         view.close()
 
 
@@ -289,7 +312,7 @@ class TestCrosshair:
         view = OphydImageView(device)
         view._display_array(data)
 
-        # With col-major, view (x, y) maps to array[x, y]
+        # With row-major, view (x, y) maps to array[int(y), int(x)]
         text = view._format_coordinates(50.0, 25.0)
         assert "x=50.0" in text
         assert "y=25.0" in text

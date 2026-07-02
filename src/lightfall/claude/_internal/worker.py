@@ -50,6 +50,8 @@ class PersistentClaudeWorker(QThread):
     query_completed = Signal()
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
+    context_usage = Signal(dict)  # ContextUsageResponse after each turn
+    session_id_changed = Signal(str)  # current session id from ResultMessage
     connected = Signal()
     # Partial streaming (content_block_* events from StreamEvent)
     partial_block_started = Signal(str, str)  # block_id, kind
@@ -316,8 +318,24 @@ class PersistentClaudeWorker(QThread):
                         "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
                         "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
                         "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
+                        "session_id": getattr(msg, "session_id", "") or "",
                     })
                     self.query_completed.emit()
+                    sid = getattr(msg, "session_id", "") or ""
+                    if sid:
+                        self.session_id_changed.emit(sid)
+                    # Refresh context-window usage for the cockpit. Best-effort:
+                    # we are on the worker loop between turns, so we can await the
+                    # SDK control call directly. Bounded so a wedged CLI can't
+                    # stall the worker; never let it break the turn.
+                    try:
+                        ctx = await asyncio.wait_for(
+                            self.client.get_context_usage(), timeout=2.0
+                        )
+                        if ctx:
+                            self.context_usage.emit(dict(ctx))
+                    except Exception as exc:  # noqa: BLE001 - best-effort telemetry
+                        logger.debug("[sdk-stream] get_context_usage failed: {}", exc)
                     exit_reason = "result_message"
                     break
                 else:
@@ -502,21 +520,20 @@ class PersistentClaudeWorker(QThread):
             return True
         return False
 
-    def _request_sdk_interrupt(self) -> None:
-        """Schedule ``client.interrupt()`` on the worker's event loop.
+    def _run_on_loop(self, coro_factory, label: str) -> None:
+        """Schedule an SDK client coroutine on the worker's event loop.
 
-        Safe to call from any thread. Best-effort: logs and swallows any
-        failure (loop closed, transport gone, control request timeout)
-        because the cancel flag and permission-cancel paths still ensure
-        we terminate eventually; the interrupt just makes it fast.
+        Safe to call from any thread. Best-effort: logs and swallows failures
+        (loop closed, transport gone, control-request timeout). ``coro_factory``
+        is a zero-arg callable returning the coroutine, so we only create the
+        coroutine once we know the loop is live (avoids 'coroutine was never
+        awaited' warnings when the loop is gone).
         """
         loop = self._loop
         if loop is None or loop.is_closed():
             return
         try:
-            future = asyncio.run_coroutine_threadsafe(
-                self.client.interrupt(), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
         except RuntimeError:
             # Loop stopped between the check above and the schedule call.
             return
@@ -524,11 +541,23 @@ class PersistentClaudeWorker(QThread):
         def _log_if_failed(fut: Any) -> None:
             exc = fut.exception()
             if exc is not None:
-                logger.warning(
-                    "Claude SDK interrupt() raised: {}", exc
-                )
+                logger.warning("Claude SDK {} raised: {}", label, exc)
 
         future.add_done_callback(_log_if_failed)
+
+    def _request_sdk_interrupt(self) -> None:
+        """Schedule ``client.interrupt()`` on the worker's event loop."""
+        self._run_on_loop(lambda: self.client.interrupt(), "interrupt()")
+
+    def request_set_model(self, model: str | None) -> None:
+        """Schedule ``client.set_model(model)`` on the worker's event loop.
+
+        Live model switch — no reconnect. Takes effect on the next turn.
+        """
+        if self._is_processing:
+            logger.debug("set_model ignored: a query is in flight")
+            return
+        self._run_on_loop(lambda: self.client.set_model(model), f"set_model({model})")
 
     @property
     def is_processing(self) -> bool:

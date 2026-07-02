@@ -10,13 +10,13 @@ the main thread, superseding any in-flight walk when ``start`` is called again.
 """
 from __future__ import annotations
 
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
-from lightfall.visualization.reductions import ReductionOperator
 from lightfall.utils.threads import QThreadFutureIterator
+from lightfall.visualization.reductions import ReductionOperator
 
 
 def iter_point_values(

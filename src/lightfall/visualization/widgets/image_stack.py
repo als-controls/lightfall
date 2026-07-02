@@ -21,6 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.utils.tiled_helpers import (
+    fetch_subcube,
+    resolve_field_client,
+    stream_data_keys,
+)
 from lightfall.visualization.base_visualization import BaseVisualization
 from lightfall.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
 from lightfall.visualization.widgets.lazy_image_view import LazyImageView
@@ -48,6 +53,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._data_keys: dict[str, Any] = {}
         self._image_client: Any | None = None
         self._frame_shape: tuple[int, ...] = ()
+        self._n_frames: int = 0
         self._timestamps: np.ndarray = np.empty(0)
         # Set when a frame fetch fails; makes _update_status render the error
         # instead of a normal "Frame N/total" label until the next load.
@@ -124,7 +130,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
     def can_handle(run: Any) -> int:
         """Score 75 if primary stream has a field with shape >= 2D."""
         try:
-            data_keys = run["primary"].metadata.get("data_keys", {})
+            data_keys = stream_data_keys(run["primary"])
         except Exception:
             return 0
         for dk in data_keys.values():
@@ -153,7 +159,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._stream = self._run[stream_name]
         t1 = _time.monotonic()
 
-        self._data_keys = self._stream.metadata.get("data_keys", {})
+        self._data_keys = stream_data_keys(self._stream)
         t2 = _time.monotonic()
         logger.debug("set_stream: access={:.1f}s metadata={:.1f}s", t1 - t0, t2 - t1)
 
@@ -197,31 +203,23 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._field_name = field_name
         self._frame_error = None
 
-        # 1. Resolve the ArrayClient
-        image_client = None
-        try:
-            image_client = self._stream[field_name]
-        except Exception:
-            pass
-
+        # 1. Resolve the ArrayClient (handles the V3 direct-child, V2-SQL
+        #    `data/` subnode, and external-asset layouts).
+        image_client = resolve_field_client(self._stream, field_name)
         if image_client is None:
-            try:
-                image_client = self._stream["external"][field_name]
-            except Exception:
-                logger.warning(
-                    "ImageStackVisualization: could not resolve ArrayClient "
-                    "for field '{}' in stream '{}'",
-                    field_name,
-                    self._stream_name,
-                )
-                return
+            logger.warning(
+                "ImageStackVisualization: could not resolve ArrayClient "
+                "for field '{}' in stream '{}'",
+                field_name,
+                self._stream_name,
+            )
+            return
 
         t1 = _time.monotonic()
         self._image_client = image_client
 
         # 2. Cache shape (single HTTP call) to avoid repeated round-trips
-        full_shape = image_client.shape  # e.g. (21, 1024, 1024)
-        n_frames = full_shape[0]
+        full_shape = tuple(image_client.shape)  # e.g. (21, 1024, 1024)
 
         # Prefer the frame shape from data_keys metadata — the stored
         # array may be flattened (e.g. (N, H*W) instead of (N, H, W))
@@ -232,6 +230,12 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._frame_shape = tuple(dk_shape[-2:])
         else:
             self._frame_shape = tuple(full_shape[-2:])
+
+        # Frame count + per-frame fetcher. 3-D (N, H, W) keeps the default
+        # LazyImageView fetch; 4-D (N_events, frames_per_event, H, W) flattens
+        # the leading axes into one scrubbable frame index (see below).
+        n_frames, fetch_func = self._build_frame_source(image_client, full_shape)
+        self._n_frames = n_frames
         t2 = _time.monotonic()
 
         # 3. Synthetic timestamps (reading events table is too expensive)
@@ -239,7 +243,9 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         self._timestamps = timestamps
 
         # 4. Hand off to LazyImageView
-        self._image_view.setArraySource(image_client, timestamps, self._frame_shape)
+        self._image_view.setArraySource(
+            image_client, timestamps, self._frame_shape, fetch_func=fetch_func
+        )
         t3 = _time.monotonic()
 
         if n_frames > 0:
@@ -264,12 +270,49 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._frame_shape,
         )
 
+    @staticmethod
+    def _count_frames(full_shape: tuple[int, ...]) -> int:
+        """Total scrubbable frames for an array of ``full_shape``.
+
+        3-D ``(N, H, W)`` (and flattened 2-D ``(N, H*W)``) → ``N``.
+        Higher-rank ``(..., H, W)`` → product of every axis except the
+        trailing two (e.g. 4-D ``(N_events, frames_per_event, H, W)``).
+        """
+        if not full_shape:
+            return 0
+        if len(full_shape) <= 3:
+            return int(full_shape[0])
+        return int(np.prod(full_shape[:-2]))
+
+    def _build_frame_source(
+        self, image_client: Any, full_shape: tuple[int, ...]
+    ) -> tuple[int, Any | None]:
+        """Return ``(n_frames, fetch_func)`` for the given array client.
+
+        For 3-D/flattened layouts we keep LazyImageView's default fetch
+        (``fetch_func=None``). For 4-D+ arrays we flatten the leading axes
+        into a single frame index and slice each frame server-side, so the
+        timeline scrubs the whole stack and each fetch returns a 2-D frame.
+        """
+        n_frames = self._count_frames(full_shape)
+        if len(full_shape) <= 3:
+            return n_frames, None
+
+        lead = full_shape[:-2]
+
+        def fetch_func(index: int) -> np.ndarray:
+            multi = np.unravel_index(int(index), lead)
+            slices = tuple(int(i) for i in multi) + (None, None)
+            return fetch_subcube(image_client, slices)
+
+        return n_frames, fetch_func
+
     def refresh(self) -> None:
         """Poll for new frames (live runs)."""
         if self._image_client is None:
             return
 
-        current_count = self._image_client.shape[0]
+        current_count = self._count_frames(tuple(self._image_client.shape))
         known_count = len(self._timestamps)
 
         if current_count <= known_count:
@@ -278,6 +321,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         # Extend synthetic timestamps (reading events table is too expensive)
         timestamps = np.arange(current_count, dtype=np.float64)
         self._timestamps = timestamps
+        self._n_frames = current_count
 
         self._image_view.updateFrameCount(current_count, timestamps)
 
@@ -318,7 +362,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
         not yet flushed, or a partial/corrupt asset. Show the user a clear
         status message; details are already logged at WARNING.
         """
-        total = self._image_client.shape[0] if self._image_client is not None else 0
+        total = self._n_frames if self._image_client is not None else 0
         self._frame_error = (
             f"⚠ Frame {index + 1}/{total} unavailable — could not be "
             f"loaded from Tiled (storage unreachable or data not ready)"
@@ -330,10 +374,7 @@ class ImageStackVisualization(ImageViewToolbarMixin, BaseVisualization):
             self._time_axis.setLabel(self._frame_error)
             return
 
-        if self._image_client is not None:
-            total = self._image_client.shape[0]
-        else:
-            total = 0
+        total = self._n_frames if self._image_client is not None else 0
 
         current_idx = self._image_view.currentIndex if self._image_view else 0
         current = current_idx + 1 if total > 0 else 0

@@ -21,8 +21,7 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from datetime import timedelta  # noqa: E402
-from typing import TYPE_CHECKING  # noqa: E402
+from typing import TYPE_CHECKING, Any  # noqa: E402
 
 
 def _configure_remote_display() -> None:
@@ -82,8 +81,7 @@ _configure_remote_display()
 
 from lightfall.acquire import get_engine  # noqa: E402
 from lightfall.acquire.plans import get_registry as get_plan_registry  # noqa: E402
-from lightfall.auth.providers import LocalAuthProvider  # noqa: E402
-from lightfall.auth.session import SessionManager  # noqa: E402
+from lightfall.auth.session import AuthState, SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
@@ -101,7 +99,9 @@ from lightfall.utils.sentry import init_sentry  # noqa: E402
 from lightfall.utils.sentry import set_user as sentry_set_user  # noqa: E402
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Callable
+
+    from lightfall.plugins import PluginLoader
 
 
 def _setup_auth(config: ConfigManager) -> None:
@@ -122,57 +122,52 @@ def _setup_auth(config: ConfigManager) -> None:
         provider_type = env_auth
         logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
 
-    if provider_type == "keycloak" and auth_config.provider.server_url:
-        # Use Keycloak if configured
+    from lightfall.auth.provider_registry import AuthProviderRegistry
+    from lightfall.auth.providers.builtin_plugins import (
+        register_builtin_auth_plugins,
+        seed_default_disabled_plugins,
+    )
+
+    # Apply ship-disabled-by-default plugin state once, before registration so
+    # the disabled ones (e.g. local) are honored here and by the plugin loader.
+    seed_default_disabled_plugins()
+
+    registry = AuthProviderRegistry.get_instance()
+    register_builtin_auth_plugins(
+        registry, config=config, include_pam=(sys.platform != "win32")
+    )
+
+    # Pick the startup default provider (used for token refresh before any
+    # dialog login). The dialog will call set_provider again on actual login.
+    default_name = provider_type if registry.has(provider_type) else "local"
+    # Keycloak needs a configured server_url; otherwise fall back to local
+    # (parity with the previous _setup_auth guard).
+    if default_name == "keycloak" and not auth_config.provider.server_url:
+        default_name = "local"
+    default_plugin = registry.get(default_name) or registry.get("local")
+
+    provider = None
+    if default_plugin is not None:
         try:
-            from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
-
-            kc_config = KeycloakConfig(
-                server_url=auth_config.provider.server_url,
-                realm=auth_config.provider.realm,
-                client_id=auth_config.provider.client_id,
-                client_secret=auth_config.provider.client_secret or None,
-                redirect_uri=auth_config.provider.redirect_uri,
+            provider = default_plugin.create_provider()
+            logger.info("Default auth provider: {}", default_plugin.name)
+        except Exception as exc:
+            logger.warning(
+                "Failed to create '{}' auth provider ({}); falling back to local",
+                default_plugin.name, exc,
             )
-            provider = KeycloakAuthProvider(kc_config)
-            logger.info("Using Keycloak authentication provider")
-        except ImportError:
-            logger.warning("aiohttp not available, falling back to local auth")
-            provider = LocalAuthProvider(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
-            )
-    elif provider_type == "pam":
-        try:
-            # Build group→role map from config if provided
-            from lightfall.auth.policy import Role as _Role
-            from lightfall.auth.providers.pam import PamAuthProvider, PamConfig
+    if provider is None:
+        # The chosen provider may be unregistered/disabled (e.g. local ships
+        # disabled by default and nothing else is configured). Use a direct
+        # LocalAuthProvider purely for pre-login session plumbing — this does
+        # not add a login button (those come from the registry).
+        from lightfall.auth.providers.local import LocalAuthProvider
+        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
 
-            group_role_map = {}
-            for group_name, role_str in auth_config.provider.pam_group_role_map.items():
-                try:
-                    group_role_map[group_name] = _Role(role_str)
-                except ValueError:
-                    logger.warning("Unknown role '{}' in pam_group_role_map", role_str)
-
-            pam_config = PamConfig(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes),
-            )
-            if group_role_map:
-                pam_config.group_role_map = group_role_map
-
-            provider = PamAuthProvider(pam_config)
-            logger.info("Using Linux system authentication provider")
-        except ImportError:
-            logger.warning("python-pam not available, falling back to local auth")
-            provider = LocalAuthProvider(
-                session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
-            )
-    else:
-        # Use local auth provider for development
         provider = LocalAuthProvider(
-            session_duration=timedelta(minutes=auth_config.session_timeout_minutes)
+            session_duration=LoginSettingsProvider.get_session_duration()
         )
-        logger.info("Using local development authentication provider")
+        logger.info("Default auth provider: local (direct fallback)")
 
     session_manager.set_provider(provider)
 
@@ -377,6 +372,42 @@ def _setup_ca_tunnel() -> None:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
 
+_UNSET = object()
+
+
+def _resolve_enabled_backends(get: Any) -> tuple[bool, bool, bool]:
+    """Decide which built-in device backends are enabled, from a prefs ``get``.
+
+    ``get`` is a ``prefs.get(key, default)``-style callable. Returns
+    ``(mock_enabled, bcs_enabled, happi_enabled)``.
+
+    Rules:
+    * Explicit ``device_{mock,bcs,happi}_enabled`` flags win verbatim.
+    * Absent flags fall back to legacy ``device_backend`` ("mock"/"bcs").
+    * The mock fallback fires ONLY for a fresh config where the user has
+      expressed no backend preference at all (no flags AND no legacy key) — so a
+      deliberate all-off (e.g. relying solely on a plugin-contributed backend
+      like the CMS happi backend) is honored instead of being forced back to
+      mock. This is the bug fix: previously an explicit all-false re-enabled mock.
+    """
+    legacy_backend = get("device_backend", _UNSET)
+    legacy_is_mock = legacy_backend == "mock" if legacy_backend is not _UNSET else False
+    legacy_is_bcs = legacy_backend == "bcs" if legacy_backend is not _UNSET else False
+    mock_enabled = bool(get("device_mock_enabled", legacy_is_mock))
+    bcs_enabled = bool(get("device_bcs_enabled", legacy_is_bcs))
+    happi_enabled = bool(get("device_happi_enabled", False))
+
+    no_preference = (
+        legacy_backend is _UNSET
+        and get("device_mock_enabled", _UNSET) is _UNSET
+        and get("device_bcs_enabled", _UNSET) is _UNSET
+        and get("device_happi_enabled", _UNSET) is _UNSET
+    )
+    if no_preference and not any([mock_enabled, bcs_enabled, happi_enabled]):
+        mock_enabled = True
+    return mock_enabled, bcs_enabled, happi_enabled
+
+
 def _setup_devices() -> None:
     """Setup the device catalog based on user preferences.
 
@@ -387,15 +418,7 @@ def _setup_devices() -> None:
     catalog = DeviceCatalog.get_instance()
     prefs = PreferencesManager.get_instance()
 
-    # Check which backends are enabled (with legacy compat)
-    legacy_backend = prefs.get("device_backend", "mock")
-    mock_enabled = prefs.get("device_mock_enabled", legacy_backend == "mock")
-    bcs_enabled = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
-    happi_enabled = prefs.get("device_happi_enabled", False)
-
-    # If nothing is explicitly enabled, fall back to mock
-    if not any([mock_enabled, bcs_enabled, happi_enabled]):
-        mock_enabled = True
+    mock_enabled, bcs_enabled, happi_enabled = _resolve_enabled_backends(prefs.get)
 
     if mock_enabled:
         include_noisy = prefs.get("device_mock_include_noisy", True)
@@ -440,9 +463,8 @@ def _setup_devices() -> None:
         )
 
     if catalog.connect():
-        device_count = len(catalog.get_all_devices())
         backends_str = ", ".join(catalog.backends.keys())
-        logger.info("Device catalog initialized: {} devices from [{}]", device_count, backends_str)
+        logger.info("Device catalog loading from [{}] (devices connect in the background)", backends_str)
     else:
         logger.error("Failed to connect device catalog")
 
@@ -538,6 +560,57 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     services.register(TiledService, TiledService.get_instance)
 
 
+def _setup_monitor(app, window) -> None:
+    """Start the proactive monitor service (subscribes to the engine, surfaces
+    observations to toasts + the Monitor panel + the Claude hand-off)."""
+    from lightfall.monitor.service import MonitorService
+    svc = MonitorService.get_instance()
+    svc.set_window(window)
+    svc.start()
+    try:
+        app.services.register(MonitorService, MonitorService.get_instance)
+    except Exception:  # noqa: BLE001 — service registry is best-effort
+        logger.debug("could not register MonitorService with app.services")
+
+
+def _register_builtin_plugin_types(loader: PluginLoader) -> None:
+    """Register every built-in plugin type with the loader.
+
+    Manifest entries whose ``type_name`` is not registered here are silently
+    skipped by ``PluginLoader._process_manifest``, so this list is the single
+    source of truth for which plugin types Lightfall understands. Theme must be
+    registered first so it can load before appearance settings.
+
+    Args:
+        loader: The plugin loader to configure.
+    """
+    from lightfall.monitor.monitor_plugin import MonitorPlugin
+    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
+    from lightfall.plugins.controller_plugin import ControllerPlugin
+    from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
+    from lightfall.plugins.engine_plugin import EnginePlugin
+    from lightfall.plugins.panel_plugin import PanelPlugin
+    from lightfall.plugins.plan_plugin import PlanPlugin
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
+    from lightfall.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.visualization_plugin import VisualizationPlugin
+
+    loader.register_plugin_type("theme", ThemePlugin)
+    loader.register_plugin_type("settings", SettingsPlugin)
+    loader.register_plugin_type("engine", EnginePlugin)
+    loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("monitor", MonitorPlugin)
+    loader.register_plugin_type("statusbar", StatusBarPlugin)
+    loader.register_plugin_type("controller", ControllerPlugin)
+    loader.register_plugin_type("panel", PanelPlugin)
+    loader.register_plugin_type("device_backend", DeviceBackendPlugin)
+    loader.register_plugin_type("plan", PlanPlugin)
+    loader.register_plugin_type("visualization", VisualizationPlugin)
+    loader.register_plugin_type("auth_provider", AuthProviderPlugin)
+
+
 def _setup_plugins(app: LFApplication) -> None:
     """Setup the plugin system and load preload plugins.
 
@@ -548,13 +621,8 @@ def _setup_plugins(app: LFApplication) -> None:
     Args:
         app: The Lightfall application instance.
     """
-    from lightfall.plugins import AgentPlugin, PluginLoader, PluginRegistry
+    from lightfall.plugins import PluginLoader, PluginRegistry
     from lightfall.plugins.builtin_manifest import builtin_manifest
-    from lightfall.plugins.controller_plugin import ControllerPlugin
-    from lightfall.plugins.engine_plugin import EnginePlugin
-    from lightfall.plugins.panel_plugin import PanelPlugin
-    from lightfall.plugins.settings_plugin import SettingsPlugin
-    from lightfall.plugins.statusbar_plugin import StatusBarPlugin
 
     services = app.services
 
@@ -563,15 +631,7 @@ def _setup_plugins(app: LFApplication) -> None:
     loader = PluginLoader(registry)
 
     # Register plugin types (theme must be first to load before appearance settings)
-    from lightfall.plugins.theme_plugin import ThemePlugin
-
-    loader.register_plugin_type("theme", ThemePlugin)
-    loader.register_plugin_type("settings", SettingsPlugin)
-    loader.register_plugin_type("engine", EnginePlugin)
-    loader.register_plugin_type("agent", AgentPlugin)
-    loader.register_plugin_type("statusbar", StatusBarPlugin)
-    loader.register_plugin_type("controller", ControllerPlugin)
-    loader.register_plugin_type("panel", PanelPlugin)
+    _register_builtin_plugin_types(loader)
 
     # Load built-in manifest first
     loader.load_manifest(builtin_manifest)
@@ -593,10 +653,65 @@ def _setup_plugins(app: LFApplication) -> None:
     services.register_instance(PluginRegistry, registry)
     services.register_instance(PluginLoader, loader)
 
-    # Start background loading for remaining plugins
-    loader.start_loading()
+    # Initialize the main-thread invoker now, at startup. It used to be set up
+    # as a side effect of loader.start_loading() running here; deferring the
+    # wave to post-login (below) moved that init too late, so anything using
+    # invoke_in_main_thread() before/during login (e.g. an auth provider
+    # marshaling work to the GUI thread) silently dropped its callback. Set it
+    # up explicitly so cross-thread marshaling works from startup onward.
+    from lightfall.utils.threads import initialize_main_thread_invoker
+
+    initialize_main_thread_invoker()
+
+    # NOTE: the background plugin wave (loader.start_loading) is intentionally
+    # NOT started here. Only login-window plugins (auth providers, theme) load
+    # before login via load_preload_plugins() above; everything else loads after
+    # authentication. main() arms the wave via _arm_post_login_plugin_load().
+    # See docs/superpowers/specs/2026-06-20-post-login-plugin-loading-design.md.
 
     logger.debug("Plugin system initialized")
+
+
+def _arm_post_login_plugin_load(
+    loader: PluginLoader, session_manager: SessionManager
+) -> Callable[[], None]:
+    """Arm a one-shot that starts the background plugin wave after login.
+
+    ``loader.start_loading`` is deferred from startup to the first
+    ``AUTHENTICATED`` transition, so non-login plugins (and any I/O they do on
+    load/first render) never run while the modal login screen is up.
+
+    Returns a ``fire()`` callable for the caller to invoke once the startup
+    login dialog has closed: guest / cancelled outcomes never reach
+    ``AUTHENTICATED`` but the app still runs (anonymously), so it must still
+    load the post-login wave. ``fire()`` is idempotent — whichever of (the
+    ``AUTHENTICATED`` transition, the already-authenticated guard, the caller's
+    ``fire()``) happens first starts the wave; the rest are no-ops.
+
+    See docs/superpowers/specs/2026-06-20-post-login-plugin-loading-design.md.
+    """
+    state = {"fired": False}
+
+    def fire() -> None:
+        if state["fired"]:
+            return
+        state["fired"] = True
+        logger.info("Starting post-login plugin wave")
+        loader.start_loading()
+
+    def _on_state_changed(new_state: AuthState, _old_state: AuthState) -> None:
+        if new_state == AuthState.AUTHENTICATED:
+            fire()
+
+    session_manager.state_changed.connect(_on_state_changed)
+
+    # Defensive: a cached token / auto-login / NCS_AUTH dev override may already
+    # be authenticated before we arm — fire now so we don't wait for a
+    # transition that won't come.
+    if session_manager.is_authenticated:
+        fire()
+
+    return fire
 
 
 def _setup_user_plugins(app: LFApplication) -> None:
@@ -853,8 +968,13 @@ def main() -> int:
     engine = get_engine()
     window.set_engine(engine)
 
-    # Setup default panel layout
-    window.setup_default_layout()
+    # Start the proactive monitor service (subscribes to engine, surfaces observations)
+    _setup_monitor(app, window)
+
+    # NOTE: the default panel layout is built from the PanelRegistry, which is
+    # populated by the post-login plugin wave. It is therefore driven from the
+    # main window's loading_complete handler (see _on_plugin_loading_complete),
+    # not here pre-login.
 
     # Register built-in tutorials
     from lightfall.ui.tutorial import register_builtin_tutorials
@@ -866,8 +986,39 @@ def main() -> int:
     # Setup session expiry handler
     _setup_session_expiry_handler(window)
 
+    # Wire the post-login plugin wave. start_loading() is deferred (see
+    # _setup_plugins) so only login-window plugins load before login. The main
+    # window builds its default layout and restores saved state off
+    # loading_complete; connect that BEFORE arming so an already-authenticated
+    # fast start can't emit loading_complete before the slot is connected.
+    from lightfall.plugins import PluginLoader
+
+    session_manager = SessionManager.get_instance()
+    loader = app.services.get(PluginLoader, None)
+    if loader is not None:
+        loader.loading_complete.connect(window._on_plugin_loading_complete)
+        fire_plugin_wave = _arm_post_login_plugin_load(loader, session_manager)
+    else:
+        logger.warning(
+            "PluginLoader service missing; post-login plugin wave not armed"
+        )
+
+        # No loader means no wave and no loading_complete to drive the layout.
+        # Build the (empty) default layout directly so the window is still
+        # usable rather than blank. Mirrors the pre-change unconditional
+        # setup_default_layout()/proactive-init path.
+        window._on_plugin_loading_complete(0, 0)
+
+        def fire_plugin_wave() -> None:
+            return None
+
     # Show login dialog on startup
     _show_startup_login(window)
+
+    # Guest / cancelled login never reaches AUTHENTICATED, but the app still
+    # runs anonymously — start the wave now that the login screen is dismissed
+    # (no-op if the AUTHENTICATED transition already started it).
+    fire_plugin_wave()
 
     # Register cleanup on exit — order matters:
     # 1. Stop CA tunnel (kills relay sockets, stops new data arriving)

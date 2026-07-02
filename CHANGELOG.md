@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fix transposed (x/y-swapped) detector images. pyqtgraph's image axis order is
+  now set globally to `row-major` at startup, matching the numpy / Tiled /
+  area-detector `(row, col) = (y, x)` convention. The Image Stack, live camera,
+  heatmap, scan-map, adaptive heatmap, and export views no longer apply
+  scattered per-widget `col-major` / `.T` transposes.
+
 ## 0.1.1 (2026-06-04)
 
 First release published to PyPI (`pip install lightfall`).

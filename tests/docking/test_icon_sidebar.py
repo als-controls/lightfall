@@ -29,6 +29,42 @@ class TestOrderedPanelIds:
         assert sidebar.ordered_panel_ids() == ["top.a", "top.b"]
 
 
+class TestIdempotentButtons:
+    """One panel_id → one sidebar button, no matter how many add/insert calls.
+
+    Regression: deferred-button setup and add_panel-on-open both ask the
+    sidebar to add a button for the same panel_id, producing two visible
+    icons (the layout held two widgets while _buttons tracked only the last).
+    """
+
+    def test_add_panel_button_twice_yields_one_widget(self, qtbot):
+        sidebar = IconStripSidebar()
+        qtbot.addWidget(sidebar)
+        first = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+        second = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+        # Layout must hold exactly one widget for this panel_id.
+        assert sidebar.ordered_panel_ids().count("top.a") == 1
+        # Idempotent: the same button is returned, not a new orphan.
+        assert second is first
+
+    def test_insert_sorted_after_add_yields_one_widget(self, qtbot):
+        sidebar = IconStripSidebar()
+        qtbot.addWidget(sidebar)
+        first = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+        second = sidebar.insert_panel_button_sorted(
+            "top.a", "mdi6.alpha-a", "A", sidebar_order=0, section="top"
+        )
+        assert sidebar.ordered_panel_ids().count("top.a") == 1
+        assert second is first
+
+    def test_second_call_updates_tooltip(self, qtbot):
+        sidebar = IconStripSidebar()
+        qtbot.addWidget(sidebar)
+        button = sidebar.add_panel_button("top.a", "mdi6.alpha-a", "A")
+        sidebar.add_panel_button("top.a", "mdi6.alpha-a", "Renamed")
+        assert button.toolTip() == "Renamed"
+
+
 class TestContextMenu:
     def test_remove_signal_emitted(self, qtbot, monkeypatch):
         from PySide6.QtCore import QPoint

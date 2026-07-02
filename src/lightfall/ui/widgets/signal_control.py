@@ -53,6 +53,15 @@ def is_signal_item(item: DeviceTreeItem) -> bool:
 
     # Accept device nodes with signal category
     if item.node_type == NodeType.DEVICE:
+        # Genuine area detectors (cameras) are handled by CameraControlWidget,
+        # not here. The DETECTOR category is shared by scalar point detectors
+        # and area detectors, so without this guard both widgets would claim
+        # an area detector and priority alone would decide the default.
+        from lightfall.ui.widgets.camera.base import is_area_detector
+
+        if is_area_detector(item):
+            return False
+
         if item.device_info and item.device_info.category == DeviceCategory.DETECTOR:
             return True
 

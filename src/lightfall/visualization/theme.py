@@ -147,6 +147,16 @@ def apply_pyqtgraph_theme(is_dark: bool = True) -> None:
         # Enable antialiasing for smoother plots
         pg.setConfigOption("antialias", True)
 
+        # Image arrays are indexed (row, col) = (y, x) everywhere in Lightfall
+        # (numpy / Tiled / area-detector convention). Tell pyqtgraph to match so
+        # ImageItems map array axis-0 -> y and axis-1 -> x instead of pyqtgraph's
+        # legacy col-major default (which transposes the display). This is the
+        # single global source of truth; individual image widgets no longer set
+        # axisOrder or pre-transpose their frames. Must be set before any
+        # ImageItem is constructed — this runs at startup (main window) before
+        # any image panel loads.
+        pg.setConfigOption("imageAxisOrder", "row-major")
+
         logger.debug("Applied PyQtGraph theme (dark={})", is_dark)
     except ImportError:
         logger.warning("PyQtGraph not available for theming")

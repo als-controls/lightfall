@@ -82,6 +82,11 @@ class BaseEngine(QObject):
     sigReady = Signal()
     sigStateChanged = Signal(str)
     sigQueueChanged = Signal()  # Emitted when queue items are added/removed/reordered
+    # Emitted when a specific submitted procedure terminates, carrying its
+    # submit() id and the error that ended it (None on success/abort). Unlike
+    # the broad sigFinish/sigAbort/sigException, this lets a caller correlate
+    # completion with the exact procedure it submitted.
+    sigProcedureFinished = Signal(str, object)  # (procedure_id, error_or_None)
 
     def __init__(
         self, name: str = "engine", *, toast_notifications: bool = True, **kwargs: Any
@@ -235,16 +240,20 @@ class BaseEngine(QObject):
             return str(procedure.func.__name__)
         return "procedure"
 
-    def __call__(self, *args: Any, **kwargs: Any) -> None:
+    def __call__(self, *args: Any, **kwargs: Any) -> str | None:
         """Convenience method for submit().
 
         If a single positional argument is provided, it's used as the procedure.
         Otherwise, all args are bundled as the procedure.
+
+        Returns:
+            The submitted procedure's id (as from :py:meth:`submit`), or None
+            if a pre-submit hook cancelled it.
         """
         skip_pre_submit = kwargs.pop("skip_pre_submit", False)
         if args:
             procedure = args[0] if len(args) == 1 else args
-            self.submit(procedure, skip_pre_submit=skip_pre_submit, **kwargs)
+            return self.submit(procedure, skip_pre_submit=skip_pre_submit, **kwargs)
         else:
             raise ValueError("No procedure provided")
 

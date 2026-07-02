@@ -428,6 +428,18 @@ class DockingManager(QObject):
         if panel_id not in self._deferred_panels:
             return None
 
+        # Serialize against the background import-warmup before importing this
+        # panel's module chain on the GUI thread. The warmup thread imports a
+        # panel's heavy deps (e.g. lightfall.claude, which pulls in pygments)
+        # concurrently; a GUI-thread panel import that shares any submodule
+        # (the IPython console panel imports pygments/traitlets/jedi too) can
+        # deadlock against it on Python's per-module import lock. Observed on
+        # ws5 as a hard post-login hang (MainThread stuck in importlib.acquire
+        # under IPythonPanel._setup_ui while the warmup thread imported
+        # lightfall.claude). Joining here makes the warmed modules cached before
+        # we import, so the two never import the same module concurrently.
+        self._await_import_warmup()
+
         area = self._deferred_panels.pop(panel_id)
         self._deferred_metadata.pop(panel_id, None)
 
@@ -795,6 +807,35 @@ class DockingManager(QObject):
         )
         self._warmup_thread.start()
         logger.debug("Started import warmup for {}", modules)
+
+    def _await_import_warmup(self) -> None:
+        """Block until the background import-warmup thread has finished.
+
+        Called before importing a panel's module chain on the GUI thread, so the
+        warmed modules are already in ``sys.modules`` and the two threads never
+        import the same submodule concurrently (which can deadlock on Python's
+        per-module import lock). Bounded so a stuck warmup can't hang startup;
+        the warmup is a best-effort optimization, so timing out just falls back
+        to importing inline. Idempotent once joined.
+        """
+        thread = self._warmup_thread
+        if thread is None:
+            return
+        try:
+            if thread.isRunning():
+                # 60s is generous even for cold NFS imports; the warmed module
+                # (e.g. lightfall.claude) is the same one this panel would
+                # import inline anyway, so this isn't extra work, just ordering.
+                if not thread.wait(60_000):
+                    logger.warning(
+                        "Import warmup did not finish within 60s; "
+                        "proceeding with inline panel import"
+                    )
+        except Exception:
+            logger.debug("Error awaiting import warmup", exc_info=True)
+        finally:
+            # One join suffices; drop the handle so later panels skip the wait.
+            self._warmup_thread = None
 
     def _proactive_init_next(self) -> None:
         """Instantiate the next queued panel, then yield to the event loop."""

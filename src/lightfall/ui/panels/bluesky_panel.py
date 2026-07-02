@@ -295,6 +295,8 @@ class BlueskyPanel(BasePanel):
             self.set_engine(engine)
             # Register sample metadata dialog as pre-submit hook
             engine.register_pre_submit(_sample_metadata_pre_submit)
+            from lightfall.monitor.context_provider import experiment_context_pre_submit
+            engine.register_pre_submit(experiment_context_pre_submit)
         except Exception as e:
             logger.debug("Could not auto-configure Engine: {}", e)
 

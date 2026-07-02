@@ -60,11 +60,19 @@ GLOBAL_ONLY_PREFS = {
     "claude_model",
     "claude_max_turns",
     "claude_permission_mode",
+    "claude_effort",
+    "claude_auto_restore",
+    "claude_last_session_id",
     # Plugin settings
     "disabled_plugins",
     # Tool/skill settings (AgentPlugin overrides)
     "disabled_tool_plugins",
     "forced_enabled_tool_plugins",
+    # Monitor settings (MonitorPlugin overrides + advisor + tick)
+    "monitor_advisor_enabled",
+    "monitor_tick_interval",
+    "disabled_monitor_plugins",
+    "forced_enabled_monitor_plugins",
     # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
     "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning

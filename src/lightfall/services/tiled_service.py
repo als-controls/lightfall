@@ -120,6 +120,9 @@ class TiledService(QObject):
         self._config = TiledConfig()
         self._state = TiledConnectionState.DISCONNECTED
         self._client: Any = None
+        # When True, an external client was adopted (adopt_client); auto-connects
+        # (e.g. the Keycloak auth handler) must not clobber it.
+        self._adopted: bool = False
         self._writer: Any = None
         self._subscription_token: int | None = None
         self._error_message: str = ""
@@ -169,6 +172,22 @@ class TiledService(QObject):
     def client(self) -> Any:
         """The connected Tiled root client, or ``None`` if not connected."""
         return self._client
+
+    @property
+    def server_version(self) -> str | None:
+        """Tiled ``library_version`` reported by the connected server, or ``None``.
+
+        Used to detect a client/server version skew, which silently breaks
+        writes (external-array shapes get stored as 0, so images 500 on read).
+        Degrades to ``None`` if unavailable rather than raising.
+        """
+        client = self._client
+        if client is None:
+            return None
+        try:
+            return client.context.server_info.library_version
+        except Exception:
+            return None
 
     @property
     def error_message(self) -> str:
@@ -275,6 +294,32 @@ class TiledService(QObject):
             logger.error("Failed to connect to Tiled: {}", e)
             return False
 
+    def adopt_client(self, client: Any, url: str = "") -> None:
+        """Adopt an externally-created, already-authenticated Tiled client.
+
+        Used when an NSLS-II profile-collection run has already produced a
+        Duo-authenticated, node-scoped reading client (e.g. ``mig`` →
+        ``from_uri(...)['cms/migration']``). Reading through that client reuses
+        the warmed token and inherits node scoping, so this skips ``from_uri``,
+        auth-mode handling, and proxy patching entirely.
+
+        Args:
+            client: A ready Tiled client (already authenticated and scoped).
+            url: Optional server URL, recorded for display/health only.
+        """
+        if self._state in (TiledConnectionState.CONNECTED, TiledConnectionState.CONNECTING):
+            self.disconnect()
+
+        self._config = TiledConfig(
+            url=url, api_key=None, enabled=True, auth_mode=TiledAuthMode.NONE
+        )
+        self._client = client
+        self._adopted = True
+        self._set_state(TiledConnectionState.CONNECTED, "Adopted external Tiled client")
+        # Reuse the existing periodic health check against the adopted client.
+        self._health_timer.start(self.HEALTH_CHECK_INTERVAL_MS)
+        logger.info("Tiled adopted external client (url={})", url or "<unspecified>")
+
     def connect_async(self) -> None:
         """Connect to the Tiled server asynchronously.
 
@@ -287,6 +332,10 @@ class TiledService(QObject):
         """
         if not self._config.enabled:
             logger.debug("Tiled not enabled, skipping connection")
+            return
+
+        if self._adopted:
+            logger.debug("Skipping auto-connect: an external Tiled client was adopted")
             return
 
         if not self._config.url:
@@ -568,6 +617,17 @@ class TiledService(QObject):
         if client is None:
             return
 
+        # An external client was adopted while this (auto) connect was in flight
+        # -- e.g. the Keycloak auth handler started a connect to the configured
+        # URL, which only completed AFTER the CMS bootstrap adopted its
+        # write-scoped client. Keep the adopted client; don't clobber it.
+        if self._adopted:
+            logger.info(
+                "Ignoring auto-connect result: external Tiled client adopted "
+                "(keeping adopted client)"
+            )
+            return
+
         self._client = client
 
         # Subscribe writer to engine (must be done in main thread)
@@ -635,6 +695,7 @@ class TiledService(QObject):
 
         # Clear client
         self._client = None
+        self._adopted = False
 
         self._set_state(TiledConnectionState.DISCONNECTED, "Disconnected from Tiled server")
         logger.info("Disconnected from Tiled server")
@@ -705,7 +766,7 @@ class TiledService(QObject):
 
             engine = get_engine()
 
-            raw_writer = TiledWriter(self._client, batch_size=1)
+            raw_writer = TiledWriter(self._client, batch_size=1, max_array_size=0)
 
             # Wrap in ThreadedTiledWriter to prevent blocking
             self._writer = ThreadedTiledWriter(

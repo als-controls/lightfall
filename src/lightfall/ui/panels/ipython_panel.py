@@ -27,6 +27,46 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent
 
 
+_PROVISIONAL_COMPLETER_PATCHED = False
+
+
+def _suppress_provisional_completer_warning() -> None:
+    """Stop IPython's provisional-completer guardrail from crashing Tab completion.
+
+    ``IPython.core.completer`` installs a process-wide
+    ``warnings.filterwarnings("error", category=ProvisionalCompleterWarning)``
+    filter at import time (completer.py:306). It is a guardrail meant to force
+    *callers* of the unstable completion API to opt in via the
+    ``provisionalcompleter()`` context manager.
+
+    With our in-process kernel, Tab completion runs synchronously on the GUI
+    thread, and ipykernel consumes the completion generator lazily -- *outside*
+    that suppression context -- so the ``ProvisionalCompleterWarning`` leaks and
+    is raised as an exception. Colliding with qtconsole's ``QSyntaxHighlighter``
+    re-entrancy under PySide6, this escalates into a hard interpreter abort
+    (``_PyThreadState_Attach: non-NULL old thread state``).
+
+    As consumers of IPython (not authors of the provisional API) the guardrail
+    does not apply to us, so we prepend an ``"ignore"`` filter for this category,
+    which takes precedence over IPython's module-level ``"error"`` filter. The
+    install is process-global and idempotent.
+    """
+    global _PROVISIONAL_COMPLETER_PATCHED
+    if _PROVISIONAL_COMPLETER_PATCHED:
+        return
+    import warnings
+
+    try:
+        from IPython.core.completer import ProvisionalCompleterWarning
+    except Exception as exc:  # pragma: no cover - IPython ships with qtconsole
+        logger.debug("Could not suppress ProvisionalCompleterWarning: {}", exc)
+        return
+
+    warnings.filterwarnings("ignore", category=ProvisionalCompleterWarning)
+    _PROVISIONAL_COMPLETER_PATCHED = True
+    logger.debug("Suppressed IPython ProvisionalCompleterWarning escalation")
+
+
 class WidgetTargetingFilter(QObject):
     """Event filter for capturing widget clicks during targeting mode.
 
@@ -244,6 +284,10 @@ class IPythonPanel(BasePanel):
         self._kernel_manager = QtInProcessKernelManager()
         self._kernel_manager.start_kernel()
 
+        # Neutralize IPython's provisional-completer guardrail before any Tab
+        # completion can run on the GUI thread (otherwise it can hard-crash).
+        _suppress_provisional_completer_warning()
+
         # Get kernel and set up namespace
         kernel = self._kernel_manager.kernel
         self._setup_initial_namespace(kernel)
@@ -268,6 +312,26 @@ class IPythonPanel(BasePanel):
         self._targeting_filter.targeting_cancelled.connect(self._on_targeting_cancelled)
 
         logger.info("IPython console initialized")
+
+    def ensure_kernel(self) -> bool:
+        """Ensure the in-process IPython kernel exists.
+
+        Initializes the kernel (and Jupyter widget) if it has not been
+        created yet. Returns True if a kernel is available afterwards.
+        """
+        if self._kernel_manager is not None:
+            return True
+        if not self._qtconsole_available:
+            return False
+        self._setup_jupyter_widget()
+        return self._kernel_manager is not None
+
+    @property
+    def shell(self):
+        """The live IPython InteractiveShell, or None if no kernel."""
+        if self._kernel_manager is None:
+            return None
+        return self._kernel_manager.kernel.shell
 
     def _apply_console_style(self) -> None:
         """Apply syntax style to the Jupyter widget based on the current theme.
@@ -456,6 +520,9 @@ class IPythonPanel(BasePanel):
         # Create fresh kernel manager and start kernel
         self._kernel_manager = QtInProcessKernelManager()
         self._kernel_manager.start_kernel()
+
+        # Re-assert completer warning suppression for the fresh kernel.
+        _suppress_provisional_completer_warning()
 
         # Setup namespace on fresh kernel
         kernel = self._kernel_manager.kernel

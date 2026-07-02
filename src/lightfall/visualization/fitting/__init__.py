@@ -12,6 +12,7 @@ from lightfall.visualization.fitting.fitters import (
     LinearFitter,
     LorentzianFitter,
     PolynomialFitter,
+    StepFitter,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "GaussianFitter",
     "LorentzianFitter",
     "PolynomialFitter",
+    "StepFitter",
 ]
