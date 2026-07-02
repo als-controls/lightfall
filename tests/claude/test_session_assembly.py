@@ -132,3 +132,52 @@ def test_assemble_mcp_servers_skips_tool_less_plugins(tmp_path, monkeypatch):
     assert "prompt_only" not in servers
     assert servers["tb"] == "stub-tb"
     assert any(t.startswith("mcp__tb__") for t in allowed)
+
+
+def test_external_servers_merged_with_wildcard_allowed_tools():
+    from lightfall.claude._session_assembly import assemble_mcp_servers
+
+    class _External(AgentPlugin):
+        @property
+        def name(self): return "osprey"
+        @property
+        def description(self): return "ext"
+        def create_external_servers(self):
+            return {"controls": {"type": "stdio", "command": "python", "args": ["-m", "x"]}}
+
+    servers, allowed = assemble_mcp_servers([_External()])
+    assert servers["controls"] == {"type": "stdio", "command": "python", "args": ["-m", "x"]}
+    assert "mcp__controls__*" in allowed
+
+
+def test_external_server_name_collision_is_skipped(monkeypatch):
+    from lightfall.claude._session_assembly import assemble_mcp_servers
+    from claude_agent_sdk import tool
+
+    monkeypatch.setattr(
+        "lightfall.claude._session_assembly.create_sdk_mcp_server",
+        lambda name, version, tools: f"stub-{name}",
+    )
+
+    @tool(name="t", description="x", input_schema={"type": "object", "properties": {}})
+    async def t(args): return {"content": [{"type": "text", "text": "ok"}]}
+
+    class _InProc(AgentPlugin):
+        @property
+        def name(self): return "controls"
+        @property
+        def description(self): return "in-process controls"
+        def create_tools(self): return [t]
+
+    class _Ext(AgentPlugin):
+        @property
+        def name(self): return "ext"
+        @property
+        def description(self): return "ext"
+        def create_external_servers(self):
+            return {"controls": {"type": "stdio", "command": "python"}}
+
+    servers, allowed = assemble_mcp_servers([_InProc(), _Ext()])
+    # In-process server registered first wins; external one is skipped.
+    assert servers["controls"] == "stub-controls"
+    assert "mcp__controls__*" not in allowed
