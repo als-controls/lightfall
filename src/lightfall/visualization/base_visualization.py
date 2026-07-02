@@ -72,3 +72,12 @@ class BaseVisualization(QWidget):
     @abstractmethod
     def refresh(self) -> None:
         """Poll for new data. No-op for completed runs."""
+
+    def on_stream_update(self, update: Any) -> None:
+        """Apply a Tiled streaming push. Default: re-read via refresh().
+
+        The VisualizationPanel calls this on the GUI thread for each Tiled
+        stream push affecting this viz's data. Subclasses may override to
+        apply the inline payload directly (avoiding a full re-read).
+        """
+        self.refresh()

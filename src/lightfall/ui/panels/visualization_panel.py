@@ -28,6 +28,7 @@ from lightfall.ui.theater.proxy import TheaterProxy
 from lightfall.ui.theme import scaled_px
 from lightfall.visualization.base_visualization import BaseVisualization
 from lightfall.visualization.fitting.panel import FitPanel
+from lightfall.visualization.stream_bridge import StreamBridge
 
 
 def _widget_classes() -> list[type[BaseVisualization]]:
@@ -123,7 +124,11 @@ class VisualizationPanel(BasePanel):
         self._entry: Any | None = None
         self._current_widget: BaseVisualization | None = None
         self._current_proxy: TheaterProxy | None = None
-        self._refresh_timer: QTimer | None = None
+        # Single StreamBridge for the active run/viz. Created lazily; its
+        # update_received signal is connected ONCE to the stable routing slot
+        # _on_stream_update (which dispatches to whatever _current_widget is at
+        # delivery time, so a stale connection can never reach an old viz).
+        self._bridge: StreamBridge | None = None
         # Live-run follow state
         self._follow_live: bool = True       # auto-switch to the executing run
         self._live_run_uid: str | None = None  # uid of the run currently running
@@ -277,7 +282,11 @@ class VisualizationPanel(BasePanel):
         import time as _time
         t0 = _time.monotonic()
 
-        self._stop_refresh()
+        # Switching runs: drop any live subscription before we re-point at the
+        # new entry. (_set_current_widget also disconnects before the swap, but
+        # do it here too so the OLD node's stream stops immediately.)
+        if self._bridge is not None:
+            self._bridge.disconnect()
         self._entry = entry
 
         classes = _widget_classes()
@@ -361,15 +370,22 @@ class VisualizationPanel(BasePanel):
 
         self.visualization_changed.emit(cls.viz_name)
 
-        # Live runs (no stop doc) poll for new data, but only while the panel
-        # is active — see _update_refresh.
+        # Live runs (no stop doc) receive Tiled streaming pushes, but only
+        # while the panel is active — see _update_streaming.
         self._is_live = entry.metadata.get("stop") is None
-        self._update_refresh()
+        self._update_streaming()
 
         logger.info("Opened run with visualization '{}'", cls.viz_display_name)
 
     def _set_current_widget(self, widget: BaseVisualization) -> None:
         """Swap the active visualization widget."""
+        # Tear down the live subscription BEFORE the old widget/proxy is hidden
+        # or removed (theater-teardown order): no push can land on a widget that
+        # is mid-removal. The routing slot also guards on _current_widget, but
+        # stopping the sub here is the clean ordering.
+        if self._bridge is not None:
+            self._bridge.disconnect()
+
         # Remove old widget and proxy (hide, don't delete — avoids pyqtgraph segfaults)
         if self._current_proxy is not None:
             if (
@@ -421,12 +437,16 @@ class VisualizationPanel(BasePanel):
             return
         self._current_widget.set_stream(stream_name)
         self._populate_field_combo()
+        # Follow the newly displayed node with the live subscription.
+        self._update_streaming()
 
     def _on_field_changed(self, field_name: str) -> None:
         """User changed the field combo."""
         if not field_name or self._current_widget is None:
             return
         self._current_widget.set_field(field_name)
+        # Re-point the subscription at the new field's node mid-run.
+        self._update_streaming()
 
     def _on_viz_selection_changed(self, index: int) -> None:
         """User changed the visualization type combo."""
@@ -450,7 +470,8 @@ class VisualizationPanel(BasePanel):
         if best_cls is None:
             return
 
-        self._stop_refresh()
+        # _activate_widget -> _set_current_widget disconnects the old
+        # subscription, and _update_streaming re-subscribes for the new viz.
         self._activate_widget(best_cls, self._entry)
 
     # ---- Live-run follow --------------------------------------------------
@@ -507,66 +528,172 @@ class VisualizationPanel(BasePanel):
         self._sync_retries = 0
         self.open_run(entry, from_user=False)
 
-    # ---- Refresh timer (live runs) ---------------------------------------
+    # ---- Streaming updates (live runs) -----------------------------------
 
-    def _update_refresh(self) -> None:
-        """Run the refresh timer iff a live run is shown AND the panel is active."""
-        if self._is_live and self.is_active:
-            self._start_refresh()
-        else:
-            self._stop_refresh()
+    def _ensure_bridge(self) -> StreamBridge:
+        """Return the single StreamBridge, creating + wiring it on first use.
+
+        The ``update_received`` signal is connected to the stable routing slot
+        ``_on_stream_update`` EXACTLY ONCE here, never per-activation, so there
+        is no duplicate delivery. The slot dispatches to whatever
+        ``_current_widget`` is at delivery time — a connection left over from a
+        previous run can therefore never reach an old viz.
+        """
+        if self._bridge is None:
+            self._bridge = StreamBridge(self)
+            self._bridge.update_received.connect(self._on_stream_update)
+        return self._bridge
+
+    @Slot(object)
+    def _on_stream_update(self, update: Any) -> None:
+        """Route a Tiled streaming push to the CURRENT viz (GUI thread).
+
+        Reads ``self._current_widget`` fresh on every delivery; guards on None
+        so a push arriving after teardown is a harmless no-op.
+        """
+        widget = self._current_widget
+        if widget is None:
+            return
+        try:
+            widget.on_stream_update(update)
+        except Exception as e:
+            logger.warning("Stream update error: {}", e)
+
+    def _active_field(self) -> str:
+        """The field the active viz is currently displaying ('' if none).
+
+        Prefer the widget's own current field (set by set_field) over the combo
+        text — the combo may be hidden (single-field streams) or lag the widget.
+        """
+        widget = self._current_widget
+        field = getattr(widget, "_field_name", "") if widget is not None else ""
+        if not field:
+            field = self._field_combo.currentText()
+        return field or ""
+
+    @staticmethod
+    def _structure_family(node: Any) -> str | None:
+        """Best-effort ``structure_family`` of a Tiled client node (None if N/A).
+
+        Tiled exposes a ``StructureFamily`` str-enum (``"array"``, ``"table"``,
+        ``"container"``, ...) on every client node. Returns it as a plain ``str``
+        (the enum compares equal to its string value) or None if the node
+        doesn't carry one (a bare/stubbed object).
+        """
+        sf = getattr(node, "structure_family", None)
+        if sf is None:
+            return None
+        try:
+            return str(sf.value)  # StructureFamily(str, Enum) -> "array"/"table"/...
+        except AttributeError:
+            return str(sf)
+
+    def _resolve_active_node(self) -> Any | None:
+        """Resolve a **subscribable** Tiled node for the active viz.
+
+        Tiled's WS push is only served by catalog node adapters that carry a
+        ``make_ws_handler`` — namely **array** nodes and the stream's first-class
+        **``internal`` table** node. A per-event *scalar* field is merely a
+        COLUMN of ``internal``; ``stream[field]`` for such a field resolves to a
+        plain column-facet ``ArrayAdapter`` with **no** ``make_ws_handler``, so
+        subscribing to it 500s and hangs ``start_in_thread`` forever (Task 4d
+        bug). We therefore never return a scalar column facet.
+
+        Preference order:
+
+        1. If the active field resolves to a first-class **array** node
+           (``structure_family == "array"`` — e.g. the STXM map, image_stack's
+           detector array), return THAT array node, so an override viz whose
+           ``on_stream_update`` blits the pushed line gets ITS ``array-data``.
+        2. Else return the stream's **``internal`` table node**
+           (``run[stream]["internal"]``, ``structure_family == "table"``). Its
+           per-event ``table-data`` pushes drive a ``refresh()`` for
+           scalar/table-displaying viz (Plot1D / Scatter / Heatmap / Table).
+        3. Otherwise (no array node, no ``internal``) log + return None: the
+           bridge simply isn't connected — graceful, no 500 / no hang. We never
+           fall back to a column facet.
+
+        Returns the node to subscribe, or None — never raises.
+        """
+        if self._entry is None or self._current_widget is None:
+            return None
+        stream_name = self._stream_combo.currentText() or "primary"
+        try:
+            stream = self._entry[stream_name]
+        except Exception as e:
+            logger.debug("Could not resolve active stream '{}': {}", stream_name, e)
+            return None
+
+        # 1. Active field that is a first-class ARRAY node -> subscribe it.
+        #    (A scalar field's child is a column facet, structure_family != "array",
+        #    so it is rejected here and falls through to the internal table.)
+        active_field = self._active_field()
+        if active_field:
+            try:
+                child = stream[active_field]
+            except Exception:
+                child = None
+            if child is not None and self._structure_family(child) == "array":
+                return child
+
+        # 2. The stream's `internal` table node (WS-subscribable; table-data
+        #    pushes drive refresh for scalar/table viz). Verify it is a table —
+        #    never return a non-table child masquerading under that key.
+        try:
+            internal = stream["internal"]
+        except Exception:
+            internal = None
+        if internal is not None and self._structure_family(internal) == "table":
+            return internal
+
+        # 3. Nothing subscribable. Do NOT fall back to a scalar column facet
+        #    (that 500s + hangs start_in_thread). Leave the bridge unconnected.
+        logger.debug(
+            "No subscribable node for stream '{}' (no array node, no internal "
+            "table); stream bridge not connected",
+            stream_name,
+        )
+        return None
+
+    def _update_streaming(self) -> None:
+        """Subscribe the bridge iff a live run is shown AND the panel is active.
+
+        Replaces the old 2s poll. When the conditions hold, point the single
+        bridge at the active data node (re-subscribing is safe — connect_node
+        disconnects any prior sub first). Otherwise tear the subscription down.
+        """
+        if self._is_live and self.is_active and self._current_widget is not None:
+            node = self._resolve_active_node()
+            if node is None:
+                # Can't resolve the node yet (writer lag). Leave any prior sub
+                # torn down; _on_activated / re-open will retry.
+                if self._bridge is not None:
+                    self._bridge.disconnect()
+                return
+            bridge = self._ensure_bridge()
+            try:
+                bridge.connect_node(node)
+                logger.debug("Streaming subscription active on '{}'", node)
+            except Exception as e:
+                logger.warning("Could not subscribe stream bridge: {}", e)
+        elif self._bridge is not None:
+            self._bridge.disconnect()
 
     def _on_activated(self) -> None:
-        """Panel shown: pick up the live run, catch up, resume polling."""
+        """Panel shown: pick up the live run, catch up, (re)subscribe."""
         self._sync_to_live_run()
         if self._is_live and self._current_widget is not None:
+            # Catch up on rows already written before the subscription starts.
             try:
                 self._current_widget.refresh()
             except Exception as e:
                 logger.warning("Catch-up refresh error: {}", e)
-        self._update_refresh()
+        self._update_streaming()
 
     def _on_deactivated(self) -> None:
-        """Panel hidden/collapsed: pause polling (keep _is_live)."""
-        self._stop_refresh()
-
-    def _start_refresh(self) -> None:
-        """Start polling for new data every 2 seconds."""
-        if self._refresh_timer is not None:
-            return
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.timeout.connect(self._on_refresh_tick)
-        self._refresh_timer.start(2000)
-        logger.debug("Started refresh timer (2s)")
-
-    def _stop_refresh(self) -> None:
-        """Stop the refresh timer if active."""
-        if self._refresh_timer is not None:
-            self._refresh_timer.stop()
-            self._refresh_timer.deleteLater()
-            self._refresh_timer = None
-
-    def _on_refresh_tick(self) -> None:
-        """Periodic refresh: push new data, check for stop doc."""
-        if self._current_widget is None or self._entry is None:
-            self._stop_refresh()
-            return
-
-        try:
-            self._current_widget.refresh()
-        except Exception as e:
-            logger.warning("Refresh error: {}", e)
-
-        # Check if run completed — re-fetch metadata if the entry supports it
-        try:
-            if hasattr(self._entry, "refresh"):
-                self._entry.refresh()
-            if self._entry.metadata.get("stop") is not None:
-                logger.info("Live run completed, stopping refresh")
-                self._is_live = False
-                self._stop_refresh()
-        except Exception as e:
-            logger.warning("Error checking stop doc: {}", e)
+        """Panel hidden/collapsed: tear down the subscription (keep _is_live)."""
+        if self._bridge is not None:
+            self._bridge.disconnect()
 
     # ---- Fit / Export ----------------------------------------------------
 
@@ -639,20 +766,26 @@ class VisualizationPanel(BasePanel):
         elif name == "stop":
             if doc.get("run_start") == self._live_run_uid:
                 self._live_run_uid = None
-                # If we're displaying this run, settle it: final refresh + stop.
+                # If we're displaying this run, settle it: a final refresh to
+                # catch the last line, then mark complete and tear down the
+                # streaming subscription (this replaces the old poll-tick
+                # stop-doc check). _update_streaming would also disconnect, but
+                # do it explicitly so the order is final-refresh then disconnect.
                 if self._is_live and self._current_widget is not None:
                     try:
                         self._current_widget.refresh()
                     except Exception as e:
                         logger.warning("Final refresh error: {}", e)
                     self._is_live = False
-                    self._update_refresh()
+                    if self._bridge is not None:
+                        self._bridge.disconnect()
 
     # ---- Cleanup ---------------------------------------------------------
 
     def _on_closing(self) -> None:
         """Clean up on panel close."""
-        self._stop_refresh()
+        if self._bridge is not None:
+            self._bridge.disconnect()
         engine = getattr(self, "_engine", None)
         if engine is not None:
             try:
