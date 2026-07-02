@@ -206,3 +206,40 @@ def test_unexpected_worker_error_suppresses_backend_connected(qtbot):
         f"backend_connected must NOT fire when load_metadata() raises, got: {backend_seen}"
     )
     assert added == []
+
+
+def test_reconnect_failed_devices_survives_concurrent_backend_add():
+    """reconnect_failed_devices must not crash if _backends is mutated mid-iteration.
+
+    reconnect_failed_devices runs on the ca-tunnel-retry worker thread while the
+    main thread may still be adding/connecting backends during startup. Iterating
+    the live dict then raises "dictionary changed size during iteration". The
+    catalog must iterate a snapshot instead. This test reproduces the race
+    deterministically: the first backend's reconnect_failed_devices adds a new
+    backend to the catalog while the catalog is iterating over its backends.
+    """
+    catalog = DeviceCatalog.get_instance()
+
+    class _RetryBackend(_FakeBackend):
+        """Backend that mutates the catalog's _backends during reconnect."""
+
+        def __init__(self, name, on_reconnect=None):
+            super().__init__(name=name)
+            self._on_reconnect = on_reconnect
+
+        def reconnect_failed_devices(self, timeout=15.0, callback=None):
+            if self._on_reconnect is not None:
+                self._on_reconnect()
+            return (0, 0)
+
+    # When the first backend is reconnected, simulate the main thread adding
+    # another backend mid-iteration.
+    def _add_backend_midway():
+        catalog._backends["late"] = _FakeBackend(name="late")
+
+    catalog.add_backend(_RetryBackend("first", on_reconnect=_add_backend_midway))
+    catalog.add_backend(_RetryBackend("second"))
+
+    # Must not raise RuntimeError: dictionary changed size during iteration
+    connected, failed = catalog.reconnect_failed_devices(timeout=0.1)
+    assert (connected, failed) == (0, 0)

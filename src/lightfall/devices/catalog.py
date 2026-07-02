@@ -627,7 +627,11 @@ class DeviceCatalog(QObject):
         total_connected = 0
         total_failed = 0
 
-        for _name, backend in self._backends.items():
+        # Snapshot: this runs on the ca-tunnel-retry worker thread while the
+        # main thread may still be adding backends during startup (see
+        # add_and_connect_backend). Iterating the live dict would raise
+        # "dictionary changed size during iteration".
+        for _name, backend in list(self._backends.items()):
             if hasattr(backend, "reconnect_failed_devices"):
                 connected, failed = backend.reconnect_failed_devices(
                     timeout=timeout, callback=callback,
