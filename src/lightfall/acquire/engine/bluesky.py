@@ -212,6 +212,18 @@ class BlueskyEngine(BaseEngine):
         return str(self._RE.state)
 
     @property
+    def event_loop(self) -> "asyncio.AbstractEventLoop | None":
+        """The engine's asyncio event loop.
+
+        bluesky's RunEngine runs this loop continuously on a daemon thread once
+        the RunEngine is constructed (in ``_process_queue``). It is the loop the
+        RunEngine uses to operate devices, so coroutines scheduled on it via
+        ``run_coroutine_threadsafe`` share loop affinity with plan execution.
+        Returns ``None`` until the RunEngine has been constructed.
+        """
+        return self._loop
+
+    @property
     def is_idle(self) -> bool:
         """Check if the RunEngine is idle."""
         return self._RE is not None and self._RE.state == "idle"

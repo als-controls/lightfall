@@ -252,6 +252,21 @@ class IconStripSidebar(QFrame):
         self._button_icons[panel_id] = icon_name
         return button
 
+    def _refresh_existing_button(
+        self, panel_id: str, icon_name: str, tooltip: str
+    ) -> IconStripButton:
+        """Update an already-present button's icon/tooltip and return it.
+
+        Enforces the one-button-per-panel_id invariant: callers that would
+        otherwise create a duplicate icon (e.g. deferred-button setup followed
+        by add_panel-on-open) instead refresh the existing button in place.
+        """
+        button = self._buttons[panel_id]
+        if icon_name:
+            self.update_button_icon(panel_id, icon_name)
+        button.setToolTip(tooltip)
+        return button
+
     def _show_button_context_menu(self, panel_id: str, pos: QPoint) -> None:
         """Show the right-click menu for a sidebar button.
 
@@ -296,8 +311,11 @@ class IconStripSidebar(QFrame):
             tooltip: Tooltip text shown on hover.
 
         Returns:
-            The created button.
+            The created button (or the existing one if already present).
         """
+        if panel_id in self._buttons:
+            return self._refresh_existing_button(panel_id, icon_name, tooltip)
+
         button = self._create_button(panel_id, icon_name, tooltip)
 
         # Determine which section to add to based on whether stretch exists
@@ -334,8 +352,11 @@ class IconStripSidebar(QFrame):
             section: Target section ("top" for left-docking, "bottom" for bottom-docking).
 
         Returns:
-            The created button.
+            The created button (or the existing one if already present).
         """
+        if panel_id in self._buttons:
+            return self._refresh_existing_button(panel_id, icon_name, tooltip)
+
         button = self._create_button(panel_id, icon_name, tooltip)
         self._button_orders[panel_id] = sidebar_order
         self._button_sections[panel_id] = section

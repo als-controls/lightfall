@@ -578,19 +578,43 @@ class SentryQApplication:
     def notify(self, receiver: Any, event: Any) -> bool:
         """Override notify to catch exceptions in event handling.
 
+        Exceptions raised in slots/event handlers are reported to Sentry and the
+        logs, but are deliberately **not** re-raised. ``super().notify()`` is a
+        C++ call; propagating a Python exception back out through Qt's C++
+        event-dispatch frames is undefined behavior and can corrupt the
+        interpreter's per-thread state, turning a recoverable handler error into
+        a hard abort (``_PyThreadState_Attach: non-NULL old thread state``).
+        Swallowing keeps the GUI alive and the event is reported as unhandled.
+
+        ``SystemExit`` and ``KeyboardInterrupt`` are ``BaseException`` (not
+        ``Exception``) so they are not caught here and still propagate normally.
+
         Args:
             receiver: The object receiving the event.
             event: The event being delivered.
 
         Returns:
-            True if the event was handled.
+            True if the event was handled, False otherwise (including when a
+            handler raised and the exception was suppressed).
         """
         try:
             return super().notify(receiver, event)  # type: ignore[misc]
         except Exception:
-            # Capture to Sentry, then re-raise so Qt can handle it
+            # Report to Sentry + logs, but do NOT re-raise (see docstring).
             capture_exception()
-            raise
+            try:
+                from lightfall.utils.logging import logger
+
+                logger.opt(exception=True).error(
+                    "Unhandled exception in Qt event handler "
+                    "(receiver={}, event={}); event suppressed to keep the GUI "
+                    "alive.",
+                    type(receiver).__name__,
+                    type(event).__name__,
+                )
+            except Exception:
+                pass
+            return False
 
 
 def create_sentry_application(argv: list[str] | None = None) -> Any:

@@ -44,6 +44,10 @@ _BASE_CLASS_CATEGORY_MAP: list[tuple[str, str, DeviceCategory]] = [
     ("ophyd.areadetector.detectors", "DetectorBase", DeviceCategory.DETECTOR),
     ("ophyd.mca", "EpicsMCA", DeviceCategory.DETECTOR),
     ("ophyd.signal", "Signal", DeviceCategory.DETECTOR),
+    # ophyd-async devices subclass bluesky protocols directly (in MRO)
+    ("bluesky.protocols", "Movable", DeviceCategory.MOTOR),
+    ("bluesky.protocols", "Triggerable", DeviceCategory.DETECTOR),
+    ("bluesky.protocols", "Flyable", DeviceCategory.DETECTOR),
 ]
 
 # Fallback: happi functional_group / item type keywords
@@ -162,6 +166,7 @@ class HappiBackend(DeviceBackend):
         beamline: str | None = None,
         instantiate: bool | str = False,
         connection_timeout: float | None = None,
+        name: str | None = None,
     ) -> None:
         """Initialize the Happi backend.
 
@@ -180,6 +185,10 @@ class HappiBackend(DeviceBackend):
         self._path = path
         self._beamline = beamline
         self._connection_timeout = connection_timeout
+        # Backend name doubles as the catalog key. Packaged-happi plugins must
+        # pass a distinct name so they don't collide with the base "happi"
+        # backend (which would overwrite it in DeviceCatalog._backends).
+        self._name = name or "happi"
 
         # Normalize instantiate parameter
         if instantiate is False or instantiate == "none":
@@ -204,7 +213,7 @@ class HappiBackend(DeviceBackend):
 
     @property
     def name(self) -> str:
-        return "happi"
+        return self._name
 
     @property
     def is_connected(self) -> bool:

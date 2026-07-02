@@ -32,13 +32,13 @@ from lightfall.visualization.stream_bridge import StreamBridge
 
 
 def _widget_classes() -> list[type[BaseVisualization]]:
-    """Import and return all available visualization widget classes.
+    """Return all available visualization widget classes.
 
-    Returns the 8 built-in visualizations plus any classes contributed by
-    plugins registered in VisualizationRegistry (via type_name="visualization").
-    Registry entries are appended after the built-ins, deduplicated.  Any
-    plugin whose get_viz_class() raises is silently skipped so a bad plugin
-    never prevents the panel from opening.
+    Combines the built-in widgets with any visualization classes contributed by
+    plugins via the ``VisualizationRegistry`` (each registered plugin exposes
+    its widget class through ``get_viz_class()``). This is the single source the
+    panel uses for both the dropdown and ``can_handle`` auto-selection, so
+    surfacing plugin viz here makes them appear in both.
     """
     from lightfall.visualization.widgets.adaptive.heatmap import (
         AdaptiveHeatmapVisualization,
@@ -64,18 +64,31 @@ def _widget_classes() -> list[type[BaseVisualization]]:
         AdaptivePlotVisualization,
     ]
 
+    # Append plugin-contributed visualizations registered via the registry.
     try:
         from lightfall.visualization.registry import VisualizationRegistry
 
         for plugin in VisualizationRegistry.get_instance().get_all_visualizations():
-            try:
-                cls = plugin.get_viz_class()
-            except Exception:
+            get_viz_class = getattr(plugin, "get_viz_class", None)
+            if not callable(get_viz_class):
                 continue
-            if cls is not None and cls not in classes:
-                classes.append(cls)
-    except Exception:
-        pass  # registry unavailable — built-ins only
+            try:
+                viz_cls = get_viz_class()
+            except Exception as exc:  # noqa: BLE001 — one bad plugin must not break the panel
+                logger.warning(
+                    "Visualization plugin '{}' get_viz_class() failed: {}",
+                    getattr(plugin, "name", plugin),
+                    exc,
+                )
+                continue
+            if (
+                isinstance(viz_cls, type)
+                and issubclass(viz_cls, BaseVisualization)
+                and viz_cls not in classes
+            ):
+                classes.append(viz_cls)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not load registry visualizations: {}", exc)
 
     return classes
 
