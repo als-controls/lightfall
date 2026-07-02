@@ -560,7 +560,7 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     services.register(TiledService, TiledService.get_instance)
 
 
-def _register_builtin_plugin_types(loader: "PluginLoader") -> None:
+def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     """Register every built-in plugin type with the loader.
 
     Manifest entries whose ``type_name`` is not registered here are silently

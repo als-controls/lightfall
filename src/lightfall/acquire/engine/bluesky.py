@@ -212,7 +212,7 @@ class BlueskyEngine(BaseEngine):
         return str(self._RE.state)
 
     @property
-    def event_loop(self) -> "asyncio.AbstractEventLoop | None":
+    def event_loop(self) -> asyncio.AbstractEventLoop | None:
         """The engine's asyncio event loop.
 
         bluesky's RunEngine runs this loop continuously on a daemon thread once
