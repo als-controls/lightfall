@@ -66,3 +66,12 @@ def test_name_is_abstract():
 
     with pytest.raises(TypeError):
         Incomplete()
+
+
+def test_default_create_external_servers_returns_empty():
+    assert _StubAgent().create_external_servers() == {}
+
+
+def test_introspection_includes_has_external_servers():
+    data = _StubAgent().get_introspection_data()
+    assert data["has_external_servers"] is False
