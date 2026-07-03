@@ -95,7 +95,9 @@ def assemble_mcp_servers(
 
     The returned dict has one server per plugin that has tools, keyed by
     plugin.name. Server names follow the SDK convention: tools become
-    `mcp__<plugin.name>__<tool_name>` in `allowed_tools`.
+    `mcp__<plugin.name>__<tool_name>` in `allowed_tools`. It also contains
+    external stdio server entries contributed via `create_external_servers()`,
+    keyed by their declared server name (namespace `mcp__<server_name>__*`).
 
     Caller is expected to merge this with the always-on `qt` server and
     its allowed_tools entries.
@@ -120,5 +122,21 @@ def assemble_mcp_servers(
                 )
                 continue
             allowed_tools.append(f"mcp__{plugin.name}__{tool_name}")
+
+    # External (stdio/http) MCP servers contributed by plugins. Unlike
+    # in-process tools, external tool names aren't known until the server is
+    # launched, so we allow the whole `mcp__<name>__*` namespace and let the
+    # session's PreToolUse hook / PermissionManager gate per call.
+    for plugin in enabled_plugins:
+        for server_name, spec in plugin.create_external_servers().items():
+            if server_name in mcp_servers:
+                logger.warning(
+                    "agent '{}': external MCP server name '{}' collides with an "
+                    "existing server; skipping",
+                    plugin.name, server_name,
+                )
+                continue
+            mcp_servers[server_name] = spec
+            allowed_tools.append(f"mcp__{server_name}__*")
 
     return mcp_servers, allowed_tools

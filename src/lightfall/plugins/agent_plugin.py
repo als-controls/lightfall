@@ -83,6 +83,27 @@ class AgentPlugin(PluginType):
         """Return @tool-decorated callables. Empty = no MCP server contribution."""
         return []
 
+    def create_external_servers(self) -> dict[str, dict[str, Any]]:
+        """Return external (stdio/http) MCP server specs to register in the session.
+
+        Keys are server names (become the ``mcp__<name>__*`` tool namespace).
+        Values are SDK-compatible external-server dicts, e.g.
+        ``{"type": "stdio", "command": ..., "args": [...], "env": {...}}``.
+        Empty dict (default) = no external server contribution.
+        """
+        return {}
+
+    def has_external_servers(self) -> bool:
+        """Cheap, side-effect-free signal for introspection: does this plugin
+        contribute external MCP servers?
+
+        Override with a lightweight check. Do NOT build the specs here --
+        ``create_external_servers()`` may have side effects (writing config,
+        spawning probes) that belong to session-assembly time, not to a
+        metadata read.
+        """
+        return False
+
     def get_references_dir(self) -> Path | None:
         """Optional package directory containing supplementary docs.
 
@@ -102,6 +123,7 @@ class AgentPlugin(PluginType):
             "priority": self.priority,
             "has_prompt": bool(self.get_system_prompt().strip()),
             "has_tools": len(self.create_tools()) > 0,
+            "has_external_servers": self.has_external_servers(),
             "class": self.__class__.__name__,
             "module": self.__class__.__module__,
         }

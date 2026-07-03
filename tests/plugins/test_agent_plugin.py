@@ -66,3 +66,30 @@ def test_name_is_abstract():
 
     with pytest.raises(TypeError):
         Incomplete()
+
+
+def test_default_create_external_servers_returns_empty():
+    assert _StubAgent().create_external_servers() == {}
+
+
+def test_introspection_includes_has_external_servers():
+    data = _StubAgent().get_introspection_data()
+    assert data["has_external_servers"] is False
+
+
+def test_introspection_does_not_call_create_external_servers():
+    calls = []
+
+    class _Exploding(AgentPlugin):
+        @property
+        def name(self): return "boom"
+        @property
+        def description(self): return "raises if specs are built"
+        def create_external_servers(self):
+            calls.append(1)
+            raise AssertionError("create_external_servers must not run during introspection")
+        def has_external_servers(self): return True
+
+    data = _Exploding().get_introspection_data()
+    assert data["has_external_servers"] is True
+    assert calls == []
