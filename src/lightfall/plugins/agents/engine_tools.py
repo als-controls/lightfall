@@ -35,14 +35,32 @@ _PLAN_START_GRACE_S = 0.05
 _TILED_INDEX_RETRY_S = 0.5
 
 
+def _run_start_time(entry: Any) -> float | None:
+    """Best-effort start-doc timestamp for a catalog entry, or None."""
+    try:
+        return (entry.metadata.get("start", {}) or {}).get("time")
+    except Exception:
+        return None
+
+
 def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
     """Return the most-recent runs (newest first) with a single bounded request.
 
     Tiled indexers slice server-side, so this fetches at most ``limit`` entries
-    instead of walking the catalog. We sort by ``start.time`` descending and
-    take the head; if the server can't sort we fall back to the tail of the
-    default order (positive offsets, then reversed -- Tiled rejects negative
-    slice starts unless ``step == -1``).
+    instead of walking the catalog. We ask the server to sort by start time
+    descending and take the head; if that isn't available we fall back to the
+    tail of the default order (positive offsets, then reversed -- Tiled rejects
+    negative slice starts unless ``step == -1``).
+
+    Backend portability: the correct sort key differs across the Tiled backends
+    we target. Modern Tiled (e.g. the 7011 endstation) keys on the
+    fully-qualified path ``start.time``; the old mongo/databroker adapter on CMS
+    may key on a bare ``time``. Worse, passing a key the backend doesn't
+    recognise does NOT raise -- Tiled silently returns the default (oldest-first)
+    order. So we cannot trust "no exception" to mean "sorted": we try each
+    candidate key and ACCEPT a result only if it demonstrably reordered the
+    catalog (put a newer run at the head than the default order's head). If no
+    key verifiably sorts, we fall back to reversing the default-order tail.
 
     NEVER iterate ``list(client)`` (returns only the first page, default 100, so
     "the last one" is wrong) or ``client.items()`` (walks every entry -- millions
@@ -51,16 +69,44 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
     """
     limit = max(1, int(limit))
     try:
-        # Sort key must be the fully-qualified metadata path ``start.time``;
-        # a bare ``time`` silently no-ops in Tiled (returns default/oldest
-        # order) because that key doesn't exist in the searchable namespace.
-        return list(client.sort(("start.time", -1)).values_indexer[:limit])
-    except Exception:
-        pass  # server can't sort -> fall back to default order
-    try:
         n = len(client)  # single bounded count request
-        if n == 0:
-            return []
+    except Exception:
+        n = None
+    if n == 0:
+        return []
+
+    # Head of the default order = the OLDEST run on a time-ascending catalog.
+    # Used as a reference to detect whether a server-side sort actually worked.
+    default_head_time = None
+    if n:
+        try:
+            first = list(client.values_indexer[:1])
+            default_head_time = _run_start_time(first[0]) if first else None
+        except Exception:
+            default_head_time = None
+
+    for key in ("start.time", "time"):
+        try:
+            head = list(client.sort((key, -1)).values_indexer[:limit])
+        except Exception:
+            continue  # this key/direction not supported -> try the next
+        if not head:
+            continue
+        head_time = _run_start_time(head[0])
+        # Accept when we can't disprove it sorted (single run, missing times,
+        # unknown count) OR when it verifiably reordered vs the default head.
+        if (
+            n is None or n <= 1
+            or default_head_time is None or head_time is None
+            or head_time > default_head_time
+        ):
+            return head
+        # else: silent no-op (head is still the oldest) -> try the next key
+
+    # No verifiably-working sort key -> reverse the tail of the default order.
+    if not n:
+        return []
+    try:
         runs = list(client.values_indexer[max(0, n - limit):n])
         runs.reverse()  # default order is time-ascending; newest first
         return runs
