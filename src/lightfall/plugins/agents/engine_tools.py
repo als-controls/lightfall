@@ -39,8 +39,8 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
     """Return the most-recent runs (newest first) with a single bounded request.
 
     Tiled indexers slice server-side, so this fetches at most ``limit`` entries
-    instead of walking the catalog. We sort by ``time`` descending and take the
-    head; if the server can't sort on time we fall back to the tail of the
+    instead of walking the catalog. We sort by ``start.time`` descending and
+    take the head; if the server can't sort we fall back to the tail of the
     default order (positive offsets, then reversed -- Tiled rejects negative
     slice starts unless ``step == -1``).
 
@@ -51,9 +51,12 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
     """
     limit = max(1, int(limit))
     try:
-        return list(client.sort(("time", -1)).values_indexer[:limit])
+        # Sort key must be the fully-qualified metadata path ``start.time``;
+        # a bare ``time`` silently no-ops in Tiled (returns default/oldest
+        # order) because that key doesn't exist in the searchable namespace.
+        return list(client.sort(("start.time", -1)).values_indexer[:limit])
     except Exception:
-        pass  # server can't sort on time -> fall back to default order
+        pass  # server can't sort -> fall back to default order
     try:
         n = len(client)  # single bounded count request
         if n == 0:
