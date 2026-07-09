@@ -35,6 +35,16 @@ _PLAN_START_GRACE_S = 0.05
 _TILED_INDEX_RETRY_S = 0.5
 
 
+# Candidate Tiled sort keys, in preference order (see _recent_runs).
+_SORT_KEY_CANDIDATES = ("start.time", "time")
+
+# Once we have PROVEN which sort key a backend honors, we cache it here and
+# short-circuit future calls -- a deployment only ever talks to one Tiled
+# backend, so the key never changes within a process. ``None`` = not yet
+# proven. Reset to None if a cached key ever raises (backend swapped/reconnect).
+_verified_sort_key: str | None = None
+
+
 def _run_start_time(entry: Any) -> float | None:
     """Best-effort start-doc timestamp for a catalog entry, or None."""
     try:
@@ -52,21 +62,37 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
     tail of the default order (positive offsets, then reversed -- Tiled rejects
     negative slice starts unless ``step == -1``).
 
-    Backend portability: the correct sort key differs across the Tiled backends
-    we target. Modern Tiled (e.g. the 7011 endstation) keys on the
-    fully-qualified path ``start.time``; the old mongo/databroker adapter on CMS
-    may key on a bare ``time``. Worse, passing a key the backend doesn't
-    recognise does NOT raise -- Tiled silently returns the default (oldest-first)
-    order. So we cannot trust "no exception" to mean "sorted": we try each
-    candidate key and ACCEPT a result only if it demonstrably reordered the
-    catalog (put a newer run at the head than the default order's head). If no
-    key verifiably sorts, we fall back to reversing the default-order tail.
+    ============================ FOOT-GUN, READ ME ============================
+    DO NOT "simplify" this to a single ``client.sort(("time", -1))`` or
+    ``client.sort(("start.time", -1))`` call. It looks like dead weight. It is
+    not. Both of the following are true and together they are a trap:
+
+      1. The correct sort key DIFFERS BY BACKEND. Modern Tiled (e.g. the 7011
+         endstation) sorts on the fully-qualified path ``start.time``; the old
+         mongo/databroker adapter on CMS sorts on a bare ``time``. Whichever key
+         you hard-code will silently break the other beamline.
+      2. Passing a key the backend does NOT recognise does NOT raise. Tiled
+         quietly returns the DEFAULT (oldest-first) order. So a ``try/except``
+         around ``sort`` cannot detect the failure -- you get the OLDEST run
+         back and no error. This is the exact bug that made "Load last run" load
+         a stale run. (git log: "Fix Load last run".)
+
+    Therefore we must (a) try each candidate key and ACCEPT a result only if it
+    demonstrably reordered the catalog -- put a newer run at the head than the
+    default order's head -- and (b) fall back to reversing the default-order
+    tail if nothing verifiably sorts. The proven key is then cached in
+    ``_verified_sort_key`` so we only pay the detection cost once per process.
+
+    If you are here to change this, add a candidate key -- don't remove the
+    verification.
+    ===========================================================================
 
     NEVER iterate ``list(client)`` (returns only the first page, default 100, so
     "the last one" is wrong) or ``client.items()`` (walks every entry -- millions
     on CMS, minutes of network, and it blocks the Qt main thread). Those are the
     greedy patterns this helper exists to replace.
     """
+    global _verified_sort_key
     limit = max(1, int(limit))
     try:
         n = len(client)  # single bounded count request
@@ -74,6 +100,16 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
         n = None
     if n == 0:
         return []
+
+    # Fast path: a previous call already PROVED which key this backend honors.
+    # No re-verification needed -- the backend can't change under one process.
+    if _verified_sort_key is not None:
+        try:
+            head = list(client.sort((_verified_sort_key, -1)).values_indexer[:limit])
+            if head:
+                return head
+        except Exception:
+            _verified_sort_key = None  # cached key no longer works -> re-detect
 
     # Head of the default order = the OLDEST run on a time-ascending catalog.
     # Used as a reference to detect whether a server-side sort actually worked.
@@ -85,7 +121,7 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
         except Exception:
             default_head_time = None
 
-    for key in ("start.time", "time"):
+    for key in _SORT_KEY_CANDIDATES:
         try:
             head = list(client.sort((key, -1)).values_indexer[:limit])
         except Exception:
@@ -93,13 +129,17 @@ def _recent_runs(client: Any, limit: int = 1) -> list[Any]:
         if not head:
             continue
         head_time = _run_start_time(head[0])
-        # Accept when we can't disprove it sorted (single run, missing times,
-        # unknown count) OR when it verifiably reordered vs the default head.
+        # PROVEN sorted: it verifiably reordered vs the default head. Cache it.
         if (
-            n is None or n <= 1
-            or default_head_time is None or head_time is None
-            or head_time > default_head_time
+            default_head_time is not None and head_time is not None
+            and head_time > default_head_time
         ):
+            _verified_sort_key = key
+            return head
+        # Can't PROVE it sorted (single run, missing times, unknown count), but
+        # can't disprove it either -- accept without caching (stay in detection
+        # mode until we get a catalog big enough to verify against).
+        if n is None or n <= 1 or default_head_time is None or head_time is None:
             return head
         # else: silent no-op (head is still the oldest) -> try the next key
 
