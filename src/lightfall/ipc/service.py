@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import platform
+import secrets
 import ssl
 import threading
 from collections.abc import Callable
@@ -21,6 +22,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
 from lightfall.ipc.trust import TrustManager, TrustState
+from lightfall.remote.protocol import CONTRACT_VERSION, error_reply
 from lightfall.utils.threads import invoke_in_main_thread
 
 __all__ = ["IPCService", "ActionInfo", "EventInfo", "_ActionHandle", "get_ipc_service"]
@@ -59,6 +61,15 @@ class _Subscription:
     nats_sub: Any  # nats.aio.subscription.Subscription | None
 
 
+@dataclass
+class _SessionChannel:
+    """A live capability channel minted for a trusted app."""
+
+    token: str
+    app_name: str
+    wildcard_subject: str
+
+
 # ---------------------------------------------------------------------------
 # _ActionHandle
 # ---------------------------------------------------------------------------
@@ -79,6 +90,7 @@ class _ActionHandle:
     def unregister(self) -> None:
         """Remove this action from the catalog and unsubscribe."""
         self._service._action_catalog.pop(self._suffix, None)
+        self._service._trusted_actions.pop(self._suffix, None)
         self._service.unsubscribe(self._subject)
 
 
@@ -120,6 +132,8 @@ class IPCService(QObject):
         self._subscriptions: dict[str, _Subscription] = {}
         self._action_catalog: dict[str, ActionInfo] = {}
         self._event_catalog: dict[str, EventInfo] = {}
+        self._trusted_actions: dict[str, _Subscription] = {}
+        self._session_channels: dict[str, _SessionChannel] = {}
         self._trust: TrustManager | None = None
         self._instance_id = f"{platform.node()}-{os.getpid()}"
         self._display_name: str | None = None
@@ -172,6 +186,7 @@ class IPCService(QObject):
         description: str = "",
         schema: dict[str, Any] | None = None,
         main_thread: bool = True,
+        trusted: bool = False,
     ) -> _ActionHandle:
         """Register a request/reply action handler.
 
@@ -183,6 +198,11 @@ class IPCService(QObject):
             schema: Optional JSON Schema describing the request payload.
             main_thread: If True (default) the callback runs on the Qt main
                 thread.
+            trusted: If True the action is reachable ONLY through a session
+                capability channel (see :meth:`mint_session_channel`); requests
+                on the bare prefixed subject are rejected with a structured
+                ``denied`` error. The routed payload carries
+                ``data["_identity"] = {"app_name", "session_token"}``.
 
         Returns:
             An :class:`_ActionHandle` whose :meth:`~_ActionHandle.unregister`
@@ -192,7 +212,13 @@ class IPCService(QObject):
         self._action_catalog[suffix] = ActionInfo(
             subject=suffix, description=description, schema=schema
         )
-        self.subscribe(full_subject, callback, main_thread=main_thread)
+        if trusted:
+            self._trusted_actions[suffix] = _Subscription(
+                subject=suffix, callback=callback, main_thread=main_thread, nats_sub=None
+            )
+            self.subscribe(full_subject, self._reject_untrusted, main_thread=False)
+        else:
+            self.subscribe(full_subject, callback, main_thread=main_thread)
         return _ActionHandle(self, suffix, full_subject)
 
     def register_event(
@@ -307,6 +333,7 @@ class IPCService(QObject):
         session=None,
         tiled_url: str = "",
         reason: str = "",
+        app_name: str | None = None,
     ) -> dict:
         """Build a response dict for an auth handshake.
 
@@ -320,6 +347,9 @@ class IPCService(QObject):
                 read — the credential comes from the API-key cache.
             tiled_url: Tiled server URL to include in an approved response.
             reason: Optional denial reason; only included when non-empty.
+            app_name: When provided and the response is approved, a session
+                capability channel is minted for this app and its token is
+                included in the response.
 
         Returns:
             A plain dict ready to be JSON-serialised and sent over IPC.
@@ -340,7 +370,7 @@ class IPCService(QObject):
                 session_id = session.user.attributes.get("sub")
             except Exception:
                 session_id = None
-            return {
+            response = {
                 "status": "approved",
                 # Historical name; actually carries an API key under auth-v2.
                 "tiled_token": SessionManager.get_instance().get_api_key("tiled"),
@@ -348,11 +378,105 @@ class IPCService(QObject):
                 # Keycloak `sub` of the logged-in user; lets IPC clients drop a
                 # cached Tiled key when a different user session issues a request.
                 "session_id": session_id,
+                "contract_version": CONTRACT_VERSION,
             }
-        response: dict = {"status": "denied"}
+            if app_name:
+                response["session_token"] = self.mint_session_channel(app_name)
+            return response
+        response: dict = {"status": "denied", "contract_version": CONTRACT_VERSION}
         if reason:
             response["reason"] = reason
         return response
+
+    # ------------------------------------------------------------------
+    # Capability channels (per-login-session trust)
+    # ------------------------------------------------------------------
+
+    @property
+    def session_channel_count(self) -> int:
+        """Number of live session capability channels."""
+        return len(self._session_channels)
+
+    def mint_session_channel(self, app_name: str) -> str:
+        """Mint a capability channel for *app_name* and return its token.
+
+        Subscribes ``{prefix}.session.{token}.>`` and routes requests to
+        trusted actions with the app identity attached. Possession of the
+        token is proof of a completed auth handshake in the current login
+        session.
+        """
+        token = secrets.token_urlsafe(32)
+        wildcard = self.topic(f"session.{token}.>")
+        self._session_channels[token] = _SessionChannel(
+            token=token, app_name=app_name, wildcard_subject=wildcard
+        )
+        self.subscribe(wildcard, self._route_session_message, main_thread=False)
+        logger.info("IPCService: minted session channel for '{}'", app_name)
+        return token
+
+    def teardown_session_channels(self, app_name: str | None = None) -> None:
+        """Tear down session channels — all of them, or one app's.
+
+        Unsubscribes the wildcard subjects and invalidates the tokens. Called
+        on logout (all) or trust revocation (per app).
+        """
+        for token, chan in list(self._session_channels.items()):
+            if app_name is not None and chan.app_name != app_name:
+                continue
+            del self._session_channels[token]
+            self.unsubscribe(chan.wildcard_subject)
+            logger.info("IPCService: tore down session channel for '{}'", chan.app_name)
+
+    def _route_session_message(self, subject: str, data: dict, reply: str | None) -> None:
+        """Route a capability-channel request to its trusted action handler.
+
+        Runs on the NATS loop thread. Resolves the token from the subject,
+        validates it, attaches identity, and dispatches honoring the target
+        action's ``main_thread`` preference.
+        """
+        session_prefix = self.topic("session.")
+        remainder = subject[len(session_prefix):] if subject.startswith(session_prefix) else ""
+        token, _, action_suffix = remainder.partition(".")
+
+        chan = self._session_channels.get(token)
+        if chan is None:
+            self.reply(reply, error_reply("denied", "Invalid or expired session token"))
+            return
+
+        version = data.get("contract_version", CONTRACT_VERSION)
+        if version != CONTRACT_VERSION:
+            self.reply(
+                reply,
+                error_reply(
+                    "version_mismatch",
+                    f"Server speaks contract_version {CONTRACT_VERSION}, got {version}",
+                ),
+            )
+            return
+
+        target = self._trusted_actions.get(action_suffix)
+        if target is None:
+            self.reply(reply, error_reply("unknown", f"Unknown action: {action_suffix}"))
+            return
+
+        data.pop("_identity", None)
+        data["_identity"] = {"app_name": chan.app_name, "session_token": token}
+        if target.main_thread:
+            invoke_in_main_thread(target.callback, action_suffix, data, reply)
+        else:
+            target.callback(action_suffix, data, reply)
+
+    def _reject_untrusted(self, subject: str, data: dict, reply: str | None) -> None:
+        """Reject a request that arrived on a bare (non-channel) trusted subject."""
+        logger.warning("IPCService: rejected untrusted request on '{}'", subject)
+        self.reply(
+            reply,
+            error_reply(
+                "denied",
+                "This action requires a session capability channel; "
+                "complete the auth.request handshake and use the session subject.",
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Peer discovery
@@ -709,10 +833,11 @@ class IPCService(QObject):
                 return
 
             try:
+                actual_subject = msg.subject or subject
                 if sub.main_thread:
-                    invoke_in_main_thread(sub.callback, subject, data, reply)
+                    invoke_in_main_thread(sub.callback, actual_subject, data, reply)
                 else:
-                    sub.callback(subject, data, reply)
+                    sub.callback(actual_subject, data, reply)
             except Exception as exc:
                 logger.error(
                     "IPCService: unhandled exception in callback for '{}': {}",

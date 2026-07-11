@@ -617,7 +617,7 @@ class LFApplication(QObject):
             ipc.reply(
                 reply,
                 ipc.build_auth_response(
-                    approved=True, session=session, tiled_url=tiled_url
+                    approved=True, session=session, tiled_url=tiled_url, app_name=app_name
                 ),
             )
             return
@@ -649,7 +649,7 @@ class LFApplication(QObject):
                 ipc.reply(
                     reply,
                     ipc.build_auth_response(
-                        approved=True, session=session, tiled_url=tiled_url
+                        approved=True, session=session, tiled_url=tiled_url, app_name=app_name
                     ),
                 )
             else:

@@ -274,6 +274,7 @@ class TestAuthHandshake:
                 "tiled_token": "tiled-apikey-xyz",
                 "tiled_url": "https://tiled.example.com",
                 "session_id": "user-abc-123",
+                "contract_version": 1,
             }
         finally:
             SessionManager.reset()
@@ -281,12 +282,12 @@ class TestAuthHandshake:
     def test_build_auth_response_denied(self):
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         resp = svc.build_auth_response(approved=False)
-        assert resp == {"status": "denied"}
+        assert resp == {"status": "denied", "contract_version": 1}
 
     def test_build_auth_response_denied_with_reason(self):
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         resp = svc.build_auth_response(approved=False, reason="timeout")
-        assert resp == {"status": "denied", "reason": "timeout"}
+        assert resp == {"status": "denied", "reason": "timeout", "contract_version": 1}
 
 
 # ---------------------------------------------------------------------------
