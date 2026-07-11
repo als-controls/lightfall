@@ -182,12 +182,23 @@ External client                              Lightfall (main thread)
      │                                             │
      │           user clicks "Trust"               │
      │                                        trust.approve(app_name)
+     │                                        mint_session_channel(app_name)
      │                                             │
      │◀── {status: "approved",                     │
+     │     session_token: "...",                   │
      │     tiled_token: "...",                     │
-     │     tiled_url: "..."}  ─────────────────────│
-     │
-     │ (or "denied" / "timeout" if rejected)
+     │     tiled_url: "...",                       │
+     │     session_id: "...",                      │
+     │     contract_version: 1}  ──────────────────│
+     │                                             │
+     │ (or "denied" / "timeout" if rejected)       │
+     │                                             │
+     │  subsequent commands travel on the          │
+     │  capability channel:                        │
+     │──── {prefix}.session.{session_token}        │
+     │        .commands.plan.run {...} ───────────▶│
+     │◀─── {status: "submitted", ...,              │
+     │      contract_version: 1}  ─────────────────│
 ```
 
 A previously approved app receives the token immediately without a dialog. A previously denied app
