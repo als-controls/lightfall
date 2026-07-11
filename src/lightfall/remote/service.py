@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import inspect
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -24,6 +25,11 @@ from PySide6.QtCore import QObject
 
 from lightfall.ipc.service import IPCService
 from lightfall.remote.protocol import error_reply, ok_reply
+
+try:
+    from ophyd.utils import WaitTimeoutError
+except ImportError:  # pragma: no cover - defensive; installed ophyd always has it
+    WaitTimeoutError = None
 
 __all__ = ["RemoteControlService"]
 
@@ -167,6 +173,12 @@ class RemoteControlService(QObject):
                 "List a device's sub-devices and signals",
             ),
             ("commands.device.info", self._handle_device_info, "Thin device metadata"),
+            ("commands.device.get", self._handle_device_get, "Read a device signal value"),
+            (
+                "commands.device.put",
+                self._handle_device_put,
+                "Write a device signal (ca put-callback semantics)",
+            ),
         ]:
             self._ipc.register_action(
                 suffix, handler, description=description, main_thread=False, trusted=True
@@ -455,3 +467,144 @@ class RemoteControlService(QObject):
                 writable = self._is_writable(comp)
             components.append({"name": cname, "type": type_name, "writable": writable})
         self._ipc.reply(reply, ok_reply(components=components))
+
+    # ------------------------------------------------------------------
+    # device.get / device.put
+    # ------------------------------------------------------------------
+
+    def _resolve_signal(self, obj: Any, signal_name: str | None) -> Any | None:
+        """Resolve a signal on *obj*.
+
+        ``None`` -> the device's primary readback: ``user_readback`` then
+        ``readback`` (motor conventions, see ui/widgets/motor_control.py:207),
+        else the object itself when it is signal-like (has ``get``).
+        Named lookup walks the instantiated ``_signals`` dict first (lazy-safe),
+        supports dotted paths for nested components.
+        """
+        if signal_name is None:
+            signals = getattr(obj, "_signals", {}) or {}
+            for attr in ("user_readback", "readback"):
+                sig = signals.get(attr)
+                if sig is not None:
+                    return sig
+            return obj if hasattr(obj, "get") else None
+
+        current = obj
+        for part in signal_name.split("."):
+            signals = getattr(current, "_signals", {}) or {}
+            nxt = signals.get(part)
+            if nxt is None:
+                # Fall back to getattr ONLY for already-instantiated attrs
+                nxt = current.__dict__.get(part) or getattr(type(current), part, None)
+                if nxt is None or not hasattr(nxt, "get"):
+                    return None
+            current = nxt
+        return current
+
+    def _handle_device_get(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_device_get, subject, data, reply)
+
+    def _do_device_get(self, subject: str, data: dict, reply: str | None) -> None:
+        resolved = self._resolve_device(data, reply)
+        if resolved is None:
+            return
+        info, obj = resolved
+        if obj is None:
+            self._ipc.reply(reply, error_reply("unknown", f"Device '{info.name}' is not instantiated"))
+            return
+        sig = self._resolve_signal(obj, data.get("signal"))
+        if sig is None:
+            self._ipc.reply(
+                reply,
+                error_reply("unknown", f"Signal '{data.get('signal')}' not found on '{info.name}'"),
+            )
+            return
+        try:
+            reading = sig.read()
+            key = next(iter(reading))
+            value = reading[key]["value"]
+            timestamp = reading[key]["timestamp"]
+        except Exception:
+            value = sig.get()
+            timestamp = time.time()
+        if hasattr(value, "tolist"):
+            value = value.tolist()  # numpy scalar/array -> JSON-safe
+        self._ipc.reply(reply, ok_reply(value=value, timestamp=float(timestamp)))
+
+    def _handle_device_put(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_device_put, subject, data, reply)
+
+    def _do_device_put(self, subject: str, data: dict, reply: str | None) -> None:
+        resolved = self._resolve_device(data, reply)
+        if resolved is None:
+            return
+        info, obj = resolved
+        if obj is None:
+            self._ipc.reply(reply, error_reply("unknown", f"Device '{info.name}' is not instantiated"))
+            return
+
+        if "value" not in data:
+            self._ipc.reply(reply, error_reply("bad_request", "value is required"))
+            return
+        behavior = data.get("behavior", "reject")
+        if behavior != "reject":
+            self._ipc.reply(
+                reply,
+                error_reply("bad_request", "device.put supports only behavior='reject' in v1"),
+            )
+            return
+        if not self.engine.is_idle:
+            self._ipc.reply(
+                reply, error_reply("busy", "Engine is not idle; puts are rejected mid-scan")
+            )
+            return
+
+        sig = self._resolve_signal(obj, data.get("signal"))
+        # For a put with no explicit signal on a positioner, set the DEVICE
+        # (motor.set moves the motor); only fall back to the readback for get.
+        if data.get("signal") is None and hasattr(obj, "set"):
+            sig = obj
+        if sig is None:
+            self._ipc.reply(
+                reply,
+                error_reply("unknown", f"Signal '{data.get('signal')}' not found on '{info.name}'"),
+            )
+            return
+        if not self._is_writable(sig):
+            self._ipc.reply(reply, error_reply("limits", "Signal is read-only"))
+            return
+
+        value = data["value"]
+        wait = data.get("wait", True)
+        timeout_s = float(data.get("timeout_s", PUT_DEFAULT_TIMEOUT_S))
+
+        try:
+            if hasattr(sig, "set"):
+                status = sig.set(value)
+            else:
+                sig.put(value)
+                status = None
+        except Exception as exc:
+            code = "limits" if "limit" in type(exc).__name__.lower() or "limit" in str(exc).lower() else "unknown"
+            self._ipc.reply(reply, error_reply(code, str(exc)))
+            return
+
+        if not wait:
+            self._ipc.reply(reply, ok_reply(status="accepted"))
+            return
+
+        if status is not None and hasattr(status, "wait"):
+            try:
+                status.wait(timeout=timeout_s)
+            except Exception as exc:
+                is_timeout = (WaitTimeoutError is not None and isinstance(exc, WaitTimeoutError)) or (
+                    "timeout" in type(exc).__name__.lower()
+                )
+                if is_timeout:
+                    self._ipc.reply(
+                        reply, error_reply("timeout", f"Put did not complete within {timeout_s}s")
+                    )
+                else:
+                    self._ipc.reply(reply, error_reply("unknown", str(exc)))
+                return
+        self._ipc.reply(reply, ok_reply(status="ok", value=value))

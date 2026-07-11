@@ -171,3 +171,90 @@ class TestComponents:
     def test_unknown_device(self, dev_svc):
         reply = _invoke(dev_svc, "commands.device.components", {"device": "nope"})
         assert reply["code"] == "unknown"
+
+
+class TestGet:
+    def test_get_default_readback(self, dev_svc):
+        dev_svc.motor.set(3.5).wait(timeout=5)
+        reply = _invoke(dev_svc, "commands.device.get", {"device": "sim_motor"})
+        assert reply["value"] == pytest.approx(3.5)
+        assert isinstance(reply["timestamp"], float)
+
+    def test_get_named_signal(self, dev_svc):
+        reply = _invoke(
+            dev_svc, "commands.device.get", {"device": "sim_motor", "signal": "velocity"}
+        )
+        assert "value" in reply
+
+    def test_get_unknown_signal(self, dev_svc):
+        reply = _invoke(
+            dev_svc, "commands.device.get", {"device": "sim_motor", "signal": "warp_drive"}
+        )
+        assert reply["code"] == "unknown"
+
+    def test_get_unknown_device(self, dev_svc):
+        reply = _invoke(dev_svc, "commands.device.get", {"device": "nope"})
+        assert reply["code"] == "unknown"
+
+
+class TestPut:
+    def test_put_wait_true_replies_on_completion(self, dev_svc):
+        reply = _invoke(dev_svc, "commands.device.put", {"device": "sim_motor", "value": 1.25})
+        assert reply["status"] == "ok"
+        assert reply["value"] == pytest.approx(1.25)
+        assert dev_svc.motor.readback.get() == pytest.approx(1.25)
+
+    def test_put_wait_false_replies_accepted(self, dev_svc):
+        reply = _invoke(
+            dev_svc,
+            "commands.device.put",
+            {"device": "sim_motor", "value": 2.0, "wait": False},
+        )
+        assert reply["status"] == "accepted"
+
+    def test_put_busy_engine_rejected(self, dev_svc):
+        dev_svc.service._engine.is_idle = False
+        reply = _invoke(dev_svc, "commands.device.put", {"device": "sim_motor", "value": 9})
+        assert reply["code"] == "busy"
+
+    def test_put_missing_value_bad_request(self, dev_svc):
+        reply = _invoke(dev_svc, "commands.device.put", {"device": "sim_motor"})
+        assert reply["code"] == "bad_request"
+
+    def test_put_behavior_queue_unsupported(self, dev_svc):
+        reply = _invoke(
+            dev_svc,
+            "commands.device.put",
+            {"device": "sim_motor", "value": 1, "behavior": "queue"},
+        )
+        assert reply["code"] == "bad_request"
+
+    def test_put_timeout(self, dev_svc):
+        import ophyd.sim
+
+        slow = ophyd.sim.SynAxis(name="slow_motor", delay=5.0)
+        dev_svc.service._catalog._infos["slow_motor"] = __import__(
+            "lightfall.devices.model", fromlist=["DeviceInfo"]
+        ).DeviceInfo(name="slow_motor", device_class="ophyd.sim.SynAxis")
+        dev_svc.service._catalog._ophyd["slow_motor"] = slow
+        reply = _invoke(
+            dev_svc,
+            "commands.device.put",
+            {"device": "slow_motor", "value": 1.0, "timeout_s": 0.2},
+        )
+        assert reply["code"] == "timeout"
+
+    def test_put_readonly_signal_rejected(self, dev_svc):
+        import ophyd.sim
+
+        ro_sig = ophyd.sim.SynSignalRO(name="readonly_sig")
+        dev_svc.service._catalog._infos["ro_device"] = __import__(
+            "lightfall.devices.model", fromlist=["DeviceInfo"]
+        ).DeviceInfo(name="ro_device", device_class="ophyd.sim.SynSignalRO")
+        dev_svc.service._catalog._ophyd["ro_device"] = ro_sig
+        reply = _invoke(
+            dev_svc,
+            "commands.device.put",
+            {"device": "ro_device", "value": 5},
+        )
+        assert reply["code"] == "limits"
