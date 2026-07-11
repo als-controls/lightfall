@@ -209,8 +209,6 @@ def plan_svc(qapp, monkeypatch):
     def count(num: Annotated[int, Unit("pts")] = 5, delay: float = 0.0):
         yield from ()
 
-    import inspect
-
     plan_info = SimpleNamespace(
         name="count",
         func=count,
