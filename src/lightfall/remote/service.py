@@ -14,6 +14,7 @@ threads may wait on events set from the main thread.
 
 from __future__ import annotations
 
+import inspect
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -30,6 +31,13 @@ __all__ = ["RemoteControlService"]
 RUN_UID_WAIT_S = 2.0
 # Default completion timeout for device.put wait=true.
 PUT_DEFAULT_TIMEOUT_S = 30.0
+
+
+def _get_plan_registry():
+    """Indirection point so tests can monkeypatch the registry lookup."""
+    from lightfall.acquire.plans.registry import get_registry
+
+    return get_registry()
 
 
 class RemoteControlService(QObject):
@@ -149,6 +157,9 @@ class RemoteControlService(QObject):
         for suffix, handler, description in [
             ("commands.engine.status", self._handle_engine_status, "Engine state + current run"),
             ("commands.queue.get", self._handle_queue_get, "List queued plan items"),
+            ("commands.plan.list", self._handle_plan_list, "List available plans with parameter metadata"),
+            ("commands.plan.run", self._handle_plan_run, "Submit a plan (behavior: reject|queue, default reject)"),
+            ("commands.plan.abort", self._handle_plan_abort, "Abort the active run"),
         ]:
             self._ipc.register_action(
                 suffix, handler, description=description, main_thread=False, trusted=True
@@ -200,3 +211,133 @@ class RemoteControlService(QObject):
         for item in self.engine.get_queue_items():
             items.append({"item_id": item.id, "plan_name": item.name, "state": "queued"})
         self._ipc.reply(reply, ok_reply(items=items))
+
+    # ------------------------------------------------------------------
+    # plan.list / plan.run / plan.abort
+    # ------------------------------------------------------------------
+
+    def _handle_plan_list(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_plan_list, subject, data, reply)
+
+    def _do_plan_list(self, subject: str, data: dict, reply: str | None) -> None:
+        from lightfall.ui.annotations import Default, Unit
+        from lightfall.ui.widgets.plan_config import extract_annotated_metadata
+
+        registry = _get_plan_registry()
+        plans = []
+        for info in registry.list_plans():
+            params = []
+            for p in info.parameters:
+                try:
+                    base_type, metadata = extract_annotated_metadata(p.annotation, info.func)
+                except Exception:
+                    base_type, metadata = p.annotation, []
+                unit = next((m.suffix for m in metadata if isinstance(m, Unit)), None)
+                default = None
+                if p.default is not inspect.Parameter.empty:
+                    default = p.default
+                else:
+                    default = next(
+                        (m.value for m in metadata if isinstance(m, Default)), None
+                    )
+                type_name = getattr(base_type, "__name__", str(base_type))
+                params.append({"name": p.name, "type": type_name, "unit": unit, "default": default})
+            plans.append({"name": info.name, "params": params})
+        self._ipc.reply(reply, ok_reply(plans=plans))
+
+    def _handle_plan_run(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_plan_run, subject, data, reply)
+
+    def _do_plan_run(self, subject: str, data: dict, reply: str | None) -> None:
+        plan_name = data.get("plan_name")
+        params = data.get("params", {})
+        behavior = data.get("behavior", "reject")
+
+        if not plan_name:
+            self._ipc.reply(reply, error_reply("bad_request", "plan_name is required"))
+            return
+        if behavior not in ("reject", "queue"):
+            self._ipc.reply(
+                reply,
+                error_reply(
+                    "bad_request", f"behavior must be 'reject' or 'queue', got {behavior!r}"
+                ),
+            )
+            return
+
+        registry = _get_plan_registry()
+        plan_info = registry.get_plan(plan_name)
+        if plan_info is None:
+            self._ipc.reply(reply, error_reply("unknown", f"Plan '{plan_name}' not found"))
+            return
+
+        engine = self.engine
+        busy = not engine.is_idle or getattr(engine, "queue_size", 0) > 0
+        if behavior == "reject" and busy:
+            self._ipc.reply(reply, error_reply("busy", "Engine is busy and behavior is 'reject'"))
+            return
+
+        try:
+            plan_generator = plan_info.func(**params)
+        except TypeError as exc:
+            self._ipc.reply(reply, error_reply("bad_request", f"Bad params: {exc}"))
+            return
+
+        # Arm the start-doc waiter BEFORE submitting so a fast start can't race us.
+        waiter = threading.Event()
+        try:
+            item_id = engine.submit(plan_generator, name=plan_name)
+        except Exception as exc:
+            self._ipc.reply(reply, error_reply("unknown", str(exc)))
+            return
+        if item_id is None:
+            self._ipc.reply(reply, error_reply("unknown", "Submission cancelled by pre-submit hook"))
+            return
+
+        run_uid: str | None = None
+        if not busy:
+            with self._run_lock:
+                self._run_uid_waiters[item_id] = waiter
+            try:
+                if waiter.wait(RUN_UID_WAIT_S):
+                    with self._run_lock:
+                        if self._current.get("item_id") == item_id:
+                            run_uid = self._current.get("run_uid")
+            finally:
+                with self._run_lock:
+                    self._run_uid_waiters.pop(item_id, None)
+            # Start doc may have arrived before the waiter was registered.
+            if run_uid is None:
+                with self._run_lock:
+                    if self._current.get("item_id") == item_id:
+                        run_uid = self._current.get("run_uid")
+
+        self._ipc.reply(
+            reply,
+            ok_reply(status="submitted", plan_name=plan_name, item_id=item_id, run_uid=run_uid),
+        )
+
+    def _handle_plan_abort(self, subject: str, data: dict, reply: str | None) -> None:
+        """Abort marshals to the Qt main thread (matches how the UI calls it)."""
+        from lightfall.utils.threads import invoke_in_main_thread
+
+        reason = data.get("reason", "")
+
+        def do_abort() -> None:
+            try:
+                aborted = self.engine.abort(reason=reason)
+            except Exception as exc:
+                self._ipc.reply(reply, error_reply("unknown", str(exc)))
+                return
+            if aborted:
+                self._ipc.reply(reply, ok_reply(status="abort_requested"))
+            else:
+                self._ipc.reply(
+                    reply,
+                    ok_reply(
+                        status="not_aborted",
+                        message=f"Nothing to abort: engine state is '{self.engine.state_name}'",
+                    ),
+                )
+
+        invoke_in_main_thread(do_abort)

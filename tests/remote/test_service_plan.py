@@ -175,3 +175,145 @@ class TestQueueGet:
     def test_actions_are_trusted(self, svc):
         for suffix in ("commands.engine.status", "commands.queue.get"):
             assert suffix in svc.ipc._trusted_actions
+
+
+class _FakeRegistry:
+    """Mimics PlanRegistry for plan.list / plan.run."""
+
+    def __init__(self, plans):
+        self._plans = plans
+
+    def get_plan(self, name):
+        return self._plans.get(name)
+
+    def list_plans(self):
+        return list(self._plans.values())
+
+
+@pytest.fixture
+def plan_svc(qapp, monkeypatch):
+    # invoke_in_main_thread's QObject invoker must be created on the main
+    # thread before any background thread posts to it (Qt event delivery
+    # is thread-affine); production does this at app startup.
+    from lightfall.utils.threads import initialize_main_thread_invoker
+
+    initialize_main_thread_invoker()
+
+    ipc, sent = _make_ipc()
+    engine = _FakeEngine()
+
+    from typing import Annotated
+
+    from lightfall.ui.annotations import Unit
+
+    def count(num: Annotated[int, Unit("pts")] = 5, delay: float = 0.0):
+        yield from ()
+
+    import inspect
+
+    plan_info = SimpleNamespace(
+        name="count",
+        func=count,
+        description="Count sim",
+        parameters=[
+            SimpleNamespace(
+                name="num", annotation=count.__annotations__["num"], default=5, required=False
+            ),
+            SimpleNamespace(
+                name="delay", annotation=float, default=0.0, required=False
+            ),
+        ],
+    )
+    registry = _FakeRegistry({"count": plan_info})
+    import lightfall.remote.service as service_mod
+
+    monkeypatch.setattr(service_mod, "_get_plan_registry", lambda: registry)
+
+    service = RemoteControlService(ipc, engine=engine, catalog=None)
+    service.start()
+    yield SimpleNamespace(ipc=ipc, sent=sent, engine=engine, service=service)
+    service.stop()
+
+
+class TestPlanList:
+    def test_lists_plans_with_param_metadata(self, plan_svc):
+        reply = _invoke(plan_svc, "commands.plan.list", {})
+        assert reply["contract_version"] == 1
+        plans = {p["name"]: p for p in reply["plans"]}
+        assert "count" in plans
+        params = {p["name"]: p for p in plans["count"]["params"]}
+        assert params["num"]["type"] == "int"
+        assert params["num"]["unit"] == "pts"
+        assert params["num"]["default"] == 5
+        assert params["delay"]["type"] == "float"
+        assert params["delay"]["unit"] is None
+
+
+class TestPlanRun:
+    def test_reject_default_when_busy(self, plan_svc):
+        plan_svc.engine.is_idle = False
+        reply = _invoke(plan_svc, "commands.plan.run", {"plan_name": "count", "params": {}})
+        assert reply["status"] == "error"
+        assert reply["code"] == "busy"
+        assert plan_svc.engine.submitted == []
+
+    def test_queue_behavior_submits_when_busy(self, plan_svc):
+        plan_svc.engine.is_idle = False
+        reply = _invoke(
+            plan_svc,
+            "commands.plan.run",
+            {"plan_name": "count", "params": {}, "behavior": "queue"},
+        )
+        assert reply["status"] == "submitted"
+        assert reply["item_id"] == "item-1"
+        assert reply["run_uid"] is None  # queued: no start doc yet
+
+    def test_submit_idle_fills_run_uid_from_start_doc(self, plan_svc):
+        import threading
+
+        def emit_start_soon():
+            time.sleep(0.1)
+            plan_svc.engine._current = SimpleNamespace(id="item-1", name="count")
+            from lightfall.utils.threads import invoke_in_main_thread
+
+            invoke_in_main_thread(
+                plan_svc.engine.sigOutput.emit, "start", {"uid": "uid-9", "plan_name": "count"}
+            )
+
+        threading.Thread(target=emit_start_soon, daemon=True).start()
+        reply = _invoke(plan_svc, "commands.plan.run", {"plan_name": "count", "params": {}})
+        assert reply["status"] == "submitted"
+        assert reply["item_id"] == "item-1"
+        assert reply["run_uid"] == "uid-9"
+
+    def test_missing_plan_name_bad_request(self, plan_svc):
+        reply = _invoke(plan_svc, "commands.plan.run", {"params": {}})
+        assert reply["code"] == "bad_request"
+
+    def test_unknown_plan(self, plan_svc):
+        reply = _invoke(plan_svc, "commands.plan.run", {"plan_name": "nope", "params": {}})
+        assert reply["code"] == "unknown"
+
+    def test_bad_behavior_value(self, plan_svc):
+        reply = _invoke(
+            plan_svc, "commands.plan.run", {"plan_name": "count", "behavior": "yolo"}
+        )
+        assert reply["code"] == "bad_request"
+
+    def test_bad_params_bad_request(self, plan_svc):
+        reply = _invoke(
+            plan_svc, "commands.plan.run", {"plan_name": "count", "params": {"nope": 1}}
+        )
+        assert reply["code"] == "bad_request"
+
+
+class TestPlanAbort:
+    def test_abort_requested(self, plan_svc):
+        reply = _invoke(plan_svc, "commands.plan.abort", {"reason": "operator"})
+        assert reply == {"status": "abort_requested", "contract_version": 1}
+
+    def test_nothing_to_abort(self, plan_svc):
+        plan_svc.engine.abort = lambda reason="": False
+        reply = _invoke(plan_svc, "commands.plan.abort", {})
+        assert reply["status"] == "not_aborted"
+        assert "message" in reply
