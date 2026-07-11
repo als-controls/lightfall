@@ -56,19 +56,27 @@ class TestMint:
 class TestRouting:
     def test_trusted_action_reachable_via_channel_with_identity(self):
         ipc, sent = _make_ipc()
-        calls: list[dict] = []
-        ipc.register_action("commands.thing.do", lambda s, d, r: calls.append(d), trusted=True)
-        token = ipc.mint_session_channel("pystxm")
-
-        _call_subscription(
-            ipc,
-            f"als.test.session.{token}.>",
-            {"x": 1},
-            "_INBOX.1",
+        calls: list[tuple[str, dict]] = []
+        ipc.register_action(
+            "commands.thing.do",
+            lambda s, d, r: calls.append((s, d)),
+            trusted=True,
+            main_thread=False,
         )
-        # Router receives the *actual* subject via _make_handler change; simulate it:
-        # the router callback is registered under the wildcard, called with real subject.
-        # (See router test below for the real-subject path.)
+        token = ipc.mint_session_channel("pystxm")
+        wildcard = f"als.test.session.{token}.>"
+        assert wildcard in ipc._subscriptions
+        # Deliver a request the way _make_handler would: the wildcard
+        # subscription's callback invoked with the REAL message subject.
+        ipc._subscriptions[wildcard].callback(
+            f"als.test.session.{token}.commands.thing.do", {"x": 1}, "_INBOX.1"
+        )
+        assert calls == [
+            (
+                "commands.thing.do",
+                {"x": 1, "_identity": {"app_name": "pystxm", "session_token": token}},
+            )
+        ]
 
     def test_router_dispatches_by_real_subject(self):
         ipc, sent = _make_ipc()
