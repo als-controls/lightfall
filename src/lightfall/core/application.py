@@ -343,6 +343,32 @@ class LFApplication(QObject):
         except Exception:
             logger.exception("Failed to wire agent IPC")
 
+        try:
+            self._wire_session_trust()
+        except Exception:
+            logger.exception("Failed to wire session-trust teardown")
+
+    def _wire_session_trust(self) -> None:
+        """Scope IPC trust to the login session (spec: per-login-session trust).
+
+        On logout, all app trust decisions are cleared and every capability
+        channel is torn down; clients detect the dead channel and re-run
+        ``auth.request`` after the next login. Mirrors the service-key
+        clearing in :meth:`SessionManager.logout`.
+        """
+        from lightfall.auth.session import AuthState, SessionManager
+
+        ipc = self._services.get(IPCService)
+        trust = self._services.get(TrustManager)
+
+        def on_state_changed(new_state, old_state) -> None:
+            if new_state == AuthState.UNAUTHENTICATED:
+                trust.clear()
+                ipc.teardown_session_channels()
+                logger.info("IPC trust cleared and session channels torn down on logout")
+
+        SessionManager.get_instance().state_changed.connect(on_state_changed)
+
     def _wire_engine_ipc(self) -> None:
         """Connect engine signals to IPC events.
 
