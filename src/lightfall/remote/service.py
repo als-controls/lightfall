@@ -160,6 +160,13 @@ class RemoteControlService(QObject):
             ("commands.plan.list", self._handle_plan_list, "List available plans with parameter metadata"),
             ("commands.plan.run", self._handle_plan_run, "Submit a plan (behavior: reject|queue, default reject)"),
             ("commands.plan.abort", self._handle_plan_abort, "Abort the active run"),
+            ("commands.device.search", self._handle_device_search, "Search devices (happi-style filters)"),
+            (
+                "commands.device.components",
+                self._handle_device_components,
+                "List a device's sub-devices and signals",
+            ),
+            ("commands.device.info", self._handle_device_info, "Thin device metadata"),
         ]:
             self._ipc.register_action(
                 suffix, handler, description=description, main_thread=False, trusted=True
@@ -341,3 +348,110 @@ class RemoteControlService(QObject):
                 )
 
         invoke_in_main_thread(do_abort)
+
+    # ------------------------------------------------------------------
+    # device.* helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_device(
+        self, data: dict, reply: str | None
+    ) -> tuple[Any, Any] | None:
+        """Common device lookup; replies with an error and returns None on failure.
+
+        Returns (DeviceInfo, ophyd_obj) on success. ophyd_obj may be None if
+        the device is catalogued but not instantiated.
+        """
+        name = data.get("device")
+        if not name:
+            self._ipc.reply(reply, error_reply("bad_request", "device is required"))
+            return None
+        info = self.catalog.get_device_by_name(name)
+        if info is None:
+            self._ipc.reply(reply, error_reply("unknown", f"Device '{name}' not found"))
+            return None
+        return info, self.catalog.get_ophyd_device(name)
+
+    @staticmethod
+    def _is_writable(obj: Any) -> bool:
+        """Mirror of the signal_control heuristic (see signal_control.py:77)."""
+        cls_name = type(obj).__name__
+        if "ReadOnly" in cls_name or "RO" in cls_name:
+            return False
+        return hasattr(obj, "put") or hasattr(obj, "set")
+
+    def _handle_device_search(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_device_search, subject, data, reply)
+
+    def _do_device_search(self, subject: str, data: dict, reply: str | None) -> None:
+        filters = {k: v for k, v in data.items() if k not in ("_identity", "contract_version")}
+        names: list[str] = []
+        for info in self.catalog.list_devices():
+            if self._matches(info, filters):
+                names.append(info.name)
+        self._ipc.reply(reply, ok_reply(devices=sorted(names)))
+
+    @staticmethod
+    def _matches(info: Any, filters: dict) -> bool:
+        for key, wanted in filters.items():
+            actual = getattr(info, key, None)
+            if actual is None:
+                actual = (info.metadata or {}).get(key)
+            if actual is None:
+                return False
+            if isinstance(actual, (list, set, tuple)):
+                if wanted not in actual:
+                    return False
+            elif str(actual) != str(wanted):
+                return False
+        return True
+
+    def _handle_device_info(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_device_info, subject, data, reply)
+
+    def _do_device_info(self, subject: str, data: dict, reply: str | None) -> None:
+        resolved = self._resolve_device(data, reply)
+        if resolved is None:
+            return
+        info, _ = resolved
+        self._ipc.reply(
+            reply,
+            ok_reply(name=info.name, category=str(info.category), device_class=info.device_class),
+        )
+
+    def _handle_device_components(self, subject: str, data: dict, reply: str | None) -> None:
+        self._dispatch(self._do_device_components, subject, data, reply)
+
+    def _do_device_components(self, subject: str, data: dict, reply: str | None) -> None:
+        resolved = self._resolve_device(data, reply)
+        if resolved is None:
+            return
+        info, obj = resolved
+        if obj is None:
+            self._ipc.reply(
+                reply, error_reply("unknown", f"Device '{info.name}' is not instantiated")
+            )
+            return
+
+        components: list[dict] = []
+        # Lazy-safe enumeration: use the instantiated-signal dict and class
+        # attrs rather than getattr, which would trigger lazy Components
+        # (same approach as ui/models/device_tree.py).
+        names = list(getattr(obj, "component_names", ()) or ())
+        signals = getattr(obj, "_signals", {}) or {}
+        for cname in names:
+            comp = signals.get(cname)
+            if comp is None:
+                sig_attrs = getattr(obj, "_sig_attrs", {}) or {}
+                cpt = sig_attrs.get(cname)
+                cls = getattr(cpt, "cls", None)
+                type_name = cls.__name__ if cls is not None else "unknown"
+                writable = bool(
+                    cls is not None
+                    and not ("ReadOnly" in cls.__name__ or "RO" in cls.__name__)
+                    and (hasattr(cls, "put") or hasattr(cls, "set"))
+                )
+            else:
+                type_name = type(comp).__name__
+                writable = self._is_writable(comp)
+            components.append({"name": cname, "type": type_name, "writable": writable})
+        self._ipc.reply(reply, ok_reply(components=components))
