@@ -9,7 +9,9 @@ Tiled persistence is exercised only under LIGHTFALL_INTEGRATION=1.
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
+import tempfile
 import threading
 import time
 from types import SimpleNamespace
@@ -327,3 +329,69 @@ def test_busy_rejection_while_plan_runs(lf, client):
         return status["state"] == "idle"
 
     assert _pump_qt_until(_is_idle_again, timeout=15), "engine never returned to idle"
+
+
+def _tiled_deps_available() -> bool:
+    try:
+        from bluesky_tiled_plugins import TiledWriter  # noqa: F401
+        from tiled.catalog import in_memory  # noqa: F401
+        from tiled.client import Context, from_context  # noqa: F401
+        from tiled.server.app import build_app  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.environ.get("LIGHTFALL_INTEGRATION"),
+    reason="set LIGHTFALL_INTEGRATION=1 to run the Tiled-persistence e2e",
+)
+@pytest.mark.skipif(not _tiled_deps_available(), reason="tiled server deps not importable")
+def test_run_lands_in_tiled(lf, client):
+    """Spec §7: a plan submitted via the remote contract lands in Tiled."""
+    from bluesky_tiled_plugins import TiledWriter
+    from tiled.catalog import in_memory as tiled_in_memory
+    from tiled.client import Context, from_context
+    from tiled.server.app import build_app
+
+    # In-memory writable Tiled catalog + client (tsuchinoko e2e pattern).
+    tmpdir = tempfile.mkdtemp(prefix="lightfall_test_tiled_")
+    catalog = tiled_in_memory(writable_storage=tmpdir)
+    app = build_app(catalog)
+    context = Context.from_app(app)
+    tiled_client = from_context(context)
+    try:
+        auth = client.run(client.client.authenticate())
+        assert auth["status"] == "approved"
+
+        # RunEngine boots lazily on the worker thread — wait for it, then
+        # subscribe a TiledWriter directly to the real RE document stream.
+        assert _pump_qt_until(lambda: lf.engine.RE is not None, timeout=30)
+        assert _pump_qt_until(lambda: lf.engine.is_idle, timeout=30)
+        token = lf.engine.RE.subscribe(TiledWriter(tiled_client))
+        try:
+            reply = client.run(
+                client.client.call(
+                    "commands.plan.run",
+                    {"plan_name": "e2e_sleep", "params": {"seconds": 0.2}},
+                    timeout=15,
+                )
+            )
+            assert reply["status"] == "submitted"
+            run_uid = reply["run_uid"]
+            assert run_uid, "plan.run did not return a run_uid within the start-doc wait"
+
+            # Wait for the run to complete and the stop doc to be written.
+            assert _pump_qt_until(lambda: lf.engine.is_idle, timeout=30)
+
+            def _landed() -> bool:
+                return run_uid in tiled_client
+
+            assert _pump_qt_until(_landed, timeout=30), "run_uid never appeared in Tiled"
+            node = tiled_client[run_uid]
+            assert node.metadata["start"]["uid"] == run_uid
+        finally:
+            lf.engine.RE.unsubscribe(token)
+    finally:
+        context.close()
