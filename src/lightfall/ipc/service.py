@@ -404,7 +404,12 @@ class IPCService(QObject):
         trusted actions with the app identity attached. Possession of the
         token is proof of a completed auth handshake in the current login
         session.
+
+        Tears down any existing channel(s) for *app_name* first, so a
+        re-auth handshake yields exactly one live channel per app rather
+        than leaking old tokens that would continue to work indefinitely.
         """
+        self.teardown_session_channels(app_name)
         token = secrets.token_urlsafe(32)
         wildcard = self.topic(f"session.{token}.>")
         self._session_channels[token] = _SessionChannel(

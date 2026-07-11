@@ -174,7 +174,7 @@ payload is required. This is the full v1 verb table.
 |------------------------------|------------------------------------------------------------------------|----------------------------------------------------------------|-------|
 | `commands.plan.list`         | *(none)*                                                                | `plans: [{name, params: [{name, type, unit, default}]}]`       | Enumerates registered plans with parameter metadata |
 | `commands.plan.run`          | `plan_name` (str, required), `params` (dict, default `{}`), `behavior` (`"reject"` \| `"queue"`, default `"reject"`) | `status: "submitted"`, `plan_name`, `item_id`, `run_uid` (str or `null`) | `behavior="reject"` errors `busy` if the engine isn't idle; `behavior="queue"` queues it. `run_uid` is `null` when the run hasn't produced a start document within ~2s of submission (e.g. it was queued behind another run) — fall back to the `runs.new` event to learn the `run_uid` once it starts |
-| `commands.plan.abort`        | `reason` (str, optional)                                                | `status: "abort_requested"` or `status: "not_aborted", message` | `not_aborted` when there is nothing running to abort |
+| `commands.plan.abort`        | `item_id` (str, optional) *or* `run_uid` (str, optional), `reason` (str, optional) | `status: "abort_requested"` or `status: "not_aborted", message` | No selector: abort the active run. `item_id` matching the current run (or removable from the queue) aborts/dequeues; otherwise `not_aborted`. `run_uid` matching the tracked current run aborts; otherwise `not_aborted`. Providing both `item_id` and `run_uid` is `bad_request` |
 | `commands.queue.get`         | *(none)*                                                                | `items: [{item_id, plan_name, state}]`                         | `state` is `"running"` for the current item (if any) and `"queued"` for the rest |
 | `commands.engine.status`     | *(none)*                                                                | `state: "idle"` or `state: "running", item_id, run_uid, plan_name` | |
 | `commands.device.search`     | any device-metadata filters as top-level fields (e.g. `category`, `device_class`) | `devices: [name, ...]` (sorted)                                 | happi-style filter matching against `DeviceInfo` fields/metadata |
@@ -182,8 +182,8 @@ payload is required. This is the full v1 verb table.
 | `commands.device.info`       | `device` (str, required)                                               | `name`, `category`, `device_class`                              | |
 | `commands.device.get`        | `device` (str, required), `signal` (str, optional)                      | `value`, `timestamp` (float, epoch seconds)                     | Omitting `signal` reads the device's primary readback (`user_readback`/`readback` for positioners) |
 | `commands.device.put`        | `device` (str, required), `signal` (str, optional), `value` (required), `wait` (bool, default `true`), `timeout_s` (float, default `30.0`) | `status: "accepted"` (if `wait=false`) or `status: "ok", value` | `behavior` other than `"reject"` is rejected (`bad_request`) — v1 supports only reject semantics; read-only signals get `limits`; engine not idle gets `busy`; wait timeout gets `timeout` |
-| `commands.logbook.add`       | `title` (str, required), `content` (str, optional), `tags` (list[str], optional) | `status: "created"`, `entry_id`                                 | |
-| `commands.agent.message`     | `message` (str, required)                                               | `status: "sent"`                                                | |
+| `commands.logbook.add`       | `title` (str, required), `content` (str, optional), `tags` (list[str], optional) | `status: "created"`, `entry_id`                                 | No active logbook (unauthenticated) or a client-side failure gets `unknown` |
+| `commands.agent.message`     | `message` (str, required)                                               | `status: "sent"`                                                | Empty `message` gets `bad_request`; no Claude agent available gets `unknown` |
 
 ```python
 async def run_plan(nc, session_token: str, plan_name: str, params: dict) -> dict:
@@ -200,10 +200,17 @@ result = await run_plan(nc, session_token, "count", {"detectors": ["det1"], "num
 ```
 
 ```python
-async def abort_run(nc, session_token: str, reason: str = "") -> dict:
-    return await call(nc, session_token, "commands.plan.abort", {"reason": reason}, timeout=10)
+async def abort_run(nc, session_token: str, reason: str = "", item_id: str | None = None, run_uid: str | None = None) -> dict:
+    payload = {"reason": reason}
+    if item_id is not None:
+        payload["item_id"] = item_id
+    if run_uid is not None:
+        payload["run_uid"] = run_uid
+    return await call(nc, session_token, "commands.plan.abort", payload, timeout=10)
 
 # {"status": "abort_requested", "contract_version": 1}
+# Selector that doesn't match anything current/queued -> {"status": "not_aborted", "message": "...", "contract_version": 1}
+# Both item_id and run_uid given -> {"status": "error", "code": "bad_request", "message": "...", "contract_version": 1}
 ```
 
 ```python

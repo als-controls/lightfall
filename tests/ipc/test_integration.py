@@ -127,7 +127,7 @@ class TestLogbookIPCIntegration:
 
         ipc.reply.assert_called_once_with(
             "reply.inbox.10",
-            {"status": "created", "entry_id": "entry-1"},
+            {"status": "created", "entry_id": "entry-1", "contract_version": 1},
         )
 
     def test_logbook_add_no_active_logbook_returns_error(self, app, ipc):
@@ -149,8 +149,10 @@ class TestLogbookIPCIntegration:
 
         ipc.reply.assert_called_once()
         payload = ipc.reply.call_args[0][1]
-        assert payload["error"] is True
+        assert payload["status"] == "error"
+        assert payload["code"] == "unknown"
         assert "No active logbook" in payload["message"]
+        assert payload["contract_version"] == 1
 
     def test_logbook_add_missing_content_skips_fragment(self, app, ipc):
         """Only title, no content -> create_entry but NOT add_fragment."""
@@ -180,7 +182,7 @@ class TestLogbookIPCIntegration:
 
         ipc.reply.assert_called_once_with(
             "reply.inbox.12",
-            {"status": "created", "entry_id": "entry-2"},
+            {"status": "created", "entry_id": "entry-2", "contract_version": 1},
         )
 
 
@@ -213,7 +215,7 @@ class TestAgentIPCIntegration:
         mock_agent.query_sync.assert_called_once_with("What is the beam energy?")
         ipc.reply.assert_called_once_with(
             "reply.inbox.20",
-            {"status": "sent"},
+            {"status": "sent", "contract_version": 1},
         )
 
     def test_agent_message_empty_returns_error(self, app, ipc):
@@ -228,8 +230,10 @@ class TestAgentIPCIntegration:
 
         ipc.reply.assert_called_once()
         payload = ipc.reply.call_args[0][1]
-        assert payload["error"] is True
+        assert payload["status"] == "error"
+        assert payload["code"] == "bad_request"
         assert "message is required" in payload["message"]
+        assert payload["contract_version"] == 1
 
 
 # ---------------------------------------------------------------------------

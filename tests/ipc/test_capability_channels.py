@@ -48,6 +48,48 @@ class TestMint:
     def test_mint_twice_gives_distinct_tokens(self):
         ipc, _ = _make_ipc()
         assert ipc.mint_session_channel("a") != ipc.mint_session_channel("a")
+
+    def test_reauth_tears_down_old_channel_for_same_app(self):
+        """Re-auth (second mint for the same app) must leave exactly one live
+        channel: the old token stops working and the new one takes over."""
+        ipc, sent = _make_ipc()
+        seen: list[dict] = []
+        ipc.register_action(
+            "commands.t.d", lambda s, d, r: seen.append(d), trusted=True, main_thread=False
+        )
+
+        old_token = ipc.mint_session_channel("pystxm")
+        new_token = ipc.mint_session_channel("pystxm")
+
+        assert ipc.session_channel_count == 1
+        assert old_token != new_token
+
+        old_wildcard = f"als.test.session.{old_token}.>"
+        assert old_wildcard not in ipc._subscriptions
+
+        # Old token routes to denied (its subscription is gone; simulate a
+        # stray in-flight message by calling the router logic directly via
+        # _route_session_message, which looks the token up in the dict).
+        ipc._route_session_message(
+            f"als.test.session.{old_token}.commands.t.d", {}, "_INBOX.old"
+        )
+        assert sent[-1][1]["status"] == "error"
+        assert sent[-1][1]["code"] == "denied"
+
+        # New token still works.
+        new_wildcard = f"als.test.session.{new_token}.>"
+        router = ipc._subscriptions[new_wildcard].callback
+        router(f"als.test.session.{new_token}.commands.t.d", {"x": 1}, "_INBOX.new")
+        assert seen == [{"x": 1, "_identity": {"app_name": "pystxm", "session_token": new_token}}]
+
+    def test_reauth_does_not_affect_other_apps_channel(self):
+        ipc, _ = _make_ipc()
+        other_token = ipc.mint_session_channel("other_app")
+        ipc.mint_session_channel("pystxm")
+        ipc.mint_session_channel("pystxm")
+
+        other_wildcard = f"als.test.session.{other_token}.>"
+        assert other_wildcard in ipc._subscriptions
         assert ipc.session_channel_count == 2
 
 

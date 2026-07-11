@@ -53,6 +53,13 @@ class _FakeEngine:
     def abort(self, reason=""):
         return True
 
+    def remove_from_queue(self, item_id):
+        for item in self._queue:
+            if getattr(item, "id", None) == item_id:
+                self._queue.remove(item)
+                return True
+        return False
+
     @property
     def state_name(self):
         return "idle" if self.is_idle else "running"
@@ -315,3 +322,43 @@ class TestPlanAbort:
         reply = _invoke(plan_svc, "commands.plan.abort", {})
         assert reply["status"] == "not_aborted"
         assert "message" in reply
+
+    def test_item_id_matching_current_run_aborts_engine(self, plan_svc):
+        plan_svc.engine._current = SimpleNamespace(id="item-7", name="scan")
+        plan_svc.engine.sigOutput.emit("start", {"uid": "uid-1", "plan_name": "scan"})
+        reply = _invoke(plan_svc, "commands.plan.abort", {"item_id": "item-7"})
+        assert reply == {"status": "abort_requested", "contract_version": 1}
+
+    def test_item_id_queued_removes_from_queue(self, plan_svc):
+        plan_svc.engine._current = SimpleNamespace(id="item-running", name="scan")
+        plan_svc.engine.sigOutput.emit("start", {"uid": "uid-1", "plan_name": "scan"})
+        plan_svc.engine._queue = [SimpleNamespace(id="item-queued", name="scan2")]
+        reply = _invoke(plan_svc, "commands.plan.abort", {"item_id": "item-queued"})
+        assert reply["status"] == "abort_requested"
+        assert plan_svc.engine._queue == []
+
+    def test_item_id_not_found_not_aborted(self, plan_svc):
+        plan_svc.engine._current = SimpleNamespace(id="item-running", name="scan")
+        plan_svc.engine.sigOutput.emit("start", {"uid": "uid-1", "plan_name": "scan"})
+        reply = _invoke(plan_svc, "commands.plan.abort", {"item_id": "item-nope"})
+        assert reply["status"] == "not_aborted"
+        assert "message" in reply
+
+    def test_run_uid_matching_current_aborts_engine(self, plan_svc):
+        plan_svc.engine._current = SimpleNamespace(id="item-7", name="scan")
+        plan_svc.engine.sigOutput.emit("start", {"uid": "uid-1", "plan_name": "scan"})
+        reply = _invoke(plan_svc, "commands.plan.abort", {"run_uid": "uid-1"})
+        assert reply == {"status": "abort_requested", "contract_version": 1}
+
+    def test_run_uid_not_matching_not_aborted(self, plan_svc):
+        plan_svc.engine._current = SimpleNamespace(id="item-7", name="scan")
+        plan_svc.engine.sigOutput.emit("start", {"uid": "uid-1", "plan_name": "scan"})
+        reply = _invoke(plan_svc, "commands.plan.abort", {"run_uid": "uid-other"})
+        assert reply["status"] == "not_aborted"
+
+    def test_both_selectors_bad_request(self, plan_svc):
+        reply = _invoke(
+            plan_svc, "commands.plan.abort", {"item_id": "item-7", "run_uid": "uid-1"}
+        )
+        assert reply["status"] == "error"
+        assert reply["code"] == "bad_request"

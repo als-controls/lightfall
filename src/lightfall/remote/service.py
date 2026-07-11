@@ -315,17 +315,23 @@ class RemoteControlService(QObject):
 
         run_uid: str | None = None
         if not busy:
+            # The waiter is registered AFTER submit (item_id is only known once
+            # submit() returns), so the start doc can race ahead of registration
+            # for a very fast plan. Guard against that race by checking
+            # self._current immediately after registering, before waiting.
             with self._run_lock:
                 self._run_uid_waiters[item_id] = waiter
+                if self._current.get("item_id") == item_id:
+                    run_uid = self._current.get("run_uid")
             try:
-                if waiter.wait(RUN_UID_WAIT_S):
+                if run_uid is None and waiter.wait(RUN_UID_WAIT_S):
                     with self._run_lock:
                         if self._current.get("item_id") == item_id:
                             run_uid = self._current.get("run_uid")
             finally:
                 with self._run_lock:
                     self._run_uid_waiters.pop(item_id, None)
-            # Start doc may have arrived before the waiter was registered.
+            # Start doc may have arrived just as the waiter was being torn down.
             if run_uid is None:
                 with self._run_lock:
                     if self._current.get("item_id") == item_id:
@@ -337,12 +343,31 @@ class RemoteControlService(QObject):
         )
 
     def _handle_plan_abort(self, subject: str, data: dict, reply: str | None) -> None:
-        """Abort marshals to the Qt main thread (matches how the UI calls it)."""
+        """Abort marshals to the Qt main thread (matches how the UI calls it).
+
+        Request may include a selector (spec: ``{item_id? | run_uid?, reason?}``):
+
+        - No selector: abort the active run (previous behavior).
+        - ``item_id``: abort if it names the current run; remove it from the
+          queue if it's a queued item; else ``not_aborted``.
+        - ``run_uid``: abort if it names the tracked current run; else
+          ``not_aborted``.
+        - Both given: ``bad_request``.
+        """
         from lightfall.utils.threads import invoke_in_main_thread
 
         reason = data.get("reason", "")
+        item_id = data.get("item_id")
+        run_uid = data.get("run_uid")
 
-        def do_abort() -> None:
+        if item_id and run_uid:
+            self._ipc.reply(
+                reply,
+                error_reply("bad_request", "Provide at most one of item_id or run_uid, not both"),
+            )
+            return
+
+        def _abort_engine() -> None:
             try:
                 aborted = self.engine.abort(reason=reason)
             except Exception as exc:
@@ -358,6 +383,47 @@ class RemoteControlService(QObject):
                         message=f"Nothing to abort: engine state is '{self.engine.state_name}'",
                     ),
                 )
+
+        def do_abort() -> None:
+            if item_id:
+                with self._run_lock:
+                    current_item_id = self._current.get("item_id")
+                if item_id == current_item_id:
+                    _abort_engine()
+                    return
+                try:
+                    removed = self.engine.remove_from_queue(item_id)
+                except Exception as exc:
+                    self._ipc.reply(reply, error_reply("unknown", str(exc)))
+                    return
+                if removed:
+                    self._ipc.reply(reply, ok_reply(status="abort_requested"))
+                else:
+                    self._ipc.reply(
+                        reply,
+                        ok_reply(
+                            status="not_aborted",
+                            message=f"item_id '{item_id}' is not the current run or in the queue",
+                        ),
+                    )
+                return
+
+            if run_uid:
+                with self._run_lock:
+                    current_run_uid = self._current.get("run_uid")
+                if run_uid == current_run_uid:
+                    _abort_engine()
+                else:
+                    self._ipc.reply(
+                        reply,
+                        ok_reply(
+                            status="not_aborted",
+                            message=f"run_uid '{run_uid}' is not the current run",
+                        ),
+                    )
+                return
+
+            _abort_engine()
 
         invoke_in_main_thread(do_abort)
 

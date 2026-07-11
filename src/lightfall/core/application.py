@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 from lightfall.core.services import ServiceRegistry
 from lightfall.ipc.service import IPCService
 from lightfall.ipc.trust import TrustDialog, TrustManager, TrustState
+from lightfall.remote.protocol import error_reply, ok_reply
 from lightfall.utils.logging import configure_logging, logger
 
 if TYPE_CHECKING:
@@ -411,14 +412,14 @@ class LFApplication(QObject):
 
             if not user_id:
                 if reply:
-                    ipc.reply(reply, {"error": True, "message": "No active logbook (no user)"})
+                    ipc.reply(reply, error_reply("unknown", "No active logbook (no user)"))
                 return
 
             try:
                 logbook_id = client.get_or_create_logbook(user_id)
             except Exception as exc:
                 if reply:
-                    ipc.reply(reply, {"error": True, "message": str(exc)})
+                    ipc.reply(reply, error_reply("unknown", str(exc)))
                 return
 
             entry_id = client.create_entry(logbook_id, title=title, tags=tags)
@@ -426,7 +427,7 @@ class LFApplication(QObject):
                 client.add_fragment(entry_id, content=content)
 
             if reply:
-                ipc.reply(reply, {"status": "created", "entry_id": entry_id})
+                ipc.reply(reply, ok_reply(status="created", entry_id=entry_id))
 
         ipc.register_action(
             "commands.logbook.add",
@@ -450,7 +451,7 @@ class LFApplication(QObject):
             message = data.get("message", "")
             if not message:
                 if reply:
-                    ipc.reply(reply, {"error": True, "message": "message is required"})
+                    ipc.reply(reply, error_reply("bad_request", "message is required"))
                 return
 
             # Find the agent via the main window widget tree
@@ -464,12 +465,12 @@ class LFApplication(QObject):
 
             if agent is None:
                 if reply:
-                    ipc.reply(reply, {"error": True, "message": "Claude agent not available"})
+                    ipc.reply(reply, error_reply("unknown", "Claude agent not available"))
                 return
 
             agent.query_sync(message)
             if reply:
-                ipc.reply(reply, {"status": "sent"})
+                ipc.reply(reply, ok_reply(status="sent"))
 
         ipc.register_action(
             "commands.agent.message",
