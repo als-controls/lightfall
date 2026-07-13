@@ -10,8 +10,6 @@ import pytest
 # Skip all tests if bluesky is not installed
 pytest.importorskip("bluesky")
 
-from PySide6.QtCore import QCoreApplication
-
 from lightfall.acquire.engine import (
     BlueskyEngine,
     EngineState,
@@ -20,14 +18,9 @@ from lightfall.acquire.engine import (
     set_engine,
 )
 
-
-@pytest.fixture
-def qapp():
-    """Ensure QApplication exists for Qt."""
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
+# qapp is supplied by pytest-qt as a real QApplication (see tests/conftest.py);
+# a local QCoreApplication fixture is the wrong type for widget tests and aborts
+# the process at teardown (0xC0000005) when they share a run.
 
 
 @pytest.fixture
