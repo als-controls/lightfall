@@ -2,9 +2,6 @@
 
 import time
 
-import pytest
-from PySide6.QtCore import QCoreApplication
-
 from lightfall.utils.threads import (
     QThreadFuture,
     QThreadFutureIterator,
@@ -16,14 +13,12 @@ from lightfall.utils.threads import (
     thread_manager,
 )
 
-
-@pytest.fixture
-def qapp():
-    """Ensure QApplication exists for Qt threading."""
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
+# NOTE: no custom ``qapp`` fixture here. pytest-qt supplies ``qapp`` as a real
+# QApplication (see tests/conftest.py). A local fixture that created a
+# QCoreApplication instead made the process singleton the wrong type; when
+# these tests shared a process with widget tests (which need a QApplication),
+# teardown crashed with an access violation (0xC0000005). Let pytest-qt own
+# the QApplication lifecycle.
 
 
 class TestThreadManager:
