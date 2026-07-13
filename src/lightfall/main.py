@@ -1126,13 +1126,34 @@ def main() -> int:
         ManagedThreadPool.shutdown_all(wait=False)
         logger.debug("Managed thread pools shut down")
 
-        # 5. Skip caproto Context.disconnect().
-        #    Previously we called ctx.disconnect(wait=False) here, but it
-        #    triggers an access violation (0xC0000005) on Windows — caproto's
-        #    C-level socket code touches memory freed by earlier teardown.
-        #    With ManagedThreadPool (daemon threads) and CA tunnel stopped,
-        #    all caproto threads will die automatically on process exit.
-        logger.debug("Skipping caproto context disconnect (daemon threads exit with process)")
+        # 5. Stop caproto's user-callback thread pools. Each connected circuit
+        #    owns a non-daemon ThreadPoolExecutor whose workers concurrent.futures
+        #    joins via an atexit hook — a callback in flight there stalls exit
+        #    (the reason the watchdog above exists). Draining them (no socket
+        #    teardown) lets exit proceed and cannot trigger the socket-teardown
+        #    crash a full Context.disconnect() was blamed for. That fuller
+        #    teardown — which also stops caproto's selector/circuit threads
+        #    before finalization — is opt-in via LIGHTFALL_CAPROTO_DISCONNECT=1
+        #    so we can verify whether it actually crashes (and whether it fixes
+        #    the finalization-time access violation).
+        try:
+            from lightfall.utils.caproto_shutdown import (
+                disconnect_context,
+                drain_callback_executors,
+                get_caproto_context,
+            )
+
+            _ctx = get_caproto_context()
+            if _ctx is None:
+                logger.debug("No caproto context to stop")
+            elif os.environ.get("LIGHTFALL_CAPROTO_DISCONNECT") == "1":
+                logger.info("Disconnecting caproto context (full teardown)")
+                disconnect_context(_ctx)
+            else:
+                n = drain_callback_executors(_ctx)
+                logger.debug("Drained {} caproto user-callback executor(s)", n)
+        except Exception as e:
+            logger.warning("caproto shutdown step failed: {}", e)
 
         # Log remaining threads so we can see what's blocking exit
         _log_active_threads("post-cleanup")
