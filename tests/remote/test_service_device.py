@@ -83,6 +83,7 @@ def dev_svc(qapp):
                 device_class="ophyd.sim.SynAxis",
                 beamline="7.0.1.1",
                 tags=["sample"],
+                prefix="7bm1:mtr1:",
             ),
             motor,
         ),
@@ -147,6 +148,7 @@ class TestInfo:
             "name": "sim_motor",
             "category": "motor",
             "device_class": "ophyd.sim.SynAxis",
+            "pv": "7bm1:mtr1:",
             "contract_version": 1,
         }
 

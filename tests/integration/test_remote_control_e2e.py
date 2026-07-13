@@ -118,7 +118,10 @@ def lf(qapp, nats_url, monkeypatch):
             return [self._info]
 
         _info = DeviceInfo(
-            name="e2e_motor", category=DeviceCategory.MOTOR, device_class="ophyd.sim.SynAxis"
+            name="e2e_motor",
+            category=DeviceCategory.MOTOR,
+            device_class="ophyd.sim.SynAxis",
+            prefix="e2e:motor1:",
         )
 
         def get_device_by_name(self, name):
@@ -227,6 +230,7 @@ def test_full_contract_flow(lf, client):
     assert reply["devices"] == ["e2e_motor"]
     reply = client.run(client.client.call("commands.device.info", {"device": "e2e_motor"}))
     assert reply["device_class"] == "ophyd.sim.SynAxis"
+    assert reply["pv"] == "e2e:motor1:"
     reply = client.run(client.client.call("commands.device.components", {"device": "e2e_motor"}))
     assert any(c["name"] == "readback" for c in reply["components"])
     reply = client.run(client.client.call("commands.device.get", {"device": "e2e_motor"}))
