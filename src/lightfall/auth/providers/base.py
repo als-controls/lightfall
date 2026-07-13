@@ -66,6 +66,15 @@ class AuthProvider(ABC):
         """
         ...
 
+    def cancel(self) -> None:  # noqa: B027 - intentional optional no-op hook, not abstract
+        """Signal an in-flight authentication to stop waiting.
+
+        Called (typically from another thread) when the user cancels login,
+        so a provider blocked waiting for a browser callback can unblock
+        promptly. The default is a no-op; providers with a blocking wait
+        should override it. Must be safe to call when no auth is in flight.
+        """
+
     @abstractmethod
     async def logout(self, session: Session) -> None:
         """

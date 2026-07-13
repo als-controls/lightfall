@@ -536,9 +536,15 @@ class QtClaudeAgent(QObject):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
             if not self._worker.wait(5000):  # 5s timeout
-                logger.warning("Claude worker did not stop in time, terminating")
-                self._worker.terminate()
-                self._worker.wait(1000)
+                # Do NOT terminate(): killing a QThread that is executing
+                # Python corrupts the interpreter heap and crashes the whole
+                # process (0xC0000005). Abandon the worker instead — it is
+                # reclaimed when it finally unblocks or the process exits.
+                logger.warning(
+                    "Claude worker did not stop within 5s; abandoning it "
+                    "rather than force-terminating (terminate() would risk "
+                    "corrupting the interpreter and crashing the process)."
+                )
         self._is_connected = False
 
         # Clean up the per-session SDK plugin dir

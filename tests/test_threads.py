@@ -137,6 +137,75 @@ class TestQThreadFuture:
         assert success is True
         assert future.cancelled is True
 
+    def test_cancel_abandons_thread_that_ignores_interruption(self, qapp) -> None:
+        """cancel() must NEVER fall back to QThread.terminate().
+
+        Terminating a thread that is executing Python corrupts the
+        interpreter heap and crashes the whole process (0xC0000005). A
+        thread that ignores the interruption request must be abandoned
+        (left running), never force-killed.
+        """
+        import threading as _threading
+
+        from loguru import logger
+
+        release = _threading.Event()
+
+        def uninterruptible():
+            # Never checks isInterruptionRequested() — simulates a thread
+            # blocked in a C / socket call that cannot see the request.
+            release.wait(timeout=5)
+
+        future = QThreadFuture(uninterruptible)
+
+        # Spy that ALSO prevents the real (dangerous) terminate from running,
+        # so exercising the pre-fix code path can't crash the test process.
+        terminate_calls: list[str] = []
+        future.terminate = lambda: terminate_calls.append(future._name)  # type: ignore[method-assign]
+
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            future.start()
+            time.sleep(0.05)
+            success = future.cancel(timeout_ms=200)
+        finally:
+            logger.remove(sink_id)
+
+        # Abandoned, not terminated.
+        assert success is False
+        assert terminate_calls == []
+        assert future.isRunning() is True
+        # The abandonment is logged so a stuck thread is observable.
+        assert any("ignored interruption" in m.lower() for m in messages)
+
+        # Let the abandoned thread finish so it doesn't leak into other tests.
+        release.set()
+        assert future.wait(2000) is True
+
+    def test_terminate_logs_antipattern_warning(self, qapp) -> None:
+        """QThreadFuture.terminate() logs a loud antipattern warning.
+
+        terminate() is retained only as a guardrail; any caller (or Qt
+        internals) that reaches it should be flagged in the logs.
+        """
+        from loguru import logger
+
+        # A finished thread — terminate() on it is a harmless no-op, so this
+        # test exercises the logging without risking interpreter corruption.
+        future = QThreadFuture(lambda: None)
+        future.start()
+        future.wait(1000)
+
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            future.terminate()
+        finally:
+            logger.remove(sink_id)
+
+        assert any("antipattern" in m.lower() for m in messages)
+
     def test_context_manager(self, qapp) -> None:
         """Test context manager usage."""
         def quick_task():
