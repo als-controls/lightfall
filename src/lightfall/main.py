@@ -462,7 +462,7 @@ def _setup_devices() -> None:
             connection_timeout,
         )
 
-    if catalog.connect():
+    if catalog.connect_backends():
         backends_str = ", ".join(catalog.backends.keys())
         logger.info("Device catalog loading from [{}] (devices connect in the background)", backends_str)
     else:
@@ -1113,7 +1113,7 @@ def main() -> int:
         # 3. Disconnect device catalog (ophyd devices, connection manager)
         try:
             catalog = DeviceCatalog.get_instance()
-            catalog.disconnect()
+            catalog.disconnect_backends()
             logger.debug("Device catalog disconnected during shutdown")
         except Exception:
             pass

@@ -214,9 +214,9 @@ def test_connect_startup_path_async_pipeline(qtbot):
     catalog.device_connected.connect(lambda did: connected_ids.append(did))
 
     catalog.add_backend(backend)
-    result = catalog.connect()
+    result = catalog.connect_backends()
 
-    assert result is True, "connect() must return True when a backend is registered"
+    assert result is True, "connect_backends() must return True when a backend is registered"
 
     # Non-blocking: devices are connected asynchronously; we check below with waitUntil
 
