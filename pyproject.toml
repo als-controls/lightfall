@@ -56,6 +56,11 @@ dependencies = [
     # tiled
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
+    # bluesky-tiled-plugins>=2.0 imports tiled.storage, which imports
+    # sqlalchemy at module top level. sqlalchemy ships only with tiled's
+    # [server] extra (via alembic), not [client], so it must be declared
+    # explicitly or a client-only install fails to import lightfall.services.
+    "sqlalchemy>=2.0",
     # networking / proxy support
     "httpx[socks]>=0.27",
     "aiohttp>=3.8",
