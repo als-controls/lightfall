@@ -139,6 +139,13 @@ class LFMainWindow(QMainWindow):
         self._panels_menu = view_menu.addMenu("Panels")
         self._update_panels_menu()
 
+        # Beamline menu
+        beamline_menu = menubar.addMenu("&Beamline")
+
+        request_unlock_action = QAction("&Request Unlock...", self)
+        request_unlock_action.triggered.connect(self._on_request_unlock)
+        beamline_menu.addAction(request_unlock_action)
+
         # User menu
         user_menu = menubar.addMenu("&User")
 
@@ -817,6 +824,13 @@ class LFMainWindow(QMainWindow):
         from lightfall.ui.dialogs import LoginDialog
 
         dialog = LoginDialog(self)
+        dialog.exec()
+
+    def _on_request_unlock(self) -> None:
+        """Show the Request Unlock dialog for a caproxy attested lease."""
+        from lightfall.ui.dialogs import LeaseRequestDialog
+
+        dialog = LeaseRequestDialog(self)
         dialog.exec()
 
     def _on_logout(self) -> None:
