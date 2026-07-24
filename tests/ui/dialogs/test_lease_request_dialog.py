@@ -112,3 +112,20 @@ def test_signals_disconnected_on_close_no_crash(qapp, service):
     service.request_failed.emit("late error")
 
     qapp.processEvents()
+
+
+def test_signals_disconnected_on_reject_no_crash(qapp, service):
+    dialog = LeaseRequestDialog()
+    dialog.show()
+    dialog._patterns_edit.setPlainText("es:motor:z*")
+
+    # Reject (Escape key) bypasses closeEvent, relying on finished signal
+    # and WA_DeleteOnClose to clean up properly.
+    dialog.reject()
+
+    # Service outlives the dialog; emitting afterwards must not raise or
+    # touch deleted widgets or trigger handlers.
+    service.request_finished.emit({"lease_id": "xyz"})
+    service.request_failed.emit("late error")
+
+    qapp.processEvents()

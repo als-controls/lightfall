@@ -136,7 +136,9 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
     def _on_tick(self) -> None:
         """Re-render the countdown between polls without waiting on new data."""
         if self._poll_error is None:
-            self.update()
+            active = [r for r in self._leases if _is_active(r)]
+            if active:
+                self.update()
 
     # ------------------------------------------------------------------
     # Display

@@ -167,3 +167,41 @@ def test_exported_from_plugins_package():
     from lightfall.ui.statusbar.plugins import CaproxyLeaseStatusPlugin as Exported
 
     assert Exported is CaproxyLeaseStatusPlugin
+
+
+def test_tick_does_not_update_without_active_lease(qtbot, monkeypatch):
+    """Verify that _on_tick skips update() when there's no active lease."""
+    service = FakeLeaseService()
+    plugin = make_plugin(qtbot, service, monkeypatch)
+
+    # Emit idle state (no leases)
+    service.leases_updated.emit([])
+
+    # Mock update to verify it's not called
+    update_calls = []
+
+    def mock_update():
+        update_calls.append(True)
+
+    plugin.update = mock_update
+
+    # Tick should not call update when idle
+    plugin._on_tick()
+    assert not update_calls
+
+    # Now emit pending lease
+    service.leases_updated.emit([{"state": "pending", "pv_patterns": ["es:motor:z*"]}])
+    update_calls.clear()
+
+    # Tick should still not call update when pending (not active)
+    plugin._on_tick()
+    assert not update_calls
+
+    # Now emit active lease and verify tick DOES call update
+    service.leases_updated.emit(
+        [{"state": "active", "pv_patterns": ["es:motor:z*"], "expires_at": 1090.0}]
+    )
+    update_calls.clear()
+
+    plugin._on_tick()
+    assert update_calls == [True]

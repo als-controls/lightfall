@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -46,13 +47,16 @@ class LeaseRequestDialog(LFDialog):
         super().__init__(parent)
         self._service = CaproxyLeaseService.get_instance()
         self._request_pending = False
+        self._signals_disconnected = False
 
         self.setWindowTitle("Request Unlock")
         self.setModal(True)
         self.setMinimumWidth(420)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._setup_ui()
         self._connect_signals()
+        self.finished.connect(self._disconnect_signals)
 
     # ------------------------------------------------------------------
     # UI
@@ -229,6 +233,9 @@ class LeaseRequestDialog(LFDialog):
         super().closeEvent(event)
 
     def _disconnect_signals(self) -> None:
+        if self._signals_disconnected:
+            return
+        self._signals_disconnected = True
         for signal, slot in (
             (self._service.request_finished, self._on_request_finished),
             (self._service.request_failed, self._on_request_failed),
