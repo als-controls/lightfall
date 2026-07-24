@@ -175,6 +175,11 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="statusbar",
+            name="caproxy_lease_status",
+            import_path="lightfall.ui.statusbar.plugins.caproxy_lease_status:CaproxyLeaseStatusPlugin",
+        ),
+        PluginEntry(
+            type_name="statusbar",
             name="als_beam_status",
             import_path="lightfall.ui.statusbar.plugins.als_beam_status:ALSBeamStatusPlugin",
         ),
