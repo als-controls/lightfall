@@ -131,6 +131,10 @@ class CaproxyLeaseService(QObject):
         self._poll_stop_event = threading.Event()
         self._last_leases: list[Any] | None = None
         self._poll_failing = False
+        self._poll_client: httpx.Client | None = None
+        self._poll_client_lock = threading.Lock()
+        self._request_client: httpx.Client | None = None
+        self._request_client_lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> CaproxyLeaseService:
@@ -188,22 +192,39 @@ class CaproxyLeaseService(QObject):
             headers,
             payload,
             callback_slot=self._on_request_result,
+            interrupt_callable=self._abort_request_client,
             name="caproxy_request_lease",
         )
         self._request_thread.start()
 
-    @staticmethod
+    def _abort_request_client(self) -> None:
+        """Close the in-flight request client, aborting a hung POST."""
+        with self._request_client_lock:
+            client = self._request_client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
     def _do_request_lease(
-        base_url: str, headers: dict[str, str], payload: dict[str, Any]
+        self, base_url: str, headers: dict[str, str], payload: dict[str, Any]
     ) -> tuple[bool, Any]:
         """Runs in a background thread. Never raises — returns (ok, data)."""
         try:
-            with httpx.Client(timeout=_REQUEST_TIMEOUT_S) as client:
-                response = client.post(
-                    f"{base_url.rstrip('/')}/api/leases/request",
-                    json=payload,
-                    headers=headers,
-                )
+            client = httpx.Client(timeout=_REQUEST_TIMEOUT_S)
+            with self._request_client_lock:
+                self._request_client = client
+            try:
+                with client:
+                    response = client.post(
+                        f"{base_url.rstrip('/')}/api/leases/request",
+                        json=payload,
+                        headers=headers,
+                    )
+            finally:
+                with self._request_client_lock:
+                    self._request_client = None
             if response.status_code // 100 == 2:
                 try:
                     return True, response.json()
@@ -244,7 +265,7 @@ class CaproxyLeaseService(QObject):
             base_url,
             stop_event,
             yield_slot=self._on_poll_tick,
-            interrupt_callable=stop_event.set,
+            interrupt_callable=self._interrupt_poll,
             key=_POLL_THREAD_KEY,
             name="caproxy_lease_poll",
         )
@@ -257,6 +278,24 @@ class CaproxyLeaseService(QObject):
             self._poll_thread.cancel()
             self._poll_thread = None
 
+    def _interrupt_poll(self) -> None:
+        """Interrupt callable: stop the loop AND abort any in-flight GET.
+
+        Setting stop_event alone only unblocks the interruptible sleep
+        between cycles — it does nothing for a GET that's already in
+        flight, which can block on the network for up to
+        ``_POLL_TIMEOUT_S``. Closing the client aborts that pending request
+        so cancel() doesn't have to wait it out.
+        """
+        self._poll_stop_event.set()
+        with self._poll_client_lock:
+            client = self._poll_client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
     def _poll_loop(self, base_url: str, stop_event: threading.Event):
         """Generator run in the background thread: yields a tick result per cycle.
 
@@ -264,25 +303,43 @@ class CaproxyLeaseService(QObject):
         (regular QThreadFuture emits on every yield, not just the final
         return). ``stop_event`` doubles as the interrupt_callable target and
         the sleep-unblocker, and also bounds the httpx call via timeout.
+        The client used for each cycle's GET is stashed on ``self`` so
+        ``_interrupt_poll`` can close it to abort an in-flight request.
         """
         headers = _auth_headers()
-        while not stop_event.is_set():
-            try:
-                with httpx.Client(timeout=_POLL_TIMEOUT_S) as client:
-                    response = client.get(
-                        f"{base_url.rstrip('/')}/api/leases", headers=headers
-                    )
-                if response.status_code // 100 == 2:
-                    yield (True, response.json())
-                else:
-                    yield (False, _extract_error_text(response))
-            except Exception as exc:
-                yield (False, f"Poll failed: {exc}")
+        try:
+            while not stop_event.is_set():
+                try:
+                    client = httpx.Client(timeout=_POLL_TIMEOUT_S)
+                    with self._poll_client_lock:
+                        self._poll_client = client
+                    try:
+                        with client:
+                            response = client.get(
+                                f"{base_url.rstrip('/')}/api/leases", headers=headers
+                            )
+                    finally:
+                        with self._poll_client_lock:
+                            self._poll_client = None
 
-            # Interruptible sleep: wait() returns True immediately once
-            # stop_event is set, unblocking cancellation promptly instead
-            # of waiting out the full interval.
-            stop_event.wait(POLL_INTERVAL_S)
+                    if stop_event.is_set():
+                        break
+                    if response.status_code // 100 == 2:
+                        yield (True, response.json())
+                    else:
+                        yield (False, _extract_error_text(response))
+                except Exception as exc:
+                    if stop_event.is_set():
+                        break
+                    yield (False, f"Poll failed: {exc}")
+
+                # Interruptible sleep: wait() returns True immediately once
+                # stop_event is set, unblocking cancellation promptly instead
+                # of waiting out the full interval.
+                stop_event.wait(POLL_INTERVAL_S)
+        finally:
+            with self._poll_client_lock:
+                self._poll_client = None
 
     def _on_poll_tick(self, result: tuple[bool, Any]) -> None:
         ok, data = result

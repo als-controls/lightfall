@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from lightfall.services.caproxy_lease_service import CaproxyLeaseService
@@ -207,3 +210,50 @@ def test_stop_polling_unblocks_promptly(qtbot):
         # The poll thread should have honored the stop_event quickly rather
         # than waiting the full 30s POLL_INTERVAL_S.
         assert service._poll_thread is None
+
+
+def test_stop_polling_aborts_inflight_get_promptly(qtbot):
+    """A hung GET (server slow/unreachable) must not block stop_polling().
+
+    interrupt_callable must close the in-flight httpx.Client (aborting the
+    pending GET), not just set stop_event — otherwise QThreadFuture.cancel()
+    blocks on its wait() for up to timeout_ms, freezing the GUI thread.
+    """
+    service = CaproxyLeaseService.get_instance()
+
+    block_event = threading.Event()
+    closed = threading.Event()
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+
+    def hung_get(*args, **kwargs):
+        # Simulate an in-flight request that only returns once the client
+        # is closed (mimicking httpx aborting the socket on close()).
+        block_event.wait(timeout=5.0)
+        raise httpx.ReadError("client closed")
+
+    def fake_close():
+        closed.set()
+        block_event.set()
+
+    fake_client.get.side_effect = hung_get
+    fake_client.close.side_effect = fake_close
+
+    with patch("httpx.Client", return_value=fake_client), \
+            patch(
+                "lightfall.services.caproxy_lease_service._auth_headers",
+                return_value={},
+            ), patch(
+                "lightfall.services.caproxy_lease_service.POLL_INTERVAL_S", 30.0
+            ):
+        service.start_polling()
+        qtbot.waitUntil(lambda: fake_client.get.called, timeout=2000)
+
+        start = time.monotonic()
+        service.stop_polling()
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0, f"stop_polling() took {elapsed:.2f}s — GUI-thread stall"
+    assert closed.is_set()
+    assert service._poll_thread is None
