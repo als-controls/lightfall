@@ -53,6 +53,9 @@ GLOBAL_ONLY_PREFS = {
     "tiled_enabled",
     "tiled_url",
     "tiled_api_key",
+    # Caproxy settings (attested lease UX)
+    "caproxy_url",
+    "caproxy_token",
     # Claude settings
     "claude_api_key",
     "claude_endpoint",
