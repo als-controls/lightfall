@@ -299,6 +299,9 @@ class TestAdaptiveLoopE2E:
         client = tiled_env
         run_uid = f"test-run-{uuid.uuid4().hex[:8]}"
         lightfall_prefix = f"test.lightfall.{uuid.uuid4().hex[:8]}"
+        # The plan resolves its NATS prefix from IPCService._topic_prefix
+        # (there is no lightfall_prefix kwarg since 274fc9c).
+        fake_ipc._topic_prefix = lightfall_prefix
         n_iterations = 5
 
         # -- Sim devices ----------------------------------------------------
@@ -398,8 +401,6 @@ class TestAdaptiveLoopE2E:
                     adaptive_experiment(
                         [det],
                         [motor_x, motor_y],
-                        experiment_id="test-e2e-123",
-                        lightfall_prefix=lightfall_prefix,
                         timeout=20.0,
                         poll_interval=0.05,
                     )
@@ -443,28 +444,29 @@ class TestAdaptiveLoopE2E:
             f"Missing 'adaptive' container. Keys: {list(run_node.keys())}"
         )
 
+        # TiledPublisher writes 'adaptive' as a Bluesky event stream: one
+        # descriptor (grids in its configuration metadata, source
+        # "tsuchinoko" in data_keys) + one event per iteration.
         adaptive_node = run_node["adaptive"]
-        assert adaptive_node.metadata.get("adaptive_engine") == "tsuchinoko"
+        data_keys = adaptive_node.metadata.get("data_keys", {})
+        assert data_keys.get("targets", {}).get("source") == "tsuchinoko"
 
-        # Tiled: config has evaluation grids
-        config_node = adaptive_node["config"]
-        config_keys = list(config_node.keys())
-        assert "evaluation_grid_x" in config_keys
-        assert "evaluation_grid_y" in config_keys
-
-        # Tiled: at least 2 iteration containers
-        iter_keys = sorted(
-            k for k in adaptive_node.keys() if k.startswith("iter_")
+        # Tiled: descriptor configuration has evaluation grids
+        grid_data = (
+            adaptive_node.metadata.get("configuration", {})
+            .get("tsuchinoko", {})
+            .get("data", {})
         )
-        assert len(iter_keys) >= 2, (
-            f"Expected >= 2 iterations, got {len(iter_keys)}: {iter_keys}"
-        )
+        assert "evaluation_grid_x" in grid_data
+        assert "evaluation_grid_y" in grid_data
 
-        # First iteration has targets
-        iter_000 = adaptive_node[iter_keys[0]]
-        iter_000_keys = list(iter_000.keys())
-        assert "targets" in iter_000_keys, (
-            f"iter_000 missing 'targets'. Keys: {iter_000_keys}"
+        # Tiled: at least 2 iteration events (one targets row per iteration).
+        # TiledPublisher routes every data_key to a zarr array child
+        # (max_array_size=0), so read via the stream's plain container
+        # (.base) rather than the composite table facade.
+        targets = np.asarray(adaptive_node.base["targets"].read())
+        assert targets.shape[0] >= 2, (
+            f"Expected >= 2 iterations, got targets shape {targets.shape}"
         )
 
         # Viz: AdaptiveHeatmapVisualization.can_handle should return 90
@@ -503,6 +505,39 @@ class TestTiledSchemaCanHandle:
 
         score = AdaptiveHeatmapVisualization.can_handle(
             client["viz-test-run"]
+        )
+        assert score == 90
+
+    def test_can_handle_recognizes_real_writer_layout(self, tiled_env):
+        """can_handle must score 90 from data_keys source="tsuchinoko" alone.
+
+        The real TiledPublisher never writes an "adaptive_engine" metadata
+        key — the engine marker is source="tsuchinoko" in the descriptor's
+        data_keys (the e2e above covers this end-to-end; this pins it at the
+        unit level).
+        """
+        client = tiled_env
+        run = client.create_container(key="viz-test-writer-layout")
+        adaptive = run.create_container(key="adaptive")
+        adaptive.update_metadata(
+            {
+                "data_keys": {
+                    "targets": {"dtype": "array", "shape": [2],
+                                "source": "tsuchinoko"},
+                },
+                "configuration": {
+                    "tsuchinoko": {
+                        "data": {
+                            "evaluation_grid_x": np.linspace(0, 100, 50).tolist(),
+                            "evaluation_grid_y": np.linspace(0, 100, 50).tolist(),
+                        }
+                    }
+                },
+            }
+        )
+
+        score = AdaptiveHeatmapVisualization.can_handle(
+            client["viz-test-writer-layout"]
         )
         assert score == 90
 
