@@ -493,7 +493,12 @@ class RemoteControlService(QObject):
         info, _ = resolved
         self._ipc.reply(
             reply,
-            ok_reply(name=info.name, category=str(info.category), device_class=info.device_class),
+            ok_reply(
+                name=info.name,
+                category=str(info.category),
+                device_class=info.device_class,
+                pv=getattr(info, "prefix", "") or "",
+            ),
         )
 
     def _handle_device_components(self, subject: str, data: dict, reply: str | None) -> None:
