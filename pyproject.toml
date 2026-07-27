@@ -232,6 +232,8 @@ requires = [
     "h5py>=3.0",
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
+    # see [project].dependencies for why sqlalchemy must be declared explicitly
+    "sqlalchemy>=2.0",
 
     # IPython integration
     "qtconsole>=5.5",
