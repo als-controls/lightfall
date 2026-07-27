@@ -249,8 +249,39 @@ Common categories for organizing panels:
 | `name` | `str` | Yes | Display name in menus |
 | `description` | `str` | No | Tooltip description |
 | `category` | `str` | No | Menu category (default: "tools") |
-| `icon` | `str` | No | Icon name (qtawesome format) |
+| `icon` | `str` | No* | Icon name (qtawesome format). *Effectively required for plugin panels — see Sidebar visibility below.* |
 | `singleton` | `bool` | No | Allow only one instance? (default: True) |
+| `default_area` | `str` | No | Dock area: `"left"` (default) or `"bottom"` for sidebar panels. **Do not use `"center"` for plugin panels — see below.** |
+| `sidebar_group` | `str` | No | Sidebar section grouping (default: "top") |
+| `sidebar_order` | `int` | No | Sort order among sidebar buttons |
+
+## Sidebar visibility (gotchas)
+
+Two `PanelMetadata` choices make a plugin panel register **successfully but
+invisibly** — no error, no warning, no sidebar icon:
+
+1. **`default_area="center"` gets no sidebar button.** The docking manager's
+   runtime registration handler (`DockingManager._on_panel_registered`)
+   returns early for `"center"` panels without creating a button or deferring
+   the panel. `"center"` is reserved for the host's own main-workspace
+   content, not runtime-registered plugin panels. Use `"left"` (sidebar top
+   section) or `"bottom"` (sidebar bottom section).
+2. **An empty `icon` renders an invisible sidebar button.** The button is
+   created but has nothing to draw. Always set a qtawesome icon name
+   (e.g. `"mdi.chart-line"`).
+
+Pin both in a regression test in your plugin repo:
+
+```python
+def test_metadata_sidebar_visible():
+    md = MyPanel.panel_metadata
+    assert md.default_area in {"left", "bottom"}
+    assert md.icon
+```
+
+(Real-world case: the lightfall-saxs panel shipped with
+`default_area="center"` and passed every test while never appearing in the
+sidebar — found 2026-07-27.)
 
 ## Minimal Example
 
@@ -279,6 +310,8 @@ class SimplePanel(BasePanel):
     panel_metadata = PanelMetadata(
         id="my.simple",
         name="Simple Panel",
+        icon="mdi.tools",     # required in practice: empty icon = invisible sidebar button
+        default_area="left",  # "left" or "bottom" only (see Sidebar visibility)
     )
 
     def __init__(self, parent=None):
