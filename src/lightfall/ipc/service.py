@@ -598,19 +598,27 @@ class IPCService(QObject):
         if self._thread is None:
             return
 
-        self._shutdown_event.set()
-
-        if self._loop is not None and self._nc is not None:
-            future = asyncio.run_coroutine_threadsafe(
-                self._drain_and_close(), self._loop
-            )
+        # Drain BEFORE setting the shutdown event: once the event is set the
+        # serve coroutine returns and _run_loop closes the loop, so any later
+        # call into it raises "Event loop is closed".
+        if self._loop is not None and not self._loop.is_closed() and self._nc is not None:
             try:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._drain_and_close(), self._loop
+                )
                 future.result(timeout=5)
             except Exception as exc:
                 logger.warning("IPCService: error during drain/close: {}", exc)
 
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        self._shutdown_event.set()
+
+        if self._loop is not None and not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except RuntimeError:
+                # Loop closed between the is_closed() check and the call —
+                # the thread is already exiting on its own.
+                pass
 
         self._thread.join(timeout=5)
         self._thread = None

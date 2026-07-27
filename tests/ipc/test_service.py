@@ -55,6 +55,43 @@ class TestConnectionLifecycle:
         # Must not raise even though start() was never called
         svc.stop()
 
+    def test_stop_with_closed_loop_is_safe(self, qapp):
+        """The background thread closes the loop when _connect_and_serve exits
+        (e.g. NATS connect failed, or the serve loop won the shutdown race).
+        stop() must tolerate an already-closed loop."""
+        import threading
+
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        loop = asyncio.new_event_loop()
+        loop.close()
+        svc._loop = loop
+        thread = threading.Thread(target=lambda: None)
+        thread.start()
+        thread.join()
+        svc._thread = thread
+
+        svc.stop()  # must not raise RuntimeError: Event loop is closed
+        assert svc._thread is None
+        assert svc._loop is None
+
+    def test_stop_with_closed_loop_and_nc_is_safe(self, qapp):
+        """Same, but with a stale NATS client still set — the drain path must
+        also tolerate the closed loop."""
+        import threading
+
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        loop = asyncio.new_event_loop()
+        loop.close()
+        svc._loop = loop
+        svc._nc = MagicMock()
+        thread = threading.Thread(target=lambda: None)
+        thread.start()
+        thread.join()
+        svc._thread = thread
+
+        svc.stop()
+        assert svc._thread is None
+
 
 # ---------------------------------------------------------------------------
 # TestSubscribePublish
