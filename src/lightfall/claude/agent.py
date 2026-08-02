@@ -334,14 +334,25 @@ class QtClaudeAgent(QObject):
         if self._spec is not None:
             from lightfall.agents.assembly import assemble_spec_options
             from lightfall.agents.registry import AgentSpecRegistry
+            from lightfall.agents.spec import AgentSpecError
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-            spec_options = assemble_spec_options(
-                self._spec,
-                ToolRegistry.get_instance(),
-                AgentSpecRegistry.get_instance(),
-                self._session_plugin_dir,
-            )
+            try:
+                spec_options = assemble_spec_options(
+                    self._spec,
+                    ToolRegistry.get_instance(),
+                    AgentSpecRegistry.get_instance(),
+                    self._session_plugin_dir,
+                )
+            except AgentSpecError as exc:
+                logger.warning(
+                    "agent '{}': failed to assemble spec options ({}); "
+                    "falling back to the legacy hardcoded system prompt",
+                    self._spec.name, exc,
+                )
+                self._spec = None
+
+        if self._spec is not None:
             mcp_servers.update(spec_options["mcp_servers"])
             allowed_tools.extend(spec_options["allowed_tools"])
             system_prompt = spec_options["system_prompt"]

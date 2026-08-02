@@ -43,6 +43,16 @@ def test_bad_file_is_skipped_and_reported(registry, tmp_path):
     assert registry.errors()[0][0] == bad
 
 
+def test_bad_template_var_is_skipped_and_reported(registry, tmp_path):
+    _agent(tmp_path / "user", "good")
+    bad = tmp_path / "user" / "typo.md"
+    bad.write_text("---\nname: typo\ndescription: d\n---\nHello {{typo}}", encoding="utf-8")
+    registry.register_scope_dir("user", tmp_path / "user")
+    assert [s.name for s in registry.specs()] == ["good"]
+    assert len(registry.errors()) == 1
+    assert registry.errors()[0][0] == bad
+
+
 def test_enabled_specs_pref_pair(registry, tmp_path, monkeypatch):
     _agent(tmp_path / "core", "a")
     _agent(tmp_path / "core", "b")

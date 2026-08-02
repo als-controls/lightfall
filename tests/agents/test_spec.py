@@ -78,3 +78,15 @@ def test_resolve_template():
 def test_resolve_template_unknown_var_raises():
     with pytest.raises(AgentSpecError):
         resolve_template("hi {{nope}}", {"beamline": "7.0.1"})
+
+
+def test_parse_agent_file_rejects_unknown_template_var(tmp_path):
+    text = "---\nname: x\ndescription: d\n---\nHello {{nope}}"
+    with pytest.raises(AgentSpecError):
+        parse_agent_file(_write(tmp_path, text), scope="user")
+
+
+def test_parse_agent_file_accepts_known_template_var(tmp_path):
+    text = "---\nname: x\ndescription: d\n---\nHello {{beamline}}"
+    spec = parse_agent_file(_write(tmp_path, text), scope="user")
+    assert spec.prompt == "Hello {{beamline}}"

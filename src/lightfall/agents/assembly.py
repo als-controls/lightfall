@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from lightfall.agents.skills_store import materialize_skills
 from lightfall.agents.skills_store import template_variables as _skills_store_template_variables
-from lightfall.agents.spec import AgentSpec, resolve_template
+from lightfall.agents.spec import AgentSpec, AgentSpecError, resolve_template
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -45,12 +45,19 @@ def agent_cwd(spec: AgentSpec) -> str:
     return str(path)
 
 
-def subagent_definitions(current: AgentSpec, registry: AgentSpecRegistry) -> dict[str, Any]:
+def subagent_definitions(
+    current: AgentSpec,
+    registry: AgentSpecRegistry,
+    variables: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Build SDK ``AgentDefinition`` entries for every OTHER enabled spec
     with ``subagent=True``.
 
     Returns ``{}`` (with a log entry) if the SDK's ``AgentDefinition`` type
-    cannot be imported.
+    cannot be imported. Any spec whose prompt fails template resolution
+    (e.g. an unknown ``{{var}}`` that bypassed load-time validation) is
+    logged and skipped rather than raised -- a bad agent file must never
+    break session construction for every OTHER enabled spec.
     """
     try:
         from claude_agent_sdk.types import AgentDefinition
@@ -58,18 +65,22 @@ def subagent_definitions(current: AgentSpec, registry: AgentSpecRegistry) -> dic
         logger.debug("AgentDefinition not available; skipping subagent definitions")
         return {}
 
-    variables = template_variables()
+    if variables is None:
+        variables = template_variables()
     defs: dict[str, Any] = {}
     for spec in registry.enabled_specs():
         if spec.name == current.name or not spec.subagent:
             continue
-        defs[spec.name] = AgentDefinition(
-            description=spec.description,
-            prompt=resolve_template(spec.prompt, variables),
-            model=spec.model,
-            effort=spec.effort,
-            memory=("project" if spec.memory else None),
-        )
+        try:
+            defs[spec.name] = AgentDefinition(
+                description=spec.description,
+                prompt=resolve_template(spec.prompt, variables),
+                model=spec.model,
+                effort=spec.effort,
+                memory=("project" if spec.memory else None),
+            )
+        except AgentSpecError as exc:
+            logger.warning("agent '{}': skipping subagent definition: {}", spec.name, exc)
     return defs
 
 
@@ -108,7 +119,7 @@ def assemble_spec_options(
 
     materialize_skills(spec.skills, session_plugin_dir, variables=variables)
 
-    agents = subagent_definitions(spec, spec_registry)
+    agents = subagent_definitions(spec, spec_registry, variables=variables)
 
     return {
         "system_prompt": system_prompt,

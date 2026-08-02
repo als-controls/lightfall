@@ -32,6 +32,22 @@ def test_subagent_definitions_exclude_self_and_non_subagents(monkeypatch):
     AgentSpecRegistry.reset_instance()
 
 
+def test_subagent_definitions_skips_spec_with_unknown_template_var(monkeypatch):
+    AgentSpecRegistry.reset_instance()
+    reg = AgentSpecRegistry.get_instance()
+    specs = [
+        _spec("lightfall"),
+        _spec("saxs"),
+        _spec("bad", prompt="p {{typo}}"),
+    ]
+    monkeypatch.setattr(reg, "enabled_specs", lambda: specs)
+    monkeypatch.setattr("lightfall.agents.assembly.template_variables",
+                        lambda: {"user": "ron", "beamline": "", "endstation": ""})
+    defs = subagent_definitions(specs[0], reg)
+    assert set(defs) == {"saxs"}
+    AgentSpecRegistry.reset_instance()
+
+
 def test_builtin_lightfall_and_observer_load():
     from lightfall.agents import builtin_agents_dir  # exported from lightfall.agents.__init__
     from lightfall.agents.spec import parse_agent_file

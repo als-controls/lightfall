@@ -16,6 +16,7 @@ _KNOWN_TOP = {"name", "description", "model", "effort", "tools", "skills", "memo
 _KNOWN_LF = {"subagent", "on_message", "forward_min_severity"}
 _ON_MESSAGE_VALUES = {"auto", "queue"}
 _SEVERITIES = {"info", "warn", "critical"}
+KNOWN_TEMPLATE_VARIABLES = frozenset({"beamline", "user", "endstation"})
 
 
 class AgentSpecError(ValueError):
@@ -73,6 +74,12 @@ def parse_agent_file(path: Path, scope: str) -> AgentSpec:
     body = m.group(2).strip()
     if not body:
         raise AgentSpecError("agent prompt body is empty", path)
+
+    unknown_vars = {v for v in _TEMPLATE_RE.findall(body) if v not in KNOWN_TEMPLATE_VARIABLES}
+    if unknown_vars:
+        raise AgentSpecError(
+            f"unknown template variable(s) in prompt: {', '.join(sorted(unknown_vars))}", path
+        )
 
     lf = meta.get("lightfall") or {}
     if not isinstance(lf, dict):
