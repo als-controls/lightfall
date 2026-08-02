@@ -5,7 +5,7 @@ import platform
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
@@ -19,6 +19,9 @@ from lightfall.claude.permission_manager import (
 )
 from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
+
+if TYPE_CHECKING:
+    from lightfall.agents.spec import AgentSpec
 
 
 def lightfall_agent_cwd() -> str:
@@ -223,6 +226,7 @@ class QtClaudeAgent(QObject):
         effort: str | None = None,
         resume: str | None = None,
         disable_betas: bool = False,
+        spec: "AgentSpec | None" = None,
         parent: QObject | None = None
     ):
         """
@@ -253,6 +257,20 @@ class QtClaudeAgent(QObject):
         super().__init__(parent)
 
         self.target_window = target_window
+
+        # Resolve the spec that drives this session's system prompt, cwd,
+        # tool selection, and subagents. Fall back to the legacy hardcoded
+        # QT_SYSTEM_PROMPT path (registry not loaded, e.g. bare constructor
+        # tests) so existing callers keep working.
+        if spec is None:
+            from lightfall.agents.registry import AgentSpecRegistry
+            spec = AgentSpecRegistry.get_instance().get("lightfall")
+            if spec is None:
+                logger.warning(
+                    "QtClaudeAgent: no 'lightfall' AgentSpec in the registry; "
+                    "falling back to the legacy hardcoded system prompt"
+                )
+        self._spec = spec
 
         # Try multiple environment variables for API key (optional - CLI can use OAuth)
         self.api_key = (
@@ -305,27 +323,56 @@ class QtClaudeAgent(QObject):
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
-        # Per-plugin server assembly from AgentRegistry
-        from lightfall.claude._session_assembly import (
-            assemble_mcp_servers,
-            init_session_plugin_dir,
-            materialize_skill,
-        )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
-
-        enabled = AgentRegistry.get_instance().enabled_plugins()
-        agent_servers, agent_allowed = assemble_mcp_servers(enabled)
-        mcp_servers.update(agent_servers)
-        allowed_tools.extend(agent_allowed)
-
         # Synthesize per-session SDK plugin dir
+        from lightfall.claude._session_assembly import init_session_plugin_dir
+
         self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
         init_session_plugin_dir(self._session_plugin_dir)
-        for plugin in enabled:
-            materialize_skill(plugin, self._session_plugin_dir)
 
-        # Build system prompt
-        system_prompt = QT_SYSTEM_PROMPT
+        agents: dict[str, Any] = {}
+
+        if self._spec is not None:
+            from lightfall.agents.assembly import assemble_spec_options
+            from lightfall.agents.registry import AgentSpecRegistry
+            from lightfall.agents.spec import AgentSpecError
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+            try:
+                spec_options = assemble_spec_options(
+                    self._spec,
+                    ToolRegistry.get_instance(),
+                    AgentSpecRegistry.get_instance(),
+                    self._session_plugin_dir,
+                )
+            except AgentSpecError as exc:
+                logger.warning(
+                    "agent '{}': failed to assemble spec options ({}); "
+                    "falling back to the legacy hardcoded system prompt",
+                    self._spec.name, exc,
+                )
+                self._spec = None
+
+        if self._spec is not None:
+            mcp_servers.update(spec_options["mcp_servers"])
+            allowed_tools.extend(spec_options["allowed_tools"])
+            system_prompt = spec_options["system_prompt"]
+            project_cwd = spec_options["cwd"]
+            agents = spec_options["agents"]
+        else:
+            # Legacy path: no spec available (registry not loaded).
+            from lightfall.agents.skills_store import materialize_skills
+            from lightfall.claude._session_assembly import assemble_mcp_servers
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+            enabled = ToolRegistry.get_instance().enabled_plugins()
+            agent_servers, agent_allowed = assemble_mcp_servers(enabled)
+            mcp_servers.update(agent_servers)
+            allowed_tools.extend(agent_allowed)
+            materialize_skills(tuple(p.name for p in enabled), self._session_plugin_dir)
+
+            system_prompt = QT_SYSTEM_PROMPT
+            project_cwd = lightfall_agent_cwd()
+
         if additional_system_prompt:
             system_prompt = f"{system_prompt}\n\n{additional_system_prompt}"
 
@@ -333,7 +380,7 @@ class QtClaudeAgent(QObject):
         self._effort = effort
         self._resume_session_id = resume
         self._current_session_id: str | None = None
-        self._project_cwd = lightfall_agent_cwd()
+        self._project_cwd = project_cwd
 
         # Configure Claude options
         options_dict = {
@@ -353,6 +400,8 @@ class QtClaudeAgent(QObject):
             # partial_* signals and the widget appends as they arrive.
             "include_partial_messages": True,
         }
+        if agents:
+            options_dict["agents"] = agents
         if self._model:
             options_dict["model"] = self._model
         if self._effort:
@@ -659,11 +708,9 @@ class QtClaudeAgent(QObject):
         """
         import dataclasses
 
-        from lightfall.claude._session_assembly import (
-            init_session_plugin_dir,
-            materialize_skill,
-        )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.agents.skills_store import materialize_skills
+        from lightfall.claude._session_assembly import init_session_plugin_dir
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
         self.cockpit_reset.emit()
         self.stop()  # stops the worker; also rmtree's the session plugin dir
@@ -686,8 +733,11 @@ class QtClaudeAgent(QObject):
         try:
             plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
             init_session_plugin_dir(plugin_dir)
-            for plugin in AgentRegistry.get_instance().enabled_plugins():
-                materialize_skill(plugin, plugin_dir)
+            if self._spec is not None:
+                materialize_skills(self._spec.skills, plugin_dir)
+            else:
+                enabled = ToolRegistry.get_instance().enabled_plugins()
+                materialize_skills(tuple(p.name for p in enabled), plugin_dir)
             self._session_plugin_dir = plugin_dir
 
             self.options = dataclasses.replace(

@@ -14,16 +14,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 _ENV = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 
 
 @pytest.fixture(autouse=True)
 def reset_registry():
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     yield
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 @pytest.fixture
@@ -32,11 +32,11 @@ def mock_sdk(monkeypatch):
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
     # No registered agents -> keep per-plugin assembly trivial.
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
         lambda self, key: None,
     )
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
 

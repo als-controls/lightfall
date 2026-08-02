@@ -573,6 +573,29 @@ def _setup_monitor(app, window) -> None:
         logger.debug("could not register MonitorService with app.services")
 
 
+def _setup_agent_specs() -> None:
+    """Bootstrap the AgentSpecRegistry with the core and user agent-file scopes.
+
+    Registers the built-in shipped agent definitions ("core" scope) and the
+    user's ``~/lightfall/agents`` directory ("user" scope), then starts
+    watching the user directory for live edits. Must run before any
+    ``QtClaudeAgent`` (or ``MonitorAdvisor``) is constructed, since those
+    consult the registry for their system prompts.
+
+    Beamline packages contribute their own agent definitions via the public
+    ``AgentSpecRegistry.get_instance().register_scope_dir("beamline", path)``
+    API, called from their own plugin init code (e.g. an ``EnginePlugin`` or
+    ``ToolPlugin`` subclass's ``setup()``). No loader-level hook is required.
+    """
+    from lightfall.agents import builtin_agents_dir, user_agents_dir
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    reg = AgentSpecRegistry.get_instance()
+    reg.register_scope_dir("core", builtin_agents_dir())
+    reg.register_scope_dir("user", user_agents_dir())
+    reg.watch_user_dir()
+
+
 def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     """Register every built-in plugin type with the loader.
 
@@ -585,7 +608,7 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
         loader: The plugin loader to configure.
     """
     from lightfall.monitor.monitor_plugin import MonitorPlugin
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
     from lightfall.plugins.controller_plugin import ControllerPlugin
     from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
@@ -600,7 +623,7 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
-    loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("tool", ToolPlugin)
     loader.register_plugin_type("monitor", MonitorPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
@@ -952,6 +975,10 @@ def main() -> int:
 
     # Setup Tiled data catalog service
     _setup_tiled(app, config)
+
+    # Bootstrap the agent-spec registry (core + user scopes) before any
+    # QtClaudeAgent/MonitorAdvisor can be constructed.
+    _setup_agent_specs()
 
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)

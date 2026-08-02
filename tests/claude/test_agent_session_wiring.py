@@ -10,19 +10,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lightfall.plugins.agent_plugin import AgentPlugin
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.plugins.tool_plugin import ToolPlugin
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 
-class _PromptAgent(AgentPlugin):
+class _PromptAgent(ToolPlugin):
+    # Named after a real shipped skill (src/lightfall/skills/builtin/scan_planning/)
+    # so materialize_skills() has something to resolve for it.
     @property
-    def name(self): return "prompt_agent"
+    def name(self): return "scan_planning"
     @property
     def description(self): return "prompt agent for tests"
-    def get_system_prompt(self): return "## Prompt body"
 
 
-class _ToolAgent(AgentPlugin):
+class _ToolAgent(ToolPlugin):
     @property
     def name(self): return "tool_agent"
     @property
@@ -37,9 +38,9 @@ class _ToolAgent(AgentPlugin):
 
 @pytest.fixture(autouse=True)
 def reset_registry():
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     yield
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 @pytest.fixture
@@ -49,15 +50,15 @@ def mock_sdk(monkeypatch):
 
 
 def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot, monkeypatch):
-    AgentRegistry.get_instance().register(_PromptAgent())
-    AgentRegistry.get_instance().register(_ToolAgent())
+    ToolRegistry.get_instance().register(_PromptAgent())
+    ToolRegistry.get_instance().register(_ToolAgent())
     # Both agents default to enabled_by_default=True; stub pref reads to no overrides.
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
         lambda self, key: None,
     )
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
 
@@ -74,16 +75,17 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     assert "qt" in options.mcp_servers
     # tool_agent gets its own server (per-plugin split)
     assert "tool_agent" in options.mcp_servers
-    # prompt_agent has no tools so no server
-    assert "prompt_agent" not in options.mcp_servers
+    # scan_planning has no tools so no server
+    assert "scan_planning" not in options.mcp_servers
     # No "additional" mega-bag anymore
     assert "additional" not in options.mcp_servers
     # plugins= is set with the synthesized session plugin dir
     assert isinstance(options.plugins, list)
     assert len(options.plugins) == 1
     plugin_path = options.plugins[0]["path"]
-    assert (Path(plugin_path) / "skills" / "prompt_agent" / "SKILL.md").exists()
+    # scan_planning's shipped skill is materialized by name, file-based now
+    assert (Path(plugin_path) / "skills" / "scan_planning" / "SKILL.md").exists()
     # No skill content baked into system_prompt
-    assert "## Prompt body" not in options.system_prompt
+    assert "## Scan Planning Expertise" not in options.system_prompt
     # allowed_tools includes per-plugin namespace
     assert any(t.startswith("mcp__tool_agent__") for t in options.allowed_tools)

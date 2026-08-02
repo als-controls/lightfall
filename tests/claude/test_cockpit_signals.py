@@ -6,7 +6,7 @@ import pytest
 from claude_agent_sdk.types import ResultMessage
 
 from lightfall.claude._internal.worker import PersistentClaudeWorker
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 
 class _CtxStubClient:
@@ -78,7 +78,7 @@ def _mock_sdk(monkeypatch):
 
 
 def test_reset_conversation_emits_cockpit_reset(_mock_sdk, qtbot, monkeypatch):
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     from PySide6.QtWidgets import QWidget
 
     from lightfall.claude.agent import QtClaudeAgent
@@ -88,14 +88,14 @@ def test_reset_conversation_emits_cockpit_reset(_mock_sdk, qtbot, monkeypatch):
     agent = QtClaudeAgent(target_window=target, require_approval=False)
     with qtbot.waitSignal(agent.cockpit_reset, timeout=1000):
         agent.reset_conversation()
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 def test_reset_conversation_starts_fresh_session(qtbot, monkeypatch):
     """Reset must actually drop the session: forget the session id and rebuild a
     NEW client with resume/continue cleared — not just stop the worker (which
     would reuse the same client and resume the old conversation)."""
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     from PySide6.QtWidgets import QWidget
 
     from lightfall.claude.agent import QtClaudeAgent
@@ -123,4 +123,4 @@ def test_reset_conversation_starts_fresh_session(qtbot, monkeypatch):
     assert agent.options.resume is None
     assert agent.options.continue_conversation is False
     assert agent.client is not original_client
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()

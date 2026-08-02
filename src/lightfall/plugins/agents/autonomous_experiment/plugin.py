@@ -1,13 +1,13 @@
-"""AutonomousExperimentAgent AgentPlugin."""
+"""AutonomousExperimentAgent ToolPlugin."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class AutonomousExperimentAgent(AgentPlugin):
+class AutonomousExperimentAgent(ToolPlugin):
     """Embeds gpCAM's experiment-design skills and exposes a NATS bridge
     to a running Tsuchinoko instance.
 
@@ -39,10 +39,6 @@ class AutonomousExperimentAgent(AgentPlugin):
     @property
     def enabled_by_default(self) -> bool:
         return True
-
-    def get_system_prompt(self) -> str:
-        from .prompts import STUB
-        return STUB
 
     def create_tools(self) -> list[Any]:
         from .nats_tools import build_tools

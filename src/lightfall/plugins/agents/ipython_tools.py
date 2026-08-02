@@ -13,12 +13,12 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
 
-class IPythonToolsAgent(AgentPlugin):
+class IPythonToolsAgent(ToolPlugin):
     """MCP tools for interacting with the IPython console.
 
     This plugin provides tools that allow Claude to:

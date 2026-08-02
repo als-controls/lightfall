@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from lightfall.ui.mainwindow import LFMainWindow
 
 
-class LFCoreToolPlugin(AgentPlugin):
+class LFCoreToolPlugin(ToolPlugin):
     """Built-in tools for Lightfall panel and window interaction.
 
     This plugin provides core tools that are always available:

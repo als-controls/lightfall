@@ -45,9 +45,9 @@ def _write_module(dir_: Path, name: str, body: str) -> Path:
 
 def test_subclass_in_user_dir_enqueues(mock_user_service, fake_user_plugin_dir):
     _, mod = _write_module(fake_user_plugin_dir, "user_one", """
-        from lightfall.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.tool_plugin import ToolPlugin
 
-        class UserAgent(AgentPlugin):
+        class UserAgent(ToolPlugin):
             @property
             def name(self): return "user_one"
             @property
@@ -62,9 +62,9 @@ def test_subclass_outside_user_dir_does_not_enqueue(mock_user_service, fake_user
     other_dir = tmp_path.parent / "outside"
     other_dir.mkdir(exist_ok=True)
     _write_module(other_dir, "outside_one", """
-        from lightfall.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.tool_plugin import ToolPlugin
 
-        class OutsideAgent(AgentPlugin):
+        class OutsideAgent(ToolPlugin):
             @property
             def name(self): return "outside_one"
             @property
@@ -75,9 +75,9 @@ def test_subclass_outside_user_dir_does_not_enqueue(mock_user_service, fake_user
 
 def test_abstract_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_dir):
     _write_module(fake_user_plugin_dir, "abstract_one", """
-        from lightfall.plugins.agent_plugin import AgentPlugin
+        from lightfall.plugins.tool_plugin import ToolPlugin
 
-        class Abstract(AgentPlugin):
+        class Abstract(ToolPlugin):
             pass
     """)
     mock_user_service.enqueue.assert_not_called()
@@ -85,10 +85,10 @@ def test_abstract_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_
 
 def test_main_module_subclass_does_not_enqueue(mock_user_service, fake_user_plugin_dir):
     """Classes defined at REPL (__main__) are skipped."""
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
 
     # Simulate a class with __module__ == "__main__"
-    DynamicClass = type("REPLAgent", (AgentPlugin,), {
+    DynamicClass = type("REPLAgent", (ToolPlugin,), {
         "__module__": "__main__",
         "name": property(lambda self: "repl"),
         "description": property(lambda self: "repl class"),

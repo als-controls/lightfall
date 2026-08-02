@@ -1,5 +1,5 @@
 """Singleton registry of MonitorPlugins. Mirrors
-src/lightfall/ui/panels/claude/agent_registry.py (opt-out preference model)."""
+src/lightfall/ui/panels/claude/tool_registry.py (opt-out preference model)."""
 
 from __future__ import annotations
 

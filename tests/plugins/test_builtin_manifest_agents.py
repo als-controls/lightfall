@@ -10,7 +10,7 @@ def test_manifest_has_12_agent_entries_and_no_skill_or_mcp_tool_entries():
         type_counts.setdefault(entry.type_name, 0)
         type_counts[entry.type_name] += 1
 
-    assert type_counts.get("agent") == 12
+    assert type_counts.get("tool") == 12
     assert type_counts.get("skill", 0) == 0
     assert type_counts.get("mcp_tool", 0) == 0
 
@@ -18,7 +18,7 @@ def test_manifest_has_12_agent_entries_and_no_skill_or_mcp_tool_entries():
 def test_manifest_lists_expected_agent_names():
     from lightfall.plugins.builtin_manifest import builtin_manifest
 
-    agent_names = {e.name for e in builtin_manifest.plugins if e.type_name == "agent"}
+    agent_names = {e.name for e in builtin_manifest.plugins if e.type_name == "tool"}
     assert agent_names == {
         "alignment", "plan_design", "scan_planning", "panel_design", "panel_builder",
         "device_tools", "plan_tools", "engine_tools", "ipython_tools",
@@ -29,19 +29,19 @@ def test_manifest_lists_expected_agent_names():
 
 
 def test_manifest_agent_import_paths_resolve():
-    """Each agent's import_path must be importable and yield an AgentPlugin subclass."""
+    """Each agent's import_path must be importable and yield an ToolPlugin subclass."""
     import importlib
 
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.builtin_manifest import builtin_manifest
 
     for entry in builtin_manifest.plugins:
-        if entry.type_name != "agent":
+        if entry.type_name != "tool":
             continue
         module_path, class_name = entry.import_path.split(":")
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
-        assert issubclass(cls, AgentPlugin), f"{entry.import_path} is not an AgentPlugin"
+        assert issubclass(cls, ToolPlugin), f"{entry.import_path} is not an ToolPlugin"
 
 
 def test_autonomous_experiment_registered():
@@ -50,7 +50,7 @@ def test_autonomous_experiment_registered():
 
     matching = [
         e for e in builtin_manifest.plugins
-        if e.type_name == "agent" and e.name == "autonomous_experiment"
+        if e.type_name == "tool" and e.name == "autonomous_experiment"
     ]
     assert len(matching) == 1, "exactly one autonomous_experiment agent entry expected"
     assert matching[0].import_path == (

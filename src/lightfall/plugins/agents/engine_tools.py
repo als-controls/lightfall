@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
@@ -470,7 +470,7 @@ def _beam_status_payload(force_refresh: bool = False) -> dict[str, Any]:
     return data
 
 
-class EngineToolsAgent(AgentPlugin):
+class EngineToolsAgent(ToolPlugin):
     """MCP tools for RunEngine control and run data access."""
 
     @property

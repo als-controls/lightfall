@@ -22,16 +22,16 @@ def test_plugin_metadata():
     assert agent.enabled_by_default is True
 
 
-def test_plugin_reports_has_prompt_and_tools():
+def test_plugin_reports_has_tools():
     agent = AutonomousExperimentAgent()
     info = agent.get_introspection_data()
-    assert info["has_prompt"] is True
     assert info["has_tools"] is True
 
 
 def test_stub_prompt_mentions_key_tools_and_steps():
-    agent = AutonomousExperimentAgent()
-    prompt = agent.get_system_prompt()
+    from lightfall.plugins.agents.autonomous_experiment.prompts import STUB
+
+    prompt = STUB
 
     # Workflow steps
     for token in (
@@ -309,4 +309,6 @@ def test_references_dir_returns_none_when_gpcam_missing(monkeypatch):
     agent = AutonomousExperimentAgent()
     assert agent.get_references_dir() is None
     # Prompt still mentions the install path
-    assert "pip install gpcam" in agent.get_system_prompt()
+    from lightfall.plugins.agents.autonomous_experiment.prompts import STUB
+
+    assert "pip install gpcam" in STUB

@@ -1,12 +1,12 @@
-"""Tests for AgentPlugin base class."""
+"""Tests for ToolPlugin base class."""
 from __future__ import annotations
 
 import pytest
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class _StubAgent(AgentPlugin):
+class _StubAgent(ToolPlugin):
     @property
     def name(self) -> str:
         return "stub"
@@ -14,11 +14,6 @@ class _StubAgent(AgentPlugin):
     @property
     def description(self) -> str:
         return "Stub agent for tests"
-
-
-def test_default_get_system_prompt_returns_empty():
-    plugin = _StubAgent()
-    assert plugin.get_system_prompt() == ""
 
 
 def test_default_create_tools_returns_empty_list():
@@ -51,17 +46,17 @@ def test_default_priority_is_100():
     assert plugin.priority == 100
 
 
-def test_type_name_is_agent():
-    assert AgentPlugin.type_name == "agent"
+def test_type_name_is_tool():
+    assert ToolPlugin.type_name == "tool"
 
 
 def test_is_singleton():
-    assert AgentPlugin.is_singleton is True
+    assert ToolPlugin.is_singleton is True
 
 
 def test_name_is_abstract():
     """Cannot instantiate without overriding name + description."""
-    class Incomplete(AgentPlugin):
+    class Incomplete(ToolPlugin):
         pass
 
     with pytest.raises(TypeError):
@@ -80,7 +75,7 @@ def test_introspection_includes_has_external_servers():
 def test_introspection_does_not_call_create_external_servers():
     calls = []
 
-    class _Exploding(AgentPlugin):
+    class _Exploding(ToolPlugin):
         @property
         def name(self): return "boom"
         @property

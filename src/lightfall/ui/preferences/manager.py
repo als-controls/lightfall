@@ -68,9 +68,12 @@ GLOBAL_ONLY_PREFS = {
     "claude_last_session_id",
     # Plugin settings
     "disabled_plugins",
-    # Tool/skill settings (AgentPlugin overrides)
+    # Tool/skill settings (ToolPlugin overrides)
     "disabled_tool_plugins",
     "forced_enabled_tool_plugins",
+    # Agent definitions (agents-as-data)
+    "disabled_agents",
+    "forced_enabled_agents",
     # Monitor settings (MonitorPlugin overrides + advisor + tick)
     "monitor_advisor_enabled",
     "monitor_tick_interval",

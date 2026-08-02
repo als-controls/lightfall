@@ -626,22 +626,22 @@ class PluginLoader(QObject):
                     "skipping controller registration"
                 )
 
-        elif plugin_info.type_name == "agent":
+        elif plugin_info.type_name == "tool":
             try:
-                from lightfall.plugins.agent_plugin import AgentPlugin
-                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+                from lightfall.plugins.tool_plugin import ToolPlugin
+                from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
                 instance = plugin_info.instance
-                if not isinstance(instance, AgentPlugin):
+                if not isinstance(instance, ToolPlugin):
                     logger.error(
-                        "Agent plugin '{}' class {} is not an AgentPlugin subclass; skipping",
+                        "Agent plugin '{}' class {} is not an ToolPlugin subclass; skipping",
                         plugin_info.name, type(instance).__name__,
                     )
                 else:
-                    AgentRegistry.get_instance().register(instance)
-                    logger.debug("Registered agent plugin '{}' with AgentRegistry", instance.name)
+                    ToolRegistry.get_instance().register(instance)
+                    logger.debug("Registered agent plugin '{}' with ToolRegistry", instance.name)
             except ImportError:
-                logger.debug("AgentRegistry not available, skipping agent registration")
+                logger.debug("ToolRegistry not available, skipping agent registration")
 
         elif plugin_info.type_name == "monitor":
             try:
