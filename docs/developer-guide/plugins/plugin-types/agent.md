@@ -150,6 +150,106 @@ PluginEntry(
 ),
 ```
 
+## Inter-agent messaging: the bus
+
+Every `QtClaudeAgent` session (regardless of which `AgentSpec` is driving it) gets an
+always-on `bus` SDK MCP server, separate from the per-plugin servers described above:
+
+- **`mcp__bus__send_message`** — `{"to": "<agent name>", "message": "<text>"}`. Delivers
+  to another agent registered on the shared `AgentBus` (`lightfall.agents.bus.AgentBus`),
+  or returns an error result (with the current roster in the detail) if `to` isn't
+  registered.
+- **`mcp__bus__list_agents`** — no arguments. Returns each registered agent's `name`,
+  `description`, and current `busy` state, so an agent can check availability before
+  sending.
+
+Registration happens per session — a session's `bus_name` is whatever name it was
+registered under (duplicate names get a `#2`, `#3`, ... suffix from `AgentBus.register`).
+The tools read the sender's name live at call time via a callable, not a captured
+string, since a session's bus name can be reassigned after registration.
+
+### Delivery policy: `lightfall.on_message`
+
+Each `AgentSpec` (parsed from an agent definition's `lightfall:` frontmatter block, see
+`lightfall/agents/spec.py`) declares how *incoming* bus messages are handled by that
+agent's `ClaudeSessionEndpoint` (`lightfall.claude.bus_endpoint.ClaudeSessionEndpoint`):
+
+```yaml
+lightfall:
+  on_message: queue   # or: auto
+```
+
+- **`"queue"`** (default) — every incoming message is queued and the UI is notified
+  (`on_queued`) so a pending-message banner appears in the Claude panel. The user
+  reviews and explicitly flushes it (the "Respond" action), which calls
+  `flush_pending()` and submits the queued prompts as a turn.
+- **`"auto"`** — if the session is idle (`is_busy()` is false), the message is
+  submitted immediately as a turn. If the session is busy (or `submit` refuses,
+  e.g. a race where busy-ness flips between the check and the call), the message is
+  queued instead of dropped, and gets flushed the next time the caller decides the
+  session is free (e.g. on `query_completed` for widget wiring).
+
+The Claude panel also exposes a **"Auto-respond to agent messages"** checkable toggle
+in its tune/settings popup menu (`ClaudeAssistantWidget._on_toggle_auto_respond` in
+`lightfall/claude/widget.py`), which calls `bus_endpoint.set_policy("auto"/"queue")`
+directly — this overrides the spec's declared default for the running session without
+editing the agent file.
+
+Every delivered or queued message is rendered into the session as:
+
+```
+[Message from agent '<sender>']
+<message text>
+```
+
+via `format_bus_prompt()` — this is the exact text `submit` receives, whether
+delivered immediately (`auto`) or via `flush_pending()` (both policies).
+
+## Observer forwarding: proactive monitor summaries
+
+The always-on `MonitorService` (`lightfall.monitor.service.MonitorService`) batches
+observations from monitor feeds, periodically asks the `MonitorAdvisor` for a plain-text
+summary (`_flush_advisor` / `_on_advisor_reply`), and — subject to a severity gate —
+forwards that summary onto the bus as agent `"observer"` addressed to `"lightfall"`:
+
+```
+Proactive monitor summary (<severity>): <advisor reply>
+```
+
+### The severity gate is deterministic code, not the LLM
+
+`_forward_to_agent` looks up the **`observer`** agent's `AgentSpec.forward_min_severity`
+(from that agent file's `lightfall.forward_min_severity: info|warn|critical`
+frontmatter key; defaults to `"warn"` if unset or the spec can't be resolved) and
+compares it against the batch's max severity with `severity_at_least()`. Only if the
+batch clears the floor does the summary go out over `AgentBus.send`. If no `"lightfall"`
+endpoint is registered, the send fails and is degraded to a log line — it never raises
+into the monitor's event loop.
+
+**This gate is plain Python, evaluated before any bus/LLM call is made — the advisor
+LLM only ever produces the summary text, and it never decides whether that summary is
+allowed to reach the assistant.** The same invariant holds for the toast/panel path:
+`_on_observation` raises a toast for `warn`/`critical` observations independent of, and
+before, any advisor/forwarding logic runs. No amount of prompt content can widen or
+bypass either gate.
+
+### Per-feed preferences
+
+Three preference keys (`lightfall.ui.preferences.monitor_settings`), one dict entry per
+feed name, control what advisor batching sees *before* the forwarding gate above ever
+runs:
+
+| Pref key | Shape | Purpose |
+|----------|-------|---------|
+| `disabled_monitor_feeds` | `list[str]` | Feed names excluded from monitoring entirely |
+| `monitor_feed_intervals` | `dict[str, int]` | Per-feed polling interval override (seconds) |
+| `monitor_feed_advisor_severity` | `dict[str, str]` | Per-feed floor (`info`/`warn`/`critical`); an observation below its feed's floor never enters `_advisor_batch`, so it can't even contribute to a summary. Feeds absent from the dict default to `"info"` (nothing filtered). |
+
+These feed-level floors and the `observer` spec's `forward_min_severity` floor are two
+independent gates in series: a feed can contribute low-severity noise to the advisor's
+context while the *forwarded summary* is still held back until the batch's overall
+severity clears the observer's floor.
+
 ## Built-in agent plugins
 
 The built-in manifest registers agent plugins covering panel interaction (`lightfall_core_tools`), devices (`device_tools`), plans (`plan_tools`), the engine (`engine_tools`), the IPython console (`ipython_tools`), panel and plan authoring expertise (`panel_design`, `panel_builder`, `plan_design`), scan planning and alignment guidance (`scan_planning`, `alignment`), adaptive experiments (`autonomous_experiment`), and the current ESAF (`current_esaf`). Reading their sources under `src/lightfall/plugins/agents/` is the fastest way to learn the patterns.

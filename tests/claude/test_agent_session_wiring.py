@@ -73,6 +73,10 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     options = agent.options
     # qt server is always present
     assert "qt" in options.mcp_servers
+    # bus server + tools are always present, on every session
+    assert "bus" in options.mcp_servers
+    assert "mcp__bus__send_message" in options.allowed_tools
+    assert "mcp__bus__list_agents" in options.allowed_tools
     # tool_agent gets its own server (per-plugin split)
     assert "tool_agent" in options.mcp_servers
     # scan_planning has no tools so no server

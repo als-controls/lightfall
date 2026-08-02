@@ -10,7 +10,43 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from lightfall.utils.logging import logger
+
 Severity = Literal["info", "warn", "critical"]
+
+SEVERITY_RANK: dict[str, int] = {"info": 0, "warn": 1, "critical": 2}
+
+
+def severity_at_least(severity: str, floor: str) -> bool:
+    """Return True if `severity` ranks at or above `floor`.
+
+    Unknown severities rank as "info"; an unknown floor ranks as "warn".
+    """
+    if severity not in SEVERITY_RANK:
+        logger.debug("severity_at_least: unknown severity '{}', coercing to 'info'", severity)
+    if floor not in SEVERITY_RANK:
+        logger.debug("severity_at_least: unknown floor '{}', coercing to 'warn'", floor)
+    sev_rank = SEVERITY_RANK.get(severity, SEVERITY_RANK["info"])
+    floor_rank = SEVERITY_RANK.get(floor, SEVERITY_RANK["warn"])
+    return sev_rank >= floor_rank
+
+
+def max_severity(observations) -> str:
+    """Return the highest-ranked severity among `observations` (by SEVERITY_RANK).
+
+    Unknown severities rank as "info" (logged at debug). Empty input returns "info".
+    """
+    best = "info"
+    best_rank = SEVERITY_RANK["info"]
+    for obs in observations:
+        sev = obs.severity
+        if sev not in SEVERITY_RANK:
+            logger.debug("max_severity: unknown severity '{}', coercing to 'info'", sev)
+        rank = SEVERITY_RANK.get(sev, SEVERITY_RANK["info"])
+        if rank > best_rank:
+            best_rank = rank
+            best = sev if sev in SEVERITY_RANK else "info"
+    return best
 
 
 @dataclass
