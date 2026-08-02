@@ -31,6 +31,24 @@ def severity_at_least(severity: str, floor: str) -> bool:
     return sev_rank >= floor_rank
 
 
+def max_severity(observations) -> str:
+    """Return the highest-ranked severity among `observations` (by SEVERITY_RANK).
+
+    Unknown severities rank as "info" (logged at debug). Empty input returns "info".
+    """
+    best = "info"
+    best_rank = SEVERITY_RANK["info"]
+    for obs in observations:
+        sev = obs.severity
+        if sev not in SEVERITY_RANK:
+            logger.debug("max_severity: unknown severity '{}', coercing to 'info'", sev)
+        rank = SEVERITY_RANK.get(sev, SEVERITY_RANK["info"])
+        if rank > best_rank:
+            best_rank = rank
+            best = sev if sev in SEVERITY_RANK else "info"
+    return best
+
+
 @dataclass
 class Observation:
     """A single judgment emitted by a MonitorFeed."""

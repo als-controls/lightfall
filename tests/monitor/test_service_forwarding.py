@@ -82,3 +82,59 @@ def test_panel_and_toast_behavior_unchanged(service, monkeypatch, qtbot):
     service.set_advisor(type("A", (), {"advise": lambda self, b: "note"})())
     with qtbot.waitSignal(service.observation, timeout=1000):
         service._flush_advisor()
+
+
+class _DeferredFuture:
+    """Stand-in for QThreadFuture that captures (method, args, callback_slot)
+    instead of running immediately, so tests can control callback ordering."""
+
+    pending: list["_DeferredFuture"] = []
+
+    def __init__(self, method, *args, callback_slot=None, key=None):
+        self.method = method
+        self.args = args
+        self.callback_slot = callback_slot
+        _DeferredFuture.pending.append(self)
+
+    def start(self):
+        pass  # do nothing until test explicitly runs it
+
+    def run_now(self):
+        result = self.method(*self.args)
+        self.callback_slot(result)
+
+
+def test_overlapping_flushes_do_not_cross_contaminate_severity(service, monkeypatch):
+    """Regression: a shared self._last_batch_severity would let a later, lower-severity
+    flush overwrite the severity used to gate/label an earlier, higher-severity flush's
+    reply. Severity must be bound per-batch (closure), not stored on the instance."""
+    _prime_observer_spec(monkeypatch, floor="warn")
+    ep = FakeEndpoint("lightfall")
+    AgentBus.get_instance().register("lightfall", ep)
+
+    monkeypatch.setattr("lightfall.utils.threads.QThreadFuture", _DeferredFuture)
+    monkeypatch.setattr(service, "_advisor_enabled", lambda: True)
+    service._advise_async = True
+    _DeferredFuture.pending = []
+
+    # Flush #1: critical batch — dispatches but its callback has NOT run yet.
+    service._advisor_batch = [_obs("critical")]
+    service.set_advisor(type("A", (), {"advise": lambda self, b: "urgent issue"})())
+    service._flush_advisor()
+
+    # Flush #2: info batch happens before flush #1's callback is delivered.
+    service._advisor_batch = [_obs("info")]
+    service.set_advisor(type("A", (), {"advise": lambda self, b: "minor note"})())
+    service._flush_advisor()
+
+    assert len(_DeferredFuture.pending) == 2
+
+    # Deliver flush #1's callback LAST, after flush #2 has already been dispatched.
+    _DeferredFuture.pending[1].run_now()  # info batch — gated out (below warn floor)
+    _DeferredFuture.pending[0].run_now()  # critical batch — must still forward as "critical"
+
+    assert len(ep.received) == 1
+    sender, text = ep.received[0]
+    assert sender == "observer"
+    assert "critical" in text
+    assert "urgent issue" in text
