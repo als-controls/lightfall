@@ -578,7 +578,7 @@ class ClaudeAssistantWidget(QWidget):
             return False
         if self.input_field.toPlainText().strip():
             return False
-        self.input_field.setText(text)
+        self.input_field.setPlainText(text)
         self._send_query()
         return True
 
