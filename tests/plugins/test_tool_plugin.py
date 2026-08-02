@@ -16,11 +16,6 @@ class _StubAgent(ToolPlugin):
         return "Stub agent for tests"
 
 
-def test_default_get_system_prompt_returns_empty():
-    plugin = _StubAgent()
-    assert plugin.get_system_prompt() == ""
-
-
 def test_default_create_tools_returns_empty_list():
     plugin = _StubAgent()
     assert plugin.create_tools() == []

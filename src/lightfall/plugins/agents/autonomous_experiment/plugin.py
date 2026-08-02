@@ -40,10 +40,6 @@ class AutonomousExperimentAgent(ToolPlugin):
     def enabled_by_default(self) -> bool:
         return True
 
-    def get_system_prompt(self) -> str:
-        from .prompts import STUB
-        return STUB
-
     def create_tools(self) -> list[Any]:
         from .nats_tools import build_tools
         return build_tools()

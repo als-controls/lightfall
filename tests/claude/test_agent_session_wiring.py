@@ -15,11 +15,12 @@ from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 
 class _PromptAgent(ToolPlugin):
+    # Named after a real shipped skill (src/lightfall/skills/builtin/scan_planning/)
+    # so materialize_skills() has something to resolve for it.
     @property
-    def name(self): return "prompt_agent"
+    def name(self): return "scan_planning"
     @property
     def description(self): return "prompt agent for tests"
-    def get_system_prompt(self): return "## Prompt body"
 
 
 class _ToolAgent(ToolPlugin):
@@ -74,16 +75,17 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     assert "qt" in options.mcp_servers
     # tool_agent gets its own server (per-plugin split)
     assert "tool_agent" in options.mcp_servers
-    # prompt_agent has no tools so no server
-    assert "prompt_agent" not in options.mcp_servers
+    # scan_planning has no tools so no server
+    assert "scan_planning" not in options.mcp_servers
     # No "additional" mega-bag anymore
     assert "additional" not in options.mcp_servers
     # plugins= is set with the synthesized session plugin dir
     assert isinstance(options.plugins, list)
     assert len(options.plugins) == 1
     plugin_path = options.plugins[0]["path"]
-    assert (Path(plugin_path) / "skills" / "prompt_agent" / "SKILL.md").exists()
+    # scan_planning's shipped skill is materialized by name, file-based now
+    assert (Path(plugin_path) / "skills" / "scan_planning" / "SKILL.md").exists()
     # No skill content baked into system_prompt
-    assert "## Prompt body" not in options.system_prompt
+    assert "## Scan Planning Expertise" not in options.system_prompt
     # allowed_tools includes per-plugin namespace
     assert any(t.startswith("mcp__tool_agent__") for t in options.allowed_tools)

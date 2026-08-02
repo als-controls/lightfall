@@ -306,10 +306,10 @@ class QtClaudeAgent(QObject):
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
         # Per-plugin server assembly from ToolRegistry
+        from lightfall.agents.skills_store import materialize_skills
         from lightfall.claude._session_assembly import (
             assemble_mcp_servers,
             init_session_plugin_dir,
-            materialize_skill,
         )
         from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
@@ -321,8 +321,7 @@ class QtClaudeAgent(QObject):
         # Synthesize per-session SDK plugin dir
         self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
         init_session_plugin_dir(self._session_plugin_dir)
-        for plugin in enabled:
-            materialize_skill(plugin, self._session_plugin_dir)
+        materialize_skills(tuple(p.name for p in enabled), self._session_plugin_dir)
 
         # Build system prompt
         system_prompt = QT_SYSTEM_PROMPT
@@ -659,10 +658,8 @@ class QtClaudeAgent(QObject):
         """
         import dataclasses
 
-        from lightfall.claude._session_assembly import (
-            init_session_plugin_dir,
-            materialize_skill,
-        )
+        from lightfall.agents.skills_store import materialize_skills
+        from lightfall.claude._session_assembly import init_session_plugin_dir
         from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
         self.cockpit_reset.emit()
@@ -686,8 +683,8 @@ class QtClaudeAgent(QObject):
         try:
             plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
             init_session_plugin_dir(plugin_dir)
-            for plugin in ToolRegistry.get_instance().enabled_plugins():
-                materialize_skill(plugin, plugin_dir)
+            enabled = ToolRegistry.get_instance().enabled_plugins()
+            materialize_skills(tuple(p.name for p in enabled), plugin_dir)
             self._session_plugin_dir = plugin_dir
 
             self.options = dataclasses.replace(

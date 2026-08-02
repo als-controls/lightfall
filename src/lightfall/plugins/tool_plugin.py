@@ -1,8 +1,10 @@
 """Unified plugin type for plugins that extend the embedded Claude agent.
 
-Replaces both SkillPlugin and MCPToolPlugin. One ToolPlugin contributes
-an optional SKILL.md (via get_system_prompt) and/or an in-process MCP
-server (via create_tools). One settings toggle controls both.
+Replaces both SkillPlugin and MCPToolPlugin. One ToolPlugin may have a
+matching skill (shipped under src/lightfall/skills/builtin/<name>/ and
+resolved/materialized by lightfall.agents.skills_store, keyed by
+plugin.name) and/or an in-process MCP server (via create_tools). One
+settings toggle controls both.
 """
 
 from __future__ import annotations
@@ -20,8 +22,9 @@ class ToolPlugin(PluginType):
 
     When enabled, contributes:
 
-    - a SKILL.md (if get_system_prompt() returns non-empty text), materialized
-      into the per-session SDK plugin dir at agent construction time;
+    - a skill (if a skill directory matching plugin.name resolves via
+      lightfall.agents.skills_store.resolve_skills()), materialized into the
+      per-session SDK plugin dir at agent construction time;
     - an in-process MCP server (if create_tools() returns tools), registered
       as mcp_servers[plugin.name] with namespace mcp__<plugin.name>__*.
 
@@ -75,10 +78,6 @@ class ToolPlugin(PluginType):
         """Sort order in settings UI (lower = first)."""
         return 100
 
-    def get_system_prompt(self) -> str:
-        """Return the SKILL.md body. Empty string = no skill contribution."""
-        return ""
-
     def create_tools(self) -> list[Any]:
         """Return @tool-decorated callables. Empty = no MCP server contribution."""
         return []
@@ -121,7 +120,6 @@ class ToolPlugin(PluginType):
             "category": self.category,
             "enabled_by_default": self.enabled_by_default,
             "priority": self.priority,
-            "has_prompt": bool(self.get_system_prompt().strip()),
             "has_tools": len(self.create_tools()) > 0,
             "has_external_servers": self.has_external_servers(),
             "class": self.__class__.__name__,

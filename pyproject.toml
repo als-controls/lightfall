@@ -126,6 +126,8 @@ packages = ["src/lightfall"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"
+"src/lightfall/skills" = "lightfall/skills"
+"src/lightfall/agents/builtin" = "lightfall/agents/builtin"
 
 [tool.ruff]
 line-length = 100

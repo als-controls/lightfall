@@ -3,13 +3,13 @@
 Provides Claude with expertise for designing Bluesky plans with
 Lightfall UI annotations for procedural UI generation.
 
-Full API documentation is shipped as references/plan_design.md alongside
-the SKILL.md and surfaced lazily by the SDK's deferred Skill tool.
+The skill prompt and full API documentation now ship as
+src/lightfall/skills/builtin/plan_design/SKILL.md (+ references/), loaded
+by the shipped-skills store rather than this plugin's get_system_prompt.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from lightfall.plugins.tool_plugin import ToolPlugin
@@ -58,33 +58,7 @@ class PlanDesignAgent(ToolPlugin):
         """Return priority (lower = higher in prompt order)."""
         return 15
 
-    def get_brief_description(self) -> str:
-        """Return brief hint for system prompt (full docs are on-demand)."""
-        return """## Bluesky Plan Design
-
-Expert at designing Bluesky plans for Lightfall with UI annotations.
-
-**See `references/plan_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
-- `bluesky.plan_stubs` (bps.*) - movement, timing, reading stubs
-- `bluesky.plans` (bp.*) - scan, grid_scan, count, etc.
-- `lightfall.ui.annotations` - Unit, Range, DeviceFilter, etc.
-
-Key imports: `from bluesky import plan_stubs as bps, plans as bp`
-"""
-
-    def get_system_prompt(self) -> str:
-        """Return the system prompt snippet for plan design expertise.
-
-        Returns the brief description; full documentation in references/
-        is loaded on-demand by the SDK's deferred Skill tool.
-        """
-        return self.get_brief_description()
-
     def create_tools(self) -> list[Any]:
         """Return tools provided by this skill."""
         # This skill provides guidance only, no additional tools
         return []
-
-    def get_references_dir(self) -> Path | None:
-        """Return path to the references directory containing supplementary docs."""
-        return Path(__file__).parent / "plan_design" / "references"
