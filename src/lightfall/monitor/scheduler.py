@@ -24,6 +24,20 @@ from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture, invoke_in_main_thread
 
 
+def _read_feed_config_prefs() -> tuple[set[str], dict[str, float]]:
+    """Module-level seam for reading per-feed scheduler overrides from prefs.
+    Kept separate from MonitorScheduler._feed_config so tests can monkeypatch
+    either this function (to exercise the exception-tolerant fallback) or the
+    instance method directly (to inject arbitrary configs)."""
+    from lightfall.ui.preferences.manager import PreferencesManager
+
+    prefs = PreferencesManager.get_instance()
+    disabled = set(prefs.get("disabled_monitor_feeds", []) or [])
+    intervals_raw = prefs.get("monitor_feed_intervals", {}) or {}
+    intervals = {str(k): float(v) for k, v in dict(intervals_raw).items()}
+    return disabled, intervals
+
+
 class MonitorScheduler(QObject):
     observation = Signal(object)  # Observation
 
@@ -150,15 +164,29 @@ class MonitorScheduler(QObject):
             "snapshot": snaps[-1],
         }
 
+    def _feed_config(self) -> tuple[set[str], dict[str, float]]:
+        """Read per-feed enable/interval overrides from prefs. Exception-tolerant:
+        any failure (missing PreferencesManager, bad pref shape, etc.) yields
+        the safe defaults (nothing disabled, no overrides)."""
+        try:
+            return _read_feed_config_prefs()
+        except Exception:  # noqa: BLE001 — advisory; never break the tick
+            logger.debug("monitor _feed_config: pref read failed, using defaults")
+            return set(), {}
+
     def _tick(self) -> None:
         if not self._active:
             return
         now = self._clock()
         window = self._buffer.snapshot(now=time.time())
         window.derived_provider = self._derived
+        disabled, intervals = self._feed_config()
         for feed in self._registry.enabled_feeds():
+            if feed.name in disabled:
+                continue
             last = self._last_eval.get(feed.name, float("-inf"))
-            if now - last < feed.default_interval_s:
+            interval = max(1.0, intervals.get(feed.name, feed.default_interval_s))
+            if now - last < interval:
                 continue
             self._last_eval[feed.name] = now
             self._dispatch(feed, window)

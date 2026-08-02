@@ -79,6 +79,9 @@ GLOBAL_ONLY_PREFS = {
     "monitor_tick_interval",
     "disabled_monitor_plugins",
     "forced_enabled_monitor_plugins",
+    "disabled_monitor_feeds",
+    "monitor_feed_intervals",
+    "monitor_feed_advisor_severity",
     # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
     "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning

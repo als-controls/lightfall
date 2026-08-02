@@ -84,6 +84,29 @@ def test_panel_and_toast_behavior_unchanged(service, monkeypatch, qtbot):
         service._flush_advisor()
 
 
+def test_advisor_floor_gates_below_floor_observation(service, monkeypatch):
+    monkeypatch.setattr(service, "_advisor_enabled", lambda: True)
+    monkeypatch.setattr(service, "_advisor_floor_for", lambda feed_name: "warn")
+    service._advisor_batch = []
+    service._on_observation(_obs("info"))
+    assert service._advisor_batch == []
+
+
+def test_advisor_floor_allows_at_or_above_floor_observation(service, monkeypatch):
+    monkeypatch.setattr(service, "_advisor_enabled", lambda: True)
+    monkeypatch.setattr(service, "_advisor_floor_for", lambda feed_name: "warn")
+    service._advisor_batch = []
+    service._on_observation(_obs("warn"))
+    assert len(service._advisor_batch) == 1
+
+
+def test_feed_without_configured_floor_defaults_to_info(service, monkeypatch):
+    monkeypatch.setattr(service, "_advisor_enabled", lambda: True)
+    service._advisor_batch = []
+    service._on_observation(_obs("info"))
+    assert len(service._advisor_batch) == 1
+
+
 class _DeferredFuture:
     """Stand-in for QThreadFuture that captures (method, args, callback_slot)
     instead of running immediately, so tests can control callback ordering."""

@@ -90,8 +90,18 @@ class MonitorService(QObject):
             self._toast(obs)
         self.observation.emit(obs)
         if obs.feed_name != "advisor" and self._advisor_enabled():
-            self._advisor_batch.append(obs)
-            self._advisor_timer.start()  # (re)arm debounce
+            floor = self._advisor_floor_for(obs.feed_name)
+            if severity_at_least(obs.severity, floor):
+                self._advisor_batch.append(obs)
+                self._advisor_timer.start()  # (re)arm debounce
+
+    def _advisor_floor_for(self, feed_name: str) -> str:
+        try:
+            from lightfall.ui.preferences.manager import PreferencesManager
+            floors = PreferencesManager.get_instance().get("monitor_feed_advisor_severity", {})
+            return str((floors or {}).get(feed_name, "info"))
+        except Exception:  # noqa: BLE001
+            return "info"
 
     def set_advisor(self, advisor) -> None:
         self._advisor = advisor
