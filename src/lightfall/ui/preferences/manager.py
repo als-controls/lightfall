@@ -71,6 +71,9 @@ GLOBAL_ONLY_PREFS = {
     # Tool/skill settings (AgentPlugin overrides)
     "disabled_tool_plugins",
     "forced_enabled_tool_plugins",
+    # Agent definitions (agents-as-data)
+    "disabled_agents",
+    "forced_enabled_agents",
     # Monitor settings (MonitorPlugin overrides + advisor + tick)
     "monitor_advisor_enabled",
     "monitor_tick_interval",
