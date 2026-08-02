@@ -69,7 +69,7 @@ dependencies = [
     # ipython
     "qtconsole>=5.5",
     "ipykernel>=6.0",
-    "claude-agent-sdk>=0.2.82",
+    "claude-agent-sdk>=0.2.93",
     "happi>=2.0",
     "nats-py>=2.0",
 ]
@@ -254,7 +254,7 @@ requires = [
     "cryptography>=41.0",
     "bidict>=0.23",
 
-    "claude-agent-sdk>=0.2.82",
+    "claude-agent-sdk>=0.2.93",
 ]
 
 [tool.briefcase.app.lightfall.macOS]
