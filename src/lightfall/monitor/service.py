@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
-from lightfall.monitor.models import Observation
+from lightfall.monitor.models import SEVERITY_RANK, Observation, severity_at_least
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ class MonitorService(QObject):
         from PySide6.QtCore import QTimer
         self._advisor = None
         self._advisor_batch: list[Observation] = []
+        self._last_batch_severity: str = "info"
         self._advise_async = True
         self._advisor_timer = QTimer(self)
         self._advisor_timer.setSingleShot(True)
@@ -113,6 +114,9 @@ class MonitorService(QObject):
         batch, self._advisor_batch = self._advisor_batch, []
         if not batch or not self._advisor_enabled():
             return
+        self._last_batch_severity = max(
+            (obs.severity for obs in batch), key=lambda s: SEVERITY_RANK.get(s, SEVERITY_RANK["info"])
+        )
         advisor = self._ensure_advisor()
         if self._advise_async:
             from lightfall.utils.threads import QThreadFuture
@@ -135,6 +139,24 @@ class MonitorService(QObject):
         )
         self._recent.append(obs)
         self.observation.emit(obs)
+        self._forward_to_agent(reply)
+
+    def _forward_to_agent(self, reply: str) -> None:
+        try:
+            from lightfall.agents.registry import AgentSpecRegistry
+            spec = AgentSpecRegistry.get_instance().get("observer")
+        except Exception:  # noqa: BLE001
+            spec = None
+        floor = (spec.forward_min_severity if spec is not None else None) or "warn"
+        if not severity_at_least(self._last_batch_severity, floor):
+            return
+        from lightfall.agents.bus import AgentBus
+        result = AgentBus.get_instance().send(
+            "observer", "lightfall",
+            f"Proactive monitor summary ({self._last_batch_severity}): {reply}",
+        )
+        if result.get("status") == "error":
+            logger.info("forward_to_agent: {}", result.get("detail"))
 
     def _toast(self, obs: Observation) -> None:
         try:

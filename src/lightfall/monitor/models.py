@@ -10,7 +10,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from lightfall.utils.logging import logger
+
 Severity = Literal["info", "warn", "critical"]
+
+SEVERITY_RANK: dict[str, int] = {"info": 0, "warn": 1, "critical": 2}
+
+
+def severity_at_least(severity: str, floor: str) -> bool:
+    """Return True if `severity` ranks at or above `floor`.
+
+    Unknown severities rank as "info"; an unknown floor ranks as "warn".
+    """
+    if severity not in SEVERITY_RANK:
+        logger.debug("severity_at_least: unknown severity '{}', coercing to 'info'", severity)
+    if floor not in SEVERITY_RANK:
+        logger.debug("severity_at_least: unknown floor '{}', coercing to 'warn'", floor)
+    sev_rank = SEVERITY_RANK.get(severity, SEVERITY_RANK["info"])
+    floor_rank = SEVERITY_RANK.get(floor, SEVERITY_RANK["warn"])
+    return sev_rank >= floor_rank
 
 
 @dataclass
