@@ -20,6 +20,22 @@ def format_bus_prompt(sender: str, message: str) -> str:
     return f"[Message from agent '{sender}']\n{message}"
 
 
+def bus_banner_text(pending: list[tuple[str, str]]) -> str | None:
+    """Return the banner text for a list of pending bus messages, or None
+    if the banner should be hidden (nothing pending).
+
+    Pure helper shared by the "queue" delivery-policy notification path and
+    the post-flush/post-completion residue check, so the visibility decision
+    stays testable without constructing any Qt widgets.
+    """
+    if not pending:
+        return None
+    if len(pending) == 1:
+        sender = pending[0][0]
+        return f"1 message from {sender}"
+    return f"{len(pending)} pending agent messages"
+
+
 class ClaudeSessionEndpoint(QObject):
     """Bus endpoint for a Claude session, applying an auto/queue delivery policy.
 

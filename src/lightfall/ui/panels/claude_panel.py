@@ -522,22 +522,33 @@ class ClaudePanel(BasePanel):
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
 
-        # Register this session's bus endpoint so other agents can send it
-        # messages by name. The bus may rename on collision (e.g. a second
-        # panel instance) -- propagate the actual name back to the endpoint
-        # and the agent (bus_tools reads agent.bus_name for outgoing "from").
-        from lightfall.agents.bus import AgentBus
-
-        endpoint = self._claude_widget.bus_endpoint
-        actual_name = AgentBus.get_instance().register(endpoint.name, endpoint)
-        endpoint.name = actual_name
-        self._claude_widget.agent.bus_name = actual_name
+        self._register_bus_endpoint()
 
         # Record the settings this agent was built with, so a later preference
         # change only rebuilds when something the agent cares about differs.
         self._active_agent_config = self._current_claude_config()
 
         logger.info("Claude assistant panel initialized")
+
+    def _register_bus_endpoint(self) -> None:
+        """Register this session's bus endpoint so other agents can send it
+        messages by name. The bus may rename on collision (e.g. a second
+        panel instance) -- propagate the actual name back to the endpoint
+        and the agent (bus_tools reads agent.bus_name for outgoing "from").
+
+        No-ops when the widget took the error-UI path in __init__ (e.g. no
+        API key configured) and never created a ``bus_endpoint`` -- guarded
+        the same way the rest of this module treats a degraded widget
+        (``hasattr(self._claude_widget, 'agent')``).
+        """
+        if not hasattr(self._claude_widget, "bus_endpoint"):
+            return
+        from lightfall.agents.bus import AgentBus
+
+        endpoint = self._claude_widget.bus_endpoint
+        actual_name = AgentBus.get_instance().register(endpoint.name, endpoint)
+        endpoint.name = actual_name
+        self._claude_widget.agent.bus_name = actual_name
 
     def _unregister_bus_endpoint(self) -> None:
         """Unregister this session's bus endpoint, if one is currently registered."""

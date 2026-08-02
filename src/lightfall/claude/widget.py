@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.claude.agent import QtClaudeAgent
-from lightfall.claude.bus_endpoint import ClaudeSessionEndpoint
+from lightfall.claude.bus_endpoint import ClaudeSessionEndpoint, bus_banner_text
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
@@ -570,9 +570,13 @@ class ClaudeAssistantWidget(QWidget):
     def _submit_bus_prompt(self, text: str) -> bool:
         """Inject a bus-delivered prompt into the session, as if the user typed it.
 
-        Returns False (without side effects) if a query is already in flight.
+        Returns False (without side effects) if a query is already in flight,
+        or if the user has an in-progress draft in the input field (the
+        endpoint re-queues the message and the banner reflects the residue).
         """
         if self.agent.is_busy() or self._is_busy:
+            return False
+        if self.input_field.toPlainText().strip():
             return False
         self.input_field.setText(text)
         self._send_query()
@@ -580,23 +584,42 @@ class ClaudeAssistantWidget(QWidget):
 
     def _flush_bus_on_completion(self) -> None:
         """When a query finishes, flush any bus messages queued while busy
-        under the "auto" delivery policy."""
+        under the "auto" delivery policy.
+
+        Under "queue" policy we never auto-flush -- just make sure any
+        residual pending messages are visible via the banner.
+        """
         if self.bus_endpoint.policy == "auto":
             self.bus_endpoint.flush_pending()
+        self._refresh_bus_banner()
 
     def _on_bus_message_queued(self, sender: str, message: str) -> None:
         """Show/update the pending-message banner ("queue" policy path)."""
-        count = len(self.bus_endpoint.pending())
-        if count == 1:
-            self._bus_banner_label.setText(f"1 message from {sender}")
-        else:
-            self._bus_banner_label.setText(f"{count} pending agent messages")
+        self._refresh_bus_banner()
+
+    def _refresh_bus_banner(self) -> None:
+        """Show/update the banner if messages are pending, else hide it.
+
+        Used after a flush (partial or full) and after a query completes,
+        so residual queued messages never go invisible.
+        """
+        text = bus_banner_text(self.bus_endpoint.pending())
+        if text is None:
+            self._bus_banner.hide()
+            return
+        self._bus_banner_label.setText(text)
         self._bus_banner.show()
 
     def _on_bus_respond_clicked(self) -> None:
-        """Respond button: flush all pending bus messages into the session."""
+        """Respond button: flush pending bus messages into the session.
+
+        A flush may submit only the first message (the agent goes busy
+        partway through) or none at all (already busy) -- in either case
+        any remaining messages re-queue in the endpoint. Only hide the
+        banner once nothing is left pending; otherwise reflect the residue.
+        """
         self.bus_endpoint.flush_pending()
-        self._bus_banner.hide()
+        self._refresh_bus_banner()
 
     def _refresh_models(self) -> None:
         """Re-query the backend's model list (clears the session cache)."""
