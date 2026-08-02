@@ -6,7 +6,6 @@
 [![CI](https://github.com/als-controls/lightfall/actions/workflows/ci.yml/badge.svg)](https://github.com/als-controls/lightfall/actions/workflows/ci.yml)
 [![Docs](https://github.com/als-controls/lightfall/actions/workflows/docs.yml/badge.svg)](https://als-controls.github.io/lightfall/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE.md)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20545717.svg)](https://doi.org/10.5281/zenodo.20545717)
 <!-- badges:end -->
 
 A modern, unified control system for synchrotron lightsource facilities that provides facility-wide consistency with beamline-specific customization.
