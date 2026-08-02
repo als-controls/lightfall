@@ -4,10 +4,14 @@ Drafts are staged skill files stored separately from shipped skills, with
 provenance frontmatter to track author, creation date, and session context.
 When a draft name collides with an active skill, it's written as a `.proposed`
 revision rather than overwriting the draft's main file.
+
+Descriptions are sanitized (YAML-quoted) to prevent frontmatter injection when
+drafts are later promoted to active skills parsed by real YAML loaders.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -71,11 +75,13 @@ def save_draft(
     created = datetime.now().date().isoformat()
 
     # Build frontmatter with name normalized to hyphens for the field.
+    # Description is JSON-quoted for YAML safety to prevent frontmatter injection.
     frontmatter_name = name.replace("_", "-")
+    description_quoted = json.dumps(description)
     frontmatter_lines = [
         "---",
         f"name: {frontmatter_name}",
-        f"description: {description}",
+        f"description: {description_quoted}",
         f"lightfall-draft:",
         f"  author: {author}",
         f"  created: {created}",
@@ -93,6 +99,14 @@ def save_draft(
 
     if is_revision:
         path = draft_dir / "SKILL.md.proposed"
+        # Delete any stale SKILL.md draft that this revision supersedes.
+        stale_draft = draft_dir / "SKILL.md"
+        if stale_draft.exists():
+            stale_draft.unlink()
+            logger.info(
+                "drafts: superseded stale draft '{}' with proposed revision",
+                name,
+            )
     else:
         path = draft_dir / "SKILL.md"
         # Check if we're overwriting an existing draft.
@@ -168,10 +182,23 @@ def _validate_name(name: str) -> None:
 
 
 def _validate_description(description: str) -> None:
-    """Validate description."""
-    if not description or len(description) > 1024:
+    """Validate description.
+
+    Rejects descriptions with embedded newlines/carriage returns (prevents
+    frontmatter injection) and whitespace-only descriptions. Also rejects
+    descriptions longer than 1024 chars.
+    """
+    # Check for newlines/carriage returns.
+    if "\n" in description or "\r" in description:
         raise DraftError(
-            f"Invalid description: must be non-empty and ≤1024 chars"
+            "Invalid description: cannot contain newlines or carriage returns"
+        )
+
+    # Strip and check for emptiness or length.
+    stripped = description.strip()
+    if not stripped or len(stripped) > 1024:
+        raise DraftError(
+            "Invalid description: must be non-empty (after stripping) and ≤1024 chars"
         )
 
 

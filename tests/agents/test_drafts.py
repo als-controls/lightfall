@@ -60,3 +60,47 @@ def test_list_drafts(user_root):
     assert [d["name"] for d in listing] == ["a-skill", "b-skill"]
     assert listing[0]["author"] == "lightfall"
     assert listing[0]["is_revision"] is False
+
+
+def test_description_with_embedded_newline_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "line1\nline2", "b", author="a")
+
+
+def test_description_with_carriage_return_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "line1\rline2", "b", author="a")
+
+
+def test_whitespace_only_description_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "   ", "b", author="a")
+
+
+def test_description_with_yaml_syntax_is_quoted(user_root):
+    desc = "title: sneaky"
+    path, _ = drafts.save_draft("x", desc, "body", author="a")
+    text = path.read_text(encoding="utf-8")
+    # Description should be JSON-quoted in the frontmatter.
+    assert 'description: "title: sneaky"' in text or "description: 'title: sneaky'" in text
+
+
+def test_proposed_revision_removes_stale_draft(user_root):
+    active = user_root / "target-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text("---\nname: target-skill\ndescription: d\n---\nb",
+                                     encoding="utf-8")
+    # Create a stale plain draft.
+    draft_dir = drafts.drafts_dir() / "target-skill"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    stale_draft = draft_dir / "SKILL.md"
+    stale_draft.write_text("old content", encoding="utf-8")
+
+    # Save a proposed revision.
+    path, is_rev = drafts.save_draft("target-skill", "improved", "new body",
+                                     author="lightfall")
+
+    assert is_rev
+    assert path.name == "SKILL.md.proposed"
+    # Stale draft should be deleted.
+    assert not stale_draft.exists()
