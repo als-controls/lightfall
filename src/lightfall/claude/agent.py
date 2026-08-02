@@ -25,6 +25,13 @@ if TYPE_CHECKING:
     from lightfall.agents.spec import AgentSpec
 
 
+# Single-JSON-message read limit for the SDK transport. The default (1 MiB)
+# is too small for image tool_results (base64 screenshot payloads) and kills
+# the turn with "JSON message exceeded maximum buffer size". 16 MiB bounds
+# runaway messages while leaving ample headroom.
+SDK_MAX_BUFFER_SIZE = 16 * 1024 * 1024
+
+
 def lightfall_agent_cwd() -> str:
     """Stable working directory for the Claude agent subprocess.
 
@@ -409,6 +416,8 @@ class QtClaudeAgent(QObject):
             # waiting for the whole block. The worker translates these into
             # partial_* signals and the widget appends as they arrive.
             "include_partial_messages": True,
+            # See SDK_MAX_BUFFER_SIZE: default 1 MiB rejects screenshot payloads.
+            "max_buffer_size": SDK_MAX_BUFFER_SIZE,
         }
         if agents:
             options_dict["agents"] = agents
