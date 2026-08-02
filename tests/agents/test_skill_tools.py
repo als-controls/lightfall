@@ -79,6 +79,30 @@ def test_draft_skill_invalid_name(user_root, monkeypatch):
     assert not (user_root / "_drafts" / "Bad Name").exists()
 
 
+def test_draft_skill_invalid_name_survives_main_thread_marshal(user_root, monkeypatch):
+    # Regression: the real run_on_main_thread rewraps ANY inner exception as
+    # a generic RuntimeError with a traceback dump when marshalling across
+    # threads. draft_skill must not rely on DraftError propagating across
+    # that hop, or an invalid-name error degrades into an opaque traceback
+    # instead of the clean validation message.
+    def wrap(fn, *a, **k):
+        try:
+            return fn(*a, **k)
+        except Exception as exc:  # noqa: BLE001 - mirrors the real wrapper
+            raise RuntimeError(f"{exc}\n<traceback>")
+
+    monkeypatch.setattr(skill_tools, "run_on_main_thread", wrap)
+    tools = skill_tools._make_tools(lambda: "observer", lambda: "s1")
+    draft = next(t for t in tools if t.name == "draft_skill")
+
+    result = _call(draft, {"name": "Bad Name", "description": "d", "body": "b"})
+    text = result["content"][0]["text"]
+    assert result.get("is_error")
+    assert "Invalid skill name" in text
+    assert "<traceback>" not in text
+    assert not (user_root / "_drafts" / "Bad Name").exists()
+
+
 def test_draft_skill_fires_toast(user_root, monkeypatch):
     draft = _draft_tool(monkeypatch)
 

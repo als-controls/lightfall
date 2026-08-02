@@ -66,19 +66,29 @@ def _make_tools(author_name: Callable[[], str], session_id: Callable[[], str | N
             description = args.get("description", "")
             body = args.get("body", "")
 
-            def _save() -> tuple[Any, bool]:
-                return save_draft(
-                    name,
-                    description,
-                    body,
-                    author=author_name(),
-                    session_id=session_id(),
-                )
+            def _save() -> tuple[str, Any, bool]:
+                # Caught HERE, on the main-thread side of the hop, rather
+                # than relying on DraftError propagating back across
+                # run_on_main_thread: the real implementation rewraps any
+                # exception raised on the marshalled path as a generic
+                # RuntimeError with a traceback dump, which would otherwise
+                # bury the clean validation message.
+                try:
+                    path, is_revision = save_draft(
+                        name,
+                        description,
+                        body,
+                        author=author_name(),
+                        session_id=session_id(),
+                    )
+                except DraftError as exc:
+                    return ("invalid", str(exc), False)
+                return ("ok", path, is_revision)
 
-            try:
-                path, is_revision = run_on_main_thread(_save)
-            except DraftError as exc:
-                return mcp_error(str(exc))
+            status, payload, is_revision = run_on_main_thread(_save)
+            if status == "invalid":
+                return mcp_error(payload)
+            path = payload
 
             message = (
                 f"Draft saved to {path}. A human must approve it "
