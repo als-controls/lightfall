@@ -263,7 +263,7 @@ class ClaudeAssistantWidget(QWidget):
             name=spec.name if spec else "lightfall",
             description=spec.description if spec else "Lightfall assistant",
             submit=self._submit_bus_prompt,
-            is_busy=self.agent.is_busy,
+            is_busy=lambda: self.agent.is_busy() or self._is_busy,
             on_queued=self._on_bus_message_queued,
             policy=spec.on_message if spec else "queue",
             parent=self,

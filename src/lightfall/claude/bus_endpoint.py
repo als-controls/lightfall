@@ -66,8 +66,13 @@ class ClaudeSessionEndpoint(QObject):
     def deliver(self, sender: str, message: str) -> str:
         """Deliver (or queue) a message per the current policy."""
         if self._policy == "auto" and not self._is_busy():
-            self._submit(format_bus_prompt(sender, message))
-            return "delivered"
+            if self._submit(format_bus_prompt(sender, message)):
+                return "delivered"
+            # submit refused (e.g. a race where the widget became busy between
+            # the is_busy() check and the submit call) -- queue instead of
+            # silently dropping the message.
+            self._pending.append((sender, message))
+            return "queued"
 
         self._pending.append((sender, message))
         if self._policy == "queue":
@@ -75,11 +80,22 @@ class ClaudeSessionEndpoint(QObject):
         return "queued"
 
     def flush_pending(self) -> int:
-        """Submit all pending messages, returning the count submitted."""
+        """Submit all pending messages, returning the count submitted.
+
+        If a submit refuses (returns False) partway through, the remaining
+        messages -- including the one that was refused -- are re-queued in
+        order and flushing stops there.
+        """
         pending, self._pending = self._pending, []
-        for sender, message in pending:
+        submitted = 0
+        for i, (sender, message) in enumerate(pending):
             try:
-                self._submit(format_bus_prompt(sender, message))
+                ok = self._submit(format_bus_prompt(sender, message))
             except Exception:
                 logger.exception("bus endpoint '{}' failed to flush a pending message", self.name)
-        return len(pending)
+                ok = False
+            if not ok:
+                self._pending = pending[i:] + self._pending
+                break
+            submitted += 1
+        return submitted

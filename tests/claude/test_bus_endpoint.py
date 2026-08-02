@@ -59,6 +59,38 @@ def test_set_policy_validates():
         ep.set_policy("shout")
 
 
+def test_auto_idle_submit_refused_queues_instead_of_dropping():
+    """Race window: is_busy() said idle, but submit refuses (e.g. widget's
+    own _is_busy flipped True in between). Must queue, not silently drop."""
+    ep = ClaudeSessionEndpoint(
+        "lightfall", "main agent",
+        submit=lambda text: False,
+        is_busy=lambda: False,
+        on_queued=lambda s, m: None,
+        policy="auto",
+    )
+    assert ep.deliver("observer", "x") == "queued"
+    assert ep.pending() == [("observer", "x")]
+
+
+def test_flush_pending_requeues_remainder_on_refusal():
+    submitted = []
+    results = iter([True, False])
+    ep = ClaudeSessionEndpoint(
+        "lightfall", "main agent",
+        submit=lambda text: (submitted.append(text) or next(results)),
+        is_busy=lambda: True,
+        on_queued=lambda s, m: None,
+        policy="queue",
+    )
+    ep.deliver("a", "1")
+    ep.deliver("b", "2")
+    ep.deliver("c", "3")
+    assert ep.flush_pending() == 1
+    assert len(submitted) == 2
+    assert ep.pending() == [("b", "2"), ("c", "3")]
+
+
 def test_wiring_auto_busy_then_completion_flush():
     """Mirrors the widget wiring: deliver while busy queues; query_completed
     flushing (policy == 'auto') submits it."""
