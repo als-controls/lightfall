@@ -17,6 +17,7 @@ from lightfall.claude.permission_manager import (
     create_can_use_tool_callback,
     create_pre_tool_use_hook,
 )
+from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
 from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
 
@@ -322,6 +323,15 @@ class QtClaudeAgent(QObject):
         ]
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
+
+        # Bus name defaults to the spec name (or "lightfall" on the legacy
+        # path); the endpoint layer overwrites this with the actual
+        # registered name once the session joins the shared agent bus. The
+        # bus tools server reads it live via a closure, so it stays correct
+        # even after being overwritten post-construction.
+        self.bus_name = spec.name if spec else "lightfall"
+        mcp_servers["bus"] = create_bus_tools_server(lambda: self.bus_name)
+        allowed_tools.extend(BUS_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir
         from lightfall.claude._session_assembly import init_session_plugin_dir
