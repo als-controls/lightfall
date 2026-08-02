@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.claude.agent import QtClaudeAgent
+from lightfall.claude.bus_endpoint import ClaudeSessionEndpoint
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
@@ -233,6 +234,8 @@ class ClaudeAssistantWidget(QWidget):
         try:
             from lightfall.agents.registry import AgentSpecRegistry
 
+            spec = AgentSpecRegistry.get_instance().get("lightfall")
+
             self.agent = QtClaudeAgent(
                 target_window,
                 api_key,
@@ -246,7 +249,7 @@ class ClaudeAssistantWidget(QWidget):
                 effort=effort,
                 resume=resume,
                 disable_betas=disable_betas,
-                spec=AgentSpecRegistry.get_instance().get("lightfall"),
+                spec=spec,
                 parent=self,
             )
         except ValueError as e:
@@ -254,9 +257,22 @@ class ClaudeAssistantWidget(QWidget):
             self._setup_error_ui(str(e))
             return
 
+        # Bus endpoint: routes messages from other agents into this session
+        # per the spec's delivery policy (default "queue" if no spec).
+        self.bus_endpoint = ClaudeSessionEndpoint(
+            name=spec.name if spec else "lightfall",
+            description=spec.description if spec else "Lightfall assistant",
+            submit=self._submit_bus_prompt,
+            is_busy=self.agent.is_busy,
+            on_queued=self._on_bus_message_queued,
+            policy=spec.on_message if spec else "queue",
+            parent=self,
+        )
+
         # Setup UI
         self._setup_ui()
         self._connect_signals()
+        self.agent.query_completed.connect(self._flush_bus_on_completion)
 
     def _setup_ui(self) -> None:
         """Setup the user interface."""
@@ -298,6 +314,22 @@ class ClaudeAssistantWidget(QWidget):
         sb = self._scroll_area.verticalScrollBar()
         sb.valueChanged.connect(self._on_scroll_value_changed)
         sb.rangeChanged.connect(self._on_scroll_range_changed)
+
+        # Pending bus-message banner (hidden until a message is queued)
+        self._bus_banner = QFrame()
+        self._bus_banner.setObjectName("busMessageBanner")
+        self._bus_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        bus_banner_layout = QHBoxLayout(self._bus_banner)
+        bus_banner_layout.setContentsMargins(8, 6, 8, 6)
+        bus_banner_layout.setSpacing(8)
+        self._bus_banner_label = QLabel("")
+        self._bus_banner_label.setWordWrap(True)
+        bus_banner_layout.addWidget(self._bus_banner_label, 1)
+        self._bus_banner_respond_btn = QPushButton("Respond")
+        self._bus_banner_respond_btn.clicked.connect(self._on_bus_respond_clicked)
+        bus_banner_layout.addWidget(self._bus_banner_respond_btn)
+        self._bus_banner.hide()
+        layout.addWidget(self._bus_banner)
 
         # Input area
         input_layout = QHBoxLayout()
@@ -524,6 +556,47 @@ class ClaudeAssistantWidget(QWidget):
             act.triggered.connect(
                 lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
             )
+
+        menu.addSection("Agent bus")
+        auto_respond_act = menu.addAction("Auto-respond to agent messages")
+        auto_respond_act.setCheckable(True)
+        auto_respond_act.setChecked(self.bus_endpoint.policy == "auto")
+        auto_respond_act.triggered.connect(self._on_toggle_auto_respond)
+
+    def _on_toggle_auto_respond(self, checked: bool) -> None:
+        """Settings-menu toggle: switch the bus endpoint's delivery policy."""
+        self.bus_endpoint.set_policy("auto" if checked else "queue")
+
+    def _submit_bus_prompt(self, text: str) -> bool:
+        """Inject a bus-delivered prompt into the session, as if the user typed it.
+
+        Returns False (without side effects) if a query is already in flight.
+        """
+        if self.agent.is_busy() or self._is_busy:
+            return False
+        self.input_field.setText(text)
+        self._send_query()
+        return True
+
+    def _flush_bus_on_completion(self) -> None:
+        """When a query finishes, flush any bus messages queued while busy
+        under the "auto" delivery policy."""
+        if self.bus_endpoint.policy == "auto":
+            self.bus_endpoint.flush_pending()
+
+    def _on_bus_message_queued(self, sender: str, message: str) -> None:
+        """Show/update the pending-message banner ("queue" policy path)."""
+        count = len(self.bus_endpoint.pending())
+        if count == 1:
+            self._bus_banner_label.setText(f"1 message from {sender}")
+        else:
+            self._bus_banner_label.setText(f"{count} pending agent messages")
+        self._bus_banner.show()
+
+    def _on_bus_respond_clicked(self) -> None:
+        """Respond button: flush all pending bus messages into the session."""
+        self.bus_endpoint.flush_pending()
+        self._bus_banner.hide()
 
     def _refresh_models(self) -> None:
         """Re-query the backend's model list (clears the session cache)."""
