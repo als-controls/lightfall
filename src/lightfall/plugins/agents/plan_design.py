@@ -12,10 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class PlanDesignAgent(AgentPlugin):
+class PlanDesignAgent(ToolPlugin):
     """Skill for designing Bluesky plans.
 
     This skill provides Claude with deep expertise for:

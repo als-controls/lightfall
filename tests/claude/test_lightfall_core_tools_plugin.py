@@ -1,4 +1,4 @@
-"""Tests for LFCoreToolPlugin as an AgentPlugin."""
+"""Tests for LFCoreToolPlugin as an ToolPlugin."""
 from __future__ import annotations
 
 import pytest

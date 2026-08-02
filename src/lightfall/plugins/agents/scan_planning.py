@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class ScanPlanningAgent(AgentPlugin):
+class ScanPlanningAgent(ToolPlugin):
     """Skill for planning and configuring scans.
 
     This skill provides Claude with domain expertise for:

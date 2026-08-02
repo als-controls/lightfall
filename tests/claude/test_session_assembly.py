@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class _PromptOnly(AgentPlugin):
+class _PromptOnly(ToolPlugin):
     @property
     def name(self): return "prompt_only"
     @property
@@ -16,7 +16,7 @@ class _PromptOnly(AgentPlugin):
     def get_system_prompt(self): return "## Prompt body\n\nText here."
 
 
-class _ToolsOnly(AgentPlugin):
+class _ToolsOnly(ToolPlugin):
     @property
     def name(self): return "tools_only"
     @property
@@ -24,7 +24,7 @@ class _ToolsOnly(AgentPlugin):
     def create_tools(self): return [object()]
 
 
-class _Both(AgentPlugin):
+class _Both(ToolPlugin):
     @property
     def name(self): return "both"
     @property
@@ -33,7 +33,7 @@ class _Both(AgentPlugin):
     def create_tools(self): return [object()]
 
 
-class _WithRefs(AgentPlugin):
+class _WithRefs(ToolPlugin):
     def __init__(self, refs_dir):
         self._refs = refs_dir
     @property
@@ -121,7 +121,7 @@ def test_assemble_mcp_servers_skips_tool_less_plugins(tmp_path, monkeypatch):
     @tool(name="real_tool", description="x", input_schema={"type": "object", "properties": {}})
     async def real_tool(args): return {"content": [{"type": "text", "text": "ok"}]}
 
-    class _ToolBearing(AgentPlugin):
+    class _ToolBearing(ToolPlugin):
         @property
         def name(self): return "tb"
         @property
@@ -137,7 +137,7 @@ def test_assemble_mcp_servers_skips_tool_less_plugins(tmp_path, monkeypatch):
 def test_external_servers_merged_with_wildcard_allowed_tools():
     from lightfall.claude._session_assembly import assemble_mcp_servers
 
-    class _External(AgentPlugin):
+    class _External(ToolPlugin):
         @property
         def name(self): return "osprey"
         @property
@@ -162,14 +162,14 @@ def test_external_server_name_collision_is_skipped(monkeypatch):
     @tool(name="t", description="x", input_schema={"type": "object", "properties": {}})
     async def t(args): return {"content": [{"type": "text", "text": "ok"}]}
 
-    class _InProc(AgentPlugin):
+    class _InProc(ToolPlugin):
         @property
         def name(self): return "controls"
         @property
         def description(self): return "in-process controls"
         def create_tools(self): return [t]
 
-    class _Ext(AgentPlugin):
+    class _Ext(ToolPlugin):
         @property
         def name(self): return "ext"
         @property

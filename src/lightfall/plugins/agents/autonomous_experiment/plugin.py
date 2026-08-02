@@ -1,13 +1,13 @@
-"""AutonomousExperimentAgent AgentPlugin."""
+"""AutonomousExperimentAgent ToolPlugin."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class AutonomousExperimentAgent(AgentPlugin):
+class AutonomousExperimentAgent(ToolPlugin):
     """Embeds gpCAM's experiment-design skills and exposes a NATS bridge
     to a running Tsuchinoko instance.
 

@@ -76,7 +76,7 @@ The plugin system is typically used via the ServiceRegistry::
     loader.start_loading()  # Background loading
 """
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.controller_plugin import ControllerPlugin
 from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
 from lightfall.plugins.errors import (
@@ -107,7 +107,7 @@ __all__ = [
     "PluginRegistry",
     "PluginLoader",
     # Plugin types
-    "AgentPlugin",
+    "ToolPlugin",
     "ControllerPlugin",
     "DeviceBackendPlugin",
     "HappiDatabasePlugin",

@@ -131,7 +131,7 @@ def _reset_qt_service_singletons():
 
     This is the *targeted* set the flakiness audit flagged as high/medium risk,
     not a blanket reset of every singleton: plain registries that deliberately
-    seed state within a file (PanelRegistry, AgentRegistry, ...) are left to
+    seed state within a file (PanelRegistry, ToolRegistry, ...) are left to
     their own fixtures. Best-effort — cleanup must never fail a passed test.
     """
     yield

@@ -305,15 +305,15 @@ class QtClaudeAgent(QObject):
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
-        # Per-plugin server assembly from AgentRegistry
+        # Per-plugin server assembly from ToolRegistry
         from lightfall.claude._session_assembly import (
             assemble_mcp_servers,
             init_session_plugin_dir,
             materialize_skill,
         )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-        enabled = AgentRegistry.get_instance().enabled_plugins()
+        enabled = ToolRegistry.get_instance().enabled_plugins()
         agent_servers, agent_allowed = assemble_mcp_servers(enabled)
         mcp_servers.update(agent_servers)
         allowed_tools.extend(agent_allowed)
@@ -663,7 +663,7 @@ class QtClaudeAgent(QObject):
             init_session_plugin_dir,
             materialize_skill,
         )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
         self.cockpit_reset.emit()
         self.stop()  # stops the worker; also rmtree's the session plugin dir
@@ -686,7 +686,7 @@ class QtClaudeAgent(QObject):
         try:
             plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
             init_session_plugin_dir(plugin_dir)
-            for plugin in AgentRegistry.get_instance().enabled_plugins():
+            for plugin in ToolRegistry.get_instance().enabled_plugins():
                 materialize_skill(plugin, plugin_dir)
             self._session_plugin_dir = plugin_dir
 

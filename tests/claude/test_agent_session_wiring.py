@@ -10,11 +10,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lightfall.plugins.agent_plugin import AgentPlugin
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.plugins.tool_plugin import ToolPlugin
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 
-class _PromptAgent(AgentPlugin):
+class _PromptAgent(ToolPlugin):
     @property
     def name(self): return "prompt_agent"
     @property
@@ -22,7 +22,7 @@ class _PromptAgent(AgentPlugin):
     def get_system_prompt(self): return "## Prompt body"
 
 
-class _ToolAgent(AgentPlugin):
+class _ToolAgent(ToolPlugin):
     @property
     def name(self): return "tool_agent"
     @property
@@ -37,9 +37,9 @@ class _ToolAgent(AgentPlugin):
 
 @pytest.fixture(autouse=True)
 def reset_registry():
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     yield
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 @pytest.fixture
@@ -49,15 +49,15 @@ def mock_sdk(monkeypatch):
 
 
 def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot, monkeypatch):
-    AgentRegistry.get_instance().register(_PromptAgent())
-    AgentRegistry.get_instance().register(_ToolAgent())
+    ToolRegistry.get_instance().register(_PromptAgent())
+    ToolRegistry.get_instance().register(_ToolAgent())
     # Both agents default to enabled_by_default=True; stub pref reads to no overrides.
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
         lambda self, key: None,
     )
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
 

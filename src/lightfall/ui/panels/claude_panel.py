@@ -302,7 +302,7 @@ class ClaudePanel(BasePanel):
             logger.debug("Subscribed to plugin loading_complete signal")
 
     def _subscribe_to_plugin_signals(self) -> None:
-        """Subscribe to plugin signals for hot-reload (no-op; AgentRegistry has no signal)."""
+        """Subscribe to plugin signals for hot-reload (no-op; ToolRegistry has no signal)."""
         pass
 
     def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
@@ -1106,7 +1106,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """Cleanup when panel is closing."""
         self._stop_thinking_animation()
         self._stop_permission_animation()
-        # AgentRegistry has no signals to disconnect
+        # ToolRegistry has no signals to disconnect
 
         # Disconnect from loader signals
         loader = self._get_plugin_loader()

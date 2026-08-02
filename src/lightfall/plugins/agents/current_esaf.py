@@ -48,7 +48,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.utils.logging import logger
 
 #: Production alshub-api base URL, used only when no ``tiled_alshub_url``
@@ -219,7 +219,7 @@ async def _fetch_active_esaf_full(
     return matches[0]
 
 
-class CurrentEsafAgent(AgentPlugin):
+class CurrentEsafAgent(ToolPlugin):
     """Skill telling the embedded Claude agent how to retrieve the ESAF that
     is active *right now* at the beamline configured in Lightfall's Tiled
     settings.

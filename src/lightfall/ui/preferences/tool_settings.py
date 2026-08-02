@@ -1,7 +1,7 @@
 """Claude agent settings plugin for NCS.
 
-ClaudeToolsSettingsPlugin lets users enable/disable AgentPlugin instances
-discovered by AgentRegistry. The user's choices are persisted as overrides
+ClaudeToolsSettingsPlugin lets users enable/disable ToolPlugin instances
+discovered by ToolRegistry. The user's choices are persisted as overrides
 of each plugin's `enabled_by_default`:
 
 - `disabled_tool_plugins`: default-enabled plugins the user unchecked.
@@ -32,11 +32,11 @@ from lightfall.utils.logging import logger
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
 
 
 class ToolPluginTableModel(QAbstractTableModel):
-    """Table model for displaying registered AgentPlugin instances.
+    """Table model for displaying registered ToolPlugin instances.
 
     Columns:
         0: Plugin (with checkbox for enabled/disabled)
@@ -51,20 +51,20 @@ class ToolPluginTableModel(QAbstractTableModel):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the tool plugin table model."""
         super().__init__(parent)
-        self._plugins: list[AgentPlugin] = []
+        self._plugins: list[ToolPlugin] = []
         self._enabled_names: set[str] = set()
         self._original_enabled_names: set[str] = set()
 
     def refresh(self) -> None:
-        """Load plugins from AgentRegistry.
+        """Load plugins from ToolRegistry.
 
         Retrieves all agent plugins and sorts them by category, then display name.
         """
         self.beginResetModel()
         try:
-            from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-            registry = AgentRegistry.get_instance()
+            registry = ToolRegistry.get_instance()
             self._plugins = registry.get_plugins()
             # Sort by category, then display name
             self._plugins.sort(
@@ -74,7 +74,7 @@ class ToolPluginTableModel(QAbstractTableModel):
                 )
             )
         except Exception as e:
-            logger.warning("Failed to get AgentRegistry: {}", e)
+            logger.warning("Failed to get ToolRegistry: {}", e)
             self._plugins = []
         self.endResetModel()
 
@@ -241,8 +241,8 @@ class ToolPluginTableModel(QAbstractTableModel):
 class ClaudeToolsSettingsPlugin(SettingsPlugin):
     """Settings plugin for managing Claude agent plugins.
 
-    Allows users to view all AgentPlugin instances registered with
-    AgentRegistry and enable/disable them. Enabled plugins contribute
+    Allows users to view all ToolPlugin instances registered with
+    ToolRegistry and enable/disable them. Enabled plugins contribute
     their tools (per-plugin MCP server) and skill prompt (SKILL.md
     materialized into the per-session SDK plugin dir).
     """
@@ -338,10 +338,10 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
 
         self._model.refresh()
 
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
-        AgentRegistry.get_instance()._migrate_legacy_pref_if_needed()
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+        ToolRegistry.get_instance()._migrate_legacy_pref_if_needed()
 
-        from lightfall.ui.panels.claude.agent_registry import (
+        from lightfall.ui.panels.claude.tool_registry import (
             DISABLED_PLUGINS_PREF,
             FORCED_ENABLED_PLUGINS_PREF,
         )
@@ -366,7 +366,7 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
 
         disabled, forced_enabled = self._model.get_overrides()
 
-        from lightfall.ui.panels.claude.agent_registry import (
+        from lightfall.ui.panels.claude.tool_registry import (
             DISABLED_PLUGINS_PREF,
             FORCED_ENABLED_PLUGINS_PREF,
         )

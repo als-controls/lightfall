@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
 from lightfall.utils.logging import logger
 
 
-class DeviceToolsAgent(AgentPlugin):
+class DeviceToolsAgent(ToolPlugin):
     """MCP tools for device interaction via the DeviceCatalog.
 
     This plugin provides tools for Claude to:

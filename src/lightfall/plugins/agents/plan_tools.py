@@ -10,12 +10,12 @@ import inspect
 import re
 from typing import Any, Union
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.utils.git_tracker import GitTracker
 from lightfall.utils.logging import logger
 
 
-class PlanToolsAgent(AgentPlugin):
+class PlanToolsAgent(ToolPlugin):
     """MCP tools for creating and managing user plans.
 
     This plugin provides tools for Claude to:

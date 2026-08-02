@@ -10,7 +10,7 @@ import pytest
 
 from lightfall.plugins.agents.panel_builder import PanelBuilderAgent
 from lightfall.plugins.user_plugins import UserPluginService
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 from lightfall.ui.panels.registry import PanelRegistry
 from lightfall.utils.git_tracker import GitTracker
 
@@ -25,12 +25,12 @@ def _unwrap(result):
 @pytest.fixture(autouse=True)
 def reset_singletons():
     UserPluginService.reset_instance()
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     PanelRegistry.reset()
     GitTracker.reset_instance()
     yield
     UserPluginService.reset_instance()
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     PanelRegistry.reset()
     GitTracker.reset_instance()
 
@@ -72,9 +72,9 @@ def test_create_user_plugin_commits_with_description(tracked_dirs):
     create_tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_create_user_plugin")
 
     code = '''"""thermometer."""
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
-class ThermAgent(AgentPlugin):
+class ThermAgent(ToolPlugin):
     @property
     def name(self): return "thermometer"
     @property

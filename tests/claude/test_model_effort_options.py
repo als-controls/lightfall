@@ -5,14 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
 
 @pytest.fixture(autouse=True)
 def _reset_registry():
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     yield
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 @pytest.fixture

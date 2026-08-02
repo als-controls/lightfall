@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class BeamlineAlignmentAgent(AgentPlugin):
+class BeamlineAlignmentAgent(ToolPlugin):
     """Skill for beamline alignment and beam optimization.
 
     This skill provides Claude with domain expertise for:

@@ -1,6 +1,6 @@
 """Unified plugin type for plugins that extend the embedded Claude agent.
 
-Replaces both SkillPlugin and MCPToolPlugin. One AgentPlugin contributes
+Replaces both SkillPlugin and MCPToolPlugin. One ToolPlugin contributes
 an optional SKILL.md (via get_system_prompt) and/or an in-process MCP
 server (via create_tools). One settings toggle controls both.
 """
@@ -14,7 +14,7 @@ from typing import Any, ClassVar
 from lightfall.plugins.types import PluginType
 
 
-class AgentPlugin(PluginType):
+class ToolPlugin(PluginType):
     """Extends the embedded Claude agent with an optional skill prompt and/or
     a bag of MCP tools.
 
@@ -28,7 +28,7 @@ class AgentPlugin(PluginType):
     See docs/superpowers/specs/2026-04-25-lightfall-sdk-native-plugins-design.md.
     """
 
-    type_name: ClassVar[str] = "agent"
+    type_name: ClassVar[str] = "tool"
     is_singleton: ClassVar[bool] = True
 
     @property
