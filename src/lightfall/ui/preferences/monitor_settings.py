@@ -383,13 +383,19 @@ class MonitorFeedTableModel(QAbstractTableModel):
                 return False
             if interval <= 0:
                 return False
-            self._intervals[feed.name] = interval
+            default_interval = getattr(feed, "default_interval_s", None)
+            if default_interval is not None and interval == default_interval:
+                # Explicitly-typed default is not an override; don't clutter prefs.
+                self._intervals.pop(feed.name, None)
+            else:
+                self._intervals[feed.name] = interval
             self.dataChanged.emit(index, index, [role])
             return True
 
         if col == 3 and role == Qt.ItemDataRole.EditRole:
             text = "" if value is None else str(value).strip()
-            if text == "":
+            if text in ("", DEFAULT_SEVERITY):
+                # Explicitly-typed default is not an override; don't clutter prefs.
                 self._severities.pop(feed.name, None)
                 self.dataChanged.emit(index, index, [role])
                 return True

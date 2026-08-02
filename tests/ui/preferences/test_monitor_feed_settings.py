@@ -138,6 +138,35 @@ def test_interval_setdata_rejects_non_positive_and_non_numeric(fake_prefs, fake_
     assert model.setData(idx, "abc", Qt.ItemDataRole.EditRole) is False
 
 
+def test_severity_setdata_explicit_default_omits_from_saved_dict(fake_prefs, fake_registry):
+    model = ms.MonitorFeedTableModel()
+    model.refresh()
+    model.load_from_prefs()
+
+    row_a = _model_row_for(model, "feed_a")
+    idx = model.index(row_a, 3)
+
+    assert model.setData(idx, "info", Qt.ItemDataRole.EditRole) is True
+    model.save_to_prefs()
+    saved = fake_prefs.get("monitor_feed_advisor_severity")
+    assert "feed_a" not in saved
+
+
+def test_interval_setdata_explicit_default_omits_from_saved_dict(fake_prefs, fake_registry):
+    model = ms.MonitorFeedTableModel()
+    model.refresh()
+    model.load_from_prefs()
+
+    row_a = _model_row_for(model, "feed_a")
+    idx = model.index(row_a, 2)
+
+    # feed_a's default_interval_s is 15.0 (see _FakeFeed construction above)
+    assert model.setData(idx, "15", Qt.ItemDataRole.EditRole) is True
+    model.save_to_prefs()
+    saved = fake_prefs.get("monitor_feed_intervals")
+    assert "feed_a" not in saved
+
+
 def test_has_changes_flips(fake_prefs, fake_registry):
     model = ms.MonitorFeedTableModel()
     model.refresh()
