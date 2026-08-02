@@ -175,7 +175,7 @@ def list_drafts() -> list[dict]:
 
 def _validate_name(name: str) -> None:
     """Validate skill name format."""
-    if not re.match(r"^[a-z0-9][a-z0-9_-]{0,63}$", name):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name):
         raise DraftError(
             f"Invalid skill name '{name}': must match ^[a-z0-9][a-z0-9_-]{{0,63}}$"
         )

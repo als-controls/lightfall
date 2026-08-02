@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from loguru import logger
+from lightfall.utils.logging import logger
 
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 

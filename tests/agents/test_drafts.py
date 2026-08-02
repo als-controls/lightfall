@@ -48,6 +48,11 @@ def test_invalid_name_rejected(user_root, bad):
         drafts.save_draft(bad, "d", "b", author="a")
 
 
+def test_name_with_trailing_newline_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("abc\n", "d", "b", author="a")
+
+
 def test_drafts_are_inert_to_resolution(user_root):
     drafts.save_draft("sneaky", "d", "b", author="a")
     assert "sneaky" not in skills_store.resolve_skills()
