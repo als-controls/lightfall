@@ -231,6 +231,8 @@ class ClaudeAssistantWidget(QWidget):
 
         # Create the agent
         try:
+            from lightfall.agents.registry import AgentSpecRegistry
+
             self.agent = QtClaudeAgent(
                 target_window,
                 api_key,
@@ -244,6 +246,7 @@ class ClaudeAssistantWidget(QWidget):
                 effort=effort,
                 resume=resume,
                 disable_betas=disable_betas,
+                spec=AgentSpecRegistry.get_instance().get("lightfall"),
                 parent=self,
             )
         except ValueError as e:
