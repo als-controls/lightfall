@@ -10,4 +10,15 @@ def builtin_agents_dir() -> Path:
     return Path(__file__).parent / "builtin"
 
 
-__all__ = ["builtin_agents_dir"]
+def user_agents_dir() -> Path:
+    """Return (and create) the user-scope agent definitions directory.
+
+    Re-exported here for convenience; canonical definition lives in
+    ``lightfall.agents.registry``.
+    """
+    from lightfall.agents.registry import user_agents_dir as _user_agents_dir
+
+    return _user_agents_dir()
+
+
+__all__ = ["builtin_agents_dir", "user_agents_dir"]
