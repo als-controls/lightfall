@@ -95,6 +95,29 @@ class AgentSpecRegistry(QObject):
     def errors(self) -> list[tuple[Path, str]]:
         return list(self._errors)
 
+    def all_scope_files(self) -> dict[str, list[tuple[str, Path]]]:
+        """Map spec name -> [(scope, path), ...] across every registered scope dir.
+
+        Includes files that failed to parse (their `parse_agent_file` errors
+        are tolerated here and the file's stem is used as a name proxy), so
+        this reflects everything on disk, not just the winning specs -- used
+        by the editor panel to compute shadow relationships and to attribute
+        a scope to error rows.
+        """
+        by_name: dict[str, list[tuple[str, Path]]] = {}
+        for scope in _SCOPE_ORDER:
+            for directory in self._scope_dirs[scope]:
+                if not directory.is_dir():
+                    continue
+                for file_path in sorted(directory.glob("*.md")):
+                    try:
+                        spec = parse_agent_file(file_path, scope)
+                        name = spec.name
+                    except AgentSpecError:
+                        name = file_path.stem
+                    by_name.setdefault(name, []).append((scope, file_path))
+        return by_name
+
     def _read_list_pref(self, key: str) -> list[str] | None:
         """Read a list-valued preference. Returns None if unset/unreadable."""
         try:
