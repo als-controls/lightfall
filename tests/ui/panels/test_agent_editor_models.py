@@ -5,6 +5,7 @@ import pytest
 from lightfall.agents import drafts as drafts_mod
 from lightfall.agents import skills_store
 from lightfall.agents.registry import AgentSpecRegistry
+from lightfall.agents.spec import parse_agent_file
 from lightfall.ui.panels.agent_editor import models
 
 
@@ -207,3 +208,107 @@ class TestCopyAndReset:
 
         with pytest.raises(models.EditorError):
             models.reset_to_default("no-such-agent")
+
+
+class TestSerializeAgentFile:
+    def test_round_trips_through_parser(self, tmp_path):
+        content = models.serialize_agent_file(
+            name="custom",
+            description="does a thing",
+            prompt="Be helpful with {{beamline}}.",
+            model="opus",
+            effort="high",
+            tools=["device_tools"],
+            skills=["s1", "s2"],
+            memory=False,
+            subagent=False,
+            openable=True,
+            on_message="auto",
+        )
+        path = tmp_path / "custom.md"
+        path.write_text(content, encoding="utf-8")
+
+        spec = parse_agent_file(path, "user")
+
+        assert spec.name == "custom"
+        assert spec.description == "does a thing"
+        assert spec.prompt == "Be helpful with {{beamline}}."
+        assert spec.model == "opus"
+        assert spec.effort == "high"
+        assert spec.tools == ("device_tools",)
+        assert spec.skills == ("s1", "s2")
+        assert spec.memory is False
+        assert spec.subagent is False
+        assert spec.openable is True
+        assert spec.on_message == "auto"
+
+    def test_blank_optionals_are_omitted(self):
+        content = models.serialize_agent_file(
+            name="a", description="d", prompt="p", model="", effort=None
+        )
+        assert "model:" not in content
+        assert "effort:" not in content
+        assert "tools:" not in content
+
+    def test_special_characters_are_yaml_quoted(self, tmp_path):
+        content = models.serialize_agent_file(
+            name="a", description="colon: and #hash", prompt="p"
+        )
+        path = tmp_path / "a.md"
+        path.write_text(content, encoding="utf-8")
+
+        assert parse_agent_file(path, "user").description == "colon: and #hash"
+
+
+class TestSaveAgentFile:
+    def test_writes_valid_content(self, tmp_path):
+        path = tmp_path / "a.md"
+        content = models.serialize_agent_file(name="a", description="d", prompt="p")
+
+        models.save_agent_file(path, content)
+
+        assert parse_agent_file(path, "user").prompt == "p"
+        assert not list(tmp_path.glob(".*editor-tmp"))
+
+    def test_invalid_content_raises_and_leaves_original(self, tmp_path):
+        path = tmp_path / "a.md"
+        good = models.serialize_agent_file(name="a", description="d", prompt="good")
+        models.save_agent_file(path, good)
+
+        bad = models.serialize_agent_file(
+            name="a", description="d", prompt="uses {{bogus}}"
+        )
+        with pytest.raises(models.EditorError):
+            models.save_agent_file(path, bad)
+
+        assert parse_agent_file(path, "user").prompt == "good"
+        assert not list(tmp_path.glob(".*editor-tmp"))
+
+
+class TestNewAgentFile:
+    def test_creates_parseable_template(self, tmp_path, monkeypatch):
+        user_dir = tmp_path / "user"
+        user_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "lightfall.agents.registry.user_agents_dir", lambda: user_dir
+        )
+
+        dest = models.new_agent_file("my-agent")
+
+        assert dest == user_dir / "my-agent.md"
+        assert parse_agent_file(dest, "user").name == "my-agent"
+
+    def test_rejects_bad_name(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "lightfall.agents.registry.user_agents_dir", lambda: tmp_path
+        )
+        with pytest.raises(models.EditorError):
+            models.new_agent_file("bad name/../x")
+
+    def test_rejects_existing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "lightfall.agents.registry.user_agents_dir", lambda: tmp_path
+        )
+        models.new_agent_file("dup")
+        with pytest.raises(models.EditorError):
+            models.new_agent_file("dup")

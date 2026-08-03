@@ -8,13 +8,17 @@ these rows in whatever Qt view model it needs.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+
 from lightfall.agents import skills_store
 from lightfall.agents.drafts import list_drafts
+from lightfall.agents.spec import AgentSpecError, parse_agent_file
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -198,3 +202,103 @@ def reset_to_default(name: str) -> None:
         raise EditorError(f"'{name}' has no user-scope shadow to reset")
     shadow.unlink()
     logger.info("agent_editor: reset agent '{}' to default (removed user shadow)", name)
+
+
+# --- Save-side serialization -------------------------------------------------
+#
+# Kept here (not in the panel) so it can be unit tested without Qt. The panel
+# only reads widget values and hands them to serialize_agent_file().
+
+
+def serialize_agent_file(
+    *,
+    name: str,
+    description: str,
+    prompt: str,
+    model: str | None = None,
+    effort: str | None = None,
+    tools: tuple[str, ...] | list[str] = (),
+    skills: tuple[str, ...] | list[str] = (),
+    memory: bool = True,
+    subagent: bool = True,
+    openable: bool = True,
+    on_message: str = "queue",
+    forward_min_severity: str | None = None,
+) -> str:
+    """Render form values as an agent definition file (YAML frontmatter + body).
+
+    Optional scalars (model/effort/forward_min_severity) are omitted when blank
+    so a cleared combo box round-trips to "unset" rather than an empty string.
+    """
+    meta: dict[str, object] = {"name": name, "description": description}
+    if model:
+        meta["model"] = model
+    if effort:
+        meta["effort"] = effort
+    if tools:
+        meta["tools"] = list(tools)
+    if skills:
+        meta["skills"] = list(skills)
+    meta["memory"] = bool(memory)
+
+    lf: dict[str, object] = {
+        "subagent": bool(subagent),
+        "openable": bool(openable),
+        "on_message": on_message,
+    }
+    if forward_min_severity:
+        lf["forward_min_severity"] = forward_min_severity
+    meta["lightfall"] = lf
+
+    frontmatter = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).rstrip("\n")
+    return f"---\n{frontmatter}\n---\n{prompt.strip()}\n"
+
+
+def save_agent_file(path: Path, content: str, scope: str = "user") -> Path:
+    """Write `content` to `path` only after it round-trips through the parser.
+
+    The content is staged in a sibling temp file and parsed with
+    ``parse_agent_file``; only on success does it replace the real path, so a
+    malformed edit can never clobber a working agent definition.
+
+    Raises:
+        EditorError: If the serialized content fails to parse.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.editor-tmp"
+    tmp.write_text(content, encoding="utf-8")
+    try:
+        parse_agent_file(tmp, scope)
+    except AgentSpecError as e:
+        tmp.unlink(missing_ok=True)
+        raise EditorError(str(e)) from e
+    except OSError as e:  # pragma: no cover - filesystem edge
+        tmp.unlink(missing_ok=True)
+        raise EditorError(str(e)) from e
+    tmp.replace(path)
+    logger.info("agent_editor: saved agent file {}", path)
+    return path
+
+
+def new_agent_file(name: str) -> Path:
+    """Create a minimal, valid agent definition for `name` in the user scope.
+
+    Raises:
+        EditorError: If the name is empty/unsafe or the file already exists.
+    """
+    from lightfall.agents.registry import user_agents_dir
+
+    cleaned = name.strip()
+    if not cleaned or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", cleaned):
+        raise EditorError(
+            f"Invalid agent name '{name}': use letters, digits, '-' or '_' (1-64 chars)"
+        )
+    dest = user_agents_dir() / f"{cleaned}.md"
+    if dest.exists():
+        raise EditorError(f"An agent file already exists at {dest}")
+    content = serialize_agent_file(
+        name=cleaned,
+        description=f"{cleaned} agent",
+        prompt="Describe what this agent should do.",
+    )
+    return save_agent_file(dest, content)

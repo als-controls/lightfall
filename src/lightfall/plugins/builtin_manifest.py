@@ -326,6 +326,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="agent_editor",
+            import_path="lightfall.ui.panels.agent_editor.plugin:AgentEditorPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
+        ),
+        PluginEntry(
+            type_name="panel",
             name="threads",
             import_path="lightfall.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
             preload=True,
