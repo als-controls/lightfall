@@ -120,6 +120,8 @@ name on the agent bus is "{spec.name}".
 
 - `mcp__bus__list_agents` shows which peers are RUNNING right now; `mcp__bus__send_message`
   messages a running peer (delivery honors their accept policy).
+- The peer list above is a snapshot from session start; call `mcp__bus__list_agents` for the
+  live roster, including agents defined after this session began.
 - To LAUNCH a peer that isn't running, open its session tab:
   `lightfall_invoke_panel_action(panel_id="lightfall.panels.claude", action="open_agent_tab", kwargs={{"agent": "<name>", "message": "optional first message"}})`.
   Sessions are otherwise opened by the user via the panel's "+" button.
