@@ -84,6 +84,49 @@ def subagent_definitions(
     return defs
 
 
+def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry) -> str:
+    """Markdown preamble telling ``spec`` who it is and how to reach peers.
+
+    Lists every OTHER enabled spec in ``registry``, tagging each with
+    ``[openable as a session]`` and/or ``[Agent-tool delegable]`` depending
+    on its ``openable``/``subagent`` flags. Callers should treat any failure
+    here as non-fatal (see ``assemble_spec_options``).
+    """
+    peer_lines: list[str] = []
+    for peer in registry.enabled_specs():
+        if peer.name == spec.name:
+            continue
+        tags = []
+        if peer.openable:
+            tags.append("openable as a session")
+        if peer.subagent:
+            tags.append("Agent-tool delegable")
+        tag_suffix = f" [{', '.join(tags)}]" if tags else ""
+        peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
+
+    peers_section = "\n".join(peer_lines) if peer_lines else "- (no other agents are currently enabled)"
+
+    return f"""## Your identity
+
+You are **{spec.name}** — {spec.description}. You are one of several defined agents in this
+Lightfall installation, running as a session in the Claude panel's tab bar. Your
+name on the agent bus is "{spec.name}".
+
+### Peer agents defined here
+
+{peers_section}
+
+### Working with peers
+
+- `mcp__bus__list_agents` shows which peers are RUNNING right now; `mcp__bus__send_message`
+  messages a running peer (delivery honors their accept policy).
+- To LAUNCH a peer that isn't running, open its session tab:
+  `lightfall_invoke_panel_action(panel_id="lightfall.panels.claude", action="open_agent_tab", kwargs={{"agent": "<name>", "message": "optional first message"}})`.
+  Sessions are otherwise opened by the user via the panel's "+" button.
+- Peers marked Agent-tool delegable also appear as agent types in your Agent tool for
+  background subagent runs (isolated, report-back; no session tab)."""
+
+
 def assemble_spec_options(
     spec: AgentSpec,
     tool_registry: ToolRegistry,
@@ -100,6 +143,11 @@ def assemble_spec_options(
 
     variables = template_variables()
     system_prompt = resolve_template(spec.prompt, variables)
+
+    try:
+        system_prompt = identity_preamble(spec, spec_registry) + "\n\n" + system_prompt
+    except Exception as exc:  # noqa: BLE001 - preamble is best-effort, never breaks assembly
+        logger.warning("agent '{}': skipping identity preamble: {}", spec.name, exc)
 
     if spec.memory is False and spec.name == "lightfall":
         logger.warning(
@@ -119,7 +167,11 @@ def assemble_spec_options(
 
     materialize_skills(spec.skills, session_plugin_dir, variables=variables)
 
-    agents = subagent_definitions(spec, spec_registry, variables=variables)
+    try:
+        agents = subagent_definitions(spec, spec_registry, variables=variables)
+    except Exception as exc:  # noqa: BLE001 - a broken registry must not break assembly
+        logger.warning("agent '{}': skipping subagent definitions: {}", spec.name, exc)
+        agents = {}
 
     return {
         "system_prompt": system_prompt,
