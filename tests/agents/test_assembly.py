@@ -133,6 +133,9 @@ def test_identity_preamble_tags_openable_and_subagent():
     )
     assert '"+" button' in preamble
     assert "Agent tool" in preamble
+    assert "snapshot from session start" in preamble
+    assert "mcp__bus__list_agents" in preamble
+    assert "defined after this session began" in preamble
 
 
 def test_assemble_spec_options_prepends_preamble(monkeypatch, tmp_path):

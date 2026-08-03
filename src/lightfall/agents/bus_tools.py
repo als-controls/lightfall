@@ -24,6 +24,75 @@ except ImportError:  # pragma: no cover - SDK-optional / headless environments
 
 BUS_ALLOWED_TOOLS = ["mcp__bus__send_message", "mcp__bus__list_agents"]
 
+LIST_AGENTS_NOTE = (
+    "Agents marked subagent_eligible appear in your Agent tool only from session "
+    "start; delegating to a newly created one requires a session restart. Launch "
+    "non-running openable agents via the open_agent_tab panel action."
+)
+
+
+def _base_name(registered_name: str) -> str:
+    """Strip a bus-collision suffix like '#2' from a registered endpoint name."""
+    return registered_name.split("#", 1)[0]
+
+
+def agent_roster() -> list[dict]:
+    """Merge defined agent specs (registry) with running endpoints (bus).
+
+    Runs on the GUI thread (see the ``run_on_main_thread`` hop in
+    ``list_agents`` below). For every enabled spec, reports whether a
+    matching endpoint (exact name, or a suffixed collision variant like
+    "name#2") is currently registered on the bus. Any bus-registered
+    endpoint with no corresponding spec (legacy/suffixed-only entries) is
+    appended with scope "runtime".
+
+    If the registry cannot be enumerated, falls back to the plain bus list
+    (running agents only) and logs a warning -- this must never raise.
+    """
+    from lightfall.agents.bus import AgentBus
+
+    running_agents = AgentBus.get_instance().list_agents()
+    running_names = [a["name"] for a in running_agents]
+    running_bases = {_base_name(name) for name in running_names}
+    running_descriptions = {a["name"]: a["description"] for a in running_agents}
+
+    try:
+        from lightfall.agents.registry import AgentSpecRegistry
+
+        specs = AgentSpecRegistry.get_instance().enabled_specs()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agent_roster: registry enumeration failed, falling back to bus list: {}", exc)
+        return list(AgentBus.get_instance().list_agents())
+
+    spec_names = {spec.name for spec in specs}
+    roster: list[dict] = []
+    for spec in specs:
+        roster.append(
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "scope": spec.scope,
+                "running": spec.name in running_bases,
+                "openable": spec.openable,
+                "subagent_eligible": spec.subagent,
+            }
+        )
+
+    for name in running_names:
+        if name not in spec_names:
+            roster.append(
+                {
+                    "name": name,
+                    "description": running_descriptions.get(name, ""),
+                    "scope": "runtime",
+                    "running": True,
+                    "openable": False,
+                    "subagent_eligible": False,
+                }
+            )
+
+    return roster
+
 
 def _make_tools(sender_name: Callable[[], str]):
     """Build the ``send_message`` / ``list_agents`` ``@tool`` callables.
@@ -77,10 +146,8 @@ def _make_tools(sender_name: Callable[[], str]):
     )
     async def list_agents(args: dict) -> dict[str, Any]:
         try:
-            from lightfall.agents.bus import AgentBus
-
-            roster = run_on_main_thread(AgentBus.get_instance().list_agents)
-            return mcp_result(roster)
+            roster = run_on_main_thread(agent_roster)
+            return mcp_result({"agents": roster, "note": LIST_AGENTS_NOTE})
         except Exception as exc:  # noqa: BLE001
             logger.exception("bus_tools.list_agents failed")
             return mcp_error(f"list_agents error: {exc}")
@@ -106,4 +173,10 @@ def create_bus_tools_server(sender_name: Callable[[], str]):
     )
 
 
-__all__ = ["create_bus_tools_server", "_make_tools", "BUS_ALLOWED_TOOLS"]
+__all__ = [
+    "create_bus_tools_server",
+    "_make_tools",
+    "BUS_ALLOWED_TOOLS",
+    "agent_roster",
+    "LIST_AGENTS_NOTE",
+]
