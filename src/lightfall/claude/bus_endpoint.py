@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 
 from lightfall.utils.logging import logger
 
@@ -42,6 +42,9 @@ class ClaudeSessionEndpoint(QObject):
     - policy "auto": deliver immediately if idle, else queue for later flush.
     - policy "queue": always queue and notify via ``on_queued``.
     """
+
+    message_queued = Signal(str, str)
+    message_auto_accepted = Signal(str, str)
 
     def __init__(
         self,
@@ -79,18 +82,44 @@ class ClaudeSessionEndpoint(QObject):
     def pending(self) -> list[tuple[str, str]]:
         return list(self._pending)
 
+    def accept(self, index: int) -> bool:
+        """Submit pending[index] via the submit callable.
+
+        On True (submission accepted), remove from pending and return True.
+        On False (submission refused), leave in place and return False.
+        """
+        if index < 0 or index >= len(self._pending):
+            return False
+        sender, message = self._pending[index]
+        if self._submit(format_bus_prompt(sender, message)):
+            self._pending.pop(index)
+            return True
+        return False
+
+    def dismiss(self, index: int) -> tuple[str, str] | None:
+        """Remove and return pending[index] without submitting.
+
+        Returns None if out of range.
+        """
+        if index < 0 or index >= len(self._pending):
+            return None
+        return self._pending.pop(index)
+
     def deliver(self, sender: str, message: str) -> str:
         """Deliver (or queue) a message per the current policy."""
         if self._policy == "auto" and not self._is_busy():
             if self._submit(format_bus_prompt(sender, message)):
+                self.message_auto_accepted.emit(sender, message)
                 return "delivered"
             # submit refused (e.g. a race where the widget became busy between
             # the is_busy() check and the submit call) -- queue instead of
             # silently dropping the message.
             self._pending.append((sender, message))
+            self.message_queued.emit(sender, message)
             return "queued"
 
         self._pending.append((sender, message))
+        self.message_queued.emit(sender, message)
         if self._policy == "queue":
             self._on_queued(sender, message)
         return "queued"
@@ -113,5 +142,6 @@ class ClaudeSessionEndpoint(QObject):
             if not ok:
                 self._pending = pending[i:] + self._pending
                 break
+            self.message_auto_accepted.emit(sender, message)
             submitted += 1
         return submitted
