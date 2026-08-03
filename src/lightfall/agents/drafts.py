@@ -186,6 +186,11 @@ def approve_draft(name: str) -> Path:
 
     Returns the path to the now-active ``SKILL.md``.
 
+    Not atomic: if the draft directory removal fails after promotion/shadow
+    content is written, the draft dir may remain as an orphan. This is a
+    harmless leftover -- re-approving or re-drafting under the same name is
+    safe.
+
     Raises:
         DraftError: If no draft with `name` exists.
     """
@@ -207,7 +212,12 @@ def approve_draft(name: str) -> Path:
             target_skill_md = active_path / "SKILL.md"
         else:
             shadow_dir = user_dir / name
-            shadow_dir.mkdir(parents=True, exist_ok=True)
+            if active_path is not None:
+                # Carry the shipped skill's full asset set (references/, etc.)
+                # into the shadow so whole-dir resolution doesn't strand them.
+                shutil.copytree(active_path, shadow_dir, dirs_exist_ok=True)
+            else:
+                shadow_dir.mkdir(parents=True, exist_ok=True)
             target_skill_md = shadow_dir / "SKILL.md"
 
         target_skill_md.write_text(

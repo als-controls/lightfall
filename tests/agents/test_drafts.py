@@ -130,14 +130,23 @@ def test_approve_revision_of_builtin_scope_skill_creates_user_shadow(tmp_path, m
     builtin_file.write_text(
         "---\nname: builtin-skill\ndescription: d\n---\nbuiltin body", encoding="utf-8"
     )
+    references_dir = builtin_skill / "references"
+    references_dir.mkdir()
+    reference_file = references_dir / "r.md"
+    reference_file.write_text("reference content", encoding="utf-8")
 
     drafts.save_draft("builtin-skill", "improved", "shadow body", author="lightfall")
     result = drafts.approve_draft("builtin-skill")
 
     assert result == user_root / "builtin-skill" / "SKILL.md"
     assert "shadow body" in result.read_text(encoding="utf-8")
-    # Builtin file must remain untouched.
+    # Sibling assets (e.g. references/) must be carried into the shadow.
+    shadow_reference = user_root / "builtin-skill" / "references" / "r.md"
+    assert shadow_reference.exists()
+    assert "reference content" in shadow_reference.read_text(encoding="utf-8")
+    # Builtin file and its assets must remain untouched.
     assert "builtin body" in builtin_file.read_text(encoding="utf-8")
+    assert "reference content" in reference_file.read_text(encoding="utf-8")
     assert not (drafts.drafts_dir() / "builtin-skill").exists()
 
 
