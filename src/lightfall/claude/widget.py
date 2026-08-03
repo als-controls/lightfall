@@ -190,6 +190,7 @@ class ClaudeAssistantWidget(QWidget):
         effort: str | None = None,
         resume: str | None = None,
         disable_betas: bool = False,
+        spec=None,
         parent: QWidget | None = None
     ):
         """
@@ -235,9 +236,13 @@ class ClaudeAssistantWidget(QWidget):
 
         # Create the agent
         try:
-            from lightfall.agents.registry import AgentSpecRegistry
+            # ``spec`` selects which agent definition this session runs. The
+            # tabbed panel passes one per tab; callers that don't (legacy /
+            # tests) get the main "lightfall" agent as before.
+            if spec is None:
+                from lightfall.agents.registry import AgentSpecRegistry
 
-            spec = AgentSpecRegistry.get_instance().get("lightfall")
+                spec = AgentSpecRegistry.get_instance().get("lightfall")
 
             self.agent = QtClaudeAgent(
                 target_window,

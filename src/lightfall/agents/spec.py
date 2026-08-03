@@ -13,7 +13,7 @@ from lightfall.utils.logging import logger
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 _TEMPLATE_RE = re.compile(r"\{\{(\w+)\}\}")
 _KNOWN_TOP = {"name", "description", "model", "effort", "tools", "skills", "memory", "lightfall"}
-_KNOWN_LF = {"subagent", "on_message", "forward_min_severity"}
+_KNOWN_LF = {"subagent", "openable", "on_message", "forward_min_severity"}
 _ON_MESSAGE_VALUES = {"auto", "queue"}
 _SEVERITIES = {"info", "warn", "critical"}
 KNOWN_TEMPLATE_VARIABLES = frozenset({"beamline", "user", "endstation"})
@@ -38,6 +38,7 @@ class AgentSpec:
     effort: str | None = None
     memory: bool = True
     subagent: bool = True
+    openable: bool = True
     on_message: str = "queue"
     forward_min_severity: str | None = None
 
@@ -106,6 +107,7 @@ def parse_agent_file(path: Path, scope: str) -> AgentSpec:
         effort=meta.get("effort"),
         memory=bool(meta.get("memory", True)),
         subagent=bool(lf.get("subagent", True)),
+        openable=bool(lf.get("openable", True)),
         on_message=on_message,
         forward_min_severity=fwd,
     )

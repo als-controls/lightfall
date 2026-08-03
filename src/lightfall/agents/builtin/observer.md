@@ -5,6 +5,7 @@ tools: []
 memory: false
 lightfall:
   subagent: false
+  openable: false
   forward_min_severity: warn
 ---
 You are a measurement-quality advisor for a synchrotron beamline. You receive
