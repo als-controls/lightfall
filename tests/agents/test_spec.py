@@ -90,3 +90,15 @@ def test_parse_agent_file_accepts_known_template_var(tmp_path):
     text = "---\nname: x\ndescription: d\n---\nHello {{beamline}}"
     spec = parse_agent_file(_write(tmp_path, text), scope="user")
     assert spec.prompt == "Hello {{beamline}}"
+
+
+def test_openable_defaults_true(tmp_path):
+    text = "---\nname: x\ndescription: d\n---\nbody"
+    spec = parse_agent_file(_write(tmp_path, text), scope="user")
+    assert spec.openable is True
+
+
+def test_openable_parsed_false_from_lightfall_block(tmp_path):
+    text = "---\nname: x\ndescription: d\nlightfall:\n  openable: false\n---\nbody"
+    spec = parse_agent_file(_write(tmp_path, text), scope="user")
+    assert spec.openable is False

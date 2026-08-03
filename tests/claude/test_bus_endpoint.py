@@ -110,3 +110,42 @@ def test_wiring_auto_busy_then_completion_flush():
     if ep.policy == "auto":
         ep.flush_pending()
     assert submitted == [format_bus_prompt("observer", "beam soft")]
+
+
+def test_message_queued_signal_emitted(qtbot):
+    ep, submitted, _ = _make(policy="queue")
+    with qtbot.waitSignal(ep.message_queued, timeout=1000) as blocker:
+        ep.deliver("observer", "hi")
+    assert blocker.args == ["observer", "hi"]
+
+
+def test_accept_single_message():
+    ep, submitted, _ = _make(policy="queue")
+    ep.deliver("a", "1")
+    ep.deliver("b", "2")
+    assert ep.accept(0) is True
+    assert len(submitted) == 1 and "1" in submitted[0]
+    assert ep.pending() == [("b", "2")]
+
+
+def test_accept_refused_submit_keeps_message():
+    ep, submitted, _ = _make(policy="queue")
+    ep._submit = lambda text: False
+    ep.deliver("a", "1")
+    assert ep.accept(0) is False
+    assert ep.pending() == [("a", "1")]
+
+
+def test_dismiss_removes_without_submit():
+    ep, submitted, _ = _make(policy="queue")
+    ep.deliver("a", "1")
+    assert ep.dismiss(0) == ("a", "1")
+    assert ep.pending() == [] and submitted == []
+    assert ep.dismiss(5) is None
+
+
+def test_auto_accept_signal(qtbot):
+    ep, submitted, _ = _make(policy="auto")
+    with qtbot.waitSignal(ep.message_auto_accepted, timeout=1000) as blocker:
+        ep.deliver("observer", "x")
+    assert blocker.args == ["observer", "x"]
