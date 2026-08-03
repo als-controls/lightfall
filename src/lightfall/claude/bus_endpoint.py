@@ -113,6 +113,26 @@ class BusCardModel:
     def pending_count(self) -> int:
         return sum(1 for e in self._entries if e.state == "pending")
 
+    def rebuild_from_pending(self, pending: list[tuple[str, str]]) -> list[BusCardEntry]:
+        """Discard all tracked entries (auto/dismissed transcript history and
+        any stale pending ones) and re-seed the model from the endpoint's
+        current ``_pending`` list, in order.
+
+        Used on conversation reset: the chat transcript is cleared, but
+        messages still queued in the endpoint were never delivered and must
+        stay actionable, so they get fresh "pending" entries whose order
+        matches the endpoint's list (preserving ``pending_index_of`` /
+        ``entry_for_pending_index`` semantics for accept/dismiss).
+
+        Returns the newly created entries, in the same order as ``pending``.
+        """
+        self._entries = []
+        new_entries = []
+        for sender, message in pending:
+            entry = self.add_pending(sender, message)
+            new_entries.append(entry)
+        return new_entries
+
 
 class ClaudeSessionEndpoint(QObject):
     """Bus endpoint for a Claude session, applying an auto/queue delivery policy.

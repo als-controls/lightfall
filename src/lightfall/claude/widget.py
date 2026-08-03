@@ -485,9 +485,22 @@ class ClaudeAssistantWidget(QWidget):
         self._task_tool_use_ids.clear()
         self._permission_container.hide()
         # Bus-message cards are children of the chat layout too (already
-        # deleted above) -- just drop the tracking. Endpoint-side pending
-        # messages are unaffected by a conversation reset.
+        # deleted above) -- drop the tracking, then re-render a fresh card
+        # for every message still queued in the endpoint. Those messages
+        # were never delivered, so they must stay actionable even though
+        # the old transcript (and any auto/dismissed historical cards) is
+        # gone. Rebuild the model from the endpoint's current pending list
+        # so indices line up for later accept(index)/dismiss(index) calls.
         self._bus_card_widgets.clear()
+        pending_entries = self._bus_card_model.rebuild_from_pending(
+            self.bus_endpoint.pending()
+        )
+        for entry in pending_entries:
+            frame = self._append_bus_message_card(
+                entry.sender, entry.message, auto=False, entry=entry
+            )
+            self._bus_card_widgets[id(entry)] = frame
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
         # Reset busy state
         self._set_busy_state(False)

@@ -7,7 +7,7 @@ without a QApplication.
 from __future__ import annotations
 
 import lightfall.claude.bus_endpoint as bus_endpoint_module
-from lightfall.claude.bus_endpoint import BusCardModel
+from lightfall.claude.bus_endpoint import BusCardModel, ClaudeSessionEndpoint
 
 
 def test_bus_banner_text_fully_removed():
@@ -110,3 +110,61 @@ def test_take_pending_no_match_returns_none():
     model = BusCardModel()
     model.add_pending("a", "1")
     assert model.take_pending("b", "2") is None
+
+
+def test_rebuild_from_pending_drops_auto_and_dismissed_history():
+    """Conversation reset: the model should be re-seeded from whatever is
+    still queued in the endpoint, discarding auto/dismissed transcript
+    history from the old conversation entirely."""
+    model = BusCardModel()
+    model.add_auto("x", "old auto message")
+    stale_pending = model.add_pending("y", "old pending")
+    model.mark_dismissed(stale_pending)
+
+    new_entries = model.rebuild_from_pending(
+        [("observer", "beam soft"), ("watchdog", "check temp")]
+    )
+
+    assert len(model.entries) == 2
+    assert model.pending_count() == 2
+    assert [e.sender for e in model.entries] == ["observer", "watchdog"]
+    assert all(e.state == "pending" for e in model.entries)
+    assert new_entries == model.entries
+
+
+def test_rebuild_from_pending_empty_clears_model():
+    model = BusCardModel()
+    model.add_pending("a", "1")
+    model.add_auto("b", "2")
+    result = model.rebuild_from_pending([])
+    assert result == []
+    assert model.entries == []
+    assert model.pending_count() == 0
+
+
+def test_rebuild_from_pending_preserves_endpoint_accept_index():
+    """After a reset re-render, the model's pending indices must still line
+    up with ClaudeSessionEndpoint._pending so accept(0)/dismiss(0) route to
+    the right message."""
+    submitted = []
+    endpoint = ClaudeSessionEndpoint(
+        "test-agent",
+        "desc",
+        submit=lambda prompt: submitted.append(prompt) or True,
+        is_busy=lambda: False,
+        on_queued=lambda sender, message: None,
+        policy="queue",
+    )
+    endpoint.deliver("observer", "beam soft")
+    endpoint.deliver("watchdog", "check temp")
+
+    model = BusCardModel()
+    entries = model.rebuild_from_pending(endpoint.pending())
+    assert model.pending_index_of(entries[0]) == 0
+    assert model.pending_index_of(entries[1]) == 1
+
+    assert endpoint.accept(0) is True
+    assert submitted == [
+        "[Message from agent 'observer']\nbeam soft",
+    ]
+    assert endpoint.pending() == [("watchdog", "check temp")]
