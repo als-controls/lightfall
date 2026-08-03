@@ -219,8 +219,6 @@ class ClaudePanel(BasePanel):
         self._claude_widget = None
         self._agent = None
         self._error_message: str | None = None
-        self._error_label: QLabel | None = None
-        self._loading_label: QLabel | None = None
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
@@ -260,7 +258,7 @@ class ClaudePanel(BasePanel):
         # counts so the badge survives tab switches.
         self._tabs: QTabWidget | None = None
         self._lightfall_tab: AgentSessionTab | None = None
-        self._tab_pending: dict[int, int] = {}  # id(tab) -> pending count
+        self._tab_pending: dict[AgentSessionTab, int] = {}  # tab -> pending count
 
         super().__init__(parent)
 
@@ -393,11 +391,12 @@ class ClaudePanel(BasePanel):
     def _on_tab_close_requested(self, index: int) -> None:
         tab = self._tabs.widget(index)
         # Defense in depth: the lightfall tab has no close button, but never
-        # honor a close request for it (index 0 or the tab itself).
-        if index == 0 or tab is self._lightfall_tab:
+        # honor a close request for it. Guard on identity, not position --
+        # tabs are movable, so index 0 may hold any session.
+        if tab is self._lightfall_tab:
             return
         tab.close_session()
-        self._tab_pending.pop(id(tab), None)
+        self._tab_pending.pop(tab, None)
         self._tabs.removeTab(index)
         tab.deleteLater()
 
@@ -408,7 +407,7 @@ class ClaudePanel(BasePanel):
         tab = self._tabs.widget(index)
         if tab is None:
             return
-        self._tab_pending[id(tab)] = 0
+        self._tab_pending[tab] = 0
         self._refresh_tab_text(tab)
 
     def _on_tab_pending_changed(self, tab: AgentSessionTab, count: int) -> None:
@@ -416,7 +415,7 @@ class ClaudePanel(BasePanel):
         the user is already looking at that tab."""
         if self._tabs.currentWidget() is tab:
             count = 0
-        self._tab_pending[id(tab)] = count
+        self._tab_pending[tab] = count
         self._refresh_tab_text(tab)
 
     def _refresh_tab_text(self, tab: AgentSessionTab) -> None:
@@ -428,7 +427,7 @@ class ClaudePanel(BasePanel):
         index = self._tabs.indexOf(tab)
         if index < 0:
             return
-        count = self._tab_pending.get(id(tab), 0)
+        count = self._tab_pending.get(tab, 0)
         text = f"{tab.agent_name} ({count})" if count > 0 else tab.agent_name
         self._tabs.setTabText(index, text)
 
@@ -492,7 +491,6 @@ class ClaudePanel(BasePanel):
         )
 
         # Remove loading UI and initialize every open session
-        self._loading_label = None
         for tab in self._session_tabs():
             tab.clear_loading()
             if not tab.is_agent_ready:
@@ -1098,16 +1096,33 @@ class ClaudePanel(BasePanel):
         Returns:
             True if message was sent.
         """
-        if self._claude_widget is None:
+        # Programmatic sends (logbook "send to Claude", skill triggers) go to
+        # the main assistant, so bring its tab to the front -- otherwise the
+        # message lands in a session the user isn't looking at.
+        widget = self._focus_lightfall_session()
+        if widget is None:
             return False
 
         # Set the input field text and trigger send
-        if hasattr(self._claude_widget, 'input_field'):
-            self._claude_widget.input_field.setText(message)
-            self._claude_widget._send_query()
+        if hasattr(widget, 'input_field'):
+            widget.input_field.setText(message)
+            widget._send_query()
             return True
 
         return False
+
+    def _focus_lightfall_session(self):
+        """Activate the lightfall tab and return its session widget (or None).
+
+        Falls back to the mirrored ``_claude_widget`` when there is no tab
+        surface (e.g. a test harness that stubbed ``_setup_ui``).
+        """
+        tab = self._lightfall_tab
+        if tab is None:
+            return self._claude_widget
+        if self._tabs is not None:
+            self._tabs.setCurrentWidget(tab)
+        return tab.claude_widget
 
     def submit_external_prompt(self, text: str) -> bool:
         """Raise the Claude panel and submit a programmatic user prompt to
@@ -1119,12 +1134,7 @@ class ClaudePanel(BasePanel):
         win = self._get_main_window()
         if win is not None:
             win.activate_panel(self.panel_metadata.id)
-        widget = self._claude_widget
-        tab = self._lightfall_tab
-        if tab is not None:
-            if self._tabs is not None:
-                self._tabs.setCurrentWidget(tab)
-            widget = tab.claude_widget
+        widget = self._focus_lightfall_session()
         if widget is None:
             return False
         widget.input_field.setText(text)
@@ -1171,7 +1181,7 @@ class ClaudePanel(BasePanel):
                     "agent": tab.agent_name,
                     "ready": tab.is_agent_ready,
                     "busy": tab.is_busy(),
-                    "pending_messages": self._tab_pending.get(id(tab), 0),
+                    "pending_messages": self._tab_pending.get(tab, 0),
                     "current": tab is current,
                     "error": tab.error_message,
                 }

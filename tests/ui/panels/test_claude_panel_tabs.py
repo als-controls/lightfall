@@ -66,6 +66,23 @@ def test_open_agent_tab_is_singleton_and_closeable(panel):
     assert [t.agent_name for t in panel._session_tabs()] == ["lightfall"]
 
 
+def test_close_guard_follows_the_tab_not_the_index(panel):
+    # Tabs are movable: after a drag, index 0 may hold an ordinary session and
+    # the lightfall tab may sit anywhere. The guard must key on identity.
+    panel._open_agent_tab(_spec("saxs"))
+    panel._tabs.tabBar().moveTab(0, 1)  # saxs -> index 0, lightfall -> index 1
+    assert panel._tabs.widget(0).agent_name == "saxs"
+    assert panel._tabs.indexOf(panel._lightfall_tab) == 1
+
+    # lightfall at a nonzero index still cannot be closed...
+    panel._on_tab_close_requested(1)
+    assert panel._tabs.count() == 2
+
+    # ...and the ordinary tab at index 0 can.
+    panel._on_tab_close_requested(0)
+    assert [t.agent_name for t in panel._session_tabs()] == ["lightfall"]
+
+
 def test_pending_badge_only_on_unfocused_tab(panel):
     panel._open_agent_tab(_spec("saxs"))
     saxs = panel._find_tab("saxs")
@@ -84,7 +101,7 @@ def test_pending_badge_only_on_unfocused_tab(panel):
     assert panel._tabs.tabText(panel._tabs.indexOf(saxs)) == "saxs"
 
 
-def test_submit_external_prompt_targets_lightfall_tab(panel, monkeypatch):
+def test_programmatic_sends_target_lightfall_tab(panel, monkeypatch):
     class _Widget(QWidget):
         def __init__(self):
             super().__init__()
@@ -104,6 +121,15 @@ def test_submit_external_prompt_targets_lightfall_tab(panel, monkeypatch):
     assert widget.sent is True
     assert widget.input_field.text == "hello"
     # ... and the lightfall tab was brought to the front.
+    assert panel._tabs.currentWidget() is panel._lightfall_tab
+
+    # action_send_message (logbook "send to Claude", skill triggers) routes the
+    # same way -- it must not dispatch invisibly from another tab.
+    widget.sent = False
+    panel._tabs.setCurrentWidget(panel._find_tab("saxs"))
+    assert panel.action_send_message("from logbook") is True
+    assert widget.sent is True
+    assert widget.input_field.text == "from logbook"
     assert panel._tabs.currentWidget() is panel._lightfall_tab
 
 
