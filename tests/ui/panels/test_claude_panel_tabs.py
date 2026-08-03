@@ -105,7 +105,9 @@ def test_programmatic_sends_target_lightfall_tab(panel, monkeypatch):
     class _Widget(QWidget):
         def __init__(self):
             super().__init__()
-            self.input_field = type("F", (), {"setText": lambda s, t: setattr(s, "text", t)})()
+            # Real input_field is a QPlainTextEdit: setPlainText, NOT setText.
+            self.input_field = type(
+                "F", (), {"setPlainText": lambda s, t: setattr(s, "text", t)})()
             self.sent = False
 
         def _send_query(self):
@@ -140,3 +142,64 @@ def test_introspection_reports_open_tabs(panel):
     assert set(tabs) == {"lightfall", "saxs"}
     assert tabs["saxs"]["busy"] is False
     assert tabs["saxs"]["current"] is True
+
+
+def _prime_registry(monkeypatch, specs):
+    from lightfall.agents.registry import AgentSpecRegistry
+    reg = AgentSpecRegistry.get_instance()
+    by_name = {s.name: s for s in specs}
+    monkeypatch.setattr(reg, "get", lambda name: by_name.get(name))
+    monkeypatch.setattr(reg, "enabled_specs", lambda: list(specs))
+    return reg
+
+
+def test_action_open_agent_tab_unknown_agent(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel.action_open_agent_tab("nope")
+    assert result["success"] is False
+    assert "saxs" in result["error"]
+
+
+def test_action_open_agent_tab_not_openable(panel, monkeypatch):
+    from dataclasses import replace
+    observer = replace(_spec("observer"), openable=False)
+    _prime_registry(monkeypatch, [_spec("lightfall"), observer])
+    result = panel.action_open_agent_tab("observer")
+    assert result["success"] is False
+    assert "openable" in result["error"]
+
+
+def test_action_open_agent_tab_opens_then_focuses(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel.action_open_agent_tab("saxs")
+    assert result == {"success": True, "agent": "saxs",
+                      "focused_existing": False, "message_queued": False}
+    assert panel._tabs.currentWidget() is panel._find_tab("saxs")
+
+    panel._tabs.setCurrentWidget(panel._lightfall_tab)
+    result = panel.action_open_agent_tab("saxs")
+    assert result["focused_existing"] is True
+    assert panel._tabs.count() == 2  # no duplicate
+    assert panel._tabs.currentWidget() is panel._find_tab("saxs")
+
+
+def test_action_open_agent_tab_message_delivered_on_widget_created(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel.action_open_agent_tab("saxs", message="start the fit")
+    assert result["message_queued"] is True
+
+    tab = panel._find_tab("saxs")
+    fake = type("W", (), {})()
+    fake.input_field = type(
+        "F", (), {"setPlainText": lambda s, t: setattr(s, "text", t)})()
+    fake.sent = False
+    fake._send_query = lambda f=fake: setattr(f, "sent", True)
+
+    tab.widget_created.emit(fake)
+    assert fake.sent is True
+    assert fake.input_field.text == "start the fit"
+
+    # One-shot: a second emission must not resend.
+    fake.sent = False
+    tab.widget_created.emit(fake)
+    assert fake.sent is False

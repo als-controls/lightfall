@@ -1083,6 +1083,13 @@ class ClaudePanel(BasePanel):
                     "description": "Clear the chat history display",
                     "method": "action_clear_chat",
                 },
+                {
+                    "name": "open_agent_tab",
+                    "description": "Open (or focus) a session tab for a named agent; "
+                                   "optionally send it a message once the session is ready",
+                    "method": "action_open_agent_tab",
+                    "parameters": {"agent": "string", "message": "string (optional)"},
+                },
             ])
 
         return actions
@@ -1105,11 +1112,63 @@ class ClaudePanel(BasePanel):
 
         # Set the input field text and trigger send
         if hasattr(widget, 'input_field'):
-            widget.input_field.setText(message)
+            widget.input_field.setPlainText(message)
             widget._send_query()
             return True
 
         return False
+
+    def action_open_agent_tab(self, agent: str, message: str | None = None) -> dict[str, Any]:
+        """Open (or focus) a tab for ``agent``; optionally queue a first message.
+
+        Reuses the same code path as the new-tab picker (``_open_agent_tab``),
+        so session assembly, singleton-per-agent focus behavior, and bus
+        registration are identical to a UI-initiated open.
+        """
+        from lightfall.agents.registry import AgentSpecRegistry
+
+        registry = AgentSpecRegistry.get_instance()
+        spec = registry.get(agent)
+        if spec is None:
+            available = sorted(
+                s.name for s in registry.enabled_specs() if s.openable)
+            return {"success": False,
+                    "error": f"unknown agent '{agent}'; available: {available}"}
+        if agent not in {s.name for s in registry.enabled_specs()}:
+            return {"success": False,
+                    "error": f"agent '{agent}' is disabled in settings"}
+        if not spec.openable:
+            return {"success": False,
+                    "error": f"agent '{agent}' is not openable as a session "
+                             f"(lightfall.openable: false)"}
+        if self._tabs is None:
+            return {"success": False, "error": "tab surface not available"}
+
+        focused_existing = self._find_tab(agent) is not None
+        self._open_agent_tab(spec)  # focuses existing or creates + activates
+        if message:
+            self._deliver_when_ready(self._find_tab(agent), message)
+        return {"success": True, "agent": agent,
+                "focused_existing": focused_existing,
+                "message_queued": bool(message)}
+
+    def _deliver_when_ready(self, tab, message: str) -> None:
+        """Submit ``message`` to ``tab`` now, or once its session widget exists."""
+        widget = tab.claude_widget
+        if widget is not None:
+            widget.input_field.setPlainText(message)
+            widget._send_query()
+            return
+
+        def _once(w, _text=message):
+            try:
+                tab.widget_created.disconnect(_once)
+            except (RuntimeError, TypeError):
+                pass
+            w.input_field.setPlainText(_text)
+            w._send_query()
+
+        tab.widget_created.connect(_once)
 
     def _focus_lightfall_session(self):
         """Activate the lightfall tab and return its session widget (or None).
@@ -1137,7 +1196,7 @@ class ClaudePanel(BasePanel):
         widget = self._focus_lightfall_session()
         if widget is None:
             return False
-        widget.input_field.setText(text)
+        widget.input_field.setPlainText(text)
         widget._send_query()  # auto-connects via agent.query_sync
         return True
 
