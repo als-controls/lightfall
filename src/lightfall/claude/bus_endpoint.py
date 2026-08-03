@@ -6,6 +6,7 @@ widget/panel layer, and driven by unit tests via plain injected callables.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 from PySide6.QtCore import QObject, Signal
@@ -20,20 +21,97 @@ def format_bus_prompt(sender: str, message: str) -> str:
     return f"[Message from agent '{sender}']\n{message}"
 
 
-def bus_banner_text(pending: list[tuple[str, str]]) -> str | None:
-    """Return the banner text for a list of pending bus messages, or None
-    if the banner should be hidden (nothing pending).
+@dataclass
+class BusCardEntry:
+    """One inline agent-message card's state.
 
-    Pure helper shared by the "queue" delivery-policy notification path and
-    the post-flush/post-completion residue check, so the visibility decision
-    stays testable without constructing any Qt widgets.
+    ``state`` is one of "pending" (awaiting Accept/Dismiss), "auto"
+    (auto-accepted, shown for visibility only), or "dismissed" (greyed out,
+    kept in the model so the card stays visible but inert).
     """
-    if not pending:
+
+    sender: str
+    message: str
+    state: str = "pending"
+
+
+class BusCardModel:
+    """Widget-free bookkeeping for the inline bus-message cards.
+
+    Mirrors (but does not own) ``ClaudeSessionEndpoint``'s ``_pending`` list:
+    pending entries are added in the same order the endpoint queues them, so
+    ``pending_index_of`` / ``entry_for_pending_index`` track the endpoint's
+    ``accept(index)`` / ``dismiss(index)`` indices without storing raw ints
+    that would go stale as the endpoint's list mutates.
+    """
+
+    def __init__(self) -> None:
+        self._entries: list[BusCardEntry] = []
+
+    @property
+    def entries(self) -> list[BusCardEntry]:
+        return list(self._entries)
+
+    def add_pending(self, sender: str, message: str) -> BusCardEntry:
+        entry = BusCardEntry(sender, message, "pending")
+        self._entries.append(entry)
+        return entry
+
+    def add_auto(self, sender: str, message: str) -> BusCardEntry:
+        entry = BusCardEntry(sender, message, "auto")
+        self._entries.append(entry)
+        return entry
+
+    def mark_dismissed(self, entry: BusCardEntry) -> None:
+        entry.state = "dismissed"
+
+    def remove(self, entry: BusCardEntry) -> None:
+        """Delete an entry entirely (used after a successful Accept)."""
+        try:
+            self._entries.remove(entry)
+        except ValueError:
+            pass
+
+    def take_pending(self, sender: str, message: str) -> BusCardEntry | None:
+        """Find and remove the first pending entry matching sender/message.
+
+        FIFO match, mirroring ``ClaudeSessionEndpoint._pending`` order. Used
+        when an "auto" policy flush resolves a message that was already
+        showing as a pending card (queued while busy, then auto-submitted
+        once the query completed) so the stale pending card can be replaced
+        by an auto-accepted one instead of leaving two cards for one message.
+        """
+        for e in self._entries:
+            if e.state == "pending" and e.sender == sender and e.message == message:
+                self._entries.remove(e)
+                return e
         return None
-    if len(pending) == 1:
-        sender = pending[0][0]
-        return f"1 message from {sender}"
-    return f"{len(pending)} pending agent messages"
+
+    def pending_index_of(self, entry: BusCardEntry) -> int | None:
+        """Return entry's position among currently-pending entries (add
+        order), i.e. the index ``ClaudeSessionEndpoint.accept``/``dismiss``
+        expects. None if the entry isn't pending or isn't in the model."""
+        if entry.state != "pending":
+            return None
+        index = 0
+        for e in self._entries:
+            if e is entry:
+                return index
+            if e.state == "pending":
+                index += 1
+        return None
+
+    def entry_for_pending_index(self, index: int) -> BusCardEntry | None:
+        i = 0
+        for e in self._entries:
+            if e.state == "pending":
+                if i == index:
+                    return e
+                i += 1
+        return None
+
+    def pending_count(self) -> int:
+        return sum(1 for e in self._entries if e.state == "pending")
 
 
 class ClaudeSessionEndpoint(QObject):
