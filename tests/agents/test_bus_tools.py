@@ -109,4 +109,13 @@ def test_agent_roster_falls_back_when_registry_fails(bus, registry, monkeypatch)
     bus.register("a", FakeEndpoint("a"))
 
     roster = bus_tools.agent_roster()
-    assert roster == [{"name": "a", "description": "d-a", "busy": False}]
+    assert roster == [
+        {
+            "name": "a",
+            "description": "d-a",
+            "scope": "runtime",
+            "running": True,
+            "openable": False,
+            "subagent_eligible": False,
+        }
+    ]

@@ -62,7 +62,17 @@ def agent_roster() -> list[dict]:
         specs = AgentSpecRegistry.get_instance().enabled_specs()
     except Exception as exc:  # noqa: BLE001
         logger.warning("agent_roster: registry enumeration failed, falling back to bus list: {}", exc)
-        return list(AgentBus.get_instance().list_agents())
+        return [
+            {
+                "name": a["name"],
+                "description": a["description"],
+                "scope": "runtime",
+                "running": True,
+                "openable": False,
+                "subagent_eligible": False,
+            }
+            for a in running_agents
+        ]
 
     spec_names = {spec.name for spec in specs}
     roster: list[dict] = []
