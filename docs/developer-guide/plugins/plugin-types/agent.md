@@ -285,11 +285,159 @@ To promote a draft into active use, a human must:
 The frontmatter (author, created, session_id) is retained in the active skill when promoted.
 This preserves provenance for auditing and reference.
 
-### Phase-4 automation: editor panel
+## Phase 4: Tabbed multi-agent UI & editor panel
 
-Currently, promotion is a manual filesystem operation. Phase 4 will introduce an editor panel
-in the Lightfall UI that lists pending drafts, shows diffs for revisions, and provides
-approve/reject buttons. Until then, manual filesystem operations are the standard flow.
+The Claude panel UI in Phase 4 introduces:
+
+1. **Tabbed multi-agent sessions** — Each agent gets its own tab, independent conversation state, and unread badges.
+2. **Inline message cards** — Inter-agent messages appear as Accept/Dismiss cards instead of a banner.
+3. **Agent openability control** — Per-agent frontmatter field to prevent certain agents (e.g. monitor/observer) from being user-opened.
+4. **Editor panel** — A combined Agents & Skills management UI with draft approval workflows, replacing manual filesystem operations.
+
+### Tabbed panel and agent picker
+
+The Claude panel hosts a `QTabWidget` with a "+" button in the corner. On first launch, a single uncloseable **lightfall** tab appears, hosting the main assistant session. Users can open additional agent tabs via the picker menu.
+
+The **picker button** ("+" button in the panel corner) opens a context menu listing available agents:
+
+- Agents not currently open and marked `openable: true` in their spec
+- Displayed with scope suffix (e.g. "Observer (core)") and description tooltip
+- Sorted by scope (core agents first) then name
+- Observer and other system agents are not openable (`openable: false` in their spec frontmatter)
+
+Agent specifications:
+
+```yaml
+---
+name: my_custom_agent
+description: Describes what this agent does
+lightfall:
+  openable: false  # Prevent user from opening this agent in a tab
+---
+<agent prompt body>
+```
+
+The `openable` field (default: `true`) controls whether a user can open this agent as a tab.
+System agents like **observer** set `openable: false` to remain background-only (forwarding monitor summaries to the lightfall tab).
+
+**Tab behavior:**
+
+- All tabs are closable except the uncloseable **lightfall** tab
+- Tab text shows agent name; when unread agent messages are pending, it becomes `"<name> (N)"` (badge)
+- Closing a tab terminates that agent's session (unregisters from the agent bus)
+- `submit_external_prompt()` and `discuss_observation()` routing always targets the **lightfall tab**, activating it if needed
+
+### Inline Accept/Dismiss message cards
+
+When an agent sends a message to another agent (via `send_message` MCP tool), the message routing policy (defined in the receiving agent's spec) determines how it is rendered:
+
+**Queue policy** (`lightfall: {on_message: queue}`, the default):
+
+```yaml
+lightfall:
+  on_message: queue
+```
+
+Messages appear as interactive cards in the receiving agent's session:
+
+```
+⚡ from observer · 14:32
+Severity info: Ring current stable at 495 mA. Ready for new topups.
+[Accept] [Dismiss]
+```
+
+- **Accept** — submits the message as a turn in the conversation (Claude sees and responds to it)
+- **Dismiss** — greys out the card and removes it from the pending queue without submitting
+- A badge shows the unread count on the receiving agent's tab when it is not focused
+- On agent bus congestion (session busy when Accept is clicked), a transient "agent busy — try again" note appears; the card remains
+
+**Auto policy** (`lightfall: {on_message: auto}`):
+
+```yaml
+lightfall:
+  on_message: auto
+```
+
+Messages are submitted immediately if the session is idle; if the session is busy, they queue and flush when idle. Cards appear with "auto-accepted" label instead of buttons:
+
+```
+⚡ from observer · 14:32 (auto-accepted)
+Severity info: Ring current stable at 495 mA. Ready for new topups.
+```
+
+Both policies are runtime-toggleable via the tune-popup menu: **"Auto-accept agent messages"** checkbox overrides the spec's declared policy for the running session without editing the agent file.
+
+### Agents & Skills editor panel
+
+The **Agents & Skills** editor panel (sidebar, left area, id `lightfall.panels.agent_editor`) provides:
+
+#### Agents tab
+
+Lists all agent definitions grouped by scope (User, Beamline, Core):
+
+- **Read-only rows** (built-in/beamline agents):
+  - Description, scope, source-path link
+  - **Copy to user scope** button — creates an editable shadow copy in the user agent directory
+  - (If the agent is already shadowed:) **Reset to default** button — deletes the user shadow and restores the original
+
+- **Editable rows** (user-scope agents):
+  - Form editor: description (text), model (dropdown: blank/opus/sonnet/haiku), reasoning effort (dropdown: blank/low/medium/high), memory/subagent/openable toggles, on_message policy (queue/auto), available tools and skills (checkable lists)
+  - **Prompt editor** — large text area with a static hint showing available template variables (`{{beamline}}`, `{{user}}`, `{{endstation}}`)
+  - **Save** button — serializes frontmatter + body, validates by round-tripping through `parse_agent_file()`, writes the file; errors shown inline
+  - **Export…** button — file dialog to copy the agent definition to another location
+
+- **Error rows** (grayed, unparseable agent files):
+  - Error message, scope, source path
+
+- **New agent** button — prompts for a name, creates a template user-scope agent file
+
+#### Skills tab
+
+Lists active skills (from `resolve_skills()`) grouped by scope, plus a **Drafts** section when pending skill drafts exist:
+
+- **Drafts section** (appears only when `list_drafts()` is non-empty):
+  - Tabbed view: active skill vs. proposed draft (for revisions) or full draft text (for new skills)
+  - Unified diff view (collapsible, generated via `difflib`) for revisions
+  - **Approve** button — calls `approve_draft(name)` (moves new draft to active, or replaces active with proposed), increments Skills-tab badge counter, refreshes lists
+  - **Reject** button (confirm dialog) — calls `reject_draft(name)`, removes draft, refreshes
+  - **Edit then approve** — opens the draft in an inline editor, saves changes back to the draft file, then approves
+
+- **Active skills section**:
+  - Read-only display grouped by scope
+  - Revisions are shown as side-by-side diffs: active (left) vs. draft proposal (right), highlighting changes
+
+- **Skills-tab badge** — the tab text shows `"Skills (N)"` when N > 0 drafts are pending
+
+The panel watches the drafts directory (`QFileSystemWatcher` on `drafts_dir()`). New or changed drafts automatically refresh the UI and update the badge.
+
+### Manual approval procedure (fallback)
+
+For users who prefer command-line workflows or if the editor panel is unavailable, manual promotion remains supported:
+
+To promote a draft into active use:
+
+1. **New skill** — move the draft directory out of staging:
+   ```bash
+   mv ~/lightfall/skills/_drafts/<name>/ ~/lightfall/skills/<name>/
+   ```
+   The next agent session will automatically load the active skill.
+
+2. **Revision of existing skill** — diff the `.proposed` file against the active one,
+   review the changes, then:
+   ```bash
+   # Replace the active skill with the revision
+   mv ~/lightfall/skills/_drafts/<name>/SKILL.md.proposed ~/lightfall/skills/<name>/SKILL.md
+   # Clean up the draft directory
+   rm -rf ~/lightfall/skills/_drafts/<name>/
+   ```
+   The next agent session will use the updated skill.
+
+3. **Rejection** — delete the draft:
+   ```bash
+   rm -rf ~/lightfall/skills/_drafts/<name>/
+   ```
+
+The editor panel is the primary path for approval workflows; this manual procedure is a fallback.
 
 ## Observer forwarding: proactive monitor summaries
 
