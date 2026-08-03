@@ -605,13 +605,22 @@ class QtClaudeAgent(QObject):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.query_sync, prompt)
 
-    def stop(self) -> None:
+    def stop(self, wait_ms: int = 5000) -> None:
         """
         Stop the worker and disconnect.
+
+        Args:
+            wait_ms: How long to join the worker thread. Pass 0 (app
+                shutdown path) to signal the worker and abandon it without
+                blocking — joining on the GUI thread during shutdown can
+                exceed the 5 s exit watchdog, whose forced os._exit() then
+                tears the process down mid-flight (0xC0000005).
         """
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            if not self._worker.wait(5000):  # 5s timeout
+            if wait_ms <= 0:
+                logger.debug("Claude worker signalled to stop; not waiting (shutdown path)")
+            elif not self._worker.wait(wait_ms):
                 # Do NOT terminate(): killing a QThread that is executing
                 # Python corrupts the interpreter heap and crashes the whole
                 # process (0xC0000005). Abandon the worker instead — it is

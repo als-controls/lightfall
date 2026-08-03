@@ -277,12 +277,19 @@ class AgentSessionTab(QWidget):
         self.is_agent_ready = False
         self.initialize()
 
-    def teardown(self) -> None:
-        """Stop the agent, unregister the bus endpoint, drop the widget."""
+    def teardown(self, wait_for_worker: bool = True) -> None:
+        """Stop the agent, unregister the bus endpoint, drop the widget.
+
+        Args:
+            wait_for_worker: join the worker thread gracefully (interactive
+                reload/close). Pass False on app shutdown — a blocking join
+                on the GUI thread there can exceed the exit watchdog and
+                crash the forced teardown.
+        """
         # Stop current agent
         if self.claude_widget and hasattr(self.claude_widget, "agent"):
             try:
-                self.claude_widget.agent.stop()
+                self.claude_widget.agent.stop(wait_ms=5000 if wait_for_worker else 0)
             except Exception as e:
                 logger.debug("Error stopping agent for reload: {}", e)
 
@@ -295,9 +302,9 @@ class AgentSessionTab(QWidget):
             self.claude_widget = None
             self.widget_destroyed.emit()
 
-    def close_session(self) -> None:
+    def close_session(self, wait_for_worker: bool = True) -> None:
         """Tear the session down for good (tab closed / panel closing)."""
-        self.teardown()
+        self.teardown(wait_for_worker=wait_for_worker)
         self.is_agent_ready = False
 
     # --- session history ------------------------------------------------------

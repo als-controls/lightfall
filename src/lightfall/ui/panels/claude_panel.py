@@ -1046,17 +1046,21 @@ class ClaudePanel(BasePanel):
         tabs = self._session_tabs()
         if tabs:
             # Every open session unregisters its bus endpoint and stops its
-            # agent -- not just the main one.
+            # agent -- not just the main one. wait_for_worker=False: a
+            # blocking worker join here runs on the GUI thread during app
+            # shutdown; N tabs x 5s exceeds the exit watchdog, whose forced
+            # os._exit() then crashes mid-teardown (0xC0000005). Signal the
+            # workers and abandon them, as the pre-tab close path did.
             for tab in tabs:
-                tab.close_session()
+                tab.close_session(wait_for_worker=False)
             self._claude_widget = None
         else:
             self._unregister_bus_endpoint()
 
-            # Stop the agent
+            # Stop the agent (no join — see above)
             if self._claude_widget and hasattr(self._claude_widget, 'agent'):
                 try:
-                    self._claude_widget.agent.stop()
+                    self._claude_widget.agent.stop(wait_ms=0)
                 except Exception as e:
                     logger.debug("Error stopping Claude agent: {}", e)
         super()._on_closing()
