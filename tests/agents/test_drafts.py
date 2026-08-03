@@ -90,6 +90,73 @@ def test_description_with_yaml_syntax_is_quoted(user_root):
     assert 'description: "title: sneaky"' in text or "description: 'title: sneaky'" in text
 
 
+def test_approve_new_draft_moves_to_user_skills(user_root):
+    drafts.save_draft("cryo-stall-triage", "Triage stalls", "Steps...", author="a")
+    result = drafts.approve_draft("cryo-stall-triage")
+    assert result == user_root / "cryo-stall-triage" / "SKILL.md"
+    assert result.exists()
+    assert "Steps..." in result.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "cryo-stall-triage").exists()
+    assert "cryo-stall-triage" in skills_store.resolve_skills()
+
+
+def test_approve_revision_of_user_scope_skill_overwrites_active(user_root):
+    active = user_root / "existing-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text(
+        "---\nname: existing-skill\ndescription: d\n---\nold body", encoding="utf-8"
+    )
+    drafts.save_draft("existing-skill", "improved", "new body", author="lightfall")
+
+    result = drafts.approve_draft("existing-skill")
+
+    assert result == active / "SKILL.md"
+    assert "new body" in result.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "existing-skill").exists()
+
+
+def test_approve_revision_of_builtin_scope_skill_creates_user_shadow(tmp_path, monkeypatch):
+    builtin_root = tmp_path / "builtin"
+    builtin_root.mkdir()
+    user_root = tmp_path / "user_skills"
+    user_root.mkdir()
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user_root)
+    monkeypatch.setattr(drafts, "user_skills_dir", lambda: user_root)
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin_root)
+
+    builtin_skill = builtin_root / "builtin-skill"
+    builtin_skill.mkdir()
+    builtin_file = builtin_skill / "SKILL.md"
+    builtin_file.write_text(
+        "---\nname: builtin-skill\ndescription: d\n---\nbuiltin body", encoding="utf-8"
+    )
+
+    drafts.save_draft("builtin-skill", "improved", "shadow body", author="lightfall")
+    result = drafts.approve_draft("builtin-skill")
+
+    assert result == user_root / "builtin-skill" / "SKILL.md"
+    assert "shadow body" in result.read_text(encoding="utf-8")
+    # Builtin file must remain untouched.
+    assert "builtin body" in builtin_file.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "builtin-skill").exists()
+
+
+def test_approve_unknown_draft_raises(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.approve_draft("does-not-exist")
+
+
+def test_reject_draft_deletes_it(user_root):
+    drafts.save_draft("throwaway", "d", "body", author="a")
+    drafts.reject_draft("throwaway")
+    assert not (drafts.drafts_dir() / "throwaway").exists()
+
+
+def test_reject_unknown_draft_raises(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.reject_draft("does-not-exist")
+
+
 def test_proposed_revision_removes_stale_draft(user_root):
     active = user_root / "target-skill"
     active.mkdir()

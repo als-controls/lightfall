@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -171,6 +172,79 @@ def list_drafts() -> list[dict]:
     # Sort by name.
     results.sort(key=lambda d: d["name"])
     return results
+
+
+def approve_draft(name: str) -> Path:
+    """Approve a draft, promoting it into the active skill set.
+
+    Non-revision drafts (``_drafts/<name>/SKILL.md``) are moved wholesale to
+    ``user_skills_dir()/<name>``. Revision drafts (``SKILL.md.proposed``)
+    overwrite the active skill's ``SKILL.md`` in place when the active skill
+    already resolves to user scope; otherwise a user-scope shadow directory
+    is created so the shadow copy takes precedence over builtin/beamline.
+    The draft directory is deleted afterward.
+
+    Returns the path to the now-active ``SKILL.md``.
+
+    Raises:
+        DraftError: If no draft with `name` exists.
+    """
+    draft_dir = drafts_dir() / name
+    proposed_path = draft_dir / "SKILL.md.proposed"
+    plain_path = draft_dir / "SKILL.md"
+
+    if not draft_dir.is_dir() or not (proposed_path.exists() or plain_path.exists()):
+        raise DraftError(f"No draft named '{name}' exists")
+
+    author, created = _parse_frontmatter(proposed_path if proposed_path.exists() else plain_path)
+
+    if proposed_path.exists():
+        user_dir = user_skills_dir()
+        active_path = resolve_skills().get(name)
+        active_is_user_scope = active_path is not None and active_path == user_dir / name
+
+        if active_is_user_scope:
+            target_skill_md = active_path / "SKILL.md"
+        else:
+            shadow_dir = user_dir / name
+            shadow_dir.mkdir(parents=True, exist_ok=True)
+            target_skill_md = shadow_dir / "SKILL.md"
+
+        target_skill_md.write_text(
+            proposed_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        shutil.rmtree(draft_dir)
+        logger.info(
+            "drafts: approved revision '{}' (author={}, created={}) -> {}",
+            name, author, created, target_skill_md,
+        )
+        return target_skill_md
+
+    target_dir = user_skills_dir() / name
+    if target_dir.exists():
+        raise DraftError(
+            f"Cannot approve draft '{name}': a user skill directory already exists"
+        )
+    shutil.move(str(draft_dir), str(target_dir))
+    result = target_dir / "SKILL.md"
+    logger.info(
+        "drafts: approved new draft '{}' (author={}, created={}) -> {}",
+        name, author, created, result,
+    )
+    return result
+
+
+def reject_draft(name: str) -> None:
+    """Delete a draft entirely.
+
+    Raises:
+        DraftError: If no draft with `name` exists.
+    """
+    draft_dir = drafts_dir() / name
+    if not draft_dir.is_dir():
+        raise DraftError(f"No draft named '{name}' exists")
+    shutil.rmtree(draft_dir)
+    logger.info("drafts: rejected draft '{}'", name)
 
 
 def _validate_name(name: str) -> None:
