@@ -67,6 +67,16 @@ silently drop and the conversation will stall waiting for the user to nudge
 you. `lightfall_wait_for_idle` keeps the model suspended inside the tool call,
 which is the right pattern here.
 
+## Distilling knowledge
+
+When you learn something durable about this beamline, instrument, or facility
+(a recurring failure signature, a working recovery procedure, a configuration
+quirk), record it in your memory so future sessions benefit. When a memory
+generalizes into a reusable procedure others could follow, distill it into a
+skill draft with the `draft_skill` tool. Drafts are inert until a human
+approves them — write them freely, but make each one self-contained: state
+when it applies, the steps, and what evidence backs it.
+
 ## UI Development Requests
 
 Building or restyling panels, designing new plans, and driving the UI directly

@@ -205,6 +205,92 @@ Every delivered or queued message is rendered into the session as:
 via `format_bus_prompt()` — this is the exact text `submit` receives, whether
 delivered immediately (`auto`) or via `flush_pending()` (both policies).
 
+## Skill drafts & approval
+
+Agents can propose new skills or revisions to existing ones via the **`draft_skill`** MCP tool
+(`mcp__skills__draft_skill`). This tool takes three parameters:
+
+- **`name`** — skill name (lowercase alphanumeric, hyphens, underscores; 1-64 chars).
+- **`description`** — one-line human-readable description (must not contain newlines; ≤1024 chars).
+- **`body`** — skill body content (markdown).
+
+Drafts are always inert — a human must review and approve them before they take effect.
+The tool returns the filesystem path where the draft was saved and indicates whether it
+is a new draft or a revision of an existing skill.
+
+### File layout and collision detection
+
+Drafts are stored in `~/lightfall/skills/_drafts/` with provenance frontmatter:
+
+- **New draft** — if `name` does not collide with an active skill, the draft is written to
+  `_drafts/<name>/SKILL.md`.
+- **Revision** — if `name` collides with an active skill, a `.proposed` revision is written
+  to `_drafts/<name>/SKILL.md.proposed`. This signals that the draft is intended to replace
+  or update an existing skill, not create a parallel one.
+
+Redrafting an existing draft (same name, same collision state) overwrites the previous
+version. When a revision is drafted, any stale non-revision draft for that name is deleted.
+
+### Provenance frontmatter
+
+Every draft file includes metadata in YAML frontmatter under a `lightfall-draft:` key:
+
+```yaml
+---
+name: my-skill
+description: "What this skill does"
+lightfall-draft:
+  author: Alice
+  created: 2026-08-02
+  session_id: abc123...
+---
+```
+
+- **`author`** — name of the session's Claude agent (e.g., the bus name).
+- **`created`** — ISO date the draft was created.
+- **`session_id`** — optional session identifier for traceability; omitted if not available.
+
+### Inertness guarantee
+
+Drafts in `_drafts/` are **never injected into agent prompts** during session assembly.
+The session assembler materializes only skills from the active `~/lightfall/skills/<name>/`
+directory. This means agents cannot accidentally ship incomplete or unapproved drafts, and
+drafts are completely safe to experiment with.
+
+### Manual approval procedure
+
+To promote a draft into active use, a human must:
+
+1. **New skill** — move the draft directory out of staging:
+   ```bash
+   mv ~/lightfall/skills/_drafts/<name>/ ~/lightfall/skills/<name>/
+   ```
+   The next agent session will automatically load the active skill.
+
+2. **Revision of existing skill** — diff the `.proposed` file against the active one,
+   review the changes, then:
+   ```bash
+   # Replace the active skill with the revision
+   mv ~/lightfall/skills/_drafts/<name>/SKILL.md.proposed ~/lightfall/skills/<name>/SKILL.md
+   # Clean up the draft directory
+   rm -rf ~/lightfall/skills/_drafts/<name>/
+   ```
+   The next agent session will use the updated skill.
+
+3. **Rejection** — delete the draft if it should not be promoted:
+   ```bash
+   rm -rf ~/lightfall/skills/_drafts/<name>/
+   ```
+
+The frontmatter (author, created, session_id) is retained in the active skill when promoted.
+This preserves provenance for auditing and reference.
+
+### Phase-4 automation: editor panel
+
+Currently, promotion is a manual filesystem operation. Phase 4 will introduce an editor panel
+in the Lightfall UI that lists pending drafts, shows diffs for revisions, and provides
+approve/reject buttons. Until then, manual filesystem operations are the standard flow.
+
 ## Observer forwarding: proactive monitor summaries
 
 The always-on `MonitorService` (`lightfall.monitor.service.MonitorService`) batches

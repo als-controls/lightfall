@@ -65,3 +65,12 @@ def test_skills_reference_existing_builtin_skill_dirs(specs):
     for name in ("lightfall", "lightfall-dev"):
         for skill in specs[name].skills:
             assert (skills_dir / skill).is_dir(), f"{name}: missing skill dir {skill}"
+
+
+def test_distillation_nudge_in_prompts(specs):
+    """Both operator and dev specs must contain distillation guidance."""
+    for name in ("lightfall", "lightfall-dev"):
+        prompt = specs[name].prompt
+        assert "## Distilling knowledge" in prompt, f"{name}: missing distillation section header"
+        assert "draft_skill" in prompt, f"{name}: missing draft_skill tool reference"
+        assert "memory" in prompt, f"{name}: missing memory reference"
