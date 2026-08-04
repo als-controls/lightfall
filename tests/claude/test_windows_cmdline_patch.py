@@ -27,14 +27,52 @@ def test_windows_cmdline_patch_applied() -> None:
     assert subprocess_cli._cmdline_patched is True
 
 
-def test_windows_cmdline_patch_handles_agents() -> None:
-    """Verify the patch source includes handling for --agents argument.
+def test_windows_cmdline_patch_uses_system_prompt_file() -> None:
+    """Verify the patch rewrites --system-prompt to the CLI-native flag.
 
-    Large --agents payloads (from subagent definitions) must be written to
-    temp files to avoid exceeding the 8191 character Windows CLI limit.
+    CLI >=2.1.221 silently ignores the ``@file`` convention for
+    --system-prompt (the prompt is dropped with no error). The dedicated
+    --system-prompt-file flag works and takes a plain path. --agents is no
+    longer emitted on the command line by SDK 0.2.93 (sent via the
+    initialize request instead), so it must not appear in the rewrite logic.
     """
-    source = inspect.getsource(agent_module._patch_sdk_for_windows_cmdline_limit)
-    assert "--agents" in source, (
-        "Patch must handle --agents in atfile_args set to support large "
-        "subagent payloads"
-    )
+    source = inspect.getsource(agent_module._rewrite_oversized_args)
+    assert "--system-prompt-file" in source
+    # --agents may be mentioned in prose (double-backtick markup) explaining
+    # why it's gone, but must not appear as a quoted string literal in any
+    # executable rewrite set/logic.
+    assert '"--agents"' not in source
+    assert "'--agents'" not in source
+
+
+def test_rewrite_oversized_args_rewrites_system_prompt_to_file() -> None:
+    """Functional test: an oversized --system-prompt is rewritten to
+    --system-prompt-file <plain-path>, with the temp file containing the
+    original value and no @-prefixed args left in the command.
+    """
+    oversized_prompt = "x" * 9000
+    cmd = ["claude", "--system-prompt", oversized_prompt, "--model", "sonnet"]
+
+    result, temp_files = agent_module._rewrite_oversized_args(cmd)
+
+    assert "--system-prompt" not in result
+    idx = result.index("--system-prompt-file")
+    file_path = result[idx + 1]
+
+    assert not file_path.startswith("@")
+    assert temp_files == [file_path]
+
+    with open(file_path, encoding="utf-8") as f:
+        assert f.read() == oversized_prompt
+
+    assert not any(arg.startswith("@") for arg in result)
+
+
+def test_rewrite_oversized_args_skips_if_already_rewritten() -> None:
+    """Skip-guard: if --system-prompt-file is already present, leave it alone."""
+    cmd = ["claude", "--system-prompt-file", "C:\\temp\\already.txt"]
+
+    result, temp_files = agent_module._rewrite_oversized_args(list(cmd))
+
+    assert result == cmd
+    assert temp_files == []
