@@ -191,6 +191,7 @@ class ClaudeAssistantWidget(QWidget):
         resume: str | None = None,
         disable_betas: bool = False,
         spec=None,
+        launched_by: str | None = None,
         parent: QWidget | None = None
     ):
         """
@@ -207,6 +208,10 @@ class ClaudeAssistantWidget(QWidget):
             require_approval: If True, show UI approval for tool calls (default True).
                               Set False alongside permission_mode='bypassPermissions' to
                               fully silence prompts.
+            launched_by: Bus name of the agent that launched this session via
+                         ``mcp__bus__launch_agent``, if any. Seeds the new
+                         session's bus endpoint with an auto-accept whitelist
+                         for this sender.
             parent: Parent widget
 
         Note:
@@ -280,6 +285,7 @@ class ClaudeAssistantWidget(QWidget):
             is_busy=lambda: self.agent.is_busy() or self._is_busy,
             on_queued=lambda sender, message: None,
             policy=spec.on_message if spec else "queue",
+            auto_accept_senders={launched_by} if launched_by else None,
             parent=self,
         )
         self.bus_endpoint.message_queued.connect(self._on_bus_message_queued)

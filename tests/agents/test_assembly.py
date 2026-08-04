@@ -134,10 +134,7 @@ def test_identity_preamble_tags_openable_and_subagent():
 
     assert "mcp__bus__list_agents" in preamble
     assert "mcp__bus__send_message" in preamble
-    assert (
-        'lightfall_invoke_panel_action(panel_id="lightfall.panels.claude", '
-        'action="open_agent_tab"' in preamble
-    )
+    assert 'mcp__bus__launch_agent(name="<name>"' in preamble
     assert '"+" button' in preamble
     assert "Agent tool" in preamble
     assert "snapshot from session start" in preamble

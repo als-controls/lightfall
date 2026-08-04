@@ -30,12 +30,16 @@ def _spec(name, scope="core"):
 
 @pytest.fixture
 def panel(qtbot, monkeypatch):
+    from lightfall.agents.bus import AgentBus
+
     # Never build a real Claude session.
     monkeypatch.setattr(AgentSessionTab, "initialize", lambda self: None)
     monkeypatch.setattr(ClaudePanel, "_subscribe_to_claude_settings", lambda self: None)
+    AgentBus.reset_instance()
     p = ClaudePanel()
     qtbot.addWidget(p)
-    return p
+    yield p
+    AgentBus.reset_instance()
 
 
 def test_lightfall_tab_exists_and_is_uncloseable(panel):
@@ -203,3 +207,80 @@ def test_action_open_agent_tab_message_delivered_on_widget_created(panel, monkey
     fake.sent = False
     tab.widget_created.emit(fake)
     assert fake.sent is False
+
+
+def test_setup_tabs_registers_launcher_hook(panel):
+    from lightfall.agents.bus import AgentBus
+
+    result = AgentBus.get_instance().launch("saxs", "observer", None)
+    # Reaching _launch_agent_for (not the "no launcher available" default)
+    # proves the hook was registered at tab-surface setup.
+    assert result.get("error") != "no launcher available"
+
+
+def test_on_closing_clears_launcher_hook(panel):
+    from lightfall.agents.bus import AgentBus
+
+    panel._on_closing()
+    result = AgentBus.get_instance().launch("saxs", "observer", None)
+    assert result == {"success": False, "error": "no launcher available"}
+
+
+def test_launch_agent_for_creates_tab_and_whitelists_launcher(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel._launch_agent_for("saxs", "observer", None)
+    assert result == {"success": True, "agent": "saxs",
+                       "focused_existing": False, "message_queued": False}
+    tab = panel._find_tab("saxs")
+    assert tab.launched_by == "observer"
+    assert panel._tabs.currentWidget() is tab
+
+
+def test_launch_agent_for_focus_existing_no_whitelist(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    panel._launch_agent_for("saxs", "observer", None)
+    tab = panel._find_tab("saxs")
+
+    result = panel._launch_agent_for("saxs", "someone_else", None)
+    assert result["focused_existing"] is True
+    assert panel._tabs.count() == 2  # no duplicate tab created
+    # Focusing an already-running session grants no whitelist to the new caller.
+    assert tab.launched_by == "observer"
+
+
+def test_launch_agent_for_delivers_message_on_focus_existing(panel, monkeypatch):
+    class _Widget(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.input_field = type(
+                "F", (), {"setPlainText": lambda s, t: setattr(s, "text", t)})()
+            self.sent = False
+
+        def _send_query(self):
+            self.sent = True
+
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    panel._launch_agent_for("saxs", "observer", None)
+    tab = panel._find_tab("saxs")
+
+    fake = _Widget()
+    tab.claude_widget = fake
+
+    result = panel._launch_agent_for("saxs", "someone_else", "hi again")
+    assert result["message_queued"] is True
+    assert fake.sent is True
+    assert fake.input_field.text == "hi again"
+
+
+def test_launch_agent_for_surfaces_validation_errors(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel._launch_agent_for("nope", "observer", None)
+    assert result["success"] is False
+    assert "saxs" in result["error"]
+
+    from dataclasses import replace
+    observer = replace(_spec("observer"), openable=False)
+    _prime_registry(monkeypatch, [_spec("lightfall"), observer])
+    result = panel._launch_agent_for("observer", "someone", None)
+    assert result["success"] is False
+    assert "openable" in result["error"]

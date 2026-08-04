@@ -22,12 +22,16 @@ except ImportError:  # pragma: no cover - SDK-optional / headless environments
         return func(*args)
 
 
-BUS_ALLOWED_TOOLS = ["mcp__bus__send_message", "mcp__bus__list_agents"]
+BUS_ALLOWED_TOOLS = [
+    "mcp__bus__send_message",
+    "mcp__bus__list_agents",
+    "mcp__bus__launch_agent",
+]
 
 LIST_AGENTS_NOTE = (
     "Agents marked subagent_eligible appear in your Agent tool only from session "
     "start; delegating to a newly created one requires a session restart. Launch "
-    "non-running openable agents via the open_agent_tab panel action."
+    "non-running openable agents via launch_agent(name, first_message)."
 )
 
 
@@ -162,7 +166,41 @@ def _make_tools(sender_name: Callable[[], str]):
             logger.exception("bus_tools.list_agents failed")
             return mcp_error(f"list_agents error: {exc}")
 
-    return [send_message, list_agents]
+    @tool(
+        name="launch_agent",
+        description=(
+            "Launch (or focus) another agent's session tab in the Claude panel, "
+            "optionally sending it a first message once the session is ready. "
+            "The launched session will auto-accept subsequent bus messages from "
+            "you (the launcher) without prompting the user."
+        ),
+        input_schema={
+            "name": {
+                "type": "string",
+                "description": "Name of the agent to launch, as returned by list_agents.",
+            },
+            "first_message": {
+                "type": "string",
+                "description": "Optional message to deliver once the session is ready.",
+            },
+        },
+    )
+    async def launch_agent(args: dict) -> dict[str, Any]:
+        try:
+            from lightfall.agents.bus import AgentBus
+
+            name = args.get("name", "")
+            first_message = args.get("first_message")
+            result = run_on_main_thread(
+                AgentBus.get_instance().launch, name, sender_name(), first_message
+            )
+            is_error = not result.get("success", False)
+            return mcp_result(result, is_error=is_error)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("bus_tools.launch_agent failed")
+            return mcp_error(f"launch_agent error: {exc}")
+
+    return [send_message, list_agents, launch_agent]
 
 
 def create_bus_tools_server(sender_name: Callable[[], str]):

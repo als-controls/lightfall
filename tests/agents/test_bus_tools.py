@@ -101,6 +101,49 @@ def test_agent_roster_merges_defined_and_running(bus, registry, monkeypatch):
         assert r["subagent_eligible"] is False
 
 
+def test_launch_agent_tool_calls_launcher_with_sender_identity(bus, monkeypatch):
+    monkeypatch.setattr(bus_tools, "run_on_main_thread", lambda fn, *a, **k: fn(*a, **k))
+    calls = []
+
+    def launcher(name, launched_by, first_message):
+        calls.append((name, launched_by, first_message))
+        return {"success": True, "agent": name, "focused_existing": False}
+
+    bus.set_launcher(launcher)
+    tools = bus_tools._make_tools(lambda: "observer")
+    launch = next(t for t in tools if t.name == "launch_agent")
+    result = _call(launch, {"name": "saxs", "first_message": "hi"})
+    assert calls == [("saxs", "observer", "hi")]
+    assert "success" in str(result)
+
+
+def test_launch_agent_tool_defaults_first_message_to_none(bus, monkeypatch):
+    monkeypatch.setattr(bus_tools, "run_on_main_thread", lambda fn, *a, **k: fn(*a, **k))
+    calls = []
+
+    def launcher(name, launched_by, first_message):
+        calls.append((name, launched_by, first_message))
+        return {"success": True, "agent": name}
+
+    bus.set_launcher(launcher)
+    tools = bus_tools._make_tools(lambda: "observer")
+    launch = next(t for t in tools if t.name == "launch_agent")
+    _call(launch, {"name": "saxs"})
+    assert calls == [("saxs", "observer", None)]
+
+
+def test_launch_agent_tool_no_launcher_returns_clean_error(bus, monkeypatch):
+    monkeypatch.setattr(bus_tools, "run_on_main_thread", lambda fn, *a, **k: fn(*a, **k))
+    tools = bus_tools._make_tools(lambda: "observer")
+    launch = next(t for t in tools if t.name == "launch_agent")
+    result = _call(launch, {"name": "saxs"})
+    assert "no launcher available" in str(result)
+
+
+def test_launch_agent_is_allowed_tool():
+    assert "mcp__bus__launch_agent" in bus_tools.BUS_ALLOWED_TOOLS
+
+
 def test_agent_roster_falls_back_when_registry_fails(bus, registry, monkeypatch):
     def _boom():
         raise RuntimeError("registry broke")

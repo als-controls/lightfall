@@ -309,6 +309,13 @@ class ClaudePanel(BasePanel):
 
         self._layout.addWidget(self._tabs)
 
+        # Register the bus-launch hook: mcp__bus__launch_agent (bus_tools.py)
+        # calls AgentBus.launch(), which delegates here now that a tab surface
+        # exists. Cleared in _on_closing.
+        from lightfall.agents.bus import AgentBus
+
+        AgentBus.get_instance().set_launcher(self._launch_agent_for)
+
         # The main assistant. Its spec comes from the registry; if the registry
         # has no "lightfall" entry (empty/unloaded), the tab falls back to the
         # legacy no-spec path, which is exactly today's behavior.
@@ -349,18 +356,24 @@ class ClaudePanel(BasePanel):
                 button.deleteLater()
             bar.setTabButton(index, side, None)
 
-    def _open_agent_tab(self, spec) -> None:
-        """Open (or focus) a tab running ``spec``."""
+    def _open_agent_tab(self, spec, launched_by: str | None = None) -> AgentSessionTab:
+        """Open (or focus) a tab running ``spec``.
+
+        ``launched_by`` seeds an auto-accept whitelist on a freshly created
+        tab's session (see ``AgentSessionTab`` / ``ClaudeSessionEndpoint``); it
+        has no effect when focusing an already-running tab.
+        """
         existing = self._find_tab(spec.name)
         if existing is not None:
             self._tabs.setCurrentWidget(existing)
-            return
-        tab = self._add_tab(AgentSessionTab(spec, parent=self._tabs))
+            return existing
+        tab = self._add_tab(AgentSessionTab(spec, launched_by=launched_by, parent=self._tabs))
         self._tabs.setCurrentWidget(tab)
         if self._is_plugin_loading_complete():
             tab.initialize()
         else:
             tab.show_loading()
+        return tab
 
     def _show_agent_picker(self) -> None:
         from lightfall.agents.registry import AgentSpecRegistry
@@ -1031,6 +1044,10 @@ class ClaudePanel(BasePanel):
 
     def _on_closing(self) -> None:
         """Cleanup when panel is closing."""
+        from lightfall.agents.bus import AgentBus
+
+        AgentBus.get_instance().set_launcher(None)
+
         self._stop_thinking_animation()
         self._stop_permission_animation()
         # ToolRegistry has no signals to disconnect
@@ -1122,12 +1139,13 @@ class ClaudePanel(BasePanel):
 
         return False
 
-    def action_open_agent_tab(self, agent: str, message: str | None = None) -> dict[str, Any]:
-        """Open (or focus) a tab for ``agent``; optionally queue a first message.
+    def _validate_agent_open(self, agent: str) -> tuple[Any, dict[str, Any] | None]:
+        """Run the preconditions shared by ``action_open_agent_tab`` and
+        ``_launch_agent_for``: the agent must be defined, enabled, openable,
+        and a tab surface must exist to host it.
 
-        Reuses the same code path as the new-tab picker (``_open_agent_tab``),
-        so session assembly, singleton-per-agent focus behavior, and bus
-        registration are identical to a UI-initiated open.
+        Returns ``(spec, None)`` on success, or ``(None, error_dict)`` on the
+        first failing check.
         """
         from lightfall.agents.registry import AgentSpecRegistry
 
@@ -1136,17 +1154,31 @@ class ClaudePanel(BasePanel):
         if spec is None:
             available = sorted(
                 s.name for s in registry.enabled_specs() if s.openable)
-            return {"success": False,
+            return None, {"success": False,
                     "error": f"unknown agent '{agent}'; available: {available}"}
         if agent not in {s.name for s in registry.enabled_specs()}:
-            return {"success": False,
+            return None, {"success": False,
                     "error": f"agent '{agent}' is disabled in settings"}
         if not spec.openable:
-            return {"success": False,
+            return None, {"success": False,
                     "error": f"agent '{agent}' is not openable as a session "
                              f"(lightfall.openable: false)"}
         if self._tabs is None:
-            return {"success": False, "error": "tab surface not available"}
+            return None, {"success": False, "error": "tab surface not available"}
+        return spec, None
+
+    def action_open_agent_tab(self, agent: str, message: str | None = None) -> dict[str, Any]:
+        """Open (or focus) a tab for ``agent``; optionally queue a first message.
+
+        Reuses the same code path as the new-tab picker (``_open_agent_tab``),
+        so session assembly, singleton-per-agent focus behavior, and bus
+        registration are identical to a UI-initiated open. This is the
+        generic UI/introspection path: it never whitelists a launcher (see
+        ``_launch_agent_for`` for the bus-launch path, which does).
+        """
+        spec, error = self._validate_agent_open(agent)
+        if error is not None:
+            return error
 
         focused_existing = self._find_tab(agent) is not None
         self._open_agent_tab(spec)  # focuses existing or creates + activates
@@ -1155,6 +1187,30 @@ class ClaudePanel(BasePanel):
         return {"success": True, "agent": agent,
                 "focused_existing": focused_existing,
                 "message_queued": bool(message)}
+
+    def _launch_agent_for(
+        self, name: str, launched_by: str, first_message: str | None
+    ) -> dict[str, Any]:
+        """Bus-invoked launcher hook (``AgentBus.set_launcher``): open/focus
+        ``name``'s tab on behalf of ``launched_by``.
+
+        On create, the new session whitelists ``launched_by`` for auto-accept
+        (``AgentSessionTab`` -> ``ClaudeAssistantWidget`` ->
+        ``ClaudeSessionEndpoint``). Focusing an already-running session grants
+        no whitelist -- it isn't a fresh launch by this sender -- but
+        ``first_message``, if given, is still delivered either way.
+        """
+        spec, error = self._validate_agent_open(name)
+        if error is not None:
+            return error
+
+        focused_existing = self._find_tab(name) is not None
+        tab = self._open_agent_tab(spec, launched_by=launched_by)
+        if first_message:
+            self._deliver_when_ready(tab, first_message)
+        return {"success": True, "agent": name,
+                "focused_existing": focused_existing,
+                "message_queued": bool(first_message)}
 
     def _deliver_when_ready(self, tab, message: str) -> None:
         """Submit ``message`` to ``tab`` now, or once its session widget exists."""
