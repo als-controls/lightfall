@@ -426,6 +426,13 @@ class QtClaudeAgent(QObject):
             "include_partial_messages": True,
             # See SDK_MAX_BUFFER_SIZE: default 1 MiB rejects screenshot payloads.
             "max_buffer_size": SDK_MAX_BUFFER_SIZE,
+            # Never let the developer's user-scope Claude settings (global
+            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into an
+            # embedded beamline session. Leaving setting_sources unset (None)
+            # means "all sources" per the SDK, which pulls in the operator's
+            # personal assistant persona and fires their own hooks inside the
+            # app. "project" keeps deliberate per-cwd .claude config working.
+            "setting_sources": ["project"],
         }
         if agents:
             options_dict["agents"] = agents
