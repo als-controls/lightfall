@@ -133,6 +133,37 @@ class BusCardModel:
             new_entries.append(entry)
         return new_entries
 
+    def prune_pending_not_in(self, pending: list[tuple[str, str]]) -> list[BusCardEntry]:
+        """Reconcile tracked "pending" entries against the endpoint's current
+        ``pending()`` list, dropping any that are no longer there.
+
+        Used after a drain (e.g. ``always_accept``/``flush_whitelisted``):
+        each drained message's ``message_auto_accepted`` signal already
+        replaces its own stale pending entry (see the widget's FIFO
+        ``take_pending`` + ``add_auto`` handler), so this is a safety-net
+        pass for anything that handler didn't already remove. Auto/dismissed
+        entries are left untouched -- only "pending" entries are reconciled.
+
+        Matching is FIFO by (sender, message), mirroring ``take_pending``.
+        Returns the removed entries, in their original order, so the caller
+        can clean up any associated widgets.
+        """
+        remaining = list(pending)
+        kept: list[BusCardEntry] = []
+        removed: list[BusCardEntry] = []
+        for entry in self._entries:
+            if entry.state != "pending":
+                kept.append(entry)
+                continue
+            key = (entry.sender, entry.message)
+            if key in remaining:
+                remaining.remove(key)
+                kept.append(entry)
+            else:
+                removed.append(entry)
+        self._entries = kept
+        return removed
+
 
 class ClaudeSessionEndpoint(QObject):
     """Bus endpoint for a Claude session, applying an auto/queue delivery policy.
