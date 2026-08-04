@@ -153,6 +153,7 @@ class ClaudeSessionEndpoint(QObject):
         is_busy: Callable[[], bool],
         on_queued: Callable[[str, str], None],
         policy: str = "queue",
+        auto_accept_senders: set[str] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -162,6 +163,7 @@ class ClaudeSessionEndpoint(QObject):
         self._is_busy = is_busy
         self._on_queued = on_queued
         self._pending: list[tuple[str, str]] = []
+        self._auto_accept_senders: set[str] = set(auto_accept_senders or ())
         self._policy = "queue"
         self.set_policy(policy)
 
@@ -203,9 +205,53 @@ class ClaudeSessionEndpoint(QObject):
             return None
         return self._pending.pop(index)
 
+    def auto_accepts(self, sender: str) -> bool:
+        return sender in self._auto_accept_senders
+
+    def always_accept(self, sender: str) -> int:
+        """Whitelist ``sender`` and drain any already-pending messages from
+        them, in order, via the normal submit path.
+
+        Stops at the first refused submit (that message and any after it
+        from this sender stay pending; the sender remains whitelisted so a
+        later flush picks them up). Returns the count accepted now.
+        """
+        self._auto_accept_senders.add(sender)
+        accepted = 0
+        i = 0
+        while i < len(self._pending):
+            pending_sender, _ = self._pending[i]
+            if pending_sender != sender:
+                i += 1
+                continue
+            if self.accept(i):
+                accepted += 1
+                # accept() removed pending[i]; next candidate shifts into i.
+            else:
+                break
+        return accepted
+
+    def flush_whitelisted(self) -> int:
+        """Submit all pending messages whose sender is whitelisted, in
+        order, regardless of the current policy. Stops at the first refusal
+        (mirrors ``flush_pending``'s requeue-remainder behavior, but only
+        ever touches whitelisted senders)."""
+        accepted = 0
+        i = 0
+        while i < len(self._pending):
+            pending_sender, _ = self._pending[i]
+            if pending_sender not in self._auto_accept_senders:
+                i += 1
+                continue
+            if self.accept(i):
+                accepted += 1
+            else:
+                break
+        return accepted
+
     def deliver(self, sender: str, message: str) -> str:
         """Deliver (or queue) a message per the current policy."""
-        if self._policy == "auto" and not self._is_busy():
+        if (self._policy == "auto" or sender in self._auto_accept_senders) and not self._is_busy():
             if self._submit(format_bus_prompt(sender, message)):
                 self.message_auto_accepted.emit(sender, message)
                 return "delivered"

@@ -149,3 +149,40 @@ def test_auto_accept_signal(qtbot):
     with qtbot.waitSignal(ep.message_auto_accepted, timeout=1000) as blocker:
         ep.deliver("observer", "x")
     assert blocker.args == ["observer", "x"]
+
+
+def test_whitelisted_sender_bypasses_queue_policy():
+    ep, submitted, queued = _make(policy="queue")
+    ep.always_accept("observer")
+    assert ep.deliver("observer", "x") == "delivered"
+    assert submitted and "x" in submitted[0]
+    assert queued == []
+
+
+def test_whitelisted_sender_busy_queues_then_flush_whitelisted():
+    ep, submitted, _ = _make(policy="queue", busy=True)
+    ep.always_accept("observer")
+    assert ep.deliver("observer", "x") == "queued"
+    ep._is_busy = lambda: False
+    assert ep.flush_whitelisted() == 1
+    assert submitted
+
+
+def test_always_accept_drains_existing_pending_from_sender_only():
+    ep, submitted, _ = _make(policy="queue")
+    ep.deliver("observer", "1")
+    ep.deliver("saxs", "2")
+    ep.deliver("observer", "3")
+    assert ep.always_accept("observer") == 2
+    assert len(submitted) == 2
+    assert ep.pending() == [("saxs", "2")]
+    assert ep.auto_accepts("observer") and not ep.auto_accepts("saxs")
+
+
+def test_constructor_seeded_whitelist():
+    ep, submitted, _ = _make(policy="queue")
+    ep2 = ClaudeSessionEndpoint(
+        "dev", "d", submit=lambda t: submitted.append(t) or True,
+        is_busy=lambda: False, on_queued=lambda s, m: None,
+        policy="queue", auto_accept_senders={"lightfall"})
+    assert ep2.deliver("lightfall", "hi") == "delivered"
