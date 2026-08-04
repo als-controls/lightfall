@@ -220,12 +220,13 @@ class ClaudeSessionEndpoint(QObject):
         accepted = 0
         i = 0
         while i < len(self._pending):
-            pending_sender, _ = self._pending[i]
+            pending_sender, pending_message = self._pending[i]
             if pending_sender != sender:
                 i += 1
                 continue
             if self.accept(i):
                 accepted += 1
+                self.message_auto_accepted.emit(pending_sender, pending_message)
                 # accept() removed pending[i]; next candidate shifts into i.
             else:
                 break
@@ -239,12 +240,13 @@ class ClaudeSessionEndpoint(QObject):
         accepted = 0
         i = 0
         while i < len(self._pending):
-            pending_sender, _ = self._pending[i]
+            pending_sender, pending_message = self._pending[i]
             if pending_sender not in self._auto_accept_senders:
                 i += 1
                 continue
             if self.accept(i):
                 accepted += 1
+                self.message_auto_accepted.emit(pending_sender, pending_message)
             else:
                 break
         return accepted

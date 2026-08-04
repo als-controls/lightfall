@@ -186,3 +186,35 @@ def test_constructor_seeded_whitelist():
         is_busy=lambda: False, on_queued=lambda s, m: None,
         policy="queue", auto_accept_senders={"lightfall"})
     assert ep2.deliver("lightfall", "hi") == "delivered"
+
+
+def test_always_accept_emits_auto_accepted_per_drained_message(qtbot):
+    ep, submitted, _ = _make(policy="queue")
+    ep.deliver("observer", "1")
+    ep.deliver("saxs", "2")
+    ep.deliver("observer", "3")
+    received = []
+    ep.message_auto_accepted.connect(lambda s, m: received.append((s, m)))
+    assert ep.always_accept("observer") == 2
+    assert received == [("observer", "1"), ("observer", "3")]
+
+
+def test_flush_whitelisted_emits_auto_accepted_per_drained_message(qtbot):
+    ep, submitted, _ = _make(policy="queue", busy=True)
+    ep.always_accept("observer")
+    ep.deliver("observer", "x")
+    ep.deliver("saxs", "y")
+    received = []
+    ep.message_auto_accepted.connect(lambda s, m: received.append((s, m)))
+    ep._is_busy = lambda: False
+    assert ep.flush_whitelisted() == 1
+    assert received == [("observer", "x")]
+
+
+def test_accept_emits_no_auto_accepted_signal(qtbot):
+    ep, submitted, _ = _make(policy="queue")
+    ep.deliver("a", "1")
+    received = []
+    ep.message_auto_accepted.connect(lambda s, m: received.append((s, m)))
+    assert ep.accept(0) is True
+    assert received == []
