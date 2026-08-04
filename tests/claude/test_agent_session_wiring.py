@@ -96,3 +96,6 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     assert "## Scan Planning Expertise" not in options.system_prompt
     # allowed_tools includes per-plugin namespace
     assert any(t.startswith("mcp__tool_agent__") for t in options.allowed_tools)
+    # Must not inherit the developer's user-scope Claude settings (global
+    # CLAUDE.md, personal plugins/hooks/skills) into an embedded session.
+    assert options.setting_sources == ["project"]

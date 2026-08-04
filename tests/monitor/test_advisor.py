@@ -97,6 +97,9 @@ def test_sdk_query_uses_observer_spec_when_registered(monkeypatch, tmp_path):
     out = adv._sdk_query("hi")
     assert out == "ok"
     assert seen_opts["system_prompt"] == "You watch 8.3.1."
+    # Advisor runs bypassPermissions, so leaking user-scope settings (personal
+    # hooks/plugins/global CLAUDE.md) would be worse than in the main session.
+    assert seen_opts["setting_sources"] == ["project"]
 
     AgentSpecRegistry.reset_instance()
 

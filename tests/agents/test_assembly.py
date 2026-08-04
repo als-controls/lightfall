@@ -90,6 +90,13 @@ def test_identity_preamble_contains_own_identity():
     assert 'name on the agent bus is "lightfall"' in preamble
 
 
+def test_identity_preamble_is_authoritative_for_session():
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall])
+    preamble = identity_preamble(lightfall, reg)
+    assert "authoritative for this\nsession" in preamble
+
+
 def test_identity_preamble_excludes_self_from_peers():
     lightfall = _spec("lightfall")
     saxs = _spec("saxs")

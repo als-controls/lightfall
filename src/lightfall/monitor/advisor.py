@@ -117,6 +117,13 @@ class MonitorAdvisor:
             permission_mode="bypassPermissions",
             max_turns=1,
             include_partial_messages=False,
+            # Never let the developer's user-scope Claude settings (global
+            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into
+            # this advisor session. Leaving setting_sources unset (None) means
+            # "all sources" per the SDK; here that's worse since the advisor
+            # runs bypassPermissions, so personal hooks would fire unchecked.
+            # "project" keeps deliberate per-cwd .claude config working.
+            setting_sources=["project"],
             **({"model": self._model} if self._model else {}),
         )
         loop = asyncio.new_event_loop()
