@@ -122,8 +122,11 @@ class MonitorAdvisor:
             # this advisor session. Leaving setting_sources unset (None) means
             # "all sources" per the SDK; here that's worse since the advisor
             # runs bypassPermissions, so personal hooks would fire unchecked.
-            # "project" keeps deliberate per-cwd .claude config working.
-            setting_sources=["project"],
+            # "project" is ALSO unsafe: it activates the whole CLAUDE.md chain
+            # including the user-level ~/.claude/CLAUDE.md, not just per-cwd
+            # project config (verified empirically 2026-08-03: persona leak).
+            # Empty setting_sources ([]) gives true SDK isolation.
+            setting_sources=[],
             **({"model": self._model} if self._model else {}),
         )
         loop = asyncio.new_event_loop()

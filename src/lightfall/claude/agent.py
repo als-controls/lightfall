@@ -45,6 +45,73 @@ def lightfall_agent_cwd() -> str:
     return str(path)
 
 
+def _rewrite_oversized_args(cmd: list[str]) -> tuple[list[str], list[str]]:
+    """Rewrite oversized CLI args to temp-file-backed forms, in place.
+
+    Returns ``(cmd, temp_file_paths)``. ``cmd`` is mutated and also returned
+    for convenience.
+
+    Two distinct rewrite strategies, because the CLI treats these arg
+    families differently:
+
+    * ``--mcp-config`` / ``--settings`` already accept a bare file path as
+      their value natively, so the temp file's path is substituted directly.
+    * ``--system-prompt`` does NOT accept a bare path. The historical
+      workaround was to rewrite it to ``@<tempfile>`` (the SDK's own
+      at-file convention), but CLI >=2.1.221 silently ignores the
+      ``@file`` convention for ``--system-prompt`` — the prompt is dropped
+      entirely with no error (verified empirically 2026-08-03: every
+      embedded session with a >8000-char command line ran with NO system
+      prompt). The CLI does support a dedicated first-class flag,
+      ``--system-prompt-file <path>``, which takes a plain path (no ``@``).
+      So for ``--system-prompt`` we rewrite BOTH the flag name (to
+      ``--system-prompt-file``) and the value (to a plain temp path).
+
+    ``--agents`` is intentionally not handled here: SDK 0.2.93 no longer
+    puts ``--agents`` on the command line at all (agents are sent via the
+    initialize request instead), so this rewrite would never fire — see
+    "No --agents CLI flag needed" in
+    ``claude_agent_sdk/_internal/transport/subprocess_cli.py``.
+    """
+    temp_files: list[str] = []
+
+    # Args that accept a bare file path as their value natively.
+    file_path_args = {"--mcp-config", "--settings"}
+    # Args that need both the flag name and value rewritten because the
+    # original flag has no native file-path form.
+    flag_rename_args = {"--system-prompt": "--system-prompt-file"}
+
+    # Skip-guard: if the CLI-native flag is already present, don't touch it.
+    already_rewritten = {new for new in flag_rename_args.values() if new in cmd}
+
+    for arg_name in set(file_path_args) | set(flag_rename_args):
+        if flag_rename_args.get(arg_name) in already_rewritten:
+            continue
+        try:
+            arg_idx = cmd.index(arg_name)
+            arg_value = cmd[arg_idx + 1]
+
+            if arg_value.startswith("@") or len(arg_value) < 500:
+                continue
+
+            suffix = ".json" if arg_value.startswith("{") else ".txt"
+            temp_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=suffix, delete=False, encoding="utf-8"
+            )
+            temp_file.write(arg_value)
+            temp_file.close()
+            temp_files.append(temp_file.name)
+
+            cmd[arg_idx + 1] = temp_file.name
+            if arg_name in flag_rename_args:
+                cmd[arg_idx] = flag_rename_args[arg_name]
+
+        except (ValueError, IndexError):
+            pass
+
+    return cmd, temp_files
+
+
 def _patch_sdk_for_windows_cmdline_limit():
     """
     Monkey-patch the Claude Agent SDK to handle Windows command line length limits.
@@ -52,6 +119,10 @@ def _patch_sdk_for_windows_cmdline_limit():
     Windows has an 8191 character command line limit. The SDK handles --agents by
     writing to a temp file when too long, but not other large arguments like
     --system-prompt or --mcp-config. This patch extends that handling.
+
+    See ``_rewrite_oversized_args`` for why ``--system-prompt`` requires a
+    flag-name rewrite (to ``--system-prompt-file``) rather than the ``@file``
+    convention used elsewhere.
     """
     if platform.system() != "Windows":
         return
@@ -73,37 +144,11 @@ def _patch_sdk_for_windows_cmdline_limit():
         cmd_limit = 8000
 
         if len(cmd_str) > cmd_limit:
-            # Args the CLI reads natively as a file path (no @ prefix needed)
-            file_path_args = {"--mcp-config", "--settings"}
-            # Args the CLI reads via @file convention
-            atfile_args = {"--system-prompt", "--agents"}
-
-            for arg_name in file_path_args | atfile_args:
-                try:
-                    arg_idx = cmd.index(arg_name)
-                    arg_value = cmd[arg_idx + 1]
-
-                    if arg_value.startswith("@") or len(arg_value) < 500:
-                        continue
-
-                    suffix = ".json" if arg_value.startswith("{") else ".txt"
-                    temp_file = tempfile.NamedTemporaryFile(
-                        mode="w", suffix=suffix, delete=False, encoding="utf-8"
-                    )
-                    temp_file.write(arg_value)
-                    temp_file.close()
-
-                    if not hasattr(self, '_temp_files'):
-                        self._temp_files = []
-                    self._temp_files.append(temp_file.name)
-
-                    if arg_name in file_path_args:
-                        cmd[arg_idx + 1] = temp_file.name
-                    else:
-                        cmd[arg_idx + 1] = f"@{temp_file.name}"
-
-                except (ValueError, IndexError):
-                    pass
+            cmd, temp_files = _rewrite_oversized_args(cmd)
+            if temp_files:
+                if not hasattr(self, '_temp_files'):
+                    self._temp_files = []
+                self._temp_files.extend(temp_files)
 
         return cmd
 
@@ -429,10 +474,17 @@ class QtClaudeAgent(QObject):
             # Never let the developer's user-scope Claude settings (global
             # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into an
             # embedded beamline session. Leaving setting_sources unset (None)
-            # means "all sources" per the SDK, which pulls in the operator's
-            # personal assistant persona and fires their own hooks inside the
-            # app. "project" keeps deliberate per-cwd .claude config working.
-            "setting_sources": ["project"],
+            # means "all sources" per the SDK. "project" is ALSO unsafe: it
+            # activates the whole CLAUDE.md chain including the user-level
+            # ~/.claude/CLAUDE.md, not just per-cwd project config (verified
+            # empirically 2026-08-03: the operator's personal assistant
+            # persona leaked into an embedded session). Empty setting_sources
+            # ([]) gives true SDK isolation -- no CLAUDE.md chain, no personal
+            # plugins/hooks -- while --plugin-dir and --mcp-config (passed via
+            # options above) still work. Lightfall's own agent/skill scopes
+            # (AgentSpec, per-session plugin dir) are the extension mechanism,
+            # not the CLI's setting_sources.
+            "setting_sources": [],
         }
         if agents:
             options_dict["agents"] = agents
