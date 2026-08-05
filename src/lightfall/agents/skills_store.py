@@ -6,7 +6,9 @@ increasing precedence:
 
 1. Built-in skills shipped with Lightfall (``builtin_skills_dir()``).
 2. Beamline-provided skills (caller-supplied ``extra_dirs``).
-3. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
+3. Skills packaged inside ToolPlugins (``ToolPlugin.get_skill_dir()``,
+   collected via ``plugin_skill_dirs()``).
+4. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
 
 Later sources override earlier ones for skills sharing the same name. A
 ``_drafts`` subdirectory under any skill root is never resolved (phase-3
@@ -41,6 +43,38 @@ def user_skills_dir() -> Path:
     return path
 
 
+def plugin_skill_dirs() -> dict[str, Path]:
+    """Skill dirs contributed by registered ToolPlugins via ``get_skill_dir()``.
+
+    Keyed by plugin name. Dirs missing SKILL.md are skipped with a warning.
+    Returns {} if the ToolRegistry is unavailable (e.g. headless tooling).
+    """
+    try:
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+        plugins = ToolRegistry.get_instance().get_plugins()
+    except Exception as exc:  # noqa: BLE001 - skills must resolve without the registry
+        logger.debug("plugin_skill_dirs: ToolRegistry unavailable: {}", exc)
+        return {}
+
+    dirs: dict[str, Path] = {}
+    for plugin in plugins:
+        try:
+            skill_dir = plugin.get_skill_dir()
+        except Exception as exc:  # noqa: BLE001 - one bad plugin must not break the rest
+            logger.warning("plugin '{}': get_skill_dir() failed: {}", plugin.name, exc)
+            continue
+        if skill_dir is None:
+            continue
+        if not (Path(skill_dir) / "SKILL.md").is_file():
+            logger.warning(
+                "plugin '{}': skill dir {} has no SKILL.md; skipping", plugin.name, skill_dir
+            )
+            continue
+        dirs[plugin.name] = Path(skill_dir)
+    return dirs
+
+
 def _iter_skill_dirs(root: Path):
     if not root.is_dir():
         return
@@ -56,12 +90,18 @@ def _iter_skill_dirs(root: Path):
 def resolve_skills(extra_dirs: list[Path] | None = None) -> dict[str, Path]:
     """Resolve skill name -> skill directory across all roots.
 
-    Precedence (later wins): builtin < extra_dirs (beamline) < user.
+    Precedence (later wins): builtin < extra_dirs (beamline) < plugin < user.
+
+    "plugin" skills are single dirs contributed by registered ToolPlugins
+    via ``get_skill_dir()``, keyed by plugin name (see ``plugin_skill_dirs``).
     """
     resolved: dict[str, Path] = {}
-    for root in (builtin_skills_dir(), *(extra_dirs or []), user_skills_dir()):
+    for root in (builtin_skills_dir(), *(extra_dirs or [])):
         for skill_dir in _iter_skill_dirs(root):
             resolved[skill_dir.name] = skill_dir
+    resolved.update(plugin_skill_dirs())
+    for skill_dir in _iter_skill_dirs(user_skills_dir()):
+        resolved[skill_dir.name] = skill_dir
     return resolved
 
 
