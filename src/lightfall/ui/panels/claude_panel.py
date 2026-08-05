@@ -245,6 +245,10 @@ class ClaudePanel(BasePanel):
         self._cost_label: QLabel | None = None
         self._sessions_menu = None
 
+        # Title-bar toggle for thinking / tool-usage fragments (default hidden)
+        self._verbose_action = None
+        self._verbose_visible = False
+
         # Icon animation state
         self._thinking_timer: QTimer | None = None
         self._thinking_icon_toggle = False
@@ -332,6 +336,9 @@ class ClaudePanel(BasePanel):
         tab.bus_pending_changed.connect(
             lambda count, t=tab: self._on_tab_pending_changed(t, count)
         )
+        # New session widgets adopt the panel's current thinking/tool-usage
+        # visibility (the widget itself defaults to hidden).
+        tab.widget_created.connect(self._apply_verbose_state)
         if tab is self._lightfall_tab or self._lightfall_tab is None:
             # Panel-scoped extras (cockpit, sidebar icon, permission toasts)
             # track the main assistant only.
@@ -597,6 +604,16 @@ class ClaudePanel(BasePanel):
             self._cost_label.setToolTip(self._cockpit.tooltip())
             self.add_title_bar_widget(self._cost_label)
 
+        # Thinking / tool-usage visibility toggle (default: hidden)
+        if self._verbose_action is None:
+            self._verbose_action = self.add_title_bar_button(
+                "mdi6.thought-bubble-outline",
+                "Show thinking and tool usage",
+                on_triggered=self._on_toggle_verbose,
+                checkable=True,
+                checked=self._verbose_visible,
+            )
+
         # Session history / restore (title-bar menu — per spec §4.3)
         if self._sessions_menu is None:
             from PySide6.QtWidgets import QMenu
@@ -629,6 +646,25 @@ class ClaudePanel(BasePanel):
         self._active_agent_config = self._current_claude_config()
 
         logger.info("Claude assistant panel initialized")
+
+    def _apply_verbose_state(self, widget: object) -> None:
+        """Push the panel's thinking/tool-usage visibility onto a session widget.
+
+        Guarded with hasattr: test harnesses stub the session widget with
+        plain QWidgets that lack set_verbose_visible.
+        """
+        if widget is not None and hasattr(widget, "set_verbose_visible"):
+            widget.set_verbose_visible(self._verbose_visible)
+
+    def _on_toggle_verbose(self, checked: bool) -> None:
+        """Show/hide thinking and tool-usage fragments in every open session."""
+        self._verbose_visible = checked
+        tabs = self._session_tabs()
+        for tab in tabs:
+            self._apply_verbose_state(tab.claude_widget)
+        # No tab surface (test harness) -- fall back to the mirrored widget.
+        if not tabs:
+            self._apply_verbose_state(self._claude_widget)
 
     def _register_bus_endpoint(self) -> None:
         """Register the main session's bus endpoint (see agent_session_tab)."""
