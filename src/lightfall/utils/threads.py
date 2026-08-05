@@ -464,6 +464,7 @@ class QThreadFuture(QThread):
         key: str | None = None,
         name: str | None = None,
         register: bool = True,
+        log_exceptions: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the thread future.
@@ -482,6 +483,13 @@ class QThreadFuture(QThread):
                 will cancel the previous thread.
             name: Name for the thread (for debugging).
             register: Whether to register with ThreadManager (default True).
+            log_exceptions: Whether the framework logs an uncaught worker
+                exception at ERROR with a full traceback (default True). Set
+                False when ``except_slot`` fully owns error reporting (e.g. a
+                periodic poller that dedupes/rate-limits its own failures) —
+                the exception is still stored and delivered to ``except_slot``,
+                but the framework emits only a single concise DEBUG line
+                instead of a repeated ERROR + traceback.
             **kwargs: Keyword arguments for the method.
         """
         super().__init__()
@@ -499,6 +507,7 @@ class QThreadFuture(QThread):
         self._key = key
         self._name = name or getattr(method, "__name__", "anonymous")
         self._register = register
+        self._log_exceptions = log_exceptions
 
         self._cancelled = False
         self._exception: Exception | None = None
@@ -591,21 +600,30 @@ class QThreadFuture(QThread):
 
         except Exception as ex:
             self._exception = ex
-            try:
-                args_repr = repr(self._args)
-            except Exception:
-                args_repr = f"<{len(self._args)} args, repr failed>"
-            try:
-                kwargs_repr = repr(self._kwargs)
-            except Exception:
-                kwargs_repr = f"<{len(self._kwargs)} kwargs, repr failed>"
-            logger.error(
-                f"Error in thread '{self._name}': {ex}\n"
-                f"Method: {getattr(self._method, '__name__', 'UNKNOWN')}\n"
-                f"Args: {args_repr}\n"
-                f"Kwargs: {kwargs_repr}"
-            )
-            logger.exception(ex)
+            if self._log_exceptions:
+                try:
+                    args_repr = repr(self._args)
+                except Exception:
+                    args_repr = f"<{len(self._args)} args, repr failed>"
+                try:
+                    kwargs_repr = repr(self._kwargs)
+                except Exception:
+                    kwargs_repr = f"<{len(self._kwargs)} kwargs, repr failed>"
+                logger.error(
+                    f"Error in thread '{self._name}': {ex}\n"
+                    f"Method: {getattr(self._method, '__name__', 'UNKNOWN')}\n"
+                    f"Args: {args_repr}\n"
+                    f"Kwargs: {kwargs_repr}"
+                )
+                logger.exception(ex)
+            else:
+                # Caller's except_slot owns error reporting; keep a single
+                # concise DEBUG breadcrumb instead of a repeated ERROR+traceback.
+                logger.debug(
+                    "Thread '{}' raised {} (delivered to except_slot)",
+                    self._name,
+                    type(ex).__name__,
+                )
             if self._except_slot:
                 self.sigError.emit(ex)
         else:
