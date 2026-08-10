@@ -123,11 +123,10 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lightfall"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"
-"src/lightfall/skills" = "lightfall/skills"
-"src/lightfall/agents/builtin" = "lightfall/agents/builtin"
+# No force-include table here: everything under src/lightfall (logo.png, skills/,
+# agents/builtin/) is tracked and already picked up by `packages`. Force-including
+# those paths made hatchling add each file twice and hard-failed the wheel build
+# ("A second file is being added to the wheel archive at the same path").
 
 [tool.ruff]
 line-length = 100
