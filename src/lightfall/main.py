@@ -608,7 +608,6 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
         loader: The plugin loader to configure.
     """
     from lightfall.monitor.monitor_plugin import MonitorPlugin
-    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
     from lightfall.plugins.controller_plugin import ControllerPlugin
     from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
@@ -618,6 +617,7 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     from lightfall.plugins.settings_plugin import SettingsPlugin
     from lightfall.plugins.statusbar_plugin import StatusBarPlugin
     from lightfall.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.visualization_plugin import VisualizationPlugin
 
     loader.register_plugin_type("theme", ThemePlugin)

@@ -11,9 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from lightfall.utils.logging import logger
-
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
+from lightfall.utils.logging import logger
 
 try:
     from lightfall.claude._internal.threading import run_on_main_thread

@@ -83,7 +83,7 @@ def save_draft(
         "---",
         f"name: {frontmatter_name}",
         f"description: {description_quoted}",
-        f"lightfall-draft:",
+        "lightfall-draft:",
         f"  author: {author}",
         f"  created: {created}",
     ]

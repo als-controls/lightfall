@@ -11,14 +11,14 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 
+from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
+from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
 from lightfall.claude._internal.worker import PersistentClaudeWorker
 from lightfall.claude.permission_manager import (
     PermissionManager,
     create_can_use_tool_callback,
     create_pre_tool_use_hook,
 )
-from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
-from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
 from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
 
