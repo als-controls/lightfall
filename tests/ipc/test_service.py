@@ -55,6 +55,43 @@ class TestConnectionLifecycle:
         # Must not raise even though start() was never called
         svc.stop()
 
+    def test_stop_with_closed_loop_is_safe(self, qapp):
+        """The background thread closes the loop when _connect_and_serve exits
+        (e.g. NATS connect failed, or the serve loop won the shutdown race).
+        stop() must tolerate an already-closed loop."""
+        import threading
+
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        loop = asyncio.new_event_loop()
+        loop.close()
+        svc._loop = loop
+        thread = threading.Thread(target=lambda: None)
+        thread.start()
+        thread.join()
+        svc._thread = thread
+
+        svc.stop()  # must not raise RuntimeError: Event loop is closed
+        assert svc._thread is None
+        assert svc._loop is None
+
+    def test_stop_with_closed_loop_and_nc_is_safe(self, qapp):
+        """Same, but with a stale NATS client still set — the drain path must
+        also tolerate the closed loop."""
+        import threading
+
+        svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
+        loop = asyncio.new_event_loop()
+        loop.close()
+        svc._loop = loop
+        svc._nc = MagicMock()
+        thread = threading.Thread(target=lambda: None)
+        thread.start()
+        thread.join()
+        svc._thread = thread
+
+        svc.stop()
+        assert svc._thread is None
+
 
 # ---------------------------------------------------------------------------
 # TestSubscribePublish
@@ -274,6 +311,7 @@ class TestAuthHandshake:
                 "tiled_token": "tiled-apikey-xyz",
                 "tiled_url": "https://tiled.example.com",
                 "session_id": "user-abc-123",
+                "contract_version": 1,
             }
         finally:
             SessionManager.reset()
@@ -281,12 +319,12 @@ class TestAuthHandshake:
     def test_build_auth_response_denied(self):
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         resp = svc.build_auth_response(approved=False)
-        assert resp == {"status": "denied"}
+        assert resp == {"status": "denied", "contract_version": 1}
 
     def test_build_auth_response_denied_with_reason(self):
         svc = IPCService(nats_url="nats://localhost:4222", topic_prefix="test")
         resp = svc.build_auth_response(approved=False, reason="timeout")
-        assert resp == {"status": "denied", "reason": "timeout"}
+        assert resp == {"status": "denied", "reason": "timeout", "contract_version": 1}
 
 
 # ---------------------------------------------------------------------------

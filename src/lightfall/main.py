@@ -462,7 +462,7 @@ def _setup_devices() -> None:
             connection_timeout,
         )
 
-    if catalog.connect():
+    if catalog.connect_backends():
         backends_str = ", ".join(catalog.backends.keys())
         logger.info("Device catalog loading from [{}] (devices connect in the background)", backends_str)
     else:
@@ -573,6 +573,29 @@ def _setup_monitor(app, window) -> None:
         logger.debug("could not register MonitorService with app.services")
 
 
+def _setup_agent_specs() -> None:
+    """Bootstrap the AgentSpecRegistry with the core and user agent-file scopes.
+
+    Registers the built-in shipped agent definitions ("core" scope) and the
+    user's ``~/lightfall/agents`` directory ("user" scope), then starts
+    watching the user directory for live edits. Must run before any
+    ``QtClaudeAgent`` (or ``MonitorAdvisor``) is constructed, since those
+    consult the registry for their system prompts.
+
+    Beamline packages contribute their own agent definitions via the public
+    ``AgentSpecRegistry.get_instance().register_scope_dir("beamline", path)``
+    API, called from their own plugin init code (e.g. an ``EnginePlugin`` or
+    ``ToolPlugin`` subclass's ``setup()``). No loader-level hook is required.
+    """
+    from lightfall.agents import builtin_agents_dir, user_agents_dir
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    reg = AgentSpecRegistry.get_instance()
+    reg.register_scope_dir("core", builtin_agents_dir())
+    reg.register_scope_dir("user", user_agents_dir())
+    reg.watch_user_dir()
+
+
 def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     """Register every built-in plugin type with the loader.
 
@@ -585,7 +608,6 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
         loader: The plugin loader to configure.
     """
     from lightfall.monitor.monitor_plugin import MonitorPlugin
-    from lightfall.plugins.agent_plugin import AgentPlugin
     from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
     from lightfall.plugins.controller_plugin import ControllerPlugin
     from lightfall.plugins.device_backend_plugin import DeviceBackendPlugin
@@ -595,12 +617,13 @@ def _register_builtin_plugin_types(loader: PluginLoader) -> None:
     from lightfall.plugins.settings_plugin import SettingsPlugin
     from lightfall.plugins.statusbar_plugin import StatusBarPlugin
     from lightfall.plugins.theme_plugin import ThemePlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.visualization_plugin import VisualizationPlugin
 
     loader.register_plugin_type("theme", ThemePlugin)
     loader.register_plugin_type("settings", SettingsPlugin)
     loader.register_plugin_type("engine", EnginePlugin)
-    loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("tool", ToolPlugin)
     loader.register_plugin_type("monitor", MonitorPlugin)
     loader.register_plugin_type("statusbar", StatusBarPlugin)
     loader.register_plugin_type("controller", ControllerPlugin)
@@ -953,6 +976,10 @@ def main() -> int:
     # Setup Tiled data catalog service
     _setup_tiled(app, config)
 
+    # Bootstrap the agent-spec registry (core + user scopes) before any
+    # QtClaudeAgent/MonitorAdvisor can be constructed.
+    _setup_agent_specs()
+
     # Setup plugin system and load preload plugins (before main window)
     _setup_plugins(app)
 
@@ -1113,7 +1140,7 @@ def main() -> int:
         # 3. Disconnect device catalog (ophyd devices, connection manager)
         try:
             catalog = DeviceCatalog.get_instance()
-            catalog.disconnect()
+            catalog.disconnect_backends()
             logger.debug("Device catalog disconnected during shutdown")
         except Exception:
             pass
@@ -1126,13 +1153,34 @@ def main() -> int:
         ManagedThreadPool.shutdown_all(wait=False)
         logger.debug("Managed thread pools shut down")
 
-        # 5. Skip caproto Context.disconnect().
-        #    Previously we called ctx.disconnect(wait=False) here, but it
-        #    triggers an access violation (0xC0000005) on Windows — caproto's
-        #    C-level socket code touches memory freed by earlier teardown.
-        #    With ManagedThreadPool (daemon threads) and CA tunnel stopped,
-        #    all caproto threads will die automatically on process exit.
-        logger.debug("Skipping caproto context disconnect (daemon threads exit with process)")
+        # 5. Stop caproto's user-callback thread pools. Each connected circuit
+        #    owns a non-daemon ThreadPoolExecutor whose workers concurrent.futures
+        #    joins via an atexit hook — a callback in flight there stalls exit
+        #    (the reason the watchdog above exists). Draining them (no socket
+        #    teardown) lets exit proceed and cannot trigger the socket-teardown
+        #    crash a full Context.disconnect() was blamed for. That fuller
+        #    teardown — which also stops caproto's selector/circuit threads
+        #    before finalization — is opt-in via LIGHTFALL_CAPROTO_DISCONNECT=1
+        #    so we can verify whether it actually crashes (and whether it fixes
+        #    the finalization-time access violation).
+        try:
+            from lightfall.utils.caproto_shutdown import (
+                disconnect_context,
+                drain_callback_executors,
+                get_caproto_context,
+            )
+
+            _ctx = get_caproto_context()
+            if _ctx is None:
+                logger.debug("No caproto context to stop")
+            elif os.environ.get("LIGHTFALL_CAPROTO_DISCONNECT") == "1":
+                logger.info("Disconnecting caproto context (full teardown)")
+                disconnect_context(_ctx)
+            else:
+                n = drain_callback_executors(_ctx)
+                logger.debug("Drained {} caproto user-callback executor(s)", n)
+        except Exception as e:
+            logger.warning("caproto shutdown step failed: {}", e)
 
         # Log remaining threads so we can see what's blocking exit
         _log_active_threads("post-cleanup")

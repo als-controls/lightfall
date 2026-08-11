@@ -2,12 +2,14 @@
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent, QPalette
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.claude.agent import QtClaudeAgent
+from lightfall.claude.bus_endpoint import BusCardEntry, BusCardModel, ClaudeSessionEndpoint
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
@@ -172,6 +175,7 @@ class ClaudeAssistantWidget(QWidget):
     approval_resolved = Signal(str, bool)       # request_id, was_allowed
     model_change_requested = Signal(str)   # combo preset the user picked
     effort_change_requested = Signal(str)  # effort level the user picked
+    bus_pending_changed = Signal(int)      # pending agent-message card count
 
     def __init__(
         self,
@@ -186,6 +190,7 @@ class ClaudeAssistantWidget(QWidget):
         effort: str | None = None,
         resume: str | None = None,
         disable_betas: bool = False,
+        spec=None,
         parent: QWidget | None = None
     ):
         """
@@ -228,9 +233,21 @@ class ClaudeAssistantWidget(QWidget):
         self._task_tool_use_ids: dict[str, str] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
+        # Thinking / tool-usage fragments, hidden by default; the panel's
+        # title-bar toggle flips visibility via set_verbose_visible().
+        self._verbose_visible = False
+        self._verbose_widgets: list[QWidget] = []
 
         # Create the agent
         try:
+            # ``spec`` selects which agent definition this session runs. The
+            # tabbed panel passes one per tab; callers that don't (legacy /
+            # tests) get the main "lightfall" agent as before.
+            if spec is None:
+                from lightfall.agents.registry import AgentSpecRegistry
+
+                spec = AgentSpecRegistry.get_instance().get("lightfall")
+
             self.agent = QtClaudeAgent(
                 target_window,
                 api_key,
@@ -244,6 +261,7 @@ class ClaudeAssistantWidget(QWidget):
                 effort=effort,
                 resume=resume,
                 disable_betas=disable_betas,
+                spec=spec,
                 parent=self,
             )
         except ValueError as e:
@@ -251,9 +269,32 @@ class ClaudeAssistantWidget(QWidget):
             self._setup_error_ui(str(e))
             return
 
+        # Bus-message cards: pure-logic bookkeeping (see BusCardModel), plus
+        # a card-entry -> live QFrame map so signal handlers can update or
+        # remove the right widget.
+        self._bus_card_model = BusCardModel()
+        self._bus_card_widgets: dict[int, QFrame] = {}
+
+        # Bus endpoint: routes messages from other agents into this session
+        # per the spec's delivery policy (default "queue" if no spec).
+        self.bus_endpoint = ClaudeSessionEndpoint(
+            name=spec.name if spec else "lightfall",
+            description=spec.description if spec else "Lightfall assistant",
+            submit=self._submit_bus_prompt,
+            is_busy=lambda: self.agent.is_busy() or self._is_busy,
+            on_queued=lambda sender, message: None,
+            policy=spec.on_message if spec else "queue",
+            parent=self,
+        )
+        self.bus_endpoint.message_queued.connect(self._on_bus_message_queued)
+        self.bus_endpoint.message_auto_accepted.connect(
+            self._on_bus_message_auto_accepted
+        )
+
         # Setup UI
         self._setup_ui()
         self._connect_signals()
+        self.agent.query_completed.connect(self._flush_bus_on_completion)
 
     def _setup_ui(self) -> None:
         """Setup the user interface."""
@@ -442,11 +483,30 @@ class ClaudeAssistantWidget(QWidget):
         self._pending_question_widgets.clear()
         # Clear any in-progress streaming bubbles
         self._streaming_bubbles.clear()
+        # Verbose fragments were children of the chat layout (deleted above)
+        self._verbose_widgets.clear()
         # Clear any task card tracking (the widgets themselves are children
         # of the chat layout and were already deleted above).
         self._task_cards.clear()
         self._task_tool_use_ids.clear()
         self._permission_container.hide()
+        # Bus-message cards are children of the chat layout too (already
+        # deleted above) -- drop the tracking, then re-render a fresh card
+        # for every message still queued in the endpoint. Those messages
+        # were never delivered, so they must stay actionable even though
+        # the old transcript (and any auto/dismissed historical cards) is
+        # gone. Rebuild the model from the endpoint's current pending list
+        # so indices line up for later accept(index)/dismiss(index) calls.
+        self._bus_card_widgets.clear()
+        pending_entries = self._bus_card_model.rebuild_from_pending(
+            self.bus_endpoint.pending()
+        )
+        for entry in pending_entries:
+            frame = self._append_bus_message_card(
+                entry.sender, entry.message, auto=False, entry=entry
+            )
+            self._bus_card_widgets[id(entry)] = frame
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
         # Reset busy state
         self._set_busy_state(False)
@@ -472,8 +532,10 @@ class ClaudeAssistantWidget(QWidget):
                 if text:
                     self._append_assistant_message(text)
                 for tool in tools:
-                    self._append_system_message(
-                        f"⚙ {self._format_tool_name(tool)}"
+                    self._register_verbose_widget(
+                        self._append_system_message(
+                            f"⚙ {self._format_tool_name(tool)}"
+                        )
                     )
         self._append_system_message("— restored session —")
 
@@ -521,6 +583,176 @@ class ClaudeAssistantWidget(QWidget):
             act.triggered.connect(
                 lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
             )
+
+        menu.addSection("Agent bus")
+        auto_respond_act = menu.addAction("Auto-accept agent messages")
+        auto_respond_act.setCheckable(True)
+        auto_respond_act.setChecked(self.bus_endpoint.policy == "auto")
+        auto_respond_act.triggered.connect(self._on_toggle_auto_respond)
+
+    def _on_toggle_auto_respond(self, checked: bool) -> None:
+        """Settings-menu toggle: switch the bus endpoint's delivery policy."""
+        self.bus_endpoint.set_policy("auto" if checked else "queue")
+
+    def _submit_bus_prompt(self, text: str) -> bool:
+        """Inject a bus-delivered prompt into the session, as if the user typed it.
+
+        Returns False (without side effects) if a query is already in flight,
+        or if the user has an in-progress draft in the input field (the
+        endpoint re-queues the message and the banner reflects the residue).
+        """
+        if self.agent.is_busy() or self._is_busy:
+            return False
+        if self.input_field.toPlainText().strip():
+            return False
+        self.input_field.setPlainText(text)
+        self._send_query()
+        return True
+
+    def _flush_bus_on_completion(self) -> None:
+        """When a query finishes, flush any bus messages queued while busy
+        under the "auto" delivery policy.
+
+        Under "queue" policy we never auto-flush -- the cards are already
+        visible and wait for the user's Accept/Dismiss.
+        """
+        if self.bus_endpoint.policy == "auto":
+            self.bus_endpoint.flush_pending()
+
+    def _on_bus_message_queued(self, sender: str, message: str) -> None:
+        """A message is pending (either "queue" policy, or "auto" policy
+        with the session busy) -- render an interactive Accept/Dismiss card."""
+        entry = self._bus_card_model.add_pending(sender, message)
+        frame = self._append_bus_message_card(sender, message, auto=False, entry=entry)
+        self._bus_card_widgets[id(entry)] = frame
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
+
+    def _on_bus_message_auto_accepted(self, sender: str, message: str) -> None:
+        """A message was auto-submitted -- render a non-interactive card.
+
+        If this message already had a pending card (queued while busy under
+        "auto" policy, now flushed on completion), replace that stale card
+        instead of leaving two cards for the same message.
+        """
+        stale_entry = self._bus_card_model.take_pending(sender, message)
+        if stale_entry is not None:
+            stale_frame = self._bus_card_widgets.pop(id(stale_entry), None)
+            if stale_frame is not None:
+                stale_frame.deleteLater()
+
+        entry = self._bus_card_model.add_auto(sender, message)
+        frame = self._append_bus_message_card(sender, message, auto=True, entry=entry)
+        self._bus_card_widgets[id(entry)] = frame
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
+
+    def _append_bus_message_card(
+        self, sender: str, message: str, *, auto: bool, entry: BusCardEntry
+    ) -> QFrame:
+        """Render one inline agent-message card into the chat transcript.
+
+        The transcript is already a QVBoxLayout stack of live widgets (see
+        _create_card / _add_widget, and TaskCard/PermissionRequestWidget for
+        precedent) rather than a single HTML QTextEdit, so an interactive
+        card with real buttons drops straight into that same mechanism --
+        no separate widget region is needed.
+        """
+        palette = self.palette()
+        base = palette.color(QPalette.ColorRole.Base)
+        is_dark = base.lightness() < 128
+        bg = "#2a2a2a" if is_dark else "#f5f5f5"
+
+        card = QFrame()
+        card.setObjectName("busMessageCard")
+        card.setFrameShape(QFrame.Shape.NoFrame)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        card.setStyleSheet(
+            f"QFrame#busMessageCard {{ background: {bg}; border-left: 4px solid #f9a825; "
+            f"border-radius: 4px; padding: 8px 12px; }}"
+        )
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(4)
+
+        timestamp = datetime.now().strftime("%H:%M")
+        header = QLabel(f"⚡ from {sender} · {timestamp}")
+        header.setStyleSheet(
+            f"font-weight: bold; font-size: {scaled_pt(8)}pt; color: #f9a825; "
+            f"letter-spacing: 1px;"
+        )
+        card_layout.addWidget(header)
+
+        body = QLabel(self._escape_html(message))
+        body.setWordWrap(True)
+        body.setTextFormat(Qt.TextFormat.RichText)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        card_layout.addWidget(body)
+
+        if auto:
+            note = QLabel("auto-accepted")
+            note.setStyleSheet(
+                f"color: #888; font-style: italic; font-size: {scaled_pt(8)}pt;"
+            )
+            card_layout.addWidget(note)
+        else:
+            btn_row = QHBoxLayout()
+            btn_row.setContentsMargins(0, 4, 0, 0)
+            btn_row.setSpacing(8)
+            accept_btn = QPushButton("Accept")
+            dismiss_btn = QPushButton("Dismiss")
+            btn_row.addWidget(accept_btn)
+            btn_row.addWidget(dismiss_btn)
+            btn_row.addStretch(1)
+            card_layout.addLayout(btn_row)
+
+            busy_note = QLabel("")
+            busy_note.setStyleSheet(
+                f"color: #ff6666; font-size: {scaled_pt(8)}pt;"
+            )
+            busy_note.hide()
+            card_layout.addWidget(busy_note)
+
+            accept_btn.clicked.connect(
+                lambda: self._on_bus_card_accept(entry, card, busy_note)
+            )
+            dismiss_btn.clicked.connect(
+                lambda: self._on_bus_card_dismiss(entry, card)
+            )
+
+        self._add_widget(card)
+        return card
+
+    def _on_bus_card_accept(
+        self, entry: BusCardEntry, card: QFrame, busy_note: QLabel
+    ) -> None:
+        """Accept button: submit this card's message via the endpoint.
+
+        On refusal (session went busy between render and click) the card
+        stays and shows a transient note; on success the card is removed.
+        """
+        index = self._bus_card_model.pending_index_of(entry)
+        if index is None:
+            return
+        if self.bus_endpoint.accept(index):
+            self._bus_card_model.remove(entry)
+            self._bus_card_widgets.pop(id(entry), None)
+            card.deleteLater()
+        else:
+            busy_note.setText("agent busy — try again")
+            busy_note.show()
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
+
+    def _on_bus_card_dismiss(self, entry: BusCardEntry, card: QFrame) -> None:
+        """Dismiss button: drop the message without submitting; grey the card."""
+        index = self._bus_card_model.pending_index_of(entry)
+        if index is not None:
+            self.bus_endpoint.dismiss(index)
+        self._bus_card_model.mark_dismissed(entry)
+        card.setEnabled(False)
+        effect = QGraphicsOpacityEffect(card)
+        effect.setOpacity(0.4)
+        card.setGraphicsEffect(effect)
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
     def _refresh_models(self) -> None:
         """Re-query the backend's model list (clears the session cache)."""
@@ -598,6 +830,8 @@ class ClaudeAssistantWidget(QWidget):
         self._streaming_bubbles[block_id] = _StreamingBubble(
             kind=kind, frame=frame, label=label, buffer=""
         )
+        if kind == "thinking":
+            self._register_verbose_widget(frame)
         self._add_widget(frame)
 
     @Slot(str, str)
@@ -627,6 +861,8 @@ class ClaudeAssistantWidget(QWidget):
         if not bubble.buffer:
             # Empty bubble — no content ever arrived. Remove the ghost
             # card so the AssistantMessage path's card stands alone.
+            if bubble.frame in self._verbose_widgets:
+                self._verbose_widgets.remove(bubble.frame)
             bubble.frame.deleteLater()
             return
         if bubble.kind == "text":
@@ -644,7 +880,9 @@ class ClaudeAssistantWidget(QWidget):
             return
         # Simplify tool name for display
         display_name = tool_name.replace("mcp__qt__", "")
-        self._append_system_message(f"Using tool: {display_name}")
+        self._register_verbose_widget(
+            self._append_system_message(f"Using tool: {display_name}")
+        )
 
     @Slot(str, str, str)
     def _on_task_started(
@@ -958,6 +1196,21 @@ class ClaudeAssistantWidget(QWidget):
         # Defer scroll so layout has time to update
         QTimer.singleShot(0, self._scroll_to_bottom)
 
+    # --- Verbose fragments (thinking + tool usage) ---
+
+    def set_verbose_visible(self, visible: bool) -> None:
+        """Show or hide thinking and tool-usage fragments in the chat."""
+        self._verbose_visible = visible
+        for widget in self._verbose_widgets:
+            widget.setVisible(visible)
+        self._scroll_to_bottom_if_needed()
+
+    def _register_verbose_widget(self, widget: QWidget) -> None:
+        """Track a thinking / tool-usage fragment; hide it if verbose is off."""
+        self._verbose_widgets.append(widget)
+        if not self._verbose_visible:
+            widget.hide()
+
     def _append_user_message(self, message: str) -> None:
         """Append user message to chat display."""
         colors = self._get_theme_colors()
@@ -987,9 +1240,10 @@ class ClaudeAssistantWidget(QWidget):
             self._escape_html(thinking),
             label="Thinking", italic=True, small=True,
         )
+        self._register_verbose_widget(card)
         self._add_widget(card)
 
-    def _append_system_message(self, message: str) -> None:
+    def _append_system_message(self, message: str) -> QLabel:
         """Append system message as simple italic text."""
         colors = self._get_theme_colors()
         lbl = QLabel()
@@ -1001,6 +1255,7 @@ class ClaudeAssistantWidget(QWidget):
             f"font-size: {scaled_pt(9)}pt; padding: 2px 4px; }}"
         )
         self._add_widget(lbl)
+        return lbl
 
     def _append_error_message(self, message: str) -> None:
         """Append error message to chat display."""

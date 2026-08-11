@@ -11,6 +11,7 @@ The provider supports two browser modes:
 from __future__ import annotations
 
 import secrets
+import time
 import webbrowser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -301,10 +302,25 @@ class KeycloakAuthProvider(AuthProvider):
         self._role_mapping = role_mapping or DEFAULT_ROLE_MAPPING
         self._callback_timeout = callback_timeout
         self._http: Any = None  # aiohttp ClientSession
+        # Set by cancel() to unblock an in-flight external-browser callback
+        # wait (used as the login QThreadFuture's interrupt_callable).
+        self._cancel_event = Event()
 
     @property
     def name(self) -> str:
         return f"Keycloak ({self._config.realm})"
+
+    def cancel(self) -> None:
+        """Signal an in-flight browser authentication to stop waiting.
+
+        Safe to call from another thread. This is wired as the login
+        QThreadFuture's ``interrupt_callable`` so that cancelling the login
+        unblocks the OAuth callback wait promptly, instead of leaving the
+        worker stuck until ``callback_timeout`` (or, historically, getting it
+        force-terminated — which corrupts the interpreter and crashes the
+        process with 0xC0000005).
+        """
+        self._cancel_event.set()
 
     @property
     def supports_password_auth(self) -> bool:
@@ -626,9 +642,30 @@ class KeycloakAuthProvider(AuthProvider):
         logger.info("Opening external browser for authentication")
         webbrowser.open(auth_url)
 
-        # Wait for callback
-        server_thread.join(timeout=self._callback_timeout)
-        server.server_close()
+        # Wait for the callback, but stay responsive to cancel(). A plain
+        # join(timeout) blocks uninterruptibly for the whole timeout; the
+        # login runs on a QThreadFuture, and an unresponsive worker there used
+        # to be force-terminated — which corrupts the interpreter and crashes
+        # the process (0xC0000005). Poll in short slices so cancel() (which
+        # sets _cancel_event) unblocks us within a fraction of a second.
+        self._cancel_event.clear()
+        cancelled = False
+        try:
+            deadline = time.monotonic() + self._callback_timeout
+            while server_thread.is_alive():
+                if self._cancel_event.is_set():
+                    cancelled = True
+                    logger.info("External browser authentication cancelled")
+                    break
+                if time.monotonic() >= deadline:
+                    break
+                server_thread.join(timeout=0.1)
+        finally:
+            # Closing the socket unblocks the daemon handle_request() thread.
+            server.server_close()
+
+        if cancelled:
+            return None
 
         if _OAuthCallbackHandler.error:
             logger.error("Authentication error: {}", _OAuthCallbackHandler.error)

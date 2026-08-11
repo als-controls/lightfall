@@ -6,18 +6,12 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QTimer
 
 from lightfall.acquire.engine.waiting_hook import WaitingHookBridge
 
-
-@pytest.fixture
-def qapp():
-    """Ensure QApplication exists for Qt."""
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
+# qapp is supplied by pytest-qt as a real QApplication (see tests/conftest.py);
+# a local QCoreApplication fixture is the wrong type for widget tests and aborts
+# the process at teardown (0xC0000005) when they share a run.
 
 
 @pytest.fixture

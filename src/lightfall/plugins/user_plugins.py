@@ -454,10 +454,10 @@ class UserPluginService(QObject):
                 registry.unregister(reg.key)
                 logger.debug("Unregistered panel: {}", reg.key)
 
-            elif reg.registry_type in ("agent", "skill", "mcp_tool"):
-                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+            elif reg.registry_type in ("tool", "skill", "mcp_tool"):
+                from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-                AgentRegistry.get_instance().unregister(reg.key)
+                ToolRegistry.get_instance().unregister(reg.key)
                 logger.debug("Unregistered agent plugin: {}", reg.key)
 
         except Exception as e:
@@ -497,9 +497,9 @@ class UserPluginService(QObject):
         plugin_name = getattr(instance, "name", cls.__name__)
 
         try:
-            if registry_type == "agent":
-                from lightfall.ui.panels.claude.agent_registry import AgentRegistry
-                AgentRegistry.get_instance().register(instance)
+            if registry_type == "tool":
+                from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+                ToolRegistry.get_instance().register(instance)
                 registration_key = plugin_name
             elif registry_type == "panel":
                 from lightfall.ui.panels.registry import PanelRegistry

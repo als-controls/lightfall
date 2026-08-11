@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+import traceback
 from collections.abc import Callable, Generator
 from functools import wraps
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -463,6 +464,7 @@ class QThreadFuture(QThread):
         key: str | None = None,
         name: str | None = None,
         register: bool = True,
+        log_exceptions: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the thread future.
@@ -481,6 +483,13 @@ class QThreadFuture(QThread):
                 will cancel the previous thread.
             name: Name for the thread (for debugging).
             register: Whether to register with ThreadManager (default True).
+            log_exceptions: Whether the framework logs an uncaught worker
+                exception at ERROR with a full traceback (default True). Set
+                False when ``except_slot`` fully owns error reporting (e.g. a
+                periodic poller that dedupes/rate-limits its own failures) —
+                the exception is still stored and delivered to ``except_slot``,
+                but the framework emits only a single concise DEBUG line
+                instead of a repeated ERROR + traceback.
             **kwargs: Keyword arguments for the method.
         """
         super().__init__()
@@ -498,6 +507,7 @@ class QThreadFuture(QThread):
         self._key = key
         self._name = name or getattr(method, "__name__", "anonymous")
         self._register = register
+        self._log_exceptions = log_exceptions
 
         self._cancelled = False
         self._exception: Exception | None = None
@@ -590,21 +600,30 @@ class QThreadFuture(QThread):
 
         except Exception as ex:
             self._exception = ex
-            try:
-                args_repr = repr(self._args)
-            except Exception:
-                args_repr = f"<{len(self._args)} args, repr failed>"
-            try:
-                kwargs_repr = repr(self._kwargs)
-            except Exception:
-                kwargs_repr = f"<{len(self._kwargs)} kwargs, repr failed>"
-            logger.error(
-                f"Error in thread '{self._name}': {ex}\n"
-                f"Method: {getattr(self._method, '__name__', 'UNKNOWN')}\n"
-                f"Args: {args_repr}\n"
-                f"Kwargs: {kwargs_repr}"
-            )
-            logger.exception(ex)
+            if self._log_exceptions:
+                try:
+                    args_repr = repr(self._args)
+                except Exception:
+                    args_repr = f"<{len(self._args)} args, repr failed>"
+                try:
+                    kwargs_repr = repr(self._kwargs)
+                except Exception:
+                    kwargs_repr = f"<{len(self._kwargs)} kwargs, repr failed>"
+                logger.error(
+                    f"Error in thread '{self._name}': {ex}\n"
+                    f"Method: {getattr(self._method, '__name__', 'UNKNOWN')}\n"
+                    f"Args: {args_repr}\n"
+                    f"Kwargs: {kwargs_repr}"
+                )
+                logger.exception(ex)
+            else:
+                # Caller's except_slot owns error reporting; keep a single
+                # concise DEBUG breadcrumb instead of a repeated ERROR+traceback.
+                logger.debug(
+                    "Thread '{}' raised {} (delivered to except_slot)",
+                    self._name,
+                    type(ex).__name__,
+                )
             if self._except_slot:
                 self.sigError.emit(ex)
         else:
@@ -647,13 +666,28 @@ class QThreadFuture(QThread):
         return self._result
 
     def cancel(self, timeout_ms: int = 5000) -> bool:
-        """Cancel the thread.
+        """Cancel the thread, gracefully.
+
+        Requests interruption (and invokes any ``interrupt_callable``), then
+        waits up to ``timeout_ms`` for the thread to stop cooperatively.
+
+        A thread that ignores the interruption request is **abandoned**, not
+        force-killed: ``QThread.terminate()`` aborts a thread at an arbitrary
+        machine instruction, and if that thread is executing Python (holding
+        the GIL, mid-allocation, inside a C extension) it corrupts the
+        interpreter heap and crashes the whole process with an access
+        violation (0xC0000005) — often later, on an unrelated thread. A stuck
+        thread is the lesser evil, so we leave it running (it keeps its
+        ThreadManager reference and is reclaimed when it finally unblocks or
+        the process exits). Give long-blocking work an ``interrupt_callable``
+        that unblocks its wait so cancellation stays prompt.
 
         Args:
-            timeout_ms: Time to wait for graceful shutdown before force-terminating.
+            timeout_ms: Time to wait for graceful shutdown.
 
         Returns:
-            True if thread stopped, False if it had to be force-terminated.
+            True if the thread stopped, False if it ignored interruption and
+            was abandoned.
         """
         if not self.running:
             return True
@@ -672,11 +706,43 @@ class QThreadFuture(QThread):
             logger.debug(f"Thread '{self._name}' stopped gracefully")
             return True
 
-        # Force terminate
-        logger.warning(f"Thread '{self._name}' did not respond to interrupt, force terminating")
-        self.terminate()
-        self.wait(1000)  # Brief wait after terminate
+        # The thread ignored the interruption request. We deliberately do NOT
+        # call terminate() here (see the docstring): abandon it instead.
+        logger.warning(
+            "Thread '{}' ignored interruption request after {} ms; abandoning "
+            "it rather than force-terminating (terminate() would risk "
+            "corrupting the interpreter and crashing the process). If this "
+            "thread blocks on I/O, give it an interrupt_callable that unblocks "
+            "the wait so cancellation stays prompt.",
+            self._name,
+            timeout_ms,
+        )
         return False
+
+    def terminate(self) -> None:
+        """Forcibly terminate the thread — DANGEROUS, logs the antipattern.
+
+        ``QThread.terminate()`` aborts the thread at an arbitrary machine
+        instruction. If the thread is executing Python (holding the GIL,
+        mid-allocation, inside a C extension) the interpreter heap is left
+        corrupted and the process typically dies with an access violation
+        (0xC0000005), frequently later and on an unrelated thread — a crash
+        that is extremely hard to trace back here.
+
+        Lightfall never calls this as part of normal cancellation (see
+        ``cancel()``). It is retained only so that a deliberate caller — or
+        Qt internals — that reaches it is loudly flagged in the logs.
+        """
+        logger.warning(
+            "QThread.terminate() called on thread '{}' — this is an "
+            "ANTIPATTERN: terminating a thread that is executing Python can "
+            "corrupt the interpreter heap and crash the process (0xC0000005). "
+            "Prefer graceful cancellation via requestInterruption() / an "
+            "interrupt_callable.\nCall site:\n{}",
+            self._name,
+            "".join(traceback.format_stack()[:-1]),
+        )
+        super().terminate()
 
     def report_progress(self, current: float, minimum: float = 0, maximum: float = 100) -> None:
         """Report progress from within the running thread.

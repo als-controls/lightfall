@@ -1,0 +1,187 @@
+import pytest
+
+from lightfall.agents import drafts, skills_store
+
+
+@pytest.fixture()
+def user_root(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    root.mkdir()
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: root)
+    monkeypatch.setattr(drafts, "user_skills_dir", lambda: root)
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: tmp_path / "none")
+    return root
+
+
+def test_save_new_draft(user_root):
+    path, is_rev = drafts.save_draft(
+        "cryo-stall-triage", "Triage cryocooler stalls", "Steps...",
+        author="observer", session_id="s1")
+    assert not is_rev
+    assert path == user_root / "_drafts" / "cryo-stall-triage" / "SKILL.md"
+    text = path.read_text(encoding="utf-8")
+    assert "name: cryo-stall-triage" in text
+    assert "author: observer" in text
+    assert "Steps..." in text
+
+
+def test_collision_with_active_skill_writes_proposed(user_root):
+    active = user_root / "existing-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text("---\nname: existing-skill\ndescription: d\n---\nb",
+                                     encoding="utf-8")
+    path, is_rev = drafts.save_draft("existing-skill", "improved", "new body",
+                                     author="lightfall")
+    assert is_rev
+    assert path.name == "SKILL.md.proposed"
+
+
+def test_redraft_overwrites(user_root):
+    drafts.save_draft("x", "d", "v1", author="a")
+    path, _ = drafts.save_draft("x", "d", "v2", author="a")
+    assert "v2" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("bad", ["Bad Name", "", "-lead", "a" * 65])
+def test_invalid_name_rejected(user_root, bad):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft(bad, "d", "b", author="a")
+
+
+def test_name_with_trailing_newline_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("abc\n", "d", "b", author="a")
+
+
+def test_drafts_are_inert_to_resolution(user_root):
+    drafts.save_draft("sneaky", "d", "b", author="a")
+    assert "sneaky" not in skills_store.resolve_skills()
+
+
+def test_list_drafts(user_root):
+    drafts.save_draft("b-skill", "d", "body", author="observer")
+    drafts.save_draft("a-skill", "d", "body", author="lightfall")
+    listing = drafts.list_drafts()
+    assert [d["name"] for d in listing] == ["a-skill", "b-skill"]
+    assert listing[0]["author"] == "lightfall"
+    assert listing[0]["is_revision"] is False
+
+
+def test_description_with_embedded_newline_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "line1\nline2", "b", author="a")
+
+
+def test_description_with_carriage_return_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "line1\rline2", "b", author="a")
+
+
+def test_whitespace_only_description_rejected(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.save_draft("x", "   ", "b", author="a")
+
+
+def test_description_with_yaml_syntax_is_quoted(user_root):
+    desc = "title: sneaky"
+    path, _ = drafts.save_draft("x", desc, "body", author="a")
+    text = path.read_text(encoding="utf-8")
+    # Description should be JSON-quoted in the frontmatter.
+    assert 'description: "title: sneaky"' in text or "description: 'title: sneaky'" in text
+
+
+def test_approve_new_draft_moves_to_user_skills(user_root):
+    drafts.save_draft("cryo-stall-triage", "Triage stalls", "Steps...", author="a")
+    result = drafts.approve_draft("cryo-stall-triage")
+    assert result == user_root / "cryo-stall-triage" / "SKILL.md"
+    assert result.exists()
+    assert "Steps..." in result.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "cryo-stall-triage").exists()
+    assert "cryo-stall-triage" in skills_store.resolve_skills()
+
+
+def test_approve_revision_of_user_scope_skill_overwrites_active(user_root):
+    active = user_root / "existing-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text(
+        "---\nname: existing-skill\ndescription: d\n---\nold body", encoding="utf-8"
+    )
+    drafts.save_draft("existing-skill", "improved", "new body", author="lightfall")
+
+    result = drafts.approve_draft("existing-skill")
+
+    assert result == active / "SKILL.md"
+    assert "new body" in result.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "existing-skill").exists()
+
+
+def test_approve_revision_of_builtin_scope_skill_creates_user_shadow(tmp_path, monkeypatch):
+    builtin_root = tmp_path / "builtin"
+    builtin_root.mkdir()
+    user_root = tmp_path / "user_skills"
+    user_root.mkdir()
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user_root)
+    monkeypatch.setattr(drafts, "user_skills_dir", lambda: user_root)
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin_root)
+
+    builtin_skill = builtin_root / "builtin-skill"
+    builtin_skill.mkdir()
+    builtin_file = builtin_skill / "SKILL.md"
+    builtin_file.write_text(
+        "---\nname: builtin-skill\ndescription: d\n---\nbuiltin body", encoding="utf-8"
+    )
+    references_dir = builtin_skill / "references"
+    references_dir.mkdir()
+    reference_file = references_dir / "r.md"
+    reference_file.write_text("reference content", encoding="utf-8")
+
+    drafts.save_draft("builtin-skill", "improved", "shadow body", author="lightfall")
+    result = drafts.approve_draft("builtin-skill")
+
+    assert result == user_root / "builtin-skill" / "SKILL.md"
+    assert "shadow body" in result.read_text(encoding="utf-8")
+    # Sibling assets (e.g. references/) must be carried into the shadow.
+    shadow_reference = user_root / "builtin-skill" / "references" / "r.md"
+    assert shadow_reference.exists()
+    assert "reference content" in shadow_reference.read_text(encoding="utf-8")
+    # Builtin file and its assets must remain untouched.
+    assert "builtin body" in builtin_file.read_text(encoding="utf-8")
+    assert "reference content" in reference_file.read_text(encoding="utf-8")
+    assert not (drafts.drafts_dir() / "builtin-skill").exists()
+
+
+def test_approve_unknown_draft_raises(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.approve_draft("does-not-exist")
+
+
+def test_reject_draft_deletes_it(user_root):
+    drafts.save_draft("throwaway", "d", "body", author="a")
+    drafts.reject_draft("throwaway")
+    assert not (drafts.drafts_dir() / "throwaway").exists()
+
+
+def test_reject_unknown_draft_raises(user_root):
+    with pytest.raises(drafts.DraftError):
+        drafts.reject_draft("does-not-exist")
+
+
+def test_proposed_revision_removes_stale_draft(user_root):
+    active = user_root / "target-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text("---\nname: target-skill\ndescription: d\n---\nb",
+                                     encoding="utf-8")
+    # Create a stale plain draft.
+    draft_dir = drafts.drafts_dir() / "target-skill"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    stale_draft = draft_dir / "SKILL.md"
+    stale_draft.write_text("old content", encoding="utf-8")
+
+    # Save a proposed revision.
+    path, is_rev = drafts.save_draft("target-skill", "improved", "new body",
+                                     author="lightfall")
+
+    assert is_rev
+    assert path.name == "SKILL.md.proposed"
+    # Stale draft should be deleted.
+    assert not stale_draft.exists()

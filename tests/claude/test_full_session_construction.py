@@ -9,30 +9,30 @@ import pytest
 
 @pytest.fixture
 def loaded_builtins(monkeypatch):
-    """Load the real builtin manifest into AgentRegistry, with SDK mocked."""
+    """Load the real builtin manifest into ToolRegistry, with SDK mocked."""
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.builtin_manifest import builtin_manifest
     from lightfall.plugins.loader import PluginLoader
-    from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+    from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
     loader = PluginLoader()
-    loader.register_plugin_type("agent", AgentPlugin)
+    loader.register_plugin_type("tool", ToolPlugin)
     loader.load_manifest(builtin_manifest)
     loader.load_all_sync()
     yield
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
 
 
 def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monkeypatch):
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._read_list_pref",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
         lambda self, key: None,  # no overrides — falls through to enabled_by_default
     )
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.agent_registry.AgentRegistry._migrate_legacy_pref_if_needed",
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
         lambda self: None,
     )
     from PySide6.QtWidgets import QWidget

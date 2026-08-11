@@ -102,7 +102,7 @@ class TiledService(QObject):
     Example:
         >>> service = TiledService.get_instance()
         >>> service.configure(url="http://localhost:8000", api_key=None, enabled=True)
-        >>> service.connect()
+        >>> service.connect_tiled()
         >>> # Service automatically subscribes TiledWriter to Engine
     """
 
@@ -149,7 +149,7 @@ class TiledService(QObject):
         """Reset the singleton instance (for testing)."""
         with cls._lock:
             if cls._instance is not None:
-                cls._instance.disconnect()
+                cls._instance.disconnect_tiled()
                 cls._instance.deleteLater()
             cls._instance = None
 
@@ -213,7 +213,7 @@ class TiledService(QObject):
         """
         # Disconnect if currently connected
         if self._state in (TiledConnectionState.CONNECTED, TiledConnectionState.CONNECTING):
-            self.disconnect()
+            self.disconnect_tiled()
 
         # Convert string to enum if needed
         if isinstance(auth_mode, str):
@@ -227,10 +227,14 @@ class TiledService(QObject):
             auth_mode.value,
         )
 
-    def connect(self) -> bool:
+    def connect_tiled(self) -> bool:
         """Connect to the Tiled server.
 
         Creates a Tiled client and subscribes TiledWriter to the Engine.
+
+        Named ``connect_tiled`` (not ``connect``) to avoid shadowing
+        :meth:`QObject.connect`; overriding that name breaks every
+        ``signal.connect(...)`` on this object under PySide6.
 
         Returns:
             True if connection successful.
@@ -308,7 +312,7 @@ class TiledService(QObject):
             url: Optional server URL, recorded for display/health only.
         """
         if self._state in (TiledConnectionState.CONNECTED, TiledConnectionState.CONNECTING):
-            self.disconnect()
+            self.disconnect_tiled()
 
         self._config = TiledConfig(
             url=url, api_key=None, enabled=True, auth_mode=TiledAuthMode.NONE
@@ -682,10 +686,13 @@ class TiledService(QObject):
             exc = exc.__cause__ or exc.__context__
         return False
 
-    def disconnect(self) -> None:
+    def disconnect_tiled(self) -> None:
         """Disconnect from the Tiled server.
 
         Unsubscribes TiledWriter from Engine and cleans up resources.
+
+        Named ``disconnect_tiled`` (not ``disconnect``) to avoid shadowing
+        :meth:`QObject.disconnect`.
         """
         # Stop health check timer
         self._health_timer.stop()
@@ -967,7 +974,7 @@ class TiledService(QObject):
         elif old_state == AuthState.AUTHENTICATED:
             # User logged out - disconnect from Tiled
             logger.info("User logged out, disconnecting from Tiled")
-            self.disconnect()
+            self.disconnect_tiled()
 
 
 def _install_tiled_stream_ws_proxy_patch() -> None:

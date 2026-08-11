@@ -1,8 +1,10 @@
 """Unified plugin type for plugins that extend the embedded Claude agent.
 
-Replaces both SkillPlugin and MCPToolPlugin. One AgentPlugin contributes
-an optional SKILL.md (via get_system_prompt) and/or an in-process MCP
-server (via create_tools). One settings toggle controls both.
+Replaces both SkillPlugin and MCPToolPlugin. One ToolPlugin may have a
+matching skill (shipped under src/lightfall/skills/builtin/<name>/ and
+resolved/materialized by lightfall.agents.skills_store, keyed by
+plugin.name) and/or an in-process MCP server (via create_tools). One
+settings toggle controls both.
 """
 
 from __future__ import annotations
@@ -14,21 +16,22 @@ from typing import Any, ClassVar
 from lightfall.plugins.types import PluginType
 
 
-class AgentPlugin(PluginType):
+class ToolPlugin(PluginType):
     """Extends the embedded Claude agent with an optional skill prompt and/or
     a bag of MCP tools.
 
     When enabled, contributes:
 
-    - a SKILL.md (if get_system_prompt() returns non-empty text), materialized
-      into the per-session SDK plugin dir at agent construction time;
+    - a skill (if a skill directory matching plugin.name resolves via
+      lightfall.agents.skills_store.resolve_skills()), materialized into the
+      per-session SDK plugin dir at agent construction time;
     - an in-process MCP server (if create_tools() returns tools), registered
       as mcp_servers[plugin.name] with namespace mcp__<plugin.name>__*.
 
     See docs/superpowers/specs/2026-04-25-lightfall-sdk-native-plugins-design.md.
     """
 
-    type_name: ClassVar[str] = "agent"
+    type_name: ClassVar[str] = "tool"
     is_singleton: ClassVar[bool] = True
 
     @property
@@ -75,13 +78,41 @@ class AgentPlugin(PluginType):
         """Sort order in settings UI (lower = first)."""
         return 100
 
-    def get_system_prompt(self) -> str:
-        """Return the SKILL.md body. Empty string = no skill contribution."""
-        return ""
-
     def create_tools(self) -> list[Any]:
         """Return @tool-decorated callables. Empty = no MCP server contribution."""
         return []
+
+    def create_external_servers(self) -> dict[str, dict[str, Any]]:
+        """Return external (stdio/http) MCP server specs to register in the session.
+
+        Keys are server names (become the ``mcp__<name>__*`` tool namespace).
+        Values are SDK-compatible external-server dicts, e.g.
+        ``{"type": "stdio", "command": ..., "args": [...], "env": {...}}``.
+        Empty dict (default) = no external server contribution.
+        """
+        return {}
+
+    def has_external_servers(self) -> bool:
+        """Cheap, side-effect-free signal for introspection: does this plugin
+        contribute external MCP servers?
+
+        Override with a lightweight check. Do NOT build the specs here --
+        ``create_external_servers()`` may have side effects (writing config,
+        spawning probes) that belong to session-assembly time, not to a
+        metadata read.
+        """
+        return False
+
+    def get_skill_dir(self) -> Path | None:
+        """Optional packaged skill directory containing this plugin's SKILL.md.
+
+        External plugins ship their skill inside their own package and return
+        the directory here; it resolves under the plugin's ``name`` with
+        precedence builtin < plugin < user (see
+        lightfall.agents.skills_store.resolve_skills). None (default) = the
+        skill, if any, is expected under a skills root instead.
+        """
+        return None
 
     def get_references_dir(self) -> Path | None:
         """Optional package directory containing supplementary docs.
@@ -100,8 +131,8 @@ class AgentPlugin(PluginType):
             "category": self.category,
             "enabled_by_default": self.enabled_by_default,
             "priority": self.priority,
-            "has_prompt": bool(self.get_system_prompt().strip()),
             "has_tools": len(self.create_tools()) > 0,
+            "has_external_servers": self.has_external_servers(),
             "class": self.__class__.__name__,
             "module": self.__class__.__module__,
         }

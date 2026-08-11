@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from lightfall.plugins.user_plugins import UserPluginService
-from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 from lightfall.ui.panels.registry import PanelRegistry
 from lightfall.utils.git_tracker import GitTracker
 
@@ -15,11 +15,11 @@ from lightfall.utils.git_tracker import GitTracker
 @pytest.fixture(autouse=True)
 def reset_singletons():
     UserPluginService.reset_instance()
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     PanelRegistry.reset()
     yield
     UserPluginService.reset_instance()
-    AgentRegistry.reset_instance()
+    ToolRegistry.reset_instance()
     PanelRegistry.reset()
 
 
@@ -45,9 +45,9 @@ def _write_user_agent(dir_: Path, name: str, suffix: str = "") -> Path:
     path = dir_ / f"{name}.py"
     path.write_text(
         f'''
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
-class {name.title().replace("_", "")}Agent(AgentPlugin):
+class {name.title().replace("_", "")}Agent(ToolPlugin):
     @property
     def name(self): return "{name}"
     @property
@@ -59,8 +59,8 @@ class {name.title().replace("_", "")}Agent(AgentPlugin):
     return path
 
 
-def test_load_plugin_registers_with_agent_registry(fake_user_dir, monkeypatch):
-    """Defining an AgentPlugin subclass in a user file auto-registers it."""
+def test_load_plugin_registers_with_tool_registry(fake_user_dir, monkeypatch):
+    """Defining an ToolPlugin subclass in a user file auto-registers it."""
     # Make UserPluginService treat fake_user_dir as the plugin dir
     service = UserPluginService.get_instance()
     monkeypatch.setattr(service, "_plugins_dir", fake_user_dir)
@@ -68,19 +68,19 @@ def test_load_plugin_registers_with_agent_registry(fake_user_dir, monkeypatch):
     path = _write_user_agent(fake_user_dir, "user_alpha")
     success = service.load_plugin_from_file(path)
     assert success
-    assert AgentRegistry.get_instance().get_plugin("user_alpha") is not None
+    assert ToolRegistry.get_instance().get_plugin("user_alpha") is not None
 
 
-def test_unload_removes_from_agent_registry(fake_user_dir, monkeypatch):
+def test_unload_removes_from_tool_registry(fake_user_dir, monkeypatch):
     service = UserPluginService.get_instance()
     monkeypatch.setattr(service, "_plugins_dir", fake_user_dir)
 
     path = _write_user_agent(fake_user_dir, "user_beta")
     service.load_plugin_from_file(path)
-    assert AgentRegistry.get_instance().get_plugin("user_beta") is not None
+    assert ToolRegistry.get_instance().get_plugin("user_beta") is not None
 
     service.unload_plugin(path)
-    assert AgentRegistry.get_instance().get_plugin("user_beta") is None
+    assert ToolRegistry.get_instance().get_plugin("user_beta") is None
 
 
 def _write_user_panel(dir_: Path, name: str) -> Path:
@@ -204,7 +204,7 @@ def test_reload_replaces_old_registration(fake_user_dir, monkeypatch):
 
     path = _write_user_agent(fake_user_dir, "user_gamma", suffix=" v1")
     service.load_plugin_from_file(path)
-    first = AgentRegistry.get_instance().get_plugin("user_gamma")
+    first = ToolRegistry.get_instance().get_plugin("user_gamma")
     assert first is not None
     assert "v1" in first.description
 
@@ -215,7 +215,7 @@ def test_reload_replaces_old_registration(fake_user_dir, monkeypatch):
     )
     service.reload_plugin(path)
 
-    second = AgentRegistry.get_instance().get_plugin("user_gamma")
+    second = ToolRegistry.get_instance().get_plugin("user_gamma")
     assert second is not None
     assert second is not first
     assert "v2" in second.description

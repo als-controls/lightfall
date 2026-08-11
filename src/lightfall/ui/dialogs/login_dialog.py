@@ -338,9 +338,26 @@ class LoginDialog(LFDialog):
             password,
             callback_slot=self._on_login_complete,
             except_slot=self._on_login_error,
+            interrupt_callable=self._interrupt_login,
             name=f"{plugin.name}_login",
         )
         self._login_thread.start()
+
+    def _interrupt_login(self) -> None:
+        """Interrupt hook for the login worker.
+
+        Invoked by ``QThreadFuture.cancel()`` when the user cancels. Unblocks
+        the provider's browser-callback wait so the worker returns promptly
+        instead of being abandoned (or, historically, force-terminated —
+        which corrupts the interpreter and crashes the process).
+        """
+        provider = self._current_provider
+        if provider is None:
+            return
+        try:
+            provider.cancel()
+        except Exception as ex:
+            logger.warning("Error cancelling auth provider: {}", ex)
 
     def _do_provider_login(self, plugin: AuthProviderPlugin, username: str, password: str) -> bool:
         from datetime import datetime

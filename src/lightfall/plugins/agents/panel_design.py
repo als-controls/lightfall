@@ -4,19 +4,19 @@ Provides Claude with expertise for designing BasePanel subclasses
 for the Lightfall application. This skill teaches the full panel API
 including metadata, lifecycle, state management, and self-registration.
 
-Full API documentation is shipped as references/panel_design.md alongside
-the SKILL.md and surfaced lazily by the SDK's deferred Skill tool.
+The skill prompt and full API documentation now ship as
+src/lightfall/skills/builtin/panel_design/SKILL.md (+ references/), loaded
+by the shipped-skills store rather than this plugin's get_system_prompt.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from lightfall.plugins.agent_plugin import AgentPlugin
+from lightfall.plugins.tool_plugin import ToolPlugin
 
 
-class PanelDesignAgent(AgentPlugin):
+class PanelDesignAgent(ToolPlugin):
     """Skill for designing Lightfall panel plugins.
 
     This skill provides Claude with deep expertise for:
@@ -60,37 +60,7 @@ class PanelDesignAgent(AgentPlugin):
         """Return priority (lower = higher in prompt order)."""
         return 20
 
-    def get_brief_description(self) -> str:
-        """Return brief hint for system prompt (full docs are on-demand)."""
-        return """## Lightfall Panel Design
-
-Expert at designing Qt panel plugins for Lightfall with self-registration.
-
-**See `references/panel_design.md` (loaded automatically by the SDK Skill tool)** for full API reference covering:
-- `PanelMetadata` - id, name, category, docking preferences, proactive_init
-- `BasePanel` lifecycle - _setup_ui(), signals, state management
-- Status indicator - `PanelStatus` + `set_status()` tint the sidebar icon (health at a glance)
-- Title bar toolbar - `add_title_bar_button()` for high-level panel actions
-- MCP introspection - _get_specific_introspection_data(), actions
-- User-plugin auto-registration via `PluginType.__init_subclass__`
-- Qt widgets and layout patterns
-
-Key imports: `from lightfall.ui.panels.base import BasePanel, PanelMetadata`
-"""
-
-    def get_system_prompt(self) -> str:
-        """Return the system prompt snippet for panel design expertise.
-
-        Returns the brief description; full documentation in references/
-        is loaded on-demand by the SDK's deferred Skill tool.
-        """
-        return self.get_brief_description()
-
     def create_tools(self) -> list[Any]:
         """Return tools provided by this skill."""
         # This skill provides guidance only, no additional tools
         return []
-
-    def get_references_dir(self) -> Path | None:
-        """Return path to the references directory containing supplementary docs."""
-        return Path(__file__).parent / "panel_design" / "references"

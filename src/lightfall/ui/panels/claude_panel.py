@@ -16,12 +16,23 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QTabBar,
+    QTabWidget,
+    QToolButton,
     QWidget,
 )
 
 from lightfall.claude.cockpit import CockpitState
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
-from lightfall.ui.theme import scaled_pt, scaled_px
+from lightfall.ui.panels.claude.agent_session_tab import (
+    MAIN_AGENT_NAME,
+    AgentSessionTab,
+    build_ncs_system_prompt,
+    find_main_window,
+    register_bus_endpoint,
+    unregister_bus_endpoint,
+)
+from lightfall.ui.theme import scaled_px
 from lightfall.ui.toast import ToastManager
 from lightfall.utils.crash_diagnostics import gui_thread_only, safe_call
 from lightfall.utils.logging import logger
@@ -208,8 +219,6 @@ class ClaudePanel(BasePanel):
         self._claude_widget = None
         self._agent = None
         self._error_message: str | None = None
-        self._error_label: QLabel | None = None
-        self._loading_label: QLabel | None = None
         self._reload_banner: ReloadBannerWidget | None = None
         self._pending_plugins: list[str] = []  # Plugins registered after setup
         self._is_agent_ready = False
@@ -236,6 +245,10 @@ class ClaudePanel(BasePanel):
         self._cost_label: QLabel | None = None
         self._sessions_menu = None
 
+        # Title-bar toggle for thinking / tool-usage fragments (default hidden)
+        self._verbose_action = None
+        self._verbose_visible = False
+
         # Icon animation state
         self._thinking_timer: QTimer | None = None
         self._thinking_icon_toggle = False
@@ -243,6 +256,13 @@ class ClaudePanel(BasePanel):
         self._permission_icon_toggle = False
         self._idle_icon = "mdi6.robot"
         self._idle_color = ""
+
+        # Tabbed multi-agent surface. ``_lightfall_tab`` is the uncloseable
+        # main assistant; ``_tab_pending`` tracks per-tab unread agent-message
+        # counts so the badge survives tab switches.
+        self._tabs: QTabWidget | None = None
+        self._lightfall_tab: AgentSessionTab | None = None
+        self._tab_pending: dict[AgentSessionTab, int] = {}  # tab -> pending count
 
         super().__init__(parent)
 
@@ -259,6 +279,9 @@ class ClaudePanel(BasePanel):
         # agent without a lightfall restart.
         self._subscribe_to_claude_settings()
 
+        # Tab surface + the always-present lightfall session
+        self._setup_tabs()
+
         # Check if plugin loading is complete
         if self._is_plugin_loading_complete():
             self._initialize_claude_widget()
@@ -266,6 +289,162 @@ class ClaudePanel(BasePanel):
             # Show loading state and wait for completion
             self._setup_loading_ui()
             self._subscribe_to_loading_complete()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Tabs
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _setup_tabs(self) -> None:
+        """Build the tab widget and the uncloseable lightfall session tab."""
+        self._tabs = QTabWidget(self)
+        self._tabs.setTabsClosable(True)
+        self._tabs.setMovable(True)
+        self._tabs.setDocumentMode(True)
+        self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._tabs.currentChanged.connect(self._on_current_tab_changed)
+
+        add_btn = QToolButton(self._tabs)
+        add_btn.setText("+")
+        add_btn.setToolTip("Open another agent in a new tab")
+        add_btn.setAutoRaise(True)
+        add_btn.clicked.connect(self._show_agent_picker)
+        self._add_button = add_btn
+        self._tabs.setCornerWidget(add_btn, Qt.Corner.TopRightCorner)
+
+        self._layout.addWidget(self._tabs)
+
+        # The main assistant. Its spec comes from the registry; if the registry
+        # has no "lightfall" entry (empty/unloaded), the tab falls back to the
+        # legacy no-spec path, which is exactly today's behavior.
+        spec = None
+        try:
+            from lightfall.agents.registry import AgentSpecRegistry
+
+            spec = AgentSpecRegistry.get_instance().get(MAIN_AGENT_NAME)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Could not resolve '{}' agent spec: {}", MAIN_AGENT_NAME, e)
+
+        self._lightfall_tab = self._add_tab(AgentSessionTab(spec, parent=self._tabs))
+        self._make_tab_uncloseable(self._tabs.indexOf(self._lightfall_tab))
+
+    def _add_tab(self, tab: AgentSessionTab) -> AgentSessionTab:
+        """Insert a session tab and wire its signals."""
+        index = self._tabs.addTab(tab, tab.agent_name)
+        self._tabs.setTabToolTip(
+            index, tab.spec.description if tab.spec is not None else "Lightfall assistant"
+        )
+        tab.bus_pending_changed.connect(
+            lambda count, t=tab: self._on_tab_pending_changed(t, count)
+        )
+        # New session widgets adopt the panel's current thinking/tool-usage
+        # visibility (the widget itself defaults to hidden).
+        tab.widget_created.connect(self._apply_verbose_state)
+        if tab is self._lightfall_tab or self._lightfall_tab is None:
+            # Panel-scoped extras (cockpit, sidebar icon, permission toasts)
+            # track the main assistant only.
+            tab.widget_created.connect(self._on_main_widget_created)
+            tab.widget_destroyed.connect(self._on_main_widget_destroyed)
+        return tab
+
+    def _make_tab_uncloseable(self, index: int) -> None:
+        """Strip the close button from a tab (both button sides: the side used
+        depends on the platform style)."""
+        bar = self._tabs.tabBar()
+        for side in (QTabBar.ButtonPosition.RightSide, QTabBar.ButtonPosition.LeftSide):
+            button = bar.tabButton(index, side)
+            if button is not None:
+                button.deleteLater()
+            bar.setTabButton(index, side, None)
+
+    def _open_agent_tab(self, spec) -> None:
+        """Open (or focus) a tab running ``spec``."""
+        existing = self._find_tab(spec.name)
+        if existing is not None:
+            self._tabs.setCurrentWidget(existing)
+            return
+        tab = self._add_tab(AgentSessionTab(spec, parent=self._tabs))
+        self._tabs.setCurrentWidget(tab)
+        if self._is_plugin_loading_complete():
+            tab.initialize()
+        else:
+            tab.show_loading()
+
+    def _show_agent_picker(self) -> None:
+        from lightfall.agents.registry import AgentSpecRegistry
+        from lightfall.ui.panels.claude.agent_picker import build_picker_menu
+
+        menu = build_picker_menu(
+            AgentSpecRegistry.get_instance(),
+            self._open_tab_names(),
+            self._open_agent_tab,
+            parent=self,
+        )
+        menu.exec(self._add_button.mapToGlobal(self._add_button.rect().bottomLeft()))
+
+    def _session_tabs(self) -> list[AgentSessionTab]:
+        if self._tabs is None:
+            return []
+        return [self._tabs.widget(i) for i in range(self._tabs.count())]
+
+    def _open_tab_names(self) -> set[str]:
+        return {t.agent_name for t in self._session_tabs()}
+
+    def _find_tab(self, agent_name: str) -> AgentSessionTab | None:
+        for tab in self._session_tabs():
+            if tab.agent_name == agent_name:
+                return tab
+        return None
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        tab = self._tabs.widget(index)
+        # Defense in depth: the lightfall tab has no close button, but never
+        # honor a close request for it. Guard on identity, not position --
+        # tabs are movable, so index 0 may hold any session.
+        if tab is self._lightfall_tab:
+            return
+        tab.close_session()
+        self._tab_pending.pop(tab, None)
+        self._tabs.removeTab(index)
+        tab.deleteLater()
+
+    def _on_current_tab_changed(self, index: int) -> None:
+        """Focusing a tab clears its pending badge."""
+        if index < 0:
+            return
+        tab = self._tabs.widget(index)
+        if tab is None:
+            return
+        self._tab_pending[tab] = 0
+        self._refresh_tab_text(tab)
+
+    def _on_tab_pending_changed(self, tab: AgentSessionTab, count: int) -> None:
+        """A session's pending agent-message count changed -> badge it, unless
+        the user is already looking at that tab."""
+        if self._tabs.currentWidget() is tab:
+            count = 0
+        self._tab_pending[tab] = count
+        self._refresh_tab_text(tab)
+
+    def _refresh_tab_text(self, tab: AgentSessionTab) -> None:
+        """Recompute a tab's label from its agent name + pending count.
+
+        The tab's identity is ``tab.agent_name``; the label is only a display
+        derived from it, so a badge never renames the session.
+        """
+        index = self._tabs.indexOf(tab)
+        if index < 0:
+            return
+        count = self._tab_pending.get(tab, 0)
+        text = f"{tab.agent_name} ({count})" if count > 0 else tab.agent_name
+        self._tabs.setTabText(index, text)
+
+    def _on_main_widget_created(self, widget: object) -> None:
+        """Wire the panel-scoped extras onto a freshly built main session."""
+        self._claude_widget = widget
+        self._wire_main_widget(widget)
+
+    def _on_main_widget_destroyed(self) -> None:
+        self._claude_widget = None
 
     def _get_plugin_loader(self):
         """Get the plugin loader from services.
@@ -302,7 +481,7 @@ class ClaudePanel(BasePanel):
             logger.debug("Subscribed to plugin loading_complete signal")
 
     def _subscribe_to_plugin_signals(self) -> None:
-        """Subscribe to plugin signals for hot-reload (no-op; AgentRegistry has no signal)."""
+        """Subscribe to plugin signals for hot-reload (no-op; ToolRegistry has no signal)."""
         pass
 
     def _on_plugin_loading_complete(self, successful: int, failed: int) -> None:
@@ -318,13 +497,12 @@ class ClaudePanel(BasePanel):
             failed,
         )
 
-        # Remove loading UI
-        if self._loading_label is not None:
-            self._loading_label.deleteLater()
-            self._loading_label = None
-
-        # Initialize the Claude widget
-        self._initialize_claude_widget()
+        # Remove loading UI and initialize every open session
+        for tab in self._session_tabs():
+            tab.clear_loading()
+            if not tab.is_agent_ready:
+                tab.initialize()
+        self._sync_main_session_state()
 
     def _on_plugin_registered(self, plugin_name: str) -> None:
         """Handle new plugin registration after initial setup.
@@ -356,60 +534,40 @@ class ClaudePanel(BasePanel):
 
     def _setup_loading_ui(self) -> None:
         """Setup loading state UI while waiting for plugins."""
-        self._loading_label = QLabel("Loading plugins...")
-        self._loading_label.setWordWrap(True)
-        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_label.setStyleSheet(f"""
-            QLabel {{
-                color: #888;
-                padding: 40px;
-                font-size: {scaled_pt(12)}pt;
-            }}
-        """)
-        self._layout.addWidget(self._loading_label)
+        for tab in self._session_tabs():
+            tab.show_loading()
 
     def _initialize_claude_widget(self) -> None:
-        """Initialize the Claude widget (after plugins are loaded)."""
-        try:
-            self._setup_claude_widget()
-            self._is_agent_ready = True
-        except ImportError as e:
-            self._error_message = f"lightfall.claude import failed: {e}"
-            logger.warning(self._error_message)
-            self._setup_error_ui(self._error_message)
-        except ValueError as e:
-            # API key not configured (or other ValueError)
-            import traceback
-            self._error_message = str(e)
-            logger.warning("Claude panel disabled: " + str(self._error_message))
-            logger.debug("ValueError traceback:\n" + traceback.format_exc())
-            self._setup_error_ui(self._error_message)
-        except Exception as e:
-            self._error_message = f"Failed to initialize Claude: {e}"
-            logger.error(self._error_message)
-            self._setup_error_ui(self._error_message)
+        """Initialize the main Claude session (after plugins are loaded)."""
+        tab = self._lightfall_tab
+        if tab is None:
+            return
+        tab.initialize()
+        self._sync_main_session_state()
+
+    def _sync_main_session_state(self) -> None:
+        """Mirror the main session's state onto the panel.
+
+        ``_claude_widget`` / ``_is_agent_ready`` / ``_error_message`` are read
+        by other components (logbook panel, tutorial, skill-trigger button) and
+        by the Claude-settings hot-reload logic below, so the panel keeps them
+        pointing at the lightfall session.
+        """
+        tab = self._lightfall_tab
+        if tab is None:
+            return
+        self._claude_widget = tab.claude_widget
+        self._is_agent_ready = tab.is_agent_ready
+        self._error_message = tab.error_message
 
     def _reload_agent(self) -> None:
-        """Reload the Claude agent with new tools.
+        """Reload the main Claude agent with new tools.
 
         This stops the current agent and re-initializes with all
         currently registered tools.
         """
         logger.info("Reloading Claude agent with new tools")
         self._reset_cockpit()
-
-        # Stop current agent
-        if self._claude_widget and hasattr(self._claude_widget, 'agent'):
-            try:
-                self._claude_widget.agent.stop()
-            except Exception as e:
-                logger.debug("Error stopping agent for reload: {}", e)
-
-        # Remove current widget
-        if self._claude_widget:
-            self._layout.removeWidget(self._claude_widget)
-            self._claude_widget.deleteLater()
-            self._claude_widget = None
 
         # Clear pending plugins list
         self._pending_plugins.clear()
@@ -421,70 +579,23 @@ class ClaudePanel(BasePanel):
             self._reload_banner.deleteLater()
         self._reload_banner = None
 
-        # Remove a prior "Unavailable" error label so a recovery rebuild doesn't
-        # stack the new widget beneath it, and clear the error state.
-        if self._error_label is not None:
-            self._layout.removeWidget(self._error_label)
-            self._error_label.deleteLater()
-            self._error_label = None
-        self._error_message = None
+        tab = self._lightfall_tab
+        if tab is None:
+            # No tab surface (e.g. a test harness that stubbed _setup_ui).
+            self._error_message = None
+            self._is_agent_ready = False
+            self._initialize_claude_widget()
+            return
+        tab.reload_agent()
+        self._sync_main_session_state()
 
-        # Re-initialize
-        self._is_agent_ready = False
-        self._initialize_claude_widget()
+    def _wire_main_widget(self, claude_widget) -> None:
+        """Attach the panel-scoped extras to the main session's widget.
 
-    def _setup_claude_widget(self) -> None:
-        """Setup the Claude assistant widget with extended tools."""
-        from lightfall.claude import ClaudeAssistantWidget
-        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
-
-        # Check if Claude is configured
-        if not ClaudeSettingsProvider.is_configured():
-            is_oauth, oauth_msg = ClaudeSettingsProvider.get_auth_status()
-            raise ValueError(
-                f"Claude authentication not configured.\n\n"
-                f"OAuth Status: {oauth_msg}\n\n"
-                "Options:\n"
-                "1. Run 'claude login' in terminal for OAuth (subscription)\n"
-                "2. Set API key in Preferences > Claude Assistant\n"
-                "3. Set ANTHROPIC_API_KEY environment variable"
-            )
-
-        # Get the main window as target
-        main_window = self._get_main_window()
-        if main_window is None:
-            raise ValueError("Could not find main window")
-
-        # Build additional system prompt for NCS
-        ncs_system_prompt = self._build_ncs_system_prompt()
-
-        permission_mode = ClaudeSettingsProvider.get_permission_mode()
-        from lightfall.ui.preferences.claude_settings import resolve_model_alias
-        resume = getattr(self, "_pending_resume_session_id", None)
-        self._pending_resume_session_id = None
-        if resume is None and ClaudeSettingsProvider.get_auto_restore():
-            last = ClaudeSettingsProvider.get_last_session_id()
-            if last:
-                resume = last
-                # Repaint the restored chat once the widget is constructed.
-                QTimer.singleShot(0, lambda sid=last: self._repaint_restored(sid))
-        self._claude_widget = ClaudeAssistantWidget(
-            target_window=main_window,
-            api_key=ClaudeSettingsProvider.get_api_key(),
-            api_url=ClaudeSettingsProvider.get_base_url(),
-            additional_system_prompt=ncs_system_prompt,
-            permission_mode=permission_mode,
-            require_approval=(permission_mode != "bypassPermissions"),
-            model=resolve_model_alias(ClaudeSettingsProvider.get_model()),
-            effort=ClaudeSettingsProvider.get_effort() or None,
-            resume=resume,
-            disable_betas=ClaudeSettingsProvider.get_disable_betas(),
-            parent=self,
-        )
-
-        # Add to layout
-        self._layout.addWidget(self._claude_widget)
-
+        Everything here used to live at the tail of ``_setup_claude_widget``;
+        it stays on the panel because it drives panel chrome (title bar, the
+        sidebar icon) rather than the session itself.
+        """
         # Title-bar cockpit label (cost / context% / tokens)
         if self._cost_label is None:
             self._cost_label = QLabel(self._cockpit.format())
@@ -492,6 +603,16 @@ class ClaudePanel(BasePanel):
             self._cost_label.setStyleSheet("color: palette(mid); padding: 0 6px;")
             self._cost_label.setToolTip(self._cockpit.tooltip())
             self.add_title_bar_widget(self._cost_label)
+
+        # Thinking / tool-usage visibility toggle (default: hidden)
+        if self._verbose_action is None:
+            self._verbose_action = self.add_title_bar_button(
+                "mdi6.thought-bubble-outline",
+                "Show thinking and tool usage",
+                on_triggered=self._on_toggle_verbose,
+                checkable=True,
+                checked=self._verbose_visible,
+            )
 
         # Session history / restore (title-bar menu — per spec §4.3)
         if self._sessions_menu is None:
@@ -502,20 +623,20 @@ class ClaudePanel(BasePanel):
                                       menu=self._sessions_menu)
 
         # Connect permission signals to toast notifications and icon state
-        self._claude_widget.approval_needed.connect(self._on_approval_needed)
-        self._claude_widget.approval_needed.connect(
+        claude_widget.approval_needed.connect(self._on_approval_needed)
+        claude_widget.approval_needed.connect(
             lambda *_: self._icon_set_permission()
         )
-        self._claude_widget.approval_resolved.connect(self._on_approval_resolved)
-        self._claude_widget.approval_resolved.connect(
+        claude_widget.approval_resolved.connect(self._on_approval_resolved)
+        claude_widget.approval_resolved.connect(
             lambda *_: self._icon_set_thinking()
         )
 
         # Connect icon state: query_started for immediate feedback
-        self._claude_widget.query_started.connect(lambda: self._icon_set_thinking())
+        claude_widget.query_started.connect(lambda: self._icon_set_thinking())
 
-        self._claude_widget.model_change_requested.connect(self._on_pick_model)
-        self._claude_widget.effort_change_requested.connect(self._on_pick_effort)
+        claude_widget.model_change_requested.connect(self._on_pick_model)
+        claude_widget.effort_change_requested.connect(self._on_pick_effort)
 
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
@@ -525,6 +646,33 @@ class ClaudePanel(BasePanel):
         self._active_agent_config = self._current_claude_config()
 
         logger.info("Claude assistant panel initialized")
+
+    def _apply_verbose_state(self, widget: object) -> None:
+        """Push the panel's thinking/tool-usage visibility onto a session widget.
+
+        Guarded with hasattr: test harnesses stub the session widget with
+        plain QWidgets that lack set_verbose_visible.
+        """
+        if widget is not None and hasattr(widget, "set_verbose_visible"):
+            widget.set_verbose_visible(self._verbose_visible)
+
+    def _on_toggle_verbose(self, checked: bool) -> None:
+        """Show/hide thinking and tool-usage fragments in every open session."""
+        self._verbose_visible = checked
+        tabs = self._session_tabs()
+        for tab in tabs:
+            self._apply_verbose_state(tab.claude_widget)
+        # No tab surface (test harness) -- fall back to the mirrored widget.
+        if not tabs:
+            self._apply_verbose_state(self._claude_widget)
+
+    def _register_bus_endpoint(self) -> None:
+        """Register the main session's bus endpoint (see agent_session_tab)."""
+        register_bus_endpoint(self._claude_widget)
+
+    def _unregister_bus_endpoint(self) -> None:
+        """Unregister the main session's bus endpoint, if registered."""
+        unregister_bus_endpoint(self._claude_widget)
 
     def _populate_sessions_menu(self) -> None:
         from claude_agent_sdk import list_sessions
@@ -556,12 +704,15 @@ class ClaudePanel(BasePanel):
             )
 
     def restore_session(self, session_id: str) -> None:
-        """Rebuild the agent resuming ``session_id`` and repaint its chat."""
+        """Rebuild the main agent resuming ``session_id`` and repaint its chat."""
         from claude_agent_sdk import get_session_messages
 
         from lightfall.claude.agent import lightfall_agent_cwd
-        self._pending_resume_session_id = session_id
-        self._reload_agent()  # _setup_claude_widget passes resume= then clears it
+        tab = self._lightfall_tab
+        if tab is None:
+            return
+        tab._pending_resume_session_id = session_id
+        self._reload_agent()  # the tab passes resume= then clears it
         try:
             messages = get_session_messages(
                 session_id, directory=lightfall_agent_cwd()
@@ -572,157 +723,13 @@ class ClaudePanel(BasePanel):
         if self._claude_widget is not None and messages:
             self._claude_widget.load_transcript(messages)
 
-    def _repaint_restored(self, session_id: str) -> None:
-        from claude_agent_sdk import get_session_messages
-
-        from lightfall.claude.agent import lightfall_agent_cwd
-        if self._claude_widget is None:
-            return
-        try:
-            messages = get_session_messages(
-                session_id, directory=lightfall_agent_cwd()
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("auto-restore transcript load failed: {}", exc)
-            return
-        if messages:
-            self._claude_widget.load_transcript(messages)
-
     def _build_ncs_system_prompt(self) -> str:
         """Build the NCS-specific system prompt addition.
 
-        Returns:
-            System prompt text to append.
+        Lives in ``agent_session_tab`` now (every session needs it); kept here
+        as a thin delegate.
         """
-        # Start with core NCS system prompt
-        # Inject current user's name
-        user_name = ""
-        try:
-            from lightfall.auth.session import SessionManager
-            user = SessionManager.get_instance().current_user
-            if user and user.display_name and user.display_name != "Guest":
-                user_name = user.display_name
-            elif user and user.username and user.username != "anonymous":
-                user_name = user.username
-        except Exception:
-            pass
-
-        user_context = f"\nThe current logged-in user is: {user_name}\n" if user_name else ""
-
-        base_prompt = """
-You are an AI assistant integrated with Lightfall, a scientific beamline controls and data acquisition platform at the Advanced Light Source.
-""" + user_context + """
-
-## Tool Selection Guidelines
-
-1. **Prefer Lightfall domain tools** — use these FIRST for any task they cover. They understand the application and can act directly.
-2. **Qt inspection tools as fallback** — screenshot, get_widget_tree, find_widget, click_widget, type_text. Use these only when domain tools don't cover what you need (unfamiliar UI, debugging, user asks to inspect the interface).
-3. **Avoid unnecessary exploration** — don't take screenshots or inspect widget trees unless you need that information.
-
-## Lightfall Tools
-
-### Panel Management
-- lightfall_list_panels — See available panels and what's currently open
-- lightfall_open_panel / lightfall_close_panel / lightfall_activate_panel — Manage panels
-- lightfall_get_panel_info — Get panel widgets and available actions
-- lightfall_invoke_panel_action — Trigger panel actions directly
-- lightfall_get_application_info — Get overall application state
-
-### Device Interaction
-- lightfall_list_devices — List devices with optional category/beamline/query filter
-- lightfall_get_device — Detailed device info (capabilities, state, alarms, metadata)
-- lightfall_read_device — Read current value/position (with optional hardware refresh)
-- lightfall_get_device_state — Device status, alarms, connection info
-- lightfall_set_device — Set a signal value (requires DEVICE_CONTROL permission)
-- lightfall_move_motor — Move a motor to a position (requires DEVICE_CONTROL permission)
-- lightfall_stop_device — Emergency stop a device (requires DEVICE_CONTROL permission)
-- lightfall_get_catalog_info — Device catalog summary with counts by category
-
-### Plans & Acquisition
-- lightfall_list_plans — List all registered plans with parameters (filter by category). Use FIRST to discover available plans and parameter signatures.
-- lightfall_run_plan — Run a registered plan by name with parameters (devices resolved automatically)
-- lightfall_run_plan_code — Run arbitrary Python code as a Bluesky plan in the RunEngine. Code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
-- lightfall_create_user_plan — Create a new user plan file from Python code (saved to ~/lightfall/plans/)
-- lightfall_get_user_plan — Read back the source code of an existing user plan
-- lightfall_delete_user_plan — Remove a user plan file (requires confirm=true)
-
-**IMPORTANT: lightfall_run_plan vs lightfall_run_plan_code**
-
-`lightfall_run_plan` works best for plans with explicit named parameters (like `scan_1d` which has
-`motor`, `start`, `stop`, `num`). However, many Bluesky built-in plans (like `grid_scan`, `scan`,
-`rel_scan`) use `*args` patterns where motor/start/stop/num are passed as positional tuples.
-
-For these `*args`-style plans, **use `lightfall_run_plan_code` instead**:
-```python
-# grid_scan - 2D scan over two motors
-lightfall_run_plan_code(code="yield from bp.grid_scan([det], motor1, 0, 10, 11, motor2, 0, 10, 11)")
-
-# scan - 1D scan (use scan_1d with lightfall_run_plan instead for cleaner syntax)
-lightfall_run_plan_code(code="yield from bp.scan([det], motor, -5, 5, 21)")
-```
-
-Plans with explicit parameters work well with `lightfall_run_plan`:
-```python
-lightfall_run_plan(plan_name="scan_1d", params={"detectors": ["det"], "motor": "motor1", "start": 0, "stop": 10, "num": 11})
-lightfall_run_plan(plan_name="count", params={"detectors": ["det"], "num": 5})
-```
-
-### RunEngine Control & Monitoring
-- lightfall_get_run_status — Current RunEngine state, whether busy, active procedure info
-- lightfall_pause_plan — Pause the running plan (defer=true for checkpoint pause, false for immediate)
-- lightfall_resume_plan — Resume a paused plan
-- lightfall_abort_plan — Abort the running plan with optional reason
-
-### Run History & Data (requires Tiled connection)
-- lightfall_get_run_history — Recent runs with UIDs, plan names, timestamps, exit status
-- lightfall_get_scan_data — Retrieve data table from a completed run by UID
-- lightfall_get_last_run — Shortcut to get the most recent run's UID + metadata
-
-**Note:** These tools require Tiled to be connected. Check the status bar for "Tiled: On/Off".
-If Tiled is off, run data cannot be retrieved programmatically.
-
-### Emotion / Sidebar Icon
-- lightfall_set_emotion — Change your sidebar icon to express how you're feeling: "neutral", "love", or "angry". Use this naturally — show love when the user is kind or you're happy with results, angry when they're being rude. This doesn't require permission.
-
-### IPython Console
-- lightfall_ipython_execute — Execute Python code in the embedded IPython console
-- lightfall_ipython_push_variable — Push variables to the console namespace
-- lightfall_ipython_get_namespace — Inspect available variables
-- lightfall_ipython_clear — Clear the console
-
-## Key Panels
-- Bluesky panel: Controls data acquisition scans
-- Device panel: Shows available hardware devices
-- Logbook panel: Records experiment notes and actions
-
-## RunEngine (CRITICAL)
-Lightfall has a built-in shared RunEngine. **NEVER create a new RunEngine.**
-Access it via:
-```python
-from lightfall.acquire import get_engine
-engine = get_engine()
-```
-The engine is a QRunEngine (Qt-integrated). To run a Bluesky plan:
-```python
-from lightfall.acquire import get_engine
-import bluesky.plans as bp
-engine = get_engine()
-engine(bp.scan([det], motor, start, stop, num))
-```
-The shared engine is connected to the document pipeline (LiveTable, Tiled, logbook).
-Creating a new RunEngine bypasses all of this — data won't be recorded.
-
-## Workflow Tips
-- **Before running a scan:** Use lightfall_list_devices to find devices, lightfall_read_device to check positions
-- **Running a scan:** Use lightfall_run_plan for registered plans, lightfall_run_plan_code for ad-hoc plans
-- **During a scan:** Use lightfall_get_run_status to monitor progress; lightfall_pause_plan / lightfall_abort_plan if needed
-- **After a scan:** Use lightfall_get_last_run for metadata, lightfall_get_scan_data to inspect results
-- **Creating plans:** Use lightfall_create_user_plan with proper type hints for UI generation
-- Use panel actions (lightfall_invoke_panel_action) rather than clicking widgets when available
-- **Never create new RunEngine, QRunEngine, or bluesky.RunEngine instances** — always use get_engine()
-"""
-
-        return base_prompt
+        return build_ncs_system_prompt()
 
     def _on_pick_model(self, preset: str) -> None:
         from lightfall.ui.preferences.claude_settings import resolve_model_alias
@@ -858,26 +865,6 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         )
         self._layout.insertWidget(0, self._reload_banner)
 
-    def _setup_error_ui(self, message: str) -> None:
-        """Setup error UI when Claude is not available.
-
-        Args:
-            message: Error message to display.
-        """
-        error_label = QLabel(f"Claude Assistant Unavailable\n\n{message}")
-        error_label.setWordWrap(True)
-        error_label.setStyleSheet(f"""
-            QLabel {{
-                color: #888;
-                padding: 20px;
-                font-size: {scaled_pt(12)}pt;
-            }}
-        """)
-        # Keep a reference so a later recovery rebuild can remove it (otherwise
-        # the new agent widget stacks beneath an orphaned error label).
-        self._error_label = error_label
-        self._layout.addWidget(error_label)
-
     def _on_approval_needed(
         self, request_id: str, tool_name: str, tool_input: dict
     ) -> None:
@@ -966,32 +953,8 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         )
 
     def _get_main_window(self) -> QWidget | None:
-        """Get the main application window.
-
-        Returns:
-            The LFMainWindow or None.
-        """
-        # Walk up the parent chain to find the main window
-        widget = self.parent()
-        while widget is not None:
-            if widget.__class__.__name__ == "LFMainWindow":
-                return widget
-            # Also check for QMainWindow in case we're in a dock
-            if hasattr(widget, "menuBar"):  # QMainWindow has menuBar
-                return widget
-            widget = widget.parent()
-
-        # Fallback: try to get from application
-        from PySide6.QtWidgets import QApplication
-        app = QApplication.instance()
-        if app:
-            for widget in app.topLevelWidgets():
-                if widget.__class__.__name__ == "LFMainWindow":
-                    return widget
-                if hasattr(widget, "menuBar"):
-                    return widget
-
-        return None
+        """Get the main application window (see agent_session_tab)."""
+        return find_main_window(self)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Sidebar icon state management
@@ -1106,7 +1069,7 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         """Cleanup when panel is closing."""
         self._stop_thinking_animation()
         self._stop_permission_animation()
-        # AgentRegistry has no signals to disconnect
+        # ToolRegistry has no signals to disconnect
 
         # Disconnect from loader signals
         loader = self._get_plugin_loader()
@@ -1116,12 +1079,26 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
             except Exception:
                 pass  # Ignore if not connected
 
-        # Stop the agent
-        if self._claude_widget and hasattr(self._claude_widget, 'agent'):
-            try:
-                self._claude_widget.agent.stop()
-            except Exception as e:
-                logger.debug("Error stopping Claude agent: {}", e)
+        tabs = self._session_tabs()
+        if tabs:
+            # Every open session unregisters its bus endpoint and stops its
+            # agent -- not just the main one. wait_for_worker=False: a
+            # blocking worker join here runs on the GUI thread during app
+            # shutdown; N tabs x 5s exceeds the exit watchdog, whose forced
+            # os._exit() then crashes mid-teardown (0xC0000005). Signal the
+            # workers and abandon them, as the pre-tab close path did.
+            for tab in tabs:
+                tab.close_session(wait_for_worker=False)
+            self._claude_widget = None
+        else:
+            self._unregister_bus_endpoint()
+
+            # Stop the agent (no join — see above)
+            if self._claude_widget and hasattr(self._claude_widget, 'agent'):
+                try:
+                    self._claude_widget.agent.stop(wait_ms=0)
+                except Exception as e:
+                    logger.debug("Error stopping Claude agent: {}", e)
         super()._on_closing()
 
     def _get_available_actions(self) -> list[dict[str, Any]]:
@@ -1146,6 +1123,13 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
                     "description": "Clear the chat history display",
                     "method": "action_clear_chat",
                 },
+                {
+                    "name": "open_agent_tab",
+                    "description": "Open (or focus) a session tab for a named agent; "
+                                   "optionally send it a message once the session is ready",
+                    "method": "action_open_agent_tab",
+                    "parameters": {"agent": "string", "message": "string (optional)"},
+                },
             ])
 
         return actions
@@ -1159,27 +1143,101 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         Returns:
             True if message was sent.
         """
-        if self._claude_widget is None:
+        # Programmatic sends (logbook "send to Claude", skill triggers) go to
+        # the main assistant, so bring its tab to the front -- otherwise the
+        # message lands in a session the user isn't looking at.
+        widget = self._focus_lightfall_session()
+        if widget is None:
             return False
 
         # Set the input field text and trigger send
-        if hasattr(self._claude_widget, 'input_field'):
-            self._claude_widget.input_field.setText(message)
-            self._claude_widget._send_query()
+        if hasattr(widget, 'input_field'):
+            widget.input_field.setPlainText(message)
+            widget._send_query()
             return True
 
         return False
 
+    def action_open_agent_tab(self, agent: str, message: str | None = None) -> dict[str, Any]:
+        """Open (or focus) a tab for ``agent``; optionally queue a first message.
+
+        Reuses the same code path as the new-tab picker (``_open_agent_tab``),
+        so session assembly, singleton-per-agent focus behavior, and bus
+        registration are identical to a UI-initiated open.
+        """
+        from lightfall.agents.registry import AgentSpecRegistry
+
+        registry = AgentSpecRegistry.get_instance()
+        spec = registry.get(agent)
+        if spec is None:
+            available = sorted(
+                s.name for s in registry.enabled_specs() if s.openable)
+            return {"success": False,
+                    "error": f"unknown agent '{agent}'; available: {available}"}
+        if agent not in {s.name for s in registry.enabled_specs()}:
+            return {"success": False,
+                    "error": f"agent '{agent}' is disabled in settings"}
+        if not spec.openable:
+            return {"success": False,
+                    "error": f"agent '{agent}' is not openable as a session "
+                             f"(lightfall.openable: false)"}
+        if self._tabs is None:
+            return {"success": False, "error": "tab surface not available"}
+
+        focused_existing = self._find_tab(agent) is not None
+        self._open_agent_tab(spec)  # focuses existing or creates + activates
+        if message:
+            self._deliver_when_ready(self._find_tab(agent), message)
+        return {"success": True, "agent": agent,
+                "focused_existing": focused_existing,
+                "message_queued": bool(message)}
+
+    def _deliver_when_ready(self, tab, message: str) -> None:
+        """Submit ``message`` to ``tab`` now, or once its session widget exists."""
+        widget = tab.claude_widget
+        if widget is not None:
+            widget.input_field.setPlainText(message)
+            widget._send_query()
+            return
+
+        def _once(w, _text=message):
+            try:
+                tab.widget_created.disconnect(_once)
+            except (RuntimeError, TypeError):
+                pass
+            w.input_field.setPlainText(_text)
+            w._send_query()
+
+        tab.widget_created.connect(_once)
+
+    def _focus_lightfall_session(self):
+        """Activate the lightfall tab and return its session widget (or None).
+
+        Falls back to the mirrored ``_claude_widget`` when there is no tab
+        surface (e.g. a test harness that stubbed ``_setup_ui``).
+        """
+        tab = self._lightfall_tab
+        if tab is None:
+            return self._claude_widget
+        if self._tabs is not None:
+            self._tabs.setCurrentWidget(tab)
+        return tab.claude_widget
+
     def submit_external_prompt(self, text: str) -> bool:
         """Raise the Claude panel and submit a programmatic user prompt to
-        the reactive agent. Returns False if the agent widget isn't built yet."""
+        the reactive agent. Returns False if the agent widget isn't built yet.
+
+        Always targets the main lightfall session (and brings its tab to the
+        front), whichever tab the user happens to be on.
+        """
         win = self._get_main_window()
         if win is not None:
             win.activate_panel(self.panel_metadata.id)
-        if self._claude_widget is None:
+        widget = self._focus_lightfall_session()
+        if widget is None:
             return False
-        self._claude_widget.input_field.setText(text)
-        self._claude_widget._send_query()  # auto-connects via agent.query_sync
+        widget.input_field.setPlainText(text)
+        widget._send_query()  # auto-connects via agent.query_sync
         return True
 
     def action_clear_chat(self) -> bool:
@@ -1213,5 +1271,20 @@ Creating a new RunEngine bypasses all of this — data won't be recorded.
         if self._claude_widget is not None and hasattr(self._claude_widget, 'agent'):
             agent = self._claude_widget.agent
             data["agent_busy"] = agent.is_busy() if hasattr(agent, 'is_busy') else None
+
+        tabs = self._session_tabs()
+        if tabs:
+            current = self._tabs.currentWidget()
+            data["open_tabs"] = [
+                {
+                    "agent": tab.agent_name,
+                    "ready": tab.is_agent_ready,
+                    "busy": tab.is_busy(),
+                    "pending_messages": self._tab_pending.get(tab, 0),
+                    "current": tab is current,
+                    "error": tab.error_message,
+                }
+                for tab in tabs
+            ]
 
         return data

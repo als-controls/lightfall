@@ -11,6 +11,7 @@ Provides the default status bar indicators:
 from __future__ import annotations
 
 from lightfall.ui.statusbar.plugins.als_beam_status import ALSBeamStatusPlugin
+from lightfall.ui.statusbar.plugins.caproxy_lease_status import CaproxyLeaseStatusPlugin
 from lightfall.ui.statusbar.plugins.nats_status import NatsStatusPlugin
 from lightfall.ui.statusbar.plugins.thread_status import ThreadStatusPlugin
 from lightfall.ui.statusbar.plugins.tiled_status import TiledStatusPlugin
@@ -22,4 +23,5 @@ __all__ = [
     "ALSBeamStatusPlugin",
     "ThreadStatusPlugin",
     "NatsStatusPlugin",
+    "CaproxyLeaseStatusPlugin",
 ]

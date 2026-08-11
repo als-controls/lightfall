@@ -1,5 +1,5 @@
-"""Plugin type for contributing MonitorFeeds. Mirrors AgentPlugin so
-behaviour and settings are predictable (see src/lightfall/plugins/agent_plugin.py)."""
+"""Plugin type for contributing MonitorFeeds. Mirrors ToolPlugin so
+behaviour and settings are predictable (see src/lightfall/plugins/tool_plugin.py)."""
 
 from __future__ import annotations
 

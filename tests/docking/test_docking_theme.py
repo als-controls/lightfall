@@ -224,9 +224,12 @@ def test_island_widget_polish(islands_colors):
     # Item views have no border (the surface card frames them).
     assert "QAbstractItemView {\n    border: none;" in css
     # Context menus under the proxy keep a sea background (panel-transparency
-    # rule would otherwise blank them).
+    # rules would otherwise blank them). Both selectors: (1,0,1) for menus
+    # parented right at the proxy, (1,0,2) to out-tie the nested-transparency
+    # rule for menus parented deeper (e.g. the Claude '+' agent picker).
     assert (
-        f"#TheaterProxy QMenu {{\n    background-color: {islands_colors.sea};"
+        f"#TheaterProxy QMenu,\n#TheaterProxy QWidget QMenu {{\n"
+        f"    background-color: {islands_colors.sea};"
     ) in css
     # Submenus keep a sea background (the 'QMenu QWidget' corner-fix rule
     # would otherwise blank nested menus).

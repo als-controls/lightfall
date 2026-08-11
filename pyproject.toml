@@ -56,6 +56,11 @@ dependencies = [
     # tiled
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
+    # bluesky-tiled-plugins>=2.0 imports tiled.storage, which imports
+    # sqlalchemy at module top level. sqlalchemy ships only with tiled's
+    # [server] extra (via alembic), not [client], so it must be declared
+    # explicitly or a client-only install fails to import lightfall.services.
+    "sqlalchemy>=2.0",
     # networking / proxy support
     "httpx[socks]>=0.27",
     "aiohttp>=3.8",
@@ -64,7 +69,7 @@ dependencies = [
     # ipython
     "qtconsole>=5.5",
     "ipykernel>=6.0",
-    "claude-agent-sdk>=0.2.82",
+    "claude-agent-sdk>=0.2.93",
     "happi>=2.0",
     "nats-py>=2.0",
 ]
@@ -118,9 +123,10 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lightfall"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/lightfall/ui/resources/logo.png" = "lightfall/ui/resources/logo.png"
+# No force-include table here: everything under src/lightfall (logo.png, skills/,
+# agents/builtin/) is tracked and already picked up by `packages`. Force-including
+# those paths made hatchling add each file twice and hard-failed the wheel build
+# ("A second file is being added to the wheel archive at the same path").
 
 [tool.ruff]
 line-length = 100
@@ -176,7 +182,10 @@ exclude_lines = [
 [tool.briefcase]
 project_name = "Lightfall"
 bundle = "gov.lbl.als"
-version = "0.1.1"
+# Hand-maintained: briefcase cannot read the hatch-vcs version, so this must be
+# bumped alongside every release tag. When it drifts, the installers attached to
+# a release carry the stale number while the wheel carries the tag's.
+version = "0.2.1"
 url = "https://als.lbl.gov"
 author = "ALS Controls Team"
 author_email = "controls@lbl.gov"
@@ -227,6 +236,8 @@ requires = [
     "h5py>=3.0",
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
+    # see [project].dependencies for why sqlalchemy must be declared explicitly
+    "sqlalchemy>=2.0",
 
     # IPython integration
     "qtconsole>=5.5",
@@ -245,7 +256,7 @@ requires = [
     "cryptography>=41.0",
     "bidict>=0.23",
 
-    "claude-agent-sdk>=0.2.82",
+    "claude-agent-sdk>=0.2.93",
 ]
 
 [tool.briefcase.app.lightfall.macOS]

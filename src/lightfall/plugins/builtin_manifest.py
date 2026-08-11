@@ -126,7 +126,7 @@ builtin_manifest = PluginManifest(
             name="claude",
             import_path="lightfall.ui.preferences.claude_settings:ClaudeSettingsPlugin",
         ),
-        # Claude agent plugin settings (enable/disable AgentPlugin instances)
+        # Claude agent plugin settings (enable/disable ToolPlugin instances)
         PluginEntry(
             type_name="settings",
             name="claude_tools",
@@ -175,6 +175,11 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="statusbar",
+            name="caproxy_lease_status",
+            import_path="lightfall.ui.statusbar.plugins.caproxy_lease_status:CaproxyLeaseStatusPlugin",
+        ),
+        PluginEntry(
+            type_name="statusbar",
             name="als_beam_status",
             import_path="lightfall.ui.statusbar.plugins.als_beam_status:ALSBeamStatusPlugin",
         ),
@@ -194,25 +199,25 @@ builtin_manifest = PluginManifest(
             import_path="lightfall.ui.statusbar.plugins.nats_status:NatsStatusPlugin",
         ),
         # Agent plugins (skill prompts and/or MCP tool bags).
-        # Each contributes via AgentRegistry; per-plugin MCP servers are
+        # Each contributes via ToolRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lightfall/claude/agent.py.
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="alignment",
             import_path="lightfall.plugins.agents.alignment:BeamlineAlignmentAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="plan_design",
             import_path="lightfall.plugins.agents.plan_design:PlanDesignAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="scan_planning",
             import_path="lightfall.plugins.agents.scan_planning:ScanPlanningAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="autonomous_experiment",
             import_path=(
                 "lightfall.plugins.agents.autonomous_experiment:"
@@ -220,44 +225,44 @@ builtin_manifest = PluginManifest(
             ),
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="panel_design",
             import_path="lightfall.plugins.agents.panel_design:PanelDesignAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="panel_builder",
             import_path="lightfall.plugins.agents.panel_builder:PanelBuilderAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="device_tools",
             import_path="lightfall.plugins.agents.device_tools:DeviceToolsAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="plan_tools",
             import_path="lightfall.plugins.agents.plan_tools:PlanToolsAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="engine_tools",
             import_path="lightfall.plugins.agents.engine_tools:EngineToolsAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="ipython_tools",
             import_path="lightfall.plugins.agents.ipython_tools:IPythonToolsAgent",
         ),
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="lightfall_core_tools",
             import_path="lightfall.claude.lightfall_core_tools:LFCoreToolPlugin",
         ),
         # Current-ESAF skill. Beamline read from tiled_beamline preference;
         # strictly now-only (no date parameter). See plugin docstring.
         PluginEntry(
-            type_name="agent",
+            type_name="tool",
             name="current_esaf",
             import_path="lightfall.plugins.agents.current_esaf:CurrentEsafAgent",
         ),
@@ -317,6 +322,12 @@ builtin_manifest = PluginManifest(
             type_name="panel",
             name="monitor",
             import_path="lightfall.ui.panels.plugins.monitor_panel_plugin:MonitorPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="agent_editor",
+            import_path="lightfall.ui.panels.agent_editor.plugin:AgentEditorPanelPlugin",
             preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
         ),
         PluginEntry(

@@ -1,6 +1,6 @@
 """Agent plugin registry — slimmed singleton replacing SkillRegistry + MCPToolRegistry.
 
-Holds registered AgentPlugin instances. The settings UI reads from it for
+Holds registered ToolPlugin instances. The settings UI reads from it for
 the enable/disable table. The agent-construction path (claude/agent.py +
 claude_panel.py) reads `enabled_plugins()` to materialize SKILL.md files
 and assemble per-plugin MCP servers.
@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
-    from lightfall.plugins.agent_plugin import AgentPlugin
+    from lightfall.plugins.tool_plugin import ToolPlugin
 
 
 DISABLED_PLUGINS_PREF: str = "disabled_tool_plugins"
@@ -34,21 +34,21 @@ LEGACY_ENABLED_PLUGINS_PREF: str = "enabled_tool_plugins"
 LEGACY_ENABLED_SKILLS_PREF: str = "enabled_skills"  # SkillRegistry-era
 
 
-class AgentRegistry:
-    """Singleton registry of AgentPlugin instances.
+class ToolRegistry:
+    """Singleton registry of ToolPlugin instances.
 
-    Use AgentRegistry.get_instance() to access. reset_instance() is for tests.
+    Use ToolRegistry.get_instance() to access. reset_instance() is for tests.
     """
 
-    _instance: AgentRegistry | None = None
+    _instance: ToolRegistry | None = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._plugins: dict[str, AgentPlugin] = {}
+        self._plugins: dict[str, ToolPlugin] = {}
         self._legacy_migrated: bool = False
 
     @classmethod
-    def get_instance(cls) -> AgentRegistry:
+    def get_instance(cls) -> ToolRegistry:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -60,8 +60,8 @@ class AgentRegistry:
         with cls._lock:
             cls._instance = None
 
-    def register(self, plugin: AgentPlugin) -> None:
-        """Register an AgentPlugin. Replaces any existing plugin with the same name."""
+    def register(self, plugin: ToolPlugin) -> None:
+        """Register an ToolPlugin. Replaces any existing plugin with the same name."""
         if plugin.name in self._plugins:
             logger.warning("agent plugin '{}' already registered, replacing", plugin.name)
         self._plugins[plugin.name] = plugin
@@ -78,11 +78,11 @@ class AgentRegistry:
             return True
         return False
 
-    def get_plugins(self) -> list[AgentPlugin]:
+    def get_plugins(self) -> list[ToolPlugin]:
         """All registered plugins (any order)."""
         return list(self._plugins.values())
 
-    def get_plugin(self, name: str) -> AgentPlugin | None:
+    def get_plugin(self, name: str) -> ToolPlugin | None:
         return self._plugins.get(name)
 
     def _read_list_pref(self, key: str) -> list[str] | None:
@@ -144,7 +144,7 @@ class AgentRegistry:
             len(disabled), len(forced_enabled),
         )
 
-    def enabled_plugins(self) -> list[AgentPlugin]:
+    def enabled_plugins(self) -> list[ToolPlugin]:
         """Plugins enabled by current preferences, sorted by priority (ascending)."""
         self._migrate_legacy_pref_if_needed()
         disabled = set(self._read_list_pref(DISABLED_PLUGINS_PREF) or [])

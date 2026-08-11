@@ -426,10 +426,19 @@ QListView::item {{
 }}
 
 /* Context menus popped from panel widgets are parented (QObject-wise) inside
-   the proxy, so the '#TheaterProxy QWidget' panel-transparency rule above
-   matches them and blanks their background. Re-assert the sea background —
-   same specificity, placed later, so it wins. */
-#TheaterProxy QMenu {{
+   the proxy, so two panel-transparency rules above blank their background:
+     * '#TheaterProxy QWidget'        -> island     specificity (1,0,1)
+     * '#TheaterProxy QWidget QWidget' -> transparent specificity (1,0,2)
+   A menu parented directly to a panel (e.g. the Claude '+' agent picker, whose
+   parent is the ClaudePanel, a direct child of the proxy) or to any widget
+   nested deeper (e.g. the input-row settings/tune menu) sits >=2 QWidget levels
+   under the proxy, so it matches the (1,0,2) transparent rule. A plain
+   '#TheaterProxy QMenu' (1,0,1) is out-specified by it and loses. Re-assert the
+   sea background with BOTH a (1,0,1) selector (menus parented right at the
+   proxy) and a (1,0,2) selector that ties the transparent rule's specificity
+   and, emitted later, wins the tie. */
+#TheaterProxy QMenu,
+#TheaterProxy QWidget QMenu {{
     background-color: {sea};
 }}
 

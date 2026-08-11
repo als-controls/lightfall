@@ -5,12 +5,14 @@ import platform
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 
+from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
+from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
 from lightfall.claude._internal.worker import PersistentClaudeWorker
 from lightfall.claude.permission_manager import (
     PermissionManager,
@@ -19,6 +21,16 @@ from lightfall.claude.permission_manager import (
 )
 from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
+
+if TYPE_CHECKING:
+    from lightfall.agents.spec import AgentSpec
+
+
+# Single-JSON-message read limit for the SDK transport. The default (1 MiB)
+# is too small for image tool_results (base64 screenshot payloads) and kills
+# the turn with "JSON message exceeded maximum buffer size". 16 MiB bounds
+# runaway messages while leaving ample headroom.
+SDK_MAX_BUFFER_SIZE = 16 * 1024 * 1024
 
 
 def lightfall_agent_cwd() -> str:
@@ -33,6 +45,73 @@ def lightfall_agent_cwd() -> str:
     return str(path)
 
 
+def _rewrite_oversized_args(cmd: list[str]) -> tuple[list[str], list[str]]:
+    """Rewrite oversized CLI args to temp-file-backed forms, in place.
+
+    Returns ``(cmd, temp_file_paths)``. ``cmd`` is mutated and also returned
+    for convenience.
+
+    Two distinct rewrite strategies, because the CLI treats these arg
+    families differently:
+
+    * ``--mcp-config`` / ``--settings`` already accept a bare file path as
+      their value natively, so the temp file's path is substituted directly.
+    * ``--system-prompt`` does NOT accept a bare path. The historical
+      workaround was to rewrite it to ``@<tempfile>`` (the SDK's own
+      at-file convention), but CLI >=2.1.221 silently ignores the
+      ``@file`` convention for ``--system-prompt`` — the prompt is dropped
+      entirely with no error (verified empirically 2026-08-03: every
+      embedded session with a >8000-char command line ran with NO system
+      prompt). The CLI does support a dedicated first-class flag,
+      ``--system-prompt-file <path>``, which takes a plain path (no ``@``).
+      So for ``--system-prompt`` we rewrite BOTH the flag name (to
+      ``--system-prompt-file``) and the value (to a plain temp path).
+
+    ``--agents`` is intentionally not handled here: SDK 0.2.93 no longer
+    puts ``--agents`` on the command line at all (agents are sent via the
+    initialize request instead), so this rewrite would never fire — see
+    "No --agents CLI flag needed" in
+    ``claude_agent_sdk/_internal/transport/subprocess_cli.py``.
+    """
+    temp_files: list[str] = []
+
+    # Args that accept a bare file path as their value natively.
+    file_path_args = {"--mcp-config", "--settings"}
+    # Args that need both the flag name and value rewritten because the
+    # original flag has no native file-path form.
+    flag_rename_args = {"--system-prompt": "--system-prompt-file"}
+
+    # Skip-guard: if the CLI-native flag is already present, don't touch it.
+    already_rewritten = {new for new in flag_rename_args.values() if new in cmd}
+
+    for arg_name in set(file_path_args) | set(flag_rename_args):
+        if flag_rename_args.get(arg_name) in already_rewritten:
+            continue
+        try:
+            arg_idx = cmd.index(arg_name)
+            arg_value = cmd[arg_idx + 1]
+
+            if arg_value.startswith("@") or len(arg_value) < 500:
+                continue
+
+            suffix = ".json" if arg_value.startswith("{") else ".txt"
+            temp_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=suffix, delete=False, encoding="utf-8"
+            )
+            temp_file.write(arg_value)
+            temp_file.close()
+            temp_files.append(temp_file.name)
+
+            cmd[arg_idx + 1] = temp_file.name
+            if arg_name in flag_rename_args:
+                cmd[arg_idx] = flag_rename_args[arg_name]
+
+        except (ValueError, IndexError):
+            pass
+
+    return cmd, temp_files
+
+
 def _patch_sdk_for_windows_cmdline_limit():
     """
     Monkey-patch the Claude Agent SDK to handle Windows command line length limits.
@@ -40,6 +119,10 @@ def _patch_sdk_for_windows_cmdline_limit():
     Windows has an 8191 character command line limit. The SDK handles --agents by
     writing to a temp file when too long, but not other large arguments like
     --system-prompt or --mcp-config. This patch extends that handling.
+
+    See ``_rewrite_oversized_args`` for why ``--system-prompt`` requires a
+    flag-name rewrite (to ``--system-prompt-file``) rather than the ``@file``
+    convention used elsewhere.
     """
     if platform.system() != "Windows":
         return
@@ -61,37 +144,11 @@ def _patch_sdk_for_windows_cmdline_limit():
         cmd_limit = 8000
 
         if len(cmd_str) > cmd_limit:
-            # Args the CLI reads natively as a file path (no @ prefix needed)
-            file_path_args = {"--mcp-config", "--settings"}
-            # Args the CLI reads via @file convention
-            atfile_args = {"--system-prompt", "--agents"}
-
-            for arg_name in file_path_args | atfile_args:
-                try:
-                    arg_idx = cmd.index(arg_name)
-                    arg_value = cmd[arg_idx + 1]
-
-                    if arg_value.startswith("@") or len(arg_value) < 500:
-                        continue
-
-                    suffix = ".json" if arg_value.startswith("{") else ".txt"
-                    temp_file = tempfile.NamedTemporaryFile(
-                        mode="w", suffix=suffix, delete=False, encoding="utf-8"
-                    )
-                    temp_file.write(arg_value)
-                    temp_file.close()
-
-                    if not hasattr(self, '_temp_files'):
-                        self._temp_files = []
-                    self._temp_files.append(temp_file.name)
-
-                    if arg_name in file_path_args:
-                        cmd[arg_idx + 1] = temp_file.name
-                    else:
-                        cmd[arg_idx + 1] = f"@{temp_file.name}"
-
-                except (ValueError, IndexError):
-                    pass
+            cmd, temp_files = _rewrite_oversized_args(cmd)
+            if temp_files:
+                if not hasattr(self, '_temp_files'):
+                    self._temp_files = []
+                self._temp_files.extend(temp_files)
 
         return cmd
 
@@ -223,6 +280,7 @@ class QtClaudeAgent(QObject):
         effort: str | None = None,
         resume: str | None = None,
         disable_betas: bool = False,
+        spec: "AgentSpec | None" = None,
         parent: QObject | None = None
     ):
         """
@@ -253,6 +311,20 @@ class QtClaudeAgent(QObject):
         super().__init__(parent)
 
         self.target_window = target_window
+
+        # Resolve the spec that drives this session's system prompt, cwd,
+        # tool selection, and subagents. Fall back to the legacy hardcoded
+        # QT_SYSTEM_PROMPT path (registry not loaded, e.g. bare constructor
+        # tests) so existing callers keep working.
+        if spec is None:
+            from lightfall.agents.registry import AgentSpecRegistry
+            spec = AgentSpecRegistry.get_instance().get("lightfall")
+            if spec is None:
+                logger.warning(
+                    "QtClaudeAgent: no 'lightfall' AgentSpec in the registry; "
+                    "falling back to the legacy hardcoded system prompt"
+                )
+        self._spec = spec
 
         # Try multiple environment variables for API key (optional - CLI can use OAuth)
         self.api_key = (
@@ -305,27 +377,72 @@ class QtClaudeAgent(QObject):
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
-        # Per-plugin server assembly from AgentRegistry
-        from lightfall.claude._session_assembly import (
-            assemble_mcp_servers,
-            init_session_plugin_dir,
-            materialize_skill,
-        )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+        # Bus name defaults to the spec name (or "lightfall" on the legacy
+        # path); the endpoint layer overwrites this with the actual
+        # registered name once the session joins the shared agent bus. The
+        # bus tools server reads it live via a closure, so it stays correct
+        # even after being overwritten post-construction.
+        self.bus_name = spec.name if spec else "lightfall"
+        mcp_servers["bus"] = create_bus_tools_server(lambda: self.bus_name)
+        allowed_tools.extend(BUS_ALLOWED_TOOLS)
 
-        enabled = AgentRegistry.get_instance().enabled_plugins()
-        agent_servers, agent_allowed = assemble_mcp_servers(enabled)
-        mcp_servers.update(agent_servers)
-        allowed_tools.extend(agent_allowed)
+        # The skills server is likewise always-on: any session can propose a
+        # skill draft, gated on human approval before it takes effect.
+        mcp_servers["skills"] = create_skill_tools_server(
+            lambda: self.bus_name, lambda: self._current_session_id
+        )
+        allowed_tools.extend(SKILLS_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir
+        from lightfall.claude._session_assembly import init_session_plugin_dir
+
         self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
         init_session_plugin_dir(self._session_plugin_dir)
-        for plugin in enabled:
-            materialize_skill(plugin, self._session_plugin_dir)
 
-        # Build system prompt
-        system_prompt = QT_SYSTEM_PROMPT
+        agents: dict[str, Any] = {}
+
+        if self._spec is not None:
+            from lightfall.agents.assembly import assemble_spec_options
+            from lightfall.agents.registry import AgentSpecRegistry
+            from lightfall.agents.spec import AgentSpecError
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+            try:
+                spec_options = assemble_spec_options(
+                    self._spec,
+                    ToolRegistry.get_instance(),
+                    AgentSpecRegistry.get_instance(),
+                    self._session_plugin_dir,
+                )
+            except AgentSpecError as exc:
+                logger.warning(
+                    "agent '{}': failed to assemble spec options ({}); "
+                    "falling back to the legacy hardcoded system prompt",
+                    self._spec.name, exc,
+                )
+                self._spec = None
+
+        if self._spec is not None:
+            mcp_servers.update(spec_options["mcp_servers"])
+            allowed_tools.extend(spec_options["allowed_tools"])
+            system_prompt = spec_options["system_prompt"]
+            project_cwd = spec_options["cwd"]
+            agents = spec_options["agents"]
+        else:
+            # Legacy path: no spec available (registry not loaded).
+            from lightfall.agents.skills_store import materialize_skills
+            from lightfall.claude._session_assembly import assemble_mcp_servers
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+            enabled = ToolRegistry.get_instance().enabled_plugins()
+            agent_servers, agent_allowed = assemble_mcp_servers(enabled)
+            mcp_servers.update(agent_servers)
+            allowed_tools.extend(agent_allowed)
+            materialize_skills(tuple(p.name for p in enabled), self._session_plugin_dir)
+
+            system_prompt = QT_SYSTEM_PROMPT
+            project_cwd = lightfall_agent_cwd()
+
         if additional_system_prompt:
             system_prompt = f"{system_prompt}\n\n{additional_system_prompt}"
 
@@ -333,7 +450,7 @@ class QtClaudeAgent(QObject):
         self._effort = effort
         self._resume_session_id = resume
         self._current_session_id: str | None = None
-        self._project_cwd = lightfall_agent_cwd()
+        self._project_cwd = project_cwd
 
         # Configure Claude options
         options_dict = {
@@ -352,7 +469,25 @@ class QtClaudeAgent(QObject):
             # waiting for the whole block. The worker translates these into
             # partial_* signals and the widget appends as they arrive.
             "include_partial_messages": True,
+            # See SDK_MAX_BUFFER_SIZE: default 1 MiB rejects screenshot payloads.
+            "max_buffer_size": SDK_MAX_BUFFER_SIZE,
+            # Never let the developer's user-scope Claude settings (global
+            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into an
+            # embedded beamline session. Leaving setting_sources unset (None)
+            # means "all sources" per the SDK. "project" is ALSO unsafe: it
+            # activates the whole CLAUDE.md chain including the user-level
+            # ~/.claude/CLAUDE.md, not just per-cwd project config (verified
+            # empirically 2026-08-03: the operator's personal assistant
+            # persona leaked into an embedded session). Empty setting_sources
+            # ([]) gives true SDK isolation -- no CLAUDE.md chain, no personal
+            # plugins/hooks -- while --plugin-dir and --mcp-config (passed via
+            # options above) still work. Lightfall's own agent/skill scopes
+            # (AgentSpec, per-session plugin dir) are the extension mechanism,
+            # not the CLI's setting_sources.
+            "setting_sources": [],
         }
+        if agents:
+            options_dict["agents"] = agents
         if self._model:
             options_dict["model"] = self._model
         if self._effort:
@@ -529,16 +664,31 @@ class QtClaudeAgent(QObject):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.query_sync, prompt)
 
-    def stop(self) -> None:
+    def stop(self, wait_ms: int = 5000) -> None:
         """
         Stop the worker and disconnect.
+
+        Args:
+            wait_ms: How long to join the worker thread. Pass 0 (app
+                shutdown path) to signal the worker and abandon it without
+                blocking — joining on the GUI thread during shutdown can
+                exceed the 5 s exit watchdog, whose forced os._exit() then
+                tears the process down mid-flight (0xC0000005).
         """
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            if not self._worker.wait(5000):  # 5s timeout
-                logger.warning("Claude worker did not stop in time, terminating")
-                self._worker.terminate()
-                self._worker.wait(1000)
+            if wait_ms <= 0:
+                logger.debug("Claude worker signalled to stop; not waiting (shutdown path)")
+            elif not self._worker.wait(wait_ms):
+                # Do NOT terminate(): killing a QThread that is executing
+                # Python corrupts the interpreter heap and crashes the whole
+                # process (0xC0000005). Abandon the worker instead — it is
+                # reclaimed when it finally unblocks or the process exits.
+                logger.warning(
+                    "Claude worker did not stop within 5s; abandoning it "
+                    "rather than force-terminating (terminate() would risk "
+                    "corrupting the interpreter and crashing the process)."
+                )
         self._is_connected = False
 
         # Clean up the per-session SDK plugin dir
@@ -653,11 +803,9 @@ class QtClaudeAgent(QObject):
         """
         import dataclasses
 
-        from lightfall.claude._session_assembly import (
-            init_session_plugin_dir,
-            materialize_skill,
-        )
-        from lightfall.ui.panels.claude.agent_registry import AgentRegistry
+        from lightfall.agents.skills_store import materialize_skills
+        from lightfall.claude._session_assembly import init_session_plugin_dir
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
         self.cockpit_reset.emit()
         self.stop()  # stops the worker; also rmtree's the session plugin dir
@@ -680,8 +828,11 @@ class QtClaudeAgent(QObject):
         try:
             plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
             init_session_plugin_dir(plugin_dir)
-            for plugin in AgentRegistry.get_instance().enabled_plugins():
-                materialize_skill(plugin, plugin_dir)
+            if self._spec is not None:
+                materialize_skills(self._spec.skills, plugin_dir)
+            else:
+                enabled = ToolRegistry.get_instance().enabled_plugins()
+                materialize_skills(tuple(p.name for p in enabled), plugin_dir)
             self._session_plugin_dir = plugin_dir
 
             self.options = dataclasses.replace(

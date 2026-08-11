@@ -81,22 +81,52 @@ class MonitorAdvisor:
             logger.exception("monitor advisor query failed")
             return ""
 
+    def _resolve_system_prompt(self) -> str:
+        """Resolve the "observer" agent spec's prompt, falling back to the
+        static ADVISOR_SYSTEM_PROMPT when the registry has no such spec
+        (headless/unit-test paths) or anything goes wrong resolving it."""
+        try:
+            from lightfall.agents.registry import AgentSpecRegistry
+            from lightfall.agents.skills_store import template_variables
+            from lightfall.agents.spec import resolve_template
+
+            spec = AgentSpecRegistry.get_instance().get("observer")
+            if spec is None:
+                return ADVISOR_SYSTEM_PROMPT
+            return resolve_template(spec.prompt, template_variables())
+        except Exception as e:  # noqa: BLE001 - advisory; never fail the query
+            logger.debug("monitor advisor: could not resolve observer spec: {}", e)
+            return ADVISOR_SYSTEM_PROMPT
+
     def _sdk_query(self, prompt: str) -> str:
         """Real SDK-backed one-shot query. Runs its own event loop + client.
         Integration path (the response-collection logic is unit-tested via
         collect_reply with a fake client)."""
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
+        # Predates agent_cwd() conventions (Task 2+); kept as-is so existing
+        # advisor transcripts under ~/lightfall/advisor stay where they are.
         cwd = (Path.home() / "lightfall" / "advisor")
         cwd.mkdir(parents=True, exist_ok=True)
+        system_prompt = self._resolve_system_prompt()
         opts = ClaudeAgentOptions(
             cwd=str(cwd.resolve()),
             mcp_servers={},
             allowed_tools=[],
-            system_prompt=ADVISOR_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             permission_mode="bypassPermissions",
             max_turns=1,
             include_partial_messages=False,
+            # Never let the developer's user-scope Claude settings (global
+            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into
+            # this advisor session. Leaving setting_sources unset (None) means
+            # "all sources" per the SDK; here that's worse since the advisor
+            # runs bypassPermissions, so personal hooks would fire unchecked.
+            # "project" is ALSO unsafe: it activates the whole CLAUDE.md chain
+            # including the user-level ~/.claude/CLAUDE.md, not just per-cwd
+            # project config (verified empirically 2026-08-03: persona leak).
+            # Empty setting_sources ([]) gives true SDK isolation.
+            setting_sources=[],
             **({"model": self._model} if self._model else {}),
         )
         loop = asyncio.new_event_loop()

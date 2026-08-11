@@ -207,8 +207,10 @@ def adaptive_experiment(
         # Populate hints.dimensions so downstream viz (e.g.
         # AdaptiveHeatmap measurement overlay) can locate the motor
         # fields in the primary stream.
+        # hints["fields"] can be present-but-empty (e.g. plain Signals),
+        # so `or [name]` — a .get() default alone never triggers on [].
         dim_hints = [
-            ([m.hints.get("fields", [m.name])[0]], "primary")
+            ([(m.hints.get("fields") or [m.name])[0]], "primary")
             for m in motors
         ]
         md = {
@@ -230,7 +232,7 @@ def adaptive_experiment(
             "lightfall_prefix": lightfall_prefix,
             "motor_names": [m.name for m in motors],
             "detector_name": (
-                detectors[0].hints.get("fields", [detectors[0].name])[0]
+                (detectors[0].hints.get("fields") or [detectors[0].name])[0]
                 if detectors else "det"
             ),
         })

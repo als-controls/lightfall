@@ -9,7 +9,6 @@ from queue import Empty
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QCoreApplication
 
 from lightfall.acquire.engine import (
     BaseEngine,
@@ -42,13 +41,9 @@ class _QueueOnlyEngine(BaseEngine):
         return False
 
 
-@pytest.fixture
-def qapp():
-    """Ensure QApplication exists for Qt."""
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    yield app
+# qapp is supplied by pytest-qt as a real QApplication (see tests/conftest.py);
+# a local QCoreApplication fixture is the wrong type for widget tests and aborts
+# the process at teardown (0xC0000005) when they share a run.
 
 
 @pytest.fixture
@@ -876,7 +871,7 @@ class TestPreSubmitIntegration:
 
     def test_sample_metadata_callable_returns_metadata(self, qapp) -> None:
         """Test the callable that wraps SampleMetadataDialog."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         from PySide6.QtWidgets import QDialog
 
@@ -895,7 +890,7 @@ class TestPreSubmitIntegration:
 
     def test_sample_metadata_callable_returns_none_on_cancel(self, qapp) -> None:
         """Test the callable returns None when dialog is cancelled."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         from PySide6.QtWidgets import QDialog
 

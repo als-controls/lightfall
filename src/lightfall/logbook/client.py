@@ -758,7 +758,20 @@ class LogbookClient:
             "ORDER BY position",
             (entry_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        frags = [dict(r) for r in rows]
+        # The 'data' column is persisted as a JSON string (see update_fragment /
+        # add_fragment). Deserialize it here so every consumer gets a dict,
+        # matching the parsing convention used elsewhere in this client. Without
+        # this, callers doing frag["data"].get(...) hit
+        # "'str' object has no attribute 'get'".
+        for frag in frags:
+            raw = frag.get("data")
+            if isinstance(raw, str):
+                try:
+                    frag["data"] = json.loads(raw)
+                except (ValueError, TypeError):
+                    frag["data"] = {}
+        return frags
 
     # ── Images ───────────────────────────────────────────────────
 

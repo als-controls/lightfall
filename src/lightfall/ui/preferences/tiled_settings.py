@@ -454,7 +454,7 @@ class TiledSettingsPlugin(SettingsPlugin):
             if enabled and url:
                 service.connect_async()
             else:
-                service.disconnect()
+                service.disconnect_tiled()
 
         except Exception as e:
             logger.error("Failed to update TiledService: {}", e)

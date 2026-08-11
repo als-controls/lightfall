@@ -51,6 +51,100 @@ class _FakeClient:
             yield m
 
 
+def test_sdk_query_uses_observer_spec_when_registered(monkeypatch, tmp_path):
+    from lightfall.agents.registry import AgentSpecRegistry
+    from lightfall.agents.spec import AgentSpec
+
+    AgentSpecRegistry.reset_instance()
+    reg = AgentSpecRegistry.get_instance()
+    spec = AgentSpec(
+        name="observer",
+        description="d",
+        prompt="You watch {{beamline}}.",
+        scope="core",
+        source_path=tmp_path / "observer.md",
+    )
+    reg._specs["observer"] = spec
+
+    monkeypatch.setattr(
+        "lightfall.agents.skills_store.template_variables",
+        lambda: {"beamline": "8.3.1", "user": "u", "endstation": ""},
+    )
+
+    seen_opts = {}
+
+    class _FakeOptions:
+        def __init__(self, **kwargs):
+            seen_opts.update(kwargs)
+
+    class _FakeClient:
+        def __init__(self, options): pass
+        async def connect(self): pass
+        async def disconnect(self): pass
+
+    monkeypatch.setattr(
+        "claude_agent_sdk.ClaudeAgentOptions", _FakeOptions, raising=False
+    )
+    monkeypatch.setattr(
+        "claude_agent_sdk.ClaudeSDKClient", _FakeClient, raising=False
+    )
+    monkeypatch.setattr(
+        "lightfall.monitor.advisor.collect_reply",
+        lambda client, prompt: _async_return("ok"),
+    )
+
+    adv = MonitorAdvisor()
+    out = adv._sdk_query("hi")
+    assert out == "ok"
+    assert seen_opts["system_prompt"] == "You watch 8.3.1."
+    # Advisor runs bypassPermissions, so leaking user-scope settings (personal
+    # hooks/plugins/global CLAUDE.md) would be worse than in the main session.
+    assert seen_opts["setting_sources"] == []
+
+    AgentSpecRegistry.reset_instance()
+
+
+def test_sdk_query_falls_back_when_no_observer_spec(monkeypatch, tmp_path):
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    AgentSpecRegistry.reset_instance()
+    AgentSpecRegistry.get_instance()  # empty registry, no "observer"
+
+    seen_opts = {}
+
+    class _FakeOptions:
+        def __init__(self, **kwargs):
+            seen_opts.update(kwargs)
+
+    class _FakeClient:
+        def __init__(self, options): pass
+        async def connect(self): pass
+        async def disconnect(self): pass
+
+    monkeypatch.setattr(
+        "claude_agent_sdk.ClaudeAgentOptions", _FakeOptions, raising=False
+    )
+    monkeypatch.setattr(
+        "claude_agent_sdk.ClaudeSDKClient", _FakeClient, raising=False
+    )
+    monkeypatch.setattr(
+        "lightfall.monitor.advisor.collect_reply",
+        lambda client, prompt: _async_return("ok"),
+    )
+
+    adv = MonitorAdvisor()
+    out = adv._sdk_query("hi")
+    assert out == "ok"
+    from lightfall.monitor.advisor import ADVISOR_SYSTEM_PROMPT
+    assert seen_opts["system_prompt"] == ADVISOR_SYSTEM_PROMPT
+
+    AgentSpecRegistry.reset_instance()
+
+
+async def _async_return(value):
+    return value
+
+
 def test_collect_reply_joins_textblocks_until_result(monkeypatch):
     # Patch the SDK type-checks collect_reply uses to our fakes.
     import lightfall.monitor.advisor as mod

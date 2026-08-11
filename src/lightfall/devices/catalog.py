@@ -54,7 +54,7 @@ class DeviceCatalog(QObject):
     Example:
         >>> catalog = DeviceCatalog.get_instance()
         >>> catalog.set_backend(MockBackend())
-        >>> catalog.connect()
+        >>> catalog.connect_backends()
         >>> motors = catalog.list_devices(category=DeviceCategory.MOTOR)
         >>> motor = catalog.get_device_by_name("motor")
     """
@@ -105,7 +105,7 @@ class DeviceCatalog(QObject):
         """Reset the singleton instance (for testing)."""
         with cls._lock:
             if cls._instance is not None:
-                cls._instance.disconnect()
+                cls._instance.disconnect_backends()
             cls._instance = None
 
     # === Backend Management ===
@@ -133,7 +133,7 @@ class DeviceCatalog(QObject):
         Args:
             backend: The backend to use.
         """
-        self.disconnect()
+        self.disconnect_backends()
         self._backend = backend
         self._backends[backend.name] = backend
         logger.info("Device catalog backend set to: {}", backend.name)
@@ -308,8 +308,13 @@ class DeviceCatalog(QObject):
 
         logger.info("Removed device backend: {}", name)
 
-    def connect(self) -> bool:
+    def connect_backends(self) -> bool:
         """Connect all registered backends via the unified load pipeline.
+
+        Note:
+            Named ``connect_backends`` (not ``connect``) to avoid shadowing
+            :meth:`QObject.connect`; overriding that name breaks every
+            ``signal.connect(...)`` on this object under PySide6.
 
         Each backend's metadata load and device instantiation run off the UI
         thread; this method returns immediately once workers are enqueued.
@@ -327,8 +332,12 @@ class DeviceCatalog(QObject):
         logger.info("Device catalog connect() enqueued {} backend(s)", len(self._backends))
         return True
 
-    def disconnect(self) -> None:
-        """Disconnect all backends."""
+    def disconnect_backends(self) -> None:
+        """Disconnect all backends.
+
+        Named ``disconnect_backends`` (not ``disconnect``) to avoid shadowing
+        :meth:`QObject.disconnect`.
+        """
         # Cancel any pending connections
         self._disconnect_from_connection_manager()
 
