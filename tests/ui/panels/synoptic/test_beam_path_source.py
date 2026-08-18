@@ -83,3 +83,23 @@ def test_save_routes_to_catalog_when_accepted():
 def test_save_returns_false_when_rejected():
     catalog = FakeCatalog({"synoptic": {}})
     assert not save_beam_path_to_catalog(catalog, "sim", [])
+
+
+def test_merge_dispatch_scope_explicitly_empty_still_merges_in_prefs():
+    """Documented intended behavior (see SynopticPanel._load_from_catalog):
+
+    An explicitly-empty shared scope path (``scope: []``, as returned by
+    load_beam_path_from_catalog for ``beam_path: []``) is NOT treated the
+    same as "no shared path at all" (``scope is None``, which would take
+    prefs verbatim without going through the merge function). Both paths
+    end up including the user's prefs segments, but only the ``None`` case
+    skips ``merge_beam_path_segments`` entirely. This test locks in the
+    merge-function behavior for the explicitly-empty-list case: scope=[]
+    merged with prefs={b} yields {b}.
+    """
+    scope_segments: list[BeamPathSegment] = []
+    prefs_segments = [BeamPathSegment(start=(0, 0, 0), end=(1, 0, 0), id="b")]
+
+    merged = merge_beam_path_segments(scope_segments, prefs_segments)
+
+    assert merged == prefs_segments

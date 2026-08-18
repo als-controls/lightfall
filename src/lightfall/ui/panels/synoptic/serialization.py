@@ -320,7 +320,7 @@ def load_beam_path_from_catalog(catalog, beamline: str) -> list[BeamPathSegment]
         return None
     try:
         return [BeamPathSegment.from_dict(d) for d in segments_data]
-    except (KeyError, TypeError, ValueError) as e:
+    except (KeyError, TypeError, ValueError, IndexError) as e:
         logger.warning("Invalid beam path in scope metadata: {}", e)
         return None
 
@@ -333,8 +333,9 @@ def merge_beam_path_segments(
 
     Scope segments are authoritative and always included first. Prefs
     segments are appended only when their ``id`` is not already present
-    among the scope segments; prefs segments with ``id is None`` are
-    always appended (there is nothing to dedupe them against).
+    among the scope segments or among prefs segments already appended;
+    prefs segments with ``id is None`` are always appended (there is
+    nothing to dedupe them against).
 
     Args:
         scope_segments: Segments loaded from backend scope metadata
@@ -345,10 +346,12 @@ def merge_beam_path_segments(
         The merged segment list, scope segments first.
     """
     merged = list(scope_segments)
-    scope_ids = {seg.id for seg in scope_segments if seg.id is not None}
+    seen_ids = {seg.id for seg in scope_segments if seg.id is not None}
     for seg in prefs_segments:
-        if seg.id is None or seg.id not in scope_ids:
+        if seg.id is None or seg.id not in seen_ids:
             merged.append(seg)
+            if seg.id is not None:
+                seen_ids.add(seg.id)
     return merged
 
 

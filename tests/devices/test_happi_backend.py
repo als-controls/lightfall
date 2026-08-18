@@ -232,6 +232,30 @@ def test_synoptic_metadata_round_trips(happi_backend_with_devices: HappiBackend)
     assert "extraneous" not in md  # never nested
 
 
+def test_synoptic_metadata_round_trips_through_reload(
+    happi_backend_with_devices: HappiBackend,
+) -> None:
+    """The same lift-to-top-level must also hold via reload()'s
+    _add_device_from_result path, not just a fresh load_metadata() call
+    on a brand new backend instance."""
+    backend = happi_backend_with_devices
+    infos = backend.load_metadata()
+    device = infos[0]
+    device.metadata["synoptic"] = {"position": [2.0, 0.0, 0.0], "visible": True}
+    assert backend.update_device(device)
+
+    # A second backend instance, sharing the same JSON db, discovers the
+    # device via reload() -> _add_device_from_result (not the initial
+    # load_metadata() population point).
+    reloaded_backend = _make_backend_on_same_db(backend)
+    reloaded_backend.load_metadata()  # establish an initial device set
+    assert reloaded_backend.reload()
+
+    md = {i.name: i for i in reloaded_backend.load_metadata()}[device.name].metadata
+    assert md.get("synoptic", {}).get("position") == [2.0, 0.0, 0.0]
+    assert "extraneous" not in md  # never nested
+
+
 # ---------------------------------------------------------------------------
 # Test 7: scope metadata (non-device) round-trips via pseudo-items
 # ---------------------------------------------------------------------------

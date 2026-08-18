@@ -168,7 +168,7 @@ def _make_i0_func(shutters: list[SimShutter], gap_axes: list[Any]):
 
     def _i0() -> float:
         if not all(s.is_open for s in shutters):
-            return abs(random.uniform(0.0, 0.02))  # dark counts
+            return random.uniform(0.0, 0.02)  # dark counts
         gap_factor = 1.0
         for axis in gap_axes:
             gap = axis.readback.get()

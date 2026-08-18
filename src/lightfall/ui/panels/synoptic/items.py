@@ -166,6 +166,21 @@ class Device2DItem(pg.ROI):
         else:
             return (point[0], point[2])
 
+    def project_point(self, point: tuple[float, float, float]) -> tuple[float, float]:
+        """Project a 3D point to 2D based on view preset (public API).
+
+        Delegates to :meth:`_project_point` for use by external callers
+        (e.g. ``SynopticView``) that need this item's current projection
+        without reaching into a private method.
+
+        Args:
+            point: 3D point (x, y, z).
+
+        Returns:
+            2D projected point (x, y).
+        """
+        return self._project_point(point)
+
     def _unproject_point(
         self, point_2d: tuple[float, float], original_3d: tuple[float, float, float]
     ) -> tuple[float, float, float]:

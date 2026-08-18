@@ -110,7 +110,7 @@ class DeviceSynopticData:
     primitive_shape: PrimitiveShape = PrimitiveShape.SQUARE
     color: tuple[float, float, float, float] = (0.5, 0.5, 0.5, 1.0)
     label_text: str | None = None
-    label_offset: tuple[float, float, float] = (0.0, 0.15, 0.0)
+    label_offset: tuple[float, float, float] = (0.0, 0.0, 0.35)
     visible: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -153,7 +153,7 @@ class DeviceSynopticData:
             primitive_shape=shape,
             color=tuple(data.get("color", [0.5, 0.5, 0.5, 1.0])),
             label_text=data.get("label_text"),
-            label_offset=tuple(data.get("label_offset", [0.0, 0.15, 0.0])),
+            label_offset=tuple(data.get("label_offset", [0.0, 0.0, 0.35])),
             visible=data.get("visible", True),
         )
 

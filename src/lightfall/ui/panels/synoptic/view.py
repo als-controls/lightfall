@@ -202,7 +202,7 @@ class SynopticView(QWidget):
         """
         data = item.get_synoptic_data()
         px, py = item.get_projected_position()
-        ox, oy = item._project_point(data.label_offset)
+        ox, oy = item.project_point(data.label_offset)
         return (px + ox, py + oy)
 
     def _create_label(self, device_id: str, item: Device2DItem) -> None:
@@ -554,7 +554,6 @@ class SynopticView(QWidget):
             self._plot.setYRange(center[1] - half_zoom, center[1] + half_zoom)
 
         # Restore visibility settings
-        self._labels_visible = state.labels_visible
         self.set_labels_visible(state.labels_visible)
         self.set_grid_visible(state.grid_visible)
 

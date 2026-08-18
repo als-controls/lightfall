@@ -112,6 +112,8 @@ class MockBackend(DeviceBackend):
         The fix is to declare the float type at construction. Real EPICS
         signals don't have this problem because the IOC declares the dtype.
         """
+        if self._devices:
+            return
         try:
             from ophyd.sim import (
                 SynAxis,
@@ -448,7 +450,10 @@ class MockBackend(DeviceBackend):
 
     def _create_minimal_mock_devices(self) -> None:
         """Create minimal mock devices when ophyd.sim is not available."""
-        # Create basic device info entries without ophyd devices
+        # Create basic device info entries without ophyd devices. These
+        # still carry minimal synoptic metadata (matching the
+        # DeviceSynopticData shape) so the fallback path feeds the
+        # synoptic panel the same as the full roster does.
         motor_info = DeviceInfo(
             name="motor",
             description="Primary motor (ophyd.sim not available)",
@@ -457,6 +462,12 @@ class MockBackend(DeviceBackend):
             connection_type=ConnectionType.SIMULATED,
             prefix="motor",
             tags=["motor", "mock"],
+            metadata={
+                "synoptic": {
+                    "position": [0.0, 0.0, 0.0],
+                    "visible": True,
+                },
+            },
         )
         self._add_device_internal(motor_info)
 
@@ -468,6 +479,12 @@ class MockBackend(DeviceBackend):
             connection_type=ConnectionType.SIMULATED,
             prefix="det",
             tags=["detector", "mock"],
+            metadata={
+                "synoptic": {
+                    "position": [1.0, 0.0, 0.0],
+                    "visible": True,
+                },
+            },
         )
         self._add_device_internal(det_info)
 

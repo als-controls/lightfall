@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 import time
 
+from loguru import logger
 from ophyd import Component as Cpt
 from ophyd import Device
 from ophyd.signal import Signal
@@ -40,7 +41,8 @@ class SimShutter(Device):
     ) -> None:
         super().__init__(*args, **kwargs)
         self._travel_time = travel_time
-        self.state.put(initial)
+        if initial != self.CLOSED:
+            self.state.put(initial)
         self._lock = threading.RLock()
         self._generation = 0
         self._pending_status = None
@@ -51,11 +53,17 @@ class SimShutter(Device):
         return self.state.get() == self.OPEN
 
     def set(self, value) -> DeviceStatus:
-        target = (
-            self.OPEN
-            if str(value).lower() in ("open", "1", "true")
-            else self.CLOSED
-        )
+        normalized = str(value).lower()
+        if normalized in ("open", "1", "true"):
+            target = self.OPEN
+        else:
+            if normalized not in ("close", "closed", "0", "false"):
+                logger.warning(
+                    "SimShutter.set: unrecognized value {!r}, "
+                    "coercing to CLOSED (fail-safe)",
+                    value,
+                )
+            target = self.CLOSED
         status = DeviceStatus(self)
 
         with self._lock:
@@ -100,6 +108,10 @@ class SimTemperatureController(Device):
     The readback recomputes on ``trigger()`` (SynSignal semantics, same
     as the other mock sensors) — a ``count()`` triggers then reads.
     No PID, no overshoot: linear approach at ``rate`` kelvin/second.
+
+    ``clock`` must be a monotonically non-decreasing callable (e.g. the
+    default ``time.monotonic``); the slew computation assumes elapsed
+    time between calls is never negative.
     """
 
     setpoint = Cpt(Signal, value=295.0, kind="normal")
@@ -114,6 +126,8 @@ class SimTemperatureController(Device):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        if rate <= 0:
+            raise ValueError(f"rate must be > 0, got {rate!r}")
         self._rate = rate
         self._clock = clock
         self._anchor_value = float(initial)

@@ -8,14 +8,15 @@ and emits ``stream_resource``/``stream_datum`` documents.
 """
 from __future__ import annotations
 
-import h5py
 import pytest
+
+pytest.importorskip("ophyd_async")
+
+import h5py
 from bluesky import RunEngine
 from bluesky.plans import count
 
 from lightfall.devices.backends.mock import MockBackend
-
-pytest.importorskip("ophyd_async")
 
 
 @pytest.fixture

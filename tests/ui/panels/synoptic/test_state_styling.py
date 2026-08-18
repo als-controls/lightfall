@@ -40,7 +40,19 @@ def test_selection_overrides_status_edge(item):
     assert edge_pen.color() == Device2DItem.HIGHLIGHT_COLOR
 
 
-def test_panel_routes_state_change_to_item(qtbot, monkeypatch):
+def test_connecting_gets_amber_edge(item):
+    item.set_device_status(DeviceStatus.CONNECTING)
+    fill, edge_pen = item._effective_style()
+    assert edge_pen.color() == item.STATUS_EDGE_COLORS["connecting"][0]
+
+
+def test_maintenance_gets_purple_edge(item):
+    item.set_device_status(DeviceStatus.MAINTENANCE)
+    fill, edge_pen = item._effective_style()
+    assert edge_pen.color() == item.STATUS_EDGE_COLORS["maintenance"][0]
+
+
+def test_panel_routes_state_change_to_item(qtbot):
     """device_state_changed(device_id, state) restyles the matching item."""
     from lightfall.devices.model import DeviceState, DeviceStatus
     from lightfall.ui.panels.synoptic.panel import SynopticPanel
@@ -59,3 +71,27 @@ def test_panel_routes_state_change_to_item(qtbot, monkeypatch):
     state = DeviceState(device_id=uuid4(), status=DeviceStatus.ERROR)
     panel._on_device_state_changed(device_id, state)
     assert item.get_device_status() == DeviceStatus.ERROR
+
+
+def test_add_device_to_view_seeds_initial_status_from_device_state(qtbot):
+    """_add_device_to_view() should seed the item's status from
+    device_info.state immediately, not just on a later state-change signal."""
+    from uuid import uuid4
+
+    from lightfall.devices.model import DeviceInfo, DeviceState, DeviceStatus
+    from lightfall.ui.panels.synoptic.panel import SynopticPanel
+
+    panel = SynopticPanel()
+    qtbot.addWidget(panel)
+
+    device_info = DeviceInfo(
+        id=uuid4(),
+        name="motor1",
+        metadata={"synoptic": {"position": [1.0, 0.0, 0.0], "visible": True}},
+    )
+    device_info.state = DeviceState(device_id=device_info.id, status=DeviceStatus.MAINTENANCE)
+
+    panel._add_device_to_view(device_info)
+
+    item = panel._device_items[str(device_info.id)]
+    assert item.get_device_status() == DeviceStatus.MAINTENANCE
