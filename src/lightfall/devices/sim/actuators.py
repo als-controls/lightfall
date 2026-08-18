@@ -7,11 +7,13 @@ opening/closing with a configurable travel delay. No physics.
 from __future__ import annotations
 
 import threading
+import time
 
 from ophyd import Component as Cpt
 from ophyd import Device
 from ophyd.signal import Signal
 from ophyd.status import DeviceStatus
+from ophyd.sim import SynSignal
 
 
 class SimShutter(Device):
@@ -90,3 +92,53 @@ class SimShutter(Device):
             self._pending_timer = timer
 
         return status
+
+
+class SimTemperatureController(Device):
+    """Simulated temperature controller: readback slews toward setpoint.
+
+    The readback recomputes on ``trigger()`` (SynSignal semantics, same
+    as the other mock sensors) — a ``count()`` triggers then reads.
+    No PID, no overshoot: linear approach at ``rate`` kelvin/second.
+    """
+
+    setpoint = Cpt(Signal, value=295.0, kind="normal")
+    readback = Cpt(SynSignal, kind="hinted")
+
+    def __init__(
+        self,
+        *args,
+        rate: float = 2.0,
+        initial: float = 295.0,
+        clock=time.monotonic,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._rate = rate
+        self._clock = clock
+        self._anchor_value = float(initial)
+        self._anchor_time = clock()
+        self._previous_target = float(initial)
+        self.setpoint.put(float(initial))
+        self.setpoint.subscribe(self._on_setpoint_changed, run=False)
+        self.readback.sim_set_func(self._compute)
+        self.readback.trigger()
+
+    def _on_setpoint_changed(self, *args, **kwargs) -> None:
+        # Re-anchor the slew at the current (computed) temperature,
+        # using the OLD target to compute current position.
+        self._anchor_value = self._compute_toward(self._previous_target)
+        self._previous_target = float(self.setpoint.get())
+        self._anchor_time = self._clock()
+
+    def _compute_toward(self, target: float) -> float:
+        """Compute position moving toward a specific target."""
+        elapsed = self._clock() - self._anchor_time
+        delta = target - self._anchor_value
+        step = self._rate * elapsed
+        if abs(delta) <= step:
+            return target
+        return self._anchor_value + step * (1.0 if delta > 0 else -1.0)
+
+    def _compute(self) -> float:
+        return self._compute_toward(float(self.setpoint.get()))
