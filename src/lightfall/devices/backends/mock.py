@@ -63,6 +63,7 @@ class MockBackend(DeviceBackend):
         self._maintenance: dict[UUID, list[MaintenanceRecord]] = {}
         self._connected = False
         self._ophyd_devices: dict[str, Any] = {}
+        self._minimal_fallback_used = False
 
     @property
     def name(self) -> str:
@@ -112,7 +113,7 @@ class MockBackend(DeviceBackend):
         The fix is to declare the float type at construction. Real EPICS
         signals don't have this problem because the IOC declares the dtype.
         """
-        if self._devices:
+        if self._ophyd_devices or self._minimal_fallback_used:
             return
         try:
             from ophyd.sim import (
@@ -487,6 +488,7 @@ class MockBackend(DeviceBackend):
             },
         )
         self._add_device_internal(det_info)
+        self._minimal_fallback_used = True
 
     def _add_device_internal(self, device: DeviceInfo) -> None:
         """Internal method to add device to storage."""
@@ -520,7 +522,7 @@ class MockBackend(DeviceBackend):
         Returns:
             List of DeviceInfo objects for all simulated devices.
         """
-        if not self._devices:
+        if not (self._ophyd_devices or self._minimal_fallback_used):
             self._create_simulated_devices()
         return list(self._devices.values())
 
@@ -557,11 +559,9 @@ class MockBackend(DeviceBackend):
         """Lazily build simulated devices on first access.
 
         Idempotent — safe to call multiple times; ``_create_simulated_devices``
-        is only invoked once because it checks ``self._devices`` itself, and
-        this guard is an additional early-exit for callers that just want to
-        read the cache.
+        is only invoked once because it checks the creation guards itself.
         """
-        if not self._devices:
+        if not (self._ophyd_devices or self._minimal_fallback_used):
             self._create_simulated_devices()
 
     # === Device CRUD Operations ===
