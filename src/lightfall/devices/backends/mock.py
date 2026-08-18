@@ -35,7 +35,12 @@ class MockBackend(DeviceBackend):
     Simulated devices include:
     - Motors (SynAxis): x, y, z linear stages; theta rotation
     - Detectors (SynGauss, SynSignal): point detector, noisy detector
-    - Signals (SynSignal): temperature, pressure sensors
+    - Signals (SynSignal): pressure sensor, storage ring current
+    - A full beamline roster (see ``mock_roster.create_roster``): front-end
+      shutters/valves, optics (mirrors, mono, slits), diagnostics (BPMs,
+      i0), and endstation devices (sample stages, a temperature
+      controller), each carrying ``metadata["synoptic"]`` for the
+      synoptic panel
 
     Example:
         >>> backend = MockBackend()
@@ -277,23 +282,9 @@ class MockBackend(DeviceBackend):
 
         # === Additional Simulated Sensors ===
 
-        # Create custom SynSignal devices for sensors
-        temperature = SynSignal(name="temperature", func=lambda: 22.5 + 0.1 * (datetime.now().second % 10))
-        temp_info = DeviceInfo(
-            name="temperature",
-            description="Sample temperature sensor",
-            category=DeviceCategory.DETECTOR,
-            device_class="ophyd.sim.SynSignal",
-            connection_type=ConnectionType.SIMULATED,
-            prefix="temperature",
-            location="Sample Environment",
-            tags=["sensor", "temperature", "sample"],
-            metadata={"units": "C", "precision": 2},
-        )
-        temp_info._ophyd_device = temperature
-        self._add_device_internal(temp_info)
-        self._ophyd_devices["temperature"] = temperature
-
+        # Create custom SynSignal devices for sensors.
+        # (temperature was here; it is now provided by the beamline roster
+        # as a SimTemperatureController — see the roster block below.)
         pressure = SynSignal(name="pressure", func=lambda: 1.013e5 + 100 * (datetime.now().second % 5))
         pressure_info = DeviceInfo(
             name="pressure",
@@ -361,6 +352,23 @@ class MockBackend(DeviceBackend):
             self._ophyd_devices["sim_det"] = sim_det
         except ImportError:
             logger.warning("SimDetector not available")
+
+        # === Beamline roster (synoptic-positioned devices) ===
+        from lightfall.devices.backends.mock_roster import (
+            LEGACY_SYNOPTIC,
+            create_roster,
+        )
+
+        for info in create_roster(self._ophyd_devices):
+            self._add_device_internal(info)
+            self._ophyd_devices[info.name] = info._ophyd_device
+
+        # Give pre-existing devices their synoptic placement (hidden for
+        # pure test devices, visible for reused roster devices).
+        for device in self._devices.values():
+            placement = LEGACY_SYNOPTIC.get(device.name)
+            if placement is not None and "synoptic" not in device.metadata:
+                device.metadata["synoptic"] = dict(placement)
 
         logger.debug("Created {} simulated devices", len(self._devices))
 
