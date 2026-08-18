@@ -89,6 +89,7 @@ class Device2DItem(pg.ROI):
         self._is_selected = False
         self._original_color = synoptic_data.color
         self._device_status = None
+        self.setVisible(synoptic_data.visible)
 
         # Disable default ROI handles/hover behavior
         self.handleSize = 0

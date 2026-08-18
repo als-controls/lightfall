@@ -54,3 +54,11 @@ def test_label_repositions_on_preset_change(view):
     view.apply_view_preset(ViewPreset.TOP)
     pos_top = view.get_label_item("d1").pos()
     assert pos_top.y() == pytest.approx(0.0)
+
+
+def test_hidden_device_item_and_label_start_hidden(view):
+    data = DeviceSynopticData(position=(9.0, 0.0, 0.0), visible=False)
+    item = Device2DItem("dh", "hidden_dev", data)
+    view.add_device_item("dh", item)
+    assert not item.isVisible()
+    assert not view.get_label_item("dh").isVisible()
