@@ -39,6 +39,10 @@ class SimShutter(Device):
         super().__init__(*args, **kwargs)
         self._travel_time = travel_time
         self.state.put(initial)
+        self._lock = threading.Lock()
+        self._generation = 0
+        self._pending_status = None
+        self._pending_timer = None
 
     @property
     def is_open(self) -> bool:
@@ -51,17 +55,38 @@ class SimShutter(Device):
             else self.CLOSED
         )
         status = DeviceStatus(self)
-        if self.state.get() == target:
-            status.set_finished()
-            return status
 
-        self.state.put(self.OPENING if target == self.OPEN else self.CLOSING)
+        with self._lock:
+            self._generation += 1
+            gen = self._generation
 
-        def _arrive() -> None:
-            self.state.put(target)
-            status.set_finished()
+            if self.state.get() == target:
+                status.set_finished()
+                return status
 
-        timer = threading.Timer(self._travel_time, _arrive)
-        timer.daemon = True
-        timer.start()
+            # Cancel any pending timer and complete any pending status
+            if self._pending_timer is not None:
+                self._pending_timer.cancel()
+                self._pending_timer = None
+
+            if self._pending_status is not None and not self._pending_status.done:
+                self._pending_status.set_finished()
+
+            # Store new status and prepare timer
+            self._pending_status = status
+            self.state.put(self.OPENING if target == self.OPEN else self.CLOSING)
+
+            def _arrive() -> None:
+                with self._lock:
+                    if gen != self._generation:
+                        return
+                    self.state.put(target)
+                    status.set_finished()
+                    self._pending_status = None
+
+            timer = threading.Timer(self._travel_time, _arrive)
+            timer.daemon = True
+            timer.start()
+            self._pending_timer = timer
+
         return status
