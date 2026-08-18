@@ -189,8 +189,16 @@ class SynopticPanel(BasePanel):
                 self._gizmo.set_view_preset(state.view_preset)
                 self._beam_path.set_view_preset(state.view_preset)
 
-            # Load beam path
-            segments = self._persistence.load_beam_path()
+            # Beam path: shared scope metadata first, per-user prefs fallback
+            from lightfall.ui.panels.synoptic.serialization import (
+                load_beam_path_from_catalog,
+            )
+
+            segments = load_beam_path_from_catalog(
+                self._catalog, self._current_beamline
+            )
+            if segments is None:
+                segments = self._persistence.load_beam_path()
             if segments:
                 self._beam_path.set_segments(segments)
 
@@ -495,8 +503,15 @@ class SynopticPanel(BasePanel):
         )
         self._beam_path.add_segment(segment)
 
-        # Save
-        if self._persistence:
+        # Save: shared scope metadata if a backend accepts it, else prefs
+        from lightfall.ui.panels.synoptic.serialization import (
+            save_beam_path_to_catalog,
+        )
+
+        saved = save_beam_path_to_catalog(
+            self._catalog, self._current_beamline, self._beam_path.get_segments()
+        )
+        if not saved and self._persistence:
             self._persistence.save_beam_path(self._beam_path.get_segments())
 
     def _show_device_picker(self) -> None:

@@ -298,3 +298,44 @@ class DeviceSynopticSaver:
     def has_pending(self) -> bool:
         """Check if there are pending saves."""
         return len(self._pending_saves) > 0
+
+
+def load_beam_path_from_catalog(catalog, beamline: str) -> list[BeamPathSegment] | None:
+    """Load the shared beam path from backend scope metadata.
+
+    Returns None when no backend serves the scope or it has no beam
+    path — callers then fall back to per-user preferences.
+    """
+    try:
+        data = catalog.get_scope_metadata(f"beamline:{beamline}")
+    except Exception as e:
+        logger.warning("Beam path scope lookup failed: {}", e)
+        return None
+    if not data:
+        return None
+    segments_data = (data.get("synoptic") or {}).get("beam_path")
+    if not segments_data:
+        return None
+    try:
+        return [BeamPathSegment.from_dict(d) for d in segments_data]
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("Invalid beam path in scope metadata: {}", e)
+        return None
+
+
+def save_beam_path_to_catalog(catalog, beamline: str, segments: list[BeamPathSegment]) -> bool:
+    """Write the beam path into backend scope metadata (merging).
+
+    Returns False when no backend accepts the write — callers then
+    fall back to per-user preferences (status quo).
+    """
+    scope = f"beamline:{beamline}"
+    try:
+        existing = catalog.get_scope_metadata(scope) or {}
+        synoptic = dict(existing.get("synoptic") or {})
+        synoptic["beam_path"] = [seg.to_dict() for seg in segments]
+        merged = {**existing, "synoptic": synoptic}
+        return bool(catalog.update_scope_metadata(scope, merged))
+    except Exception as e:
+        logger.warning("Beam path scope save failed: {}", e)
+        return False
