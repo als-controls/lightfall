@@ -191,7 +191,12 @@ class OphydWidget(QWidget):
         if hasattr(self._signal, "connected"):
             self._connected = bool(self._signal.connected)
         else:
-            self._connected = True
+            # No ``connected`` attribute to consult. Assume connected only
+            # for objects that look like a readable signal (have ``get``);
+            # objects with no readable interface (e.g. ophyd-async devices
+            # that expose only async describe/read/stage/trigger) should
+            # not be reported as connected.
+            self._connected = hasattr(self._signal, "get")
         self._update_connection_style()
         self._update_readonly_state()
         self.connection_changed.emit(self._connected)
@@ -200,7 +205,11 @@ class OphydWidget(QWidget):
         try:
             self._sub_id = self._signal.subscribe(self._on_signal_value)
         except Exception:
-            self._start_polling()
+            # Only fall back to polling for objects that can actually be
+            # polled via ``get()``. Objects with no readable interface would
+            # just raise forever on every tick, so skip installing a timer.
+            if hasattr(self._signal, "get"):
+                self._start_polling()
 
         # Read current value
         self._read_initial_value()
@@ -223,8 +232,13 @@ class OphydWidget(QWidget):
             meta = getattr(self._signal, "metadata", None)
             if isinstance(meta, dict):
                 units = meta.get("units", "") or ""
-            if not units and hasattr(self._signal, "describe"):
-                desc = self._signal.describe()
+            describe_fn = getattr(self._signal, "describe", None)
+            if (
+                not units
+                and describe_fn is not None
+                and not inspect.iscoroutinefunction(describe_fn)
+            ):
+                desc = describe_fn()
                 if inspect.isawaitable(desc):
                     desc = None
                 if desc:
