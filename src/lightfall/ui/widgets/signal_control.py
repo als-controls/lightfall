@@ -62,7 +62,10 @@ def is_signal_item(item: DeviceTreeItem) -> bool:
         if is_area_detector(item):
             return False
 
-        if item.device_info and item.device_info.category == DeviceCategory.DETECTOR:
+        if item.device_info and item.device_info.category in (
+            DeviceCategory.DETECTOR,
+            DeviceCategory.SENSOR,
+        ):
             return True
 
         # Check ophyd object class name

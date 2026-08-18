@@ -22,11 +22,17 @@ class DeviceCategory(StrEnum):
 
     Motor: physical read/write (independent variable)
     Detector: measures something (dependent variable)
+    Sensor: read-only environment/machine value, not usually scanned
+    Shutter: two-state beam actuator
+    Valve: two-state vacuum actuator
     Controller: non-physical read/write (independent variable, catch-all default)
     """
 
     MOTOR = "motor"
     DETECTOR = "detector"
+    SENSOR = "sensor"
+    SHUTTER = "shutter"
+    VALVE = "valve"
     CONTROLLER = "controller"
 
 
