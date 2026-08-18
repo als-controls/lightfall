@@ -659,6 +659,7 @@ class SynopticPanel(BasePanel):
         if item and device_info:
             # Update 2D item
             item.set_synoptic_data(data)
+            self._view.refresh_label(device_id)
 
             # Update gizmo position
             self._update_gizmo()
