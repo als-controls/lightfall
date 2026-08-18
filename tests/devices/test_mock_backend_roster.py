@@ -1,4 +1,6 @@
 """Tests for MockBackend with the beamline roster integrated."""
+from collections import Counter
+
 from lightfall.devices.backends.mock import MockBackend
 from lightfall.devices.sim.actuators import SimTemperatureController
 from lightfall.ui.panels.synoptic.models import DeviceSynopticData
@@ -37,3 +39,11 @@ def test_legacy_devices_hidden_but_present():
         assert name in infos
         assert infos[name].metadata["synoptic"]["visible"] is False
     assert infos["sample_x"].metadata["synoptic"]["visible"] is True
+
+
+def test_device_names_are_globally_unique():
+    backend = MockBackend()
+    infos = backend.load_metadata()
+    counts = Counter(info.name for info in infos)
+    duplicates = {name: n for name, n in counts.items() if n > 1}
+    assert not duplicates, f"duplicate device names: {duplicates}"

@@ -7,6 +7,7 @@ used with Bluesky plans.
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -368,7 +369,7 @@ class MockBackend(DeviceBackend):
         for device in self._devices.values():
             placement = LEGACY_SYNOPTIC.get(device.name)
             if placement is not None and "synoptic" not in device.metadata:
-                device.metadata["synoptic"] = dict(placement)
+                device.metadata["synoptic"] = copy.deepcopy(placement)
 
         logger.debug("Created {} simulated devices", len(self._devices))
 
@@ -685,7 +686,10 @@ class MockBackend(DeviceBackend):
         """Serve the simulated beam path for any beamline scope.
 
         The mock backend simulates whichever beamline the app thinks it
-        is on, so it answers every ``beamline:*`` scope.
+        is on, so it answers every ``beamline:*`` scope. In mixed-backend
+        configurations this means MockBackend will SHADOW a real backend's
+        beam path if it is registered before it — register the mock
+        backend LAST so real backends get first crack at each scope.
         """
         if scope.startswith("beamline:"):
             from lightfall.devices.backends.mock_roster import (

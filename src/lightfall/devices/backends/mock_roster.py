@@ -8,8 +8,14 @@ Y = lateral, Z = height. Simulation is intentionally minimal.
 from __future__ import annotations
 
 import copy
+import functools
+import os
 import random
+import tempfile
+from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 from lightfall.devices.model import ConnectionType, DeviceCategory, DeviceInfo
 from lightfall.devices.sim.actuators import SimShutter, SimTemperatureController
@@ -119,25 +125,29 @@ def _info(
     return info
 
 
+@functools.lru_cache(maxsize=1)
+def _default_ad_root() -> Path:
+    """Fresh per-process temp dir for the sim area detector, created once.
+
+    Cached so repeated ``MockBackend()`` construction (e.g. in tests)
+    doesn't leak a new temp directory every time.
+    """
+    return Path(tempfile.mkdtemp(prefix="lightfall_area_det_"))
+
+
 def _create_area_detector() -> Any | None:
     """ophyd-async sim detector writing real HDF5 files. None if unavailable.
 
     Write directory comes from the ``LIGHTFALL_SIM_AD_DIR`` env var
     (set by tests/deployments that want a known, cleaned-up location),
-    defaulting to a fresh per-process temp dir otherwise.
+    defaulting to a cached per-process temp dir otherwise.
     """
     try:
-        import os
-        import tempfile
-        from pathlib import Path
-
         from ophyd_async.core import StaticPathProvider, UUIDFilenameProvider
         from ophyd_async.sim import PatternGenerator, SimBlobDetector
 
-        root = Path(
-            os.environ.get("LIGHTFALL_SIM_AD_DIR")
-            or tempfile.mkdtemp(prefix="lightfall_area_det_")
-        )
+        env_dir = os.environ.get("LIGHTFALL_SIM_AD_DIR")
+        root = Path(env_dir) if env_dir else _default_ad_root()
         root.mkdir(parents=True, exist_ok=True)
         provider = StaticPathProvider(UUIDFilenameProvider(), root)
         return SimBlobDetector(
@@ -145,7 +155,11 @@ def _create_area_detector() -> Any | None:
             pattern_generator=PatternGenerator(),
             name="area_det",
         )
-    except ImportError:
+    except ImportError as e:
+        logger.debug("ophyd-async sim area detector unavailable: {}", e)
+        return None
+    except Exception as e:
+        logger.warning("Failed to create sim area detector: {}", e)
         return None
 
 

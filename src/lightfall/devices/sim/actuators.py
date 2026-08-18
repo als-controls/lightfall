@@ -41,7 +41,7 @@ class SimShutter(Device):
         super().__init__(*args, **kwargs)
         self._travel_time = travel_time
         self.state.put(initial)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._generation = 0
         self._pending_status = None
         self._pending_timer = None

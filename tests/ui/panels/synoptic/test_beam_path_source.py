@@ -2,6 +2,7 @@
 from lightfall.ui.panels.synoptic.models import BeamPathSegment
 from lightfall.ui.panels.synoptic.serialization import (
     load_beam_path_from_catalog,
+    merge_beam_path_segments,
     save_beam_path_to_catalog,
 )
 
@@ -38,6 +39,36 @@ def test_load_returns_none_when_scope_unknown():
 
 def test_load_returns_none_when_no_beam_path_key():
     assert load_beam_path_from_catalog(FakeCatalog({"synoptic": {}}), "sim") is None
+
+
+def test_load_returns_empty_list_when_beam_path_intentionally_empty():
+    # An explicit empty list is distinct from "no beam_path key at all":
+    # it means the shared beam path was deliberately cleared, not unset.
+    segments = load_beam_path_from_catalog(
+        FakeCatalog({"synoptic": {"beam_path": []}}), "sim"
+    )
+    assert segments == []
+    assert segments is not None
+
+
+def test_merge_appends_prefs_segments_not_in_scope():
+    scope = [BeamPathSegment(start=(0, 0, 0), end=(1, 0, 0), id="a")]
+    prefs = [
+        BeamPathSegment(start=(0, 0, 0), end=(9, 9, 9), id="a"),  # dupe id, scope wins
+        BeamPathSegment(start=(1, 0, 0), end=(2, 0, 0), id="b"),
+    ]
+    merged = merge_beam_path_segments(scope, prefs)
+    ids = {seg.id for seg in merged}
+    assert ids == {"a", "b"}
+    winning_a = next(seg for seg in merged if seg.id == "a")
+    assert winning_a.end == (1, 0, 0)  # scope's segment, not prefs'
+
+
+def test_merge_always_appends_segments_with_no_id():
+    scope = [BeamPathSegment(start=(0, 0, 0), end=(1, 0, 0), id="a")]
+    prefs = [BeamPathSegment(start=(2, 0, 0), end=(3, 0, 0), id=None)]
+    merged = merge_beam_path_segments(scope, prefs)
+    assert len(merged) == 2
 
 
 def test_save_routes_to_catalog_when_accepted():

@@ -189,16 +189,24 @@ class SynopticPanel(BasePanel):
                 self._gizmo.set_view_preset(state.view_preset)
                 self._beam_path.set_view_preset(state.view_preset)
 
-            # Beam path: shared scope metadata first, per-user prefs fallback
+            # Beam path: merge shared scope metadata with per-user prefs.
+            # Scope segments are authoritative; prefs segments are appended
+            # only when their id isn't already present in the scope's set
+            # (so switching backends doesn't silently drop a user's own
+            # additions, but shared segments always win on id collisions).
             from lightfall.ui.panels.synoptic.serialization import (
                 load_beam_path_from_catalog,
+                merge_beam_path_segments,
             )
 
-            segments = load_beam_path_from_catalog(
+            scope_segments = load_beam_path_from_catalog(
                 self._catalog, self._current_beamline
             )
-            if segments is None:
-                segments = self._persistence.load_beam_path()
+            prefs_segments = self._persistence.load_beam_path()
+            if scope_segments is None:
+                segments = prefs_segments
+            else:
+                segments = merge_beam_path_segments(scope_segments, prefs_segments)
             if segments:
                 self._beam_path.set_segments(segments)
 

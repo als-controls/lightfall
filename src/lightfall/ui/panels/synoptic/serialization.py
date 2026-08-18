@@ -303,8 +303,10 @@ class DeviceSynopticSaver:
 def load_beam_path_from_catalog(catalog, beamline: str) -> list[BeamPathSegment] | None:
     """Load the shared beam path from backend scope metadata.
 
-    Returns None when no backend serves the scope or it has no beam
-    path — callers then fall back to per-user preferences.
+    Returns None when no backend serves the scope, or the scope has no
+    ``beam_path`` key at all — callers then fall back to per-user
+    preferences. An intentionally-empty shared beam path (``beam_path:
+    []``) is distinct from "no data" and returns ``[]``.
     """
     try:
         data = catalog.get_scope_metadata(f"beamline:{beamline}")
@@ -314,13 +316,40 @@ def load_beam_path_from_catalog(catalog, beamline: str) -> list[BeamPathSegment]
     if not data:
         return None
     segments_data = (data.get("synoptic") or {}).get("beam_path")
-    if not segments_data:
+    if segments_data is None:
         return None
     try:
         return [BeamPathSegment.from_dict(d) for d in segments_data]
     except (KeyError, TypeError, ValueError) as e:
         logger.warning("Invalid beam path in scope metadata: {}", e)
         return None
+
+
+def merge_beam_path_segments(
+    scope_segments: list[BeamPathSegment],
+    prefs_segments: list[BeamPathSegment],
+) -> list[BeamPathSegment]:
+    """Merge shared scope-metadata segments with per-user preferences.
+
+    Scope segments are authoritative and always included first. Prefs
+    segments are appended only when their ``id`` is not already present
+    among the scope segments; prefs segments with ``id is None`` are
+    always appended (there is nothing to dedupe them against).
+
+    Args:
+        scope_segments: Segments loaded from backend scope metadata
+            (shared beam path). May be empty.
+        prefs_segments: Segments loaded from per-user preferences.
+
+    Returns:
+        The merged segment list, scope segments first.
+    """
+    merged = list(scope_segments)
+    scope_ids = {seg.id for seg in scope_segments if seg.id is not None}
+    for seg in prefs_segments:
+        if seg.id is None or seg.id not in scope_ids:
+            merged.append(seg)
+    return merged
 
 
 def save_beam_path_to_catalog(catalog, beamline: str, segments: list[BeamPathSegment]) -> bool:
