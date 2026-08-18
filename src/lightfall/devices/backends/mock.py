@@ -524,7 +524,15 @@ class MockBackend(DeviceBackend):
         return self._ophyd_devices.get(info.name)
 
     def check_connection(self, obj: Any, timeout: float) -> bool:
-        """Simulated devices are always connected; return True immediately."""
+        """Classic sim devices are always connected; ophyd-async devices
+        (e.g. ``area_det``) are routed through the base class's async-connect
+        path (see ``DeviceBackend.check_connection``) so their real
+        ``connect()`` actually runs instead of being assumed.
+        """
+        from lightfall.devices import async_connect
+
+        if async_connect.is_async_connectable(obj):
+            return super().check_connection(obj, timeout)
         return True
 
     def _ensure_devices(self) -> None:

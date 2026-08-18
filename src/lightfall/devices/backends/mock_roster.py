@@ -119,6 +119,36 @@ def _info(
     return info
 
 
+def _create_area_detector() -> Any | None:
+    """ophyd-async sim detector writing real HDF5 files. None if unavailable.
+
+    Write directory comes from the ``LIGHTFALL_SIM_AD_DIR`` env var
+    (set by tests/deployments that want a known, cleaned-up location),
+    defaulting to a fresh per-process temp dir otherwise.
+    """
+    try:
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from ophyd_async.core import StaticPathProvider, UUIDFilenameProvider
+        from ophyd_async.sim import PatternGenerator, SimBlobDetector
+
+        root = Path(
+            os.environ.get("LIGHTFALL_SIM_AD_DIR")
+            or tempfile.mkdtemp(prefix="lightfall_area_det_")
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        provider = StaticPathProvider(UUIDFilenameProvider(), root)
+        return SimBlobDetector(
+            path_provider=provider,
+            pattern_generator=PatternGenerator(),
+            name="area_det",
+        )
+    except ImportError:
+        return None
+
+
 def _make_i0_func(shutters: list[SimShutter], gap_axes: list[Any]):
     """Transmitted intensity: dies when a shutter closes, scales with slit gaps."""
 
@@ -328,6 +358,15 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
         ["detector", "point", "endstation"], point_det, x=25.0, z=0.7,
         metadata={"units": "counts"},
     ))
+
+    area_det = _create_area_detector()
+    if area_det is not None:
+        infos.append(_info(
+            "area_det", "Area detector (writes HDF5 via ophyd-async sim)",
+            DeviceCategory.DETECTOR,
+            "ophyd_async.sim.SimBlobDetector", "Endstation",
+            ["detector", "camera", "area", "hdf5"], area_det, x=27.0,
+        ))
 
     return infos
 
