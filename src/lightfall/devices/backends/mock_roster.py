@@ -11,8 +11,6 @@ import copy
 import random
 from typing import Any
 
-from ophyd.sim import SynAxis, SynGauss, SynSignal
-
 from lightfall.devices.model import ConnectionType, DeviceCategory, DeviceInfo
 from lightfall.devices.sim.actuators import SimShutter, SimTemperatureController
 
@@ -146,6 +144,8 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
     Returns:
         DeviceInfo list (ophyd objects attached), beam order.
     """
+    from ophyd.sim import SynAxis, SynGauss, SynSignal
+
     infos: list[DeviceInfo] = []
 
     def axis(name: str, value: float = 0.0, delay: float = 0.0) -> Any:
