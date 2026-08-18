@@ -663,6 +663,22 @@ class MockBackend(DeviceBackend):
         self._maintenance[record.device_id].append(record)
         return True
 
+    # === Scope Metadata ===
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        """Serve the simulated beam path for any beamline scope.
+
+        The mock backend simulates whichever beamline the app thinks it
+        is on, so it answers every ``beamline:*`` scope.
+        """
+        if scope.startswith("beamline:"):
+            from lightfall.devices.backends.mock_roster import (
+                get_beamline_scope_metadata,
+            )
+
+            return get_beamline_scope_metadata()
+        return None
+
     # === Ophyd Device Access ===
 
     def get_ophyd_device(self, name: str) -> Any:
