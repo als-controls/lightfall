@@ -83,6 +83,7 @@ def _lift_extraneous(metadata: dict[str, Any], extraneous: dict[str, Any]) -> No
         metadata.setdefault(key, value)
     metadata.pop("extraneous", None)
 
+
 _FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
