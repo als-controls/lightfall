@@ -108,6 +108,7 @@ class SynopticPanel(BasePanel):
         # Connect catalog signals
         self._catalog.device_added.connect(self._on_device_added)
         self._catalog.device_removed.connect(self._on_device_removed)
+        self._catalog.device_state_changed.connect(self._on_device_state_changed)
 
     def _setup_ui(self) -> None:
         """Setup the panel UI."""
@@ -380,6 +381,9 @@ class SynopticPanel(BasePanel):
         self._device_items[device_id] = item
         self._device_info_map[device_id] = device_info
         self._view.add_device_item(device_id, item)
+
+        if device_info.state is not None:
+            item.set_device_status(device_info.state.status)
 
     def _has_synoptic_config(self, device_info: DeviceInfo) -> bool:
         """Check if device has synoptic configuration.
@@ -706,15 +710,21 @@ class SynopticPanel(BasePanel):
             self._add_device_to_view(device_info)
             self._update_device_count()
 
-    @Slot(object)
-    def _on_device_removed(self, device_info: DeviceInfo) -> None:
+    @Slot(str)
+    def _on_device_removed(self, device_id: str) -> None:
         """Handle device removed from catalog."""
-        device_id = str(device_info.id)
         if device_id in self._device_items:
             self._view.remove_device_item(device_id)
             del self._device_items[device_id]
             self._device_info_map.pop(device_id, None)
             self._update_device_count()
+
+    @Slot(str, object)
+    def _on_device_state_changed(self, device_id: str, state) -> None:
+        """Restyle the device item to reflect live status."""
+        item = self._device_items.get(device_id)
+        if item is not None:
+            item.set_device_status(getattr(state, "status", None))
 
     # === Lifecycle ===
 
