@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from lightfall.devices.backends.happi import HappiBackend
 from lightfall.devices.model import DeviceInfo
 
@@ -37,6 +39,22 @@ def _make_happi_db(tmp_path: Path) -> Path:
     )
     client.add_item(item)
     return db_path
+
+
+@pytest.fixture
+def happi_backend_with_devices(tmp_path: Path) -> HappiBackend:
+    """A HappiBackend connected to a temp JSON db with one device loaded."""
+    db_path = _make_happi_db(tmp_path)
+    backend = HappiBackend(path=str(db_path))
+    assert backend.connect()
+    return backend
+
+
+def _make_backend_on_same_db(backend: HappiBackend) -> HappiBackend:
+    """Construct a second HappiBackend pointed at the same JSON path."""
+    new_backend = HappiBackend(path=backend.path)
+    assert new_backend.connect()
+    return new_backend
 
 
 # ---------------------------------------------------------------------------
@@ -192,3 +210,50 @@ def test_guess_category_maps_bluesky_protocols() -> None:
     assert _guess_category_from_mro(_M) == DeviceCategory.MOTOR
     assert _guess_category_from_mro(_T) == DeviceCategory.DETECTOR
     assert _guess_category_from_mro(_F) == DeviceCategory.DETECTOR
+
+
+# ---------------------------------------------------------------------------
+# Test 6: synoptic metadata written to extraneous must round-trip at
+# metadata top level (not left nested/buried).
+# ---------------------------------------------------------------------------
+
+def test_synoptic_metadata_round_trips(happi_backend_with_devices: HappiBackend) -> None:
+    """Regression: synoptic saved to extraneous must come back at top level."""
+    backend = happi_backend_with_devices
+    infos = backend.load_metadata()
+    device = infos[0]
+    device.metadata["synoptic"] = {"position": [1.0, 0.0, 0.0], "visible": True}
+    assert backend.update_device(device)
+
+    reloaded_backend = _make_backend_on_same_db(backend)  # same JSON path
+    reloaded = {i.name: i for i in reloaded_backend.load_metadata()}
+    md = reloaded[device.name].metadata
+    assert md.get("synoptic", {}).get("position") == [1.0, 0.0, 0.0]
+    assert "extraneous" not in md  # never nested
+
+
+# ---------------------------------------------------------------------------
+# Test 7: scope metadata (non-device) round-trips via pseudo-items
+# ---------------------------------------------------------------------------
+
+def test_scope_metadata_round_trips(happi_backend_with_devices: HappiBackend) -> None:
+    backend = happi_backend_with_devices
+    payload = {"synoptic": {"beam_path": [{"start": [0, 0, 0], "end": [1, 0, 0]}]}}
+    assert backend.update_scope_metadata("beamline:bl402", payload)
+    assert backend.get_scope_metadata("beamline:bl402") == payload
+    # Unknown scope
+    assert backend.get_scope_metadata("beamline:nope") is None
+
+
+# ---------------------------------------------------------------------------
+# Test 8: scope pseudo-items never surface as devices
+# ---------------------------------------------------------------------------
+
+def test_scope_pseudo_items_are_not_devices(happi_backend_with_devices: HappiBackend) -> None:
+    backend = happi_backend_with_devices
+    n_before = len(backend.load_metadata())
+    backend.update_scope_metadata("beamline:bl402", {"synoptic": {}})
+    backend.reload()
+    names = [i.name for i in backend.load_metadata()]
+    assert len(names) == n_before
+    assert not any(n.startswith("_scope_") for n in names)
