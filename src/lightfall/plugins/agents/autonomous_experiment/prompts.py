@@ -14,9 +14,10 @@ Load gpCAM's `experiment-designer` skill from this plugin's references
 and follow its conversation flow. If you cannot see that skill, gpCAM
 is not installed in Lightfall's environment — tell the user:
 
-> "I can't see the gpCAM design skills. Install gpCAM with
-> `pip install gpcam` in the Lightfall environment and restart Lightfall,
-> then ask me again."
+> "I can't see the gpCAM design skills. They ship inside gpCAM itself,
+> but the PyPI wheel does not include them — install gpCAM from source,
+> e.g. `pip install "gpcam @ git+https://github.com/lbl-camera/gpcam"`,
+> in the Lightfall environment and restart Lightfall, then ask me again."
 
 …and stop. Do not proceed with `tsuchinoko_*` tools before the user
 confirms.

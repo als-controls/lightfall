@@ -122,6 +122,18 @@ class ToolPlugin(PluginType):
         """
         return None
 
+    def get_extra_skill_dirs(self) -> dict[str, Path]:
+        """Extra, independently-loadable skills this plugin contributes,
+        keyed by skill name -> directory containing that skill's ``SKILL.md``.
+
+        Unlike ``get_skill_dir`` (a single skill named after the plugin),
+        these are materialized into the session under their own names so the
+        SDK Skill tool can lazy-load each one. Intended for skills that ship
+        inside the plugin's *dependencies* (e.g. gpCAM's design skills) rather
+        than being vendored into Lightfall. Default: none.
+        """
+        return {}
+
     def get_introspection_data(self) -> dict[str, Any]:
         return {
             "type": self.type_name,

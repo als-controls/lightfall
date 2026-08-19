@@ -62,8 +62,9 @@ def test_stub_prompt_mentions_key_tools_and_steps():
     ):
         assert skill in prompt, f"prompt missing skill reference {skill!r}"
 
-    # Install hint for the gpcam-missing path
-    assert "pip install gpcam" in prompt
+    # Install hint for the gpcam-missing path — the wheel omits the design
+    # skills, so the prompt points at a source install.
+    assert "git+" in prompt and "gpcam" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -280,13 +281,56 @@ def test_status_timeout_returns_actionable_error():
     assert "tsuchinoko.status" in result["error"]
 
 
-def test_references_dir_returns_gpcam_skills_when_importable():
-    pytest.importorskip("gpcam.skills", reason="gpcam not installed")
+def test_references_dir_finds_gpcam_skills_when_present():
+    pytest.importorskip("gpcam", reason="gpcam not installed")
     agent = AutonomousExperimentAgent()
     ref = agent.get_references_dir()
-    assert ref is not None
-    # The path should contain a SKILL.md for at least the experiment-designer skill
+    if ref is None:
+        pytest.skip("installed gpcam does not carry its design skills (wheel install)")
+    # Wherever they were found, the design skills must be there.
     assert (ref / "experiment-designer" / "SKILL.md").is_file()
+
+
+def test_references_dir_uses_source_sibling(tmp_path, monkeypatch):
+    """Bridge path: gpcam installed from source keeps skills at the repo root,
+    a sibling of the importable package — resolve them without a gpcam.skills
+    package."""
+    import gpcam
+
+    # Fake a source checkout: <root>/gpcam/__init__.py  +  <root>/skills/...
+    pkg = tmp_path / "gpcam"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    skill = tmp_path / "skills" / "experiment-designer"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: experiment-designer\n---\n")
+
+    monkeypatch.setattr(gpcam, "__file__", str(pkg / "__init__.py"))
+    # Force strategy 1 (gpcam.skills package) to miss so the sibling path runs.
+    import importlib.resources as ir
+    monkeypatch.setattr(
+        ir, "files", lambda *a, **k: (_ for _ in ()).throw(ModuleNotFoundError())
+    )
+
+    ref = AutonomousExperimentAgent().get_references_dir()
+    assert ref == tmp_path / "skills"
+    assert (ref / "experiment-designer" / "SKILL.md").is_file()
+
+
+def test_extra_skill_dirs_exposes_gpcam_design_skills():
+    pytest.importorskip("gpcam", reason="gpcam not installed")
+    agent = AutonomousExperimentAgent()
+    if agent.get_references_dir() is None:
+        pytest.skip("installed gpcam does not carry its design skills (wheel install)")
+    extra = agent.get_extra_skill_dirs()
+    assert "experiment-designer" in extra
+    assert (extra["experiment-designer"] / "SKILL.md").is_file()
+
+
+def test_extra_skill_dirs_empty_when_gpcam_missing(monkeypatch):
+    agent = AutonomousExperimentAgent()
+    monkeypatch.setattr(agent, "get_references_dir", lambda: None)
+    assert agent.get_extra_skill_dirs() == {}
 
 
 def test_references_dir_returns_none_when_gpcam_missing(monkeypatch):
@@ -308,7 +352,8 @@ def test_references_dir_returns_none_when_gpcam_missing(monkeypatch):
 
     agent = AutonomousExperimentAgent()
     assert agent.get_references_dir() is None
-    # Prompt still mentions the install path
+    # Prompt still tells the user how to recover — install gpcam from source
+    # (the wheel omits the design skills).
     from lightfall.plugins.agents.autonomous_experiment.prompts import STUB
 
-    assert "pip install gpcam" in STUB
+    assert "git+" in STUB and "gpcam" in STUB

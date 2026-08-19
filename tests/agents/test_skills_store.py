@@ -90,6 +90,42 @@ def test_template_variables_returns_beamline_user_endstation():
     assert variables["endstation"] == ""
 
 
+def test_materialize_includes_plugin_extra_skills(tmp_path, monkeypatch):
+    """Skills a plugin contributes via get_extra_skill_dirs() are materialized
+    under their own names (so the Skill tool can lazy-load them)."""
+    extra_src = tmp_path / "gpcam_skills"
+    _skill(extra_src, "experiment-designer")
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: tmp_path / "nobuiltin")
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: tmp_path / "nouser")
+    monkeypatch.setattr(
+        skills_store,
+        "plugin_extra_skill_dirs",
+        lambda: {"experiment-designer": extra_src / "experiment-designer"},
+    )
+    session = tmp_path / "session"
+    materialized = skills_store.materialize_skills((), session)
+    assert "experiment-designer" in materialized
+    assert (session / "skills" / "experiment-designer" / "SKILL.md").is_file()
+
+
+def test_materialize_explicit_name_wins_over_plugin_extra(tmp_path, monkeypatch):
+    """An explicit skill name takes precedence over a plugin extra of the same name."""
+    builtin = tmp_path / "builtin"
+    _skill(builtin, "dup", body="from-builtin")
+    extra_src = tmp_path / "extra"
+    _skill(extra_src, "dup", body="from-plugin")
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: tmp_path / "nouser")
+    monkeypatch.setattr(
+        skills_store, "plugin_extra_skill_dirs", lambda: {"dup": extra_src / "dup"}
+    )
+    session = tmp_path / "session"
+    materialized = skills_store.materialize_skills(("dup",), session)
+    assert materialized.count("dup") == 1
+    body = (session / "skills" / "dup" / "SKILL.md").read_text(encoding="utf-8")
+    assert "from-builtin" in body
+
+
 class _FakeToolPlugin:
     category = "general"
     priority = 100
