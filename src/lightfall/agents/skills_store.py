@@ -75,6 +75,41 @@ def plugin_skill_dirs() -> dict[str, Path]:
     return dirs
 
 
+def plugin_extra_skill_dirs() -> dict[str, Path]:
+    """Independently-loadable skills contributed by *enabled* ToolPlugins via
+    ``get_extra_skill_dirs()``, keyed by skill name.
+
+    These are skills a plugin sources from its own dependencies (e.g. gpCAM's
+    design skills) rather than from a Lightfall skills root. Dirs missing
+    SKILL.md are skipped with a warning. Returns {} if the ToolRegistry is
+    unavailable (e.g. headless tooling).
+    """
+    try:
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+        plugins = ToolRegistry.get_instance().enabled_plugins()
+    except Exception as exc:  # noqa: BLE001 - skills must resolve without the registry
+        logger.debug("plugin_extra_skill_dirs: ToolRegistry unavailable: {}", exc)
+        return {}
+
+    dirs: dict[str, Path] = {}
+    for plugin in plugins:
+        try:
+            extra = plugin.get_extra_skill_dirs()
+        except Exception as exc:  # noqa: BLE001 - one bad plugin must not break the rest
+            logger.warning("plugin '{}': get_extra_skill_dirs() failed: {}", plugin.name, exc)
+            continue
+        for skill_name, skill_dir in (extra or {}).items():
+            if not (Path(skill_dir) / "SKILL.md").is_file():
+                logger.warning(
+                    "plugin '{}': extra skill '{}' dir {} has no SKILL.md; skipping",
+                    plugin.name, skill_name, skill_dir,
+                )
+                continue
+            dirs[skill_name] = Path(skill_dir)
+    return dirs
+
+
 def _iter_skill_dirs(root: Path):
     if not root.is_dir():
         return
@@ -171,6 +206,17 @@ def materialize_skills(
         shutil.copytree(src, dest, dirs_exist_ok=True)
         _resolve_skill_md_template(dest / "SKILL.md", effective_variables)
         materialized.append(name)
+
+    # Extra skills contributed by enabled plugins from their own dependencies
+    # (e.g. gpCAM's design skills). Materialized under their own names so the
+    # Skill tool can lazy-load them. Explicit `names` take precedence.
+    for skill_name, src in plugin_extra_skill_dirs().items():
+        if skill_name in materialized:
+            continue
+        dest = dest_root / skill_name
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+        _resolve_skill_md_template(dest / "SKILL.md", effective_variables)
+        materialized.append(skill_name)
 
     return materialized
 
