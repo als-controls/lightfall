@@ -816,6 +816,23 @@ class KeycloakAuthProvider(AuthProvider):
                         roles.add(Role(base))
                     except ValueError:
                         pass
+            # ALS/NCS beamline-scoped roles use a "<role>:<beamline>" convention
+            # (e.g. "staff:7.0.1.1"). Map on the base role name, ignoring the
+            # beamline scope suffix. An optional org prefix on the scoped name
+            # (e.g. "als-staff:7.0.1.1") is stripped too.
+            if ":" in claim_lower:
+                base = claim_lower.split(":", 1)[0]
+                for prefix in ("ncs-", "als-"):
+                    if base.startswith(prefix):
+                        base = base[len(prefix) :]
+                        break
+                if base in self._role_mapping:
+                    roles.add(self._role_mapping[base])
+                else:
+                    try:
+                        roles.add(Role(base))
+                    except ValueError:
+                        pass
 
         # Default to USER if authenticated but no specific role
         if not roles:
