@@ -64,6 +64,7 @@ class SynopticView(QWidget):
         self._view_preset = ViewPreset.SIDE
         self._grid_visible = True
         self._labels_visible = True
+        self._fill_visible = False  # outline-only shapes by default
         self._edit_mode = False
 
         # Device items for picking
@@ -165,6 +166,40 @@ class SynopticView(QWidget):
         """Check if grid is visible."""
         return self._grid_visible
 
+    def set_fill_visible(self, visible: bool) -> None:
+        """Set whether device shapes are filled with their color.
+
+        Off by default: shapes render outline-only.
+
+        Args:
+            visible: True to fill shapes with the device color.
+        """
+        self._fill_visible = visible
+        for item in self._device_items.values():
+            item.set_fill_visible(visible)
+
+    def is_fill_visible(self) -> bool:
+        """Check whether device shapes are filled."""
+        return self._fill_visible
+
+    def set_x_inverted(self, inverted: bool) -> None:
+        """Set the direction of the positive X axis.
+
+        When ``inverted`` is True the positive X direction points left
+        instead of the default right. This flips the horizontal axis of
+        the underlying view box without changing any device coordinates.
+
+        Args:
+            inverted: True for positive-X-left, False for positive-X-right.
+        """
+        self._plot.getViewBox().invertX(inverted)
+        self.view_changed.emit()
+        logger.debug("Synoptic X axis inverted: {}", inverted)
+
+    def is_x_inverted(self) -> bool:
+        """Check whether the positive X direction points left."""
+        return bool(self._plot.getViewBox().xInverted())
+
     def set_labels_visible(self, visible: bool) -> None:
         """Set device labels visibility.
 
@@ -215,6 +250,7 @@ class SynopticView(QWidget):
         data = item.get_synoptic_data()
         text = data.label_text or item.get_device_name()
         label = pg.TextItem(text=text, color=(220, 220, 220), anchor=(0.5, 1.0))
+        label.setZValue(2.0)  # above device items (1) and beam path (0)
         label.setPos(*self._label_position(item))
         label.setVisible(self._labels_visible and item.isVisible())
         self._label_items[device_id] = label
@@ -275,6 +311,7 @@ class SynopticView(QWidget):
         self._device_items[device_id] = item
         item.set_view_preset(self._view_preset)
         item.set_movable(self._edit_mode)
+        item.set_fill_visible(self._fill_visible)
 
         # Connect to ROI's region changed signal for drag handling
         item.sigRegionChanged.connect(lambda: self._on_device_dragged(device_id))
@@ -524,6 +561,8 @@ class SynopticView(QWidget):
             labels_visible=self._labels_visible,
             beam_path_visible=True,  # TODO: track beam path visibility
             grid_visible=self._grid_visible,
+            x_inverted=self.is_x_inverted(),
+            fill_visible=self._fill_visible,
         )
 
     def restore_view_state(self, state: SynopticViewState) -> None:
@@ -556,6 +595,12 @@ class SynopticView(QWidget):
         # Restore visibility settings
         self.set_labels_visible(state.labels_visible)
         self.set_grid_visible(state.grid_visible)
+
+        # Restore positive-X direction (right by default, left when inverted)
+        self.set_x_inverted(getattr(state, "x_inverted", False))
+
+        # Restore fill mode (outline-only by default)
+        self.set_fill_visible(getattr(state, "fill_visible", False))
 
         # Update all device items with the preset
         for item in self._device_items.values():

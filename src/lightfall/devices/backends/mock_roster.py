@@ -46,12 +46,17 @@ def _synoptic(
     z: float = 0.0,
     visible: bool = True,
     label: str | None = None,
+    shape: str | None = None,
 ) -> dict[str, Any]:
-    """Build a metadata["synoptic"] dict (DeviceSynopticData shape)."""
+    """Build a metadata["synoptic"] dict (DeviceSynopticData shape).
+
+    ``shape`` overrides the category default (e.g. the slit-blade
+    double-rect shapes for slit motors).
+    """
     return {
         "position": [x, 0.0, z],
         "scale": [0.4, 0.4, 0.4],
-        "primitive_shape": _SHAPES[category],
+        "primitive_shape": shape or _SHAPES[category],
         "color": list(_COLORS[category]),
         "label_text": label,
         # Offset in +Z so labels sit above devices in the default SIDE view.
@@ -106,9 +111,10 @@ def _info(
     x: float,
     z: float = 0.0,
     metadata: dict[str, Any] | None = None,
+    shape: str | None = None,
 ) -> DeviceInfo:
     md = dict(metadata or {})
-    md["synoptic"] = _synoptic(category, x, z)
+    md["synoptic"] = _synoptic(category, x, z, shape=shape)
     info = DeviceInfo(
         name=name,
         description=description,
@@ -237,13 +243,13 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
         "white_slits_hgap", "White-beam slits horizontal gap",
         DeviceCategory.MOTOR, "ophyd.sim.SynAxis", "Optics",
         ["motor", "slit", "optics"], white_slits_hgap, x=7.0,
-        metadata={"units": "mm", "precision": 3},
+        metadata={"units": "mm", "precision": 3}, shape="double_rect_h",
     ))
     infos.append(_info(
         "white_slits_vgap", "White-beam slits vertical gap",
         DeviceCategory.MOTOR, "ophyd.sim.SynAxis", "Optics",
         ["motor", "slit", "optics"], white_slits_vgap, x=7.0, z=-0.7,
-        metadata={"units": "mm", "precision": 3},
+        metadata={"units": "mm", "precision": 3}, shape="double_rect_v",
     ))
 
     mono_energy = axis("mono_energy", value=800.0, delay=0.5)
@@ -280,11 +286,13 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
         "mono_slits_hgap", "Mono slits horizontal gap", DeviceCategory.MOTOR,
         "ophyd.sim.SynAxis", "Optics", ["motor", "slit", "optics"],
         mono_slits_hgap, x=13.0, metadata={"units": "mm", "precision": 3},
+        shape="double_rect_h",
     ))
     infos.append(_info(
         "mono_slits_vgap", "Mono slits vertical gap", DeviceCategory.MOTOR,
         "ophyd.sim.SynAxis", "Optics", ["motor", "slit", "optics"],
         mono_slits_vgap, x=13.0, z=-0.7, metadata={"units": "mm", "precision": 3},
+        shape="double_rect_v",
     ))
 
     # --- Diagnostics -----------------------------------------------
@@ -326,17 +334,17 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
 
     # --- Endstation ------------------------------------------------
     es_defs = [
-        ("es_slits_hgap", "Endstation slits horizontal gap", 1.0, 20.0, 0.0),
-        ("es_slits_vgap", "Endstation slits vertical gap", 1.0, 20.0, -0.7),
-        ("es_slits_hcen", "Endstation slits horizontal center", 0.0, 20.6, 0.0),
-        ("es_slits_vcen", "Endstation slits vertical center", 0.0, 20.6, -0.7),
+        ("es_slits_hgap", "Endstation slits horizontal gap", 1.0, 20.0, 0.0, "double_rect_h"),
+        ("es_slits_vgap", "Endstation slits vertical gap", 1.0, 20.0, -0.7, "double_rect_v"),
+        ("es_slits_hcen", "Endstation slits horizontal center", 0.0, 20.6, 0.0, "double_rect_h"),
+        ("es_slits_vcen", "Endstation slits vertical center", 0.0, 20.6, -0.7, "double_rect_v"),
     ]
-    for name, desc, value, x, z in es_defs:
+    for name, desc, value, x, z, shape in es_defs:
         obj = axis(name, value=value)
         infos.append(_info(
             name, desc, DeviceCategory.MOTOR, "ophyd.sim.SynAxis",
             "Endstation", ["motor", "slit", "endstation"], obj, x=x, z=z,
-            metadata={"units": "mm", "precision": 3},
+            metadata={"units": "mm", "precision": 3}, shape=shape,
         ))
 
     sample_z = axis("sample_z", delay=0.1)

@@ -50,6 +50,9 @@ class Device2DItem(pg.ROI):
     }
     DIMMED_STATUSES = {"offline", "unknown", "disabled"}
     DIM_ALPHA = 0.35
+    OUTLINE_WIDTH = 2.0  # Pen width in pixels (cosmetic) for the device outline
+    BLADE_FRACTION = 0.35  # Each double-rect blade's share of the split axis
+    Z_VALUE = 1.0  # Above the beam path (0), below labels (2)
 
     def __init__(
         self,
@@ -89,6 +92,8 @@ class Device2DItem(pg.ROI):
         self._is_selected = False
         self._original_color = synoptic_data.color
         self._device_status = None
+        self._fill_visible = False
+        self.setZValue(self.Z_VALUE)
         self.setVisible(synoptic_data.visible)
 
         # Disable default ROI handles/hover behavior
@@ -229,28 +234,61 @@ class Device2DItem(pg.ROI):
         """Get the current live device status (DeviceStatus or None)."""
         return getattr(self, "_device_status", None)
 
-    def _effective_style(self) -> tuple[QColor, QPen]:
-        """Resolve fill color and edge pen from base color, status, selection."""
+    def set_fill_visible(self, visible: bool) -> None:
+        """Enable or disable the device-color fill (outline-only otherwise)."""
+        if self._fill_visible != visible:
+            self._fill_visible = visible
+            self.update()
+
+    def _effective_style(self) -> tuple[QColor | None, QPen]:
+        """Resolve fill color (None = outline only) and edge pen from base
+        color, status, selection, and the fill toggle.
+
+        Shapes are outline-only by default, so the outline carries the
+        device color; status styling recolors the outline and dimmed
+        statuses reduce its alpha. When fill is enabled, the fill takes the
+        (possibly dimmed) device color as well.
+        """
         r, g, b, a = self._original_color
         status = getattr(self, "_device_status", None)
         status_value = getattr(status, "value", None)
 
         if status_value in self.DIMMED_STATUSES:
-            fill = QColor.fromRgbF(r, g, b, a * self.DIM_ALPHA)
+            device_color = QColor.fromRgbF(r, g, b, a * self.DIM_ALPHA)
         else:
-            fill = QColor.fromRgbF(r, g, b, a)
+            device_color = QColor.fromRgbF(r, g, b, a)
 
         if self._is_selected:
             edge_pen = QPen(self.HIGHLIGHT_COLOR, self.HIGHLIGHT_WIDTH)
         elif status_value in self.STATUS_EDGE_COLORS:
             color, width = self.STATUS_EDGE_COLORS[status_value]
             edge_pen = QPen(color, width)
-        elif status_value in self.DIMMED_STATUSES:
-            edge_pen = QPen(QColor(110, 110, 110), self.DEFAULT_EDGE_WIDTH)
         else:
-            edge_pen = QPen(self.DEFAULT_EDGE_COLOR, self.DEFAULT_EDGE_WIDTH)
+            edge_pen = QPen(device_color, self.OUTLINE_WIDTH)
         edge_pen.setCosmetic(True)
+
+        fill = device_color if self._fill_visible else None
         return fill, edge_pen
+
+    def _blade_rects(self, bounds: QRectF) -> tuple[QRectF, QRectF]:
+        """The two blade rectangles for the double-rect (slit) shapes.
+
+        Each blade takes BLADE_FRACTION of the split axis, leaving a gap
+        between them.
+        """
+        w, h = bounds.width(), bounds.height()
+        shape = PrimitiveShape.normalize(self._synoptic_data.primitive_shape)
+        if shape == PrimitiveShape.DOUBLE_RECT_H:
+            blade_w = w * self.BLADE_FRACTION
+            return (
+                QRectF(0, 0, blade_w, h),
+                QRectF(w - blade_w, 0, blade_w, h),
+            )
+        blade_h = h * self.BLADE_FRACTION
+        return (
+            QRectF(0, 0, w, blade_h),
+            QRectF(0, h - blade_h, w, blade_h),
+        )
 
     def paint(
         self,
@@ -265,7 +303,10 @@ class Device2DItem(pg.ROI):
         """
         fill_color, edge_pen = self._effective_style()
         painter.setPen(edge_pen)
-        painter.setBrush(QBrush(fill_color))
+        if fill_color is None:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        else:
+            painter.setBrush(QBrush(fill_color))
 
         # Get local bounds (ROI uses state().size for dimensions)
         state = self.state
@@ -287,6 +328,9 @@ class Device2DItem(pg.ROI):
                 QPointF(0, cy),      # Left
             ])
             painter.drawPolygon(diamond)
+        elif shape in (PrimitiveShape.DOUBLE_RECT_H, PrimitiveShape.DOUBLE_RECT_V):
+            for blade in self._blade_rects(bounds):
+                painter.drawRect(blade)
         else:
             # SQUARE is default
             painter.drawRect(bounds)

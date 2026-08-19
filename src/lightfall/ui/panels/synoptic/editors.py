@@ -117,6 +117,8 @@ class SynopticPropertyEditor(QWidget):
         self._shape_combo.addItem("Square", PrimitiveShape.SQUARE)
         self._shape_combo.addItem("Circle", PrimitiveShape.CIRCLE)
         self._shape_combo.addItem("Diamond", PrimitiveShape.DIAMOND)
+        self._shape_combo.addItem("Slit (H gap)", PrimitiveShape.DOUBLE_RECT_H)
+        self._shape_combo.addItem("Slit (V gap)", PrimitiveShape.DOUBLE_RECT_V)
         self._shape_combo.currentIndexChanged.connect(self._on_shape_changed)
         appear_layout.addRow("Shape:", self._shape_combo)
 

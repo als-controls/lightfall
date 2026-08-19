@@ -20,10 +20,17 @@ def test_set_status_stores_and_flags_update(item):
     assert item.get_device_status() == DeviceStatus.ERROR
 
 
-def test_offline_dims_fill(item):
+def test_offline_dims_outline(item):
     item.set_device_status(DeviceStatus.OFFLINE)
     fill, edge_pen = item._effective_style()
-    assert fill.alphaF() < 0.5
+    assert edge_pen.color().alphaF() < 0.5
+
+
+def test_offline_dims_fill_when_fill_enabled(item):
+    item.set_fill_visible(True)
+    item.set_device_status(DeviceStatus.OFFLINE)
+    fill, edge_pen = item._effective_style()
+    assert fill is not None and fill.alphaF() < 0.5
 
 
 def test_error_gets_red_edge(item):

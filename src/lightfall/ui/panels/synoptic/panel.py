@@ -163,8 +163,22 @@ class SynopticPanel(BasePanel):
         self._gizmo.hide()
         self._view.addItem(self._beam_path)
 
+        # Title-bar toggle: flip the positive X direction (right <-> left).
+        self._flip_x_action = self.add_title_bar_button(
+            "mdi6.swap-horizontal",
+            "Positive X points left (toggle)",
+            self._on_flip_x_toggled,
+            checkable=True,
+            checked=self._view.is_x_inverted(),
+        )
+
         # Initialize persistence and load state
         self._init_persistence()
+
+    @Slot(bool)
+    def _on_flip_x_toggled(self, checked: bool) -> None:
+        """Flip the positive X direction between right (default) and left."""
+        self._view.set_x_inverted(checked)
 
     def _init_persistence(self) -> None:
         """Initialize persistence handler and restore state."""
@@ -218,6 +232,9 @@ class SynopticPanel(BasePanel):
         # Update toolbar to reflect current state
         self._update_toolbar_state()
 
+        # Sync the title-bar flip-X button to the restored view state.
+        self._flip_x_action.setChecked(self._view.is_x_inverted())
+
     def _create_toolbar(self) -> QToolBar:
         """Create the panel toolbar."""
         toolbar = QToolBar()
@@ -252,6 +269,14 @@ class SynopticPanel(BasePanel):
         self._labels_action.setToolTip("Toggle device labels")
         self._labels_action.triggered.connect(self._on_labels_toggled)
         toolbar.addAction(self._labels_action)
+
+        # Fill toggle (shapes are outline-only by default)
+        self._fill_action = QAction("Fill", self)
+        self._fill_action.setCheckable(True)
+        self._fill_action.setChecked(False)
+        self._fill_action.setToolTip("Fill device shapes with their color")
+        self._fill_action.triggered.connect(self._on_fill_toggled)
+        toolbar.addAction(self._fill_action)
 
         toolbar.addSeparator()
 
@@ -420,6 +445,7 @@ class SynopticPanel(BasePanel):
     def _update_toolbar_state(self) -> None:
         """Update toolbar widgets to match view state."""
         self._grid_action.setChecked(self._view.is_grid_visible())
+        self._fill_action.setChecked(self._view.is_fill_visible())
 
         # Update combo box to match current preset
         preset = self._view.get_view_preset()
@@ -482,6 +508,11 @@ class SynopticPanel(BasePanel):
     def _on_labels_toggled(self, checked: bool) -> None:
         """Handle labels toggle."""
         self._view.set_labels_visible(checked)
+
+    @Slot(bool)
+    def _on_fill_toggled(self, checked: bool) -> None:
+        """Handle fill toggle."""
+        self._view.set_fill_visible(checked)
 
     @Slot(bool)
     def _on_edit_toggled(self, checked: bool) -> None:

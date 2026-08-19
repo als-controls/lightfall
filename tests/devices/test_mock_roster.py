@@ -92,3 +92,11 @@ def test_legacy_synoptic_hides_legacy_devices():
         assert LEGACY_SYNOPTIC[name]["visible"] is False
     for name in ("sample_x", "sample_y", "ring_current"):
         assert LEGACY_SYNOPTIC[name]["visible"] is True
+
+
+def test_slit_devices_use_double_rect_shapes():
+    by_name = {i.name: i for i in _roster()}
+    for name in ("white_slits_hgap", "mono_slits_hgap", "es_slits_hgap", "es_slits_hcen"):
+        assert by_name[name].metadata["synoptic"]["primitive_shape"] == "double_rect_h"
+    for name in ("white_slits_vgap", "mono_slits_vgap", "es_slits_vgap", "es_slits_vcen"):
+        assert by_name[name].metadata["synoptic"]["primitive_shape"] == "double_rect_v"

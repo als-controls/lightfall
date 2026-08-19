@@ -19,6 +19,9 @@ class PrimitiveShape(StrEnum):
     SQUARE = "square"
     CIRCLE = "circle"
     DIAMOND = "diamond"
+    # Slit-blade pairs: two rectangles with a gap between them.
+    DOUBLE_RECT_H = "double_rect_h"  # blades left/right (horizontal gap)
+    DOUBLE_RECT_V = "double_rect_v"  # blades top/bottom (vertical gap)
 
     # Legacy values for backward compatibility with saved data
     BOX = "box"
@@ -243,6 +246,7 @@ class SynopticViewState:
         labels_visible: Whether device labels are shown.
         beam_path_visible: Whether beam path is shown.
         grid_visible: Whether grid is shown.
+        x_inverted: Whether the positive X direction points left.
     """
 
     view_preset: ViewPreset = ViewPreset.SIDE
@@ -252,6 +256,8 @@ class SynopticViewState:
     labels_visible: bool = True
     beam_path_visible: bool = True
     grid_visible: bool = True
+    x_inverted: bool = False
+    fill_visible: bool = False  # shapes are outline-only by default
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for storage.
@@ -267,6 +273,8 @@ class SynopticViewState:
             "labels_visible": self.labels_visible,
             "beam_path_visible": self.beam_path_visible,
             "grid_visible": self.grid_visible,
+            "x_inverted": self.x_inverted,
+            "fill_visible": self.fill_visible,
         }
 
     @classmethod
@@ -317,6 +325,8 @@ class SynopticViewState:
             labels_visible=data.get("labels_visible", True),
             beam_path_visible=data.get("beam_path_visible", True),
             grid_visible=data.get("grid_visible", True),
+            x_inverted=data.get("x_inverted", False),
+            fill_visible=data.get("fill_visible", False),
         )
 
     @classmethod
