@@ -42,6 +42,15 @@ class Device2DItem(pg.ROI):
     DEFAULT_EDGE_COLOR = QColor(50, 50, 50)
     DEFAULT_EDGE_WIDTH = 1.0  # Pen width in pixels (cosmetic)
 
+    STATUS_EDGE_COLORS = {
+        # DeviceStatus.value -> (QColor, width)
+        "connecting": (QColor(230, 170, 40), 2.0),
+        "error": (QColor(220, 50, 50), 3.0),
+        "maintenance": (QColor(160, 80, 200), 2.0),
+    }
+    DIMMED_STATUSES = {"offline", "unknown", "disabled"}
+    DIM_ALPHA = 0.35
+
     def __init__(
         self,
         device_id: str,
@@ -79,6 +88,8 @@ class Device2DItem(pg.ROI):
         self._device_name = device_name
         self._is_selected = False
         self._original_color = synoptic_data.color
+        self._device_status = None
+        self.setVisible(synoptic_data.visible)
 
         # Disable default ROI handles/hover behavior
         self.handleSize = 0
@@ -155,6 +166,21 @@ class Device2DItem(pg.ROI):
         else:
             return (point[0], point[2])
 
+    def project_point(self, point: tuple[float, float, float]) -> tuple[float, float]:
+        """Project a 3D point to 2D based on view preset (public API).
+
+        Delegates to :meth:`_project_point` for use by external callers
+        (e.g. ``SynopticView``) that need this item's current projection
+        without reaching into a private method.
+
+        Args:
+            point: 3D point (x, y, z).
+
+        Returns:
+            2D projected point (x, y).
+        """
+        return self._project_point(point)
+
     def _unproject_point(
         self, point_2d: tuple[float, float], original_3d: tuple[float, float, float]
     ) -> tuple[float, float, float]:
@@ -193,6 +219,39 @@ class Device2DItem(pg.ROI):
             self._update_geometry()
             self.update()
 
+    def set_device_status(self, status) -> None:
+        """Update live status styling (DeviceStatus or None)."""
+        if getattr(self, "_device_status", None) != status:
+            self._device_status = status
+            self.update()
+
+    def get_device_status(self):
+        """Get the current live device status (DeviceStatus or None)."""
+        return getattr(self, "_device_status", None)
+
+    def _effective_style(self) -> tuple[QColor, QPen]:
+        """Resolve fill color and edge pen from base color, status, selection."""
+        r, g, b, a = self._original_color
+        status = getattr(self, "_device_status", None)
+        status_value = getattr(status, "value", None)
+
+        if status_value in self.DIMMED_STATUSES:
+            fill = QColor.fromRgbF(r, g, b, a * self.DIM_ALPHA)
+        else:
+            fill = QColor.fromRgbF(r, g, b, a)
+
+        if self._is_selected:
+            edge_pen = QPen(self.HIGHLIGHT_COLOR, self.HIGHLIGHT_WIDTH)
+        elif status_value in self.STATUS_EDGE_COLORS:
+            color, width = self.STATUS_EDGE_COLORS[status_value]
+            edge_pen = QPen(color, width)
+        elif status_value in self.DIMMED_STATUSES:
+            edge_pen = QPen(QColor(110, 110, 110), self.DEFAULT_EDGE_WIDTH)
+        else:
+            edge_pen = QPen(self.DEFAULT_EDGE_COLOR, self.DEFAULT_EDGE_WIDTH)
+        edge_pen.setCosmetic(True)
+        return fill, edge_pen
+
     def paint(
         self,
         painter: QPainter,
@@ -204,18 +263,7 @@ class Device2DItem(pg.ROI):
             painter: The QPainter to use.
             *args: Additional arguments (ignored).
         """
-        # Set up colors
-        r, g, b, a = self._original_color
-        fill_color = QColor.fromRgbF(r, g, b, a)
-
-        if self._is_selected:
-            edge_pen = QPen(self.HIGHLIGHT_COLOR, self.HIGHLIGHT_WIDTH)
-        else:
-            edge_pen = QPen(self.DEFAULT_EDGE_COLOR, self.DEFAULT_EDGE_WIDTH)
-
-        # Use cosmetic pen so line width doesn't scale with zoom
-        edge_pen.setCosmetic(True)
-
+        fill_color, edge_pen = self._effective_style()
         painter.setPen(edge_pen)
         painter.setBrush(QBrush(fill_color))
 

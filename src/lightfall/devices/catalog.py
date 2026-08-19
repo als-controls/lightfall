@@ -86,6 +86,7 @@ class DeviceCatalog(QObject):
         self._device_backend_map: dict[UUID, str] = {}  # device_id -> backend name
         self._device_cache: dict[UUID, DeviceInfo] = {}
         self._name_index: dict[str, UUID] = {}
+        self._scope_backend_map: dict[str, str] = {}
 
     @classmethod
     def get_instance(cls) -> DeviceCatalog:
@@ -838,6 +839,41 @@ class DeviceCatalog(QObject):
             logger.info("Updated device: {}", device.name)
             return True
 
+        return False
+
+    # === Scope Metadata ===
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        """Query backends in registration order; first non-None answer wins."""
+        for backend in self._backends.values():
+            try:
+                data = backend.get_scope_metadata(scope)
+            except Exception as e:
+                logger.warning(
+                    "Backend '{}' get_scope_metadata failed: {}", backend.name, e
+                )
+                continue
+            if data is not None:
+                self._scope_backend_map[scope] = backend.name
+                return data
+        return None
+
+    def update_scope_metadata(self, scope: str, metadata: dict[str, Any]) -> bool:
+        """Write to the backend that owns the scope, else first that accepts."""
+        names = []
+        owner = self._scope_backend_map.get(scope)
+        if owner in self._backends:
+            names.append(owner)
+        names.extend(n for n in self._backends if n not in names)
+        for name in names:
+            try:
+                if self._backends[name].update_scope_metadata(scope, metadata):
+                    self._scope_backend_map[scope] = name
+                    return True
+            except Exception as e:
+                logger.warning(
+                    "Backend '{}' update_scope_metadata failed: {}", name, e
+                )
         return False
 
     def mark_device_live(

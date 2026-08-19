@@ -64,6 +64,8 @@ DEFAULT_SHAPES: dict[str, PrimitiveShape] = {
     "motor": PrimitiveShape.CIRCLE,
     "detector": PrimitiveShape.SQUARE,
     "sensor": PrimitiveShape.DIAMOND,
+    "shutter": PrimitiveShape.SQUARE,
+    "valve": PrimitiveShape.SQUARE,
     "positioner": PrimitiveShape.CIRCLE,
     "camera": PrimitiveShape.SQUARE,
     "signal": PrimitiveShape.DIAMOND,
@@ -76,6 +78,8 @@ DEFAULT_COLORS: dict[str, tuple[float, float, float, float]] = {
     "motor": (0.3, 0.5, 0.8, 1.0),  # Blue
     "detector": (0.8, 0.3, 0.3, 1.0),  # Red
     "sensor": (0.3, 0.8, 0.3, 1.0),  # Green
+    "shutter": (0.9, 0.75, 0.2, 1.0),  # Amber
+    "valve": (0.2, 0.7, 0.8, 1.0),  # Teal
     "positioner": (0.5, 0.3, 0.8, 1.0),  # Purple
     "camera": (0.8, 0.6, 0.2, 1.0),  # Orange
     "signal": (0.6, 0.6, 0.6, 1.0),  # Gray
@@ -106,7 +110,7 @@ class DeviceSynopticData:
     primitive_shape: PrimitiveShape = PrimitiveShape.SQUARE
     color: tuple[float, float, float, float] = (0.5, 0.5, 0.5, 1.0)
     label_text: str | None = None
-    label_offset: tuple[float, float, float] = (0.0, 0.15, 0.0)
+    label_offset: tuple[float, float, float] = (0.0, 0.0, 0.35)
     visible: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -149,7 +153,7 @@ class DeviceSynopticData:
             primitive_shape=shape,
             color=tuple(data.get("color", [0.5, 0.5, 0.5, 1.0])),
             label_text=data.get("label_text"),
-            label_offset=tuple(data.get("label_offset", [0.0, 0.15, 0.0])),
+            label_offset=tuple(data.get("label_offset", [0.0, 0.0, 0.35])),
             visible=data.get("visible", True),
         )
 

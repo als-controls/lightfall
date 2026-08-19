@@ -108,6 +108,7 @@ class SynopticPanel(BasePanel):
         # Connect catalog signals
         self._catalog.device_added.connect(self._on_device_added)
         self._catalog.device_removed.connect(self._on_device_removed)
+        self._catalog.device_state_changed.connect(self._on_device_state_changed)
 
     def _setup_ui(self) -> None:
         """Setup the panel UI."""
@@ -188,8 +189,24 @@ class SynopticPanel(BasePanel):
                 self._gizmo.set_view_preset(state.view_preset)
                 self._beam_path.set_view_preset(state.view_preset)
 
-            # Load beam path
-            segments = self._persistence.load_beam_path()
+            # Beam path: merge shared scope metadata with per-user prefs.
+            # Scope segments are authoritative; prefs segments are appended
+            # only when their id isn't already present in the scope's set
+            # (so switching backends doesn't silently drop a user's own
+            # additions, but shared segments always win on id collisions).
+            from lightfall.ui.panels.synoptic.serialization import (
+                load_beam_path_from_catalog,
+                merge_beam_path_segments,
+            )
+
+            scope_segments = load_beam_path_from_catalog(
+                self._catalog, self._current_beamline
+            )
+            prefs_segments = self._persistence.load_beam_path()
+            if scope_segments is None:
+                segments = prefs_segments
+            else:
+                segments = merge_beam_path_segments(scope_segments, prefs_segments)
             if segments:
                 self._beam_path.set_segments(segments)
 
@@ -381,6 +398,9 @@ class SynopticPanel(BasePanel):
         self._device_info_map[device_id] = device_info
         self._view.add_device_item(device_id, item)
 
+        if device_info.state is not None:
+            item.set_device_status(device_info.state.status)
+
     def _has_synoptic_config(self, device_info: DeviceInfo) -> bool:
         """Check if device has synoptic configuration.
 
@@ -491,8 +511,15 @@ class SynopticPanel(BasePanel):
         )
         self._beam_path.add_segment(segment)
 
-        # Save
-        if self._persistence:
+        # Save: shared scope metadata if a backend accepts it, else prefs
+        from lightfall.ui.panels.synoptic.serialization import (
+            save_beam_path_to_catalog,
+        )
+
+        saved = save_beam_path_to_catalog(
+            self._catalog, self._current_beamline, self._beam_path.get_segments()
+        )
+        if not saved and self._persistence:
             self._persistence.save_beam_path(self._beam_path.get_segments())
 
     def _show_device_picker(self) -> None:
@@ -659,6 +686,7 @@ class SynopticPanel(BasePanel):
         if item and device_info:
             # Update 2D item
             item.set_synoptic_data(data)
+            self._view.refresh_label(device_id)
 
             # Update gizmo position
             self._update_gizmo()
@@ -705,15 +733,21 @@ class SynopticPanel(BasePanel):
             self._add_device_to_view(device_info)
             self._update_device_count()
 
-    @Slot(object)
-    def _on_device_removed(self, device_info: DeviceInfo) -> None:
+    @Slot(str)
+    def _on_device_removed(self, device_id: str) -> None:
         """Handle device removed from catalog."""
-        device_id = str(device_info.id)
         if device_id in self._device_items:
             self._view.remove_device_item(device_id)
             del self._device_items[device_id]
             self._device_info_map.pop(device_id, None)
             self._update_device_count()
+
+    @Slot(str, object)
+    def _on_device_state_changed(self, device_id: str, state) -> None:
+        """Restyle the device item to reflect live status."""
+        item = self._device_items.get(device_id)
+        if item is not None:
+            item.set_device_status(getattr(state, "status", None))
 
     # === Lifecycle ===
 

@@ -298,3 +298,76 @@ class DeviceSynopticSaver:
     def has_pending(self) -> bool:
         """Check if there are pending saves."""
         return len(self._pending_saves) > 0
+
+
+def load_beam_path_from_catalog(catalog, beamline: str) -> list[BeamPathSegment] | None:
+    """Load the shared beam path from backend scope metadata.
+
+    Returns None when no backend serves the scope, or the scope has no
+    ``beam_path`` key at all — callers then fall back to per-user
+    preferences. An intentionally-empty shared beam path (``beam_path:
+    []``) is distinct from "no data" and returns ``[]``.
+    """
+    try:
+        data = catalog.get_scope_metadata(f"beamline:{beamline}")
+    except Exception as e:
+        logger.warning("Beam path scope lookup failed: {}", e)
+        return None
+    if not data:
+        return None
+    segments_data = (data.get("synoptic") or {}).get("beam_path")
+    if segments_data is None:
+        return None
+    try:
+        return [BeamPathSegment.from_dict(d) for d in segments_data]
+    except (KeyError, TypeError, ValueError, IndexError) as e:
+        logger.warning("Invalid beam path in scope metadata: {}", e)
+        return None
+
+
+def merge_beam_path_segments(
+    scope_segments: list[BeamPathSegment],
+    prefs_segments: list[BeamPathSegment],
+) -> list[BeamPathSegment]:
+    """Merge shared scope-metadata segments with per-user preferences.
+
+    Scope segments are authoritative and always included first. Prefs
+    segments are appended only when their ``id`` is not already present
+    among the scope segments or among prefs segments already appended;
+    prefs segments with ``id is None`` are always appended (there is
+    nothing to dedupe them against).
+
+    Args:
+        scope_segments: Segments loaded from backend scope metadata
+            (shared beam path). May be empty.
+        prefs_segments: Segments loaded from per-user preferences.
+
+    Returns:
+        The merged segment list, scope segments first.
+    """
+    merged = list(scope_segments)
+    seen_ids = {seg.id for seg in scope_segments if seg.id is not None}
+    for seg in prefs_segments:
+        if seg.id is None or seg.id not in seen_ids:
+            merged.append(seg)
+            if seg.id is not None:
+                seen_ids.add(seg.id)
+    return merged
+
+
+def save_beam_path_to_catalog(catalog, beamline: str, segments: list[BeamPathSegment]) -> bool:
+    """Write the beam path into backend scope metadata (merging).
+
+    Returns False when no backend accepts the write — callers then
+    fall back to per-user preferences (status quo).
+    """
+    scope = f"beamline:{beamline}"
+    try:
+        existing = catalog.get_scope_metadata(scope) or {}
+        synoptic = dict(existing.get("synoptic") or {})
+        synoptic["beam_path"] = [seg.to_dict() for seg in segments]
+        merged = {**existing, "synoptic": synoptic}
+        return bool(catalog.update_scope_metadata(scope, merged))
+    except Exception as e:
+        logger.warning("Beam path scope save failed: {}", e)
+        return False

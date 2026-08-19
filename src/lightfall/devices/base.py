@@ -129,6 +129,25 @@ class DeviceBackend(ABC):
         else:
             return True
 
+    # === Scope Metadata (non-device metadata) ===
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        """Metadata for a device group rather than a single device.
+
+        Scope keys are ``kind:name`` strings, e.g. ``"beamline:sim"`` or
+        ``"endstation:saxs"``. Used for shared data that is *between*
+        devices — synoptic beam paths, endstation view defaults.
+
+        Returns:
+            The metadata dict, or None if this backend knows nothing
+            about the scope.
+        """
+        return None
+
+    def update_scope_metadata(self, scope: str, metadata: dict[str, Any]) -> bool:
+        """Persist scope metadata. Default: read-only, returns False."""
+        return False
+
     # === Device CRUD Operations ===
 
     @abstractmethod

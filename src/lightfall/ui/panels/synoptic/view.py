@@ -68,6 +68,7 @@ class SynopticView(QWidget):
 
         # Device items for picking
         self._device_items: dict[str, Device2DItem] = {}
+        self._label_items: dict[str, pg.TextItem] = {}
         self._selected_device_ids: set[str] = set()
 
         # Setup UI
@@ -137,6 +138,8 @@ class SynopticView(QWidget):
         # Update all device items with new projection
         for item in self._device_items.values():
             item.set_view_preset(preset)
+        for device_id in self._device_items:
+            self._update_label_position(device_id)
 
         self.view_changed.emit()
         logger.debug("Applied view preset: {}", preset.value)
@@ -169,11 +172,79 @@ class SynopticView(QWidget):
             visible: Whether labels should be visible.
         """
         self._labels_visible = visible
-        # TODO: Implement label items
+        for device_id, label in self._label_items.items():
+            item = self._device_items.get(device_id)
+            label.setVisible(visible and item is not None and item.isVisible())
 
     def is_labels_visible(self) -> bool:
         """Check if labels are visible."""
         return self._labels_visible
+
+    def get_label_item(self, device_id: str) -> pg.TextItem | None:
+        """Get the label TextItem for a device (None if absent).
+
+        Args:
+            device_id: Device identifier.
+
+        Returns:
+            The label's pg.TextItem or None if the device has no label.
+        """
+        return self._label_items.get(device_id)
+
+    def _label_position(self, item: Device2DItem) -> tuple[float, float]:
+        """Anchor point: device center plus the projected label offset.
+
+        Args:
+            item: The device item to compute a label position for.
+
+        Returns:
+            (x, y) position in 2D view coordinates.
+        """
+        data = item.get_synoptic_data()
+        px, py = item.get_projected_position()
+        ox, oy = item.project_point(data.label_offset)
+        return (px + ox, py + oy)
+
+    def _create_label(self, device_id: str, item: Device2DItem) -> None:
+        """Create and register a label item for a device.
+
+        Args:
+            device_id: Device identifier.
+            item: The device item the label belongs to.
+        """
+        data = item.get_synoptic_data()
+        text = data.label_text or item.get_device_name()
+        label = pg.TextItem(text=text, color=(220, 220, 220), anchor=(0.5, 1.0))
+        label.setPos(*self._label_position(item))
+        label.setVisible(self._labels_visible and item.isVisible())
+        self._label_items[device_id] = label
+        self._plot.addItem(label)
+
+    def _update_label_position(self, device_id: str) -> None:
+        """Recompute and apply a label's position from its device item.
+
+        Args:
+            device_id: Device identifier.
+        """
+        item = self._device_items.get(device_id)
+        label = self._label_items.get(device_id)
+        if item and label:
+            label.setPos(*self._label_position(item))
+
+    def refresh_label(self, device_id: str) -> None:
+        """Re-read label text/visibility/position from the device item.
+
+        Args:
+            device_id: Device identifier.
+        """
+        item = self._device_items.get(device_id)
+        label = self._label_items.get(device_id)
+        if not item or not label:
+            return
+        data = item.get_synoptic_data()
+        label.setText(data.label_text or item.get_device_name())
+        label.setPos(*self._label_position(item))
+        label.setVisible(self._labels_visible and item.isVisible())
 
     def set_edit_mode(self, enabled: bool) -> None:
         """Enable or disable edit mode.
@@ -209,6 +280,7 @@ class SynopticView(QWidget):
         item.sigRegionChanged.connect(lambda: self._on_device_dragged(device_id))
 
         self._plot.addItem(item)
+        self._create_label(device_id, item)
 
     def _on_device_dragged(self, device_id: str) -> None:
         """Handle device drag via ROI sigRegionChanged.
@@ -220,6 +292,7 @@ class SynopticView(QWidget):
         if item:
             new_pos = item.get_current_position_from_roi()
             self.device_moved.emit(device_id, new_pos)
+            self._update_label_position(device_id)
 
     def remove_device_item(self, device_id: str) -> None:
         """Remove a device item.
@@ -228,6 +301,9 @@ class SynopticView(QWidget):
             device_id: Device identifier to remove.
         """
         item = self._device_items.pop(device_id, None)
+        label = self._label_items.pop(device_id, None)
+        if label is not None:
+            self._plot.removeItem(label)
         if item:
             self._plot.removeItem(item)
             if device_id in self._selected_device_ids:
@@ -478,12 +554,14 @@ class SynopticView(QWidget):
             self._plot.setYRange(center[1] - half_zoom, center[1] + half_zoom)
 
         # Restore visibility settings
-        self._labels_visible = state.labels_visible
+        self.set_labels_visible(state.labels_visible)
         self.set_grid_visible(state.grid_visible)
 
         # Update all device items with the preset
         for item in self._device_items.values():
             item.set_view_preset(self._view_preset)
+        for device_id in self._device_items:
+            self._update_label_position(device_id)
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get view data for MCP introspection.

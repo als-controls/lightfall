@@ -156,6 +156,50 @@ class TestOphydWidgetBase:
         widget._on_signal_value(value=[42.0])
         assert widget._value == 42.0
 
+    def test_non_signal_object_reports_disconnected(self, widget, qtbot):
+        """An object with no get/subscribe/connected must not be reported
+        as connected -- there's no readable interface to back that claim.
+        """
+
+        class BareAsyncDevice:
+            """Stand-in for an ophyd-async device with no signal interface."""
+
+            async def describe(self):
+                return {}
+
+            async def read(self):
+                return {}
+
+        widget.signal = BareAsyncDevice()
+        assert widget._connected is False
+
+    def test_non_signal_object_does_not_start_polling(self, widget, qtbot):
+        """No ``get`` means polling would just raise forever -- skip the timer."""
+
+        class BareAsyncDevice:
+            async def describe(self):
+                return {}
+
+        widget.signal = BareAsyncDevice()
+        assert widget._poll_timer is None
+
+    def test_non_signal_object_describe_not_awaited_bare(self, widget, qtbot, recwarn):
+        """_fetch_units must not call an async describe() and leave the
+        coroutine dangling (would emit a RuntimeWarning: coroutine was
+        never awaited).
+        """
+        import warnings
+
+        class BareAsyncDevice:
+            async def describe(self):
+                return {"x": {"units": "counts"}}
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            widget.signal = BareAsyncDevice()
+
+        assert widget._units == ""
+
 
 class TestOphydLineEdit:
     def test_displays_value(self, qtbot):

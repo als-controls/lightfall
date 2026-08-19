@@ -56,6 +56,34 @@ _HAPPI_NATIVE_KEYS = {
     "prefix", "beamline", "documentation",
 }
 
+# Extraneous keys consumed into first-class DeviceInfo fields — everything
+# else in extraneous is user metadata and must surface in metadata top-level.
+_CONSUMED_EXTRANEOUS_KEYS = {
+    "prefix", "display_name", "icon_override", "group", "location",
+    "beamline", "lightfall_scope", "scope_metadata",
+}
+
+
+def _lift_extraneous(metadata: dict[str, Any], extraneous: dict[str, Any]) -> None:
+    """Surface custom extraneous keys (e.g. 'synoptic') into metadata.
+
+    Both loader sites store happi's native field values into ``metadata``
+    directly, but Lightfall-specific extras written by :meth:`update_device`
+    land in ``item.extraneous`` and were previously left there (or nested
+    under a hardcoded key set) — meaning a round-tripped ``synoptic`` key
+    never reappeared at ``metadata["synoptic"]``. This lifts every
+    non-consumed, non-native extraneous key up to the top level so what
+    was written is what comes back.
+    """
+    for key, value in extraneous.items():
+        if key.startswith("_") or key in _CONSUMED_EXTRANEOUS_KEYS:
+            continue
+        if key in _HAPPI_NATIVE_KEYS:
+            continue
+        metadata.setdefault(key, value)
+    metadata.pop("extraneous", None)
+
+
 _FUNC_GROUP_CATEGORY_MAP: dict[str, DeviceCategory] = {
     "motor": DeviceCategory.MOTOR,
     "positioner": DeviceCategory.MOTOR,
@@ -329,6 +357,12 @@ class HappiBackend(DeviceBackend):
         """Create DeviceInfo from a happi SearchResult."""
         item = result.item if hasattr(result, "item") else result
 
+        # Scope pseudo-items (created by update_scope_metadata) carry
+        # non-device metadata and must never surface as devices.
+        extraneous_probe = getattr(item, "extraneous", {}) or {}
+        if "lightfall_scope" in extraneous_probe:
+            return
+
         item_name = getattr(item, "name", str(item))
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
@@ -361,6 +395,7 @@ class HappiBackend(DeviceBackend):
 
         # Read Lightfall-specific fields from extraneous or metadata
         extraneous = getattr(item, "extraneous", {}) or {}
+        _lift_extraneous(metadata, extraneous)
         # prefix may be a native happi field OR stored in extraneous (Lightfall write-through)
         prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
         display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
@@ -714,6 +749,12 @@ class HappiBackend(DeviceBackend):
         """
         item = result.item if hasattr(result, "item") else result
 
+        # Scope pseudo-items (created by update_scope_metadata) carry
+        # non-device metadata and must never surface as devices.
+        extraneous_probe = getattr(item, "extraneous", {}) or {}
+        if "lightfall_scope" in extraneous_probe:
+            return None
+
         item_name = getattr(item, "name", str(item))
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
@@ -748,6 +789,7 @@ class HappiBackend(DeviceBackend):
 
         # Read Lightfall-specific fields from extraneous or metadata
         extraneous = getattr(item, "extraneous", {}) or {}
+        _lift_extraneous(metadata, extraneous)
         prefix = getattr(item, "prefix", "") or extraneous.get("prefix", "") or ""
         display_name = extraneous.get("display_name", "") or metadata.get("display_name", "") or ""
         icon_override = extraneous.get("icon_override", "") or metadata.get("icon_override", "") or ""
@@ -991,6 +1033,58 @@ class HappiBackend(DeviceBackend):
 
         except Exception as e:
             logger.error("Failed to remove device '{}': {}", device.name, e)
+            return False
+
+    # === Scope Metadata (non-device metadata) ===
+
+    @staticmethod
+    def _scope_item_name(scope: str) -> str:
+        # happi item names must be Python-identifier-like; ':' is not allowed.
+        return "_scope_" + scope.replace(":", "__")
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        if self._client is None:
+            return None
+        try:
+            results = self._client.search(name=self._scope_item_name(scope))
+            if not results:
+                return None
+            item = results[0].item
+            extraneous = getattr(item, "extraneous", {}) or {}
+            if extraneous.get("lightfall_scope") != scope:
+                return None
+            return extraneous.get("scope_metadata")
+        except Exception as e:
+            logger.warning("get_scope_metadata('{}') failed: {}", scope, e)
+            return None
+
+    def update_scope_metadata(self, scope: str, metadata: dict[str, Any]) -> bool:
+        if self._client is None or not self.is_editable:
+            return False
+        try:
+            import happi
+
+            name = self._scope_item_name(scope)
+            results = self._client.search(name=name)
+            if results:
+                item = results[0].item
+                item.extraneous["scope_metadata"] = metadata
+                item.extraneous["lightfall_scope"] = scope
+                item.save()
+            else:
+                item = happi.HappiItem(
+                    name=name,
+                    device_class="lightfall.scope",
+                    args=[],
+                    kwargs={},
+                    active=False,
+                )
+                item.extraneous["lightfall_scope"] = scope
+                item.extraneous["scope_metadata"] = metadata
+                self._client.add_item(item)
+            return True
+        except Exception as e:
+            logger.error("update_scope_metadata('{}') failed: {}", scope, e)
             return False
 
     # === Configuration ===

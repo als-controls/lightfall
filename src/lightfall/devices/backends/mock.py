@@ -7,6 +7,7 @@ used with Bluesky plans.
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -35,7 +36,12 @@ class MockBackend(DeviceBackend):
     Simulated devices include:
     - Motors (SynAxis): x, y, z linear stages; theta rotation
     - Detectors (SynGauss, SynSignal): point detector, noisy detector
-    - Signals (SynSignal): temperature, pressure sensors
+    - Signals (SynSignal): pressure sensor, storage ring current
+    - A full beamline roster (see ``mock_roster.create_roster``): front-end
+      shutters/valves, optics (mirrors, mono, slits), diagnostics (BPMs,
+      i0), and endstation devices (sample stages, a temperature
+      controller), each carrying ``metadata["synoptic"]`` for the
+      synoptic panel
 
     Example:
         >>> backend = MockBackend()
@@ -57,6 +63,7 @@ class MockBackend(DeviceBackend):
         self._maintenance: dict[UUID, list[MaintenanceRecord]] = {}
         self._connected = False
         self._ophyd_devices: dict[str, Any] = {}
+        self._minimal_fallback_used = False
 
     @property
     def name(self) -> str:
@@ -106,6 +113,8 @@ class MockBackend(DeviceBackend):
         The fix is to declare the float type at construction. Real EPICS
         signals don't have this problem because the IOC declares the dtype.
         """
+        if self._ophyd_devices or self._minimal_fallback_used:
+            return
         try:
             from ophyd.sim import (
                 SynAxis,
@@ -277,23 +286,9 @@ class MockBackend(DeviceBackend):
 
         # === Additional Simulated Sensors ===
 
-        # Create custom SynSignal devices for sensors
-        temperature = SynSignal(name="temperature", func=lambda: 22.5 + 0.1 * (datetime.now().second % 10))
-        temp_info = DeviceInfo(
-            name="temperature",
-            description="Sample temperature sensor",
-            category=DeviceCategory.DETECTOR,
-            device_class="ophyd.sim.SynSignal",
-            connection_type=ConnectionType.SIMULATED,
-            prefix="temperature",
-            location="Sample Environment",
-            tags=["sensor", "temperature", "sample"],
-            metadata={"units": "C", "precision": 2},
-        )
-        temp_info._ophyd_device = temperature
-        self._add_device_internal(temp_info)
-        self._ophyd_devices["temperature"] = temperature
-
+        # Create custom SynSignal devices for sensors.
+        # (temperature was here; it is now provided by the beamline roster
+        # as a SimTemperatureController — see the roster block below.)
         pressure = SynSignal(name="pressure", func=lambda: 1.013e5 + 100 * (datetime.now().second % 5))
         pressure_info = DeviceInfo(
             name="pressure",
@@ -361,6 +356,23 @@ class MockBackend(DeviceBackend):
             self._ophyd_devices["sim_det"] = sim_det
         except ImportError:
             logger.warning("SimDetector not available")
+
+        # === Beamline roster (synoptic-positioned devices) ===
+        from lightfall.devices.backends.mock_roster import (
+            LEGACY_SYNOPTIC,
+            create_roster,
+        )
+
+        for info in create_roster(self._ophyd_devices):
+            self._add_device_internal(info)
+            self._ophyd_devices[info.name] = info._ophyd_device
+
+        # Give pre-existing devices their synoptic placement (hidden for
+        # pure test devices, visible for reused roster devices).
+        for device in self._devices.values():
+            placement = LEGACY_SYNOPTIC.get(device.name)
+            if placement is not None and "synoptic" not in device.metadata:
+                device.metadata["synoptic"] = copy.deepcopy(placement)
 
         logger.debug("Created {} simulated devices", len(self._devices))
 
@@ -439,7 +451,10 @@ class MockBackend(DeviceBackend):
 
     def _create_minimal_mock_devices(self) -> None:
         """Create minimal mock devices when ophyd.sim is not available."""
-        # Create basic device info entries without ophyd devices
+        # Create basic device info entries without ophyd devices. These
+        # still carry minimal synoptic metadata (matching the
+        # DeviceSynopticData shape) so the fallback path feeds the
+        # synoptic panel the same as the full roster does.
         motor_info = DeviceInfo(
             name="motor",
             description="Primary motor (ophyd.sim not available)",
@@ -448,6 +463,12 @@ class MockBackend(DeviceBackend):
             connection_type=ConnectionType.SIMULATED,
             prefix="motor",
             tags=["motor", "mock"],
+            metadata={
+                "synoptic": {
+                    "position": [0.0, 0.0, 0.0],
+                    "visible": True,
+                },
+            },
         )
         self._add_device_internal(motor_info)
 
@@ -459,8 +480,15 @@ class MockBackend(DeviceBackend):
             connection_type=ConnectionType.SIMULATED,
             prefix="det",
             tags=["detector", "mock"],
+            metadata={
+                "synoptic": {
+                    "position": [1.0, 0.0, 0.0],
+                    "visible": True,
+                },
+            },
         )
         self._add_device_internal(det_info)
+        self._minimal_fallback_used = True
 
     def _add_device_internal(self, device: DeviceInfo) -> None:
         """Internal method to add device to storage."""
@@ -494,7 +522,7 @@ class MockBackend(DeviceBackend):
         Returns:
             List of DeviceInfo objects for all simulated devices.
         """
-        if not self._devices:
+        if not (self._ophyd_devices or self._minimal_fallback_used):
             self._create_simulated_devices()
         return list(self._devices.values())
 
@@ -516,18 +544,24 @@ class MockBackend(DeviceBackend):
         return self._ophyd_devices.get(info.name)
 
     def check_connection(self, obj: Any, timeout: float) -> bool:
-        """Simulated devices are always connected; return True immediately."""
+        """Classic sim devices are always connected; ophyd-async devices
+        (e.g. ``area_det``) are routed through the base class's async-connect
+        path (see ``DeviceBackend.check_connection``) so their real
+        ``connect()`` actually runs instead of being assumed.
+        """
+        from lightfall.devices import async_connect
+
+        if async_connect.is_async_connectable(obj):
+            return super().check_connection(obj, timeout)
         return True
 
     def _ensure_devices(self) -> None:
         """Lazily build simulated devices on first access.
 
         Idempotent — safe to call multiple times; ``_create_simulated_devices``
-        is only invoked once because it checks ``self._devices`` itself, and
-        this guard is an additional early-exit for callers that just want to
-        read the cache.
+        is only invoked once because it checks the creation guards itself.
         """
-        if not self._devices:
+        if not (self._ophyd_devices or self._minimal_fallback_used):
             self._create_simulated_devices()
 
     # === Device CRUD Operations ===
@@ -662,6 +696,25 @@ class MockBackend(DeviceBackend):
             self._maintenance[record.device_id] = []
         self._maintenance[record.device_id].append(record)
         return True
+
+    # === Scope Metadata ===
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        """Serve the simulated beam path for any beamline scope.
+
+        The mock backend simulates whichever beamline the app thinks it
+        is on, so it answers every ``beamline:*`` scope. In mixed-backend
+        configurations this means MockBackend will SHADOW a real backend's
+        beam path if it is registered before it — register the mock
+        backend LAST so real backends get first crack at each scope.
+        """
+        if scope.startswith("beamline:"):
+            from lightfall.devices.backends.mock_roster import (
+                get_beamline_scope_metadata,
+            )
+
+            return get_beamline_scope_metadata()
+        return None
 
     # === Ophyd Device Access ===
 

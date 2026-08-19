@@ -116,3 +116,6 @@ src/lightfall/logs/
 docs/investigations/
 docs/plans/
 docs/superpowers/
+
+# superpowers skill scratch workspaces
+.superpowers/

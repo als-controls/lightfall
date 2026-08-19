@@ -53,6 +53,7 @@ dependencies = [
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
+    "ophyd-async>=0.19",
     # tiled
     "tiled[client]>=0.2.5",
     "bluesky-tiled-plugins>=2.0",
@@ -232,6 +233,7 @@ requires = [
     # Data acquisition
     "bluesky>=1.10",
     "ophyd>=1.7",
+    "ophyd-async>=0.19",
     "happi>=2.0",
     "h5py>=3.0",
     "tiled[client]>=0.2.5",

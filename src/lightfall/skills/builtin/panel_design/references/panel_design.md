@@ -893,4 +893,7 @@ device_info.ophyd_device # The actual ophyd device instance (may be None)
 Available categories (independent vs dependent variable classification):
 - `DeviceCategory.MOTOR` - Physical read/write (motors, positioners, slits) — independent variable
 - `DeviceCategory.DETECTOR` - Measures something (detectors, cameras, sensors, diodes, signals) — dependent variable
+- `DeviceCategory.SENSOR` - Read-only environment/machine value, not usually scanned
+- `DeviceCategory.SHUTTER` - Two-state beam actuator
+- `DeviceCategory.VALVE` - Two-state vacuum actuator
 - `DeviceCategory.CONTROLLER` - Non-physical read/write (temperature controllers, delay generators, power supplies) — independent variable, catch-all default
