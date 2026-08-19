@@ -233,6 +233,10 @@ class ClaudeAssistantWidget(QWidget):
         self._task_tool_use_ids: dict[str, str] = {}
         # Track tool names for "Always Allow" functionality
         self._pending_tool_names: dict[str, str] = {}
+        # Thinking / tool-usage fragments, hidden by default; the panel's
+        # title-bar toggle flips visibility via set_verbose_visible().
+        self._verbose_visible = False
+        self._verbose_widgets: list[QWidget] = []
 
         # Create the agent
         try:
@@ -479,6 +483,8 @@ class ClaudeAssistantWidget(QWidget):
         self._pending_question_widgets.clear()
         # Clear any in-progress streaming bubbles
         self._streaming_bubbles.clear()
+        # Verbose fragments were children of the chat layout (deleted above)
+        self._verbose_widgets.clear()
         # Clear any task card tracking (the widgets themselves are children
         # of the chat layout and were already deleted above).
         self._task_cards.clear()
@@ -526,8 +532,10 @@ class ClaudeAssistantWidget(QWidget):
                 if text:
                     self._append_assistant_message(text)
                 for tool in tools:
-                    self._append_system_message(
-                        f"⚙ {self._format_tool_name(tool)}"
+                    self._register_verbose_widget(
+                        self._append_system_message(
+                            f"⚙ {self._format_tool_name(tool)}"
+                        )
                     )
         self._append_system_message("— restored session —")
 
@@ -822,6 +830,8 @@ class ClaudeAssistantWidget(QWidget):
         self._streaming_bubbles[block_id] = _StreamingBubble(
             kind=kind, frame=frame, label=label, buffer=""
         )
+        if kind == "thinking":
+            self._register_verbose_widget(frame)
         self._add_widget(frame)
 
     @Slot(str, str)
@@ -851,6 +861,8 @@ class ClaudeAssistantWidget(QWidget):
         if not bubble.buffer:
             # Empty bubble — no content ever arrived. Remove the ghost
             # card so the AssistantMessage path's card stands alone.
+            if bubble.frame in self._verbose_widgets:
+                self._verbose_widgets.remove(bubble.frame)
             bubble.frame.deleteLater()
             return
         if bubble.kind == "text":
@@ -868,7 +880,9 @@ class ClaudeAssistantWidget(QWidget):
             return
         # Simplify tool name for display
         display_name = tool_name.replace("mcp__qt__", "")
-        self._append_system_message(f"Using tool: {display_name}")
+        self._register_verbose_widget(
+            self._append_system_message(f"Using tool: {display_name}")
+        )
 
     @Slot(str, str, str)
     def _on_task_started(
@@ -1182,6 +1196,21 @@ class ClaudeAssistantWidget(QWidget):
         # Defer scroll so layout has time to update
         QTimer.singleShot(0, self._scroll_to_bottom)
 
+    # --- Verbose fragments (thinking + tool usage) ---
+
+    def set_verbose_visible(self, visible: bool) -> None:
+        """Show or hide thinking and tool-usage fragments in the chat."""
+        self._verbose_visible = visible
+        for widget in self._verbose_widgets:
+            widget.setVisible(visible)
+        self._scroll_to_bottom_if_needed()
+
+    def _register_verbose_widget(self, widget: QWidget) -> None:
+        """Track a thinking / tool-usage fragment; hide it if verbose is off."""
+        self._verbose_widgets.append(widget)
+        if not self._verbose_visible:
+            widget.hide()
+
     def _append_user_message(self, message: str) -> None:
         """Append user message to chat display."""
         colors = self._get_theme_colors()
@@ -1211,9 +1240,10 @@ class ClaudeAssistantWidget(QWidget):
             self._escape_html(thinking),
             label="Thinking", italic=True, small=True,
         )
+        self._register_verbose_widget(card)
         self._add_widget(card)
 
-    def _append_system_message(self, message: str) -> None:
+    def _append_system_message(self, message: str) -> QLabel:
         """Append system message as simple italic text."""
         colors = self._get_theme_colors()
         lbl = QLabel()
@@ -1225,6 +1255,7 @@ class ClaudeAssistantWidget(QWidget):
             f"font-size: {scaled_pt(9)}pt; padding: 2px 4px; }}"
         )
         self._add_widget(lbl)
+        return lbl
 
     def _append_error_message(self, message: str) -> None:
         """Append error message to chat display."""

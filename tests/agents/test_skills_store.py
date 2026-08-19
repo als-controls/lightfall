@@ -88,3 +88,97 @@ def test_template_variables_returns_beamline_user_endstation():
     assert isinstance(variables["beamline"], str)
     assert isinstance(variables["user"], str)
     assert variables["endstation"] == ""
+
+
+class _FakeToolPlugin:
+    category = "general"
+    priority = 100
+
+    def __init__(self, name: str, skill_dir: Path | None):
+        self.name = name
+        self._skill_dir = skill_dir
+
+    @property
+    def description(self) -> str:
+        return "d"
+
+    def get_skill_dir(self):
+        return self._skill_dir
+
+
+def _register_fake_plugin(name: str, skill_dir: Path | None):
+    from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+    ToolRegistry.get_instance().register(_FakeToolPlugin(name, skill_dir))
+
+
+def test_plugin_skill_dir_resolves_by_plugin_name(tmp_path, monkeypatch):
+    from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+    ToolRegistry.reset_instance()
+    try:
+        pkg = tmp_path / "pkg_skill"
+        pkg.mkdir()
+        (pkg / "SKILL.md").write_text("---\nname: x\ndescription: d\n---\nbody", encoding="utf-8")
+        _register_fake_plugin("saxs_analysis", pkg)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: tmp_path / "nob")
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: tmp_path / "nou")
+        resolved = skills_store.resolve_skills()
+        assert resolved["saxs_analysis"] == pkg
+    finally:
+        ToolRegistry.reset_instance()
+
+
+def test_plugin_skill_precedence_between_builtin_and_user(tmp_path, monkeypatch):
+    from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+    ToolRegistry.reset_instance()
+    try:
+        builtin, user = tmp_path / "builtin", tmp_path / "user"
+        _skill(builtin, "shared")
+        pkg = tmp_path / "plugin_shared"
+        pkg.mkdir()
+        (pkg / "SKILL.md").write_text("---\nname: shared\ndescription: d\n---\np", encoding="utf-8")
+        _register_fake_plugin("shared", pkg)
+
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+        assert skills_store.resolve_skills()["shared"] == pkg  # plugin beats builtin
+
+        _skill(user, "shared")
+        assert skills_store.resolve_skills()["shared"] == user / "shared"  # user beats plugin
+    finally:
+        ToolRegistry.reset_instance()
+
+
+def test_plugin_skill_dir_without_skill_md_ignored(tmp_path, monkeypatch):
+    from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+    ToolRegistry.reset_instance()
+    try:
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        _register_fake_plugin("broken", empty)
+        _register_fake_plugin("none_dir", None)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: tmp_path / "nob")
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: tmp_path / "nou")
+        resolved = skills_store.resolve_skills()
+        assert "broken" not in resolved
+        assert "none_dir" not in resolved
+    finally:
+        ToolRegistry.reset_instance()
+
+
+def test_tool_plugin_get_skill_dir_default_is_none():
+    from lightfall.plugins.tool_plugin import ToolPlugin
+
+    class P(ToolPlugin):
+        @property
+        def name(self) -> str:
+            return "p"
+
+        @property
+        def description(self) -> str:
+            return "d"
+
+    assert P().get_skill_dir() is None

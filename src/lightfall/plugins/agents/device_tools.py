@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.plugins.agents._mcp_helpers import mcp_result
+from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.utils.logging import logger
 
 

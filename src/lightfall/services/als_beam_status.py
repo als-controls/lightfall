@@ -96,6 +96,11 @@ class ALSBeamStatusService(QObject):
         self._last_error: str | None = None
         self._polling = False
         self._proxy_toast_shown = False
+        # Dedupe key for repeated fetch failures so a persistent outage (e.g.
+        # the SOCKS proxy being down) logs one concise WARNING instead of a
+        # traceback every poll. Re-logs only when the failure signature
+        # changes or after a recovery (reset in _set_connected(True)).
+        self._last_failure_sig: str | None = None
 
         # Polling timer
         self._poll_timer = QTimer(self)
@@ -191,6 +196,9 @@ class ALSBeamStatusService(QObject):
             except_slot=self._on_fetch_error,
             key=_FETCH_THREAD_KEY,
             name="als_beam_status_fetch",
+            # _on_fetch_error owns error reporting (concise, deduped WARNING);
+            # suppress the framework's per-poll ERROR + traceback spam.
+            log_exceptions=False,
         )
         self._current_fetch.start()
 
@@ -211,8 +219,29 @@ class ALSBeamStatusService(QObject):
         Args:
             error: The exception that occurred during fetch.
         """
-        logger.debug("Failed to fetch ALS beam status: {}", error)
         self._last_error = str(error)
+
+        # Dedupe repeated identical failures: log a single concise WARNING when
+        # the failure first appears or its signature changes; stay quiet (DEBUG)
+        # on identical repeats so a persistent outage doesn't flood the log.
+        signature = f"{type(error).__name__}: {error}"
+        if signature != self._last_failure_sig:
+            self._last_failure_sig = signature
+            if _is_proxy_connection_error(error):
+                logger.warning(
+                    "ALS beam status unavailable: SOCKS proxy not reachable "
+                    "({}). Suppressing repeats until this changes or recovers.",
+                    error,
+                )
+            else:
+                logger.warning(
+                    "ALS beam status fetch failed: {}. "
+                    "Suppressing repeats until this changes or recovers.",
+                    signature,
+                )
+        else:
+            logger.debug("ALS beam status fetch still failing: {}", signature)
+
         self._set_connected(False)
 
         if not self._proxy_toast_shown and _is_proxy_connection_error(error):
@@ -234,6 +263,11 @@ class ALSBeamStatusService(QObject):
             self._is_connected = connected
             if connected:
                 self._last_error = None
+                # Recovered: clear the dedupe key so the next failure (if any)
+                # is logged afresh, and note the recovery.
+                if self._last_failure_sig is not None:
+                    logger.info("ALS beam status recovered")
+                    self._last_failure_sig = None
             self.connection_changed.emit(connected)
 
     def _fetch_beam_status(self) -> ALSBeamData | None:

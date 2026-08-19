@@ -103,6 +103,17 @@ class ToolPlugin(PluginType):
         """
         return False
 
+    def get_skill_dir(self) -> Path | None:
+        """Optional packaged skill directory containing this plugin's SKILL.md.
+
+        External plugins ship their skill inside their own package and return
+        the directory here; it resolves under the plugin's ``name`` with
+        precedence builtin < plugin < user (see
+        lightfall.agents.skills_store.resolve_skills). None (default) = the
+        skill, if any, is expected under a skills root instead.
+        """
+        return None
+
     def get_references_dir(self) -> Path | None:
         """Optional package directory containing supplementary docs.
 
