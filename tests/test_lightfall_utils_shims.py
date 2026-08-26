@@ -57,7 +57,8 @@ def test_theme_shims():
     from lightfall.plugins.theme_plugin import ThemeDefinition, ThemePlugin
     from lightfall.ui.theme import Theme, ThemeManager, ThemeRegistry, scaled_pt  # noqa: F401
     from lightfall.ui.theme.manager import LIGHT_COLORS  # noqa: F401  (deep import used by tests)
-    from lightfall_utils.theming import ThemeDefinition as NewDefinition, ThemeProvider
+    from lightfall_utils.theming import ThemeDefinition as NewDefinition
+    from lightfall_utils.theming import ThemeProvider
 
     assert ThemeDefinition is NewDefinition
     assert issubclass(ThemePlugin, ThemeProvider)
@@ -65,7 +66,10 @@ def test_theme_shims():
 
 def test_builtin_theme_shims_satisfy_loader_contract():
     from lightfall.plugins.theme_plugin import ThemePlugin
-    from lightfall.ui.theme.builtin import LightThemePlugin, generate_islands_stylesheet  # noqa: F401
+    from lightfall.ui.theme.builtin import (  # noqa: F401
+        LightThemePlugin,
+        generate_islands_stylesheet,
+    )
 
     assert issubclass(LightThemePlugin, ThemePlugin)
     theme = LightThemePlugin()
@@ -88,7 +92,8 @@ def test_docking_contributor_registered(qtbot):
 def test_ca_shims():
     from lightfall.epics.ca import PV, SharedContext
     from lightfall.epics.ca.pv import PV as DeepPV
-    from lightfall_utils.ca import PV as NewPV, SharedContext as NewSharedContext
+    from lightfall_utils.ca import PV as NewPV
+    from lightfall_utils.ca import SharedContext as NewSharedContext
 
     assert PV is NewPV is DeepPV
     assert SharedContext is NewSharedContext
