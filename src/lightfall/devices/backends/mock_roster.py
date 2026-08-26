@@ -194,7 +194,33 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
     Returns:
         DeviceInfo list (ophyd objects attached), beam order.
     """
+    import numpy as np
     from ophyd.sim import SynAxis, SynGauss, SynSignal
+
+    class _PoissonSynGauss(SynGauss):
+        """SynGauss whose Poisson-noise branch works with numpy>=2.
+
+        ophyd 1.11.1 (and its unreleased HEAD as of 2026-08-25 -- see
+        https://github.com/bluesky/ophyd/blob/main/ophyd/sim.py) computes
+        ``int(self.random_state.poisson(np.round(v), 1))``. Passing an
+        explicit ``size=1`` makes ``poisson()`` return a 1-element
+        ndarray; numpy>=2 removed implicit scalar conversion for any
+        array with ndim > 0, so ``int()`` on it now raises ``TypeError:
+        only 0-dimensional arrays can be converted to Python scalars``.
+        Dropping the explicit size makes ``poisson()`` return a plain
+        scalar again, which is all this override changes. Delete this
+        once ophyd ships a numpy 2-safe ``SynGauss._compute``.
+        """
+
+        def _compute(self):
+            if self.noise.get() != "poisson":
+                return super()._compute()
+            m = self._motor.read()[self._motor_field]["value"]
+            Imax = self.Imax.get()
+            center = self.center.get()
+            sigma = self.sigma.get()
+            v = Imax * np.exp(-((m - center) ** 2) / (2 * sigma**2))
+            return int(self.random_state.poisson(np.round(v)))
 
     infos: list[DeviceInfo] = []
 
@@ -370,7 +396,7 @@ def create_roster(existing_ophyd: dict[str, Any]) -> list[DeviceInfo]:
     ))
 
     sample_x = existing_ophyd["sample_x"]
-    point_det = SynGauss(
+    point_det = _PoissonSynGauss(
         "point_det", sample_x, "sample_x",
         center=0, Imax=100, sigma=5, noise="poisson", labels={"detectors"},
     )
