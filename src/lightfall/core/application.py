@@ -203,7 +203,9 @@ class LFApplication(QObject):
         self._set_state(ApplicationState.INITIALIZING)
 
         # Configure logging first
-        configure_logging(level=log_level, log_file=log_file)
+        configure_logging(
+            level=log_level, log_file=log_file, mute_debug_modules=("bcsophyd",)
+        )
         logger.info("Initializing Lightfall application")
 
         # NOTE: Windows AppUserModelID is set in main.py BEFORE any Qt imports.

@@ -13,8 +13,8 @@ from loguru import logger
 from ophyd import Component as Cpt
 from ophyd import Device
 from ophyd.signal import Signal
-from ophyd.status import DeviceStatus
 from ophyd.sim import SynSignal
+from ophyd.status import DeviceStatus
 
 
 class SimShutter(Device):

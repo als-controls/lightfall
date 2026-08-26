@@ -73,6 +73,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.93",
     "happi>=2.0",
     "nats-py>=2.0",
+    "lightfall-utils>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -148,7 +149,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["lightfall"]
+known-first-party = ["lightfall", "lightfall_utils"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -186,7 +187,7 @@ bundle = "gov.lbl.als"
 # Hand-maintained: briefcase cannot read the hatch-vcs version, so this must be
 # bumped alongside every release tag. When it drifts, the installers attached to
 # a release carry the stale number while the wheel carries the tag's.
-version = "0.2.1"
+version = "0.3.0"
 url = "https://als.lbl.gov"
 author = "ALS Controls Team"
 author_email = "controls@lbl.gov"
@@ -259,6 +260,7 @@ requires = [
     "bidict>=0.23",
 
     "claude-agent-sdk>=0.2.93",
+    "lightfall-utils>=0.1.0",
 ]
 
 [tool.briefcase.app.lightfall.macOS]
@@ -276,3 +278,4 @@ requires = []
 [tool.briefcase.app.lightfall.linux]
 requires = []
 system_requires = []
+

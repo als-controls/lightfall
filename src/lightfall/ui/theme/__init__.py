@@ -24,3 +24,12 @@ __all__ = [
     "scaled_pt",
     "scaled_px",
 ]
+
+# Docking chrome QSS: contributed to the shared ThemeManager. Before the
+# extraction to lightfall-utils this was a lazy import inside
+# ThemeManager.generate_stylesheet(); class-level registration preserves the
+# always-on behavior (including across ThemeManager.reset() in tests).
+from lightfall.ui.docking.theme import generate_docking_stylesheet as _generate_docking_stylesheet
+
+if _generate_docking_stylesheet not in ThemeManager.default_stylesheet_contributors:
+    ThemeManager.default_stylesheet_contributors.append(_generate_docking_stylesheet)

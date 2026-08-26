@@ -70,6 +70,13 @@ source .venv/bin/activate  # Unix
 pip install -e ".[dev]"
 ```
 
+Lightfall depends on [`lightfall-utils`](https://github.com/als-controls/lightfall-utils) (installed from PyPI like any other dependency). To co-develop both packages, install a sibling checkout in editable mode on top:
+
+```bash
+git clone https://github.com/als-controls/lightfall-utils.git ../lightfall-utils
+pip install -e ../lightfall-utils
+```
+
 ### Running the Application
 
 ```bash
