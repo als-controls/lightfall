@@ -70,6 +70,17 @@ source .venv/bin/activate  # Unix
 pip install -e ".[dev]"
 ```
 
+Lightfall depends on [`lightfall-utils`](https://git.als.lbl.gov/ncs/lightfall-utils) via a `uv` path source (see `[tool.uv.sources]` in `pyproject.toml`), so development requires a sibling checkout at `../lightfall-utils` and `uv`:
+
+```bash
+git clone https://github.com/als-controls/lightfall.git
+git clone <lightfall-utils-repo-url> ../lightfall-utils   # sibling checkout
+cd lightfall
+uv sync --extra dev
+```
+
+Plain `pip install -e ".[dev]"` won't resolve `lightfall-utils` until it's published to an index (pending LBNL software disclosure) — use `uv` for local development in the meantime.
+
 ### Running the Application
 
 ```bash

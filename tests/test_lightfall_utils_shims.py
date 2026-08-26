@@ -72,12 +72,17 @@ def test_builtin_theme_shims_satisfy_loader_contract():
     assert theme.get_theme_definition() is not None
 
 
-def test_docking_contributor_registered():
+def test_docking_contributor_registered(qtbot):
     import lightfall.ui.theme  # noqa: F401  (import registers the contributor)
     from lightfall.ui.docking.theme import generate_docking_stylesheet
     from lightfall_utils.theming import ThemeManager
 
     assert generate_docking_stylesheet in ThemeManager.default_stylesheet_contributors
+
+    # End-to-end: the registered contributor's output must actually land in
+    # the generated stylesheet, not just be present in the registry.
+    css = ThemeManager.get_instance().generate_stylesheet()
+    assert "#PanelTitleBar" in css
 
 
 def test_ca_shims():
