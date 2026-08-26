@@ -187,7 +187,7 @@ bundle = "gov.lbl.als"
 # Hand-maintained: briefcase cannot read the hatch-vcs version, so this must be
 # bumped alongside every release tag. When it drifts, the installers attached to
 # a release carry the stale number while the wheel carries the tag's.
-version = "0.2.1"
+version = "0.3.0"
 url = "https://als.lbl.gov"
 author = "ALS Controls Team"
 author_email = "controls@lbl.gov"
