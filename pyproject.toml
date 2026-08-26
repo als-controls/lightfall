@@ -73,7 +73,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.93",
     "happi>=2.0",
     "nats-py>=2.0",
-    "lightfall-utils",
+    "lightfall-utils>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -260,7 +260,7 @@ requires = [
     "bidict>=0.23",
 
     "claude-agent-sdk>=0.2.93",
-    "lightfall-utils",  # TODO: resolvable only after PyPI release (software disclosure)
+    "lightfall-utils>=0.1.0",
 ]
 
 [tool.briefcase.app.lightfall.macOS]
@@ -279,5 +279,3 @@ requires = []
 requires = []
 system_requires = []
 
-[tool.uv.sources]
-lightfall-utils = { path = "../lightfall-utils", editable = true }
