@@ -51,7 +51,9 @@ class TestAuthResponse:
 
         import lightfall.auth.session as session_mod
 
-        monkeypatch.setattr(session_mod.SessionManager, "get_instance", staticmethod(lambda: _FakeSM()))
+        monkeypatch.setattr(
+            session_mod.SessionManager, "get_instance", staticmethod(lambda: _FakeSM())
+        )
 
         class _Sess:
             class user:

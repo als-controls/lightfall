@@ -108,6 +108,15 @@ A denial looks like:
 {"status": "denied", "reason": "timeout"}
 ```
 
+Denial `reason` values include:
+
+| Reason               | Meaning                                                                |
+|----------------------|------------------------------------------------------------------------|
+| `timeout`            | The auth request took too long to complete                             |
+| `busy`               | The auth dialog is already in progress for this session                |
+| `denied`             | The user rejected the trust request in the auth dialog                 |
+| `no_session`         | The console is trusted but no user is logged into Lightfall           |
+
 ### Token Refresh
 
 If a Tiled request comes back `401`, re-run the authentication handshake. Under auth-v2,
