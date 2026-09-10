@@ -498,14 +498,7 @@ class LFApplication(QObject):
         state = ipc.evaluate_trust(app_name)
 
         if state == TrustState.APPROVED:
-            session = self._get_current_session()
-            tiled_url = self._get_tiled_url()
-            ipc.reply(
-                reply,
-                ipc.build_auth_response(
-                    approved=True, session=session, tiled_url=tiled_url, app_name=app_name
-                ),
-            )
+            ipc.reply(reply, self._approved_auth_reply(ipc, app_name))
             return
 
         if state == TrustState.DENIED:
@@ -530,14 +523,7 @@ class LFApplication(QObject):
 
             if dialog.exec() == TrustDialog.DialogCode.Accepted:
                 trust.approve(app_name)
-                session = self._get_current_session()
-                tiled_url = self._get_tiled_url()
-                ipc.reply(
-                    reply,
-                    ipc.build_auth_response(
-                        approved=True, session=session, tiled_url=tiled_url, app_name=app_name
-                    ),
-                )
+                ipc.reply(reply, self._approved_auth_reply(ipc, app_name))
             else:
                 trust.deny(app_name)
                 reason = "denied" if timer.isActive() else "timeout"
@@ -547,6 +533,30 @@ class LFApplication(QObject):
                 )
         finally:
             self._auth_dialog_active = False
+
+    def _approved_auth_reply(self, ipc: IPCService, app_name: str) -> dict:
+        """The approved reply plus Lightfall's own fields (Tiled key, URL, session id).
+
+        Preserves the old behaviour: without an active login session the app
+        cannot be approved, even if trusted.
+        """
+        from lightfall.auth.session import SessionManager
+
+        session = self._get_current_session()
+        if session is None:
+            return ipc.build_auth_response(approved=False, reason="no_session")
+
+        try:
+            session_id = session.user.attributes.get("sub")
+        except Exception:
+            session_id = None
+        extra = {
+            # Historical name; carries a Tiled API key under auth-v2.
+            "tiled_token": SessionManager.get_instance().get_api_key("tiled"),
+            "tiled_url": self._get_tiled_url(),
+            "session_id": session_id,
+        }
+        return ipc.build_auth_response(approved=True, app_name=app_name, extra=extra)
 
     def _get_current_session(self):
         """Return the current :class:`Session` or ``None``."""
