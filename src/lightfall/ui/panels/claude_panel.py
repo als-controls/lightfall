@@ -1198,7 +1198,10 @@ class ClaudePanel(BasePanel):
         (``AgentSessionTab`` -> ``ClaudeAssistantWidget`` ->
         ``ClaudeSessionEndpoint``). Focusing an already-running session grants
         no whitelist -- it isn't a fresh launch by this sender -- but
-        ``first_message``, if given, is still delivered either way.
+        ``first_message``, if given, is still delivered either way -- as a bus
+        message from ``launched_by``, so it carries the sender's attribution
+        and a running peer's accept policy applies (a fresh launch has the
+        launcher whitelisted, so it lands immediately).
         """
         spec, error = self._validate_agent_open(name)
         if error is not None:
@@ -1207,7 +1210,7 @@ class ClaudePanel(BasePanel):
         focused_existing = self._find_tab(name) is not None
         tab = self._open_agent_tab(spec, launched_by=launched_by)
         if first_message:
-            self._deliver_when_ready(tab, first_message)
+            self._deliver_bus_when_ready(tab, launched_by, first_message)
         return {"success": True, "agent": name,
                 "focused_existing": focused_existing,
                 "message_queued": bool(first_message)}
@@ -1227,6 +1230,28 @@ class ClaudePanel(BasePanel):
                 pass
             w.input_field.setPlainText(_text)
             w._send_query()
+
+        tab.widget_created.connect(_once)
+
+    def _deliver_bus_when_ready(self, tab, sender: str, message: str) -> None:
+        """Deliver ``message`` from ``sender`` through ``tab``'s bus endpoint,
+        now or once its session widget exists.
+
+        Unlike ``_deliver_when_ready`` (a user-typed prompt), this goes through
+        ``ClaudeSessionEndpoint.deliver``: the message is attributed to the
+        sender and honors the session's accept policy / whitelist.
+        """
+        widget = tab.claude_widget
+        if widget is not None:
+            widget.bus_endpoint.deliver(sender, message)
+            return
+
+        def _once(w, _sender=sender, _text=message):
+            try:
+                tab.widget_created.disconnect(_once)
+            except (RuntimeError, TypeError):
+                pass
+            w.bus_endpoint.deliver(_sender, _text)
 
         tab.widget_created.connect(_once)
 
