@@ -9,10 +9,14 @@ This module provides VS Code/PyCharm-like docking with:
 - Theme integration (Islands mode with rounded panels)
 """
 
-from lightfall.ui.docking.icon_sidebar import IconStripSidebar
-from lightfall.ui.docking.manager import DockingManager
-from lightfall.ui.docking.state import DockingState
-from lightfall.ui.docking.widget import PanelDockWidget
+import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lightfall.ui.docking.icon_sidebar import IconStripSidebar
+    from lightfall.ui.docking.manager import DockingManager
+    from lightfall.ui.docking.state import DockingState
+    from lightfall.ui.docking.widget import PanelDockWidget
 
 __all__ = [
     "DockingManager",
@@ -20,3 +24,25 @@ __all__ = [
     "PanelDockWidget",
     "DockingState",
 ]
+
+# Exports resolve lazily (PEP 562). lightfall.ui.theme imports the leaf
+# lightfall.ui.docking.theme at import time; eager imports here would pull
+# manager -> panels -> widgets.device_control -> ui.theme back in mid-init.
+_EXPORTS = {
+    "DockingManager": "manager",
+    "IconStripSidebar": "icon_sidebar",
+    "PanelDockWidget": "widget",
+    "DockingState": "state",
+}
+
+
+def __getattr__(name: str):
+    if name in _EXPORTS:
+        value = getattr(importlib.import_module(f"{__name__}.{_EXPORTS[name]}"), name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))
