@@ -106,9 +106,15 @@ class AgentSessionTab(QWidget):
     widget_destroyed = Signal()
     bus_pending_changed = Signal(int)
 
-    def __init__(self, spec=None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        spec=None,
+        launched_by: str | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.spec = spec
+        self.launched_by = launched_by
         self.agent_name: str = spec.name if spec is not None else MAIN_AGENT_NAME
         self.claude_widget = None
         self.is_agent_ready = False
@@ -221,6 +227,7 @@ class AgentSessionTab(QWidget):
             resume=resume,
             disable_betas=ClaudeSettingsProvider.get_disable_betas(),
             spec=self.spec,
+            launched_by=self.launched_by,
             parent=self,
         )
 

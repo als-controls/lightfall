@@ -162,6 +162,18 @@ always-on `bus` SDK MCP server, separate from the per-plugin servers described a
 - **`mcp__bus__list_agents`** — no arguments. Returns each registered agent's `name`,
   `description`, and current `busy` state, so an agent can check availability before
   sending.
+- **`mcp__bus__launch_agent`** — `{"name": "<agent name>", "first_message": "<optional text>"}`.
+  Opens (or focuses) that agent's session tab via `AgentBus.launch()`, which delegates to a
+  launcher hook the Claude panel registers when its tab surface is built
+  (`ClaudePanel._launch_agent_for`, cleared on panel close) — with no panel open, it returns
+  `{"success": False, "error": "no launcher available"}` instead of raising. On a fresh launch,
+  the new session's `ClaudeSessionEndpoint` is seeded with an auto-accept whitelist for the
+  launching agent's bus name, so its replies (and any further messages) skip the "Auto-respond"
+  toggle and the pending-card queue entirely — no "Always accept" click required. Focusing an
+  already-running peer this way still delivers `first_message` but grants no whitelist, since it
+  wasn't a fresh launch by that sender. This mirrors the per-sender "Always accept" button a user
+  can click on a pending message card (see below): both add the sender to the same
+  `_auto_accept_senders` set, one by user action, the other by launch-time identity.
 
 Registration happens per session — a session's `bus_name` is whatever name it was
 registered under (duplicate names get a `#2`, `#3`, ... suffix from `AgentBus.register`).

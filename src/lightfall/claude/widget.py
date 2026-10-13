@@ -191,6 +191,7 @@ class ClaudeAssistantWidget(QWidget):
         resume: str | None = None,
         disable_betas: bool = False,
         spec=None,
+        launched_by: str | None = None,
         parent: QWidget | None = None
     ):
         """
@@ -207,6 +208,10 @@ class ClaudeAssistantWidget(QWidget):
             require_approval: If True, show UI approval for tool calls (default True).
                               Set False alongside permission_mode='bypassPermissions' to
                               fully silence prompts.
+            launched_by: Bus name of the agent that launched this session via
+                         ``mcp__bus__launch_agent``, if any. Seeds the new
+                         session's bus endpoint with an auto-accept whitelist
+                         for this sender.
             parent: Parent widget
 
         Note:
@@ -284,6 +289,7 @@ class ClaudeAssistantWidget(QWidget):
             is_busy=lambda: self.agent.is_busy() or self._is_busy,
             on_queued=lambda sender, message: None,
             policy=spec.on_message if spec else "queue",
+            auto_accept_senders={launched_by} if launched_by else None,
             parent=self,
         )
         self.bus_endpoint.message_queued.connect(self._on_bus_message_queued)
@@ -610,14 +616,21 @@ class ClaudeAssistantWidget(QWidget):
         return True
 
     def _flush_bus_on_completion(self) -> None:
-        """When a query finishes, flush any bus messages queued while busy
-        under the "auto" delivery policy.
+        """When a query finishes, flush bus messages queued while busy.
 
-        Under "queue" policy we never auto-flush -- the cards are already
-        visible and wait for the user's Accept/Dismiss.
+        "auto" policy: flush everything queued (existing behavior). "queue"
+        policy: only flush messages from senders whitelisted via "Always
+        accept" -- everything else stays as an interactive card awaiting
+        the user's Accept/Dismiss. Either way, the badge count is
+        re-emitted afterward so it stays truthful (the per-message
+        ``message_auto_accepted`` handler already emits it per drained
+        message, but this final emission guarantees the settled count).
         """
         if self.bus_endpoint.policy == "auto":
             self.bus_endpoint.flush_pending()
+        else:
+            self.bus_endpoint.flush_whitelisted()
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
     def _on_bus_message_queued(self, sender: str, message: str) -> None:
         """A message is pending (either "queue" policy, or "auto" policy
@@ -699,8 +712,10 @@ class ClaudeAssistantWidget(QWidget):
             btn_row.setContentsMargins(0, 4, 0, 0)
             btn_row.setSpacing(8)
             accept_btn = QPushButton("Accept")
+            always_accept_btn = QPushButton("Always accept")
             dismiss_btn = QPushButton("Dismiss")
             btn_row.addWidget(accept_btn)
+            btn_row.addWidget(always_accept_btn)
             btn_row.addWidget(dismiss_btn)
             btn_row.addStretch(1)
             card_layout.addLayout(btn_row)
@@ -714,6 +729,9 @@ class ClaudeAssistantWidget(QWidget):
 
             accept_btn.clicked.connect(
                 lambda: self._on_bus_card_accept(entry, card, busy_note)
+            )
+            always_accept_btn.clicked.connect(
+                lambda: self._on_bus_card_always_accept(entry, sender)
             )
             dismiss_btn.clicked.connect(
                 lambda: self._on_bus_card_dismiss(entry, card)
@@ -740,6 +758,35 @@ class ClaudeAssistantWidget(QWidget):
         else:
             busy_note.setText("agent busy — try again")
             busy_note.show()
+        self.bus_pending_changed.emit(self._bus_card_model.pending_count())
+
+    def _on_bus_card_always_accept(self, entry: BusCardEntry, sender: str) -> None:
+        """Always accept button: whitelist ``sender`` and drain their
+        already-pending messages.
+
+        ``endpoint.always_accept`` emits ``message_auto_accepted`` per
+        drained message *synchronously*, and that signal is already wired
+        (in ``__init__``) to ``_on_bus_message_auto_accepted``, which does
+        the FIFO ``take_pending`` + ``add_auto`` swap -- removing each
+        drained message's stale interactive card (including this one, if
+        its message drains) and replacing it with a non-interactive "auto"
+        card. So by the time ``always_accept`` returns here, the model is
+        already reconciled for the common case.
+
+        ``prune_pending_not_in`` runs afterward purely as a safety net for
+        an edge case ``take_pending``'s FIFO match can't disambiguate:
+        duplicate (sender, message) pairs among this sender's pending cards.
+        It removes any leftover stale pending entries not in the endpoint's
+        post-drain ``pending()`` list and deletes their frames. This must
+        run after the drain (not before/instead of it) so it reconciles
+        against the *post-drain* pending list.
+        """
+        self.bus_endpoint.always_accept(sender)
+        stale = self._bus_card_model.prune_pending_not_in(self.bus_endpoint.pending())
+        for stale_entry in stale:
+            stale_frame = self._bus_card_widgets.pop(id(stale_entry), None)
+            if stale_frame is not None:
+                stale_frame.deleteLater()
         self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
     def _on_bus_card_dismiss(self, entry: BusCardEntry, card: QFrame) -> None:

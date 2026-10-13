@@ -168,3 +168,92 @@ def test_rebuild_from_pending_preserves_endpoint_accept_index():
         "[Message from agent 'observer']\nbeam soft",
     ]
     assert endpoint.pending() == [("watchdog", "check temp")]
+
+
+def test_prune_pending_not_in_removes_stale_entries_only():
+    """Reconciliation helper for post-drain cleanup: entries whose
+    (sender, message) is no longer in the endpoint's pending list get
+    dropped; auto/dismissed entries and still-pending entries are
+    untouched."""
+    model = BusCardModel()
+    a = model.add_pending("a", "1")
+    b = model.add_pending("b", "2")
+    auto = model.add_auto("x", "y")
+
+    removed = model.prune_pending_not_in([("b", "2")])
+
+    assert removed == [a]
+    assert model.entries == [b, auto]
+    assert model.pending_count() == 1
+
+
+def test_prune_pending_not_in_noop_when_all_still_pending():
+    model = BusCardModel()
+    a = model.add_pending("a", "1")
+    b = model.add_pending("b", "2")
+
+    removed = model.prune_pending_not_in([("a", "1"), ("b", "2")])
+
+    assert removed == []
+    assert model.entries == [a, b]
+
+
+def test_always_accept_drain_reconciles_model_to_remaining_sender():
+    """Widget-independent chain test at the endpoint + model seam (per the
+    brief's Step 1): two pending from "observer" plus one from "saxs" ->
+    always_accept("observer") drains both observer messages via the normal
+    submit path.
+
+    Mirrors the widget's real wiring: ``message_auto_accepted`` (emitted
+    synchronously, per drained message, from inside ``always_accept``) is
+    connected to a handler that does the same FIFO take_pending + add_auto
+    swap as ``ClaudeAssistantWidget._on_bus_message_auto_accepted`` --
+    removing the stale pending entry for that exact message and replacing it
+    with a non-interactive "auto" entry. ``prune_pending_not_in`` then runs
+    as the post-drain safety net the widget's click handler also calls.
+
+    End state: the model is reduced to just the saxs entry as "pending"
+    (plus two "auto" entries for the drained observer messages); pending
+    badge count is 1.
+    """
+    model = BusCardModel()
+    endpoint = ClaudeSessionEndpoint(
+        "test-agent",
+        "desc",
+        submit=lambda prompt: True,
+        is_busy=lambda: True,
+        on_queued=lambda sender, message: None,
+        policy="queue",
+    )
+    endpoint.deliver("observer", "msg1")
+    endpoint.deliver("saxs", "msg2")
+    endpoint.deliver("observer", "msg3")
+
+    for sender, message in endpoint.pending():
+        model.add_pending(sender, message)
+    assert model.pending_count() == 3
+
+    def on_auto_accepted(sender, message):
+        model.take_pending(sender, message)
+        model.add_auto(sender, message)
+
+    endpoint.message_auto_accepted.connect(on_auto_accepted)
+
+    accepted = endpoint.always_accept("observer")
+    assert accepted == 2
+    assert endpoint.pending() == [("saxs", "msg2")]
+
+    removed = model.prune_pending_not_in(endpoint.pending())
+    assert removed == []  # take_pending already reconciled both drained cards
+
+    assert model.pending_count() == 1
+    pending_entries = [e for e in model.entries if e.state == "pending"]
+    assert len(pending_entries) == 1
+    assert pending_entries[0].sender == "saxs"
+    assert pending_entries[0].message == "msg2"
+
+    auto_entries = [e for e in model.entries if e.state == "auto"]
+    assert {(e.sender, e.message) for e in auto_entries} == {
+        ("observer", "msg1"),
+        ("observer", "msg3"),
+    }

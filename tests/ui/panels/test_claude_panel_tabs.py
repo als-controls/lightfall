@@ -30,12 +30,16 @@ def _spec(name, scope="core"):
 
 @pytest.fixture
 def panel(qtbot, monkeypatch):
+    from lightfall.agents.bus import AgentBus
+
     # Never build a real Claude session.
     monkeypatch.setattr(AgentSessionTab, "initialize", lambda self: None)
     monkeypatch.setattr(ClaudePanel, "_subscribe_to_claude_settings", lambda self: None)
+    AgentBus.reset_instance()
     p = ClaudePanel()
     qtbot.addWidget(p)
-    return p
+    yield p
+    AgentBus.reset_instance()
 
 
 def test_lightfall_tab_exists_and_is_uncloseable(panel):
@@ -203,3 +207,105 @@ def test_action_open_agent_tab_message_delivered_on_widget_created(panel, monkey
     fake.sent = False
     tab.widget_created.emit(fake)
     assert fake.sent is False
+
+
+def test_setup_tabs_registers_launcher_hook(panel):
+    from lightfall.agents.bus import AgentBus
+
+    result = AgentBus.get_instance().launch("saxs", "observer", None)
+    # Reaching _launch_agent_for (not the "no launcher available" default)
+    # proves the hook was registered at tab-surface setup.
+    assert result.get("error") != "no launcher available"
+
+
+def test_on_closing_clears_launcher_hook(panel):
+    from lightfall.agents.bus import AgentBus
+
+    panel._on_closing()
+    result = AgentBus.get_instance().launch("saxs", "observer", None)
+    assert result == {"success": False, "error": "no launcher available"}
+
+
+def test_launch_agent_for_creates_tab_and_whitelists_launcher(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel._launch_agent_for("saxs", "observer", None)
+    assert result == {"success": True, "agent": "saxs",
+                       "focused_existing": False, "message_queued": False}
+    tab = panel._find_tab("saxs")
+    assert tab.launched_by == "observer"
+    assert panel._tabs.currentWidget() is tab
+
+
+def test_launch_agent_for_focus_existing_no_whitelist(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    panel._launch_agent_for("saxs", "observer", None)
+    tab = panel._find_tab("saxs")
+
+    result = panel._launch_agent_for("saxs", "someone_else", None)
+    assert result["focused_existing"] is True
+    assert panel._tabs.count() == 2  # no duplicate tab created
+    # Focusing an already-running session grants no whitelist to the new caller.
+    assert tab.launched_by == "observer"
+
+
+def _endpoint_widget(launched_by=None):
+    """A stand-in session widget carrying a real bus endpoint (queue policy)."""
+    from lightfall.claude.bus_endpoint import ClaudeSessionEndpoint
+
+    w = QWidget()  # tab teardown removes claude_widget from a layout
+    w.submitted = []
+    w.bus_endpoint = ClaudeSessionEndpoint(
+        "saxs", "d-saxs",
+        submit=lambda prompt: w.submitted.append(prompt) or True,
+        is_busy=lambda: False,
+        on_queued=lambda sender, message: None,
+        policy="queue",
+        auto_accept_senders={launched_by} if launched_by else None,
+    )
+    return w
+
+
+def test_launch_agent_for_first_message_goes_through_bus_on_fresh_launch(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel._launch_agent_for("saxs", "observer", "start the fit")
+    assert result["message_queued"] is True
+
+    tab = panel._find_tab("saxs")
+    fake = _endpoint_widget(launched_by=tab.launched_by)
+    tab.widget_created.emit(fake)
+    # Whitelisted launcher: delivered at once, attributed to the launcher.
+    assert fake.submitted == ["[Message from agent 'observer']\nstart the fit"]
+    assert fake.bus_endpoint.pending() == []
+
+    # One-shot: a second emission must not resend.
+    tab.widget_created.emit(fake)
+    assert len(fake.submitted) == 1
+
+
+def test_launch_agent_for_focus_existing_honors_accept_policy(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    panel._launch_agent_for("saxs", "observer", None)
+    tab = panel._find_tab("saxs")
+    fake = _endpoint_widget(launched_by="observer")
+    tab.claude_widget = fake
+
+    # A different caller focusing a running session is not whitelisted: the
+    # message must queue for the user's Accept, not be typed in as a prompt.
+    result = panel._launch_agent_for("saxs", "someone_else", "hi again")
+    assert result["message_queued"] is True
+    assert fake.submitted == []
+    assert fake.bus_endpoint.pending() == [("someone_else", "hi again")]
+
+
+def test_launch_agent_for_surfaces_validation_errors(panel, monkeypatch):
+    _prime_registry(monkeypatch, [_spec("lightfall"), _spec("saxs")])
+    result = panel._launch_agent_for("nope", "observer", None)
+    assert result["success"] is False
+    assert "saxs" in result["error"]
+
+    from dataclasses import replace
+    observer = replace(_spec("observer"), openable=False)
+    _prime_registry(monkeypatch, [_spec("lightfall"), observer])
+    result = panel._launch_agent_for("observer", "someone", None)
+    assert result["success"] is False
+    assert "openable" in result["error"]

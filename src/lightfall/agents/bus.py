@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from PySide6.QtCore import QObject, Signal
@@ -39,6 +40,7 @@ class AgentBus(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._endpoints: dict[str, BusEndpoint] = {}
+        self._launcher: Callable[[str, str, str | None], dict[str, Any]] | None = None
 
     @classmethod
     def get_instance(cls) -> AgentBus:
@@ -108,6 +110,31 @@ class AgentBus(QObject):
         except Exception as e:
             logger.exception("delivery to '{}' failed", to)
             return {"status": "error", "detail": f"delivery to '{to}' failed: {e}"}
+
+    def set_launcher(
+        self, fn: Callable[[str, str, str | None], dict[str, Any]] | None
+    ) -> None:
+        """Register (or clear, with ``None``) the hook that opens/focuses agent
+        sessions on behalf of ``launch()``.
+
+        The UI layer (``ClaudePanel``) registers this once its tab surface
+        exists, and clears it when the panel closes -- with no hook
+        registered, ``launch()`` returns a clean error instead of raising.
+        """
+        self._launcher = fn
+
+    def launch(
+        self, name: str, launched_by: str, first_message: str | None = None
+    ) -> dict[str, Any]:
+        """Launch (or focus) an agent session via the registered launcher hook.
+
+        Returns the launcher's result dict, or
+        ``{"success": False, "error": "no launcher available"}`` if no
+        launcher is registered (e.g. no Claude panel is open).
+        """
+        if self._launcher is None:
+            return {"success": False, "error": "no launcher available"}
+        return self._launcher(name, launched_by, first_message)
 
     def list_agents(self) -> list[dict[str, Any]]:
         """List all registered agents.

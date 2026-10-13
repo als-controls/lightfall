@@ -126,8 +126,10 @@ name on the agent bus is "{spec.name}".
   messages a running peer (delivery honors their accept policy).
 - The peer list above is a snapshot from session start; call `mcp__bus__list_agents` for the
   live roster, including agents defined after this session began.
-- To LAUNCH a peer that isn't running, open its session tab:
-  `lightfall_invoke_panel_action(panel_id="lightfall.panels.claude", action="open_agent_tab", kwargs={{"agent": "<name>", "message": "optional first message"}})`.
+- To LAUNCH a peer that isn't running, use `mcp__bus__launch_agent(name="<name>", first_message="optional")`.
+  The launched session will auto-accept your subsequent bus messages without prompting the user
+  (it whitelists you as its launcher). Focusing an already-running peer this way delivers
+  `first_message` but grants no such whitelist.
   Sessions are otherwise opened by the user via the panel's "+" button.
 - Peers marked Agent-tool delegable also appear as agent types in your Agent tool for
   background subagent runs (isolated, report-back; no session tab)."""
