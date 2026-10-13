@@ -89,15 +89,6 @@ def create_controller_tool(target_window: QWidget):
                     "is_error": True
                 }
 
-            if widget is None:
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": f"Failed to create {controller_type} controller. Make sure epics-pyside is installed."
-                    }],
-                    "is_error": True
-                }
-
             # Configure and show the widget
             widget.setWindowTitle(f"{controller_type.title()} Controller: {pv_prefix}")
             widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -126,7 +117,7 @@ def create_controller_tool(target_window: QWidget):
     return show_controller
 
 
-def _create_motor_controller(pv_prefix: str) -> QWidget | None:
+def _create_motor_controller(pv_prefix: str) -> QWidget:
     """
     Create a motor controller widget.
 
@@ -134,10 +125,7 @@ def _create_motor_controller(pv_prefix: str) -> QWidget | None:
         pv_prefix: The motor record PV prefix (e.g., 'IOC:m1')
 
     Returns:
-        PVMotor widget instance or None if epics-pyside is not available
+        PVMotor widget instance
     """
-    try:
-        from lightfall.epics.widgets.motor import PVMotor
-        return PVMotor(prefix=pv_prefix)
-    except ImportError:
-        return None
+    from lightfall.epics.widgets.motor import PVMotor
+    return PVMotor(prefix=pv_prefix)
