@@ -28,6 +28,9 @@ Key responsibilities:
 - **Qt signal** — `sigConnectionChanged(bool)` is emitted on the Qt main thread whenever the
   connection state changes.
 
+The implementation lives in `lightfall_utils.ipc` (shared with Camphor); `lightfall.ipc` re-exports
+it and adds `get_ipc_service()`.
+
 ### TrustManager (`lightfall.ipc.trust`)
 
 `TrustManager` is a thread-safe, session-scoped store of application trust decisions. It tracks
@@ -91,7 +94,9 @@ auth handshake *is* the authentication mechanism for command traffic, not an opt
   `TrustDialog`, or a previously-`APPROVED` app re-authenticates), `IPCService.build_auth_response()`
   calls `mint_session_channel(app_name)`. This generates a `session_token` with
   `secrets.token_urlsafe(32)`, subscribes the wildcard subject `{prefix}.session.{token}.>`, and
-  returns the token in the approved reply.
+  returns the token in the approved reply. `IPCService` itself no longer knows about Tiled;
+  `LFApplication._approved_auth_reply()` supplies `tiled_token`, `tiled_url`, and `session_id` via
+  `build_auth_response(..., extra=...)`.
 - **Routing**: every command travels on `{prefix}.session.{session_token}.<suffix>` (e.g.
   `als.7011.session.<token>.commands.plan.run`). `IPCService._route_session_message` resolves the
   token from the subject, validates the `contract_version`, attaches
