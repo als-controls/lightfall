@@ -294,6 +294,12 @@ class SessionManager(QObject):
         "logbook": [],  # logbook has no granular scope model
     }
 
+    @staticmethod
+    def _csm_scopes() -> list[str]:
+        from lightfall.devices.backend_types.csm import CSM_KEY_SCOPES
+
+        return list(CSM_KEY_SCOPES)
+
     _SESSION_KEY_LIFETIME = 604800  # 7 days, per spec
 
     @classmethod
@@ -338,6 +344,14 @@ class SessionManager(QObject):
             "tiled": get_tiled_base_url().rstrip("/") + "/api/v1",
             "logbook": get_logbook_base_url().rstrip("/") + "/api/v1",
         }
+        # CSM: one key per distinct CSM base URL among enabled device-backend rows.
+        try:
+            from lightfall.devices.backend_types.csm import csm_mint_targets, csm_service_id
+
+            for base in csm_mint_targets():
+                urls[csm_service_id(base)] = base + "/api/v1"
+        except Exception as e:  # prefs unavailable (headless) -> no CSM keys
+            logger.debug("CSM mint targets unavailable: {}", e)
 
         hostname = self._hostname_for_note()
         sub = (
@@ -349,7 +363,9 @@ class SessionManager(QObject):
 
         lifetime = self._session_key_lifetime()
         for service, url in urls.items():
-            scopes = self._SERVICE_SCOPES.get(service, [])
+            scopes = self._SERVICE_SCOPES.get(service)
+            if scopes is None:
+                scopes = self._csm_scopes() if service.startswith("csm:") else []
             try:
                 minted = mint_service_key(
                     url,

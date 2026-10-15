@@ -24,6 +24,32 @@ from lightfall.devices.backends.csm import CSMDeviceBackend
 
 DEFAULT_CSM_URL = "https://csm.als.lbl.gov"
 
+CSM_KEY_SCOPES = ["read", "display:write", "instantiables:create"]
+
+
+def csm_base(url: str) -> str:
+    """A CSM base URL in one canonical spelling (no trailing slash, lower case)."""
+    return url.strip().rstrip("/").lower()
+
+
+def csm_service_id(url: str) -> str:
+    """The SessionManager service id under which this CSM's API key is cached."""
+    return "csm:" + csm_base(url)
+
+
+def csm_mint_targets() -> list[str]:
+    """Distinct base URLs of the enabled CSM rows, for minting keys at login."""
+    from lightfall.devices.backend_types.rows import load_rows
+    from lightfall.ui.preferences import PreferencesManager
+
+    rows = load_rows(PreferencesManager.get_instance().get) or []
+    targets: list[str] = []
+    for row in rows:
+        url = row.config.get("url") if row.type == "csm" and row.enabled else None
+        if url and csm_base(url) not in targets:
+            targets.append(csm_base(url))
+    return targets
+
 
 def session_token() -> str | None:
     """The logged-in user's Keycloak access token, or None."""
