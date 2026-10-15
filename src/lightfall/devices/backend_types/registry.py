@@ -8,10 +8,11 @@ from lightfall.devices.backend_types.base import BackendType
 def _builtin_types() -> list[BackendType]:
     """The backend types Lightfall ships with, in Add-menu order."""
     from lightfall.devices.backend_types.bcs import BCSBackendType
+    from lightfall.devices.backend_types.csm import CSMBackendType
     from lightfall.devices.backend_types.happi import HappiBackendType
     from lightfall.devices.backend_types.mock import MockBackendType
 
-    return [MockBackendType(), BCSBackendType(), HappiBackendType()]
+    return [MockBackendType(), BCSBackendType(), HappiBackendType(), CSMBackendType()]
 
 
 class BackendTypeRegistry:
