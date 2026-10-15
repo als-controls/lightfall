@@ -182,3 +182,11 @@ def test_user_beamline_change_resets_ioc_to_all(qtbot):
     cfg = editor.get_config()
     assert cfg["beamline_id"] == 13
     assert (cfg["ioc_id"], cfg["ioc_name"]) == (None, None)
+
+
+def test_editor_logged_in_without_key_explains_relogin(qtbot, monkeypatch):
+    monkeypatch.setattr(csm_type, "session_authenticated", lambda: True)
+    editor = CSMBackendType().create_editor(SAVED)
+    qtbot.addWidget(editor)
+    assert "log out and back in" in editor._status.text()
+    assert not editor._beamline.isEnabled()

@@ -259,3 +259,79 @@ def test_scope_metadata_second_save_updates(httpx_mock):
     assert backend.get_scope_metadata("7.0.1.1") == {"beam_path": [1]}
     assert backend.update_scope_metadata("7.0.1.1", {"beam_path": [1, 2]}) is True
     assert puts == [{"display": {"scope_metadata": {"beam_path": [1, 2]}}}]
+
+
+def _loaded(httpx_mock, entry, puts):
+    """A connected backend over one entry; PUT /display bodies are appended to ``puts``."""
+    import json as _json
+
+    httpx_mock.add_response(
+        url=re.compile(r".*/api/instantiables\?.*"), json=[entry], is_reusable=True
+    )
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name={entry['name']}&include_inactive=true",
+        json=entry,
+        is_reusable=True,
+    )
+
+    def _put(request):
+        puts.append(_json.loads(request.content))
+        return httpx.Response(200, json=entry)
+
+    httpx_mock.add_callback(
+        _put,
+        method="PUT",
+        url=f"{BASE_URL}/api/instantiables/{entry['id']}/display",
+        is_reusable=True,
+        is_optional=True,
+    )
+    backend = _backend()
+    assert backend.connect()
+    (info,) = backend.list_devices()
+    return backend, info
+
+
+def test_display_edit_on_entry_without_python_recipe(httpx_mock):
+    entry = {**ACR_ENTRY, "instantiators": [{"system": "labview", "target": "Motor"}]}
+    puts = []
+    backend, info = _loaded(httpx_mock, entry, puts)
+    info.metadata["synoptic"] = {"x": 1}
+    assert backend.update_device(info) is True
+    assert puts == [{"display": {"synoptic": {"x": 1}}}]
+
+
+def test_display_edit_when_fields_carry_beamline_and_location(httpx_mock):
+    entry = {
+        **ACR_ENTRY,
+        "fields": {**ACR_ENTRY["fields"], "beamline": "7.0.1.1", "location": "hutch"},
+    }
+    puts = []
+    backend, info = _loaded(httpx_mock, entry, puts)
+    info.metadata["synoptic"] = {"x": 2}
+    assert backend.update_device(info) is True
+    assert puts == [{"display": {"synoptic": {"x": 2}}}]
+
+
+def test_removing_synoptic_sends_null(httpx_mock):
+    entry = {**ACR_ENTRY, "display": {"synoptic": {"x": 3}, "group": "slits"}}
+    puts = []
+    backend, info = _loaded(httpx_mock, entry, puts)
+    info.metadata.pop("synoptic")
+    assert backend.update_device(info) is True
+    assert puts == [{"display": {"synoptic": None}}]
+
+
+def test_clearing_group_sends_null(httpx_mock):
+    entry = {**ACR_ENTRY, "display": {"group": "slits"}}
+    puts = []
+    backend, info = _loaded(httpx_mock, entry, puts)
+    info.group = ""
+    assert backend.update_device(info) is True
+    assert puts == [{"display": {"group": None}}]
+
+
+def test_unchanged_device_sends_nothing(httpx_mock):
+    puts = []
+    backend, info = _loaded(httpx_mock, ACR_ENTRY, puts)
+    assert backend.update_device(info) is True
+    assert puts == []

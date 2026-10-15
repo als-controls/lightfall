@@ -38,17 +38,29 @@ def csm_service_id(url: str) -> str:
 
 
 def csm_mint_targets() -> list[str]:
-    """Distinct base URLs of the enabled CSM rows, for minting keys at login."""
+    """Distinct base URLs of every CSM row (enabled or not), for minting keys at login.
+
+    Disabled rows count: the Keycloak bearer exists only during login, so a new
+    CSM row is saved disabled, and its key is minted at the next login before
+    the row can be finished and enabled.
+    """
     from lightfall.devices.backend_types.rows import load_rows
     from lightfall.ui.preferences import PreferencesManager
 
     rows = load_rows(PreferencesManager.get_instance().get) or []
     targets: list[str] = []
     for row in rows:
-        url = row.config.get("url") if row.type == "csm" and row.enabled else None
+        url = row.config.get("url") if row.type == "csm" else None
         if url and csm_base(url) not in targets:
             targets.append(csm_base(url))
     return targets
+
+
+def session_authenticated() -> bool:
+    """Whether a user is logged in to Lightfall right now."""
+    from lightfall.auth.session import SessionManager
+
+    return SessionManager.get_instance().is_authenticated
 
 
 def csm_api_key(url: str) -> str | None:
@@ -228,7 +240,14 @@ class _CSMEditor(BackendEditor):
         if not url or not csm_api_key(url):
             self._beamline.setEnabled(False)
             self._ioc.setEnabled(False)
-            self._status.setText("Log in to refresh beamline and IOC lists.")
+            if url and session_authenticated():
+                # Keys are minted only at login (the bearer is gone afterwards).
+                self._status.setText(
+                    "No CSM key for this URL in this session. Save this row disabled, "
+                    "then log out and back in to mint one; the lists will load then."
+                )
+            else:
+                self._status.setText("Log in to refresh beamline and IOC lists.")
             return
         self._status.setText("Loading beamlines from CSM…")
         self._run(lambda: fetch_beamlines(url, csm_auth(url)), callback=self._on_beamlines)

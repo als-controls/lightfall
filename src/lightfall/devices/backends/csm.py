@@ -100,6 +100,60 @@ class CSMDeviceBackend(HappiBackend):
         self._csm_db = database
         return happi.Client(database=database)
 
+    #: The display keys a device edit can change (scope keys belong to scope rows).
+    _DEVICE_DISPLAY_KEYS = ("display_name", "icon_override", "group", "synoptic")
+
+    @staticmethod
+    def _display_of(device: Any) -> dict[str, Any]:
+        """The display values a DeviceInfo carries, in CSM's key names."""
+        return {
+            "display_name": device.display_name,
+            "icon_override": device.icon_override,
+            "group": device.group,
+            "synoptic": (device.metadata or {}).get("synoptic"),
+        }
+
+    def update_device(self, device: Any) -> bool:
+        """Write back display metadata only; refuse edits to what the device is.
+
+        Compares the device's display values with CSM's current document and
+        sends just the changes (``None`` for removed values) in one
+        ``PUT /display``. The generic happi path is bypassed on purpose: it
+        rewrites every field (``device_class`` defaults, blank ``beamline`` /
+        ``location``) and never deletes keys, so it can neither be trusted to
+        touch display keys alone nor to persist a removal.
+        """
+        from lightfall.happi_backend.csm import _blank_as_none
+
+        if self._csm_db is None or device.id not in self._devices:
+            return False
+        try:
+            current = self._csm_db.get_by_id(device.name)
+            if current is None:
+                logger.warning("CSM instantiable '{}' not found; edit not saved", device.name)
+                return False
+            for attr, key in (("prefix", "prefix"), ("device_class", "device_class")):
+                if _blank_as_none(getattr(device, attr, None)) != _blank_as_none(current.get(key)):
+                    logger.warning(
+                        "CSM rows are read-only except display metadata; refused change to "
+                        "'{}' of '{}'",
+                        attr,
+                        device.name,
+                    )
+                    return False
+            patch = {
+                key: _blank_as_none(value)
+                for key, value in self._display_of(device).items()
+                if _blank_as_none(value) != _blank_as_none(current.get(key))
+            }
+            if patch:
+                self._csm_db.put_display(current, patch)
+        except Exception as exc:
+            logger.error("Failed to update CSM device '{}': {}", device.name, exc)
+            return False
+        self._devices[device.id] = device
+        return True
+
     def remove_device(self, device_id: Any) -> bool:
         logger.warning("CSM instantiables are not deleted from Lightfall (device {})", device_id)
         return False

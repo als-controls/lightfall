@@ -127,4 +127,5 @@ def test_csm_mint_targets_reads_enabled_csm_rows(monkeypatch):
     monkeypatch.setattr(
         "lightfall.ui.preferences.PreferencesManager.get_instance", lambda: _Prefs()
     )
-    assert csm_type.csm_mint_targets() == ["https://csm.test"]
+    # Disabled rows are minted too: a new row is saved disabled until its key exists.
+    assert csm_type.csm_mint_targets() == ["https://csm.test", "https://other"]

@@ -545,12 +545,18 @@ class CSMBackend(_Backend):
             )
         if not changed:
             return
-        patch = {key: post.get(key) for key in sorted(changed)}
-        csm_id = existing_doc["csm_id"]
+        patch = {key: _blank_as_none(post.get(key)) for key in sorted(changed)}
+        self.put_display(existing_doc, patch)
+
+    def put_display(self, doc: dict[str, Any], patch: dict[str, Any]) -> None:
+        """Send ``patch`` (display keys only; ``None`` removes) to ``doc``'s instantiable."""
+        not_display = sorted(set(patch) - DISPLAY_KEYS)
+        if not_display:
+            raise PermissionError(f"Not display metadata: {not_display}")
         response = self._client.put(
-            f"{self._instantiables_url}/{csm_id}/display", json={"display": patch}
+            f"{self._instantiables_url}/{doc['csm_id']}/display", json={"display": patch}
         )
-        self._raise_for_status(response, context=f"update display of {_id}")
+        self._raise_for_status(response, context=f"update display of {doc.get('name')}")
 
     def delete(self, _id: str) -> None:
         """Refuse: Lightfall never deletes CSM instantiables.
