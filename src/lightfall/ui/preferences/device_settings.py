@@ -1,40 +1,61 @@
 """Device backend settings plugin for NCS.
 
-Allows enabling multiple device backends simultaneously, each with
-its own configuration section.
+Holds a list of backend rows. Each row is a backend type (mock, BCS,
+happi, CSM, or a plugin-contributed type) with its own name and
+configuration, and several rows may share a type.
 """
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QSpinBox,
+    QMenu,
+    QPushButton,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from lightfall.devices.backend_types.base import BackendEditor
+from lightfall.devices.backend_types.registry import BackendTypeRegistry
+from lightfall.devices.backend_types.rows import (
+    BackendRow,
+    load_rows,
+    migrate_legacy,
+    save_rows,
+    unique_name,
+)
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
+_COL_ENABLED, _COL_NAME, _COL_TYPE, _COL_SUMMARY = range(4)
+
 
 class DeviceSettingsPlugin(SettingsPlugin):
     """Settings plugin for device backend configuration.
 
-    Users can enable multiple backends simultaneously. Each backend has
-    its own enable checkbox and configuration group. Devices from all
-    enabled backends are merged into a single catalog.
+    The page lists backend rows in a table; selecting a row shows that
+    type's settings form below it. Devices from all enabled rows are
+    merged into a single catalog.
 
     Note: Changes require application restart to take effect.
     """
@@ -51,22 +72,13 @@ class DeviceSettingsPlugin(SettingsPlugin):
         self._ca_tunnel_enabled: QCheckBox | None = None
         self._ca_tunnel_gateway: QLineEdit | None = None
 
-        # Mock
-        self._mock_enabled: QCheckBox | None = None
-        self._mock_noisy_check: QComboBox | None = None
-
-        # BCS
-        self._bcs_enabled: QCheckBox | None = None
-        self._bcs_host_edit: QLineEdit | None = None
-        self._bcs_port_spin: QSpinBox | None = None
-        self._bcs_beamline_edit: QLineEdit | None = None
-        self._bcs_timeout_spin: QSpinBox | None = None
-
-        # Happi
-        self._happi_enabled: QCheckBox | None = None
-        self._happi_path_edit: QLineEdit | None = None
-        self._happi_beamline_edit: QLineEdit | None = None
-        self._happi_instantiate: QCheckBox | None = None  # Legacy, hidden
+        # Backend rows
+        self._rows: list[BackendRow] = []
+        self._editors: dict[str, QWidget] = {}  # row id -> editor (or placeholder)
+        self._table: QTableWidget | None = None
+        self._stack: QStackedWidget | None = None
+        self._name_edit: QLineEdit | None = None
+        self._detail_group: QGroupBox | None = None
 
     @property
     def name(self) -> str:
@@ -119,14 +131,9 @@ class DeviceSettingsPlugin(SettingsPlugin):
         # Connection settings (global)
         layout.addWidget(self._create_connection_group())
 
-        # Mock backend
-        layout.addWidget(self._create_mock_group())
-
-        # BCS backend
-        layout.addWidget(self._create_bcs_group())
-
-        # Happi backend
-        layout.addWidget(self._create_happi_group())
+        # Backend rows and the selected row's settings
+        layout.addWidget(self._create_backends_group())
+        layout.addWidget(self._create_detail_group())
 
         layout.addStretch()
         self._widget = widget
@@ -222,109 +229,227 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._ca_tunnel_gateway:
             self._ca_tunnel_gateway.setEnabled(checked)
 
-    # ── Mock ──────────────────────────────────────────────────────
+    # ── Backends table ──────────────────────────────────────────────
 
-    def _create_mock_group(self) -> QGroupBox:
-        group = QGroupBox("Mock Backend")
-        group.setCheckable(True)
-        self._mock_enabled = group  # QGroupBox.isChecked()
-        form = QFormLayout(group)
-        form.setContentsMargins(12, 20, 12, 12)
+    def _create_backends_group(self) -> QGroupBox:
+        group = QGroupBox("Backends")
+        box = QVBoxLayout(group)
+        box.setContentsMargins(12, 20, 12, 12)
 
-        self._mock_noisy_check = QComboBox()
-        self._mock_noisy_check.addItem("Yes", True)
-        self._mock_noisy_check.addItem("No", False)
-        form.addRow("Include noisy devices:", self._mock_noisy_check)
+        table = QTableWidget(0, 4)
+        table.setHorizontalHeaderLabels(["", "Name", "Type", "Details"])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(_COL_ENABLED, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(_COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(_COL_SUMMARY, QHeaderView.ResizeMode.Stretch)
+        table.itemSelectionChanged.connect(self._on_selection_changed)
+        table.itemChanged.connect(self._on_item_changed)
+        self._table = table
+        box.addWidget(table)
 
-        desc = QLabel("Simulated ophyd.sim devices for development and testing.")
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        form.addRow(desc)
-
+        buttons = QHBoxLayout()
+        add = QToolButton()
+        add.setText("Add")
+        add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(add)
+        for backend_type in BackendTypeRegistry.get_instance().all():
+            action = menu.addAction(backend_type.display_name)
+            action.triggered.connect(lambda _=False, t=backend_type.type_id: self._add_row(t))
+        add.setMenu(menu)
+        duplicate = QPushButton("Duplicate")
+        duplicate.clicked.connect(self._duplicate_selected)
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove_selected)
+        buttons.addWidget(add)
+        buttons.addWidget(duplicate)
+        buttons.addWidget(remove)
+        buttons.addStretch()
+        box.addLayout(buttons)
         return group
 
-    # ── BCS ───────────────────────────────────────────────────────
-
-    def _create_bcs_group(self) -> QGroupBox:
-        group = QGroupBox("BCS Backend (ZMQ)")
-        group.setCheckable(True)
-        self._bcs_enabled = group
-
-        form = QFormLayout(group)
-        form.setContentsMargins(12, 20, 12, 12)
-
-        self._bcs_host_edit = QLineEdit()
-        self._bcs_host_edit.setPlaceholderText("localhost")
-        form.addRow("Server host:", self._bcs_host_edit)
-
-        port_layout = QHBoxLayout()
-        self._bcs_port_spin = QSpinBox()
-        self._bcs_port_spin.setRange(1, 65535)
-        self._bcs_port_spin.setValue(5577)
-        port_layout.addWidget(self._bcs_port_spin)
-        port_layout.addStretch()
-        form.addRow("Server port:", port_layout)
-
-        self._bcs_beamline_edit = QLineEdit()
-        self._bcs_beamline_edit.setPlaceholderText("(optional)")
-        form.addRow("Beamline:", self._bcs_beamline_edit)
-
-        timeout_layout = QHBoxLayout()
-        self._bcs_timeout_spin = QSpinBox()
-        self._bcs_timeout_spin.setRange(100, 60000)
-        self._bcs_timeout_spin.setValue(5000)
-        self._bcs_timeout_spin.setSuffix(" ms")
-        self._bcs_timeout_spin.setSingleStep(500)
-        timeout_layout.addWidget(self._bcs_timeout_spin)
-        timeout_layout.addStretch()
-        form.addRow("Timeout:", timeout_layout)
-
-        desc = QLabel(
-            "Connects to a BCS server via ZMQ and auto-discovers devices "
-            "using bcsophyd. Requires bcsophyd package."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        form.addRow(desc)
-
+    def _create_detail_group(self) -> QGroupBox:
+        group = QGroupBox("Backend settings")
+        box = QVBoxLayout(group)
+        box.setContentsMargins(12, 20, 12, 12)
+        form = QFormLayout()
+        self._name_edit = QLineEdit()
+        self._name_edit.textChanged.connect(self._on_name_edited)
+        form.addRow("Name:", self._name_edit)
+        box.addLayout(form)
+        self._stack = QStackedWidget()
+        box.addWidget(self._stack)
+        self._detail_group = group
+        group.setEnabled(False)
         return group
 
-    # ── Happi ─────────────────────────────────────────────────────
+    # ── Row helpers ─────────────────────────────────────────────────
 
-    def _create_happi_group(self) -> QGroupBox:
-        group = QGroupBox("Happi Backend")
-        group.setCheckable(True)
-        self._happi_enabled = group
+    def _selected_index(self) -> int:
+        if self._table is None:
+            return -1
+        rows = self._table.selectionModel().selectedRows()
+        return rows[0].row() if rows else -1
 
-        form = QFormLayout(group)
-        form.setContentsMargins(12, 20, 12, 12)
+    def _select(self, index: int) -> None:
+        if self._table is not None and 0 <= index < len(self._rows):
+            self._table.selectRow(index)
 
-        self._happi_path_edit = QLineEdit()
-        self._happi_path_edit.setPlaceholderText(
-            "Path to happi JSON db (or leave empty for $HAPPI_BACKEND)"
+    def _type_label(self, row: BackendRow) -> str:
+        backend_type = BackendTypeRegistry.get_instance().get(row.type)
+        return backend_type.display_name if backend_type else f"(unavailable: {row.type})"
+
+    def _summary(self, row: BackendRow) -> str:
+        backend_type = BackendTypeRegistry.get_instance().get(row.type)
+        return backend_type.summary(row.config) if backend_type else ""
+
+    def _refresh_table(self) -> None:
+        if self._table is None:
+            return
+        selected = self._selected_index()
+        self._table.blockSignals(True)
+        self._table.setRowCount(len(self._rows))
+        for index, row in enumerate(self._rows):
+            enabled = QTableWidgetItem()
+            enabled.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+            )
+            enabled.setCheckState(Qt.CheckState.Checked if row.enabled else Qt.CheckState.Unchecked)
+            self._table.setItem(index, _COL_ENABLED, enabled)
+            self._table.setItem(index, _COL_NAME, QTableWidgetItem(row.name))
+            self._table.setItem(index, _COL_TYPE, QTableWidgetItem(self._type_label(row)))
+            self._table.setItem(index, _COL_SUMMARY, QTableWidgetItem(self._summary(row)))
+        self._table.blockSignals(False)
+        if 0 <= selected < len(self._rows):
+            self._table.selectRow(selected)
+
+    def _editor_for(self, row: BackendRow) -> QWidget:
+        editor = self._editors.get(row.id)
+        if editor is not None:
+            return editor
+        backend_type = BackendTypeRegistry.get_instance().get(row.type)
+        if backend_type is None:
+            editor = QLabel(
+                f"Backend type '{row.type}' is not available (is its plugin installed?). "
+                "This row is kept unchanged."
+            )
+            editor.setWordWrap(True)
+        else:
+            editor = backend_type.create_editor(row.config, self._stack)
+            editor.changed.connect(lambda rid=row.id: self._on_editor_changed(rid))
+        self._editors[row.id] = editor
+        assert self._stack is not None
+        self._stack.addWidget(editor)
+        return editor
+
+    def _sync_row(self, row: BackendRow) -> None:
+        editor = self._editors.get(row.id)
+        if isinstance(editor, BackendEditor):
+            row.config = editor.get_config()
+
+    def _row_by_id(self, row_id: str) -> tuple[int, BackendRow] | None:
+        for index, row in enumerate(self._rows):
+            if row.id == row_id:
+                return index, row
+        return None
+
+    # ── Slots ───────────────────────────────────────────────────────
+
+    def _on_selection_changed(self) -> None:
+        index = self._selected_index()
+        if self._detail_group is None or self._name_edit is None or self._stack is None:
+            return
+        # Loading a row into the name field is not an edit of that row.
+        self._name_edit.blockSignals(True)
+        try:
+            if index < 0:
+                self._detail_group.setEnabled(False)
+                self._name_edit.clear()
+                return
+            row = self._rows[index]
+            self._detail_group.setEnabled(True)
+            self._detail_group.setTitle(f"{row.name} ({self._type_label(row)})")
+            self._name_edit.setText(row.name)
+        finally:
+            self._name_edit.blockSignals(False)
+        self._stack.setCurrentWidget(self._editor_for(row))
+
+    def _on_editor_changed(self, row_id: str) -> None:
+        found = self._row_by_id(row_id)
+        if found is None or self._table is None:
+            return
+        index, row = found
+        self._sync_row(row)
+        item = self._table.item(index, _COL_SUMMARY)
+        if item is not None:
+            item.setText(self._summary(row))
+
+    def _on_name_edited(self, text: str) -> None:
+        index = self._selected_index()
+        if index < 0 or self._table is None:
+            return
+        row = self._rows[index]
+        row.name = text.strip()
+        item = self._table.item(index, _COL_NAME)
+        if item is not None:
+            item.setText(row.name)
+        if self._detail_group is not None:
+            self._detail_group.setTitle(f"{row.name} ({self._type_label(row)})")
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == _COL_ENABLED and 0 <= item.row() < len(self._rows):
+            self._rows[item.row()].enabled = item.checkState() == Qt.CheckState.Checked
+
+    def _add_row(self, type_id: str) -> None:
+        backend_type = BackendTypeRegistry.get_instance().get(type_id)
+        if backend_type is None:
+            return
+        row = BackendRow(
+            type=type_id,
+            name=unique_name(type_id, (r.name for r in self._rows)),
+            config=backend_type.default_config(),
         )
-        form.addRow("Database path:", self._happi_path_edit)
+        self._rows.append(row)
+        self._refresh_table()
+        self._select(len(self._rows) - 1)
 
-        self._happi_beamline_edit = QLineEdit()
-        self._happi_beamline_edit.setPlaceholderText("(optional — filter by beamline)")
-        form.addRow("Beamline filter:", self._happi_beamline_edit)
-
-        # Legacy instantiate checkbox — hidden, kept for backwards compat
-        self._happi_instantiate = QCheckBox("Instantiate ophyd devices on load")
-        self._happi_instantiate.setVisible(False)
-
-        desc = QLabel(
-            "Loads devices from a Happi device database. "
-            "Supports JSON file backends and happi's default configuration. "
-            "Requires happi package."
+    def _duplicate_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        source = self._rows[index]
+        self._sync_row(source)
+        row = BackendRow(
+            type=source.type,
+            name=unique_name(source.type, (r.name for r in self._rows)),
+            enabled=source.enabled,
+            config=deepcopy(source.config),
         )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        form.addRow(desc)
+        self._rows.insert(index + 1, row)
+        self._refresh_table()
+        self._select(index + 1)
 
-        return group
+    def _remove_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        row = self._rows.pop(index)
+        editor = self._editors.pop(row.id, None)
+        if editor is not None and self._stack is not None:
+            self._stack.removeWidget(editor)
+            editor.deleteLater()
+        self._refresh_table()
+        self._select(min(index, len(self._rows) - 1))
+        if not self._rows:
+            self._on_selection_changed()
 
-    # ── Load / Save ───────────────────────────────────────────────
+    # ── Load / Save ─────────────────────────────────────────────────
 
     def load_settings(self) -> None:
         prefs = PreferencesManager.get_instance()
@@ -342,48 +467,25 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._connect_on_startup:
             self._connect_on_startup.setChecked(prefs.get("device_connect_on_startup", True))
 
-        # Which backends are enabled (legacy compat: "device_backend" = "mock" or "bcs")
-        legacy_backend = prefs.get("device_backend", "mock")
-        mock_on = prefs.get("device_mock_enabled", legacy_backend == "mock")
-        bcs_on = prefs.get("device_bcs_enabled", legacy_backend == "bcs")
-        happi_on = prefs.get("device_happi_enabled", False)
-
-        # Mock
-        if isinstance(self._mock_enabled, QGroupBox):
-            self._mock_enabled.setChecked(mock_on)
-        if self._mock_noisy_check:
-            idx = self._mock_noisy_check.findData(prefs.get("device_mock_include_noisy", True))
-            if idx >= 0:
-                self._mock_noisy_check.setCurrentIndex(idx)
-
-        # BCS
-        if isinstance(self._bcs_enabled, QGroupBox):
-            self._bcs_enabled.setChecked(bcs_on)
-        if self._bcs_host_edit:
-            self._bcs_host_edit.setText(prefs.get("device_bcs_host", "localhost"))
-        if self._bcs_port_spin:
-            self._bcs_port_spin.setValue(prefs.get("device_bcs_port", 5577))
-        if self._bcs_beamline_edit:
-            self._bcs_beamline_edit.setText(prefs.get("device_bcs_beamline", ""))
-        if self._bcs_timeout_spin:
-            self._bcs_timeout_spin.setValue(prefs.get("device_bcs_timeout_ms", 5000))
-
-        # Happi
-        if isinstance(self._happi_enabled, QGroupBox):
-            self._happi_enabled.setChecked(happi_on)
-        if self._happi_path_edit:
-            self._happi_path_edit.setText(prefs.get("device_happi_path", ""))
-        if self._happi_beamline_edit:
-            self._happi_beamline_edit.setText(prefs.get("device_happi_beamline", ""))
-        if self._happi_instantiate:
-            self._happi_instantiate.setChecked(prefs.get("device_happi_instantiate", False))
-
         # CA Tunnel
         if self._ca_tunnel_enabled:
             self._ca_tunnel_enabled.setChecked(prefs.get("ca_tunnel_enabled", False))
         if self._ca_tunnel_gateway:
             self._ca_tunnel_gateway.setText(prefs.get("ca_tunnel_gateway", "localhost:5099"))
             self._ca_tunnel_gateway.setEnabled(prefs.get("ca_tunnel_enabled", False))
+
+        # Backend rows
+        rows = load_rows(prefs.get)
+        if rows is None:
+            rows = migrate_legacy(prefs.get)  # shown, not saved, until the user saves
+        for editor in self._editors.values():
+            if self._stack is not None:
+                self._stack.removeWidget(editor)
+            editor.deleteLater()
+        self._editors.clear()
+        self._rows = rows
+        self._refresh_table()
+        self._select(0)
 
     def save_settings(self) -> None:
         prefs = PreferencesManager.get_instance()
@@ -398,64 +500,31 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._connect_on_startup:
             prefs.set("device_connect_on_startup", self._connect_on_startup.isChecked())
 
-        mock_on = (
-            self._mock_enabled.isChecked() if isinstance(self._mock_enabled, QGroupBox) else False
-        )
-        bcs_on = (
-            self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
-        )
-        happi_on = (
-            self._happi_enabled.isChecked() if isinstance(self._happi_enabled, QGroupBox) else False
-        )
-
-        prefs.set("device_mock_enabled", mock_on)
-        prefs.set("device_bcs_enabled", bcs_on)
-        prefs.set("device_happi_enabled", happi_on)
-
-        # Legacy compat: set device_backend to first enabled
-        if bcs_on:
-            prefs.set("device_backend", "bcs")
-        elif happi_on:
-            prefs.set("device_backend", "happi")
-        else:
-            prefs.set("device_backend", "mock")
-
-        # Mock
-        if self._mock_noisy_check:
-            prefs.set("device_mock_include_noisy", self._mock_noisy_check.currentData())
-
-        # BCS
-        if self._bcs_host_edit:
-            prefs.set("device_bcs_host", self._bcs_host_edit.text() or "localhost")
-        if self._bcs_port_spin:
-            prefs.set("device_bcs_port", self._bcs_port_spin.value())
-        if self._bcs_beamline_edit:
-            prefs.set("device_bcs_beamline", self._bcs_beamline_edit.text())
-        if self._bcs_timeout_spin:
-            prefs.set("device_bcs_timeout_ms", self._bcs_timeout_spin.value())
-
-        # Happi
-        if self._happi_path_edit:
-            prefs.set("device_happi_path", self._happi_path_edit.text())
-        if self._happi_beamline_edit:
-            prefs.set("device_happi_beamline", self._happi_beamline_edit.text())
-        if self._happi_instantiate:
-            prefs.set("device_happi_instantiate", self._happi_instantiate.isChecked())
-
         # CA Tunnel
         if self._ca_tunnel_enabled:
             prefs.set("ca_tunnel_enabled", self._ca_tunnel_enabled.isChecked())
         if self._ca_tunnel_gateway:
             prefs.set("ca_tunnel_gateway", self._ca_tunnel_gateway.text() or "localhost:5099")
 
+        # Backend rows
+        for row in self._rows:
+            self._sync_row(row)
+        save_rows(prefs, self._rows)
+
     def validate(self) -> list[str]:
-        errors = []
-
-        bcs_on = (
-            self._bcs_enabled.isChecked() if isinstance(self._bcs_enabled, QGroupBox) else False
-        )
-        if bcs_on:
-            if self._bcs_host_edit and not self._bcs_host_edit.text().strip():
-                errors.append("BCS server host is required when BCS backend is enabled")
-
+        errors: list[str] = []
+        seen: set[str] = set()
+        registry = BackendTypeRegistry.get_instance()
+        for row in self._rows:
+            self._sync_row(row)
+            if not row.name:
+                errors.append("Every backend needs a name")
+                continue
+            key = row.name.lower()
+            if key in seen:
+                errors.append(f"Backend names must be unique: '{row.name}' is used twice")
+            seen.add(key)
+            backend_type = registry.get(row.type)
+            if row.enabled and backend_type is not None:
+                errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
         return errors
