@@ -14,6 +14,7 @@ backend.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -33,6 +34,7 @@ class CSMDeviceBackend(HappiBackend):
         beamline_id: CSM beamline id to load instantiables for.
         ioc_id: Optional CSM IOC id to narrow to one IOC.
         name_filter: Optional instantiable-name filter.
+        beamline_name: CSM's name for ``beamline_id``; scopes beam-path rows.
         regex: Treat ``name_filter`` as a regex.
         include_inactive: Include retired instantiables.
         name: Catalog key for this instance.
@@ -51,6 +53,7 @@ class CSMDeviceBackend(HappiBackend):
         name_filter: str = "",
         regex: bool = False,
         include_inactive: bool = False,
+        beamline_name: str | None = None,
         name: str = "csm",
         instantiate: str = "background",
         connection_timeout: float | None = None,
@@ -66,6 +69,7 @@ class CSMDeviceBackend(HappiBackend):
         self._url = url
         self._auth = auth
         self._transport = transport
+        self._beamline_name = beamline_name
         params: dict[str, Any] = {"beamline_id": beamline_id}
         if ioc_id is not None:
             params["ioc_id"] = ioc_id
@@ -158,11 +162,32 @@ class CSMDeviceBackend(HappiBackend):
         logger.warning("CSM instantiables are not deleted from Lightfall (device {})", device_id)
         return False
 
+    def _own_scope(self, scope: str) -> str | None:
+        """``beamline:<this row's CSM beamline>`` if ``scope`` is about it, else None.
+
+        A CSM row speaks only for its own beamline: CSM decides who may write a
+        beam-path row by the beamline it names, so the stored scope uses CSM's
+        spelling. Lightfall's beamline id is matched loosely (case, punctuation),
+        so ``beamline:7011`` finds CSM's ``7.0.1.1``.
+        """
+        prefix = "beamline:"
+        if not self._beamline_name or not scope.startswith(prefix):
+            return None
+
+        def _norm(text: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", text.lower())
+
+        if _norm(scope[len(prefix) :]) != _norm(self._beamline_name):
+            return None
+        return prefix + self._beamline_name
+
     def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
         # Scope rows have no IOC, so the beamline-filtered search can't see them;
         # CSM's /find looks them up by name alone.
-        if self._csm_db is None:
+        own = self._own_scope(scope)
+        if self._csm_db is None or own is None:
             return None
+        scope = own
         try:
             doc = self._csm_db.get_by_id(self._scope_item_name(scope))
         except Exception as exc:
@@ -173,8 +198,10 @@ class CSMDeviceBackend(HappiBackend):
         return doc.get("scope_metadata")
 
     def update_scope_metadata(self, scope: str, metadata: dict[str, Any]) -> bool:
-        if self._csm_db is None:
+        own = self._own_scope(scope)
+        if self._csm_db is None or own is None:
             return False
+        scope = own
         name = self._scope_item_name(scope)
         try:
             existing = self._csm_db.get_by_id(name)

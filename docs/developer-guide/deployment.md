@@ -79,7 +79,7 @@ device_backends:
 | `happi` | `path` (empty: `$HAPPI_CFG`), `beamline` |
 | `csm` | `url`, `beamline_id`/`beamline_name`, optional `ioc_id`/`ioc_name`, `name_filter`, `regex`, `include_inactive` |
 
-CSM rows load after login using a personal CSM API key Lightfall mints at login (auth-v2, like Tiled and the logbook). CSM must accept Lightfall's client id (`LUCID`) for the mint. From Lightfall, CSM rows may change only display metadata (`display_name`, `icon_override`, `group`, `synoptic`, scope data) and never delete instantiables.
+CSM rows load after login using a personal CSM API key Lightfall mints at login (auth-v2, like Tiled and the logbook). The facility CSM (`csm_url`, default `https://csm.als.lbl.gov`) is minted at every login, plus any other URL a CSM row names; a row on a new URL needs one more login before its lists load. Beam paths for a CSM row's beamline are stored on CSM, where maintainer level or above on that beamline (including its scientist, `owner`) may create and change them. CSM must accept Lightfall's client id (`LUCID`) for the mint. From Lightfall, CSM rows may change only display metadata (`display_name`, `icon_override`, `group`, `synoptic`, scope data) and never delete instantiables.
 
 On first start after upgrading, the legacy `device_backend` / `device_{mock,bcs,happi}_*` keys are migrated once into `device_backends`. The old keys are left in place but no longer read.
 

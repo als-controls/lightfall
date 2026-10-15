@@ -68,12 +68,19 @@ def test_attach_session_mints_csm_key_and_drops_bearer(httpx_mock, monkeypatch):
     assert sm.session.token is None
 
 
-def test_no_csm_rows_no_csm_mint(httpx_mock, monkeypatch):
-    monkeypatch.setattr("lightfall.devices.backend_types.csm.csm_mint_targets", lambda: [])
-    httpx_mock.add_callback(lambda r: httpx_response(_mint_response("k" * 12)), is_reusable=True)
-    sm = SessionManager.get_instance()
-    sm.attach_session(Session(user=User(username="rp", attributes={"sub": "kc-1"}), token="t"))
-    assert not any(k.startswith("csm:") for k in sm._service_keys)
+def test_configured_csm_url_is_always_minted(monkeypatch):
+    """Like Tiled: the facility CSM gets a key at every login, with or without rows."""
+    from lightfall.devices.backend_types import csm as csm_type
+
+    class _Prefs:
+        def get(self, key, default=None):
+            return "https://CSM.test/" if key == "csm_url" else default
+
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.PreferencesManager.get_instance", lambda: _Prefs()
+    )
+    assert csm_type.get_csm_base_url() == "https://csm.test"
+    assert csm_type.csm_mint_targets() == ["https://csm.test"]
 
 
 def test_csm_mint_failure_leaves_no_key(httpx_mock, monkeypatch):
@@ -122,6 +129,8 @@ def test_csm_mint_targets_reads_enabled_csm_rows(monkeypatch):
 
     class _Prefs:
         def get(self, key, default=None):
+            if key == "csm_url":
+                return "https://csm.test"
             return rows if key == "device_backends" else default
 
     monkeypatch.setattr(

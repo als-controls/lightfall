@@ -37,6 +37,21 @@ def csm_service_id(url: str) -> str:
     return "csm:" + csm_base(url)
 
 
+#: Preference holding the facility CSM's URL, minted at every login (like ``tiled_url``).
+CSM_URL_PREF = "csm_url"
+
+
+def get_csm_base_url() -> str:
+    """The configured facility CSM base URL (canonical spelling), or the ALS default."""
+    try:
+        from lightfall.ui.preferences import PreferencesManager
+
+        value = PreferencesManager.get_instance().get(CSM_URL_PREF, None)
+    except Exception:
+        value = None
+    return csm_base(value or DEFAULT_CSM_URL)
+
+
 def csm_mint_targets() -> list[str]:
     """Distinct base URLs of every CSM row (enabled or not), for minting keys at login.
 
@@ -48,7 +63,8 @@ def csm_mint_targets() -> list[str]:
     from lightfall.ui.preferences import PreferencesManager
 
     rows = load_rows(PreferencesManager.get_instance().get) or []
-    targets: list[str] = []
+    # The facility CSM is always minted, so a first CSM row works without a re-login.
+    targets: list[str] = [get_csm_base_url()]
     for row in rows:
         url = row.config.get("url") if row.type == "csm" else None
         if url and csm_base(url) not in targets:
@@ -125,7 +141,7 @@ class _CSMEditor(BackendEditor):
         self._futures: list[Any] = []
         form = QFormLayout(self)
 
-        self._url = QLineEdit(str(config.get("url") or DEFAULT_CSM_URL))
+        self._url = QLineEdit(str(config.get("url") or get_csm_base_url()))
         self._url.editingFinished.connect(self.refresh)
         self._url.textChanged.connect(lambda *_: self.changed.emit())
         form.addRow("CSM URL:", self._url)
@@ -311,7 +327,7 @@ class CSMBackendType(BackendType):
 
     def default_config(self) -> dict[str, Any]:
         return {
-            "url": DEFAULT_CSM_URL,
+            "url": get_csm_base_url(),
             "beamline_id": None,
             "beamline_name": None,
             "ioc_id": None,
@@ -347,6 +363,7 @@ class CSMBackendType(BackendType):
             name_filter=str(config.get("name_filter") or ""),
             regex=bool(config.get("regex", False)),
             include_inactive=bool(config.get("include_inactive", False)),
+            beamline_name=config.get("beamline_name"),
             name=name,
             instantiate=ctx.instantiate_mode,
             connection_timeout=ctx.connection_timeout,

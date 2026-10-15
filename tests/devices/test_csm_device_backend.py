@@ -43,6 +43,7 @@ ACR_ENTRY = {
 
 def _backend(**kw) -> CSMDeviceBackend:
     kw.setdefault("beamline_id", 12)
+    kw.setdefault("beamline_name", "7.0.1.1")
     return CSMDeviceBackend(BASE_URL, StaticApiKeyAuth("session-key"), name="csm-7011", **kw)
 
 
@@ -206,7 +207,7 @@ def test_scope_metadata_first_save_creates(httpx_mock):
     import json as _json
 
     httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
-    name = CSMDeviceBackend._scope_item_name("7.0.1.1")
+    name = CSMDeviceBackend._scope_item_name("beamline:7.0.1.1")
     httpx_mock.add_response(
         url=f"{BASE_URL}/api/instantiables/find?name={name}&include_inactive=true",
         status_code=404,
@@ -221,9 +222,9 @@ def test_scope_metadata_first_save_creates(httpx_mock):
     httpx_mock.add_callback(_post, method="POST", url=f"{BASE_URL}/api/instantiables")
     backend = _backend()
     assert backend.connect()
-    assert backend.update_scope_metadata("7.0.1.1", {"beam_path": [1, 2]}) is True
+    assert backend.update_scope_metadata("beamline:7.0.1.1", {"beam_path": [1, 2]}) is True
     assert posts[0]["display"] == {
-        "lightfall_scope": "7.0.1.1",
+        "lightfall_scope": "beamline:7.0.1.1",
         "scope_metadata": {"beam_path": [1, 2]},
     }
 
@@ -231,7 +232,7 @@ def test_scope_metadata_first_save_creates(httpx_mock):
 def test_scope_metadata_second_save_updates(httpx_mock):
     import json as _json
 
-    name = CSMDeviceBackend._scope_item_name("7.0.1.1")
+    name = CSMDeviceBackend._scope_item_name("beamline:7.0.1.1")
     existing = {
         **ACR_ENTRY,
         "id": 555,
@@ -239,7 +240,7 @@ def test_scope_metadata_second_save_updates(httpx_mock):
         "ioc_id": None,
         "instantiators": [],
         "fields": {},
-        "display": {"lightfall_scope": "7.0.1.1", "scope_metadata": {"beam_path": [1]}},
+        "display": {"lightfall_scope": "beamline:7.0.1.1", "scope_metadata": {"beam_path": [1]}},
     }
     httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
     httpx_mock.add_response(
@@ -256,8 +257,8 @@ def test_scope_metadata_second_save_updates(httpx_mock):
     httpx_mock.add_callback(_put, method="PUT", url=f"{BASE_URL}/api/instantiables/555/display")
     backend = _backend()
     assert backend.connect()
-    assert backend.get_scope_metadata("7.0.1.1") == {"beam_path": [1]}
-    assert backend.update_scope_metadata("7.0.1.1", {"beam_path": [1, 2]}) is True
+    assert backend.get_scope_metadata("beamline:7.0.1.1") == {"beam_path": [1]}
+    assert backend.update_scope_metadata("beamline:7.0.1.1", {"beam_path": [1, 2]}) is True
     assert puts == [{"display": {"scope_metadata": {"beam_path": [1, 2]}}}]
 
 
@@ -335,3 +336,39 @@ def test_unchanged_device_sends_nothing(httpx_mock):
     backend, info = _loaded(httpx_mock, ACR_ENTRY, puts)
     assert backend.update_device(info) is True
     assert puts == []
+
+
+def test_scope_for_another_beamline_is_declined_without_request(httpx_mock):
+    """A CSM row speaks only for its own beamline; others fall back elsewhere."""
+    httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
+    backend = _backend()
+    assert backend.connect()
+    assert backend.get_scope_metadata("beamline:8.3.2") is None
+    assert backend.update_scope_metadata("beamline:8.3.2", {"beam_path": []}) is False
+    assert backend.update_scope_metadata("endstation:x", {"beam_path": []}) is False
+
+
+def test_scope_matches_beamline_name_loosely(httpx_mock):
+    """Lightfall's beamline id may be spelled differently from CSM's name (case, dots)."""
+    import json as _json
+
+    httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
+    name = CSMDeviceBackend._scope_item_name("beamline:7.0.1.1")
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name={name}&include_inactive=true",
+        status_code=404,
+        is_reusable=True,
+    )
+    posts = []
+
+    def _post(request):
+        posts.append(_json.loads(request.content))
+        return httpx.Response(201, json={**ACR_ENTRY, "name": name, "ioc_id": None})
+
+    httpx_mock.add_callback(_post, method="POST", url=f"{BASE_URL}/api/instantiables")
+    backend = _backend()
+    assert backend.connect()
+    assert backend.update_scope_metadata("beamline:BL7011", {"beam_path": [9]}) is False
+    assert backend.update_scope_metadata("beamline:7011", {"beam_path": [9]}) is True
+    assert posts[0]["name"] == name
+    assert posts[0]["display"]["lightfall_scope"] == "beamline:7.0.1.1"
