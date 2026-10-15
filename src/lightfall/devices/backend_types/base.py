@@ -47,9 +47,7 @@ class BackendType(ABC):
         """One-line description for the backends table."""
 
     @abstractmethod
-    def create_editor(
-        self, config: dict[str, Any], parent: QWidget | None = None
-    ) -> BackendEditor:
+    def create_editor(self, config: dict[str, Any], parent: QWidget | None = None) -> BackendEditor:
         """Build the settings form for a row holding ``config``."""
 
     def validate(self, config: dict[str, Any]) -> list[str]:

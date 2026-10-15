@@ -34,10 +34,12 @@ class _BCSEditor(BackendEditor):
         form.addRow("Server port:", self._port)
         form.addRow("Beamline:", self._beamline)
         form.addRow("Timeout:", self._timeout)
-        form.addRow(hint(
-            "Connects to a BCS server via ZMQ and auto-discovers devices "
-            "using bcsophyd. Requires bcsophyd package."
-        ))
+        form.addRow(
+            hint(
+                "Connects to a BCS server via ZMQ and auto-discovers devices "
+                "using bcsophyd. Requires bcsophyd package."
+            )
+        )
 
     def get_config(self) -> dict[str, Any]:
         return {

@@ -1,4 +1,5 @@
 """CSMDeviceBackend: CSM instantiables -> Lightfall devices -> ophyd objects."""
+
 from __future__ import annotations
 
 import json
@@ -136,5 +137,9 @@ def test_real_epicsmotor_instantiates_without_network():
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.split()[-5:] == [
-        "ophyd.epics_motor", "EpicsMotor", "BL701:ACR1:m1", "bl701_m1", "False"
+        "ophyd.epics_motor",
+        "EpicsMotor",
+        "BL701:ACR1:m1",
+        "bl701_m1",
+        "False",
     ]

@@ -1,4 +1,5 @@
 """HappiBackend builds every happi.Client through one overridable hook."""
+
 from __future__ import annotations
 
 import json

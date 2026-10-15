@@ -1,4 +1,5 @@
 """install_backend_rows: build, skip, and defer-until-login."""
+
 from __future__ import annotations
 
 import pytest
@@ -31,9 +32,16 @@ class FakeSession(QObject):
         self.is_authenticated = authenticated
 
 
-CSM_CFG = {"url": "https://csm.test", "beamline_id": 12, "beamline_name": "7.0.1.1",
-           "ioc_id": None, "ioc_name": None, "name_filter": "", "regex": False,
-           "include_inactive": False}
+CSM_CFG = {
+    "url": "https://csm.test",
+    "beamline_id": 12,
+    "beamline_name": "7.0.1.1",
+    "ioc_id": None,
+    "ioc_name": None,
+    "name_filter": "",
+    "regex": False,
+    "include_inactive": False,
+}
 
 
 @pytest.fixture()
@@ -65,16 +73,16 @@ def test_enabled_rows_added_disabled_and_unknown_skipped(registry, qtbot):
 
 
 def test_csm_added_immediately_when_logged_in(registry, qtbot):
-    catalog, deferred = _install([BackendRow("csm", "csm-7011", config=CSM_CFG)],
-                                 registry, FakeSession(True))
+    catalog, deferred = _install(
+        [BackendRow("csm", "csm-7011", config=CSM_CFG)], registry, FakeSession(True)
+    )
     assert [b.name for b in catalog.added] == ["csm-7011"]
     assert deferred == []
 
 
 def test_csm_deferred_until_login_then_added_once(registry, qtbot):
     session = FakeSession(False)
-    catalog, deferred = _install([BackendRow("csm", "csm-7011", config=CSM_CFG)],
-                                 registry, session)
+    catalog, deferred = _install([BackendRow("csm", "csm-7011", config=CSM_CFG)], registry, session)
     assert catalog.added == []
     assert [r.name for r in deferred] == ["csm-7011"]
 

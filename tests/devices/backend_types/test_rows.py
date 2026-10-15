@@ -1,4 +1,5 @@
 """Backend rows: persistence, legacy migration, naming, build context."""
+
 from __future__ import annotations
 
 from lightfall.devices.backend_types.base import BuildContext
@@ -34,8 +35,13 @@ def test_row_round_trip_keeps_id():
     row = BackendRow(type="happi", name="happi-a", enabled=False, config={"path": "/x.json"})
     save_rows(prefs, [row])
     assert prefs.data[DEVICE_BACKENDS_KEY] == [
-        {"id": row.id, "type": "happi", "name": "happi-a", "enabled": False,
-         "config": {"path": "/x.json"}}
+        {
+            "id": row.id,
+            "type": "happi",
+            "name": "happi-a",
+            "enabled": False,
+            "config": {"path": "/x.json"},
+        }
     ]
     (loaded,) = load_rows(prefs.get)
     assert loaded == row
@@ -52,8 +58,13 @@ def test_load_rows_skips_malformed_entries():
 
 
 def test_unknown_type_is_preserved():
-    prefs = FakePrefs({DEVICE_BACKENDS_KEY: [{"id": "a", "type": "plugin-x", "name": "x",
-                                              "enabled": True, "config": {"k": 1}}]})
+    prefs = FakePrefs(
+        {
+            DEVICE_BACKENDS_KEY: [
+                {"id": "a", "type": "plugin-x", "name": "x", "enabled": True, "config": {"k": 1}}
+            ]
+        }
+    )
     rows = load_rows(prefs.get)
     save_rows(prefs, rows)
     assert prefs.data[DEVICE_BACKENDS_KEY][0]["type"] == "plugin-x"
@@ -67,21 +78,33 @@ def test_migrate_fresh_config_is_enabled_mock_only():
 
 
 def test_migrate_explicit_all_off():
-    prefs = FakePrefs({"device_mock_enabled": False, "device_bcs_enabled": False,
-                       "device_happi_enabled": False})
+    prefs = FakePrefs(
+        {"device_mock_enabled": False, "device_bcs_enabled": False, "device_happi_enabled": False}
+    )
     rows = migrate_legacy(prefs.get)
     assert all(not r.enabled for r in rows)
 
 
 def test_migrate_bcs_only_with_settings():
-    prefs = FakePrefs({"device_mock_enabled": False, "device_bcs_enabled": True,
-                       "device_bcs_host": "bcs.lbl.gov", "device_bcs_port": 6000,
-                       "device_bcs_beamline": "7.0.1.1", "device_bcs_timeout_ms": 2000})
+    prefs = FakePrefs(
+        {
+            "device_mock_enabled": False,
+            "device_bcs_enabled": True,
+            "device_bcs_host": "bcs.lbl.gov",
+            "device_bcs_port": 6000,
+            "device_bcs_beamline": "7.0.1.1",
+            "device_bcs_timeout_ms": 2000,
+        }
+    )
     rows = _by_type(migrate_legacy(prefs.get))
     assert rows["mock"].enabled is False
     assert rows["bcs"].enabled is True
-    assert rows["bcs"].config == {"host": "bcs.lbl.gov", "port": 6000,
-                                  "beamline": "7.0.1.1", "timeout_ms": 2000}
+    assert rows["bcs"].config == {
+        "host": "bcs.lbl.gov",
+        "port": 6000,
+        "beamline": "7.0.1.1",
+        "timeout_ms": 2000,
+    }
     assert "happi" not in rows
 
 
@@ -92,8 +115,14 @@ def test_migrate_legacy_device_backend_bcs():
 
 
 def test_migrate_disabled_happi_with_path_keeps_config():
-    prefs = FakePrefs({"device_happi_enabled": False, "device_happi_path": "/db.json",
-                       "device_happi_beamline": "bl1", "device_mock_enabled": True})
+    prefs = FakePrefs(
+        {
+            "device_happi_enabled": False,
+            "device_happi_path": "/db.json",
+            "device_happi_beamline": "bl1",
+            "device_mock_enabled": True,
+        }
+    )
     rows = _by_type(migrate_legacy(prefs.get))
     assert rows["happi"].enabled is False
     assert rows["happi"].config == {"path": "/db.json", "beamline": "bl1"}
@@ -119,7 +148,11 @@ def test_unique_name():
 
 def test_build_context_defaults_and_legacy_fallback():
     assert build_context(FakePrefs().get) == BuildContext("none", 5.0)
-    assert build_context(FakePrefs({"device_happi_instantiate": True}).get).instantiate_mode == "blocking"
-    ctx = build_context(FakePrefs({"device_instantiate_mode": "background",
-                                   "device_connection_timeout": 2.5}).get)
+    assert (
+        build_context(FakePrefs({"device_happi_instantiate": True}).get).instantiate_mode
+        == "blocking"
+    )
+    ctx = build_context(
+        FakePrefs({"device_instantiate_mode": "background", "device_connection_timeout": 2.5}).get
+    )
     assert ctx == BuildContext("background", 2.5)

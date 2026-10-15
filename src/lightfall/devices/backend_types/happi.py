@@ -27,10 +27,12 @@ class _HappiEditor(BackendEditor):
             edit.textChanged.connect(lambda *_: self.changed.emit())
         form.addRow("Database path:", path_row)
         form.addRow("Beamline filter:", self._beamline)
-        form.addRow(hint(
-            "Loads devices from a happi device database. "
-            "Supports JSON file backends and happi's default configuration."
-        ))
+        form.addRow(
+            hint(
+                "Loads devices from a happi device database. "
+                "Supports JSON file backends and happi's default configuration."
+            )
+        )
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

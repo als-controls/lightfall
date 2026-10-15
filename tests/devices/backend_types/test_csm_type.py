@@ -1,4 +1,5 @@
 """CSM backend type: lookups, config, build, and the settings editor."""
+
 from __future__ import annotations
 
 import httpx
@@ -41,12 +42,15 @@ def test_fetch_beamlines(httpx_mock):
 def test_fetch_iocs_distinct_sorted(httpx_mock):
     def _cb(request: httpx.Request) -> httpx.Response:
         assert request.url.params["beamline_id"] == "12"
-        return httpx.Response(200, json=[
-            {"ioc_id": 34, "ioc_name": "acr9000-7011"},
-            {"ioc_id": 34, "ioc_name": "acr9000-7011"},
-            {"ioc_id": 9, "ioc_name": "adsim"},
-            {"ioc_id": None, "ioc_name": None},
-        ])
+        return httpx.Response(
+            200,
+            json=[
+                {"ioc_id": 34, "ioc_name": "acr9000-7011"},
+                {"ioc_id": 34, "ioc_name": "acr9000-7011"},
+                {"ioc_id": 9, "ioc_name": "adsim"},
+                {"ioc_id": None, "ioc_name": None},
+            ],
+        )
 
     httpx_mock.add_callback(_cb)
     assert fetch_iocs(URL, "tok", 12) == [(34, "acr9000-7011"), (9, "adsim")]

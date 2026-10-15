@@ -1,4 +1,5 @@
 """Built-in backend types: defaults, summaries, validation, build, editors."""
+
 from __future__ import annotations
 
 import pytest

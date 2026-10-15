@@ -1,4 +1,5 @@
 """Devices settings page: rows of backends with per-type editors."""
+
 from __future__ import annotations
 
 import pytest
@@ -59,7 +60,9 @@ def test_add_two_happi_rows_edit_save_reload(qtbot, page, prefs):
 
     saved = _saved(prefs)
     assert [(r["type"], r["name"]) for r in saved] == [
-        ("mock", "mock"), ("happi", "happi"), ("happi", "happi-2")
+        ("mock", "mock"),
+        ("happi", "happi"),
+        ("happi", "happi-2"),
     ]
     assert saved[2]["config"]["path"] == "/data/b.json"
 

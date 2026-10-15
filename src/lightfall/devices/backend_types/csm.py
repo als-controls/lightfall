@@ -57,7 +57,9 @@ def fetch_beamlines(url: str, token: str, timeout: float = 10.0) -> list[tuple[i
     return sorted(((int(b["id"]), str(b["name"])) for b in rows), key=lambda item: item[1])
 
 
-def fetch_iocs(url: str, token: str, beamline_id: int, timeout: float = 10.0) -> list[tuple[int, str]]:
+def fetch_iocs(
+    url: str, token: str, beamline_id: int, timeout: float = 10.0
+) -> list[tuple[int, str]]:
     """IOCs that own instantiables on a beamline, as ``(id, name)`` sorted by name."""
     rows = _get(
         url,
@@ -87,7 +89,11 @@ class _CSMEditor(BackendEditor):
 
         self._beamline = QComboBox()
         self._set_items(
-            self._beamline, [], config.get("beamline_id"), config.get("beamline_name"), with_all=False
+            self._beamline,
+            [],
+            config.get("beamline_id"),
+            config.get("beamline_name"),
+            with_all=False,
         )
         self._beamline.currentIndexChanged.connect(self._on_beamline_changed)
         refresh = QToolButton()
@@ -124,10 +130,12 @@ class _CSMEditor(BackendEditor):
         self._status = QLabel()
         self._status.setWordWrap(True)
         form.addRow(self._status)
-        form.addRow(hint(
-            "Loads the instantiables CSM has for this scope and builds their python "
-            "recipes with happi. Uses your Lightfall login; loads after you log in."
-        ))
+        form.addRow(
+            hint(
+                "Loads the instantiables CSM has for this scope and builds their python "
+                "recipes with happi. Uses your Lightfall login; loads after you log in."
+            )
+        )
         self.refresh()
 
     # -- combo helpers ---------------------------------------------------
