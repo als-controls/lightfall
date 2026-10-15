@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -144,3 +145,117 @@ def test_real_epicsmotor_instantiates_without_network():
         "bl701_m1",
         "False",
     ]
+
+
+def test_synoptic_move_through_real_update_device_sends_one_put(httpx_mock):
+    """The synoptic view's real save path: metadata['synoptic'] change -> one PUT /display."""
+    import json as _json
+
+    httpx_mock.add_response(
+        url=re.compile(r".*/api/instantiables\?.*"), json=[ACR_ENTRY], is_reusable=True
+    )
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=bl701_m1&include_inactive=true",
+        json=ACR_ENTRY,
+        is_reusable=True,
+    )
+    puts = []
+
+    def _put(request):
+        puts.append(_json.loads(request.content))
+        return httpx.Response(200, json=ACR_ENTRY)
+
+    httpx_mock.add_callback(
+        _put, method="PUT", url=f"{BASE_URL}/api/instantiables/101/display", is_reusable=True
+    )
+    backend = _backend()
+    assert backend.connect()
+    (info,) = backend.list_devices()
+    info.metadata["synoptic"] = {"x": 10, "y": 20}
+    assert backend.update_device(info) is True
+    assert puts == [{"display": {"synoptic": {"x": 10, "y": 20}}}]
+
+
+def test_prefix_edit_refused_and_sends_nothing(httpx_mock):
+    httpx_mock.add_response(
+        url=re.compile(r".*/api/instantiables\?.*"), json=[ACR_ENTRY], is_reusable=True
+    )
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=bl701_m1&include_inactive=true",
+        json=ACR_ENTRY,
+        is_reusable=True,
+    )
+    backend = _backend()
+    assert backend.connect()
+    (info,) = backend.list_devices()
+    info.prefix = "OTHER:m1"
+    assert backend.update_device(info) is False  # PermissionError logged, no PUT/PATCH sent
+
+
+def test_remove_device_sends_nothing(httpx_mock):
+    httpx_mock.add_response(
+        url=re.compile(r".*/api/instantiables\?.*"), json=[ACR_ENTRY], is_reusable=True
+    )
+    backend = _backend()
+    assert backend.connect()
+    (info,) = backend.list_devices()
+    assert backend.remove_device(info.id) is False
+
+
+def test_scope_metadata_first_save_creates(httpx_mock):
+    import json as _json
+
+    httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
+    name = CSMDeviceBackend._scope_item_name("7.0.1.1")
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name={name}&include_inactive=true",
+        status_code=404,
+        is_reusable=True,
+    )
+    posts = []
+
+    def _post(request):
+        posts.append(_json.loads(request.content))
+        return httpx.Response(201, json={**ACR_ENTRY, "name": name, "ioc_id": None})
+
+    httpx_mock.add_callback(_post, method="POST", url=f"{BASE_URL}/api/instantiables")
+    backend = _backend()
+    assert backend.connect()
+    assert backend.update_scope_metadata("7.0.1.1", {"beam_path": [1, 2]}) is True
+    assert posts[0]["display"] == {
+        "lightfall_scope": "7.0.1.1",
+        "scope_metadata": {"beam_path": [1, 2]},
+    }
+
+
+def test_scope_metadata_second_save_updates(httpx_mock):
+    import json as _json
+
+    name = CSMDeviceBackend._scope_item_name("7.0.1.1")
+    existing = {
+        **ACR_ENTRY,
+        "id": 555,
+        "name": name,
+        "ioc_id": None,
+        "instantiators": [],
+        "fields": {},
+        "display": {"lightfall_scope": "7.0.1.1", "scope_metadata": {"beam_path": [1]}},
+    }
+    httpx_mock.add_response(url=re.compile(r".*/api/instantiables\?.*"), json=[], is_reusable=True)
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name={name}&include_inactive=true",
+        json=existing,
+        is_reusable=True,
+    )
+    puts = []
+
+    def _put(request):
+        puts.append(_json.loads(request.content))
+        return httpx.Response(200, json=existing)
+
+    httpx_mock.add_callback(_put, method="PUT", url=f"{BASE_URL}/api/instantiables/555/display")
+    backend = _backend()
+    assert backend.connect()
+    assert backend.get_scope_metadata("7.0.1.1") == {"beam_path": [1]}
+    assert backend.update_scope_metadata("7.0.1.1", {"beam_path": [1, 2]}) is True
+    assert puts == [{"display": {"scope_metadata": {"beam_path": [1, 2]}}}]

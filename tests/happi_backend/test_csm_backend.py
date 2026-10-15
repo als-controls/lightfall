@@ -6,11 +6,13 @@ required or contacted.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 from happi.errors import DuplicateError, SearchError
 
-from lightfall.happi_backend.csm import CSMBackend, entry_to_happi_document
+from lightfall.happi_backend.csm import DISPLAY_KEYS, CSMBackend, entry_to_happi_document
 
 BASE_URL = "https://csm.test"
 
@@ -230,15 +232,14 @@ def test_save_insert_duplicate_raises(httpx_mock, backend: CSMBackend):
         backend.save("m1", {"prefix": "x"}, insert=True)
 
 
-def test_save_update_patches_existing(httpx_mock, backend: CSMBackend):
+def test_save_update_non_display_never_patches(httpx_mock, backend: CSMBackend):
+    """Lightfall may not edit what an instantiable is; no PATCH is ever sent."""
     httpx_mock.add_response(
         url=f"{BASE_URL}/api/instantiables/find?name=m1&include_inactive=true",
         json=_entry(id=7),
     )
-    httpx_mock.add_response(
-        url=f"{BASE_URL}/api/instantiables/7", method="PATCH", status_code=200, json=_entry()
-    )
-    backend.save("m1", {"prefix": "new-prefix"}, insert=False)
+    with pytest.raises(PermissionError, match="prefix"):
+        backend.save("m1", {**entry_to_happi_document(_entry(id=7)), "prefix": "new"}, insert=False)
 
 
 def test_save_update_missing_raises_search_error(httpx_mock, backend: CSMBackend):
@@ -248,29 +249,6 @@ def test_save_update_missing_raises_search_error(httpx_mock, backend: CSMBackend
     )
     with pytest.raises(SearchError):
         backend.save("nope", {"prefix": "x"}, insert=False)
-
-
-# ---------------------------------------------------------------------------
-# delete
-# ---------------------------------------------------------------------------
-
-
-def test_delete_existing(httpx_mock, backend: CSMBackend):
-    httpx_mock.add_response(
-        url=f"{BASE_URL}/api/instantiables/find?name=m1&include_inactive=true",
-        json=_entry(id=7),
-    )
-    httpx_mock.add_response(url=f"{BASE_URL}/api/instantiables/7", method="DELETE", status_code=204)
-    backend.delete("m1")
-
-
-def test_delete_missing_raises_search_error(httpx_mock, backend: CSMBackend):
-    httpx_mock.add_response(
-        url=f"{BASE_URL}/api/instantiables/find?name=nope&include_inactive=true",
-        status_code=404,
-    )
-    with pytest.raises(SearchError):
-        backend.delete("nope")
 
 
 # ---------------------------------------------------------------------------
@@ -397,3 +375,93 @@ def test_transport_is_used():
     backend = CSMBackend(url=BASE_URL, token="t", transport=httpx.MockTransport(_handler))
     list(backend.all_items)
     assert seen and seen[0].startswith(f"{BASE_URL}/api/instantiables")
+
+
+# ---------------------------------------------------------------------------
+# Display-only write-back (2026-10-14, Part B)
+# ---------------------------------------------------------------------------
+
+
+def test_display_keys_match_csm():
+    assert DISPLAY_KEYS == {
+        "display_name",
+        "icon_override",
+        "group",
+        "synoptic",
+        "lightfall_scope",
+        "scope_metadata",
+    }
+
+
+def test_document_merges_display():
+    doc = entry_to_happi_document(_entry(display={"synoptic": {"x": 1}, "group": "slits"}))
+    assert doc["synoptic"] == {"x": 1} and doc["group"] == "slits"
+
+
+def test_save_update_display_only_puts_display(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=m1&include_inactive=true",
+        json=_entry(display={"group": "a"}),
+        is_reusable=True,
+    )
+    seen = {}
+
+    def _put(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_entry())
+
+    httpx_mock.add_callback(_put, method="PUT", url=f"{BASE_URL}/api/instantiables/7/display")
+    current = entry_to_happi_document(_entry(display={"group": "a"}))
+    post = {**current, "synoptic": {"x": 5}, "group": None}
+    post.pop("group")
+    backend.save("m1", post, insert=False)
+    assert seen["body"] == {"display": {"synoptic": {"x": 5}, "group": None}}
+
+
+def test_save_update_non_display_change_refused(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=m1&include_inactive=true", json=_entry()
+    )
+    post = {**entry_to_happi_document(_entry()), "prefix": "OTHER:m1"}
+    with pytest.raises(PermissionError, match="prefix"):
+        backend.save("m1", post, insert=False)
+
+
+def test_save_update_without_changes_sends_no_put(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=m1&include_inactive=true", json=_entry()
+    )
+    backend.save("m1", entry_to_happi_document(_entry()), insert=False)  # only the GET happened
+
+
+def test_save_insert_sends_display_separately(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=scope_x&include_inactive=true", status_code=404
+    )
+    seen = {}
+
+    def _post(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json=_entry(name="scope_x"))
+
+    httpx_mock.add_callback(_post, method="POST", url=f"{BASE_URL}/api/instantiables")
+    backend.save(
+        "scope_x",
+        {
+            "name": "scope_x",
+            "device_class": "lightfall.scope",
+            "args": [],
+            "kwargs": {},
+            "active": False,
+            "lightfall_scope": "bl",
+            "scope_metadata": {"p": 1},
+        },
+        insert=True,
+    )
+    assert seen["body"]["display"] == {"lightfall_scope": "bl", "scope_metadata": {"p": 1}}
+    assert "lightfall_scope" not in seen["body"]["fields"]
+
+
+def test_delete_refused_without_request(backend: CSMBackend):
+    with pytest.raises(PermissionError, match="does not delete"):
+        backend.delete("m1")

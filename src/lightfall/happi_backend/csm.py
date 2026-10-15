@@ -105,7 +105,27 @@ from happi.backends.core import ItemMeta, ItemMetaGen, _Backend
 from happi.errors import DuplicateError, SearchError
 from loguru import logger
 
-__all__ = ["CSMBackend"]
+__all__ = ["DISPLAY_KEYS", "CSMBackend"]
+
+#: What Lightfall may change on a CSM instantiable: how it is shown, never what it is.
+#: Must equal CSM's app.services.instantiable_display.DISPLAY_KEYS.
+DISPLAY_KEYS: frozenset[str] = frozenset(
+    {"display_name", "icon_override", "group", "synoptic", "lightfall_scope", "scope_metadata"}
+)
+
+#: Keys happi or this module add to a document that are not CSM data, ignored when
+#: deciding whether an update touches anything beyond display metadata.
+_BOOKKEEPING_KEYS: frozenset[str] = frozenset({"_id", "type", "creation", "last_edit"})
+
+
+def _blank_as_none(value: Any) -> Any:
+    """Treat empty values as absent.
+
+    happi writes Lightfall's standard device fields (``beamline``, ``location``,
+    ...) as ``""``/``None`` even where CSM never had them; writing nothing over
+    nothing is not a change.
+    """
+    return None if value in (None, "", [], {}) else value
 
 
 def _first_python_recipe(instantiators: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -161,6 +181,9 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
     doc["csm_ioc_name"] = entry.get("ioc_name")
     doc["csm_beamline_name"] = entry.get("beamline_name")
     doc["csm_ioc_runtime_status"] = entry.get("ioc_runtime_status")
+
+    # Display-only metadata (CSM instantiable_display) sits at top level like fields.
+    doc.update(entry.get("display") or {})
 
     # Set identity keys last so nothing above (in particular a stray
     # "name" inside `fields`) can shadow them.
@@ -445,11 +468,11 @@ class CSMBackend(_Backend):
     def save(self, _id: str, post: dict[str, Any], insert: bool = True) -> None:
         """Create or update a CSM instantiable.
 
-        On insert, this issues ``POST /api/instantiables``; CSM forces
-        ``origin=manual`` server-side regardless of what's in ``post``. On
-        update, this issues ``PATCH /api/instantiables/{id}``, which
-        de-syncs a manifest-origin row exactly as an edit through the CSM
-        UI would.
+        On insert, this issues ``POST /api/instantiables`` (CSM forces
+        ``origin=manual``; its create gate applies), with display keys sent
+        separately as ``display``. On update, only :data:`DISPLAY_KEYS` may
+        change: those go to ``PUT /api/instantiables/{id}/display``, and any
+        other difference raises before anything is sent.
 
         Args:
             _id: happi ``_id`` == CSM instantiable name.
@@ -483,13 +506,18 @@ class CSMBackend(_Backend):
             "csm_id", "csm_origin", "csm_is_synced", "csm_ioc_name", "csm_beamline_name",
             "csm_ioc_runtime_status",
         }
-        fields = {key: value for key, value in post.items() if key not in reserved}
+        fields = {
+            key: value
+            for key, value in post.items()
+            if key not in reserved and key not in DISPLAY_KEYS and key not in _BOOKKEEPING_KEYS
+        }
         body = {
             "name": _id,
             "instantiators": instantiators,
             "fields": fields,
             "documentation": post.get("documentation"),
             "active": post.get("active", True),
+            "display": {key: post[key] for key in DISPLAY_KEYS if key in post},
         }
 
         if insert:
@@ -503,23 +531,34 @@ class CSMBackend(_Backend):
         existing_doc = self.get_by_id(_id)
         if existing_doc is None:
             raise SearchError(f"No item found {_id}")
+        changed = {
+            key
+            for key in set(post) | set(existing_doc)
+            if key not in _BOOKKEEPING_KEYS
+            and not key.startswith("csm_")
+            and _blank_as_none(post.get(key)) != _blank_as_none(existing_doc.get(key))
+        }
+        not_display = sorted(changed - DISPLAY_KEYS)
+        if not_display:
+            raise PermissionError(
+                f"CSM rows are read-only except display metadata; refused change to {not_display}"
+            )
+        if not changed:
+            return
+        patch = {key: post.get(key) for key in sorted(changed)}
         csm_id = existing_doc["csm_id"]
-        response = self._client.patch(f"{self._instantiables_url}/{csm_id}", json=body)
-        self._raise_for_status(response, context=f"update {_id}")
+        response = self._client.put(
+            f"{self._instantiables_url}/{csm_id}/display", json={"display": patch}
+        )
+        self._raise_for_status(response, context=f"update display of {_id}")
 
     def delete(self, _id: str) -> None:
-        """Delete a CSM instantiable by happi ``_id`` (== CSM name).
+        """Refuse: Lightfall never deletes CSM instantiables.
 
         Args:
             _id: happi ``_id`` == CSM instantiable name.
 
         Raises:
-            SearchError: No instantiable named ``_id`` exists.
-            PermissionError: CSM rejected the request (401/403).
+            PermissionError: Always; nothing is sent to CSM.
         """
-        existing_doc = self.get_by_id(_id)
-        if existing_doc is None:
-            raise SearchError(f"ID not found in database: {_id!r}")
-        csm_id = existing_doc["csm_id"]
-        response = self._client.delete(f"{self._instantiables_url}/{csm_id}")
-        self._raise_for_status(response, context=f"delete {_id}")
+        raise PermissionError("Lightfall does not delete CSM instantiables")

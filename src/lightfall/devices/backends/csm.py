@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from lightfall.devices.backends.happi import HappiBackend
 
@@ -74,6 +75,7 @@ class CSMDeviceBackend(HappiBackend):
                 params["regex"] = "true"
         params["include_inactive"] = "true" if include_inactive else "false"
         self._base_params = params
+        self._csm_db: Any = None  # the happi_backend.CSMBackend behind the client
 
     @property
     def is_editable(self) -> bool:
@@ -95,7 +97,57 @@ class CSMDeviceBackend(HappiBackend):
             base_params=self._base_params,
             transport=self._transport,
         )
+        self._csm_db = database
         return happi.Client(database=database)
+
+    def remove_device(self, device_id: Any) -> bool:
+        logger.warning("CSM instantiables are not deleted from Lightfall (device {})", device_id)
+        return False
+
+    def get_scope_metadata(self, scope: str) -> dict[str, Any] | None:
+        # Scope rows have no IOC, so the beamline-filtered search can't see them;
+        # CSM's /find looks them up by name alone.
+        if self._csm_db is None:
+            return None
+        try:
+            doc = self._csm_db.get_by_id(self._scope_item_name(scope))
+        except Exception as exc:
+            logger.warning("get_scope_metadata('{}') failed: {}", scope, exc)
+            return None
+        if doc is None or doc.get("lightfall_scope") != scope:
+            return None
+        return doc.get("scope_metadata")
+
+    def update_scope_metadata(self, scope: str, metadata: dict[str, Any]) -> bool:
+        if self._csm_db is None:
+            return False
+        name = self._scope_item_name(scope)
+        try:
+            existing = self._csm_db.get_by_id(name)
+            if existing is None:
+                self._csm_db.save(
+                    name,
+                    {
+                        "name": name,
+                        "device_class": "lightfall.scope",
+                        "args": [],
+                        "kwargs": {},
+                        "active": False,
+                        "lightfall_scope": scope,
+                        "scope_metadata": metadata,
+                    },
+                    insert=True,
+                )
+            else:
+                self._csm_db.save(
+                    name,
+                    {**existing, "lightfall_scope": scope, "scope_metadata": metadata},
+                    insert=False,
+                )
+            return True
+        except Exception as exc:
+            logger.error("update_scope_metadata('{}') on CSM failed: {}", scope, exc)
+            return False
 
     def get_backend_info(self) -> dict[str, Any]:
         info = super().get_backend_info()
