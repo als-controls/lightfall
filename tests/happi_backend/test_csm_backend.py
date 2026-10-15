@@ -293,3 +293,110 @@ def test_unexpected_status_is_not_remapped(httpx_mock, backend: CSMBackend):
     )
     with pytest.raises(httpx.HTTPStatusError):
         list(backend.all_items)
+
+
+# ---------------------------------------------------------------------------
+# Session-token auth, base filters, happi container type (2026-10-14)
+# ---------------------------------------------------------------------------
+
+
+def test_document_carries_happi_container_type():
+    assert entry_to_happi_document(_entry())["type"] == "OphydItem"
+    no_python = _entry(instantiators=[{"system": "labview", "target": "X"}])
+    assert entry_to_happi_document(no_python)["type"] == "HappiItem"
+
+
+def test_happi_client_search_builds_valid_results(httpx_mock):
+    import happi
+
+    httpx_mock.add_response(json=[_entry()])
+    client = happi.Client(database=CSMBackend(url=BASE_URL, token="t"))
+    results = client.search()
+    assert len(results) == 1
+    assert type(results[0]).__name__ == "SearchResult"
+    assert results[0].metadata["prefix"] == "BL601:ACR1:m1"
+
+
+def test_token_provider_is_called_per_request(httpx_mock):
+    tokens = iter(["tok-1", "tok-2"])
+    seen: list[str] = []
+
+    def _callback(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("Authorization", ""))
+        return httpx.Response(200, json=[])
+
+    httpx_mock.add_callback(_callback, is_reusable=True)
+    backend = CSMBackend(url=BASE_URL, token_provider=lambda: next(tokens))
+    list(backend.all_items)
+    list(backend.all_items)
+    assert seen == ["Bearer tok-1", "Bearer tok-2"]
+
+
+def test_token_provider_returning_none_sends_no_header(httpx_mock):
+    def _callback(request: httpx.Request) -> httpx.Response:
+        assert "Authorization" not in request.headers
+        return httpx.Response(200, json=[])
+
+    httpx_mock.add_callback(_callback)
+    list(CSMBackend(url=BASE_URL, token_provider=lambda: None).all_items)
+
+
+def test_token_and_token_provider_are_exclusive():
+    with pytest.raises(ValueError):
+        CSMBackend(url=BASE_URL, token="t", token_provider=lambda: "t")
+
+
+def test_base_params_merge_into_searches(httpx_mock):
+    def _callback(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        assert params["beamline_id"] == "12"
+        assert params["ioc_id"] == "34"
+        # base include_inactive wins over the search's own "true"
+        assert params["include_inactive"] == "false"
+        return httpx.Response(200, json=[_entry()])
+
+    httpx_mock.add_callback(_callback, is_reusable=True)
+    backend = CSMBackend(
+        url=BASE_URL,
+        token="t",
+        base_params={"beamline_id": 12, "ioc_id": 34, "include_inactive": "false"},
+    )
+    assert len(list(backend.all_items)) == 1
+    assert len(list(backend.find({}))) == 1
+
+
+def test_caller_params_win_over_base_params_except_include_inactive(httpx_mock):
+    def _callback(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        assert params["name"] == "m1"  # explicit lookup beats base name filter
+        return httpx.Response(200, json=[_entry()])
+
+    httpx_mock.add_callback(_callback)
+    backend = CSMBackend(url=BASE_URL, token="t", base_params={"name": "m.*", "regex": "true"})
+    list(backend.find({"name": "m1"}))
+
+
+def test_401_message_names_the_allowlist(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(status_code=401)
+    with pytest.raises(
+        PermissionError, match="Check that 'LUCID' is in CSM's KEYCLOAK_ACCEPTED_CLIENT_IDS"
+    ):
+        list(backend.all_items)
+
+
+def test_403_message_names_reader_role(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(status_code=403)
+    with pytest.raises(PermissionError, match=r"no reader role for this user \(403\)"):
+        list(backend.all_items)
+
+
+def test_transport_is_used():
+    seen = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, json=[])
+
+    backend = CSMBackend(url=BASE_URL, token="t", transport=httpx.MockTransport(_handler))
+    list(backend.all_items)
+    assert seen and seen[0].startswith(f"{BASE_URL}/api/instantiables")

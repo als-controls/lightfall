@@ -57,15 +57,13 @@ is missing ``device_class``.
 
 Authentication
 ---------------
-CSM's ``/api/instantiables`` routes (search, find, choices, create, update,
-delete) are *all* gated behind ``require_admin`` -- see
-``app/routers/instantiables.py`` in the CSM repo. There is no anonymous or
-read-only route. A client of this backend MUST supply a bearer token for a
-CSM user with the admin role; there is no API-key path available on these
-routes (CSM's ``X-API-Key`` header is a separate mechanism scoped to PC
-registration, not instantiables). Be honest with yourself about this: if
-you don't have an admin JWT, this backend cannot be used at all, not even
-for read-only access.
+CSM's read routes (``GET /api/instantiables``, ``/find``, ``/choices``)
+require any authenticated user with a reader role (admin, maintainer, or
+reader); writes (create, update, delete) require admin -- see
+``app/routers/instantiables.py`` in the CSM repo. There is no anonymous
+route. Lightfall passes the logged-in user's Keycloak token via
+``token_provider=``. CSM only accepts tokens whose ``azp`` is listed in its
+``KEYCLOAK_ACCEPTED_CLIENT_IDS``; Lightfall's client id is ``LUCID``.
 
 Configuration
 -------------
@@ -84,11 +82,8 @@ deliberately does not do. The supported route is direct construction::
     backend = CSMBackend(url="https://csm.example.org", token="<admin JWT>")
     client = happi.Client(database=backend)
 
-or, to reuse Lightfall's existing happi device backend unchanged::
-
-    from lightfall.devices.backends.happi import HappiBackend
-    happi_client = happi.Client(database=CSMBackend(url=..., token=...))
-    backend = HappiBackend(client=happi_client)
+To use it as a Lightfall device backend, see
+:class:`lightfall.devices.backends.csm.CSMDeviceBackend`.
 
 Configuration is deliberately minimal: a base URL and an (optional, but in
 practice required by the server) bearer token. Both may also be supplied
@@ -101,7 +96,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
 import httpx
@@ -152,6 +147,9 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
         doc["device_class"] = python_recipe.get("target")
         doc["args"] = python_recipe.get("args", [])
         doc["kwargs"] = python_recipe.get("kwargs", {})
+    # happi picks the container class from "type"; without it every entry
+    # comes back from Client.search() as an InvalidResult.
+    doc["type"] = "OphydItem" if python_recipe is not None else "HappiItem"
 
     doc["documentation"] = entry.get("documentation")
     doc["active"] = entry.get("active", True)
@@ -170,6 +168,19 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
+class _TokenProviderAuth(httpx.Auth):
+    """Attach ``Authorization: Bearer <token>`` using a fresh token per request."""
+
+    def __init__(self, provider: Callable[[], str | None]) -> None:
+        self._provider = provider
+
+    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
+        token = self._provider()
+        if token:
+            request.headers["Authorization"] = f"Bearer {token}"
+        yield request
+
+
 class CSMBackend(_Backend):
     """happi ``_Backend`` backed by CSM's instantiable registry HTTP API.
 
@@ -179,10 +190,9 @@ class CSMBackend(_Backend):
         Base URL of the CSM API, e.g. ``"https://csm.example.org"``. The
         ``/api/instantiables`` suffix is added automatically.
     token : str, optional
-        Bearer token for a CSM user with the admin role. All of CSM's
-        instantiables routes require this -- see the module docstring.
-        Read from ``LIGHTFALL_CSM_TOKEN`` by :meth:`from_env` if not given
-        directly.
+        Static bearer token (tests, scripts). Mutually exclusive with
+        ``token_provider``. Read from ``LIGHTFALL_CSM_TOKEN`` by
+        :meth:`from_env` if not given directly.
     timeout : float, optional
         Per-request timeout in seconds, passed to ``httpx``. Defaults to 10.
     client : httpx.Client, optional
@@ -194,6 +204,15 @@ class CSMBackend(_Backend):
         backends (``backend(**cfg_section, cfg_path=cfg)``) should CSM ever
         be registered into ``happi.backends.BACKENDS``. See the module
         docstring for why that route isn't wired up today.
+    token_provider : callable, optional
+        Returns the current bearer token (or ``None``); called on every
+        request, so a refreshed session token is picked up. Mutually
+        exclusive with ``token``.
+    base_params : dict, optional
+        CSM search filters (e.g. ``beamline_id``, ``ioc_id``) merged into
+        every search; see :meth:`_merge_params`.
+    transport : httpx.BaseTransport, optional
+        Transport for the constructed ``httpx.Client`` (mainly for tests).
     """
 
     def __init__(
@@ -203,15 +222,25 @@ class CSMBackend(_Backend):
         timeout: float = 10.0,
         client: httpx.Client | None = None,
         cfg_path: str | None = None,
+        *,
+        token_provider: Callable[[], str | None] | None = None,
+        base_params: dict[str, Any] | None = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         del cfg_path  # unused; see class docstring
+        if token and token_provider is not None:
+            raise ValueError("Pass either token= or token_provider=, not both")
         self._base_url = url.rstrip("/")
         self._instantiables_url = f"{self._base_url}/api/instantiables"
+        self._base_params: dict[str, Any] = dict(base_params or {})
         if client is not None:
             self._client = client
         else:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
-            self._client = httpx.Client(headers=headers, timeout=timeout)
+            auth = _TokenProviderAuth(token_provider) if token_provider is not None else None
+            self._client = httpx.Client(
+                headers=headers, auth=auth, timeout=timeout, transport=transport
+            )
 
     @classmethod
     def from_env(cls, **kwargs: Any) -> CSMBackend:
@@ -256,9 +285,14 @@ class CSMBackend(_Backend):
                 deliberately not remapped, as happi's interface makes no
                 promise about it.
         """
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             raise PermissionError(
-                f"CSM refused to {context}: {response.status_code} {response.text}"
+                f"CSM rejected the Lightfall token (401) on {context}. "
+                f"Check that 'LUCID' is in CSM's KEYCLOAK_ACCEPTED_CLIENT_IDS. {response.text}"
+            )
+        if response.status_code == 403:
+            raise PermissionError(
+                f"CSM: no reader role for this user (403) on {context}. {response.text}"
             )
         if response.status_code in (404, 409):
             raise SearchError(f"CSM could not {context}: {response.status_code} {response.text}")
@@ -270,6 +304,19 @@ class CSMBackend(_Backend):
         self._raise_for_status(response, context=f"GET {path}")
         return response.json()
 
+    def _merge_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Lay a search's own params over this backend's base filters.
+
+        The caller's keys win (an explicit ``name`` lookup beats a base name
+        filter), except ``include_inactive``: the base value, when set, is the
+        row's configured scope and overrides the ``"true"`` every happi search
+        method sends.
+        """
+        merged = {**self._base_params, **params}
+        if "include_inactive" in self._base_params:
+            merged["include_inactive"] = self._base_params["include_inactive"]
+        return merged
+
     def _iter_search(self, params: dict[str, Any]) -> Iterator[dict[str, Any]]:
         """Run a search against ``/api/instantiables`` and yield happi documents.
 
@@ -279,7 +326,7 @@ class CSMBackend(_Backend):
         Yields:
             One happi document per matching instantiable.
         """
-        entries = self._get_json("/api/instantiables", params=params)
+        entries = self._get_json("/api/instantiables", params=self._merge_params(params))
         for entry in entries:
             yield entry_to_happi_document(entry)
 
@@ -445,7 +492,7 @@ class CSMBackend(_Backend):
                 }
             )
         reserved = {
-            "name", "_id", "device_class", "args", "kwargs", "documentation", "active",
+            "name", "_id", "type", "device_class", "args", "kwargs", "documentation", "active",
             "csm_id", "csm_origin", "csm_is_synced", "csm_ioc_name", "csm_beamline_name",
             "csm_ioc_runtime_status",
         }
