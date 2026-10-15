@@ -173,10 +173,21 @@ class _CSMEditor(BackendEditor):
     def _alive(self) -> bool:
         return isValid(self)
 
-    def _run(self, fn: Any, *args: Any, callback: Any) -> None:
+    def _run(self, job: Any, *, callback: Any) -> None:
+        """Run ``job()`` off the GUI thread.
+
+        ``job`` takes no arguments and reads the token itself: QThreadFuture
+        logs ``repr(args)`` when a worker raises, and the bearer token must
+        never reach the logs. ``_on_fetch_error`` does the logging instead.
+        """
         from lightfall.utils.threads import QThreadFuture
 
-        future = QThreadFuture(fn, *args, callback_slot=callback, except_slot=self._on_fetch_error)
+        future = QThreadFuture(
+            job,
+            callback_slot=callback,
+            except_slot=self._on_fetch_error,
+            log_exceptions=False,
+        )
         self._futures.append(future)
         future.start()
 
@@ -190,7 +201,7 @@ class _CSMEditor(BackendEditor):
             self._status.setText("Log in to refresh beamline and IOC lists.")
             return
         self._status.setText("Loading beamlines from CSM…")
-        self._run(fetch_beamlines, url, token, callback=self._on_beamlines)
+        self._run(lambda: fetch_beamlines(url, session_token() or ""), callback=self._on_beamlines)
 
     def _on_beamlines(self, items: list[tuple[int, str]]) -> None:
         if not self._alive():
@@ -202,6 +213,8 @@ class _CSMEditor(BackendEditor):
         self._load_iocs()
 
     def _on_beamline_changed(self, *_: Any) -> None:
+        # The user picked another beamline: the old IOC belongs to the old one.
+        self._set_items(self._ioc, [], None, None, with_all=True)
         self._load_iocs()
         self.changed.emit()
 
@@ -210,7 +223,10 @@ class _CSMEditor(BackendEditor):
         beamline_id = self._beamline.currentData()
         if not token or beamline_id is None:
             return
-        self._run(fetch_iocs, self._url.text().strip(), token, beamline_id, callback=self._on_iocs)
+        url = self._url.text().strip()
+        self._run(
+            lambda: fetch_iocs(url, session_token() or "", beamline_id), callback=self._on_iocs
+        )
 
     def _on_iocs(self, items: list[tuple[int, str]]) -> None:
         if not self._alive():

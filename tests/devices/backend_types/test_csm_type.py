@@ -141,3 +141,38 @@ def test_editor_emits_changed_on_filter_edit(qtbot):
     qtbot.addWidget(editor)
     with qtbot.waitSignal(editor.changed, timeout=1000):
         editor._name_filter.setText("m1")
+
+
+def test_token_never_passed_as_worker_arg(qtbot, monkeypatch):
+    """QThreadFuture logs repr(args) on failure; the bearer must not be in them."""
+    import lightfall.utils.threads as threads
+
+    recorded = []
+
+    class _Recorder:
+        def __init__(self, fn, *args, **kwargs):
+            recorded.append((fn, args, kwargs))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(threads, "QThreadFuture", _Recorder)
+    monkeypatch.setattr(csm_type, "session_token", lambda: "secret-tok")
+    editor = CSMBackendType().create_editor(SAVED)
+    qtbot.addWidget(editor)
+    assert recorded, "refresh() should start a fetch when logged in"
+    for _fn, args, kwargs in recorded:
+        assert "secret-tok" not in repr(args)
+        assert "secret-tok" not in repr(kwargs)
+        assert kwargs.get("log_exceptions") is False
+
+
+def test_user_beamline_change_resets_ioc_to_all(qtbot):
+    editor = CSMBackendType().create_editor(SAVED)
+    qtbot.addWidget(editor)
+    editor._on_beamlines([(12, "7.0.1.1"), (13, "8.3.2")])
+    editor._on_iocs([(34, "acr9000-7011")])
+    editor._beamline.setCurrentIndex(editor._beamline.findData(13))
+    cfg = editor.get_config()
+    assert cfg["beamline_id"] == 13
+    assert (cfg["ioc_id"], cfg["ioc_name"]) == (None, None)
