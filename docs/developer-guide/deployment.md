@@ -79,7 +79,7 @@ device_backends:
 | `happi` | `path` (empty: `$HAPPI_CFG`), `beamline` |
 | `csm` | `url`, `beamline_id`/`beamline_name`, optional `ioc_id`/`ioc_name`, `name_filter`, `regex`, `include_inactive` |
 
-CSM rows read CSM's instantiables with the logged-in user's Keycloak token and load after login. CSM must list Lightfall's client id (`LUCID`) in `KEYCLOAK_ACCEPTED_CLIENT_IDS`.
+CSM rows load after login using a personal CSM API key Lightfall mints at login (auth-v2, like Tiled and the logbook). CSM must accept Lightfall's client id (`LUCID`) for the mint. From Lightfall, CSM rows may change only display metadata (`display_name`, `icon_override`, `group`, `synoptic`, scope data) and never delete instantiables.
 
 On first start after upgrading, the legacy `device_backend` / `device_{mock,bcs,happi}_*` keys are migrated once into `device_backends`. The old keys are left in place but no longer read.
 
