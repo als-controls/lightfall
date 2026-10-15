@@ -21,7 +21,7 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from typing import TYPE_CHECKING, Any  # noqa: E402
+from typing import TYPE_CHECKING  # noqa: E402
 
 
 def _configure_remote_display() -> None:
@@ -85,6 +85,9 @@ from lightfall.auth.session import AuthState, SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
+from lightfall.devices.backend_types.rows import (  # noqa: E402
+    resolve_enabled_backends as _resolve_enabled_backends,  # noqa: F401  (re-export for tests)
+)
 from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
@@ -370,42 +373,6 @@ def _setup_ca_tunnel() -> None:
         app_module._ca_tunnel_schedule_retries = _schedule_retries
     else:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
-
-
-_UNSET = object()
-
-
-def _resolve_enabled_backends(get: Any) -> tuple[bool, bool, bool]:
-    """Decide which built-in device backends are enabled, from a prefs ``get``.
-
-    ``get`` is a ``prefs.get(key, default)``-style callable. Returns
-    ``(mock_enabled, bcs_enabled, happi_enabled)``.
-
-    Rules:
-    * Explicit ``device_{mock,bcs,happi}_enabled`` flags win verbatim.
-    * Absent flags fall back to legacy ``device_backend`` ("mock"/"bcs").
-    * The mock fallback fires ONLY for a fresh config where the user has
-      expressed no backend preference at all (no flags AND no legacy key) — so a
-      deliberate all-off (e.g. relying solely on a plugin-contributed backend
-      like the CMS happi backend) is honored instead of being forced back to
-      mock. This is the bug fix: previously an explicit all-false re-enabled mock.
-    """
-    legacy_backend = get("device_backend", _UNSET)
-    legacy_is_mock = legacy_backend == "mock" if legacy_backend is not _UNSET else False
-    legacy_is_bcs = legacy_backend == "bcs" if legacy_backend is not _UNSET else False
-    mock_enabled = bool(get("device_mock_enabled", legacy_is_mock))
-    bcs_enabled = bool(get("device_bcs_enabled", legacy_is_bcs))
-    happi_enabled = bool(get("device_happi_enabled", False))
-
-    no_preference = (
-        legacy_backend is _UNSET
-        and get("device_mock_enabled", _UNSET) is _UNSET
-        and get("device_bcs_enabled", _UNSET) is _UNSET
-        and get("device_happi_enabled", _UNSET) is _UNSET
-    )
-    if no_preference and not any([mock_enabled, bcs_enabled, happi_enabled]):
-        mock_enabled = True
-    return mock_enabled, bcs_enabled, happi_enabled
 
 
 def _setup_devices() -> None:
