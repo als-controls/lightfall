@@ -12,6 +12,7 @@ import httpx
 import ophyd
 import pytest
 
+from lightfall.auth.service_key_auth import StaticApiKeyAuth
 from lightfall.devices.backends.csm import CSMDeviceBackend
 
 BASE_URL = "https://csm.test"
@@ -41,7 +42,7 @@ ACR_ENTRY = {
 
 def _backend(**kw) -> CSMDeviceBackend:
     kw.setdefault("beamline_id", 12)
-    return CSMDeviceBackend(BASE_URL, lambda: "session-tok", name="csm-7011", **kw)
+    return CSMDeviceBackend(BASE_URL, StaticApiKeyAuth("session-key"), name="csm-7011", **kw)
 
 
 def test_base_params_from_row_config():
@@ -67,7 +68,7 @@ def test_not_editable_and_named():
 
 def test_load_metadata_sends_filters_and_token(httpx_mock):
     def _callback(request: httpx.Request) -> httpx.Response:
-        assert request.headers["Authorization"] == "Bearer session-tok"
+        assert request.headers["Authorization"] == "Apikey session-key"
         assert request.url.params["beamline_id"] == "12"
         assert request.url.params["include_inactive"] == "false"
         return httpx.Response(200, json=[ACR_ENTRY])
@@ -101,7 +102,7 @@ def test_instantiate_renders_happi_templates(httpx_mock, monkeypatch):
 
 def test_401_propagates_from_load_metadata(httpx_mock):
     httpx_mock.add_response(status_code=401)
-    with pytest.raises(PermissionError, match="LUCID"):
+    with pytest.raises(PermissionError, match="minted at login"):
         _backend().load_metadata()
 
 
@@ -118,7 +119,7 @@ def test_real_epicsmotor_instantiates_without_network():
         from lightfall.devices.backends.csm import CSMDeviceBackend
         entry = json.loads({json.dumps(json.dumps(ACR_ENTRY))})
         transport = httpx.MockTransport(lambda req: httpx.Response(200, json=[entry]))
-        b = CSMDeviceBackend("{BASE_URL}", lambda: "t", beamline_id=12,
+        b = CSMDeviceBackend("{BASE_URL}", None, beamline_id=12,
                              name="csm-7011", transport=transport)
         (info,) = b.load_metadata()
         dev = b.instantiate(info)

@@ -6,14 +6,14 @@ beamline (and optionally one IOC) of CSM. Metadata, instantiation (happi
 renders each instantiable's python recipe) and background connection all
 go through the existing happi code path.
 
-Authentication is a ``token_provider`` callable, read on every request, so
-a Keycloak token that ``SessionManager`` refreshes is picked up without
-rebuilding the backend.
+Authentication is an ``httpx.Auth``, normally Lightfall's
+``ServiceKeyAuth(csm_service_id(url))``: it reads the CSM API key minted at
+login on every request, so a re-login is picked up without rebuilding the
+backend.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -28,7 +28,7 @@ class CSMDeviceBackend(HappiBackend):
 
     Args:
         url: CSM base URL, e.g. ``"https://csm.als.lbl.gov"``.
-        token_provider: Returns the current bearer token, or None.
+        auth: Per-request authentication, normally ``ServiceKeyAuth(csm_service_id(url))``.
         beamline_id: CSM beamline id to load instantiables for.
         ioc_id: Optional CSM IOC id to narrow to one IOC.
         name_filter: Optional instantiable-name filter.
@@ -43,7 +43,7 @@ class CSMDeviceBackend(HappiBackend):
     def __init__(
         self,
         url: str,
-        token_provider: Callable[[], str | None],
+        auth: httpx.Auth | None,
         *,
         beamline_id: int,
         ioc_id: int | None = None,
@@ -63,7 +63,7 @@ class CSMDeviceBackend(HappiBackend):
             name=name,
         )
         self._url = url
-        self._token_provider = token_provider
+        self._auth = auth
         self._transport = transport
         params: dict[str, Any] = {"beamline_id": beamline_id}
         if ioc_id is not None:
@@ -91,7 +91,7 @@ class CSMDeviceBackend(HappiBackend):
 
         database = CSMBackend(
             self._url,
-            token_provider=self._token_provider,
+            auth=self._auth,
             base_params=self._base_params,
             transport=self._transport,
         )

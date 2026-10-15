@@ -61,9 +61,10 @@ CSM's read routes (``GET /api/instantiables``, ``/find``, ``/choices``)
 require any authenticated user with a reader role (admin, maintainer, or
 reader); writes (create, update, delete) require admin -- see
 ``app/routers/instantiables.py`` in the CSM repo. There is no anonymous
-route. Lightfall passes the logged-in user's Keycloak token via
-``token_provider=``. CSM only accepts tokens whose ``azp`` is listed in its
-``KEYCLOAK_ACCEPTED_CLIENT_IDS``; Lightfall's client id is ``LUCID``.
+route. Lightfall authenticates with the personal CSM API key it mints at
+login (auth-v2: ``Authorization: Apikey <secret>`` via ``auth=``); the
+Keycloak bearer is used only for that mint, so CSM must accept Lightfall's
+client id ``LUCID`` in its ``KEYCLOAK_ACCEPTED_CLIENT_IDS``.
 
 Configuration
 -------------
@@ -96,7 +97,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -168,19 +169,6 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
-class _TokenProviderAuth(httpx.Auth):
-    """Attach ``Authorization: Bearer <token>`` using a fresh token per request."""
-
-    def __init__(self, provider: Callable[[], str | None]) -> None:
-        self._provider = provider
-
-    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
-        token = self._provider()
-        if token:
-            request.headers["Authorization"] = f"Bearer {token}"
-        yield request
-
-
 class CSMBackend(_Backend):
     """happi ``_Backend`` backed by CSM's instantiable registry HTTP API.
 
@@ -191,7 +179,7 @@ class CSMBackend(_Backend):
         ``/api/instantiables`` suffix is added automatically.
     token : str, optional
         Static bearer token (tests, scripts). Mutually exclusive with
-        ``token_provider``. Read from ``LIGHTFALL_CSM_TOKEN`` by
+        ``auth``. Read from ``LIGHTFALL_CSM_TOKEN`` by
         :meth:`from_env` if not given directly.
     timeout : float, optional
         Per-request timeout in seconds, passed to ``httpx``. Defaults to 10.
@@ -204,10 +192,10 @@ class CSMBackend(_Backend):
         backends (``backend(**cfg_section, cfg_path=cfg)``) should CSM ever
         be registered into ``happi.backends.BACKENDS``. See the module
         docstring for why that route isn't wired up today.
-    token_provider : callable, optional
-        Returns the current bearer token (or ``None``); called on every
-        request, so a refreshed session token is picked up. Mutually
-        exclusive with ``token``.
+    auth : httpx.Auth, optional
+        Per-request authentication, e.g. Lightfall's
+        ``ServiceKeyAuth("csm:<url>")``, which reads the minted key on every
+        request. Mutually exclusive with ``token``.
     base_params : dict, optional
         CSM search filters (e.g. ``beamline_id``, ``ioc_id``) merged into
         every search; see :meth:`_merge_params`.
@@ -223,13 +211,13 @@ class CSMBackend(_Backend):
         client: httpx.Client | None = None,
         cfg_path: str | None = None,
         *,
-        token_provider: Callable[[], str | None] | None = None,
+        auth: httpx.Auth | None = None,
         base_params: dict[str, Any] | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         del cfg_path  # unused; see class docstring
-        if token and token_provider is not None:
-            raise ValueError("Pass either token= or token_provider=, not both")
+        if token and auth is not None:
+            raise ValueError("Pass either token= or auth=, not both")
         self._base_url = url.rstrip("/")
         self._instantiables_url = f"{self._base_url}/api/instantiables"
         self._base_params: dict[str, Any] = dict(base_params or {})
@@ -237,7 +225,6 @@ class CSMBackend(_Backend):
             self._client = client
         else:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
-            auth = _TokenProviderAuth(token_provider) if token_provider is not None else None
             self._client = httpx.Client(
                 headers=headers, auth=auth, timeout=timeout, transport=transport
             )
@@ -287,8 +274,8 @@ class CSMBackend(_Backend):
         """
         if response.status_code == 401:
             raise PermissionError(
-                f"CSM rejected the Lightfall token (401) on {context}. "
-                f"Check that 'LUCID' is in CSM's KEYCLOAK_ACCEPTED_CLIENT_IDS. {response.text}"
+                f"CSM rejected Lightfall's key (401) on {context}. Was a CSM key minted at login? "
+                f"Look in the log for 'mint failed for service=csm:'. {response.text}"
             )
         if response.status_code == 403:
             raise PermissionError(

@@ -317,33 +317,32 @@ def test_happi_client_search_builds_valid_results(httpx_mock):
     assert results[0].metadata["prefix"] == "BL601:ACR1:m1"
 
 
-def test_token_provider_is_called_per_request(httpx_mock):
-    tokens = iter(["tok-1", "tok-2"])
-    seen: list[str] = []
+class _RotatingApikey(httpx.Auth):
+    def __init__(self, secrets):
+        self._secrets = iter(secrets)
 
-    def _callback(request: httpx.Request) -> httpx.Response:
-        seen.append(request.headers.get("Authorization", ""))
+    def auth_flow(self, request):
+        request.headers["Authorization"] = f"Apikey {next(self._secrets)}"
+        yield request
+
+
+def test_auth_applies_per_request(httpx_mock):
+    seen = []
+
+    def _callback(request):
+        seen.append(request.headers.get("Authorization"))
         return httpx.Response(200, json=[])
 
     httpx_mock.add_callback(_callback, is_reusable=True)
-    backend = CSMBackend(url=BASE_URL, token_provider=lambda: next(tokens))
+    backend = CSMBackend(url=BASE_URL, auth=_RotatingApikey(["k1", "k2"]))
     list(backend.all_items)
     list(backend.all_items)
-    assert seen == ["Bearer tok-1", "Bearer tok-2"]
+    assert seen == ["Apikey k1", "Apikey k2"]
 
 
-def test_token_provider_returning_none_sends_no_header(httpx_mock):
-    def _callback(request: httpx.Request) -> httpx.Response:
-        assert "Authorization" not in request.headers
-        return httpx.Response(200, json=[])
-
-    httpx_mock.add_callback(_callback)
-    list(CSMBackend(url=BASE_URL, token_provider=lambda: None).all_items)
-
-
-def test_token_and_token_provider_are_exclusive():
+def test_token_and_auth_are_exclusive():
     with pytest.raises(ValueError):
-        CSMBackend(url=BASE_URL, token="t", token_provider=lambda: "t")
+        CSMBackend(url=BASE_URL, token="t", auth=_RotatingApikey(["k"]))
 
 
 def test_base_params_merge_into_searches(httpx_mock):
@@ -376,11 +375,9 @@ def test_caller_params_win_over_base_params_except_include_inactive(httpx_mock):
     list(backend.find({"name": "m1"}))
 
 
-def test_401_message_names_the_allowlist(httpx_mock, backend: CSMBackend):
+def test_401_message_points_at_the_mint(httpx_mock, backend: CSMBackend):
     httpx_mock.add_response(status_code=401)
-    with pytest.raises(
-        PermissionError, match="Check that 'LUCID' is in CSM's KEYCLOAK_ACCEPTED_CLIENT_IDS"
-    ):
+    with pytest.raises(PermissionError, match=r"Was a CSM key minted at login\?"):
         list(backend.all_items)
 
 

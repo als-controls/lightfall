@@ -51,25 +51,28 @@ def csm_mint_targets() -> list[str]:
     return targets
 
 
-def session_token() -> str | None:
-    """The logged-in user's Keycloak access token, or None."""
+def csm_api_key(url: str) -> str | None:
+    """This session's minted CSM key for ``url``, or None (logged out / mint failed)."""
     from lightfall.auth.session import SessionManager
 
-    session = SessionManager.get_instance().session
-    return session.token if session is not None else None
+    return SessionManager.get_instance().get_api_key(csm_service_id(url))
 
 
-def _get(url: str, path: str, token: str, params: dict[str, Any] | None, timeout: float) -> Any:
-    response = httpx.get(
-        f"{url.rstrip('/')}{path}",
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=timeout,
-    )
+def csm_auth(url: str) -> httpx.Auth:
+    """Per-request auth for ``url``: reads the minted key on every request."""
+    from lightfall.auth.service_key_auth import ServiceKeyAuth
+
+    return ServiceKeyAuth(csm_service_id(url))
+
+
+def _get(
+    url: str, path: str, auth: httpx.Auth | None, params: dict[str, Any] | None, timeout: float
+) -> Any:
+    response = httpx.get(f"{url.rstrip('/')}{path}", params=params, auth=auth, timeout=timeout)
     if response.status_code == 401:
         raise PermissionError(
-            "CSM rejected the Lightfall token (401). "
-            "Check that 'LUCID' is in CSM's KEYCLOAK_ACCEPTED_CLIENT_IDS."
+            "CSM rejected Lightfall's key (401). Was a CSM key minted at login? "
+            "Look in the log for 'mint failed for service=csm:'."
         )
     if response.status_code == 403:
         raise PermissionError("CSM: no reader role for this user (403).")
@@ -77,20 +80,22 @@ def _get(url: str, path: str, token: str, params: dict[str, Any] | None, timeout
     return response.json()
 
 
-def fetch_beamlines(url: str, token: str, timeout: float = 10.0) -> list[tuple[int, str]]:
+def fetch_beamlines(
+    url: str, auth: httpx.Auth | None, timeout: float = 10.0
+) -> list[tuple[int, str]]:
     """Beamlines visible to the user, as ``(id, name)`` sorted by name."""
-    rows = _get(url, "/api/admin/beamlines", token, None, timeout)
+    rows = _get(url, "/api/admin/beamlines", auth, None, timeout)
     return sorted(((int(b["id"]), str(b["name"])) for b in rows), key=lambda item: item[1])
 
 
 def fetch_iocs(
-    url: str, token: str, beamline_id: int, timeout: float = 10.0
+    url: str, auth: httpx.Auth | None, beamline_id: int, timeout: float = 10.0
 ) -> list[tuple[int, str]]:
     """IOCs that own instantiables on a beamline, as ``(id, name)`` sorted by name."""
     rows = _get(
         url,
         "/api/instantiables",
-        token,
+        auth,
         {"beamline_id": beamline_id, "include_inactive": "true"},
         timeout,
     )
@@ -159,7 +164,7 @@ class _CSMEditor(BackendEditor):
         form.addRow(
             hint(
                 "Loads the instantiables CSM has for this scope and builds their python "
-                "recipes with happi. Uses your Lightfall login; loads after you log in."
+                "recipes with happi. Uses the CSM key Lightfall mints when you log in; loads after login."
             )
         )
         self.refresh()
@@ -219,15 +224,14 @@ class _CSMEditor(BackendEditor):
 
     def refresh(self) -> None:
         """Reload the beamline list (and then IOCs) from CSM if logged in."""
-        token = session_token()
         url = self._url.text().strip()
-        if not token or not url:
+        if not url or not csm_api_key(url):
             self._beamline.setEnabled(False)
             self._ioc.setEnabled(False)
             self._status.setText("Log in to refresh beamline and IOC lists.")
             return
         self._status.setText("Loading beamlines from CSM…")
-        self._run(lambda: fetch_beamlines(url, session_token() or ""), callback=self._on_beamlines)
+        self._run(lambda: fetch_beamlines(url, csm_auth(url)), callback=self._on_beamlines)
 
     def _on_beamlines(self, items: list[tuple[int, str]]) -> None:
         if not self._alive():
@@ -245,14 +249,11 @@ class _CSMEditor(BackendEditor):
         self.changed.emit()
 
     def _load_iocs(self) -> None:
-        token = session_token()
-        beamline_id = self._beamline.currentData()
-        if not token or beamline_id is None:
-            return
         url = self._url.text().strip()
-        self._run(
-            lambda: fetch_iocs(url, session_token() or "", beamline_id), callback=self._on_iocs
-        )
+        beamline_id = self._beamline.currentData()
+        if beamline_id is None or not csm_api_key(url):
+            return
+        self._run(lambda: fetch_iocs(url, csm_auth(url), beamline_id), callback=self._on_iocs)
 
     def _on_iocs(self, items: list[tuple[int, str]]) -> None:
         if not self._alive():
@@ -321,7 +322,7 @@ class CSMBackendType(BackendType):
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> CSMDeviceBackend:
         return CSMDeviceBackend(
             str(config["url"]),
-            session_token,
+            csm_auth(str(config["url"])),
             beamline_id=int(config["beamline_id"]),
             ioc_id=config.get("ioc_id"),
             name_filter=str(config.get("name_filter") or ""),

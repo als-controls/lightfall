@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from lightfall.auth.service_key_auth import ServiceKeyAuth, StaticApiKeyAuth
 from lightfall.devices.backend_types import csm as csm_type
 from lightfall.devices.backend_types.base import BuildContext
 from lightfall.devices.backend_types.csm import CSMBackendType, fetch_beamlines, fetch_iocs
@@ -26,17 +27,17 @@ SAVED = {
 
 @pytest.fixture(autouse=True)
 def _logged_out(monkeypatch):
-    monkeypatch.setattr(csm_type, "session_token", lambda: None)
+    monkeypatch.setattr(csm_type, "csm_api_key", lambda url: None)
 
 
 def test_fetch_beamlines(httpx_mock):
     def _cb(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/admin/beamlines"
-        assert request.headers["Authorization"] == "Bearer tok"
+        assert request.headers["Authorization"] == "Apikey tok"
         return httpx.Response(200, json=[{"id": 2, "name": "7.0.1.1"}, {"id": 1, "name": "6.0.1"}])
 
     httpx_mock.add_callback(_cb)
-    assert fetch_beamlines(URL, "tok") == [(1, "6.0.1"), (2, "7.0.1.1")]
+    assert fetch_beamlines(URL, StaticApiKeyAuth("tok")) == [(1, "6.0.1"), (2, "7.0.1.1")]
 
 
 def test_fetch_iocs_distinct_sorted(httpx_mock):
@@ -53,7 +54,7 @@ def test_fetch_iocs_distinct_sorted(httpx_mock):
         )
 
     httpx_mock.add_callback(_cb)
-    assert fetch_iocs(URL, "tok", 12) == [(34, "acr9000-7011"), (9, "adsim")]
+    assert fetch_iocs(URL, StaticApiKeyAuth("tok"), 12) == [(34, "acr9000-7011"), (9, "adsim")]
 
 
 def test_type_basics():
@@ -74,6 +75,8 @@ def test_build():
     assert isinstance(backend, CSMDeviceBackend)
     assert backend.name == "csm-7011"
     assert backend.base_params == {"beamline_id": 12, "ioc_id": 34, "include_inactive": "false"}
+    assert isinstance(backend._auth, ServiceKeyAuth)
+    assert backend._auth._service == "csm:https://csm.test"
 
 
 def test_registered():
@@ -157,7 +160,10 @@ def test_token_never_passed_as_worker_arg(qtbot, monkeypatch):
             pass
 
     monkeypatch.setattr(threads, "QThreadFuture", _Recorder)
-    monkeypatch.setattr(csm_type, "session_token", lambda: "secret-tok")
+    monkeypatch.setattr(csm_type, "csm_api_key", lambda url: "secret-tok")
+    monkeypatch.setattr(
+        "lightfall.auth.session.SessionManager.get_api_key", lambda self, service: "secret-tok"
+    )
     editor = CSMBackendType().create_editor(SAVED)
     qtbot.addWidget(editor)
     assert recorded, "refresh() should start a fetch when logged in"

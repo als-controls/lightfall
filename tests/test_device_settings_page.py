@@ -24,7 +24,7 @@ class FakePrefs:
 def prefs(monkeypatch):
     fake = FakePrefs()
     monkeypatch.setattr(device_settings.PreferencesManager, "get_instance", lambda: fake)
-    monkeypatch.setattr("lightfall.devices.backend_types.csm.session_token", lambda: None)
+    monkeypatch.setattr("lightfall.devices.backend_types.csm.csm_api_key", lambda url: None)
     BackendTypeRegistry.reset()
     yield fake
     BackendTypeRegistry.reset()
