@@ -38,6 +38,15 @@ def _is_json(value: Any) -> bool:
     return True
 
 
+SETTINGS_SUBJECT = "lightfall.settings.changed"  # lightfall_logbook.scoped_api.SETTINGS_SUBJECT
+
+
+def _default_ipc() -> Any:
+    from lightfall.ipc.service import get_ipc_service
+
+    return get_ipc_service()
+
+
 Runner = Callable[[Callable[[], Any], Callable[[Any], None], Callable[[Exception], None]], None]
 
 
@@ -61,7 +70,8 @@ class ScopedBackend(PreferenceBackend):
                  bind: str, identity: str, registry: SpecRegistry | None = None,
                  user_preferences: Callable[[], Mapping[str, Any]] = dict,
                  run: Runner | None = None, notify: Callable[[str, str], None] | None = None,
-                 poll_ms: int = 300_000) -> None:
+                 poll_ms: int = 60_000, ipc: Callable[[], Any] | None = None,
+                 debounce_ms: int = 500) -> None:
         super().__init__()
         self._local = local
         self._client = client
@@ -87,12 +97,60 @@ class ScopedBackend(PreferenceBackend):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._poll_ms = poll_ms
+        # Live updates: server change events (notify-and-pull), debounced.
+        self._ipc_get = ipc or _default_ipc
+        self._ipc: Any = None
+        self._debounce_ms = debounce_ms
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.timeout.connect(self.refresh)
 
     # ── state ───────────────────────────────────────────────────────────
 
     @property
     def active(self) -> bool:
         return self._active
+
+    def _subscribe_events(self) -> None:
+        try:
+            ipc = self._ipc_get()
+        except Exception as e:
+            logger.debug("No IPC service for settings events: {}", e)
+            ipc = None
+        if ipc is None:
+            return
+        try:
+            ipc.subscribe(SETTINGS_SUBJECT, self._on_settings_event, main_thread=True)
+            ipc.sigConnectionChanged.connect(self._on_ipc_connection)
+        except Exception as e:
+            logger.warning("Could not subscribe to settings events: {}", e)
+            return
+        self._ipc = ipc
+
+    def _unsubscribe_events(self) -> None:
+        ipc, self._ipc = self._ipc, None
+        if ipc is None:
+            return
+        try:
+            ipc.unsubscribe(SETTINGS_SUBJECT)
+            ipc.sigConnectionChanged.disconnect(self._on_ipc_connection)
+        except Exception:
+            pass
+
+    def _on_settings_event(self, subject: str, data: Any, reply: str | None) -> None:
+        if not self._active or not isinstance(data, dict):
+            return
+        scope = data.get("scope")
+        if self._store is not None and scope not in self._store.chain:
+            return  # another user's scope, or outside this chain
+        if self._debounce_ms <= 0:
+            self.refresh()
+        else:
+            self._debounce.start(self._debounce_ms)
+
+    def _on_ipc_connection(self, connected: bool) -> None:
+        if connected and self._active:
+            self.refresh()
 
     @property
     def store(self) -> ScopedStore | None:
@@ -105,6 +163,7 @@ class ScopedBackend(PreferenceBackend):
         self._active = True
         if self._poll_ms:
             self._timer.start(self._poll_ms)
+        self._subscribe_events()
         self.refresh()
 
     def deactivate(self) -> None:
@@ -117,6 +176,8 @@ class ScopedBackend(PreferenceBackend):
         self._migrating = False
         self._written.clear()
         self._timer.stop()
+        self._debounce.stop()
+        self._unsubscribe_events()
         for key in sorted(keys):
             after = self._local.get(key, None)
             if after != before[key]:
