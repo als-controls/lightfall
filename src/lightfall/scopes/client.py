@@ -1,6 +1,7 @@
 """Sync HTTP client for the logbook scoped-settings endpoints (read side)."""
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -19,11 +20,23 @@ _TIMEOUT = 10.0
 
 
 class ScopesError(Exception):
-    """A scoped-settings request failed. ``status`` is None for transport failures."""
+    """A scoped-settings request failed. ``status`` is None for transport failures;
+    ``code`` is the server's machine-readable reason (e.g. ``key_pending``)."""
 
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.code = code
+
+
+def _code(r: httpx.Response) -> str | None:
+    try:
+        body = r.json()
+    except ValueError:
+        return None
+    extra = body.get("extra") if isinstance(body, dict) else None
+    code = extra.get("code") if isinstance(extra, dict) else None
+    return str(code) if code else None
 
 
 @dataclass(frozen=True)
@@ -126,7 +139,37 @@ class ScopesClient:
     @staticmethod
     def _raise_for(r: httpx.Response, what: str) -> None:
         if r.status_code >= 400:
-            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code)
+            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code, code=_code(r))
+
+    def _send(self, method: str, path: str, *, json_body: Any = None,
+              headers: dict[str, str] | None = None) -> httpx.Response:
+        try:
+            with self._client() as c:
+                return c.request(method, path, json=json_body, headers=headers)
+        except _TRANSPORT_ERRORS as e:
+            logger.debug("Scoped settings {} {} failed: {}", method, path, e)
+            raise ScopesError(f"Logbook server unreachable: {e}") from e
+
+    def put_setting(self, scope: str, key: str, value: Any, *, version: int | None = None,
+                    proposed_spec: dict[str, Any] | None = None) -> int:
+        headers: dict[str, str] = {}
+        if version:
+            headers["If-Match"] = str(version)
+        if proposed_spec is not None:
+            headers["X-Proposed-Spec"] = json.dumps(proposed_spec)
+        r = self._send("PUT", f"/logbook/scopes/{scope}/settings/{key}",
+                       json_body={"value": value}, headers=headers or None)
+        self._raise_for(r, f"Set {key} at {scope}")
+        try:
+            return int(r.json()["version"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise ScopesError(f"Set {key} at {scope}: malformed response ({e})") from e
+
+    def delete_setting(self, scope: str, key: str) -> None:
+        r = self._send("DELETE", f"/logbook/scopes/{scope}/settings/{key}")
+        if r.status_code == 404:
+            return
+        self._raise_for(r, f"Reset {key} at {scope}")
 
     def chain(self, bind: str) -> ChainInfo:
         r = self._get("/logbook/scopes/chain", params={"bind": bind})

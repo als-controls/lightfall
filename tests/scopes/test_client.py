@@ -74,3 +74,46 @@ def test_malformed_json_is_a_scopes_error(httpx_mock):
     httpx_mock.add_response(url=f"{BASE}/logbook/scopes/chain?bind=facility", json={"oops": 1})
     with pytest.raises(ScopesError):
         _client().chain("facility")
+
+
+def test_put_setting_sends_if_match_and_returns_version(httpx_mock):
+    httpx_mock.add_response(
+        method="PUT", url=f"{BASE}/logbook/scopes/user:u1/settings/theme",
+        match_headers={"If-Match": "3"}, match_json={"value": "dark"},
+        json={"scope": "user:u1", "key": "theme", "value": "dark", "version": 4},
+    )
+    assert _client().put_setting("user:u1", "theme", "dark", version=3) == 4
+
+
+def test_put_new_row_has_no_if_match(httpx_mock):
+    httpx_mock.add_response(method="PUT", url=f"{BASE}/logbook/scopes/user:u1/settings/theme",
+                            json={"version": 1})
+    assert _client().put_setting("user:u1", "theme", "dark") == 1
+    assert "If-Match" not in httpx_mock.get_request().headers
+
+
+def test_put_key_pending_carries_code_and_sends_proposal(httpx_mock):
+    httpx_mock.add_response(
+        method="PUT", url=f"{BASE}/logbook/scopes/branch:7.0.1.1/settings/tiled_url",
+        status_code=409,
+        json={"status_code": 409, "detail": "tiled_url is not an approved setting yet",
+              "extra": {"code": "key_pending", "status": "pending"}},
+    )
+    with pytest.raises(ScopesError) as ei:
+        _client().put_setting("branch:7.0.1.1", "tiled_url", "x",
+                              proposed_spec={"key": "tiled_url", "type": "any"})
+    assert (ei.value.status, ei.value.code) == (409, "key_pending")
+    assert '"tiled_url"' in httpx_mock.get_request().headers["X-Proposed-Spec"]
+
+
+def test_delete_setting_treats_404_as_done(httpx_mock):
+    httpx_mock.add_response(method="DELETE",
+                            url=f"{BASE}/logbook/scopes/user:u1/settings/theme", status_code=404)
+    _client().delete_setting("user:u1", "theme")
+
+
+def test_delete_transport_error(httpx_mock):
+    httpx_mock.add_exception(httpx.ConnectError("refused"))
+    with pytest.raises(ScopesError) as ei:
+        _client().delete_setting("user:u1", "theme")
+    assert ei.value.status is None
