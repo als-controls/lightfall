@@ -114,6 +114,12 @@ builtin_manifest = PluginManifest(
             name="logbook",
             import_path="lightfall.ui.preferences.logbook_settings:LogbookSettingsPlugin",
         ),
+        # Scoped settings (read-only view, phase 4a)
+        PluginEntry(
+            type_name="settings",
+            name="scopes",
+            import_path="lightfall.ui.preferences.scopes_settings:ScopesSettingsPlugin",
+        ),
         # IPC settings
         PluginEntry(
             type_name="settings",
