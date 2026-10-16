@@ -28,7 +28,12 @@ A CSM instantiable looks like::
 
 and is translated into a happi document as follows:
 
-* ``name`` -> happi's ``name`` *and* ``_id`` (happi identifies items by name).
+* ``name`` -> happi's ``name`` *and* ``_id`` (happi identifies items by name),
+  made a Python identifier by :func:`happi_name`: CSM names are labels ("Det
+  Translate") and happi's containers refuse anything else, so every such row
+  came back from ``Client.search()`` as an ``InvalidResult``. CSM's own name
+  is kept as ``csm_name``, and it is the ``display_name`` unless the row's
+  display metadata sets one.
 * The recipe whose ``system == "python"`` (if any) supplies
   ``device_class`` (from ``target``), ``args``, and ``kwargs``. The
   ``{{...}}`` placeholders inside those recipes are happi's own templating
@@ -95,6 +100,7 @@ itself favors environment-driven configuration (``$HAPPI_CFG``).
 
 from __future__ import annotations
 
+import keyword
 import os
 import re
 from collections.abc import Iterator
@@ -105,7 +111,7 @@ from happi.backends.core import ItemMeta, ItemMetaGen, _Backend
 from happi.errors import DuplicateError, SearchError
 from loguru import logger
 
-__all__ = ["DISPLAY_KEYS", "CSMBackend"]
+__all__ = ["DISPLAY_KEYS", "CSMBackend", "happi_name"]
 
 #: What Lightfall may change on a CSM instantiable: how it is shown, never what it is.
 #: Must equal CSM's app.services.instantiable_display.DISPLAY_KEYS.
@@ -116,6 +122,35 @@ DISPLAY_KEYS: frozenset[str] = frozenset(
 #: Keys happi or this module add to a document that are not CSM data, ignored when
 #: deciding whether an update touches anything beyond display metadata.
 _BOOKKEEPING_KEYS: frozenset[str] = frozenset({"_id", "type", "creation", "last_edit"})
+
+
+def happi_name(csm_name: str, csm_id: Any = None) -> str:
+    """The happi name for a CSM instantiable: its CSM name made an identifier.
+
+    happi's containers require ``name`` to be a Python identifier that is not
+    a keyword; CSM's names are human labels. Runs of anything but letters,
+    digits and ``_`` become one ``_``, the result is lower-cased, and a
+    leading digit gets a ``_`` in front, so ``"Det Translate"`` is
+    ``"det_translate"``. A name that is already an identifier is kept as it
+    is, so a row Lightfall itself created round-trips unchanged.
+
+    Args:
+        csm_name: The instantiable's name in CSM.
+        csm_id: Its CSM id, for a name with nothing usable in it.
+
+    Returns:
+        A valid, non-keyword Python identifier.
+    """
+    if csm_name.isidentifier() and not keyword.iskeyword(csm_name):
+        return csm_name
+    name = re.sub(r"[^0-9A-Za-z_]+", "_", csm_name).strip("_").lower()
+    if not name:
+        return f"instantiable_{csm_id}"
+    if name[0].isdigit():
+        name = f"_{name}"
+    if keyword.iskeyword(name):
+        name = f"{name}_"
+    return name
 
 
 def _blank_as_none(value: Any) -> Any:
@@ -185,10 +220,15 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
     # Display-only metadata (CSM instantiable_display) sits at top level like fields.
     doc.update(entry.get("display") or {})
 
+    # CSM's name is a label; happi's must be an identifier (see happi_name).
+    # The label stays as the name people see unless a display name is set.
+    doc["csm_name"] = entry["name"]
+    if not doc.get("display_name"):
+        doc["display_name"] = entry["name"]
+
     # Set identity keys last so nothing above (in particular a stray
     # "name" inside `fields`) can shadow them.
-    doc["name"] = entry["name"]
-    doc["_id"] = entry["name"]
+    doc["name"] = doc["_id"] = happi_name(entry["name"], entry.get("id"))
     return doc
 
 
@@ -248,6 +288,10 @@ class CSMBackend(_Backend):
         self._base_url = url.rstrip("/")
         self._instantiables_url = f"{self._base_url}/api/instantiables"
         self._base_params: dict[str, Any] = dict(base_params or {})
+        # happi name -> CSM name, for every document this backend has handed
+        # out. Lookups by happi name (get_by_id, find on "name") must ask CSM
+        # for the CSM name, and happi_name() cannot be inverted.
+        self._csm_names: dict[str, str] = {}
         if client is not None:
             self._client = client
         else:
@@ -342,7 +386,38 @@ class CSMBackend(_Backend):
         """
         entries = self._get_json("/api/instantiables", params=self._merge_params(params))
         for entry in entries:
-            yield entry_to_happi_document(entry)
+            yield self._document(entry)
+
+    def _document(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Translate one entry and remember which CSM name its happi name stands for.
+
+        Two CSM names can make the same identifier ("M202 Mirror" and
+        "m202_mirror"); the second one seen takes its CSM id as a suffix, so
+        happi never sees two items under one name.
+        """
+        doc = entry_to_happi_document(entry)
+        known = self._csm_names.get(doc["name"])
+        if known is not None and known != entry["name"]:
+            doc["name"] = doc["_id"] = f"{doc['name']}_{entry.get('id')}"
+            logger.warning(
+                "CSM instantiables {!r} and {!r} share the happi name; the second is {!r}",
+                known,
+                entry["name"],
+                doc["name"],
+            )
+        self._csm_names[doc["name"]] = entry["name"]
+        return doc
+
+    def _csm_name(self, happi_id: str) -> str:
+        """The CSM name behind a happi name this backend has handed out, else the name itself."""
+        return self._csm_names.get(happi_id, happi_id)
+
+    def _find_one(self, csm_name: str) -> httpx.Response:
+        """``GET /find`` for one CSM name, inactive rows included."""
+        return self._client.get(
+            f"{self._instantiables_url}/find",
+            params={"name": csm_name, "include_inactive": "true"},
+        )
 
     # -- _Backend interface ----------------------------------------------
 
@@ -358,7 +433,7 @@ class CSMBackend(_Backend):
         """Look up one instantiable by name.
 
         Args:
-            id_: The happi ``_id`` == CSM instantiable ``name``.
+            id_: The happi ``_id``: :func:`happi_name` of the CSM name.
 
         Returns:
             The matching happi document, or ``None`` if there is no match.
@@ -367,14 +442,13 @@ class CSMBackend(_Backend):
             SearchError: If more than one CSM instantiable shares this name
                 (CSM's ``/find`` endpoint 409s on ambiguity).
         """
-        response = self._client.get(
-            f"{self._instantiables_url}/find",
-            params={"name": id_, "include_inactive": "true"},
-        )
+        # A name this backend has not handed out is asked for as it is: a scope
+        # row's or a new row's name is already the CSM name.
+        response = self._find_one(self._csm_name(id_))
         if response.status_code == 404:
             return None
         self._raise_for_status(response, context=f"get_by_id {id_!r}")
-        return entry_to_happi_document(response.json())
+        return self._document(response.json())
 
     @staticmethod
     def _to_field_params(to_match: dict[str, Any]) -> dict[str, Any]:
@@ -413,7 +487,16 @@ class CSMBackend(_Backend):
         Yields:
             Matching happi documents.
         """
-        yield from self._iter_search(self._to_field_params(to_match))
+        yield from self._iter_search(self._to_field_params(self._by_csm_name(to_match)))
+
+    def _by_csm_name(self, to_match: dict[str, Any]) -> dict[str, Any]:
+        """``to_match`` with a happi name swapped for the CSM name it stands for."""
+        return {
+            key: self._csm_name(value)
+            if key in ("name", "_id") and isinstance(value, str)
+            else value
+            for key, value in to_match.items()
+        }
 
     def find_range(
         self,
@@ -434,7 +517,7 @@ class CSMBackend(_Backend):
         Yields:
             Matching happi documents.
         """
-        params = self._to_field_params(to_match)
+        params = self._to_field_params(self._by_csm_name(to_match))
         params["range"] = f"{key}:{start}:{stop if stop is not None else ''}"
         yield from self._iter_search(params)
 
@@ -506,9 +589,21 @@ class CSMBackend(_Backend):
                 }
             )
         reserved = {
-            "name", "_id", "type", "device_class", "args", "kwargs", "documentation", "active",
-            "csm_id", "csm_origin", "csm_is_synced", "csm_ioc_name", "csm_beamline_name",
+            "name",
+            "_id",
+            "type",
+            "device_class",
+            "args",
+            "kwargs",
+            "documentation",
+            "active",
+            "csm_id",
+            "csm_origin",
+            "csm_is_synced",
+            "csm_ioc_name",
+            "csm_beamline_name",
             "csm_ioc_runtime_status",
+            "csm_name",
         }
         fields = {
             key: value

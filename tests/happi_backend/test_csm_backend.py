@@ -12,7 +12,12 @@ import httpx
 import pytest
 from happi.errors import DuplicateError, SearchError
 
-from lightfall.happi_backend.csm import DISPLAY_KEYS, CSMBackend, entry_to_happi_document
+from lightfall.happi_backend.csm import (
+    DISPLAY_KEYS,
+    CSMBackend,
+    entry_to_happi_document,
+    happi_name,
+)
 
 BASE_URL = "https://csm.test"
 
@@ -94,6 +99,72 @@ def test_entry_to_happi_document_name_cannot_be_shadowed_by_fields():
     doc = entry_to_happi_document(entry)
     assert doc["name"] == "m1"
     assert doc["_id"] == "m1"
+
+
+# ---------------------------------------------------------------------------
+# Names: CSM's are labels, happi's must be identifiers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("csm_name", "expected"),
+    [
+        ("m1", "m1"),
+        ("Det_Translate", "Det_Translate"),
+        ("Det Translate", "det_translate"),
+        ("M202 Mirror Jack", "m202_mirror_jack"),
+        ("EPU (fake) servo-2", "epu_fake_servo_2"),
+        ("7.0.1 slit", "_7_0_1_slit"),
+        ("class", "class_"),
+        ("???", "instantiable_9"),
+    ],
+)
+def test_happi_name_is_an_identifier(csm_name, expected):
+    assert happi_name(csm_name, 9) == expected
+
+
+def test_a_labelled_csm_row_becomes_a_valid_ophyd_item():
+    """The 7.0.1.1 regression: "Det Translate" came back as an InvalidResult."""
+    from happi.item import OphydItem
+
+    doc = entry_to_happi_document(_entry(name="Det Translate"))
+
+    assert doc["name"] == doc["_id"] == "det_translate"
+    assert doc["csm_name"] == "Det Translate"
+    assert doc["display_name"] == "Det Translate"
+    item = OphydItem(**{k: v for k, v in doc.items() if k not in ("_id", "type")})
+    assert item.name == "det_translate"
+
+
+def test_a_display_name_set_in_csm_wins_over_the_label():
+    doc = entry_to_happi_document(
+        _entry(name="Det Translate", display={"display_name": "Detector Z"})
+    )
+    assert doc["display_name"] == "Detector Z"
+
+
+def test_lookups_by_happi_name_ask_csm_for_its_own_name(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables?include_inactive=true",
+        json=[_entry(name="Det Translate")],
+    )
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables/find?name=Det+Translate&include_inactive=true",
+        json=_entry(name="Det Translate"),
+    )
+    assert [i["name"] for i in backend.all_items] == ["det_translate"]
+
+    doc = backend.get_by_id("det_translate")
+    assert doc is not None and doc["csm_id"] == 7
+
+
+def test_two_csm_names_with_one_identifier_stay_apart(httpx_mock, backend: CSMBackend):
+    httpx_mock.add_response(
+        url=f"{BASE_URL}/api/instantiables?include_inactive=true",
+        json=[_entry(name="M202 Mirror"), _entry(id=8, name="m202_mirror ")],
+    )
+    names = [i["name"] for i in backend.all_items]
+    assert names == ["m202_mirror", "m202_mirror_8"]
 
 
 # ---------------------------------------------------------------------------
