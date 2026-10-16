@@ -224,6 +224,9 @@ class CSMBackend(_Backend):
         every search; see :meth:`_merge_params`.
     transport : httpx.BaseTransport, optional
         Transport for the constructed ``httpx.Client`` (mainly for tests).
+    proxy : str, optional
+        Proxy URL for the constructed ``httpx.Client`` (e.g. Lightfall's SOCKS
+        proxy for *.lbl.gov hosts reached from off-site).
     """
 
     def __init__(
@@ -237,6 +240,7 @@ class CSMBackend(_Backend):
         auth: httpx.Auth | None = None,
         base_params: dict[str, Any] | None = None,
         transport: httpx.BaseTransport | None = None,
+        proxy: str | None = None,
     ) -> None:
         del cfg_path  # unused; see class docstring
         if token and auth is not None:
@@ -249,7 +253,7 @@ class CSMBackend(_Backend):
         else:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
             self._client = httpx.Client(
-                headers=headers, auth=auth, timeout=timeout, transport=transport
+                headers=headers, auth=auth, timeout=timeout, transport=transport, proxy=proxy
             )
 
     @classmethod

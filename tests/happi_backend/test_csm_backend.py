@@ -465,3 +465,16 @@ def test_save_insert_sends_display_separately(httpx_mock, backend: CSMBackend):
 def test_delete_refused_without_request(backend: CSMBackend):
     with pytest.raises(PermissionError, match="does not delete"):
         backend.delete("m1")
+
+
+def test_proxy_reaches_the_http_client(monkeypatch):
+    captured = {}
+    real_client = httpx.Client
+
+    def _client(**kwargs):
+        captured.update(kwargs)
+        return real_client(**{k: v for k, v in kwargs.items() if k != "proxy"})
+
+    monkeypatch.setattr(httpx, "Client", _client)
+    CSMBackend(url=BASE_URL, token="t", proxy="socks5://localhost:1080")
+    assert captured["proxy"] == "socks5://localhost:1080"

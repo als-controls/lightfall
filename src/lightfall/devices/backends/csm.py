@@ -41,6 +41,7 @@ class CSMDeviceBackend(HappiBackend):
         instantiate: happi instantiation mode (see :class:`HappiBackend`).
         connection_timeout: Per-device connection timeout in seconds.
         transport: Optional httpx transport (tests).
+        proxy: Proxy URL for CSM requests (e.g. ``socks5://localhost:1080``), or None.
     """
 
     def __init__(
@@ -58,6 +59,7 @@ class CSMDeviceBackend(HappiBackend):
         instantiate: str = "background",
         connection_timeout: float | None = None,
         transport: httpx.BaseTransport | None = None,
+        proxy: str | None = None,
     ) -> None:
         super().__init__(
             path=None,
@@ -69,6 +71,7 @@ class CSMDeviceBackend(HappiBackend):
         self._url = url
         self._auth = auth
         self._transport = transport
+        self._proxy = proxy
         self._beamline_name = beamline_name
         params: dict[str, Any] = {"beamline_id": beamline_id}
         if ioc_id is not None:
@@ -100,6 +103,7 @@ class CSMDeviceBackend(HappiBackend):
             auth=self._auth,
             base_params=self._base_params,
             transport=self._transport,
+            proxy=self._proxy,
         )
         self._csm_db = database
         return happi.Client(database=database)

@@ -79,6 +79,20 @@ def session_authenticated() -> bool:
     return SessionManager.get_instance().is_authenticated
 
 
+def csm_proxy(url: str) -> str | None:
+    """Lightfall's proxy for ``url`` (e.g. the off-site SOCKS proxy), or None.
+
+    Same lookup the key mint and the other services use; *.lbl.gov hosts such
+    as bcgmgmt are often reachable only through it.
+    """
+    try:
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
+
+        return ProxySettingsProvider.should_use_proxy_for_url(url)
+    except Exception:
+        return None
+
+
 def csm_api_key(url: str) -> str | None:
     """This session's minted CSM key for ``url``, or None (logged out / mint failed)."""
     from lightfall.auth.session import SessionManager
@@ -96,7 +110,8 @@ def csm_auth(url: str) -> httpx.Auth:
 def _get(
     url: str, path: str, auth: httpx.Auth | None, params: dict[str, Any] | None, timeout: float
 ) -> Any:
-    response = httpx.get(f"{url.rstrip('/')}{path}", params=params, auth=auth, timeout=timeout)
+    full = f"{url.rstrip('/')}{path}"
+    response = httpx.get(full, params=params, auth=auth, timeout=timeout, proxy=csm_proxy(full))
     if response.status_code == 401:
         raise PermissionError(
             "CSM rejected Lightfall's key (401). Was a CSM key minted at login? "
@@ -358,6 +373,7 @@ class CSMBackendType(BackendType):
         return CSMDeviceBackend(
             str(config["url"]),
             csm_auth(str(config["url"])),
+            proxy=csm_proxy(str(config["url"])),
             beamline_id=int(config["beamline_id"]),
             ioc_id=config.get("ioc_id"),
             name_filter=str(config.get("name_filter") or ""),

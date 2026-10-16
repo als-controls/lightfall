@@ -190,3 +190,23 @@ def test_editor_logged_in_without_key_explains_relogin(qtbot, monkeypatch):
     qtbot.addWidget(editor)
     assert "log out and back in" in editor._status.text()
     assert not editor._beamline.isEnabled()
+
+
+def test_lookups_go_through_the_configured_proxy(monkeypatch):
+    """bcgmgmt is only reachable through the user's SOCKS proxy off-site."""
+    seen = {}
+
+    def _fake_get(url, **kwargs):
+        seen.update(kwargs)
+        return httpx.Response(200, json=[], request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(csm_type, "csm_proxy", lambda url: "socks5://localhost:1080")
+    monkeypatch.setattr(csm_type.httpx, "get", _fake_get)
+    fetch_beamlines(URL, StaticApiKeyAuth("tok"))
+    assert seen["proxy"] == "socks5://localhost:1080"
+
+
+def test_build_passes_proxy_to_backend(monkeypatch):
+    monkeypatch.setattr(csm_type, "csm_proxy", lambda url: "socks5://localhost:1080")
+    backend = CSMBackendType().build(SAVED, "csm-7011", BuildContext("background", 4.0))
+    assert backend._proxy == "socks5://localhost:1080"
