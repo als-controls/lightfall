@@ -77,6 +77,9 @@ class ScopedBackend(PreferenceBackend):
     def store(self) -> ScopedStore | None:
         return self._store
 
+    def serves(self, identity: str, bind: str) -> bool:
+        return self._active and identity == self._identity and bind == self._bind
+
     def activate(self) -> None:
         self._active = True
         if self._poll_ms:

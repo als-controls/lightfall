@@ -12,6 +12,8 @@ import os
 # the time), which is why CI and local runs blame different tests. An explicit
 # OPHYD_CONTROL_LAYER (e.g. for the gated integration suites) still wins.
 os.environ.setdefault("OPHYD_CONTROL_LAYER", "dummy")
+# Scoped preferences talk to the logbook server; tests opt in explicitly.
+os.environ.setdefault("LIGHTFALL_SCOPES_DISABLED", "1")
 
 # Match production's global pyqtgraph image axis order. In the app this is set
 # at startup by apply_pyqtgraph_theme(); pyqtgraph's built-in default is

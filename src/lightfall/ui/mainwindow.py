@@ -671,6 +671,19 @@ class LFMainWindow(QMainWindow):
             # Pull user-portable preferences (e.g. profile_image_id) so the
             # avatar and any open dialogs render the user's saved values.
             self._prefs_manager.refresh_user_portable_keys()
+        self._update_scoped_preferences(user)
+
+    def _update_scoped_preferences(self, user: Any) -> None:
+        """Resolve preferences through scoped settings while a user is logged in."""
+        prefs = self._prefs_manager
+        logged_in = getattr(user, "username", "anonymous") != "anonymous"
+        if (not logged_in or not prefs.get("logbook_enabled", True)
+                or prefs.get("logbook_offline_only", False)):
+            prefs.deactivate_scopes()
+            return
+        from lightfall.scopes.site import get_site_bind
+
+        prefs.activate_scopes(user.username, get_site_bind())
 
     def _show_login_notification(self, user: Any) -> None:
         """Show toast with session expiry info.

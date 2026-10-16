@@ -28,6 +28,12 @@ class ConfigManager(_BaseConfigManager):
         kwargs.setdefault("defaults_path", _lightfall_defaults_path())
         super().__init__(**kwargs)
 
+    def user_preferences(self) -> dict[str, Any]:
+        """Preferences the user saved: the user config layer only, without defaults."""
+        layer = self._layered.get_layer("user")
+        prefs = layer.get("preferences", {}) if layer is not None else {}
+        return dict(prefs) if isinstance(prefs, dict) else {}
+
     @property
     def model(self) -> LFConfig:
         """The validated configuration model, typed as LFConfig."""

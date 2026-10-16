@@ -9,6 +9,7 @@ Supports beamline-specific preference overrides where appropriate.
 
 from __future__ import annotations
 
+import os
 import threading
 import weakref
 from collections.abc import Callable
@@ -244,6 +245,7 @@ class PreferencesManager(QObject):
         )
         self._backends: tuple = (self._user_portable, self._local)
         self._topics: dict[str, _Topic] = {}
+        self._scoped: Any = None
         for b in self._backends:
             b.changed.connect(self._on_backend_changed)
 
@@ -291,10 +293,13 @@ class PreferencesManager(QObject):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a preference value. Dispatches to the owning backend.
 
-        For keys in `_USER_PORTABLE_WITH_LOCAL_FALLBACK`, a user-portable
-        cache miss falls through to LocalPreferenceBackend so site or
-        beamline defaults still apply when the user has no saved value.
+        While scoped settings are active, every non-local key resolves through the
+        scope chain. For keys in `_USER_PORTABLE_WITH_LOCAL_FALLBACK`, a user-portable
+        cache miss falls through to LocalPreferenceBackend so site or beamline
+        defaults still apply when the user has no saved value.
         """
+        if self._scoped is not None and self._scoped.owns(key):
+            return self._scoped.get(key, default)
         if key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
             value = self._user_portable.get(key, self._MISSING)
             if value is self._MISSING:
@@ -302,15 +307,30 @@ class PreferencesManager(QObject):
             return value
         return self._backend_for(key).get(key, default)
 
-    def set(self, key: str, value: Any, *, persist: bool = True) -> None:
+    def set(self, key: str, value: Any, *, persist: bool = True, scope: str | None = None) -> None:
         """Set a preference value. Dispatches to the owning backend.
-        `persist` retained for back-compat; user-portable backend ignores it."""
-        self._backend_for(key).set(key, value)
+
+        `scope` (e.g. "branch:7.0.1.1") writes at that scope instead of the user's;
+        it requires active scoped settings. `persist` is retained for back-compat.
+        """
+        backend = self._backend_for(key)
+        if scope is not None:
+            if backend is not self._scoped:
+                raise ValueError(f"Cannot write {key!r} at {scope}: scoped settings are not active")
+            backend.set(key, value, scope=scope)
+        else:
+            backend.set(key, value)
         logger.debug("Preference set: {} = {}", key, _loggable_value(key, value))
 
-    def remove(self, key: str) -> None:
-        """Remove a preference. Dispatches to the owning backend."""
-        self._backend_for(key).remove(key)
+    def remove(self, key: str, *, scope: str | None = None) -> None:
+        """Remove a preference (at `scope` when given). Dispatches to the owning backend."""
+        backend = self._backend_for(key)
+        if scope is not None:
+            if backend is not self._scoped:
+                raise ValueError(f"Cannot reset {key!r} at {scope}: scoped settings are not active")
+            backend.remove(key, scope=scope)
+        else:
+            backend.remove(key)
 
     def subscribe(self, key: str, slot: Callable[[Any], None]) -> None:
         """Subscribe `slot(value)` to changes for this specific `key` only.
@@ -339,11 +359,55 @@ class PreferencesManager(QObject):
         self._user_portable.refresh()
 
     def _backend_for(self, key: str):
-        """Pick the backend that owns `key` (user-portable wins)."""
+        """Pick the backend that owns `key` (scoped, then user-portable, then local)."""
+        if self._scoped is not None and self._scoped.owns(key):
+            return self._scoped
         for b in self._backends:
             if b.owns(key):
                 return b
         return self._local
+
+    @property
+    def scoped_backend(self) -> Any:
+        return self._scoped
+
+    def _user_preferences(self) -> dict[str, Any]:
+        cm = self._config_manager
+        getter = getattr(cm, "user_preferences", None)
+        return getter() if callable(getter) else {}
+
+    def activate_scopes(self, identity: str, bind: str) -> bool:
+        """Resolve non-local preferences through the scope chain for `identity`.
+
+        Returns False (and stays local) when disabled or lightfall-settings is missing.
+        """
+        if os.environ.get("LIGHTFALL_SCOPES_DISABLED") == "1":
+            return False
+        from lightfall.scopes import scopes_available
+
+        if not scopes_available():
+            return False
+        if self._scoped is not None and self._scoped.serves(identity, bind):
+            self._scoped.refresh()  # same user again (e.g. re-login): no teardown flicker
+            return True
+        self.deactivate_scopes()
+        from lightfall.ui.preferences import scoped_backend as sb
+
+        backend = sb.build_scoped_backend(self._local, identity=identity, bind=bind,
+                                          user_preferences=self._user_preferences)
+        backend.changed.connect(self._on_backend_changed)
+        self._scoped = backend
+        backend.activate()
+        logger.info("Scoped preferences active for {} at {}", identity, bind)
+        return True
+
+    def deactivate_scopes(self) -> None:
+        backend, self._scoped = self._scoped, None
+        if backend is None:
+            return
+        backend.deactivate()  # emits YAML values for keys that change back
+        backend.changed.disconnect(self._on_backend_changed)
+        backend.deleteLater()
 
     @Slot(str, object)
     def _on_backend_changed(self, key: str, value: Any) -> None:
