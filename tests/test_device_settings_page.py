@@ -151,3 +151,22 @@ def test_connection_settings_still_saved(page, prefs):
     page._connection_timeout_spin.setValue(7.5)
     page.save_settings()
     assert prefs.data["device_connection_timeout"] == 7.5
+
+
+def test_reopening_preferences_rebuilds_editors(qtbot, prefs):
+    """The registry reuses one plugin instance across Preferences dialogs.
+    Editors from a closed dialog are already deleted; the next open must not
+    touch them ('Internal C++ object (_MockEditor) already deleted', 2026-10-15)."""
+    plugin = device_settings.DeviceSettingsPlugin()
+    first = plugin.create_widget()
+    plugin.load_settings()
+    assert plugin._editors  # the selected row's editor exists
+    with qtbot.waitSignal(first.destroyed, timeout=2000):
+        first.deleteLater()
+
+    second = plugin.create_widget()
+    qtbot.addWidget(second)
+    plugin.load_settings()  # raised RuntimeError before the fix
+    editor = plugin._stack.currentWidget()
+    assert editor is not None and editor.parent() is not None
+    assert plugin._stack.indexOf(editor) >= 0
