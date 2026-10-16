@@ -64,6 +64,9 @@ class FakeLocal:
     def get(self, key, default=None):
         return self._cm.get(f"preferences.{key}", default)
 
+    def store_quiet(self, key, value):
+        self._cm.set(f"preferences.{key}", value)
+
 
 def sync_run(fn, ok, err):
     try:

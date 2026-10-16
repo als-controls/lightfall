@@ -7,7 +7,7 @@ from typing import Any
 
 from lightfall_settings import SpecRegistry
 
-from lightfall.scopes.client import ScopesClient, ScopesError
+from lightfall.scopes.client import ScopesClient, ScopesError, is_transient
 from lightfall.scopes.keys import is_local_only
 from lightfall.utils.logging import logger
 
@@ -60,7 +60,7 @@ def migrate_user_prefs(client: ScopesClient, user_scope: str, prefs: Mapping[str
         try:
             client.put_setting(user_scope, key, value, version=None)
         except ScopesError as e:
-            if e.status is None:
+            if is_transient(e):
                 raise
             logger.warning("Not migrating {}: {}", key, e)
             continue
@@ -74,7 +74,7 @@ def replay_journal(client: ScopesClient, user_scope: str,
                    ) -> tuple[list[str], list[tuple[str, str]]]:
     """Replay offline writes. Returns (applied keys, [(dropped key, reason)]).
 
-    Stops at the first transport failure; unreplayed entries stay journaled.
+    Stops at the first transient failure; unreplayed entries stay journaled.
     """
     done: list[str] = []
     dropped: list[tuple[str, str]] = []
@@ -86,7 +86,7 @@ def replay_journal(client: ScopesClient, user_scope: str,
             push_write(client, user_scope, key, str(entry.get("op")), entry.get("value"),
                        versions.get(key))
         except ScopesError as e:
-            if e.status is None:
+            if is_transient(e):
                 break
             dropped.append((key, str(e)))
             continue

@@ -27,8 +27,12 @@ def _fetch_chain(client: ScopesClient, cache: SnapshotCache, bind: str,
 
 
 def _fetch_snapshot(client: ScopesClient, cache: SnapshotCache, scope: str, offline: bool
-                    ) -> tuple[Snapshot, float | None, bool]:
-    """Returns (snapshot, cached_at if served from cache, offline)."""
+                    ) -> tuple[Snapshot, float | None, bool, bool]:
+    """Returns (snapshot, cached_at if served from cache, offline, failed).
+
+    ``failed`` means the server answered with an error for this scope; the snapshot
+    is then the cached copy (or empty) and must not be treated as authoritative.
+    """
     cached = cache.load_snapshot(scope)
     if not offline:
         try:
@@ -36,18 +40,20 @@ def _fetch_snapshot(client: ScopesClient, cache: SnapshotCache, scope: str, offl
         except ScopesError as e:
             if e.status is not None:
                 logger.warning("Snapshot {} unavailable: {}", scope, e)
-                return Snapshot.empty(scope), None, False
+                if cached is not None:
+                    return cached[0], cached[1], False, True
+                return Snapshot.empty(scope), None, False, True
             offline = True
         else:
             if fresh is not None:
                 cache.save_snapshot(fresh)
-                return fresh, None, False
+                return fresh, None, False, False
             if cached is not None:  # 304
-                return cached[0], None, False
-            return Snapshot.empty(scope), None, False
+                return cached[0], None, False, False
+            return Snapshot.empty(scope), None, False, False
     if cached is not None:
-        return cached[0], cached[1], True
-    return Snapshot.empty(scope), None, True
+        return cached[0], cached[1], True, False
+    return Snapshot.empty(scope), None, True, False
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,7 @@ class FetchedState:
     snapshots: dict[str, Snapshot]
     offline: bool
     cached_at: float | None
+    failed: frozenset[str] = frozenset()
 
 
 def fetch_state(client: ScopesClient, cache: SnapshotCache, bind: str,
@@ -64,10 +71,14 @@ def fetch_state(client: ScopesClient, cache: SnapshotCache, bind: str,
     offline = chain_cached_at is not None
     cached_times = [chain_cached_at] if chain_cached_at else []
     snapshots: dict[str, Snapshot] = {}
+    failed: set[str] = set()
     for scope in info.chain:
-        snap, cached_at, offline = _fetch_snapshot(client, cache, scope, offline)
+        snap, cached_at, offline, scope_failed = _fetch_snapshot(client, cache, scope, offline)
         if cached_at is not None:
             cached_times.append(cached_at)
+        if scope_failed:
+            failed.add(scope)
         snapshots[scope] = snap
     return FetchedState(chain=info, snapshots=snapshots, offline=offline,
-                        cached_at=min(cached_times) if cached_times else None)
+                        cached_at=min(cached_times) if cached_times else None,
+                        failed=frozenset(failed))

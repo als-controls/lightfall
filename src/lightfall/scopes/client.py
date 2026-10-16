@@ -29,6 +29,16 @@ class ScopesError(Exception):
         self.code = code
 
 
+# Statuses that say "try again later", not "this write is wrong": transport failures
+# (status None), auth not ready, timeouts, rate limits and server-side errors.
+_TRANSIENT = frozenset({401, 408, 429})
+
+
+def is_transient(exc: BaseException) -> bool:
+    status = getattr(exc, "status", 0)
+    return status is None or status in _TRANSIENT or (isinstance(status, int) and status >= 500)
+
+
 def _code(r: httpx.Response) -> str | None:
     try:
         body = r.json()

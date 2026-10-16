@@ -111,6 +111,21 @@ class LocalPreferenceBackend(PreferenceBackend):
     def set_beamline(self, beamline: str | None) -> None:
         self._beamline = beamline
 
+    def _config_key(self, key: str) -> str:
+        if key in BEAMLINE_SPECIFIC_PREFS and self._beamline:
+            return f"preferences.beamlines.{self._beamline}.{key}"
+        return f"preferences.{key}"
+
+    def store_quiet(self, key: str, value: Any) -> None:
+        """Persist ``value`` (None removes) without emitting ``changed``.
+
+        Used by ScopedBackend to keep the YAML user-scope cache in step; it emits
+        its own change signals for the resolved value.
+        """
+        if self._cm is None:
+            return
+        self._cm.set(self._config_key(key), value, persist=True)
+
     def owns(self, key: str) -> bool:
         return key not in self._user_portable_keys
 

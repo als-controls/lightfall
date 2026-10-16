@@ -37,11 +37,25 @@ class WriteJournal:
             for k, v in raw.items() if isinstance(v, dict) and v.get("op") in _OPS
         }
 
-    def record(self, key: str, op: str, value: Any = None) -> None:
+    def record(self, key: str, op: str, value: Any = None) -> bool:
+        """Queue a write. Returns False (nothing changed) for a non-JSON value."""
         if op not in _OPS:
             raise ValueError(f"unknown journal op {op!r}")
-        self._entries[key] = {"op": op, "value": None if op == "delete" else value}
+        entry = {"op": op, "value": None if op == "delete" else value}
+        try:
+            json.dumps(entry, allow_nan=False)
+        except (TypeError, ValueError) as e:
+            logger.warning("Not journaling {}: value is not JSON ({})", key, e)
+            return False
+        self._entries[key] = entry
         write_json_atomic(self._path, self._entries)
+        return True
+
+    def discard_if(self, key: str, op: str, value: Any) -> None:
+        """Discard ``key`` only if its entry is still this write (not a later one)."""
+        entry = self._entries.get(key)
+        if entry is not None and entry["op"] == op and (op == "delete" or entry["value"] == value):
+            self.discard(key)
 
     def discard(self, key: str) -> None:
         if self._entries.pop(key, None) is not None:
