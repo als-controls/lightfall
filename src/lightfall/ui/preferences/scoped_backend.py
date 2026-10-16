@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from lightfall_settings import SpecRegistry, spec_to_dict
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 
 from lightfall.scopes.cache import SnapshotCache
 from lightfall.scopes.client import is_transient
@@ -66,6 +66,8 @@ def _toast(title: str, text: str) -> None:
 
 
 class ScopedBackend(PreferenceBackend):
+    chain_changed = Signal(object)  # ChainInfo, when the resolved chain changes
+
     def __init__(self, local: Any, *, client: Any, cache: SnapshotCache, journal: WriteJournal,
                  bind: str, identity: str, registry: SpecRegistry | None = None,
                  user_preferences: Callable[[], Mapping[str, Any]] = dict,
@@ -345,6 +347,7 @@ class ScopedBackend(PreferenceBackend):
 
     def _on_state(self, state: FetchedState) -> None:
         self._refreshing = False
+        old_chain = self._store.chain if self._store is not None else None
         old_keys = self._store.keys() if self._store is not None else set()
         old_user = self._store.user_settings() if self._store is not None else {}
         new_keys = {k for snap in state.snapshots.values() for k in snap.settings}
@@ -377,6 +380,8 @@ class ScopedBackend(PreferenceBackend):
             after = self.get(key)
             if after != before.get(key):
                 self.changed.emit(key, after)
+        if tuple(state.chain.chain) != old_chain:
+            self.chain_changed.emit(state.chain)
         if not state.offline and user_ok:
             self._after_online(scope, state)
 

@@ -13,6 +13,7 @@ import os
 import threading
 import weakref
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -180,6 +181,15 @@ class _Topic(QObject):
             del self._slots[i]
 
 
+@dataclass(frozen=True)
+class ScopeInfo:
+    """Which scope chain preferences resolve against."""
+
+    mode: str  # "server" | "local" | "off"
+    chain: tuple[str, ...] = ()
+    roles: dict[str, str | None] = field(default_factory=dict)
+
+
 class PreferencesManager(QObject):
     """
     Manager for NCS user preferences.
@@ -208,6 +218,8 @@ class PreferencesManager(QObject):
         >>> prefs.subscribe("theme", on_theme_changed)
         >>> prefs.save_window_state(main_window)
     """
+
+    scopes_changed = Signal(object)  # ScopeInfo
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -247,6 +259,7 @@ class PreferencesManager(QObject):
         self._topics: dict[str, _Topic] = {}
         self._scoped: Any = None
         self._local_scopes: Any = None
+        self._scope_info = ScopeInfo("off")
         for b in self._backends:
             b.changed.connect(self._on_backend_changed)
 
@@ -426,6 +439,7 @@ class PreferencesManager(QObject):
         backend = sb.build_scoped_backend(self._local, identity=identity, bind=bind,
                                           user_preferences=self._user_preferences)
         backend.changed.connect(self._on_backend_changed)
+        backend.chain_changed.connect(self._on_scoped_chain)
         self._scoped = backend
         backend.activate()
         logger.info("Scoped preferences active for {} at {}", identity, bind)
@@ -437,11 +451,36 @@ class PreferencesManager(QObject):
             return
         backend.deactivate()  # emits YAML values for keys that change back
         backend.changed.disconnect(self._on_backend_changed)
+        backend.chain_changed.disconnect(self._on_scoped_chain)
         backend.deleteLater()
         for key in sorted(self._local_scopes.keys() if self._local_scopes is not None else ()):
             self._on_backend_changed(key, self._local_scopes.get(key))  # file-served values
+        self._set_scope_info(self._local_or_off())
+
+    @property
+    def scope_info(self) -> ScopeInfo:
+        return self._scope_info
+
+    def _set_scope_info(self, info: ScopeInfo) -> None:
+        if info != self._scope_info:
+            self._scope_info = info
+            self.scopes_changed.emit(info)
+
+    def _on_scoped_chain(self, chain_info: Any) -> None:
+        self._set_scope_info(ScopeInfo("server", tuple(chain_info.chain), dict(chain_info.roles)))
+
+    def _local_or_off(self) -> ScopeInfo:
+        if self._local_scopes is not None:
+            return ScopeInfo("local", self._local_scopes.chain)
+        return ScopeInfo("off")
 
     def load_local_scopes(self, directory: Path | None = None) -> bool:
+        loaded = self._load_local_scopes(directory)
+        if self._scoped is None:
+            self._set_scope_info(self._local_or_off())
+        return loaded
+
+    def _load_local_scopes(self, directory: Path | None = None) -> bool:
         """Serve read-only facility/beamline/branch files while server scopes are off."""
         if self._local_scopes is not None:
             self._local_scopes.changed.disconnect(self._on_backend_changed)
