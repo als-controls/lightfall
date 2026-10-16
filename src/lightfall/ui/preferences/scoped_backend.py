@@ -99,6 +99,8 @@ class ScopedBackend(PreferenceBackend):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._poll_ms = poll_ms
+        self._fallback: Callable[[str, Any], Any] = local.get
+        self._refresh_again = False
         # Live updates: server change events (notify-and-pull), debounced.
         self._ipc_get = ipc or _default_ipc
         self._ipc: Any = None
@@ -179,6 +181,7 @@ class ScopedBackend(PreferenceBackend):
         self._written.clear()
         self._timer.stop()
         self._debounce.stop()
+        self._refresh_again = False
         self._unsubscribe_events()
         for key in sorted(keys):
             after = self._local.get(key, None)
@@ -205,7 +208,13 @@ class ScopedBackend(PreferenceBackend):
                 return value
         if self._yaml_foreign():
             return default  # the YAML caches another user's values
-        return self._local.get(key, default)
+        return self._fallback(key, default)
+
+    def set_fallback(self, reader: Callable[[str, Any], Any]) -> None:
+        """Read path for keys no scope sets (default: the YAML). The manager passes one
+        that consults local scope files first, so their values and locks survive an
+        offline login."""
+        self._fallback = reader
 
     def _yaml_foreign(self) -> bool:
         owner = self._local.get(_OWNER_KEY, None)
@@ -334,7 +343,10 @@ class ScopedBackend(PreferenceBackend):
     # ── refresh ─────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        if not self._active or self._refreshing:
+        if not self._active:
+            return
+        if self._refreshing:
+            self._refresh_again = True  # e.g. an event during a poll: fetch once more after
             return
         self._refreshing = True
         client, cache, bind, identity = self._client, self._cache, self._bind, self._identity
@@ -344,6 +356,12 @@ class ScopedBackend(PreferenceBackend):
     def _on_state_failed(self, exc: Exception) -> None:
         self._refreshing = False
         logger.info("Scoped settings unavailable: {}", exc)
+        self._maybe_refresh_again()
+
+    def _maybe_refresh_again(self) -> None:
+        if self._refresh_again:
+            self._refresh_again = False
+            self.refresh()
 
     def _on_state(self, state: FetchedState) -> None:
         self._refreshing = False
@@ -384,6 +402,7 @@ class ScopedBackend(PreferenceBackend):
             self.chain_changed.emit(state.chain)
         if not state.offline and user_ok:
             self._after_online(scope, state)
+        self._maybe_refresh_again()
 
     def _overlay_written(self, store: ScopedStore, scope: str,
                          server_versions: Mapping[str, int]) -> None:

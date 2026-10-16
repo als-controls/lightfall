@@ -380,7 +380,10 @@ class TiledSettingsPlugin(SettingsPlugin):
             self._key_lifetime_combo.setCurrentIndex(index)
 
         if self._beamline_edit:
-            self._beamline_edit.setText(prefs.get("tiled_beamline", ""))
+            derived = prefs.derived_value("tiled_beamline")
+            if isinstance(derived, str):  # bound console: blank means "this console's beamline"
+                self._beamline_edit.setPlaceholderText(derived)
+            self._beamline_edit.setText(prefs.explicit("tiled_beamline", ""))
 
         if self._alshub_url_edit:
             self._alshub_url_edit.setText(
@@ -428,7 +431,7 @@ class TiledSettingsPlugin(SettingsPlugin):
 
         beamline = self._beamline_edit.text().strip() if self._beamline_edit else ""
         alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""
-        prefs.set("tiled_beamline", beamline)
+        prefs.set_unless_derived("tiled_beamline", beamline)
         prefs.set("tiled_alshub_url", alshub_url)
 
         override_esaf = self._override_esaf_edit.text().strip() if self._override_esaf_edit else ""

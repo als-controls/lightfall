@@ -13,9 +13,9 @@ def test_beamline_of(bind, beamline):
     assert beamline_of(bind) == beamline
 
 
-def test_branch_bind_derives_all_three():
-    assert derived_default("tiled_beamline", "branch:7.0.1.1", "als") == "7.0.1"
-    assert derived_default("current_beamline", "branch:7.0.1.1", "als") == "7.0.1"
+def test_branch_bind_derives_beamline_and_prefix():
+    assert derived_default("tiled_beamline", "branch:7.0.1.1", "als") == "7.0.1.1"
+    assert derived_default("current_beamline", "branch:7.0.1.1", "als") is None
     assert derived_default("ipc_topic_prefix", "branch:7.0.1.1", "als") == "als.7011"
 
 

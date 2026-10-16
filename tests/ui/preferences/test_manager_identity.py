@@ -29,15 +29,15 @@ def pm(qapp):
 
 def test_bound_console_derives_identity(pm):
     pm.set_config_manager(FakeCM("branch:7.0.1.1"))
-    assert pm.get("tiled_beamline") == "7.0.1"
+    assert pm.get("tiled_beamline") == "7.0.1.1"
     assert pm.get("ipc_topic_prefix", "als.7011") == "als.7011"
-    assert pm.get("current_beamline", "default") == "7.0.1"
+    assert pm.get("current_beamline", "default") == "default"  # not derived (layout key)
 
 
 def test_explicit_value_wins_and_blank_counts_as_unset(pm):
     pm.set_config_manager(FakeCM("branch:7.0.2.1", ipc_topic_prefix="dev.me", tiled_beamline=""))
     assert pm.get("ipc_topic_prefix", "als.7011") == "dev.me"
-    assert pm.get("tiled_beamline", "") == "7.0.2"
+    assert pm.get("tiled_beamline", "") == "7.0.2.1"
 
 
 def test_unbound_keeps_caller_default(pm):

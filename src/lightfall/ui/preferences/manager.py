@@ -308,19 +308,17 @@ class PreferencesManager(QObject):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a preference value. Dispatches to the owning backend.
 
-        Identity keys (tiled_beamline, current_beamline, ipc_topic_prefix) fall back to
-        values derived from the machine's site.bind when nothing sets them.
+        Identity keys (tiled_beamline, ipc_topic_prefix) fall back to values derived
+        from the machine's site.bind when nothing sets them; blank or removed (None)
+        counts as unset for those keys.
         """
         value = self._get_raw(key, self._MISSING)
-        if value is self._MISSING or value == "":
-            from lightfall.scopes.identity import DERIVED_KEYS, derived_default
+        from lightfall.scopes.identity import DERIVED_KEYS
 
-            if key in DERIVED_KEYS:
-                site = self._site()
-                derived = derived_default(key, getattr(site, "bind", None),
-                                          getattr(site, "facility", "") or "")
-                if derived is not None:
-                    return derived
+        if key in DERIVED_KEYS and (value is self._MISSING or value in ("", None)):
+            derived = self.derived_value(key)
+            if derived is not None:
+                return derived
         return default if value is self._MISSING else value
 
     def _site(self) -> Any:
@@ -440,22 +438,59 @@ class PreferencesManager(QObject):
                                           user_preferences=self._user_preferences)
         backend.changed.connect(self._on_backend_changed)
         backend.chain_changed.connect(self._on_scoped_chain)
+        backend.set_fallback(self._pre_scope_get)
         self._scoped = backend
         backend.activate()
         logger.info("Scoped preferences active for {} at {}", identity, bind)
         return True
 
     def deactivate_scopes(self) -> None:
-        backend, self._scoped = self._scoped, None
+        backend = self._scoped
         if backend is None:
             return
-        backend.deactivate()  # emits YAML values for keys that change back
+        keys = set(backend.store.keys()) if backend.store is not None else set()
+        if self._local_scopes is not None:
+            keys |= self._local_scopes.keys()
+        before = {k: self.get(k) for k in keys}
+        # The manager reports the net change itself: one emission per key that moved.
         backend.changed.disconnect(self._on_backend_changed)
         backend.chain_changed.disconnect(self._on_scoped_chain)
+        self._scoped = None
+        backend.deactivate()
         backend.deleteLater()
-        for key in sorted(self._local_scopes.keys() if self._local_scopes is not None else ()):
-            self._on_backend_changed(key, self._local_scopes.get(key))  # file-served values
+        for key in sorted(keys):
+            after = self.get(key)
+            if after != before[key]:
+                self._on_backend_changed(key, after)
         self._set_scope_info(self._local_or_off())
+
+    def _pre_scope_get(self, key: str, default: Any = None) -> Any:
+        """What a key reads as without server scopes: local scope files, then the YAML."""
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.get(key, default)
+        return self._local.get(key, default)
+
+    def explicit(self, key: str, default: Any = None) -> Any:
+        """The stored value, without identity derivation (for settings pages)."""
+        value = self._get_raw(key, self._MISSING)
+        return default if value is self._MISSING or value == "" else value
+
+    def derived_value(self, key: str) -> str | None:
+        """What ``key`` derives to from site.bind, or None."""
+        from lightfall.scopes.identity import derived_default
+
+        site = self._site()
+        return derived_default(key, getattr(site, "bind", None),
+                               getattr(site, "facility", "") or "")
+
+    def set_unless_derived(self, key: str, value: str) -> None:
+        """Save a settings-page field; blank or the derived value means "use the default"
+        and is not stored, so a console's identity never follows the user elsewhere."""
+        derived = self.derived_value(key)
+        if derived is not None and value in ("", derived):
+            self.remove(key)
+        else:
+            self.set(key, value)
 
     @property
     def scope_info(self) -> ScopeInfo:
