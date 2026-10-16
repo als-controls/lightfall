@@ -61,22 +61,27 @@ User-facing settings live in `PreferencesManager` and are edited in the Preferen
 | `logbook_url` | `http://bcglightfalllogbook.dhcp.lbl.gov:8000` | Facility logbook server; entries are stored locally and synced here |
 | `logbook_offline_only` | `false` | Keep entries local-only (no server sync) |
 
-**Devices** (`device_settings.py`) — backends can be enabled independently:
+**Devices** (`device_settings.py`): a list of backend rows. Each row has a type, a unique name (its key in the device catalog), an enabled flag and type-specific settings. You can add several rows of the same type.
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `device_mock_enabled` | `true`* | Simulated devices (the out-of-the-box experience) |
-| `device_mock_include_noisy` | `true` | Include noisy variants of the simulated signals |
-| `device_bcs_enabled` | `false`* | ALS Beamline Control System backend |
-| `device_bcs_host` / `device_bcs_port` | `localhost` / `5577` | BCS server address |
-| `device_bcs_beamline` | *(empty)* | BCS beamline identifier |
-| `device_bcs_timeout_ms` | `5000` | BCS request timeout |
-| `device_happi_enabled` | `false` | happi database backend |
-| `device_happi_path` | *(empty)* | Path to the happi database |
-| `device_happi_beamline` | *(empty)* | Filter to one beamline's devices |
-| `device_happi_instantiate` | `false` | Instantiate Ophyd devices on load |
+```yaml
+device_backends:
+  - {id: 3f2a…, type: mock,  name: mock,     enabled: true,  config: {include_noisy: true}}
+  - {id: 9c1d…, type: happi, name: happi,    enabled: true,  config: {path: /data/happi.json, beamline: ""}}
+  - {id: 77be…, type: csm,   name: csm-7011, enabled: true,
+     config: {url: https://bcgmgmt.als.lbl.gov, beamline_id: 12, beamline_name: 7.0.1.1,
+              ioc_id: null, ioc_name: null, name_filter: "", regex: false, include_inactive: false}}
+```
 
-\* The legacy single-valued `device_backend` key (`"mock"` / `"bcs"` / `"happi"`) is still written for compatibility and seeds the per-backend defaults.
+| Type | Config keys |
+|------|-------------|
+| `mock` | `include_noisy` |
+| `bcs` | `host`, `port`, `beamline`, `timeout_ms` |
+| `happi` | `path` (empty: `$HAPPI_CFG`), `beamline` |
+| `csm` | `url`, `beamline_id`/`beamline_name`, optional `ioc_id`/`ioc_name`, `name_filter`, `regex`, `include_inactive` |
+
+CSM rows load after login using a personal CSM API key Lightfall mints at login (auth-v2, like Tiled and the logbook). The facility CSM (`csm_url`, default `https://bcgmgmt.als.lbl.gov`) is minted at every login, plus any other URL a CSM row names; a row on a new URL needs one more login before its lists load. Beam paths for a CSM row's beamline are stored on CSM, where maintainer level or above on that beamline (including its scientist, `owner`) may create and change them. CSM must accept Lightfall's client id (`LUCID`) for the mint. From Lightfall, CSM rows may change only display metadata (`display_name`, `icon_override`, `group`, `synoptic`, scope data) and never delete instantiables.
+
+On first start after upgrading, the legacy `device_backend` / `device_{mock,bcs,happi}_*` keys are migrated once into `device_backends`. The old keys are left in place but no longer read.
 
 Connection behavior is tunable via `device_instantiate_mode` (default `background`), `device_connection_timeout` (default `5.0` s), and `device_connect_on_startup` (default `true`). For off-site use, the same page configures the CA tunnel (`Enable CA tunnel for remote access` plus a gateway address, default `localhost:5099`) — see [Remote EPICS Access](remote-epics-access.md).
 

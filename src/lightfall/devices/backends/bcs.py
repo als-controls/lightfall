@@ -58,6 +58,7 @@ class BCSBackend(DeviceBackend):
         port: int = 5577,
         timeout_ms: int = 5000,
         beamline: str | None = None,
+        name: str | None = None,
     ) -> None:
         """Initialize the BCS backend.
 
@@ -66,7 +67,9 @@ class BCSBackend(DeviceBackend):
             port: BCS server ZMQ port.
             timeout_ms: Connection timeout in milliseconds.
             beamline: Beamline identifier for device metadata.
+            name: Catalog key for this instance; defaults to ``"bcs_zmq"``.
         """
+        self._name = name or "bcs_zmq"
         self._host = host
         self._port = port
         self._timeout_ms = timeout_ms
@@ -81,7 +84,7 @@ class BCSBackend(DeviceBackend):
     @property
     def name(self) -> str:
         """Get the backend name."""
-        return "bcs_zmq"
+        return self._name
 
     @property
     def is_connected(self) -> bool:

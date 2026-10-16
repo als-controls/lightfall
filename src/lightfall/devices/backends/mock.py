@@ -51,12 +51,14 @@ class MockBackend(DeviceBackend):
         >>> motor.ophyd_device.set(10).wait()
     """
 
-    def __init__(self, include_noisy: bool = True) -> None:
+    def __init__(self, include_noisy: bool = True, name: str | None = None) -> None:
         """Initialize the mock backend.
 
         Args:
             include_noisy: Include noisy/random signal devices.
+            name: Catalog key for this instance; defaults to ``"mock"``.
         """
+        self._name = name or "mock"
         self._include_noisy = include_noisy
         self._devices: dict[UUID, DeviceInfo] = {}
         self._configurations: dict[UUID, list[DeviceConfiguration]] = {}
@@ -68,7 +70,7 @@ class MockBackend(DeviceBackend):
     @property
     def name(self) -> str:
         """Get the backend name."""
-        return "mock"
+        return self._name
 
     @property
     def is_connected(self) -> bool:

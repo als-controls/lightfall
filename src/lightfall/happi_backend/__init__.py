@@ -12,10 +12,10 @@ to guess which one a given module implements.
 
 The relationship between the two: :mod:`lightfall.devices.backends.happi`
 (``HappiBackend``, a Lightfall ``DeviceBackend``) already knows how to read
-any happi database by constructing a ``happi.Client``. Point that client at
-a :class:`lightfall.happi_backend.csm.CSMBackend` (a happi ``_Backend``) and
-CSM's instantiable registry flows into Lightfall through the existing
-``HappiBackend`` code path with zero changes to it.
+any happi database by constructing a ``happi.Client``.
+:class:`lightfall.devices.backends.csm.CSMDeviceBackend` is the
+``HappiBackend`` subclass that reads through
+:class:`lightfall.happi_backend.csm.CSMBackend` (a happi ``_Backend``).
 """
 
 from lightfall.happi_backend.csm import CSMBackend
