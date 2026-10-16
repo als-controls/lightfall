@@ -6,10 +6,11 @@ The configuration is hierarchical and supports layered overrides.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoggingConfig(BaseModel):
@@ -129,6 +130,36 @@ class BeamlineConfig(BaseModel):
     )
 
 
+# Mirrors lightfall_settings.scopes._NAME_RE; kept local so config parsing works without
+# lightfall-settings installed.
+_SITE_BIND_RE = re.compile(r"^(facility|(beamline|branch):[A-Za-z0-9._@-]+)$")
+
+
+class SiteConfig(BaseModel):
+    """Which facility scope this machine belongs to (scoped settings, spec section 5).
+
+    ``bind`` is set on beamline consoles (``branch:7.0.1.1`` or ``beamline:7.0.1``) and
+    omitted on workstations.
+    """
+
+    facility: str = Field(default="als", description="Facility identifier")
+    bind: str | None = Field(
+        default=None,
+        description="Scope this machine binds to, e.g. 'branch:7.0.1.1'; omit on workstations",
+    )
+
+    @field_validator("bind", mode="before")
+    @classmethod
+    def _check_bind(cls, value: object) -> object:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str) or not _SITE_BIND_RE.match(value) or value.endswith(":_all"):
+            raise ValueError(
+                f"site.bind must be 'facility', 'beamline:<name>' or 'branch:<name>', got {value!r}"
+            )
+        return value
+
+
 class LFConfig(BaseModel):
     """Root configuration model for NCS.
 
@@ -141,6 +172,7 @@ class LFConfig(BaseModel):
     preferences: PreferencesConfig = Field(default_factory=PreferencesConfig)
     acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
     beamline: BeamlineConfig = Field(default_factory=BeamlineConfig)
+    site: SiteConfig = Field(default_factory=SiteConfig)
 
     # Extensible settings for plugins
     extensions: dict[str, Any] = Field(

@@ -74,6 +74,7 @@ dependencies = [
     "happi>=2.0",
     "nats-py>=2.0",
     "lightfall-utils>=0.2.0",
+    "lightfall-settings>=0.1.2,<0.2",
 ]
 
 [project.optional-dependencies]
