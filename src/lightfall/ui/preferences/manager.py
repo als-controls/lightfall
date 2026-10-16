@@ -246,6 +246,7 @@ class PreferencesManager(QObject):
         self._backends: tuple = (self._user_portable, self._local)
         self._topics: dict[str, _Topic] = {}
         self._scoped: Any = None
+        self._local_scopes: Any = None
         for b in self._backends:
             b.changed.connect(self._on_backend_changed)
 
@@ -276,6 +277,7 @@ class PreferencesManager(QObject):
         self._config_manager = config_manager
         # Rebuild the local backend so it uses the new ConfigManager.
         self._local._cm = config_manager
+        self.load_local_scopes()
 
     def set_beamline(self, beamline: str | None) -> None:
         """Set the current beamline for beamline-specific preferences."""
@@ -324,6 +326,8 @@ class PreferencesManager(QObject):
         """
         if self._scoped is not None and self._scoped.owns(key):
             return self._scoped.get(key, default)
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.get(key, default)
         if key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
             value = self._user_portable.get(key, self._MISSING)
             if value is self._MISSING:
@@ -386,6 +390,8 @@ class PreferencesManager(QObject):
         """Pick the backend that owns `key` (scoped, then user-portable, then local)."""
         if self._scoped is not None and self._scoped.owns(key):
             return self._scoped
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes
         for b in self._backends:
             if b.owns(key):
                 return b
@@ -432,6 +438,31 @@ class PreferencesManager(QObject):
         backend.deactivate()  # emits YAML values for keys that change back
         backend.changed.disconnect(self._on_backend_changed)
         backend.deleteLater()
+        for key in sorted(self._local_scopes.keys() if self._local_scopes is not None else ()):
+            self._on_backend_changed(key, self._local_scopes.get(key))  # file-served values
+
+    def load_local_scopes(self, directory: Path | None = None) -> bool:
+        """Serve read-only facility/beamline/branch files while server scopes are off."""
+        if self._local_scopes is not None:
+            self._local_scopes.changed.disconnect(self._on_backend_changed)
+            self._local_scopes = None
+        if os.environ.get("LIGHTFALL_SCOPES_DISABLED") == "1":
+            return False
+        from lightfall.scopes import scopes_available
+
+        if not scopes_available():
+            return False
+        from lightfall.scopes.local_files import load_local_state, local_scopes_dir
+        from lightfall.ui.preferences.local_scopes_backend import LocalScopesBackend
+
+        site = self._site()
+        state = load_local_state(directory or local_scopes_dir(), getattr(site, "bind", None))
+        if state is None:
+            return False
+        self._local_scopes = LocalScopesBackend(self._local, state)
+        self._local_scopes.changed.connect(self._on_backend_changed)
+        logger.info("Local scope files active: {}", ", ".join(self._local_scopes.chain))
+        return True
 
     @Slot(str, object)
     def _on_backend_changed(self, key: str, value: Any) -> None:
