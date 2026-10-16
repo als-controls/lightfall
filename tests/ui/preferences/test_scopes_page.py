@@ -138,3 +138,14 @@ def test_unavailable_package_message(qtbot, monkeypatch):
     w = plugin.create_widget()
     qtbot.addWidget(w)
     assert "lightfall-settings" in _status(w)
+
+
+def test_rendering_does_not_create_preferences_manager(qtbot):
+    # The view carries the server URL; the page must not bootstrap the
+    # PreferencesManager singleton itself (it leaked into later tests).
+    from lightfall.ui.preferences.manager import PreferencesManager
+
+    PreferencesManager._instance = None
+    _, w = _page(qtbot, lambda bind: VIEW)
+    qtbot.waitUntil(lambda: _status(w).startswith("Live"), timeout=3000)
+    assert PreferencesManager._instance is None

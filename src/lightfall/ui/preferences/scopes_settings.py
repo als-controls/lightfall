@@ -206,9 +206,7 @@ class ScopesSettingsPlugin(SettingsPlugin):
         if view.offline and view.cached_at is not None:
             self._status.setText(f"Offline — cached {_age(_now() - view.cached_at)}")
         else:
-            from lightfall.logbook.url import get_logbook_base_url
-
-            self._status.setText(f"Live from {get_logbook_base_url()}")
+            self._status.setText(f"Live from {view.server}" if view.server else "Live")
         self._fill_combo(view)
         self._fill_chain(view)
         self._fill_keys(view)

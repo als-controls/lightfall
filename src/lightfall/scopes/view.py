@@ -43,6 +43,7 @@ class ScopesView:
     keys_restricted: bool
     offline: bool
     cached_at: float | None
+    server: str = ""
 
 
 def _kinds(spec: Any) -> tuple[str, ...]:
@@ -122,6 +123,13 @@ def _resolved_row(spec: Any, status: str, snaps: list[ScopeSnapshot]) -> KeyRow:
     )
 
 
+def _server(client: ScopesClient) -> str:
+    try:
+        return str(getattr(client, "base_url", "") or "")
+    except Exception:
+        return ""
+
+
 def load_view(client: ScopesClient, cache: SnapshotCache, bind: str) -> ScopesView:
     info, chain_cached_at = _fetch_chain(client, cache, bind)
     offline = chain_cached_at is not None
@@ -176,4 +184,5 @@ def load_view(client: ScopesClient, cache: SnapshotCache, bind: str) -> ScopesVi
         keys=tuple(rows[k] for k in sorted(rows)),
         keys_restricted=records is None,
         offline=offline, cached_at=min(cached_times) if cached_times else None,
+        server=_server(client),
     )

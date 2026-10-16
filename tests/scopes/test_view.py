@@ -148,3 +148,9 @@ def test_not_logged_in_raises_401_even_with_cache(tmp_path):
     with pytest.raises(ScopesError) as ei:
         load_view(FakeClient(chain_error=ScopesError("no", status=401)), cache, "branch:7.0.1.1")
     assert ei.value.status == 401
+
+
+def test_view_records_server_url(tmp_path):
+    client = FakeClient()
+    client.base_url = "https://lb.test"
+    assert load_view(client, SnapshotCache(tmp_path), "branch:7.0.1.1").server == "https://lb.test"
