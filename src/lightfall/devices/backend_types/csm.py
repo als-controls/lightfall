@@ -22,7 +22,7 @@ from shiboken6 import isValid
 from lightfall.devices.backend_types.base import BackendEditor, BackendType, BuildContext, hint
 from lightfall.devices.backends.csm import CSMDeviceBackend
 
-DEFAULT_CSM_URL = "https://csm.als.lbl.gov"
+DEFAULT_CSM_URL = "https://bcgmgmt.als.lbl.gov"
 
 CSM_KEY_SCOPES = ["read", "display:write", "instantiables:create"]
 

@@ -40,8 +40,10 @@ def _mint_response(secret):
 
 
 def test_service_id_normalises():
-    assert csm_service_id("https://CSM.als.lbl.gov/") == "csm:https://csm.als.lbl.gov"
-    assert csm_service_id(" https://csm.als.lbl.gov ") == csm_service_id("https://csm.als.lbl.gov")
+    assert csm_service_id("https://BCGMGMT.als.lbl.gov/") == "csm:https://bcgmgmt.als.lbl.gov"
+    assert csm_service_id(" https://bcgmgmt.als.lbl.gov ") == csm_service_id(
+        "https://bcgmgmt.als.lbl.gov"
+    )
 
 
 def test_attach_session_mints_csm_key_and_drops_bearer(httpx_mock, monkeypatch):

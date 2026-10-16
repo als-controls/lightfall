@@ -62,7 +62,7 @@ def test_type_basics():
     assert t.type_id == "csm"
     assert t.requires_auth is True
     cfg = t.default_config()
-    assert cfg["url"] == "https://csm.als.lbl.gov"
+    assert cfg["url"] == "https://bcgmgmt.als.lbl.gov"
     assert cfg["beamline_id"] is None
     assert t.validate(cfg) == ["Beamline is required"]
     assert t.validate({**cfg, "url": "", "beamline_id": 1}) == ["CSM URL is required"]

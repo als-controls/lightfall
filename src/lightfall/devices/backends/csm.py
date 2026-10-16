@@ -29,7 +29,7 @@ class CSMDeviceBackend(HappiBackend):
     """Read-only device backend for one CSM scope (beamline, optional IOC).
 
     Args:
-        url: CSM base URL, e.g. ``"https://csm.als.lbl.gov"``.
+        url: CSM base URL, e.g. ``"https://bcgmgmt.als.lbl.gov"``.
         auth: Per-request authentication, normally ``ServiceKeyAuth(csm_service_id(url))``.
         beamline_id: CSM beamline id to load instantiables for.
         ioc_id: Optional CSM IOC id to narrow to one IOC.
