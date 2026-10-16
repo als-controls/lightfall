@@ -101,6 +101,10 @@ class DeviceSettingsPlugin(SettingsPlugin):
         return 20
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
+        # The registry reuses this plugin across Preferences dialogs; editors
+        # from a previous dialog were destroyed with its widget tree, so start
+        # a fresh map for the new stack built below.
+        self._editors = {}
         widget = QWidget(parent)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
