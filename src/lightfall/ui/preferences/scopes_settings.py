@@ -55,7 +55,15 @@ def _default_loader(bind: str) -> ScopesView:
     from lightfall.scopes.site import default_cache_dir
     from lightfall.scopes.view import load_view
 
-    return load_view(ScopesClient(), SnapshotCache(default_cache_dir()), bind)
+    return load_view(ScopesClient(), SnapshotCache(default_cache_dir()), bind,
+                     identity=_logged_in_username())
+
+
+def _logged_in_username() -> str | None:
+    from lightfall.auth.session import SessionManager
+
+    sm = SessionManager.get_instance()
+    return sm.current_user.username if sm.is_authenticated else None
 
 
 class ScopesSettingsPlugin(SettingsPlugin):
@@ -71,6 +79,8 @@ class ScopesSettingsPlugin(SettingsPlugin):
         self._keys_note: QLabel | None = None
         self._machine_bind = "facility"
         self._future: QThreadFuture | None = None
+        # Bumped per load and per widget teardown; results from older loads are dropped.
+        self._generation = 0
 
     @property
     def name(self) -> str:
@@ -162,6 +172,7 @@ class ScopesSettingsPlugin(SettingsPlugin):
         return t
 
     def _on_widget_destroyed(self, *_: Any) -> None:
+        self._generation += 1
         self._widget = self._status = self._bind_combo = None
         self._chain_table = self._keys_table = self._keys_note = None
 
@@ -180,9 +191,12 @@ class ScopesSettingsPlugin(SettingsPlugin):
     def _refresh(self, bind: str) -> None:
         if self._status is not None:
             self._status.setText("Loading…")
+        self._generation += 1
+        gen = self._generation
         self._future = QThreadFuture(
             self.loader, bind,
-            callback_slot=self._on_view, except_slot=self._on_error,
+            callback_slot=lambda view, g=gen: self._on_view(view) if g == self._generation else None,
+            except_slot=lambda exc, g=gen: self._on_error(exc) if g == self._generation else None,
             name="scopes-page-load", log_exceptions=False,
         )
         self._future.start()
@@ -203,8 +217,10 @@ class ScopesSettingsPlugin(SettingsPlugin):
         if not self._alive():
             return
         assert self._status and self._chain_table and self._keys_table and self._keys_note
-        if view.offline and view.cached_at is not None:
-            self._status.setText(f"Offline — cached {_age(_now() - view.cached_at)}")
+        if view.offline:
+            self._status.setText(
+                f"Offline — cached {_age(_now() - view.cached_at)}"
+                if view.cached_at is not None else "Offline — no cached copy")
         else:
             self._status.setText(f"Live from {view.server}" if view.server else "Live")
         self._fill_combo(view)

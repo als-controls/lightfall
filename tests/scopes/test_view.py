@@ -130,8 +130,8 @@ def test_second_load_uses_etag_and_cache(tmp_path):
 def test_offline_after_good_load_uses_cache(tmp_path):
     cache = SnapshotCache(tmp_path)
     snaps = {"branch:7.0.1.1": Snapshot(scope="branch:7.0.1.1", settings={"voice.wake_word": "x"})}
-    load_view(FakeClient(snaps), cache, "branch:7.0.1.1")
-    view = load_view(FakeClient(offline=True), cache, "branch:7.0.1.1")
+    load_view(FakeClient(snaps), cache, "branch:7.0.1.1", identity="u1")
+    view = load_view(FakeClient(offline=True), cache, "branch:7.0.1.1", identity="u1")
     assert view.offline is True and view.cached_at is not None
     assert view.chain == CHAIN.chain
     assert _row(view, "voice.wake_word").value == "x"
@@ -154,3 +154,29 @@ def test_view_records_server_url(tmp_path):
     client = FakeClient()
     client.base_url = "https://lb.test"
     assert load_view(client, SnapshotCache(tmp_path), "branch:7.0.1.1").server == "https://lb.test"
+
+
+def test_offline_cache_is_per_user(tmp_path):
+    # Review C: a shared console must not show the previous user's cached chain.
+    cache = SnapshotCache(tmp_path)
+    load_view(FakeClient(), cache, "branch:7.0.1.1", identity="alice")
+    with pytest.raises(ScopesError):
+        load_view(FakeClient(offline=True), cache, "branch:7.0.1.1", identity="bob")
+    assert load_view(FakeClient(offline=True), cache, "branch:7.0.1.1",
+                     identity="alice").offline is True
+
+
+def test_offline_and_logged_out_serves_nothing(tmp_path):
+    cache = SnapshotCache(tmp_path)
+    load_view(FakeClient(), cache, "branch:7.0.1.1", identity="alice")
+    with pytest.raises(ScopesError) as ei:
+        load_view(FakeClient(offline=True), cache, "branch:7.0.1.1", identity=None)
+    assert ei.value.status == 401
+
+
+def test_cache_write_failure_does_not_fail_the_load(tmp_path):
+    # Review I3: the cache is best-effort.
+    blocker = tmp_path / "c"
+    blocker.write_text("not a directory", encoding="utf-8")
+    view = load_view(FakeClient(), SnapshotCache(blocker), "branch:7.0.1.1", identity="alice")
+    assert view.offline is False and view.chain == CHAIN.chain

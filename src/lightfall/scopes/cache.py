@@ -36,6 +36,13 @@ class SnapshotCache:
             return None
 
     def _write(self, name: str, data: dict[str, Any]) -> None:
+        """Best effort: a cache that can't be written must not fail a good load."""
+        try:
+            self._write_atomic(name, data)
+        except OSError as e:
+            logger.warning("Could not write scope cache {}: {}", self.path_for(name), e)
+
+    def _write_atomic(self, name: str, data: dict[str, Any]) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self.path_for(name)
         fd, tmp = tempfile.mkstemp(dir=self._dir, prefix=".tmp-", suffix=".json")
@@ -61,8 +68,10 @@ class SnapshotCache:
     def save_snapshot(self, snap: Snapshot) -> None:
         self._write(snap.scope, snap.to_dict())
 
-    def load_chain(self, bind: str) -> tuple[ChainInfo, float] | None:
-        got = self._read(f"chain:{bind}")
+    # Chains and key lists are per user: they carry that user's scope, roles and
+    # (for maintainers) the full key list, and consoles often share one OS account.
+    def load_chain(self, bind: str, identity: str) -> tuple[ChainInfo, float] | None:
+        got = self._read(f"chain:{identity}:{bind}")
         if got is None:
             return None
         data, saved_at = got
@@ -71,15 +80,15 @@ class SnapshotCache:
         except (KeyError, TypeError, ValueError):
             return None
 
-    def save_chain(self, bind: str, info: ChainInfo) -> None:
-        self._write(f"chain:{bind}", info.to_dict())
+    def save_chain(self, bind: str, info: ChainInfo, identity: str) -> None:
+        self._write(f"chain:{identity}:{bind}", info.to_dict())
 
-    def load_keys(self) -> list[dict[str, Any]] | None:
-        got = self._read("setting-keys")
+    def load_keys(self, identity: str) -> list[dict[str, Any]] | None:
+        got = self._read(f"setting-keys:{identity}")
         if got is None:
             return None
         records = got[0].get("records")
         return list(records) if isinstance(records, list) else None
 
-    def save_keys(self, records: list[dict[str, Any]]) -> None:
-        self._write("setting-keys", {"records": records})
+    def save_keys(self, records: list[dict[str, Any]], identity: str) -> None:
+        self._write(f"setting-keys:{identity}", {"records": records})

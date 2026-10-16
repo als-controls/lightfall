@@ -149,3 +149,30 @@ def test_rendering_does_not_create_preferences_manager(qtbot):
     _, w = _page(qtbot, lambda bind: VIEW)
     qtbot.waitUntil(lambda: _status(w).startswith("Live"), timeout=3000)
     assert PreferencesManager._instance is None
+
+
+def test_stale_result_does_not_overwrite_newer_one(qtbot):
+    # Review I1: a slow earlier load must not repaint over a later one.
+    gate = threading.Event()
+    beam = ScopesView(**{**VIEW.__dict__, "chain": ("facility", "beamline:7.0.1", "user:u1")})
+
+    def loader(bind):
+        if bind == "branch:7.0.1.1":
+            gate.wait(3)
+            return VIEW
+        return beam
+
+    plugin, w = _page(qtbot, loader)
+    plugin._refresh("beamline:7.0.1")
+    chain = w.findChild(QTableWidget, "scopesChain")
+    qtbot.waitUntil(lambda: chain.rowCount() == 3, timeout=3000)
+    gate.set()
+    qtbot.wait(300)
+    assert chain.rowCount() == 3
+
+
+def test_offline_without_cache_is_not_called_live(qtbot):
+    # Review I2.
+    partial = ScopesView(**{**VIEW.__dict__, "offline": True, "cached_at": None})
+    _, w = _page(qtbot, lambda bind: partial)
+    qtbot.waitUntil(lambda: _status(w) == "Offline — no cached copy", timeout=3000)

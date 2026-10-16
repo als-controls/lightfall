@@ -43,15 +43,17 @@ def test_chain_round_trip(tmp_path):
     cache = SnapshotCache(tmp_path)
     info = ChainInfo(chain=("facility", "user:u"), roles={"facility": None, "user:u": "owner"},
                      entitled=(), facility_label="ALS")
-    cache.save_chain("facility", info)
-    assert cache.load_chain("facility")[0] == info
+    cache.save_chain("facility", info, "alice")
+    assert cache.load_chain("facility", "alice")[0] == info
+    assert cache.load_chain("facility", "bob") is None
 
 
 def test_keys_round_trip(tmp_path):
     cache = SnapshotCache(tmp_path)
-    assert cache.load_keys() is None
-    cache.save_keys([{"key": "voice.wake_word", "status": "approved"}])
-    assert cache.load_keys() == [{"key": "voice.wake_word", "status": "approved"}]
+    assert cache.load_keys("alice") is None
+    cache.save_keys([{"key": "voice.wake_word", "status": "approved"}], "alice")
+    assert cache.load_keys("alice") == [{"key": "voice.wake_word", "status": "approved"}]
+    assert cache.load_keys("bob") is None
 
 
 def test_save_leaves_no_temp_files(tmp_path):

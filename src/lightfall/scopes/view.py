@@ -61,18 +61,21 @@ def _spec(record: dict[str, Any], field: str) -> Any | None:
         return None
 
 
-def _fetch_chain(client: ScopesClient, cache: SnapshotCache, bind: str
-                 ) -> tuple[ChainInfo, float | None]:
+def _fetch_chain(client: ScopesClient, cache: SnapshotCache, bind: str,
+                 identity: str | None) -> tuple[ChainInfo, float | None]:
     try:
         info = client.chain(bind)
     except ScopesError as e:
         if e.status is not None:
             raise
-        cached = cache.load_chain(bind)
+        if identity is None:  # nobody logged in: never show someone's cached chain
+            raise ScopesError("Log in to see scoped settings", status=401) from e
+        cached = cache.load_chain(bind, identity)
         if cached is None:
             raise
         return cached
-    cache.save_chain(bind, info)
+    if identity is not None:
+        cache.save_chain(bind, info, identity)
     return info, None
 
 
@@ -130,8 +133,11 @@ def _server(client: ScopesClient) -> str:
         return ""
 
 
-def load_view(client: ScopesClient, cache: SnapshotCache, bind: str) -> ScopesView:
-    info, chain_cached_at = _fetch_chain(client, cache, bind)
+def load_view(client: ScopesClient, cache: SnapshotCache, bind: str,
+              identity: str | None = None) -> ScopesView:
+    """``identity`` is the logged-in username (None when logged out); it keys the
+    per-user parts of the offline cache."""
+    info, chain_cached_at = _fetch_chain(client, cache, bind, identity)
     offline = chain_cached_at is not None
     cached_times = [chain_cached_at] if chain_cached_at else []
 
@@ -144,16 +150,16 @@ def load_view(client: ScopesClient, cache: SnapshotCache, bind: str) -> ScopesVi
 
     records: list[dict[str, Any]] | None
     if offline:
-        records = cache.load_keys() or []
+        records = (cache.load_keys(identity) if identity else None) or []
     else:
         try:
             records = client.setting_keys()
         except ScopesError as e:
             logger.warning("Setting keys unavailable: {}", e)
-            records = cache.load_keys() or []
+            records = (cache.load_keys(identity) if identity else None) or []
         else:
-            if records is not None:
-                cache.save_keys(records)
+            if records is not None and identity is not None:
+                cache.save_keys(records, identity)
 
     registry = core_registry()
     rows: dict[str, KeyRow] = {}
