@@ -293,6 +293,30 @@ class PreferencesManager(QObject):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a preference value. Dispatches to the owning backend.
 
+        Identity keys (tiled_beamline, current_beamline, ipc_topic_prefix) fall back to
+        values derived from the machine's site.bind when nothing sets them.
+        """
+        value = self._get_raw(key, self._MISSING)
+        if value is self._MISSING or value == "":
+            from lightfall.scopes.identity import DERIVED_KEYS, derived_default
+
+            if key in DERIVED_KEYS:
+                site = self._site()
+                derived = derived_default(key, getattr(site, "bind", None),
+                                          getattr(site, "facility", "") or "")
+                if derived is not None:
+                    return derived
+        return default if value is self._MISSING else value
+
+    def _site(self) -> Any:
+        try:
+            return self._config_manager.model.site  # type: ignore[union-attr]
+        except Exception:
+            return None
+
+    def _get_raw(self, key: str, default: Any = None) -> Any:
+        """Get a preference value. Dispatches to the owning backend.
+
         While scoped settings are active, every non-local key resolves through the
         scope chain. For keys in `_USER_PORTABLE_WITH_LOCAL_FALLBACK`, a user-portable
         cache miss falls through to LocalPreferenceBackend so site or beamline
