@@ -202,6 +202,12 @@ class ScopedBackend(PreferenceBackend):
             self._emit_if_moved(key, before)
             return
         prev, prev_version = store.user_value(key), store.version(scope, key)
+        if (op == "set" and prev is not MISSING and prev == value) or (
+                op == "delete" and prev is MISSING):
+            # Already the server's value (e.g. Preferences "Apply" re-saving every page).
+            self._journal.discard_if(key, op, value)
+            self._emit_if_moved(key, before)
+            return
         if op == "delete":
             store.drop_local(scope, key)
         else:

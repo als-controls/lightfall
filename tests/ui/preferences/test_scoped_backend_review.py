@@ -210,3 +210,18 @@ def test_yaml_cache_uses_beamline_specific_paths(qapp):
     assert cm.data == {"preferences.beamlines.7.0.1.default_data_dir": "/data"}
     assert local.get("default_data_dir") == "/data"
     assert emitted == []
+
+
+def test_unchanged_value_is_not_sent_again(make):
+    # Preferences "Apply" saves every page; unchanged keys must not bump versions.
+    server = Server()
+    server.rows[("user:u1", "theme")] = ("light", 1)
+    backend, _, _, _, _ = make(server=server, local=FakeLocal(theme="light"),
+                               prefs={"theme": "light"})
+    backend.activate()
+    puts = [c for c in server.calls if c[0] == "put" and c[2] == "theme"]
+    backend.set("theme", "light")
+    assert [c for c in server.calls if c[0] == "put" and c[2] == "theme"] == puts
+    assert server.rows[("user:u1", "theme")] == ("light", 1)
+    backend.set("theme", "dark")
+    assert server.rows[("user:u1", "theme")] == ("dark", 2)
