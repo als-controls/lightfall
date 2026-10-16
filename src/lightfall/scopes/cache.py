@@ -15,6 +15,24 @@ from lightfall.utils.logging import logger
 _UNSAFE = re.compile(r"[^A-Za-z0-9._@-]")
 
 
+def write_json_atomic(path: Path, data: Any) -> bool:
+    """Write JSON via a temp file + rename. Best effort: False (logged) on OSError."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+    except OSError as e:
+        logger.warning("Could not write {}: {}", path, e)
+        return False
+    return True
+
+
 class SnapshotCache:
     def __init__(self, directory: Path) -> None:
         self._dir = Path(directory)
@@ -37,22 +55,7 @@ class SnapshotCache:
 
     def _write(self, name: str, data: dict[str, Any]) -> None:
         """Best effort: a cache that can't be written must not fail a good load."""
-        try:
-            self._write_atomic(name, data)
-        except OSError as e:
-            logger.warning("Could not write scope cache {}: {}", self.path_for(name), e)
-
-    def _write_atomic(self, name: str, data: dict[str, Any]) -> None:
-        self._dir.mkdir(parents=True, exist_ok=True)
-        path = self.path_for(name)
-        fd, tmp = tempfile.mkstemp(dir=self._dir, prefix=".tmp-", suffix=".json")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump({"saved_at": time.time(), "data": data}, f)
-            os.replace(tmp, path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        write_json_atomic(self.path_for(name), {"saved_at": time.time(), "data": data})
 
     def load_snapshot(self, scope: str) -> tuple[Snapshot, float] | None:
         got = self._read(scope)
