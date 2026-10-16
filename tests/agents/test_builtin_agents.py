@@ -56,8 +56,18 @@ def test_skill_and_tool_split(specs):
     }
     assert set(dev.skills) == {"panel_builder", "panel_design", "plan_design"}
     assert "panel_builder" not in operator.tools
-    assert "ipython_tools" not in operator.tools
     assert {"panel_builder", "ipython_tools"} <= set(dev.tools)
+
+
+def test_operator_ipython_is_an_approval_gated_fallback(specs):
+    # 9b567cc gave the operator ipython_tools as a fallback; running code
+    # must still ask the user, only namespace inspection is auto-approved.
+    from lightfall.claude.permission_manager import PermissionManager
+
+    assert "ipython_tools" in specs["lightfall"].tools
+    auto = PermissionManager.DEFAULT_AUTO_APPROVED
+    assert "mcp__ipython_tools__lightfall_ipython_execute" not in auto
+    assert "lightfall_ipython_execute" not in auto
 
 
 def test_skills_reference_existing_builtin_skill_dirs(specs):
