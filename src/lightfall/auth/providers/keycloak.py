@@ -302,6 +302,7 @@ class KeycloakAuthProvider(AuthProvider):
         self._role_mapping = role_mapping or DEFAULT_ROLE_MAPPING
         self._callback_timeout = callback_timeout
         self._http: Any = None  # aiohttp ClientSession
+        self._http_loop: Any = None  # event loop _http is bound to
         # Set by cancel() to unblock an in-flight external-browser callback
         # wait (used as the login QThreadFuture's interrupt_callable).
         self._cancel_event = Event()
@@ -336,8 +337,23 @@ class KeycloakAuthProvider(AuthProvider):
 
         Creates an aiohttp ClientSession with SOCKS proxy support if configured
         or auto-detected for *.lbl.gov URLs.
+
+        A ClientSession is bound to the event loop that created it, and login,
+        logout and refresh each run their own ``asyncio.run`` loop on worker
+        threads, so the cached session is rebuilt whenever the running loop
+        changes (reusing it raised "Event loop is closed" at logout).
         """
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        if self._http is not None and (
+            self._http_loop is not loop or self._http.closed
+        ):
+            # The old loop is gone (or going); its session can't be awaited
+            # from here. Drop it and build one for this loop.
+            self._http = None
         if self._http is None:
+            self._http_loop = loop
             try:
                 import aiohttp
             except ImportError as err:
@@ -871,8 +887,13 @@ class KeycloakAuthProvider(AuthProvider):
         except Exception as e:
             logger.warning("Logout error: {}", e)
 
-        # Clear embedded browser cookies so Keycloak won't auto-login next time
-        self._clear_browser_cookies()
+        # Clear embedded browser cookies so Keycloak won't auto-login next time.
+        # logout() runs on a worker thread (asyncio.run in a QThreadFuture);
+        # touching QtWebEngine there aborts the process while a QWebEngineView
+        # is alive, so the clear is marshalled to the GUI thread.
+        from lightfall.utils.threads import invoke_in_main_thread
+
+        invoke_in_main_thread(self._clear_browser_cookies)
 
     @staticmethod
     def _clear_browser_cookies() -> None:

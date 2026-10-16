@@ -542,6 +542,10 @@ class SessionManager(QObject):
         if self._session is None:
             return
 
+        # Revoke service keys first: the provider step talks to Keycloak and
+        # the embedded browser, and a hard failure there must not leak keys.
+        self.revoke_unleased_service_keys()
+
         if self._provider:
             # Restore id_token (stashed at mint time) so RP-initiated logout
             # works after the post-mint clearing. Clear the slot in finally so
@@ -557,7 +561,6 @@ class SessionManager(QObject):
 
         old_user = self._session.user
         self._session = None
-        self.revoke_unleased_service_keys()
         with self._keys_lock:
             self._service_keys.clear()
             self._service_key_urls.clear()
