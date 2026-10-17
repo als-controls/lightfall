@@ -86,16 +86,21 @@ class _BearerAuth:
         self._expected = f"Bearer {token}".encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await self.app(scope, receive, send)
+            return
+        supplied = b""
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                supplied = value
+                break
+        if hmac.compare_digest(supplied, self._expected):
+            await self.app(scope, receive, send)
+            return
         if scope["type"] == "http":
-            supplied = b""
-            for name, value in scope.get("headers", []):
-                if name == b"authorization":
-                    supplied = value
-                    break
-            if not hmac.compare_digest(supplied, self._expected):
-                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
+            await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+        elif scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008})
 
 
 class _Server(uvicorn.Server):
@@ -142,7 +147,18 @@ class ToolHost:
             return _asgi
 
         async def _hook(request: Request) -> JSONResponse:
-            return JSONResponse(await self._hook_handler(await request.json()))
+            try:
+                body = await request.json()
+                if not isinstance(body, dict):
+                    raise ValueError("hook body must be a JSON object")
+                result = await self._hook_handler(body)
+                if not isinstance(result, dict):
+                    raise TypeError("hook handler returned a non-dict")
+                return JSONResponse(result)
+            except Exception as e:  # noqa: BLE001 - /hook is fail-closed on any error
+                logger.warning("agy /hook failed closed: {}: {}", type(e).__name__, e)
+                return JSONResponse({"decision": "deny",
+                                     "reason": f"{type(e).__name__}: {e}"})
 
         @contextlib.asynccontextmanager
         async def _lifespan(_app: Starlette) -> AsyncIterator[None]:
@@ -161,6 +177,8 @@ class ToolHost:
             return self._port
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             sock.bind(("127.0.0.1", 0))
         except OSError:
             sock.close()

@@ -184,3 +184,52 @@ async def test_stop_releases_port():
     with pytest.raises(OSError):
         socket.create_connection(("127.0.0.1", port), timeout=2).close()
     await h.stop()  # idempotent
+
+
+async def test_hook_fails_closed_on_bad_body_and_handler_error():
+    from lightfall.agents.backends.agy.host import ToolHost
+
+    async def boom(payload):
+        raise RuntimeError("kaput")
+
+    h = ToolHost(_servers(), boom, TOKEN)
+    await h.start()
+    try:
+        url = f"http://127.0.0.1:{h.port}/hook"
+        auth = {"Authorization": f"Bearer {TOKEN}"}
+        async with httpx.AsyncClient(timeout=10) as c:
+            for kwargs in ({"json": {"a": 1}}, {"content": b"not json"}, {"json": [1, 2]}):
+                r = await c.post(url, headers=auth, **kwargs)
+                assert r.status_code == 200
+                assert r.json()["decision"] == "deny"
+            r = await c.post(url, headers=auth, json={"a": 1})
+            assert r.json()["reason"] == "RuntimeError: kaput"
+    finally:
+        await h.stop()
+
+
+async def test_auth_rejects_unauthenticated_websocket_scope():
+    from lightfall.agents.backends.agy.host import _BearerAuth
+
+    reached = []
+
+    async def inner(scope, receive, send):
+        reached.append(scope["type"])
+
+    mw = _BearerAuth(inner, TOKEN)
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    await mw({"type": "websocket", "headers": []}, receive, send)
+    assert reached == []
+    assert sent and sent[0]["type"] == "websocket.close"
+
+    await mw({"type": "websocket",
+              "headers": [(b"authorization", f"Bearer {TOKEN}".encode())]}, receive, send)
+    await mw({"type": "lifespan"}, receive, send)
+    assert reached == ["websocket", "lifespan"]
