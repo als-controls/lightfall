@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-import shiboken6
 from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from lightfall.agents.backends.info import AuthStatus, ModelOption
@@ -125,7 +124,51 @@ def test_stale_result_is_dropped(qtbot, prefs):
     assert "Using API key" in _status(host)
 
 
-def test_result_after_page_destroyed_is_ignored(qtbot, prefs):
+def _signed_out_infos():
+    agy = _Info("agy", AuthStatus(False, "Not signed in: x"))
+    return agy, {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
+
+
+def test_dialog_finish_stops_sign_in_polling(qtbot, prefs):
+    from PySide6.QtWidgets import QDialog
+
+    prefs.values["agent_backend"] = "agy"
+    agy, infos = _signed_out_infos()
+    plugin = cs.ClaudeSettingsPlugin()
+    plugin._backend = AgentBackendSection(info_factory=lambda kind, agy_path=None: infos[kind],
+                                          spawn=lambda *a, **k: None, poll_interval_ms=30,
+                                          poll_timeout_s=30)
+    plugin._backend.on_kind_changed = plugin._apply_backend_visibility
+    dialog = QDialog()
+    qtbot.addWidget(dialog)
+    w = plugin.create_widget(dialog)
+    plugin.load_settings()
+    qtbot.waitUntil(lambda: "Not signed in" in _status(w), timeout=3000)
+    w.findChild(QPushButton, "agySignIn").click()
+    assert plugin._backend._poll_timer.isActive()
+    qtbot.waitUntil(lambda: len(agy.refreshes) >= 2, timeout=3000)  # polling runs
+    dialog.done(0)  # Preferences closed; the (hidden) page itself stays alive
+    assert not plugin._backend._poll_timer.isActive()
+    qtbot.wait(100)  # let any in-flight check land
+    n = len(agy.refreshes)
+    qtbot.wait(200)
+    assert len(agy.refreshes) == n
+
+
+def test_new_page_stops_previous_poll(qtbot, prefs):
+    prefs.values["agent_backend"] = "agy"
+    _agy, infos = _signed_out_infos()
+    sec, host = _section(qtbot, infos, poll_interval_ms=30, poll_timeout_s=30)
+    sec.load()
+    host.findChild(QPushButton, "agySignIn").click()
+    old_timer = sec._poll_timer
+    assert old_timer.isActive()
+    group = sec.create_backend_group()  # a new Preferences page replaces the old one
+    qtbot.addWidget(group)
+    assert not old_timer.isActive()
+
+
+def test_late_result_after_stop_is_ignored(qtbot, prefs):
     import threading
 
     gate = threading.Event()
@@ -133,11 +176,12 @@ def test_result_after_page_destroyed_is_ignored(qtbot, prefs):
     infos = {"agy": _Info("agy", AuthStatus(True, "Signed in (1 models)"), gate=gate),
              "claude-code": _Info("claude-code", AuthStatus(True, "Using API key"))}
     sec, host = _section(qtbot, infos)
-    sec.load()
-    label = host.findChild(QLabel, "assistantBackendStatus")
-    shiboken6.delete(label)  # the page's widgets are gone (Preferences closed)
+    sec.load()  # check in flight, gated
+    sec.stop()
+    host.findChild(QLabel, "assistantBackendStatus").setText("sentinel")
     gate.set()
-    qtbot.wait(300)  # must not raise "Internal C++ object already deleted"
+    qtbot.wait(300)
+    assert _status(host) == "sentinel"
 
 
 def test_sign_in_spawns_agy_in_private_home_and_polls(qtbot, prefs, monkeypatch):

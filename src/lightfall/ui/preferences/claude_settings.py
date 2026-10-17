@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -490,6 +491,11 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         layout.addStretch()
 
         self._widget = widget
+        # No SettingsPlugin teardown hook exists, and MainWindow keeps the
+        # finished dialog (and so this page) alive: stop sign-in polling when
+        # the dialog closes (accept or reject both emit finished).
+        if isinstance(parent, QDialog):
+            parent.finished.connect(lambda _result: self._backend.stop())
         self._update_custom_url_state()
         self._update_betas_recommendation()
         self._update_oauth_status()

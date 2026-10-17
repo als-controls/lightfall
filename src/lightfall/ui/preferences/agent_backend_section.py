@@ -66,6 +66,7 @@ class AgentBackendSection:
     # --- widgets -------------------------------------------------------------
 
     def create_backend_group(self) -> QGroupBox:
+        self.stop()  # a new page replaces the old one: its poll must not drive this one
         group = QGroupBox("Backend")
         layout = QFormLayout(group)
         self._kind_combo = QComboBox()
@@ -128,6 +129,18 @@ class AgentBackendSection:
         return group
 
     # --- state ---------------------------------------------------------------
+
+    def stop(self) -> None:
+        """Stop sign-in polling and drop any in-flight check's result.
+
+        Called when the Preferences dialog finishes (the page stays alive,
+        hidden, so ``_alive()`` alone would keep the poll running) and when a
+        new page is built.
+        """
+        timer = self._poll_timer
+        if timer is not None and shiboken6.isValid(timer):
+            timer.stop()
+        self._generation += 1
 
     def selected_kind(self) -> str:
         return self._kind_combo.currentData() if self._kind_combo else CLAUDE_CODE
