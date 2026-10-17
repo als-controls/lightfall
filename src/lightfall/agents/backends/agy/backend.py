@@ -34,7 +34,7 @@ from lightfall.agents.backend import (
 )
 from lightfall.agents.backends.agy import hook_client
 from lightfall.agents.backends.agy.ask_tool import ASK_SERVER_NAME, create_ask_user_server
-from lightfall.agents.backends.agy.discover import console_python
+from lightfall.agents.backends.agy.discover import console_python, hook_command
 from lightfall.agents.backends.agy.events import TERMINAL_EVENTS, AgyEventTranslator
 from lightfall.agents.backends.agy.home import (
     PLUGIN_NAME,
@@ -140,7 +140,7 @@ class AgyCliBackend:
             servers=self._tool_keys,
             external_servers=dict(cfg.external_servers),
             system_prompt=cfg.system_prompt,
-            hook_command=f'"{console_python()}" -I "{Path(hook_client.__file__).resolve()}"',
+            hook_command=hook_command(console_python(), hook_client.__file__),
             port=port,
             token=token,
             skills_src=Path(cfg.skills_dir) / "skills",

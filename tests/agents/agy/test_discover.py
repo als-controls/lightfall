@@ -84,3 +84,53 @@ def test_package_import_stays_cheap_for_hook_client():
     assert out.stdout.strip() == "[]"
     from lightfall.agents.backends.agy import AgyCliBackend  # lazy export still works
     assert AgyCliBackend.__name__ == "AgyCliBackend"
+
+
+def test_hook_command_plain_path_unquoted(tmp_path):
+    py = tmp_path / "python.exe"
+    script = tmp_path / "hook_client.py"
+    py.write_bytes(b"")
+    script.write_bytes(b"")
+    cmd = discover.hook_command(py, script)
+    assert '"' not in cmd and "\\" not in cmd
+    assert cmd == f"{discover._hook_path(py)} -I {discover._hook_path(script)}"
+    if sys.platform == "win32":
+        assert cmd == f"{py.resolve().as_posix()} -I {script.resolve().as_posix()}"
+
+
+def test_hook_command_space_uses_short_name_on_windows(tmp_path):
+    import pytest
+
+    if sys.platform != "win32":
+        pytest.skip("8.3 short names are Windows only")
+    d = tmp_path / "with space dir"
+    d.mkdir()
+    f = d / "hook_client.py"
+    f.write_bytes(b"")
+    short = discover._get_short_path_name(str(f.resolve()))
+    if short == str(f.resolve()):
+        pytest.skip("8.3 short names disabled")
+    out = discover._hook_path(f)
+    assert " " not in out and "\\" not in out
+
+
+def test_hook_command_space_without_short_name_raises(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(discover.sys, "platform", "win32")
+    monkeypatch.setattr(discover, "_get_short_path_name", lambda p: p)
+    d = tmp_path / "a b"
+    d.mkdir()
+    with pytest.raises(ValueError, match="contains spaces"):
+        discover.hook_command(d / "python.exe", d / "x.py")
+
+
+def test_hook_path_posix_quotes_only_when_needed(tmp_path, monkeypatch):
+    import pytest
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX path handling")
+    monkeypatch.setattr(discover.sys, "platform", "linux")
+    plain = tmp_path / "ab"
+    assert discover._hook_path(plain) == str(plain.resolve())
+    assert discover._hook_path(tmp_path / "a b").startswith("'")

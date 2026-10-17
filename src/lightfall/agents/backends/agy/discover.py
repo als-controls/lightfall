@@ -5,6 +5,7 @@ This module must not import ``claude_agent_sdk``.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,38 @@ def console_python() -> str:
         if sibling.exists():
             return str(sibling)
     return str(exe)
+
+
+def _get_short_path_name(path: str) -> str:
+    """Windows 8.3 form of ``path`` (the long path if unavailable)."""
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    buf = ctypes.create_unicode_buffer(32768)
+    n = kernel32.GetShortPathNameW(path, buf, len(buf))
+    return buf.value if 0 < n < len(buf) else path
+
+
+def _hook_path(path: str | Path) -> str:
+    text = str(Path(path).resolve())
+    if sys.platform == "win32":
+        if any(c.isspace() for c in text):
+            text = _get_short_path_name(text)
+            if any(c.isspace() for c in text):
+                raise ValueError(
+                    f"agy hook command path contains spaces ({text}); move the Python "
+                    "environment or enable 8.3 short names")
+        return Path(text).as_posix()
+    return shlex.quote(text)
+
+
+def hook_command(python: str | Path, script: str | Path) -> str:
+    """Command line agy runs for the PreToolUse hook.
+
+    agy runs it through cmd and mangles double quotes, so Windows paths are
+    emitted unquoted with forward slashes (8.3 short names if they have spaces).
+    """
+    return f"{_hook_path(python)} -I {_hook_path(script)}"
 
 
 def find_agy(pref_path: str | None) -> str | None:

@@ -15,6 +15,7 @@ _EXPORTS = {
     "AgyProcess": "process",
     "agy_signed_in": "discover",
     "console_python": "discover",
+    "hook_command": "discover",
     "find_agy": "discover",
 }
 
