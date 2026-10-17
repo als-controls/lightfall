@@ -139,8 +139,7 @@ licence is used); Lightfall reuses that sign-in and never changes it. Lightfall
 keeps its own agy configuration separate from your personal agy settings, so
 your own agy setup is not touched.
 
-The agy home lives under `%APPDATA%
-csgy-home` (the roaming profile).
+The agy home lives under `%APPDATA%\ncs\agy-home` (the roaming profile).
 Profiles redirected to a UNC path are not supported, because the per-session
 homes need directory junctions, which cannot point across network shares.
 
