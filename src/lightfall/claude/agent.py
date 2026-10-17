@@ -400,11 +400,14 @@ class QtClaudeAgent(QObject):
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
             try:
+                from lightfall.agents.backends.info import backend_info
+
                 spec_options = assemble_spec_options(
                     self._spec,
                     ToolRegistry.get_instance(),
                     AgentSpecRegistry.get_instance(),
                     self._session_plugin_dir,
+                    backend=backend_info(),
                 )
             except AgentSpecError as exc:
                 logger.warning(

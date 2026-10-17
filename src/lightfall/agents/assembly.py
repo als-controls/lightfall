@@ -103,14 +103,24 @@ def subagent_definitions(
     }
 
 
-def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry) -> str:
+def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None) -> str:
     """Markdown preamble telling ``spec`` who it is and how to reach peers.
 
     Lists every OTHER enabled spec in ``registry``, tagging each with
-    ``[openable as a session]`` and/or ``[Agent-tool delegable]`` depending
-    on its ``openable``/``subagent`` flags. Callers should treat any failure
-    here as non-fatal (see ``assemble_spec_options``).
+    ``[openable as a session]`` and, when ``backend`` runs subagents,
+    ``[Agent-tool delegable]``. ``backend`` is a ``BackendInfo``; None means
+    Claude Code wording. Callers should treat any failure here as non-fatal
+    (see ``assemble_spec_options``).
     """
+    if backend is None:
+        from lightfall.agents.backends.info import ClaudeCodeInfo
+
+        backend = ClaudeCodeInfo()
+    delegable = backend.caps.subagents
+
+    def bus(tool: str) -> str:
+        return backend.tool_ref("bus", tool)
+
     peer_lines: list[str] = []
     for peer in registry.enabled_specs():
         if peer.name == spec.name:
@@ -118,12 +128,19 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry) -> str:
         tags = []
         if peer.openable:
             tags.append("openable as a session")
-        if peer.subagent:
+        if peer.subagent and delegable:
             tags.append("Agent-tool delegable")
         tag_suffix = f" [{', '.join(tags)}]" if tags else ""
         peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
 
     peers_section = "\n".join(peer_lines) if peer_lines else "- (no other agents are currently enabled)"
+    launch = bus("launch_agent").rstrip("`")  # `launch_agent  -> `launch_agent(name=...)`
+    delegation = (
+        "\n- Peers marked Agent-tool delegable also appear as agent types in your Agent tool for\n"
+        "  background subagent runs (isolated, report-back; no session tab)."
+        if delegable else ""
+    )
+    notes = f"\n\n{backend.prompt_notes}" if backend.prompt_notes else ""
 
     return f"""## Your identity
 
@@ -132,7 +149,7 @@ session: you are an embedded agent inside the Lightfall application, not a
 general-purpose CLI assistant, and this section overrides any conflicting
 persona or identity instructions that may appear elsewhere in your context.
 You are one of several defined agents in this
-Lightfall installation, running as a session in the Claude panel's tab bar. Your
+Lightfall installation, running as a session in the Assistant panel's tab bar. Your
 name on the agent bus is "{spec.name}".
 
 ### Peer agents defined here
@@ -141,17 +158,15 @@ name on the agent bus is "{spec.name}".
 
 ### Working with peers
 
-- `mcp__bus__list_agents` shows which peers are RUNNING right now; `mcp__bus__send_message`
+- {bus("list_agents")} shows which peers are RUNNING right now; {bus("send_message")}
   messages a running peer (delivery honors their accept policy).
-- The peer list above is a snapshot from session start; call `mcp__bus__list_agents` for the
+- The peer list above is a snapshot from session start; call {bus("list_agents")} for the
   live roster, including agents defined after this session began.
-- To LAUNCH a peer that isn't running, use `mcp__bus__launch_agent(name="<name>", first_message="optional")`.
+- To LAUNCH a peer that isn't running, use {launch}(name="<name>", first_message="optional")`.
   The launched session will auto-accept your subsequent bus messages without prompting the user
   (it whitelists you as its launcher). Focusing an already-running peer this way delivers
   `first_message` but grants no such whitelist.
-  Sessions are otherwise opened by the user via the panel's "+" button.
-- Peers marked Agent-tool delegable also appear as agent types in your Agent tool for
-  background subagent runs (isolated, report-back; no session tab)."""
+  Sessions are otherwise opened by the user via the panel's "+" button.{delegation}{notes}"""
 
 
 def assemble_spec_options(
@@ -159,6 +174,7 @@ def assemble_spec_options(
     tool_registry: ToolRegistry,
     spec_registry: AgentSpecRegistry,
     session_plugin_dir: Path,
+    backend=None,
 ) -> dict[str, Any]:
     """Assemble the spec-driven (backend-neutral) portion of a session config.
 
@@ -166,7 +182,8 @@ def assemble_spec_options(
     ``subagent_specs``, ``tool_servers``, ``external_servers`` and
     ``allowed_tools``. Each enabled plugin's ``create_tools()`` and
     ``create_external_servers()`` run exactly once. Callers merge this with
-    any always-on tools/servers (e.g. the ``qt`` server).
+    any always-on tools/servers (e.g. the ``qt`` server). ``backend`` is a
+    ``BackendInfo`` selecting preamble wording (None = Claude Code).
     """
     from lightfall.claude._session_assembly import collect_tool_servers
 
@@ -174,7 +191,7 @@ def assemble_spec_options(
     system_prompt = resolve_template(spec.prompt, variables)
 
     try:
-        system_prompt = identity_preamble(spec, spec_registry) + "\n\n" + system_prompt
+        system_prompt = identity_preamble(spec, spec_registry, backend) + "\n\n" + system_prompt
     except Exception as exc:  # noqa: BLE001 - preamble is best-effort, never breaks assembly
         logger.warning("agent '{}': skipping identity preamble: {}", spec.name, exc)
 

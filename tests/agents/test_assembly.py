@@ -161,3 +161,42 @@ def test_assemble_spec_options_tolerates_registry_enumeration_failure(monkeypatc
                         lambda: {"user": "ron", "beamline": "", "endstation": ""})
     options = assemble_spec_options(lightfall, _FakeToolRegistry(), reg, tmp_path)
     assert options["system_prompt"] == "p ron"
+
+
+def _reg_with_delegable_peer():
+    lightfall = _spec("lightfall")
+    peer = _spec("saxs", openable=True, subagent=True)
+    return lightfall, _FakeRegistry([lightfall, peer])
+
+
+def test_preamble_agy_has_no_claude_only_wording():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall, reg = _reg_with_delegable_peer()
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    assert "Agent tool" not in text and "Agent-tool" not in text
+    assert "ScheduleWakeup" not in text
+    assert "mcp__" not in text
+    assert "`list_agents`" in text and "`launch_agent(" in text
+    assert "Assistant panel's tab bar" in text
+
+
+def test_preamble_claude_keeps_delegation_and_notes():
+    from lightfall.agents.backends.info import ClaudeCodeInfo
+
+    lightfall, reg = _reg_with_delegable_peer()
+    text = identity_preamble(lightfall, reg, ClaudeCodeInfo())
+    assert "Agent-tool delegable" in text
+    assert "`mcp__bus__list_agents`" in text
+    assert "ScheduleWakeup" in text
+    assert "Claude panel" not in text and "Assistant panel's tab bar" in text
+    assert identity_preamble(lightfall, reg) == text  # None = Claude wording
+
+
+def test_lightfall_spec_prompt_is_backend_neutral():
+    from pathlib import Path
+
+    import lightfall.agents as agents_pkg
+
+    md = (Path(agents_pkg.__file__).parent / "builtin" / "lightfall.md").read_text(encoding="utf-8")
+    assert "ScheduleWakeup" not in md
