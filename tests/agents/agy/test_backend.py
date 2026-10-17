@@ -162,7 +162,7 @@ def test_text_turn_streams_and_completes(qtbot, env):
         assert "`screenshot` — Take a screenshot" in rules and "`ask_user`" in rules
         assert str(home / ".gemini" / "antigravity-cli" / "mcp") in rules
         operator = (plugin / "agents" / "operator.md").read_text(encoding="utf-8")
-        assert "tools: [view_file]\n" in operator and "`lightfall_qt`" in operator
+        assert "run_command" in operator and "`lightfall_qt`" in operator
         assert (plugin / "skills" / "demo" / "SKILL.md").is_file()
         hook = json.loads((plugin / "hooks.json").read_text(encoding="utf-8"))
         assert " -I " in (

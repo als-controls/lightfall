@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lightfall.agents.backends.agy.hook_policy import AGY_BUILTIN_TOOLS
 from lightfall.utils.logging import logger
 
 PLUGIN_NAME = "lightfall"
@@ -42,6 +43,12 @@ STALE_UNOWNED_S = 3600  # a session home with no readable owner.pid is swept aft
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _CREATE_NO_WINDOW = 0x08000000
 
+# agy permission categories for the operator agent's built-ins.  Headless mode
+# soft-denies an unlisted category before the hook can approve it.  Browser
+# actuation is not offered, so it stays denied.
+BUILTIN_ALLOW = ("read_file(*)", "write_file(*)", "command(*)", "read_url(*)")
+BUILTIN_DENY = ("execute_url(*)",)
+
 _OPERATOR_FRONTMATTER = (
     "---\n"
     "name: operator\n"
@@ -51,9 +58,9 @@ _OPERATOR_FRONTMATTER = (
     "excludeDefaultComponents: true\n"
     "inheritCustomizations: true\n"
     "inheritMcp: true\n"
-    # view_file lets the model read the per-tool MCP schemas agy writes under
-    # antigravity-cli/mcp/ (the hook allows only that and the skills dir).
-    "tools: [view_file]\n"
+    # The same built-ins a Claude session gets (read, edit, shell, web); every
+    # call is gated by the PreToolUse hook through PermissionManager.
+    f"tools: [{', '.join(AGY_BUILTIN_TOOLS)}]\n"
     "---\n"
 )
 
@@ -296,7 +303,9 @@ def write_spec_settings(
     """Write/merge the shared per-spec ``settings.json`` atomically.
 
     trustedWorkspaces and allow entries are unioned with what is already there;
-    deny is fixed; gcp project/location are overwritten.
+    deny is fixed; gcp project/location are overwritten.  Headless agy refuses
+    anything not on ``allow`` before the hook runs, so the built-in categories are
+    allowed here and the hook does the real gating.
     """
     for k in server_keys:
         _check_key(k)
@@ -314,8 +323,9 @@ def write_spec_settings(
         "gcp": {"project": project, "location": location},
         "trustedWorkspaces": _union(old.get("trustedWorkspaces"), [os.path.normpath(workspace)]),
         "permissions": {
-            "allow": _union(old_perm.get("allow"), [f"mcp({PLUGIN_NAME}_{k}/*)" for k in server_keys]),
-            "deny": ["command(*)", "write_file(*)", "read_url(*)", "execute_url(*)"],
+            "allow": _union(old_perm.get("allow"),
+                            [f"mcp({PLUGIN_NAME}_{k}/*)" for k in server_keys] + list(BUILTIN_ALLOW)),
+            "deny": list(BUILTIN_DENY),
         },
     }
     _atomic_write_text(path, json.dumps(settings, indent=1, ensure_ascii=False) + "\n")

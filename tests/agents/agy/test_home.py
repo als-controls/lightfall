@@ -166,8 +166,9 @@ def test_spec_settings_exact(tmp_path):
         "gcp": {"project": "lbl-gemini-enterprise-access", "location": "global"},
         "trustedWorkspaces": [os.path.normpath(ws)],
         "permissions": {
-            "allow": ["mcp(lightfall_qt/*)", "mcp(lightfall_bus/*)"],
-            "deny": ["command(*)", "write_file(*)", "read_url(*)", "execute_url(*)"],
+            "allow": ["mcp(lightfall_qt/*)", "mcp(lightfall_bus/*)",
+                      "read_file(*)", "write_file(*)", "command(*)", "read_url(*)"],
+            "deny": ["execute_url(*)"],
         },
     }
 
@@ -187,8 +188,10 @@ def test_spec_settings_merge_is_union(tmp_path):
     )
     s = _load(p)
     assert s["trustedWorkspaces"] == [os.path.normpath(tmp_path / "a"), os.path.normpath(tmp_path / "b")]
-    assert s["permissions"]["allow"] == ["mcp(lightfall_qt/*)", "mcp(lightfall_bus/*)", "mcp(lightfall_ask/*)"]
-    assert s["permissions"]["deny"] == ["command(*)", "write_file(*)", "read_url(*)", "execute_url(*)"]
+    assert s["permissions"]["allow"] == [
+        "mcp(lightfall_qt/*)", "read_file(*)", "write_file(*)", "command(*)", "read_url(*)",
+        "mcp(lightfall_bus/*)", "mcp(lightfall_ask/*)"]
+    assert s["permissions"]["deny"] == ["execute_url(*)"]
     assert s["gcp"] == {"project": "p3", "location": "eu"}
     assert [x.name for x in p.parent.iterdir()] == ["settings.json"]  # no temp leftovers
 
@@ -198,7 +201,8 @@ def test_spec_settings_tolerates_corrupt_file(tmp_path):
     p.parent.mkdir(parents=True)
     p.write_text("{not json", encoding="utf-8")
     agy_home.write_spec_settings(tmp_path / "spec", workspace="w", server_keys=["qt"])
-    assert _load(p)["permissions"]["allow"] == ["mcp(lightfall_qt/*)"]
+    assert _load(p)["permissions"]["allow"] == [
+        "mcp(lightfall_qt/*)", "read_file(*)", "write_file(*)", "command(*)", "read_url(*)"]
 
 
 # ---- session config --------------------------------------------------------
@@ -266,7 +270,8 @@ def test_rules_and_operator_agent(tmp_path):
         "excludeDefaultComponents: true\n"
         "inheritCustomizations: true\n"
         "inheritMcp: true\n"
-        "tools: [view_file]\n"
+        "tools: [view_file, list_dir, grep_search, find_by_name, write_to_file, replace_file_content, "
+        "multi_replace_file_content, edit_file, run_command, read_url_content, search_web]\n"
         "---\n"
         "\n"
         "You are the operator.\n"

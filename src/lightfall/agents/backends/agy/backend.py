@@ -132,17 +132,16 @@ class AgyCliBackend:
             write_spec_settings(spec_home(self._spec_name), workspace=cfg.cwd,
                                 server_keys=self._all_keys, project=self._project,
                                 location=self._location)
-            roots = [home / ".gemini" / "antigravity-cli" / "mcp",
-                     home / ".gemini" / "config" / "plugins" / PLUGIN_NAME / "skills"]
             handler = functools.partial(
                 decide, permission_manager=self._pm, require_approval=self._require_approval,
-                server_keys=set(self._all_keys), allowed_view_roots=roots)
+                server_keys=set(self._all_keys))
             servers = list(cfg.tool_servers) + [(ASK_SERVER_NAME, create_ask_user_server(self._pm))]
             self._host = ToolHost(servers, handler, token)
             port = await self._host.start()
             # The operator agent drops agy's own MCP listing, so name the servers here.
             directory = render_tool_directory(
-                servers, [k for k in self._all_keys if k not in self._tool_keys], roots[0])
+                servers, [k for k in self._all_keys if k not in self._tool_keys],
+                home / ".gemini" / "antigravity-cli" / "mcp")
             write_session_config(home, AgyHomeConfig(
                 servers=self._tool_keys,
                 external_servers=dict(cfg.external_servers),
