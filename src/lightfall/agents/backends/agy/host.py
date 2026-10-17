@@ -1,0 +1,205 @@
+"""In-process tool host for agy sessions: Streamable HTTP MCP plus a ``/hook`` endpoint.
+
+Each Lightfall :class:`ToolServer` is served by its own low-level MCP server at
+``/mcp/<key>/`` (stateless, JSON responses). ``POST /hook`` forwards agy's
+PreToolUse hook payload to ``hook_handler`` and returns its decision as JSON.
+Every path requires ``Authorization: Bearer <token>``; the listener binds
+``127.0.0.1`` only.
+
+The host runs on the *current* asyncio loop (the AgentWorker's loop) as a
+background task, so tool handlers execute on the same loop as the backend.
+
+This module must not import ``claude_agent_sdk``.
+"""
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import copy
+import hmac
+import socket
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
+
+import uvicorn
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+from lightfall.agents.tooling import ToolServer, json_schema
+from lightfall.utils.logging import logger
+
+HookHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+_START_TIMEOUT_S = 5.0
+_STOP_TIMEOUT_S = 3.0
+
+
+def _to_content(block: dict[str, Any]) -> types.TextContent | types.ImageContent:
+    if block.get("type") == "image":
+        return types.ImageContent(type="image", data=block["data"], mimeType=block["mimeType"])
+    return types.TextContent(type="text", text=str(block.get("text", "")))
+
+
+def _error_result(text: str) -> types.CallToolResult:
+    return types.CallToolResult(content=[types.TextContent(type="text", text=text)], isError=True)
+
+
+def _build_mcp_server(key: str, server: ToolServer) -> Server:
+    srv: Server = Server(f"lightfall_{key}", version=server.version)
+    specs = {s.name: s for s in server.tools}
+
+    @srv.list_tools()
+    async def _list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(name=s.name, description=s.description,
+                       inputSchema=copy.deepcopy(json_schema(s)))
+            for s in server.tools
+        ]
+
+    @srv.call_tool(validate_input=False)
+    async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        spec = specs.get(name)
+        if spec is None:
+            return _error_result(f"Unknown tool: {name}")
+        try:
+            result = await spec.handler(arguments or {})
+            content = [_to_content(b) for b in (result or {}).get("content", [])]
+        except Exception as e:  # noqa: BLE001 - every tool failure becomes an MCP error result
+            logger.opt(exception=e).debug("agy tool {}/{} raised", key, name)
+            return _error_result(f"{type(e).__name__}: {e}")
+        return types.CallToolResult(content=content, isError=bool(result.get("is_error")))
+
+    return srv
+
+
+class _BearerAuth:
+    """Pure-ASGI middleware: 401 JSON unless the request carries the session token."""
+
+    def __init__(self, app: ASGIApp, token: str) -> None:
+        self.app = app
+        self._expected = f"Bearer {token}".encode()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            supplied = b""
+            for name, value in scope.get("headers", []):
+                if name == b"authorization":
+                    supplied = value
+                    break
+            if not hmac.compare_digest(supplied, self._expected):
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+class _Server(uvicorn.Server):
+    """uvicorn server that never touches process signal handlers (we are embedded)."""
+
+    @contextlib.contextmanager
+    def capture_signals(self):  # type: ignore[override]
+        yield
+
+
+class ToolHost:
+    """Serve ``servers`` over bearer-authenticated HTTP MCP on 127.0.0.1."""
+
+    def __init__(self, servers: list[tuple[str, ToolServer]], hook_handler: HookHandler,
+                 token: str) -> None:
+        self._servers = list(servers)
+        self._hook_handler = hook_handler
+        self._token = token
+        self._sock: socket.socket | None = None
+        self._uvicorn: _Server | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._port = 0
+        self._address: tuple[str, int] | None = None
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def address(self) -> tuple[str, int] | None:
+        """The bound ``(host, port)`` while running."""
+        return self._address
+
+    def _build_app(self) -> ASGIApp:
+        managers = [
+            (key, StreamableHTTPSessionManager(app=_build_mcp_server(key, srv),
+                                               stateless=True, json_response=True))
+            for key, srv in self._servers
+        ]
+
+        def _mcp_endpoint(manager: StreamableHTTPSessionManager) -> ASGIApp:
+            async def _asgi(scope: Scope, receive: Receive, send: Send) -> None:
+                await manager.handle_request(scope, receive, send)
+            return _asgi
+
+        async def _hook(request: Request) -> JSONResponse:
+            return JSONResponse(await self._hook_handler(await request.json()))
+
+        @contextlib.asynccontextmanager
+        async def _lifespan(_app: Starlette) -> AsyncIterator[None]:
+            async with contextlib.AsyncExitStack() as stack:
+                for _key, manager in managers:
+                    await stack.enter_async_context(manager.run())
+                yield
+
+        routes = [Route("/hook", _hook, methods=["POST"])]
+        routes += [Mount(f"/mcp/{key}", app=_mcp_endpoint(m)) for key, m in managers]
+        return _BearerAuth(Starlette(routes=routes, lifespan=_lifespan), self._token)
+
+    async def start(self) -> int:
+        """Bind 127.0.0.1:0, serve on the running loop in the background; return the port."""
+        if self._task is not None:
+            return self._port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", 0))
+        except OSError:
+            sock.close()
+            raise
+        self._sock = sock
+        self._address = sock.getsockname()[:2]
+        self._port = self._address[1]
+        config = uvicorn.Config(self._build_app(), log_level="warning", lifespan="on", ws="none",
+                                timeout_graceful_shutdown=1)
+        self._uvicorn = _Server(config)
+        self._task = asyncio.get_running_loop().create_task(
+            self._uvicorn.serve(sockets=[sock]), name=f"agy-tool-host:{self._port}")
+
+        try:
+            async with asyncio.timeout(_START_TIMEOUT_S):
+                while not self._uvicorn.started:
+                    if self._task.done():
+                        break
+                    await asyncio.sleep(0.01)
+        except TimeoutError:
+            pass
+        if not self._uvicorn.started:
+            await self.stop()
+            raise RuntimeError("agy tool host failed to start")
+        return self._port
+
+    async def stop(self) -> None:
+        """Shut down the server; bounded to a few seconds. Idempotent."""
+        task, server, sock = self._task, self._uvicorn, self._sock
+        self._task = self._uvicorn = self._sock = None
+        self._address = None
+        if task is not None and server is not None:
+            server.should_exit = True
+            done, _ = await asyncio.wait({task}, timeout=_STOP_TIMEOUT_S)
+            if not done:
+                server.force_exit = True
+                task.cancel()
+                await asyncio.wait({task}, timeout=0.5)
+            if task.done() and not task.cancelled() and task.exception() is not None:
+                logger.opt(exception=task.exception()).warning("agy tool host exited with error")
+        if sock is not None:
+            sock.close()
