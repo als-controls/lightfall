@@ -197,7 +197,7 @@ class ClaudePanel(BasePanel):
     )
 
     # Preference keys that determine which backend/model/behavior the agent
-    # connects with. A change to any of these (e.g. from the Preferences dialog)
+    # connects with (including the backend choice and its agy settings). A change to any of these (e.g. from the Preferences dialog)
     # must rebuild the running agent instead of waiting for a lightfall restart.
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
@@ -208,6 +208,11 @@ class ClaudePanel(BasePanel):
         "claude_max_turns",
         "claude_permission_mode",
         "claude_disable_betas",
+        "agent_backend",
+        "agy_path",
+        "agy_gcp_project",
+        "agy_gcp_location",
+        "agy_model",
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -236,6 +241,8 @@ class ClaudePanel(BasePanel):
         #     isn't immediately undone.
         self._settings_reload_pending = False
         self._active_agent_config: tuple | None = None
+        # Tabs (main or "+") whose reload waits for their in-flight reply to end.
+        self._deferred_reload: set = set()
 
         # Session restore state
         self._pending_resume_session_id: str | None = None
@@ -415,6 +422,7 @@ class ClaudePanel(BasePanel):
         # tabs are movable, so index 0 may hold any session.
         if tab is self._lightfall_tab:
             return
+        self._deferred_reload.discard(tab)
         tab.close_session()
         self._tab_pending.pop(tab, None)
         self._tabs.removeTab(index)
@@ -580,6 +588,7 @@ class ClaudePanel(BasePanel):
         currently registered tools.
         """
         logger.info("Reloading Claude agent with new tools")
+        self._deferred_reload.discard(None)
         self._reset_cockpit()
 
         # Clear pending plugins list
@@ -805,6 +814,7 @@ class ClaudePanel(BasePanel):
 
         p = ClaudeSettingsProvider
         return (
+            p.get_agent_backend(),
             resolve_model_alias(p.get_model()),
             p.get_effort(),
             p.get_base_url(),
@@ -812,6 +822,10 @@ class ClaudePanel(BasePanel):
             p.get_max_turns(),
             p.get_permission_mode(),
             p.get_disable_betas(),
+            p.get_agy_path(),
+            p.get_agy_project(),
+            p.get_agy_location(),
+            p.get_agy_model(),
         )
 
     def _on_claude_pref_changed(self, value: object) -> None:
@@ -833,10 +847,10 @@ class ClaudePanel(BasePanel):
 
         Rebuilds only when the effective config actually changed (so an
         unrelated Preferences OK, or the picker's already-applied live switch,
-        is a no-op). Rebuilds immediately when the agent is idle; if a query is
-        in flight, defers to the reload banner so the running conversation isn't
-        dropped. No-op while the agent isn't built yet (construction reads fresh
-        prefs).
+        is a no-op). Idle tabs rebuild immediately. Busy tabs (main or extra)
+        reload automatically when their reply ends; the main tab also shows
+        the banner. No-op while the agent isn't built yet (construction reads
+        fresh prefs).
         """
         self._settings_reload_pending = False
         if not self._is_agent_ready:
@@ -854,12 +868,43 @@ class ClaudePanel(BasePanel):
             return
         if self._current_claude_config() == self._active_agent_config:
             return  # nothing the agent cares about changed
+        for tab in self._session_tabs():
+            if tab is not self._lightfall_tab:
+                self._reload_tab_when_idle(tab)
         widget = self._claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
         if agent is not None and agent.is_busy():
             self._show_settings_reload_banner()
+            self._reload_tab_when_idle(None)  # registers the auto-reload
         else:
             self._reload_agent()
+
+    def _reload_tab_when_idle(self, tab) -> None:
+        """Reload ``tab`` now if idle, else once its current reply ends.
+
+        ``tab`` is an AgentSessionTab, or None for the main session. The reload
+        runs from a zero-delay timer so the finishing turn's own slots complete
+        before its agent is torn down.
+        """
+        widget = self._claude_widget if tab is None else tab.claude_widget
+        agent = getattr(widget, "agent", None) if widget is not None else None
+        if agent is None or not agent.is_busy():
+            self._deferred_reload.discard(tab)
+            if tab is None:
+                self._reload_agent()
+            else:
+                tab.reload_agent()
+            return
+        if tab in self._deferred_reload:
+            return
+        self._deferred_reload.add(tab)
+
+        def _fire(*_args, t=tab) -> None:
+            if t in self._deferred_reload:
+                QTimer.singleShot(0, lambda: self._reload_tab_when_idle(t))
+
+        agent.query_completed.connect(_fire)
+        agent.query_cancelled.connect(_fire)
 
     def _show_settings_reload_banner(self) -> None:
         """Offer a reload (rather than interrupting a running query)."""
@@ -869,7 +914,7 @@ class ClaudePanel(BasePanel):
         self._reload_banner = ReloadBannerWidget(
             plugin_names=[],
             on_reload=self._reload_agent,
-            message="⚙ Claude settings changed",
+            message="⚙ Assistant settings changed — applies after this reply",
             parent=self,
         )
         self._layout.insertWidget(0, self._reload_banner)

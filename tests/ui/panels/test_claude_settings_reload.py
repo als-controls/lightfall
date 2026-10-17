@@ -28,6 +28,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import QObject, Signal
 
 from lightfall.ui.panels.claude_panel import ClaudePanel
 
@@ -277,3 +278,92 @@ def test_pick_model_live_switch_updates_active_config(panel, fake_prefs, monkeyp
     panel._do_claude_settings_reload()
 
     assert calls == []
+
+
+class _FakeAgent(QObject):
+    query_completed = Signal()
+    query_cancelled = Signal()
+
+    def __init__(self, busy: bool):
+        super().__init__()
+        self.busy = busy
+
+    def is_busy(self):
+        return self.busy
+
+
+class _FakeTab:
+    def __init__(self, busy: bool):
+        self.claude_widget = MagicMock()
+        self.claude_widget.agent = _FakeAgent(busy)
+        self.reloads = 0
+
+    def reload_agent(self):
+        self.reloads += 1
+
+    def close_session(self, **_kwargs):  # panel teardown closes every tab
+        pass
+
+
+def test_backend_prefs_are_watched(panel):
+    for key in ("agent_backend", "agy_path", "agy_gcp_project", "agy_gcp_location", "agy_model"):
+        assert key in ClaudePanel._WATCHED_CLAUDE_KEYS
+
+
+def test_backend_switch_changes_config(panel, fake_prefs):
+    before = panel._current_claude_config()
+    fake_prefs.set("agent_backend", "agy")
+    assert panel._current_claude_config() != before
+    fake_prefs.set("agy_model", "gemini-3-pro")
+    assert panel._current_claude_config()[-1] == "gemini-3-pro"
+
+
+def test_settings_change_reloads_idle_extra_tabs(panel, fake_prefs, monkeypatch):
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+    panel._active_agent_config = _STALE_CONFIG
+    extra = _FakeTab(busy=False)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
+    monkeypatch.setattr(panel, "_reload_agent", lambda: None)
+
+    panel._do_claude_settings_reload()
+
+    assert extra.reloads == 1
+
+
+def test_busy_extra_tab_reloads_after_completion(panel, fake_prefs, monkeypatch, qtbot):
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+    panel._active_agent_config = _STALE_CONFIG
+    extra = _FakeTab(busy=True)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
+    monkeypatch.setattr(panel, "_reload_agent", lambda: None)
+
+    panel._do_claude_settings_reload()
+    assert extra.reloads == 0  # mid-reply: not torn down
+
+    extra.claude_widget.agent.busy = False
+    extra.claude_widget.agent.query_completed.emit()
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+    extra.claude_widget.agent.query_completed.emit()  # a later turn: no second reload
+    qtbot.wait(50)
+    assert extra.reloads == 1
+
+
+def test_busy_main_tab_banner_then_auto_reload(panel, fake_prefs, monkeypatch, qtbot):
+    panel._is_agent_ready = True
+    agent = _FakeAgent(busy=True)
+    panel._claude_widget = MagicMock()
+    panel._claude_widget.agent = agent
+    panel._active_agent_config = _STALE_CONFIG
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+    monkeypatch.setattr(panel, "_show_settings_reload_banner", lambda: calls.append("banner"))
+
+    panel._do_claude_settings_reload()
+    assert calls == ["banner"]
+
+    agent.busy = False
+    agent.query_cancelled.emit()
+    qtbot.waitUntil(lambda: calls == ["banner", "reload"], timeout=2000)
