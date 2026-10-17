@@ -427,6 +427,7 @@ class ClaudeAssistantWidget(QWidget):
         # Standard permission approval signals only when approvals required.
         if self._require_approval:
             self.agent.permission_requested.connect(self._on_permission_requested)
+            self.agent.permission_expired.connect(self._on_permission_expired)
 
         # Partial streaming
         self.agent.partial_block_started.connect(self._on_partial_block_started)
@@ -1111,6 +1112,17 @@ class ClaudeAssistantWidget(QWidget):
         self.approval_resolved.emit(request_id, False)
 
         # Clean up
+        self._cleanup_permission_widget(request_id)
+
+    @Slot(str)
+    def _on_permission_expired(self, request_id: str) -> None:
+        """A request ended unanswered (timed out or cancelled): withdraw its card."""
+        tool_name = self._pending_tool_names.get(request_id)
+        if request_id not in self._pending_permission_widgets:
+            return
+        display_name = self._format_tool_name(tool_name) if tool_name else "tool"
+        self._append_system_message(f"✗ Approval expired: {display_name}")
+        self.approval_resolved.emit(request_id, False)
         self._cleanup_permission_widget(request_id)
 
     def _cleanup_permission_widget(self, request_id: str) -> None:

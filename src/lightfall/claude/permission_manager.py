@@ -30,6 +30,9 @@ class PermissionManager(QObject):
 
     # Signals
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    # A request ended without an answer (timed out, or its waiter was cancelled):
+    # the UI must drop its approval card. request_id
+    permission_expired = Signal(str)
     question_requested = Signal(str, list)  # request_id, questions
     auto_approvals_changed = Signal(set)  # Current set of auto-approved tools
 
@@ -259,19 +262,21 @@ class PermissionManager(QObject):
         # Emit signal to main thread (Qt handles cross-thread delivery)
         self.permission_requested.emit(request_id, tool_name, tool_input)
 
-        # Wait for response with timeout to prevent hanging if CLI dies
+        # Wait for response with timeout to prevent hanging if CLI dies. The
+        # caller may also cancel this wait (e.g. agy's hook deadline); either
+        # way an unanswered request is cleaned up and reported as expired.
+        answered = False
         try:
             await asyncio.wait_for(event.wait(), timeout=300)  # 5 min timeout
+            answered = True
         except TimeoutError:
-            # Clean up and deny — user didn't respond in time
+            return (False, "Permission request timed out")
+        finally:
             self._pending_requests.pop(request_id, None)
             self._pending_loops.pop(request_id, None)
-            self._responses.pop(request_id, None)
-            return (False, "Permission request timed out")
-
-        # Clean up and return result
-        self._pending_requests.pop(request_id, None)
-        self._pending_loops.pop(request_id, None)
+            if not answered:
+                self._responses.pop(request_id, None)
+                self.permission_expired.emit(request_id)
 
         return self._responses.pop(request_id, (False, "No response received"))
 

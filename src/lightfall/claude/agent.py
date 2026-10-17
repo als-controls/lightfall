@@ -252,6 +252,7 @@ class QtClaudeAgent(QObject):
     cockpit_reset = Signal()  # title-bar cockpit should zero (new/reset session)
     session_id_changed = Signal(str)  # current SDK session id
     permission_requested = Signal(str, str, dict)  # request_id, tool_name, tool_input
+    permission_expired = Signal(str)  # request_id: ended unanswered, drop its card
     question_requested = Signal(str, list)  # request_id, questions
     # Partial streaming
     partial_block_started = Signal(str, str)
@@ -356,6 +357,9 @@ class QtClaudeAgent(QObject):
             # Forward standard permission requests to our signal
             self._permission_manager.permission_requested.connect(
                 self.permission_requested.emit
+            )
+            self._permission_manager.permission_expired.connect(
+                self.permission_expired.emit
             )
 
         # Create MCP tools server with Qt tools

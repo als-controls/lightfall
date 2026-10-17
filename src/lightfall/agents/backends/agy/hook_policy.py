@@ -15,12 +15,17 @@ This module must not import ``claude_agent_sdk``.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from lightfall.agents.backends.agy.ask_tool import ASK_TOOL_ID
 from lightfall.agents.tooling import tool_id
 
 _PREFIX = "lightfall_"
+
+# The approval wait ends before hook_client's 285 s HTTP timeout, so Lightfall's
+# answer (and the card's withdrawal) always reaches agy.
+HOOK_DECISION_TIMEOUT_S = 280
 
 # agy built-in -> Claude Code built-in it stands in for (the permission id).
 # Names verified against agy 1.4.1's tool registry.
@@ -65,7 +70,13 @@ async def _gate(tid: str, tool_input: dict, *, permission_manager: Any,
     if permission_manager.is_auto_approved(tid):
         return _allow("auto-approved")
     try:
-        ok, msg = await permission_manager.request_permission(tid, tool_input)
+        ok, msg = await asyncio.wait_for(
+            permission_manager.request_permission(tid, tool_input), HOOK_DECISION_TIMEOUT_S)
+    except TimeoutError:
+        # agy's hook client is about to give up; answer first so the card is
+        # withdrawn (PermissionManager emits permission_expired) rather than
+        # left open for a late click that would do nothing.
+        return _deny("Approval timed out")
     except Exception as e:  # noqa: BLE001 - fail closed
         return _deny(f"Permission system error: {e}")
     return _allow("approved by user") if ok else _deny(msg or "User denied permission")
