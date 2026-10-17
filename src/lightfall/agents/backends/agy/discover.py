@@ -38,15 +38,22 @@ def _get_short_path_name(path: str) -> str:
     return buf.value if 0 < n < len(buf) else path
 
 
+_CMD_UNSAFE = set("&^%()!;,='\"<>|")
+
+
+def _cmd_unsafe(text: str) -> bool:
+    return any(c.isspace() or c in _CMD_UNSAFE for c in text)
+
+
 def _hook_path(path: str | Path) -> str:
     text = str(Path(path).resolve())
     if sys.platform == "win32":
-        if any(c.isspace() for c in text):
+        if _cmd_unsafe(text):
             text = _get_short_path_name(text)
-            if any(c.isspace() for c in text):
+            if _cmd_unsafe(Path(text).as_posix()):
                 raise ValueError(
-                    f"agy hook command path contains spaces ({text}); move the Python "
-                    "environment or enable 8.3 short names")
+                    f"agy hook command path contains characters unsafe for cmd ({text}); "
+                    "move the Python environment or enable 8.3 short names")
         return Path(text).as_posix()
     return shlex.quote(text)
 

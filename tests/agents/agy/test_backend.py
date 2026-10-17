@@ -525,3 +525,38 @@ def test_two_sessions_isolated(qtbot, env):
     finally:
         _stop(w1)
         _stop(w2)
+
+
+def test_connect_failure_before_resources_leaves_nothing(env, monkeypatch):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(*a, **k):
+        raise ValueError("bad hook path")
+
+    monkeypatch.setattr(backend_mod, "hook_command", boom)
+    b = _backend(env)
+    with pytest.raises(ValueError, match="bad hook path"):
+        asyncio.run(b.connect())
+    assert b._host is None and b.session_home is None
+    assert not (env["root"] / "lightfall" / "sessions").exists() or not any(
+        (env["root"] / "lightfall" / "sessions").iterdir())
+
+
+def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    seen = {}
+    real = backend_mod.write_session_config
+
+    def boom(home, cfg):
+        seen["home"], seen["port"] = home, cfg.port
+        raise OSError("disk full")
+
+    monkeypatch.setattr(backend_mod, "write_session_config", boom)
+    b = _backend(env)
+    with pytest.raises(OSError, match="disk full"):
+        asyncio.run(b.connect())
+    assert real is not boom
+    assert not seen["home"].exists()
+    with pytest.raises(OSError), socket.create_connection(("127.0.0.1", seen["port"]), timeout=2):
+        pass

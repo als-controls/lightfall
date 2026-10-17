@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from lightfall.agents.backends.agy import discover
 
 
@@ -99,8 +101,6 @@ def test_hook_command_plain_path_unquoted(tmp_path):
 
 
 def test_hook_command_space_uses_short_name_on_windows(tmp_path):
-    import pytest
-
     if sys.platform != "win32":
         pytest.skip("8.3 short names are Windows only")
     d = tmp_path / "with space dir"
@@ -115,22 +115,33 @@ def test_hook_command_space_uses_short_name_on_windows(tmp_path):
 
 
 def test_hook_command_space_without_short_name_raises(tmp_path, monkeypatch):
-    import pytest
-
     monkeypatch.setattr(discover.sys, "platform", "win32")
     monkeypatch.setattr(discover, "_get_short_path_name", lambda p: p)
     d = tmp_path / "a b"
     d.mkdir()
-    with pytest.raises(ValueError, match="contains spaces"):
+    with pytest.raises(ValueError, match="unsafe for cmd"):
         discover.hook_command(d / "python.exe", d / "x.py")
 
 
 def test_hook_path_posix_quotes_only_when_needed(tmp_path, monkeypatch):
-    import pytest
-
     if sys.platform == "win32":
         pytest.skip("POSIX path handling")
     monkeypatch.setattr(discover.sys, "platform", "linux")
     plain = tmp_path / "ab"
     assert discover._hook_path(plain) == str(plain.resolve())
     assert discover._hook_path(tmp_path / "a b").startswith("'")
+
+
+@pytest.mark.parametrize("ch", ["&", "%"])
+def test_hook_path_cmd_metachar_short_name_or_error(tmp_path, monkeypatch, ch):
+    monkeypatch.setattr(discover.sys, "platform", "win32")
+    d = tmp_path / f"a{ch}b"
+    d.mkdir()
+    f = d / "x.py"
+    f.write_bytes(b"")
+    monkeypatch.setattr(discover, "_get_short_path_name", lambda p: p)
+    with pytest.raises(ValueError, match="unsafe for cmd"):
+        discover.hook_command(f, f)
+    monkeypatch.setattr(discover, "_get_short_path_name", lambda p: str(tmp_path / "SHORT~1" / "x.py"))
+    out = discover._hook_path(f)
+    assert ch not in out and "SHORT~1" in out

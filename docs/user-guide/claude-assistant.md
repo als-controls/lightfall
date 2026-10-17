@@ -144,7 +144,7 @@ your own agy setup is not touched.
 - Subagents are not available on agy; Lightfall subagents are not mapped.
 - agy streams no thinking text, so there are no thinking bubbles.
 - The system prompt is still worded for Claude until a later release.
-- The model picker in the assistant panel is disabled on agy; use `agy_model`.
+- The model picker in the assistant panel is ignored on agy (the attempt is logged); use `agy_model`.
 - Switching `agent_backend` takes effect after restarting Lightfall.
 
 ## Troubleshooting

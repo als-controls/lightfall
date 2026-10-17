@@ -116,36 +116,42 @@ class AgyCliBackend:
 
     async def connect(self) -> None:
         cfg = self._cfg
+        # Anything that can raise from config comes first, before resources exist.
+        hook_cmd = hook_command(console_python(), hook_client.__file__)
         session_id = uuid.uuid4().hex
-        self._token = token = secrets.token_urlsafe(32)
-        self._session_home = home = prepare_session_home(self._spec_name, session_id)
-        write_owner_pid(home)
         try:
-            for stale in sweep_all_stale_session_homes(keep=home):
-                logger.info("agy: removed stale session home {}", stale)
-        except Exception as e:  # noqa: BLE001 - housekeeping must not block connect
-            logger.warning("agy: stale session-home sweep failed: {}", e)
-        write_spec_settings(spec_home(self._spec_name), workspace=cfg.cwd,
-                            server_keys=self._all_keys, project=self._project,
-                            location=self._location)
-        roots = [home / ".gemini" / "antigravity-cli" / "mcp",
-                 home / ".gemini" / "config" / "plugins" / PLUGIN_NAME / "skills"]
-        handler = functools.partial(
-            decide, permission_manager=self._pm, require_approval=self._require_approval,
-            server_keys=set(self._all_keys), allowed_view_roots=roots)
-        servers = list(cfg.tool_servers) + [(ASK_SERVER_NAME, create_ask_user_server(self._pm))]
-        self._host = ToolHost(servers, handler, token)
-        port = await self._host.start()
-        write_session_config(home, AgyHomeConfig(
-            servers=self._tool_keys,
-            external_servers=dict(cfg.external_servers),
-            system_prompt=cfg.system_prompt,
-            hook_command=hook_command(console_python(), hook_client.__file__),
-            port=port,
-            token=token,
-            skills_src=Path(cfg.skills_dir) / "skills",
-        ))
-        logger.info("agy backend connected: home={} port={}", home, port)
+            self._token = token = secrets.token_urlsafe(32)
+            self._session_home = home = prepare_session_home(self._spec_name, session_id)
+            write_owner_pid(home)
+            try:
+                for stale in sweep_all_stale_session_homes(keep=home):
+                    logger.info("agy: removed stale session home {}", stale)
+            except Exception as e:  # noqa: BLE001 - housekeeping must not block connect
+                logger.warning("agy: stale session-home sweep failed: {}", e)
+            write_spec_settings(spec_home(self._spec_name), workspace=cfg.cwd,
+                                server_keys=self._all_keys, project=self._project,
+                                location=self._location)
+            roots = [home / ".gemini" / "antigravity-cli" / "mcp",
+                     home / ".gemini" / "config" / "plugins" / PLUGIN_NAME / "skills"]
+            handler = functools.partial(
+                decide, permission_manager=self._pm, require_approval=self._require_approval,
+                server_keys=set(self._all_keys), allowed_view_roots=roots)
+            servers = list(cfg.tool_servers) + [(ASK_SERVER_NAME, create_ask_user_server(self._pm))]
+            self._host = ToolHost(servers, handler, token)
+            port = await self._host.start()
+            write_session_config(home, AgyHomeConfig(
+                servers=self._tool_keys,
+                external_servers=dict(cfg.external_servers),
+                system_prompt=cfg.system_prompt,
+                hook_command=hook_cmd,
+                port=port,
+                token=token,
+                skills_src=Path(cfg.skills_dir) / "skills",
+            ))
+            logger.info("agy backend connected: home={} port={}", home, port)
+        except BaseException:
+            await self.close()
+            raise
 
     async def close(self) -> None:
         """Kill the child, stop the host, delete the session home. Idempotent, bounded."""

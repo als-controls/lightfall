@@ -57,7 +57,7 @@ async def _echo(args):
 
 
 async def _run(backend, prompt, *, cancel_after_text=False, timeout=240):
-    """Drive one turn; returns (events, cancelled_flag_used)."""
+    """Drive one turn; returns the events."""
     flag = {"cancel": False}
     events = []
 
@@ -97,8 +97,9 @@ def test_live_echo_cancel_resume(tmp_path, monkeypatch, capsys):
         await backend.connect()
         try:
             t0 = time.time()
-            ev1 = await _run(backend, "Call the echo tool of the MCP server named lightfall_probe with text "
-                                      "'kumquat', then reply with what it returned.")
+            ev1 = await _run(backend, "Call the echo tool of the MCP server named "
+                                      "lightfall_probe with text 'kumquat', then reply "
+                                      "with what it returned.")
             print(f"\nTURN1 ({time.time() - t0:.1f}s) usage={usage_of(ev1)}")
             print("TURN1 text:", text_of(ev1)[:200])
             errs = [e for e in ev1 if isinstance(e, TurnErrorEvent)]
