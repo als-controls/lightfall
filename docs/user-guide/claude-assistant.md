@@ -166,10 +166,8 @@ homes need directory junctions, which cannot point across network shares.
 
 ### Known limitations
 
-- Subagents are not available on agy; Lightfall subagents are not mapped.
 - agy streams no thinking text, so there are no thinking bubbles.
 - The system prompt is still worded for Claude until a later release.
-- The model picker in the assistant panel is ignored on agy (the attempt is logged); use `agy_model`.
 
 ## Troubleshooting
 
