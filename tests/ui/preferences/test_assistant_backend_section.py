@@ -183,3 +183,44 @@ def test_plugin_page_title_and_hides_claude_groups_on_agy(qtbot, prefs, monkeypa
     plugin.load_settings()
     api = w.findChild(QWidget, "assistantClaudeApiGroup")
     assert api.isHidden()
+
+
+def test_slow_check_is_not_superseded_by_polling(qtbot, prefs):
+    import threading
+
+    gate = threading.Event()
+    prefs.values["agent_backend"] = "agy"
+    spawned = []
+    agy = _Info("agy", AuthStatus(True, "Signed in (2 models)"), gate=gate)
+    infos = {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
+    sec, host = _section(qtbot, infos, spawn=lambda argv, **kw: spawned.append(argv),
+                         poll_interval_ms=30, poll_timeout_s=30)
+    sec.load()  # slow initial check, gated
+    qtbot.wait(100)
+    host.findChild(QPushButton, "agySignIn").click()  # starts polling
+    qtbot.wait(300)  # many poll intervals pass while the check is gated
+    assert len(agy.refreshes) == 1
+    gate.set()
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    assert not sec._poll_timer.isActive()
+
+
+def test_save_without_widgets_leaves_prefs_alone(prefs):
+    prefs.values["agent_backend"] = "agy"
+    AgentBackendSection(info_factory=lambda *a, **k: None).save()
+    assert prefs.values == {"agent_backend": "agy"}
+
+
+def test_sign_in_message_not_overwritten_by_stale_check(qtbot, prefs):
+    import threading
+
+    gate = threading.Event()
+    prefs.values["agent_backend"] = "agy"
+    agy = _Info("agy", AuthStatus(False, "Not signed in: stale"), gate=gate)
+    infos = {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
+    sec, host = _section(qtbot, infos, poll_interval_ms=100000)
+    sec.load()  # initial check in flight
+    host.findChild(QPushButton, "agySignIn").click()
+    gate.set()
+    qtbot.wait(300)
+    assert "Complete the Google sign-in" in _status(host)

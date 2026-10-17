@@ -164,6 +164,8 @@ class AgentBackendSection:
         self._apply_kind()
 
     def save(self) -> None:
+        if self._kind_combo is None:
+            return  # page never built: leave stored prefs alone
         prefs = PreferencesManager.get_instance()
         prefs.set("agent_backend", self.selected_kind())
         if self._agy_path is not None:
@@ -254,12 +256,13 @@ class AgentBackendSection:
             self._status.setText("agy (Antigravity CLI) not found — install it or set its path")
             self._status.setStyleSheet("color: orange; font-style: italic;")
             return
+        self._generation += 1  # supersede any in-flight check so it can't overwrite our message
         kwargs: dict = {"env": {**os.environ, **info.sign_in_env()}}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
         try:
             self._spawn(argv, **kwargs)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - never escape into the Qt slot
             self._status.setText(f"Couldn't start agy: {exc}")
             self._status.setStyleSheet("color: red; font-style: italic;")
             return
@@ -277,6 +280,8 @@ class AgentBackendSection:
             self._status.setText("Not signed in — try again")
             self._status.setStyleSheet("color: orange; font-style: italic;")
             return
+        if self._future is not None and self._future.isRunning():
+            return  # let the in-flight check finish; don't supersede it
         if self.selected_kind() == AGY:
             self.refresh_status(refresh=True)
 
