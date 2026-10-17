@@ -565,7 +565,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
-        from lightfall.agents.backends.info import backend_info
+        from lightfall.agents.backends.info import ModelOption, backend_info
         from lightfall.ui.preferences.claude_settings import (
             EFFORT_OPTIONS,
             ClaudeSettingsProvider,
@@ -577,7 +577,13 @@ class ClaudeAssistantWidget(QWidget):
         current_effort = ClaudeSettingsProvider.get_effort()
 
         menu.addSection("Model (live)" if info.caps.live_set_model else "Model (next turn)")
-        for opt in info.cached_models():
+        models = list(info.cached_models())
+        if len(models) <= 1:
+            self._warm_models(info)  # cold cache: fill it for the next open
+        if current_model and all(opt.id != current_model for opt in models):
+            # A custom id, or one not (yet) in the cache: show it as chosen.
+            models.append(ModelOption(current_model, current_model))
+        for opt in models:
             act = menu.addAction(opt.label)
             act.setCheckable(True)
             act.setChecked(opt.id == current_model)
@@ -809,6 +815,21 @@ class ClaudeAssistantWidget(QWidget):
         effect.setOpacity(0.4)
         card.setGraphicsEffect(effect)
         self.bus_pending_changed.emit(self._bus_card_model.pending_count())
+
+    def _warm_models(self, info) -> None:
+        """Fill a cold model cache once, off the GUI thread (no-op while one runs)."""
+        from lightfall.utils.logging import logger
+        from lightfall.utils.threads import QThreadFuture
+
+        running = getattr(self, "_models_future", None)
+        if running is not None and running.isRunning():
+            return
+        self._models_future = QThreadFuture(
+            lambda: info.list_models(),
+            except_slot=lambda exc: logger.info("Model list warm-up failed: {}", exc),
+            name="assistant-warm-models", log_exceptions=False,
+        )
+        self._models_future.start()
 
     def _refresh_models(self) -> None:
         """Re-query the backend's model list off the GUI thread.
