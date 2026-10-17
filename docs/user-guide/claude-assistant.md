@@ -122,7 +122,28 @@ Instead of the Anthropic API, the assistant can run on Gemini Enterprise through
 the Antigravity CLI (`agy`). Lightfall's tools, permission prompts, skills and
 session history work the same way; only the model backend changes.
 
-### Preferences
+### Choosing a backend
+
+The assistant runs on **Claude Code** (default) or **Gemini Enterprise** through the
+Antigravity CLI (`agy`).
+
+1. Open **Preferences → Assistant**.
+2. Under **Backend**, pick **Gemini (agy)**. The status line checks your sign-in.
+3. If it says *Not signed in*, click **Sign in…**. A console window opens with agy's
+   Google sign-in; finish it in the browser, then close the console. The status turns
+   to *Signed in* within a few seconds.
+4. Pick a **Model** (or leave *Default (agy)*), check the GCP project and location, and
+   press **OK**.
+
+Open assistant tabs switch to the new backend straight away; a tab that is mid-reply
+switches when the reply ends. Each backend keeps its own session history.
+
+Notes for Gemini:
+- Costs are not shown (the cockpit shows tokens and context only).
+- A model change applies from the next message.
+- Background subagents ("Agent tool") are not available yet.
+
+### Preference keys
 
 | Preference | Default | Meaning |
 | --- | --- | --- |
@@ -149,7 +170,6 @@ homes need directory junctions, which cannot point across network shares.
 - agy streams no thinking text, so there are no thinking bubbles.
 - The system prompt is still worded for Claude until a later release.
 - The model picker in the assistant panel is ignored on agy (the attempt is logged); use `agy_model`.
-- Switching `agent_backend` takes effect after restarting Lightfall.
 
 ## Troubleshooting
 

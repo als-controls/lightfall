@@ -2,11 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Assistant: choose Claude Code or Gemini (agy) in Preferences → Assistant, with sign-in, model picker and switching without a restart.
+
+### Fixed
+
 - Fix transposed (x/y-swapped) detector images. pyqtgraph's image axis order is
   now set globally to `row-major` at startup, matching the numpy / Tiled /
   area-detector `(row, col) = (y, x)` convention. The Image Stack, live camera,
   heatmap, scan-map, adaptive heatmap, and export views no longer apply
   scattered per-widget `col-major` / `.T` transposes.
+- Assistant: cancelling a reply now finalises streamed text and subagent cards; Gemini no longer shows $0.0000 cost.
 
 ## 0.1.1 (2026-06-04)
 
