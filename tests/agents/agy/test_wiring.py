@@ -32,9 +32,11 @@ class _Prefs:
 def prefs(monkeypatch):
     p = _Prefs({})
     monkeypatch.setattr(claude_settings.PreferencesManager, "get_instance", staticmethod(lambda: p))
-    claude_settings._AGY_AUTH_CACHE.clear()
+    from lightfall.agents.backends import info
+
+    info.clear_caches()
     yield p
-    claude_settings._AGY_AUTH_CACHE.clear()
+    info.clear_caches()
 
 
 @pytest.fixture
@@ -235,27 +237,29 @@ def test_is_configured_agy_requires_binary(prefs, monkeypatch):
 def test_agy_auth_status_cached(prefs, root, monkeypatch):
     calls = []
 
-    def signed_in(agy, home):
+    def models(agy, home):
         calls.append((agy, home))
-        return True, "3 models"
+        return [("a", "A"), ("b", "B"), ("c", "C")], "3 models"
 
     monkeypatch.setattr("lightfall.agents.backends.agy.discover.find_agy", lambda pref: "agy.exe")
-    monkeypatch.setattr("lightfall.agents.backends.agy.discover.agy_signed_in", signed_in)
+    monkeypatch.setattr("lightfall.agents.backends.agy.discover.agy_models", models)
     prefs.values["agent_backend"] = "agy"
     p = claude_settings.ClaudeSettingsProvider
-    assert p.get_auth_status() == (True, "3 models")
-    assert p.get_auth_status() == (True, "3 models")
+    assert p.get_auth_status() == (True, "Signed in (3 models)")
+    assert p.get_auth_status() == (True, "Signed in (3 models)")
     assert calls == [("agy.exe", root / "lightfall")]
     # Expired cache entry -> re-checked.
-    for k, (ts, res) in list(claude_settings._AGY_AUTH_CACHE.items()):
-        claude_settings._AGY_AUTH_CACHE[k] = (ts - 61, res)
+    from lightfall.agents.backends import info
+
+    for k, (ts, res) in list(info._AGY_CACHE.items()):
+        info._AGY_CACHE[k] = (ts - 61, res)
     p.get_auth_status()
     assert len(calls) == 2
 
 
 def test_agy_auth_status_without_binary(prefs, monkeypatch):
     monkeypatch.setattr("lightfall.agents.backends.agy.discover.find_agy", lambda pref: None)
-    monkeypatch.setattr("lightfall.agents.backends.agy.discover.agy_signed_in",
+    monkeypatch.setattr("lightfall.agents.backends.agy.discover.agy_models",
                         lambda *a: pytest.fail("must not run agy when it is missing"))
     prefs.values["agent_backend"] = "agy"
     ok, msg = claude_settings.ClaudeSettingsProvider.get_auth_status()

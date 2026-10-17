@@ -87,8 +87,8 @@ def _tail(text: str, n: int = 5) -> str:
     return "\n".join(lines[-n:])
 
 
-def agy_signed_in(agy: str | list[str], home: Path) -> tuple[bool, str]:
-    """Run ``agy models`` against ``home``; ``(True, "N models")`` when it lists any.
+def agy_models(agy: str | list[str], home: Path) -> tuple[list[tuple[str, str]] | None, str]:
+    """Run ``agy models`` against ``home``: ``(rows, detail)``; rows is None on failure.
 
     Output format (agy 1.3.5): a ``Fetching available models...`` line, then one
     ``<id>	<Display Name>`` row per model -- only TAB-bearing lines count.
@@ -103,10 +103,20 @@ def agy_signed_in(agy: str | list[str], home: Path) -> tuple[bool, str]:
             stdin=subprocess.DEVNULL, creationflags=flags,
         )
     except subprocess.TimeoutExpired:
-        return False, f"agy models timed out after {_SIGNIN_TIMEOUT_S} s"
+        return None, f"agy models timed out after {_SIGNIN_TIMEOUT_S} s"
     except OSError as e:
-        return False, f"could not run agy: {e}"
-    models = [ln for ln in (proc.stdout or "").splitlines() if "\t" in ln and ln.strip()]
-    if proc.returncode == 0 and models:
-        return True, f"{len(models)} models"
-    return False, _tail(proc.stderr) or _tail(proc.stdout) or f"agy models exited {proc.returncode}"
+        return None, f"could not run agy: {e}"
+    rows = []
+    for ln in (proc.stdout or "").splitlines():
+        if "\t" in ln and ln.strip():
+            model_id, _, label = ln.strip().partition("\t")
+            rows.append((model_id.strip(), label.strip() or model_id.strip()))
+    if proc.returncode == 0 and rows:
+        return rows, f"{len(rows)} models"
+    return None, _tail(proc.stderr) or _tail(proc.stdout) or f"agy models exited {proc.returncode}"
+
+
+def agy_signed_in(agy: str | list[str], home: Path) -> tuple[bool, str]:
+    """``(True, "N models")`` when ``agy models`` lists any (see ``agy_models``)."""
+    rows, detail = agy_models(agy, home)
+    return rows is not None, detail

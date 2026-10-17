@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -173,24 +172,6 @@ PERMISSION_MODES = {
 
 AGENT_BACKENDS = ("claude-code", "agy")
 
-# agy sign-in check (`agy models`, up to 30 s) cached per executable for 60 s:
-# {agy_path: (monotonic timestamp, (signed_in, message))}.
-_AGY_AUTH_TTL_S = 60.0
-_AGY_AUTH_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
-
-
-def _agy_auth_status(agy: str) -> tuple[bool, str]:
-    now = time.monotonic()
-    hit = _AGY_AUTH_CACHE.get(agy)
-    if hit is not None and now - hit[0] < _AGY_AUTH_TTL_S:
-        return hit[1]
-    from lightfall.agents.backends.agy import discover
-    from lightfall.agents.backends.agy.home import spec_home
-
-    result = discover.agy_signed_in(agy, spec_home(None))
-    _AGY_AUTH_CACHE[agy] = (time.monotonic(), result)
-    return result
-
 
 class ClaudeSettingsProvider:
     """Provides Claude configuration from settings/env vars.
@@ -352,28 +333,21 @@ class ClaudeSettingsProvider:
 
     @staticmethod
     def get_auth_status() -> tuple[bool, str]:
-        """Get detailed authentication status.
+        """Get detailed authentication status of the active backend.
+
+        Blocks for up to 30 s on agy (``agy models``); not for the GUI thread.
 
         Returns:
             Tuple of (is_authenticated, status_message).
         """
-        if ClaudeSettingsProvider.get_agent_backend() == "agy":
-            agy = ClaudeSettingsProvider._find_agy()
-            if agy is None:
-                return False, "agy (Antigravity CLI) not found"
-            return _agy_auth_status(agy)
+        from lightfall.agents.backends.info import backend_info
 
-        # Check API key first
-        api_key = ClaudeSettingsProvider.get_api_key()
-        if api_key:
-            return True, "Using API key"
-
-        # Check OAuth
-        return check_oauth_status()
+        status = backend_info().auth_status()
+        return status.ok, status.detail
 
     @staticmethod
     def is_configured() -> bool:
-        """Check if Claude is configured with authentication.
+        """Check if the active backend can start.
 
         Returns:
             True if API key or OAuth credentials are available (Claude), or
@@ -384,7 +358,6 @@ class ClaudeSettingsProvider:
         api_key = ClaudeSettingsProvider.get_api_key()
         if api_key:
             return True
-        # Fall back to OAuth check
         return ClaudeSettingsProvider.is_oauth_authenticated()
 
     @staticmethod
