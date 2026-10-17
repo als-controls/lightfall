@@ -551,33 +551,24 @@ class ClaudeAssistantWidget(QWidget):
 
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
+        from lightfall.agents.backends.info import backend_info
         from lightfall.ui.preferences.claude_settings import (
             EFFORT_OPTIONS,
-            MODEL_OPTIONS,
             ClaudeSettingsProvider,
         )
         menu = self._tune_menu
         menu.clear()
-        current_model = ClaudeSettingsProvider.get_model()
+        info = backend_info()
+        current_model = info.current_model()
         current_effort = ClaudeSettingsProvider.get_effort()
 
-        from lightfall.ui.preferences.claude_settings import get_cached_models
-        discovered = get_cached_models(
-            ClaudeSettingsProvider.get_base_url(),
-            ClaudeSettingsProvider.get_api_key(),
-        )
-        # Always offer "Default" (no forced model). Then either the backend's
-        # real model ids (A) or the static alias hints (B fallback).
-        model_values = [""] + (discovered if discovered else [
-            m for m in MODEL_OPTIONS if m
-        ])
-        menu.addSection("Model (live)")
-        for value in model_values:
-            act = menu.addAction(value or "Default (CLI)")
+        menu.addSection("Model (live)" if info.caps.live_set_model else "Model (next turn)")
+        for opt in info.cached_models():
+            act = menu.addAction(opt.label)
             act.setCheckable(True)
-            act.setChecked(value == current_model)
+            act.setChecked(opt.id == current_model)
             act.triggered.connect(
-                lambda _c=False, v=value: self.model_change_requested.emit(v)
+                lambda _c=False, v=opt.id: self.model_change_requested.emit(v)
             )
         refresh_act = menu.addAction("↻ Refresh models")
         refresh_act.triggered.connect(self._refresh_models)
@@ -806,17 +797,21 @@ class ClaudeAssistantWidget(QWidget):
         self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
     def _refresh_models(self) -> None:
-        """Re-query the backend's model list (clears the session cache)."""
-        from lightfall.ui.preferences.claude_settings import (
-            ClaudeSettingsProvider,
-            get_cached_models,
+        """Re-query the backend's model list off the GUI thread.
+
+        The next menu open shows the refreshed cache.
+        """
+        from lightfall.agents.backends.info import backend_info
+        from lightfall.utils.logging import logger
+        from lightfall.utils.threads import QThreadFuture
+
+        info = backend_info()
+        self._models_future = QThreadFuture(
+            lambda: info.list_models(refresh=True),
+            except_slot=lambda exc: logger.info("Model refresh failed: {}", exc),
+            name="assistant-refresh-models", log_exceptions=False,
         )
-        get_cached_models(
-            ClaudeSettingsProvider.get_base_url(),
-            ClaudeSettingsProvider.get_api_key(),
-            refresh=True,
-        )
-        # Next aboutToShow rebuild reflects the refreshed cache.
+        self._models_future.start()
 
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.

@@ -89,6 +89,7 @@ class AgentWorker(QThread):
         self._is_connected = False
         self._is_processing = False  # True when actively processing a query
         self._cancel_requested = False  # True when cancel is requested
+        self._pending_model: tuple[str | None] | None = None  # set_model requested mid-turn
         self._shutdown_event: asyncio.Event | None = None  # Created in run()
         self._processing_stopped = threading.Event()  # Signals when loop exits
 
@@ -191,6 +192,12 @@ class AgentWorker(QThread):
         finally:
             self._is_processing = False
             self._cancel_requested = False
+            pending, self._pending_model = self._pending_model, None
+            if pending is not None:
+                try:
+                    await self.backend.set_model(pending[0])
+                except Exception:  # noqa: BLE001 - never kill the worker loop
+                    logger.exception("AgentWorker: deferred set_model failed")
 
     def _emit(self, ev: AgentEvent) -> None:
         """Map one neutral event onto the legacy signal set."""
@@ -300,10 +307,12 @@ class AgentWorker(QThread):
     def request_set_model(self, model: str | None) -> None:
         """Schedule ``backend.set_model(model)`` on the worker's event loop.
 
-        Live model switch — no reconnect. Takes effect on the next turn.
+        Live model switch — no reconnect. Takes effect on the next turn. A
+        request during a turn is held and applied when the turn ends.
         """
         if self._is_processing:
-            logger.debug("set_model ignored: a query is in flight")
+            logger.debug("set_model({}) deferred until the current turn ends", model)
+            self._pending_model = (model,)
             return
         self._run_on_loop(lambda: self.backend.set_model(model), f"set_model({model})")
 

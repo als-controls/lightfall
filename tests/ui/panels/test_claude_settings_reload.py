@@ -431,3 +431,28 @@ def test_error_occurred_ends_deferral(panel, fake_prefs, monkeypatch, qtbot):
     agent.error_occurred.emit("boom")
     agent.busy = False
     qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+
+
+def test_pick_model_on_agy_writes_agy_model_and_switches(panel, fake_prefs, monkeypatch):
+    fake_prefs.set("agent_backend", "agy")
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+
+    panel._on_pick_model("gemini-3-pro")
+
+    assert fake_prefs.values["agy_model"] == "gemini-3-pro"
+    assert "claude_model" not in fake_prefs.values
+    panel._claude_widget.agent.set_model.assert_called_once_with("gemini-3-pro")
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+    panel._settings_reload_pending = True
+    panel._do_claude_settings_reload()
+    assert calls == []  # the picker's own write must not rebuild the agent
+
+
+def test_pick_default_on_agy_sends_none(panel, fake_prefs):
+    fake_prefs.set("agent_backend", "agy")
+    panel._claude_widget = _idle_widget()
+    panel._on_pick_model("")
+    panel._claude_widget.agent.set_model.assert_called_once_with(None)

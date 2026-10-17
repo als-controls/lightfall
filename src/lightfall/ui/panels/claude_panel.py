@@ -751,25 +751,18 @@ class ClaudePanel(BasePanel):
         return build_ncs_system_prompt()
 
     def _on_pick_model(self, preset: str) -> None:
-        from lightfall.agents.backends.select import AGY, backend_kind
-        from lightfall.ui.preferences.claude_settings import resolve_model_alias
+        from lightfall.agents.backends.info import backend_info
         from lightfall.ui.preferences.manager import PreferencesManager
-        if backend_kind() == AGY:
-            # The picker offers Claude presets; agy takes its model from the
-            # agy_model preference (a settings UI for it comes in Phase 3).
-            logger.info(
-                "Model picker ignored on the agy backend ({!r}); set the agy_model "
-                "preference instead", preset,
-            )
-            return
-        # Persist the raw combo preset (the menu re-checks against it); send the
-        # CLI-resolved alias to the live agent.
-        PreferencesManager.get_instance().set("claude_model", preset)
+
+        info = backend_info()
+        # Persist the raw preset under the active backend's key (the menu
+        # re-checks against it); send the backend's live id to the agent.
+        PreferencesManager.get_instance().set(info.model_pref_key, preset)
         if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
-            self._claude_widget.agent.set_model(resolve_model_alias(preset))
-        # The agent now reflects the new model (applied live, no rebuild). Update
-        # the tracked config so the debounced subscription sees no change and
-        # does not tear the live conversation down with a full reload.
+            self._claude_widget.agent.set_model(info.live_model_id(preset))
+        # The agent now reflects the new model (live on Claude; next turn on
+        # agy). Update the tracked config so the debounced subscription sees no
+        # change and does not tear the conversation down with a full reload.
         self._active_agent_config = self._current_claude_config()
 
     def _on_pick_effort(self, level: str) -> None:

@@ -83,3 +83,29 @@ def test_worker_cancel_emits_cancelled_once(qtbot):
     finally:
         w.stop()
         w.wait(3000)
+
+
+class _SlowBackend(_FakeBackend):
+    def __init__(self):
+        super().__init__([])
+        self.models = []
+
+    async def run_turn(self, prompt, cancelled, stopping):
+        yield TextBlockEvent("first")
+        await asyncio.sleep(0.3)
+        yield TurnResultEvent({})
+
+    async def set_model(self, model):
+        self.models.append(model)
+
+
+def test_set_model_during_turn_applies_after(qtbot):
+    backend = _SlowBackend()
+    w = AgentWorker(backend)
+    w.message_received.connect(lambda _t: w.request_set_model("m2"))
+    try:
+        _run(qtbot, w)
+        qtbot.waitUntil(lambda: backend.models == ["m2"], timeout=3000)
+    finally:
+        w.stop()
+        w.wait(3000)

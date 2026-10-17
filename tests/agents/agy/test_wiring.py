@@ -388,7 +388,7 @@ def test_last_session_id_per_backend(prefs):
     assert prefs.values["agy_last_session_id"] == "agy-conv"
 
 
-def test_pick_model_noop_on_agy(qtbot, prefs, monkeypatch):
+def test_pick_model_writes_agy_model_on_agy(qtbot, prefs, monkeypatch):
     from lightfall.ui.panels.claude_panel import ClaudePanel
 
     monkeypatch.setattr(ClaudePanel, "_setup_ui", lambda self: None)
@@ -397,8 +397,9 @@ def test_pick_model_noop_on_agy(qtbot, prefs, monkeypatch):
     widget = MagicMock()
     panel._claude_widget = widget
     prefs.values["agent_backend"] = "agy"
-    panel._on_pick_model("claude-opus")
-    widget.agent.set_model.assert_not_called()
+    panel._on_pick_model("gemini-3-pro")
+    widget.agent.set_model.assert_called_once_with("gemini-3-pro")
+    assert prefs.values["agy_model"] == "gemini-3-pro"
     assert "claude_model" not in prefs.values
 
 
