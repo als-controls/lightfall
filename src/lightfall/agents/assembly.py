@@ -160,13 +160,15 @@ def assemble_spec_options(
     spec_registry: AgentSpecRegistry,
     session_plugin_dir: Path,
 ) -> dict[str, Any]:
-    """Assemble the spec-driven portion of ``ClaudeAgentOptions``.
+    """Assemble the spec-driven (backend-neutral) portion of a session config.
 
-    Returns a partial options dict with ``system_prompt``, ``cwd``,
-    ``agents``, ``mcp_servers``, and ``allowed_tools``. Callers merge this
-    with any always-on tools/servers (e.g. the ``qt`` MCP server).
+    Returns a partial dict with ``system_prompt``, ``cwd``, ``agents``,
+    ``subagent_specs``, ``tool_servers``, ``external_servers`` and
+    ``allowed_tools``. Each enabled plugin's ``create_tools()`` and
+    ``create_external_servers()`` run exactly once. Callers merge this with
+    any always-on tools/servers (e.g. the ``qt`` server).
     """
-    from lightfall.claude._session_assembly import assemble_mcp_servers, collect_tool_servers
+    from lightfall.claude._session_assembly import collect_tool_servers
 
     variables = template_variables()
     system_prompt = resolve_template(spec.prompt, variables)
@@ -191,7 +193,6 @@ def assemble_spec_options(
 
     filtered_plugins = [p for p in tool_registry.enabled_plugins() if p.name in wanted_tools]
     tool_servers, external_servers, allowed_tools = collect_tool_servers(filtered_plugins)
-    mcp_servers, _ = assemble_mcp_servers(filtered_plugins)
 
     materialize_skills(spec.skills, session_plugin_dir, variables=variables)
 
@@ -206,7 +207,6 @@ def assemble_spec_options(
         "cwd": agent_cwd(spec),
         "agents": {s.name: s for s in subagents},
         "subagent_specs": subagents,
-        "mcp_servers": mcp_servers,
         "tool_servers": tool_servers,
         "external_servers": external_servers,
         "allowed_tools": allowed_tools,
