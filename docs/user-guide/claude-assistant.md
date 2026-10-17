@@ -1,4 +1,4 @@
-# Claude Assistant
+# Assistant
 
 Lightfall embeds a Claude-based agent that understands the application and
 the beamline it is running on. It answers questions, but it can also *act*:
@@ -9,8 +9,8 @@ goes through an approval prompt unless you have allowed it.
 
 ## Setup
 
-The assistant needs Claude credentials. In **File → Settings → Claude
-Assistant**:
+With the Claude Code backend (the default), the assistant needs Claude
+credentials. In **File → Settings → Assistant**:
 
 - **API key** — paste an Anthropic API key, or set the `ANTHROPIC_API_KEY`
   environment variable before launching.
@@ -23,11 +23,11 @@ the **permission mode** (see below).
 
 ## Using the assistant
 
-Open the **Claude Assistant** panel from the sidebar (lower section). Type
+Open the **Assistant** panel from the sidebar (lower section). Type
 in the input field and press Enter to send (Shift+Enter inserts a newline).
 The broom button clears the conversation and starts fresh.
 
-> 🖼️ **Image placeholder** — *Screenshot: Claude Assistant panel with a short conversation and the input field at the bottom*
+> 🖼️ **Image placeholder** — *Screenshot: Assistant panel with a short conversation and the input field at the bottom*
 
 Things you can ask, with the simulated devices as examples:
 
@@ -84,7 +84,7 @@ keep the toolbar pause/stop/abort controls regardless of who started the run.
 
 ### Permission modes
 
-**File → Settings → Claude Assistant → Permission Mode** adjusts the gate:
+**File → Settings → Assistant → Permission Mode** adjusts the gate:
 
 | Mode | Behavior |
 |------|----------|
@@ -127,7 +127,7 @@ session history work the same way; only the model backend changes.
 The assistant runs on **Claude Code** (default) or **Gemini Enterprise** through the
 Antigravity CLI (`agy`).
 
-1. Open **Preferences → Assistant**.
+1. Open **File → Settings → Assistant**.
 2. Under **Backend**, pick **Gemini (agy)**. The status line checks your sign-in.
 3. If it says *Not signed in*, click **Sign in…**. A console window opens with agy's
    Google sign-in; finish it in the browser, then close the console. The status turns
@@ -167,13 +167,12 @@ homes need directory junctions, which cannot point across network shares.
 ### Known limitations
 
 - agy streams no thinking text, so there are no thinking bubbles.
-- The system prompt is still worded for Claude until a later release.
 
 ## Troubleshooting
 
 ### The assistant doesn't respond
 
-- Check credentials in **File → Settings → Claude Assistant** (the page has a
+- Check credentials in **File → Settings → Assistant** (the page has a
   connection test).
 - Check network access to the Anthropic API (or your configured custom
   endpoint), and the **Logging** panel for errors.
