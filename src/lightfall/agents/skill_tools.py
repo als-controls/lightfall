@@ -34,7 +34,7 @@ def _make_tools(author_name: Callable[[], str], session_id: Callable[[], str | N
         session_id: Callable returning this session's current session id
             (or ``None``).
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="draft_skill",

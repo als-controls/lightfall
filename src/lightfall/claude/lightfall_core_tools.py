@@ -89,7 +89,7 @@ class LFCoreToolPlugin(ToolPlugin):
         """
         # Import here to avoid circular imports and ensure availability
         try:
-            from claude_agent_sdk import tool
+            from lightfall.agents.tooling import tool
         except ImportError:
             logger.warning("claude_agent_sdk not available, NCS core tools disabled")
             return []

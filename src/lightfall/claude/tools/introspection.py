@@ -24,7 +24,7 @@ def create_introspection_tools(target_window: QWidget):
     Returns:
         Tuple of (get_widget_tree tool, find_widget tool)
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="get_widget_tree",

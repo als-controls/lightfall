@@ -51,7 +51,7 @@ def _wire_error_response(subject: str, reply: dict | None) -> dict | None:
 
 def build_tools() -> list[Any]:
     try:
-        from claude_agent_sdk import tool
+        from lightfall.agents.tooling import tool
     except ImportError:
         logger.warning(
             "claude_agent_sdk not available; autonomous_experiment tools disabled"

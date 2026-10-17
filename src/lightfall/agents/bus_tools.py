@@ -117,7 +117,7 @@ def _make_tools(sender_name: Callable[[], str]):
             (read live at call time, since ``QtClaudeAgent.bus_name`` may be
             overwritten after registration).
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="send_message",

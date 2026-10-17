@@ -37,7 +37,7 @@ def create_logs_tool():
     Read-only and bound to the process-wide :class:`LogBuffer` singleton,
     so it doesn't need a target window like the Qt tools do.
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="get_recent_logs",

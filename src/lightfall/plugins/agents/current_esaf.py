@@ -255,7 +255,7 @@ class CurrentEsafAgent(ToolPlugin):
 
     def create_tools(self) -> list[Any]:
         try:
-            from claude_agent_sdk import tool
+            from lightfall.agents.tooling import tool
         except ImportError:
             logger.warning(
                 "claude_agent_sdk not available; current_esaf skill tools disabled"

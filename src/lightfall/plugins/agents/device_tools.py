@@ -72,7 +72,7 @@ class DeviceToolsAgent(ToolPlugin):
             List of tool functions.
         """
         try:
-            from claude_agent_sdk import tool
+            from lightfall.agents.tooling import tool
         except ImportError:
             logger.warning("claude_agent_sdk not available, device tools disabled")
             return []

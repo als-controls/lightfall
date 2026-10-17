@@ -16,7 +16,7 @@ def create_controller_tool(target_window: QWidget):
     Returns:
         show_controller tool function
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     # Keep track of open controller windows
     _controller_windows: dict[str, QWidget] = {}

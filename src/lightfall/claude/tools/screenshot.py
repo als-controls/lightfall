@@ -55,7 +55,7 @@ def create_screenshot_tool(target_window: QWidget):
     Returns:
         Tool function
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="screenshot",

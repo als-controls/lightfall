@@ -21,7 +21,7 @@ def create_interaction_tools(target_window: QWidget):
     Returns:
         Tuple of (click_widget tool, type_text tool)
     """
-    from claude_agent_sdk import tool
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="click_widget",
