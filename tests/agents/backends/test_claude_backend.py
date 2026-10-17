@@ -53,3 +53,32 @@ def test_backend_falls_back_to_full_blocks():
 def test_backend_omits_session_and_ctx_when_absent():
     events = _collect(ClaudeCodeBackend(_Client([_result(sid="")], ctx=None)))
     assert [type(e).__name__ for e in events] == ["TurnResultEvent"]
+
+
+def test_claude_oneshot_uses_isolated_bypass_options(monkeypatch, tmp_path):
+    from lightfall.agents.backends.claude_code import oneshot
+
+    seen = {}
+
+    class _Client:
+        def __init__(self, options):
+            seen["opts"] = options
+
+        async def connect(self):
+            pass
+
+        async def disconnect(self):
+            pass
+
+    async def fake_collect(client, prompt):
+        return f"echo:{prompt}"
+
+    monkeypatch.setattr("claude_agent_sdk.ClaudeSDKClient", _Client)
+    monkeypatch.setattr("lightfall.monitor.advisor.collect_reply", fake_collect)
+    out = oneshot.claude_oneshot("hi", system_prompt="SYS", cwd=str(tmp_path), model="haiku")
+    o = seen["opts"]
+    assert out == "echo:hi"
+    assert (o.system_prompt, o.permission_mode, o.max_turns, o.setting_sources, o.model) == (
+        "SYS", "bypassPermissions", 1, [], "haiku",
+    )
+    assert o.allowed_tools == [] and o.mcp_servers == {}

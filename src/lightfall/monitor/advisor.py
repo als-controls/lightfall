@@ -5,7 +5,6 @@ does NOT sense data; it only voices/triages what the feeds already found."""
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
@@ -99,50 +98,17 @@ class MonitorAdvisor:
             return ADVISOR_SYSTEM_PROMPT
 
     def _sdk_query(self, prompt: str) -> str:
-        """Real SDK-backed one-shot query. Runs its own event loop + client.
-        Integration path (the response-collection logic is unit-tested via
-        collect_reply with a fake client)."""
-        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+        """Real SDK-backed one-shot query. Delegates to the Claude backend's
+        tool-less one-shot helper (imported lazily to avoid an import cycle)."""
+        from lightfall.agents.backends.claude_code.oneshot import claude_oneshot
 
         # Predates agent_cwd() conventions (Task 2+); kept as-is so existing
         # advisor transcripts under ~/lightfall/advisor stay where they are.
         cwd = (Path.home() / "lightfall" / "advisor")
         cwd.mkdir(parents=True, exist_ok=True)
-        system_prompt = self._resolve_system_prompt()
-        opts = ClaudeAgentOptions(
+        return claude_oneshot(
+            prompt,
+            system_prompt=self._resolve_system_prompt(),
             cwd=str(cwd.resolve()),
-            mcp_servers={},
-            allowed_tools=[],
-            system_prompt=system_prompt,
-            permission_mode="bypassPermissions",
-            max_turns=1,
-            include_partial_messages=False,
-            # Never let the developer's user-scope Claude settings (global
-            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into
-            # this advisor session. Leaving setting_sources unset (None) means
-            # "all sources" per the SDK; here that's worse since the advisor
-            # runs bypassPermissions, so personal hooks would fire unchecked.
-            # "project" is ALSO unsafe: it activates the whole CLAUDE.md chain
-            # including the user-level ~/.claude/CLAUDE.md, not just per-cwd
-            # project config (verified empirically 2026-08-03: persona leak).
-            # Empty setting_sources ([]) gives true SDK isolation.
-            setting_sources=[],
-            **({"model": self._model} if self._model else {}),
+            model=self._model,
         )
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            client = ClaudeSDKClient(options=opts)
-            loop.run_until_complete(client.connect())
-            try:
-                return loop.run_until_complete(collect_reply(client, prompt))
-            finally:
-                try:
-                    loop.run_until_complete(client.disconnect())
-                except Exception:  # noqa: BLE001
-                    pass
-        finally:
-            try:
-                loop.close()
-            except Exception:  # noqa: BLE001
-                pass
