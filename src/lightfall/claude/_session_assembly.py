@@ -37,6 +37,10 @@ def init_session_plugin_dir(path: Path) -> Path:
     return path
 
 
+# Plugins already warned about SDK-shaped tools (once per plugin per process).
+_SDK_TOOL_WARNED: set[str] = set()
+
+
 def collect_tool_servers(
     enabled_plugins: list[ToolPlugin],
 ) -> tuple[list[ToolServer], dict[str, Any], list[str]]:
@@ -64,6 +68,13 @@ def collect_tool_servers(
                     plugin.name, obj,
                 )
                 continue
+            if not isinstance(obj, ToolSpec) and plugin.name not in _SDK_TOOL_WARNED:
+                _SDK_TOOL_WARNED.add(plugin.name)
+                logger.warning(
+                    "plugin '{}' builds tools with the claude_agent_sdk decorator; switch to "
+                    "lightfall.agents.tooling.tool (SDK-shaped tools are deprecated)",
+                    plugin.name,
+                )
             specs.append(spec)
             allowed.append(tool_id(plugin.name, spec.name))
         servers.append(ToolServer(name=plugin.name, version="1.0.0", tools=tuple(specs)))

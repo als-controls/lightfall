@@ -100,3 +100,47 @@ def test_external_server_name_collision_is_skipped(monkeypatch):
     # In-process server registered first wins; external one is skipped.
     assert servers["controls"] == "stub-controls"
     assert "mcp__controls__*" not in allowed
+
+
+def test_sdk_shaped_plugin_tools_warn_once_per_plugin(monkeypatch):
+    """SDK-decorated plugin tools still work, with a one-time deprecation warning."""
+    from types import SimpleNamespace
+
+    from lightfall.agents.tooling import ToolSpec, tool
+    from lightfall.claude import _session_assembly as sa
+
+    warnings = []
+    monkeypatch.setattr(sa, "logger", SimpleNamespace(
+        warning=lambda msg, *a: warnings.append(msg.format(*a)), debug=lambda *a, **k: None,
+        info=lambda *a, **k: None))
+    monkeypatch.setattr(sa, "_SDK_TOOL_WARNED", set())
+
+    async def h(args):
+        return {"content": []}
+
+    sdk_like = SimpleNamespace(name="old", description="d", input_schema={}, handler=h)
+
+    @tool("new", "d", {})
+    async def new(args):
+        return {"content": []}
+
+    class _Old(ToolPlugin):
+        @property
+        def name(self): return "legacy"
+        @property
+        def description(self): return "legacy"
+        def create_tools(self): return [sdk_like]
+
+    class _New(ToolPlugin):
+        @property
+        def name(self): return "modern"
+        @property
+        def description(self): return "modern"
+        def create_tools(self): return [new]
+
+    for _ in range(2):
+        servers, _ext, _allowed = sa.collect_tool_servers([_Old(), _New()])
+    assert [s.name for s in servers] == ["legacy", "modern"]
+    assert all(isinstance(t, ToolSpec) for s in servers for t in s.tools)
+    deprecations = [w for w in warnings if "lightfall.agents.tooling" in w]
+    assert len(deprecations) == 1 and "legacy" in deprecations[0]
