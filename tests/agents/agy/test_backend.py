@@ -503,3 +503,23 @@ def test_no_proxy_merges_existing_value(monkeypatch):
     assert env["NO_PROXY"] == "lbl.gov,localhost,127.0.0.1"
     monkeypatch.delenv("NO_PROXY", raising=False)
     assert agy_backend._no_proxy_env()["NO_PROXY"] == "127.0.0.1,localhost"
+
+
+def test_two_sessions_isolated(qtbot, env):
+    b1, b2 = _backend(env), _backend(env)
+    w1 = _start_worker(qtbot, b1)
+    w2 = _start_worker(qtbot, b2)
+    try:
+        assert b1.session_home != b2.session_home
+        _query(qtbot, w1, "one", w1.query_completed)
+        _query(qtbot, w2, "two", w2.query_completed)
+        starts = _starts(env)
+        assert len(starts) == 2
+        envs = [s["env"] for s in starts]
+        assert all(e["LF_AGY_PORT"] and e["LF_AGY_TOKEN"] for e in envs)
+        assert len({e["LF_AGY_PORT"] for e in envs}) == 2
+        assert len({e["LF_AGY_TOKEN"] for e in envs}) == 2
+        assert {e["USERPROFILE"] for e in envs} == {str(b1.session_home), str(b2.session_home)}
+    finally:
+        _stop(w1)
+        _stop(w2)
