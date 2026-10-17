@@ -33,6 +33,7 @@ from lightfall.agents.backend import (
     TurnErrorEvent,
 )
 from lightfall.agents.backends.agy.ask_tool import ASK_SERVER_NAME, create_ask_user_server
+from lightfall.agents.backends.agy import hook_client
 from lightfall.agents.backends.agy.discover import console_python
 from lightfall.agents.backends.agy.events import TERMINAL_EVENTS, AgyEventTranslator
 from lightfall.agents.backends.agy.home import (
@@ -51,7 +52,6 @@ from lightfall.agents.backends.agy.host import ToolHost
 from lightfall.agents.backends.agy.process import AgyProcess
 from lightfall.utils.logging import logger
 
-HOOK_MODULE = "lightfall.agents.backends.agy.hook_client"
 _CANCEL_GRACE_S = 5.0
 _POLL_S = 0.1
 _EXIT_WAIT_S = 2.0
@@ -140,7 +140,7 @@ class AgyCliBackend:
             servers=self._tool_keys,
             external_servers=dict(cfg.external_servers),
             system_prompt=cfg.system_prompt,
-            hook_command=f'"{console_python()}" -I -m {HOOK_MODULE}',
+            hook_command=f'"{console_python()}" -I "{Path(hook_client.__file__).resolve()}"',
             port=port,
             token=token,
             skills_src=Path(cfg.skills_dir) / "skills",

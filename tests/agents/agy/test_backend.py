@@ -157,8 +157,9 @@ def test_text_turn_streams_and_completes(qtbot, env):
         assert set(mcp["mcpServers"]) == {"qt", "ask"}
         assert (plugin / "skills" / "demo" / "SKILL.md").is_file()
         hook = json.loads((plugin / "hooks.json").read_text(encoding="utf-8"))
-        assert "-I -m lightfall.agents.backends.agy.hook_client" in (
+        assert '-I "' in (
             hook["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+        assert "hook_client.py" in hook["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         settings = json.loads(
             (env["root"] / "lightfall" / ".gemini" / "antigravity-cli" / "settings.json")
             .read_text(encoding="utf-8"))

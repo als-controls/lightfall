@@ -1,6 +1,6 @@
 """Stdlib-only PreToolUse hook command run by agy.
 
-Run as ``python -I -m lightfall.agents.backends.agy.hook_client``. Forwards the
+Run as ``python -I <this file>`` (by absolute path). Forwards the
 hook payload from stdin to the session's Lightfall host and prints its decision.
 On ANY failure it prints a deny decision and exits 0 (fail closed).
 """

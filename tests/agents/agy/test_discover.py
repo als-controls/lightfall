@@ -66,7 +66,7 @@ def test_agy_signed_in_no_models(tmp_path):
 
 
 def test_package_import_stays_cheap_for_hook_client():
-    # agy spawns `python -I -m ...agy.hook_client` per tool call; the package
+    # agy spawns `python -I <path>/hook_client.py` per tool call; the package
     # __init__ must not pull in the backend (uvicorn/mcp) eagerly.
     import os
     import subprocess
