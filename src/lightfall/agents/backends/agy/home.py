@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ from typing import Any
 PLUGIN_NAME = "lightfall"
 DEFAULT_PROJECT = "lbl-gemini-enterprise-access"
 HOOK_TIMEOUT_S = 290
+OWNER_FILE = "owner.pid"
+STALE_UNOWNED_S = 3600  # a session home with no readable owner.pid is swept after this
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -133,6 +136,94 @@ def remove_session_home(path: Path) -> None:
     except OSError:
         return  # could not unlink safely: never rmtree through a link
     shutil.rmtree(path, ignore_errors=True)
+
+
+def pid_alive(pid: int) -> bool:
+    """True if process ``pid`` exists (no new dependencies; never raises)."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        error_access_denied = 5
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k32.GetExitCodeProcess.restype = wintypes.BOOL
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        k32.CloseHandle.restype = wintypes.BOOL
+        handle = k32.OpenProcess(process_query_limited_information, False, pid)
+        if not handle:
+            # Exists but not ours to query (other user / protected) -> alive.
+            return ctypes.get_last_error() == error_access_denied
+        try:
+            code = wintypes.DWORD()
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True  # cannot tell: never sweep on doubt
+            return code.value == still_active
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def write_owner_pid(session_home: Path) -> None:
+    """Record the owning process in ``<session home>/owner.pid``."""
+    _write_text(Path(session_home) / OWNER_FILE, f"{os.getpid()}\n")
+
+
+def _read_owner_pid(session_home: Path) -> int | None:
+    try:
+        return int((session_home / OWNER_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def sweep_stale_session_homes(spec_name: str | None, *, keep: Path | None = None) -> list[Path]:
+    """Remove this spec's session homes left behind by dead processes.
+
+    A home is stale when its ``owner.pid`` names a process that is not alive, or
+    when it has no readable ``owner.pid`` and is older than ``STALE_UNOWNED_S``
+    (a young unowned home may be another process's connect in progress).
+    Removal only ever goes through :func:`remove_session_home`.
+    """
+    sessions = spec_home(spec_name) / "sessions"
+    try:
+        children = list(sessions.iterdir())
+    except OSError:
+        return []
+    keep_norm = os.path.normcase(os.path.abspath(keep)) if keep is not None else None
+    removed: list[Path] = []
+    now = time.time()
+    for child in children:
+        if keep_norm is not None and os.path.normcase(os.path.abspath(child)) == keep_norm:
+            continue
+        # Only plain directories: never follow a link that sits in sessions/.
+        if child.is_symlink() or _is_junction(child) or not child.is_dir():
+            continue
+        pid = _read_owner_pid(child)
+        if pid is not None:
+            stale = not pid_alive(pid)
+        else:
+            try:
+                stale = now - child.stat().st_mtime > STALE_UNOWNED_S
+            except OSError:
+                continue
+        if stale:
+            remove_session_home(child)
+            removed.append(child)
+    return removed
 
 
 def _check_key(key: str) -> None:

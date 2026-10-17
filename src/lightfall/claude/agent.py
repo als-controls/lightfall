@@ -27,6 +27,7 @@ from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from lightfall.agents.spec import AgentSpec
+    from lightfall.agents.worker import AgentWorker
 
 
 def lightfall_agent_cwd() -> str:
@@ -461,37 +462,75 @@ class QtClaudeAgent(QObject):
             cli_path=cli_path,
         )
 
-        # Set API key and URL directly in os.environ rather than passing via options.
-        # This avoids Windows command line length limits (8191 chars) that occur when
-        # the entire environment is serialized to command line arguments.
-        if self.api_key:
-            os.environ["ANTHROPIC_API_KEY"] = self.api_key
-        if self.api_url:
-            os.environ["ANTHROPIC_BASE_URL"] = self.api_url
-        if disable_betas:
-            # Proxy gateways (Azure AI Foundry, cborg, ...) reject the CLI's
-            # default beta headers -- e.g. Azure 400s on
-            # `anthropic-beta: advisor-tool-2026-03-01`. This env var makes the
-            # CLI drop the nonessential traffic that carries those headers, so
-            # the request is accepted. Verified against the CMS Azure Foundry
-            # backend (with a current model id).
-            # Set-only: we never unset it here, so a manually-exported override
-            # survives. (Cost: toggling the pref off in-app needs a restart to
-            # re-enable betas -- rare, and worth not clobbering a manual export.)
-            os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
-        # Note: subprocess will inherit os.environ automatically, no need to pass env
-
-        self.options = build_claude_options(
-            self._session_config, self._permission_manager, require_approval
-        )
-        # Client construction stays here so tests can monkeypatch
-        # lightfall.claude.agent.ClaudeSDKClient.
-        self.client = ClaudeSDKClient(options=self.options)
-
-        # Persistent worker reference
-        self._worker: PersistentClaudeWorker | None = None
+        # Persistent worker reference (set before backend construction, which
+        # may raise, so __del__ -> stop() still finds it).
+        self._worker: AgentWorker | None = None
         self._is_connected = False
+
+        from lightfall.agents.backends.select import AGY, backend_kind
+
+        if backend_kind() == AGY:
+            # agy backend: no Claude SDK client, options or ANTHROPIC_* env.
+            self.options = None
+            self.client = None
+            self._backend = self._make_agy_backend()
+        else:
+            self._backend = None
+            # Set API key and URL directly in os.environ rather than passing via options.
+            # This avoids Windows command line length limits (8191 chars) that occur when
+            # the entire environment is serialized to command line arguments.
+            if self.api_key:
+                os.environ["ANTHROPIC_API_KEY"] = self.api_key
+            if self.api_url:
+                os.environ["ANTHROPIC_BASE_URL"] = self.api_url
+            if disable_betas:
+                # Proxy gateways (Azure AI Foundry, cborg, ...) reject the CLI's
+                # default beta headers -- e.g. Azure 400s on
+                # `anthropic-beta: advisor-tool-2026-03-01`. This env var makes the
+                # CLI drop the nonessential traffic that carries those headers, so
+                # the request is accepted. Verified against the CMS Azure Foundry
+                # backend (with a current model id).
+                # Set-only: we never unset it here, so a manually-exported override
+                # survives. (Cost: toggling the pref off in-app needs a restart to
+                # re-enable betas -- rare, and worth not clobbering a manual export.)
+                os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+            # Note: subprocess will inherit os.environ automatically, no need to pass env
+
+            self.options = build_claude_options(
+                self._session_config, self._permission_manager, require_approval
+            )
+            # Client construction stays here so tests can monkeypatch
+            # lightfall.claude.agent.ClaudeSDKClient.
+            self.client = ClaudeSDKClient(options=self.options)
+
         self.session_id_changed.connect(self._store_session_id)
+
+    def _make_agy_backend(self):
+        """Build an AgyCliBackend from the current ``_session_config`` and prefs.
+
+        Raises:
+            ValueError: the agy executable cannot be found.
+        """
+        from lightfall.agents.backends.agy import discover
+        from lightfall.agents.backends.agy.backend import AgyCliBackend
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+        p = ClaudeSettingsProvider
+        agy = discover.find_agy(p.get_agy_path())
+        if agy is None:
+            raise ValueError(
+                "agy (Antigravity CLI) not found. Install it, put it on PATH, "
+                "or set the agy_path preference."
+            )
+        return AgyCliBackend(
+            self._session_config,
+            self._permission_manager,
+            self._require_approval,
+            agy=agy,
+            spec_name=self._spec.name if self._spec else None,
+            project=p.get_agy_project(),
+            location=p.get_agy_location(),
+        )
 
     def _ensure_connected(self) -> bool:
         """
@@ -504,11 +543,20 @@ class QtClaudeAgent(QObject):
             return True
 
         # Create and start persistent worker
-        self._worker = PersistentClaudeWorker(
-            self.client,
-            permission_manager=self._permission_manager,
-            parent=self,
-        )
+        if self._backend is not None:
+            from lightfall.agents import worker as agent_worker
+
+            self._worker = agent_worker.AgentWorker(
+                self._backend,
+                permission_manager=self._permission_manager,
+                parent=self,
+            )
+        else:
+            self._worker = PersistentClaudeWorker(
+                self.client,
+                permission_manager=self._permission_manager,
+                parent=self,
+            )
 
         # Connect signals
         self._worker.message_received.connect(self.message_received)
@@ -668,6 +716,20 @@ class QtClaudeAgent(QObject):
         self._model = model
         if self._worker is not None and self._worker.isRunning() and self._is_connected:
             self._worker.request_set_model(model)
+        elif self._backend is not None and not (
+            self._worker is not None and self._worker.isRunning()
+        ):
+            # No live worker: rebuild the (unconnected) agy backend with the new
+            # model, keeping the conversation it would resume.
+            import dataclasses
+
+            self._session_config = dataclasses.replace(
+                self._session_config, model=model, resume=self._backend.conversation_id
+            )
+            try:
+                self._backend = self._make_agy_backend()
+            except ValueError as exc:
+                logger.warning("agy model switch: {}", exc)
 
     # --- Permission API ---
 
@@ -770,6 +832,16 @@ class QtClaudeAgent(QObject):
                 enabled = ToolRegistry.get_instance().enabled_plugins()
                 materialize_skills(tuple(p.name for p in enabled), plugin_dir)
             self._session_plugin_dir = plugin_dir
+
+            if self._backend is not None:
+                # agy: the stopped worker already closed the old backend.
+                self._session_config = dataclasses.replace(
+                    self._session_config, resume=None, skills_dir=plugin_dir,
+                    model=self._model,
+                )
+                self._backend = self._make_agy_backend()
+                logger.info("agy conversation reset (new session)")
+                return
 
             self.options = dataclasses.replace(
                 self.options,

@@ -22,6 +22,30 @@ from lightfall.utils.logging import logger
 MAIN_AGENT_NAME = "lightfall"
 
 
+def session_model() -> str | None:
+    """Model to construct the agent with, per the selected backend.
+
+    Claude: the ``claude_model`` preset resolved to a CLI alias. agy: the
+    ``agy_model`` id verbatim (Claude aliases never apply), None for agy's default.
+    """
+    from lightfall.agents.backends.select import AGY, backend_kind
+    from lightfall.ui.preferences.claude_settings import (
+        ClaudeSettingsProvider,
+        resolve_model_alias,
+    )
+
+    if backend_kind() == AGY:
+        return ClaudeSettingsProvider.get_agy_model() or None
+    return resolve_model_alias(ClaudeSettingsProvider.get_model())
+
+
+def _session_store():
+    from lightfall.agents.backends.select import backend_kind, make_session_store
+    from lightfall.claude.agent import lightfall_agent_cwd
+
+    return make_session_store(backend_kind(), lightfall_agent_cwd())
+
+
 def find_main_window(widget: QWidget | None) -> QWidget | None:
     """Get the main application window, walking up from ``widget``.
 
@@ -181,6 +205,11 @@ class AgentSessionTab(QWidget):
 
         # Check if Claude is configured
         if not ClaudeSettingsProvider.is_configured():
+            if ClaudeSettingsProvider.get_agent_backend() == "agy":
+                raise ValueError(
+                    "agy (Antigravity CLI) not found.\n\n"
+                    "Install agy, put it on PATH, or set the agy_path preference."
+                )
             is_oauth, oauth_msg = ClaudeSettingsProvider.get_auth_status()
             raise ValueError(
                 f"Claude authentication not configured.\n\n"
@@ -200,7 +229,6 @@ class AgentSessionTab(QWidget):
         ncs_system_prompt = build_ncs_system_prompt()
 
         permission_mode = ClaudeSettingsProvider.get_permission_mode()
-        from lightfall.ui.preferences.claude_settings import resolve_model_alias
         resume = self._pending_resume_session_id
         self._pending_resume_session_id = None
         # Auto-restore applies to the main assistant only: the last-session
@@ -222,7 +250,7 @@ class AgentSessionTab(QWidget):
             additional_system_prompt=ncs_system_prompt,
             permission_mode=permission_mode,
             require_approval=(permission_mode != "bypassPermissions"),
-            model=resolve_model_alias(ClaudeSettingsProvider.get_model()),
+            model=session_model(),
             effort=ClaudeSettingsProvider.get_effort() or None,
             resume=resume,
             disable_betas=ClaudeSettingsProvider.get_disable_betas(),
@@ -327,20 +355,16 @@ class AgentSessionTab(QWidget):
 
     def restore_session(self, session_id: str) -> None:
         """Rebuild the agent resuming ``session_id`` and repaint its chat."""
-        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
-        from lightfall.claude.agent import lightfall_agent_cwd
         self._pending_resume_session_id = session_id
         self.reload_agent()  # _setup_claude_widget passes resume= then clears it
-        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
+        messages = _session_store().load_transcript(session_id)
         if self.claude_widget is not None and messages:
             self.claude_widget.load_transcript(messages)
 
     def _repaint_restored(self, session_id: str) -> None:
-        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
-        from lightfall.claude.agent import lightfall_agent_cwd
         if self.claude_widget is None:
             return
-        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
+        messages = _session_store().load_transcript(session_id)
         if messages:
             self.claude_widget.load_transcript(messages)
 

@@ -41,6 +41,8 @@ from lightfall.agents.backends.agy.home import (
     prepare_session_home,
     remove_session_home,
     spec_home,
+    sweep_stale_session_homes,
+    write_owner_pid,
     write_session_config,
     write_spec_settings,
 )
@@ -117,6 +119,12 @@ class AgyCliBackend:
         session_id = uuid.uuid4().hex
         self._token = token = secrets.token_urlsafe(32)
         self._session_home = home = prepare_session_home(self._spec_name, session_id)
+        write_owner_pid(home)
+        try:
+            for stale in sweep_stale_session_homes(self._spec_name, keep=home):
+                logger.info("agy: removed stale session home {}", stale)
+        except Exception as e:  # noqa: BLE001 - housekeeping must not block connect
+            logger.warning("agy: stale session-home sweep failed: {}", e)
         write_spec_settings(spec_home(self._spec_name), workspace=cfg.cwd,
                             server_keys=self._all_keys, project=self._project,
                             location=self._location)

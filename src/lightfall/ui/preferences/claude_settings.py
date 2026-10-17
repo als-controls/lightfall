@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -170,6 +171,27 @@ PERMISSION_MODES = {
 }
 
 
+AGENT_BACKENDS = ("claude-code", "agy")
+
+# agy sign-in check (`agy models`, up to 30 s) cached per executable for 60 s:
+# {agy_path: (monotonic timestamp, (signed_in, message))}.
+_AGY_AUTH_TTL_S = 60.0
+_AGY_AUTH_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
+
+
+def _agy_auth_status(agy: str) -> tuple[bool, str]:
+    now = time.monotonic()
+    hit = _AGY_AUTH_CACHE.get(agy)
+    if hit is not None and now - hit[0] < _AGY_AUTH_TTL_S:
+        return hit[1]
+    from lightfall.agents.backends.agy import discover
+    from lightfall.agents.backends.agy.home import spec_home
+
+    result = discover.agy_signed_in(agy, spec_home(None))
+    _AGY_AUTH_CACHE[agy] = (time.monotonic(), result)
+    return result
+
+
 class ClaudeSettingsProvider:
     """Provides Claude configuration from settings/env vars.
 
@@ -226,6 +248,46 @@ class ClaudeSettingsProvider:
         """
         prefs = PreferencesManager.get_instance()
         return prefs.get("claude_model", "")
+
+    @staticmethod
+    def get_agent_backend() -> str:
+        """Agent backend: ``"claude-code"`` (default) or ``"agy"``."""
+        prefs = PreferencesManager.get_instance()
+        value = prefs.get("agent_backend", "claude-code")
+        if value in AGENT_BACKENDS:
+            return value
+        logger.warning("unknown agent_backend {!r}; using claude-code", value)
+        return "claude-code"
+
+    @staticmethod
+    def get_agy_path() -> str:
+        """Explicit agy executable path ('' = PATH / default install)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("agy_path", "") or ""
+
+    @staticmethod
+    def get_agy_project() -> str:
+        """GCP project agy bills Gemini Enterprise usage to."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("agy_gcp_project", "lbl-gemini-enterprise-access")
+
+    @staticmethod
+    def get_agy_location() -> str:
+        """GCP location for agy."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("agy_gcp_location", "global")
+
+    @staticmethod
+    def get_agy_model() -> str:
+        """agy model id ('' = agy's default)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("agy_model", "") or ""
+
+    @staticmethod
+    def _find_agy() -> str | None:
+        from lightfall.agents.backends.agy import discover
+
+        return discover.find_agy(ClaudeSettingsProvider.get_agy_path())
 
     @staticmethod
     def get_max_turns() -> int:
@@ -288,6 +350,12 @@ class ClaudeSettingsProvider:
         Returns:
             Tuple of (is_authenticated, status_message).
         """
+        if ClaudeSettingsProvider.get_agent_backend() == "agy":
+            agy = ClaudeSettingsProvider._find_agy()
+            if agy is None:
+                return False, "agy (Antigravity CLI) not found"
+            return _agy_auth_status(agy)
+
         # Check API key first
         api_key = ClaudeSettingsProvider.get_api_key()
         if api_key:
@@ -301,8 +369,11 @@ class ClaudeSettingsProvider:
         """Check if Claude is configured with authentication.
 
         Returns:
-            True if API key or OAuth credentials are available.
+            True if API key or OAuth credentials are available (Claude), or
+            the agy executable is found (agy backend).
         """
+        if ClaudeSettingsProvider.get_agent_backend() == "agy":
+            return ClaudeSettingsProvider._find_agy() is not None
         api_key = ClaudeSettingsProvider.get_api_key()
         if api_key:
             return True

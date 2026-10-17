@@ -688,11 +688,11 @@ class ClaudePanel(BasePanel):
         unregister_bus_endpoint(self._claude_widget)
 
     def _populate_sessions_menu(self) -> None:
-        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
+        from lightfall.agents.backends.select import backend_kind, make_session_store
         from lightfall.claude.agent import lightfall_agent_cwd
         menu = self._sessions_menu
         menu.clear()
-        infos = ClaudeSessionStore(lightfall_agent_cwd()).list_sessions(limit=15)
+        infos = make_session_store(backend_kind(), lightfall_agent_cwd()).list_sessions(limit=15)
         if not infos:
             act = menu.addAction("No saved sessions")
             act.setEnabled(False)
@@ -705,14 +705,16 @@ class ClaudePanel(BasePanel):
 
     def restore_session(self, session_id: str) -> None:
         """Rebuild the main agent resuming ``session_id`` and repaint its chat."""
-        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
+        from lightfall.agents.backends.select import backend_kind, make_session_store
         from lightfall.claude.agent import lightfall_agent_cwd
         tab = self._lightfall_tab
         if tab is None:
             return
         tab._pending_resume_session_id = session_id
         self._reload_agent()  # the tab passes resume= then clears it
-        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
+        messages = make_session_store(backend_kind(), lightfall_agent_cwd()).load_transcript(
+            session_id
+        )
         if self._claude_widget is not None and messages:
             self._claude_widget.load_transcript(messages)
 
