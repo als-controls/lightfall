@@ -1,8 +1,9 @@
 """Stand-in for the ``agy`` CLI in tests: ``[sys.executable, fake_agy.py, ...]``.
 
 Reads stream-json ``user`` lines on stdin; for each one emits the scenario named
-by ``FAKE_AGY_SCENARIO`` (text | tool | die | slow | deaf; deaf = slow that
-ignores interrupts). Each start appends one JSON
+by ``FAKE_AGY_SCENARIO``: text | tool | die | slow | deaf (slow that ignores
+interrupts) | text_exit (text, then exit while idle) | text_mute (text, then
+exit silently on the next message, as if it had died while idle). Each start appends one JSON
 line ``{"argv", "pid", "env"}`` to ``FAKE_AGY_ARGV_LOG`` when that is set.
 Never runs hooks.
 """
@@ -110,8 +111,25 @@ def scenario_slow() -> None:
     result(response="tick")
 
 
+_turns = 0
+
+
+def scenario_text_exit() -> None:
+    scenario_text()
+    sys.exit(0)
+
+
+def scenario_text_mute() -> None:
+    global _turns
+    _turns += 1
+    if _turns > 1:
+        os._exit(0)  # no output at all for this message
+    scenario_text()
+
+
 SCENARIOS = {"text": scenario_text, "tool": scenario_tool, "die": scenario_die,
-             "slow": scenario_slow, "deaf": scenario_slow}
+             "slow": scenario_slow, "deaf": scenario_slow, "text_exit": scenario_text_exit,
+             "text_mute": scenario_text_mute}
 
 
 def main() -> None:

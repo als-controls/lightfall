@@ -148,3 +148,14 @@ def test_usage_is_per_turn_delta():
     # a counter that went backwards without a reset is taken as this turn's total
     fourth = _feed(tr, _result(300, 50))[0]
     assert (fourth.info["input_tokens"], fourth.info["output_tokens"]) == (300, 50)
+
+
+def test_step_index_reuse_across_turns():
+    tr = _tr()
+    first = _feed(tr, *TEXT_LINES, TOOL_ACTIVE, TOOL_DONE)
+    tr.begin_turn()
+    # a respawned agy resumes the same conversation and restarts step indexes
+    second = _feed(tr, *TEXT_LINES, TOOL_ACTIVE, TOOL_DONE)
+    assert second == first
+    assert isinstance(second[0], PartialStartedEvent)
+    assert sum(isinstance(e, ToolCallEvent) for e in second) == 1

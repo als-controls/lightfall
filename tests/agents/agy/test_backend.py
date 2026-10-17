@@ -101,6 +101,13 @@ def _query(qtbot, w, prompt, signal, timeout=15000):
     qtbot.waitUntil(lambda: not w.is_processing, timeout=5000)
 
 
+def _record_partials(w):
+    rec = {"started": [], "text": []}
+    w.partial_block_started.connect(lambda bid, kind: rec["started"].append(bid))
+    w.partial_text.connect(lambda bid, d: rec["text"].append(d))
+    return rec
+
+
 def _stop(w):
     w.stop()
     assert w.wait(15000)
@@ -177,7 +184,10 @@ def test_resume_passes_conversation(qtbot, env):
         env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", "text")
         results = []
         w.result_received.connect(results.append)
+        rec = _record_partials(w)
         _query(qtbot, w, "second", w.query_completed)
+        # the respawned child reuses step indexes under the same conversation id
+        assert len(rec["started"]) == 1 and "".join(rec["text"]) == "Hello world"
         first, second = _starts(env)
         assert "--conversation" not in first["argv"]
         i = second["argv"].index("--conversation")
@@ -254,7 +264,8 @@ def test_cancel_during_pending_hook(qtbot, env):
         qtbot.wait(300)
         assert cancelled == [1] and completed == [] and errors == []
         assert hook_reply == {"decision": "deny", "reason": "Query cancelled by user"}
-        # interrupt (not the 5 s kill fallback) ended the turn, and the child is gone
+        # interrupt (Windows: immediate terminate; POSIX: SIGINT -> interrupted result),
+        # not the 5 s kill fallback, ended the turn, and the child is gone
         assert elapsed < 4.0
         assert b._proc is None
         (start,) = _starts(env)
@@ -272,7 +283,9 @@ def test_set_model_respawns_with_model(qtbot, env):
         cid = b.conversation_id
         w.request_set_model("gemini-test-model")
         qtbot.waitUntil(lambda: b._proc is None, timeout=8000)
+        rec = _record_partials(w)
         _query(qtbot, w, "two", w.query_completed)
+        assert len(rec["started"]) == 1 and "".join(rec["text"]) == "Hello world"
         first, second = _starts(env)
         assert "--model" not in first["argv"]
         argv = second["argv"]
@@ -314,6 +327,8 @@ def test_run_turn_before_connect_is_error(env):
     assert asyncio.run(go()) == [TurnErrorEvent("agy backend is not connected")]
 
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="Windows interrupt terminates the child; no grace period applies")
 def test_cancel_kills_child_that_ignores_interrupt(qtbot, env):
     env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", "deaf")
     b = _backend(env)
@@ -335,5 +350,52 @@ def test_cancel_kills_child_that_ignores_interrupt(qtbot, env):
         (start,) = _starts(env)
         assert not psutil.pid_exists(start["pid"]) or (
             psutil.Process(start["pid"]).status() == psutil.STATUS_ZOMBIE)
+    finally:
+        _stop(w)
+
+
+@pytest.mark.parametrize("scenario", ["text_exit", "text_mute"])
+def test_child_dead_between_turns_respawns_transparently(qtbot, env, scenario):
+    # text_exit: child exits while idle; text_mute: child dies silently on the next
+    # prompt (death not yet noticed at send time) -> one respawn, no error.
+    env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", scenario)
+    b = _backend(env)
+    w = _start_worker(qtbot, b)
+    errors = []
+    w.error_occurred.connect(errors.append)
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        cid = b.conversation_id
+        rec = _record_partials(w)
+        _query(qtbot, w, "two", w.query_completed)
+        assert errors == []
+        assert "".join(rec["text"]) == "Hello world"
+        first, second = _starts(env)
+        assert second["argv"][second["argv"].index("--conversation") + 1] == cid
+    finally:
+        _stop(w)
+
+
+def test_windows_child_spawned_without_console(qtbot, env, monkeypatch):
+    from lightfall.agents.backends.agy import process as agy_process
+
+    seen = {}
+    real = asyncio.create_subprocess_exec
+
+    async def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(agy_process.asyncio, "create_subprocess_exec", spy)
+    w = _start_worker(qtbot, _backend(env))
+    try:
+        _query(qtbot, w, "hi", w.query_completed)
+        (start,) = _starts(env)
+        assert seen["env"]["NO_PROXY"] == "127.0.0.1,localhost"
+        if sys.platform == "win32":
+            import subprocess
+            flags = seen["creationflags"]
+            assert flags & subprocess.CREATE_NO_WINDOW
+            assert flags & subprocess.CREATE_NEW_PROCESS_GROUP
     finally:
         _stop(w)

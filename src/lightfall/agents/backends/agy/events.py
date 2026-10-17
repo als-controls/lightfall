@@ -47,6 +47,14 @@ class AgyEventTranslator:
         self._prev_usage: dict[str, int] = {}
         self.conversation_id: str | None = None
 
+    def begin_turn(self) -> None:
+        """Forget per-step state: a step never spans turns, and agy may reuse
+        ``step_index`` under the same conversation id after a respawn."""
+        self._started.clear()
+        self._finished.clear()
+        self._tools_called.clear()
+        self._tools_done.clear()
+
     def reset_usage(self) -> None:
         """Forget the cumulative-usage baseline (a fresh agy process restarts it)."""
         self._prev_usage = {}

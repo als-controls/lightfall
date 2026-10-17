@@ -48,7 +48,9 @@ def _script(tmp_path, body):
 def test_agy_signed_in_counts_models(tmp_path):
     agy = _script(tmp_path, "import os, sys\nassert sys.argv[1] == 'models'\n"
                             "assert os.environ['USERPROFILE'] == os.environ['HOME']\n"
-                            "print('gemini-a')\nprint('gemini-b')\n")
+                            "print('Fetching available models...')\n"
+                            "print('gemini-4-argon-high\\tGemini 4 Argon (High)')\n"
+                            "print('gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)')\n")
     assert discover.agy_signed_in(agy, tmp_path) == (True, "2 models")
 
 
@@ -58,7 +60,7 @@ def test_agy_signed_in_failure_reports_stderr(tmp_path):
 
 
 def test_agy_signed_in_no_models(tmp_path):
-    agy = _script(tmp_path, "pass\n")
+    agy = _script(tmp_path, "print('Fetching available models...')\n")
     ok, msg = discover.agy_signed_in(agy, tmp_path)
     assert ok is False and msg
 

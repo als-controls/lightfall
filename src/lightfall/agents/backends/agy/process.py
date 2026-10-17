@@ -1,9 +1,14 @@
 """One ``agy`` child process in persistent stream-json mode.
 
 agy reads one NDJSON ``user`` line per turn on stdin and writes NDJSON events on
-stdout.  Interrupt is ``CTRL_BREAK_EVENT`` to the child's own process group on
-Windows (``SIGINT`` on POSIX); agy then reports ``status=ERROR error=interrupted``
-and exits, so the caller respawns with ``--conversation``.
+stdout.
+
+Interrupt: on POSIX ``SIGINT`` makes agy report ``status=ERROR error=interrupted``
+and exit.  On Windows the GUI (pythonw, no console) cannot deliver
+``CTRL_BREAK_EVENT`` -- ``os.kill`` fails and falls back to TerminateProcess -- so
+the child is spawned with ``CREATE_NO_WINDOW`` and interrupt terminates it outright
+(verified live: a hard kill mid-turn then ``--conversation <id>`` resumes with
+context).  Either way the caller respawns with ``--conversation``.
 
 This module must not import ``claude_agent_sdk``.
 """
@@ -27,6 +32,9 @@ _STDERR_LINES = 50
 _TERM_WAIT_S = 3.0
 _KILL_WAIT_S = 2.0
 
+#: True where interrupt() kills the child instead of signalling it.
+INTERRUPT_KILLS = sys.platform == "win32"
+
 
 class AgyProcess:
     """Spawn and talk to one agy child."""
@@ -42,6 +50,7 @@ class AgyProcess:
         self._proc: asyncio.subprocess.Process | None = None
         self._stderr: collections.deque[str] = collections.deque(maxlen=_STDERR_LINES)
         self._stderr_task: asyncio.Task[None] | None = None
+        self._interrupted = False
 
     @property
     def argv(self) -> list[str]:
@@ -72,7 +81,8 @@ class AgyProcess:
                **self._env_extra}
         kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            kwargs["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                                       | subprocess.CREATE_NO_WINDOW)
         self._proc = await asyncio.create_subprocess_exec(
             *self.argv,
             stdin=asyncio.subprocess.PIPE,
@@ -142,16 +152,18 @@ class AgyProcess:
             logger.debug("agy non-object stdout: {}", text[:300])
 
     def interrupt(self) -> None:
-        if not self.alive:
+        """Stop the current turn (idempotent). Windows: terminate; POSIX: SIGINT."""
+        if not self.alive or self._interrupted:
             return
         assert self._proc is not None
+        self._interrupted = True
         try:
-            if sys.platform == "win32":
-                os.kill(self._proc.pid, signal.CTRL_BREAK_EVENT)
+            if INTERRUPT_KILLS:
+                self._proc.terminate()
             else:
                 self._proc.send_signal(signal.SIGINT)
         except (OSError, ProcessLookupError) as e:
-            logger.debug("agy interrupt failed: {}", e)
+            logger.warning("agy interrupt failed (pid={}): {}", self._proc.pid, e)
 
     async def wait(self, timeout: float) -> bool:
         """Wait up to ``timeout`` s for the child to exit; True if it has."""

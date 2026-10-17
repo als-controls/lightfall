@@ -48,20 +48,25 @@ def _tail(text: str, n: int = 5) -> str:
 
 
 def agy_signed_in(agy: str | list[str], home: Path) -> tuple[bool, str]:
-    """Run ``agy models`` against ``home``; ``(True, "N models")`` when it lists any."""
+    """Run ``agy models`` against ``home``; ``(True, "N models")`` when it lists any.
+
+    Output format (agy 1.3.5): a ``Fetching available models...`` line, then one
+    ``<id>	<Display Name>`` row per model -- only TAB-bearing lines count.
+    """
     argv = [agy] if isinstance(agy, str) else list(agy)
     env = {**os.environ, "USERPROFILE": str(home), "HOME": str(home)}
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         proc = subprocess.run(
             [*argv, "models"], env=env, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=_SIGNIN_TIMEOUT_S,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL, creationflags=flags,
         )
     except subprocess.TimeoutExpired:
         return False, f"agy models timed out after {_SIGNIN_TIMEOUT_S} s"
     except OSError as e:
         return False, f"could not run agy: {e}"
-    models = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    models = [ln for ln in (proc.stdout or "").splitlines() if "\t" in ln and ln.strip()]
     if proc.returncode == 0 and models:
         return True, f"{len(models)} models"
     return False, _tail(proc.stderr) or _tail(proc.stdout) or f"agy models exited {proc.returncode}"

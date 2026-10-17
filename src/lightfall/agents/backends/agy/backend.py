@@ -8,7 +8,9 @@ One backend = one Lightfall chat session:
   writes the plugin config.  The agy child is spawned lazily on the first turn.
 * Each turn writes one ``user`` line and translates NDJSON events until a
   terminal event.  Interrupt makes agy exit, so the next turn respawns with
-  ``--conversation <id>``; so does a model switch.
+  ``--conversation <id>``; so does a model switch.  On Windows interrupt kills
+  the child outright (CTRL_BREAK cannot reach it from a console-less GUI), and
+  the turn ends cancelled as soon as its stdout closes.
 
 This module must not import ``claude_agent_sdk``.
 """
@@ -17,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import secrets
+import sys
 import uuid
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -49,6 +52,15 @@ HOOK_MODULE = "lightfall.agents.backends.agy.hook_client"
 _CANCEL_GRACE_S = 5.0
 _POLL_S = 0.1
 _EXIT_WAIT_S = 2.0
+_NO_PROXY = "127.0.0.1,localhost"
+_RETRY = object()  # internal: the reused child died before answering
+
+
+def _no_proxy_env() -> dict[str, str]:
+    # Windows env names are case-insensitive: one key, or the block has duplicates.
+    if sys.platform == "win32":
+        return {"NO_PROXY": _NO_PROXY}
+    return {"NO_PROXY": _NO_PROXY, "no_proxy": _NO_PROXY}
 
 
 class AgyCliBackend:
@@ -151,7 +163,8 @@ class AgyCliBackend:
         assert self._session_home is not None and self._host is not None
         proc = AgyProcess(
             self._agy, self._session_home, self._cfg.cwd,
-            env_extra={"LF_AGY_PORT": str(self._host.port), "LF_AGY_TOKEN": self._token or ""},
+            env_extra={"LF_AGY_PORT": str(self._host.port), "LF_AGY_TOKEN": self._token or "",
+                       **_no_proxy_env()},
             model=self._model, conversation=self._conversation_id or self._cfg.resume)
         await proc.start()
         self._translator.reset_usage()
@@ -174,24 +187,48 @@ class AgyCliBackend:
 
     async def _turn(self, prompt: str, cancelled: Callable[[], bool],
                     stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:
-        try:
-            proc = await self._ensure_child()
-            await proc.send(prompt)
-        except Exception as e:  # noqa: BLE001 - spawn/write failure ends the turn
-            tail = self._proc.stderr_tail if self._proc is not None else ""
-            await self._drop_child()
-            yield TurnErrorEvent(f"could not start agy turn: {e}" + (f"\n{tail}" if tail else ""))
-            return
+        self._translator.begin_turn()
+        # A reused child may have died while idle without us noticing yet; if it
+        # fails before producing anything, respawn once (with --conversation).
+        for attempt in (0, 1):
+            reused = self._proc is not None and self._proc.alive
+            try:
+                proc = await self._ensure_child()
+                await proc.send(prompt)
+            except Exception as e:  # noqa: BLE001 - spawn/write failure ends the turn
+                tail = self._proc.stderr_tail if self._proc is not None else ""
+                await self._drop_child()
+                if reused and attempt == 0 and not cancelled():
+                    logger.info("agy child unusable at turn start ({}); respawning", e)
+                    continue
+                yield TurnErrorEvent(
+                    f"could not start agy turn: {e}" + (f"\n{tail}" if tail else ""))
+                return
+            retry = False
+            async for ev in self._stream(proc, cancelled, stopping,
+                                         retryable=reused and attempt == 0):
+                if ev is _RETRY:
+                    retry = True
+                    break
+                yield ev
+            if not retry:
+                return
+            logger.info("agy child exited before answering; respawning with --conversation")
 
+    async def _stream(self, proc: AgyProcess, cancelled: Callable[[], bool],
+                      stopping: Callable[[], bool], *, retryable: bool,
+                      ) -> AsyncIterator[AgentEvent | object]:
         loop = asyncio.get_running_loop()
         cancel_deadline: float | None = None
         reader: asyncio.Task[dict | None] | None = None
+        got_any = False
         try:
             while True:
                 if stopping():
                     return
                 if cancel_deadline is None and cancelled():
                     cancel_deadline = loop.time() + _CANCEL_GRACE_S
+                    proc.interrupt()  # idempotent; covers a cancel that raced the spawn
                 if reader is None:
                     reader = loop.create_task(proc.read_event())
                 done, _ = await asyncio.wait({reader}, timeout=_POLL_S)
@@ -211,10 +248,14 @@ class AgyCliBackend:
                     tail = proc.stderr_tail
                     await self._drop_child()
                     if cancel_deadline is not None or cancelled():
+                        # Windows interrupt terminates the child: this is the normal path.
                         yield TurnCancelledEvent()
+                    elif retryable and not got_any:
+                        yield _RETRY
                     else:
                         yield TurnErrorEvent(f"agy exited unexpectedly: {tail}")
                     return
+                got_any = True
 
                 events = self._translator.feed(raw)
                 if self._translator.conversation_id:
