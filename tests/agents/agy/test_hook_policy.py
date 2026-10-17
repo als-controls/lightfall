@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from lightfall.agents.backends.agy.ask_tool import ASK_TOOL_ID
@@ -118,3 +120,48 @@ async def test_builtin_tools_denied(name):
 
 async def test_malformed_payload_denied():
     assert (await _decide({}))["decision"] == "deny"
+
+
+async def test_empty_and_unlisted_server_keys_denied():
+    assert (await _decide(_mcp("lightfall_", "x")))["decision"] == "deny"
+    pm = FakePM()
+    r = await decide(_mcp("lightfall_qt", "x"), permission_manager=pm, require_approval=False,
+                     server_keys={"other"}, allowed_view_roots=[])
+    assert r["decision"] == "deny"
+    assert pm.calls == []
+
+
+async def test_read_resource_on_foreign_server_denied():
+    p = {"toolCall": {"name": "read_resource", "args": {"ServerName": "evil"}}}
+    assert (await _decide(p))["decision"] == "deny"
+
+
+async def test_view_file_sibling_prefix_and_relative_denied(tmp_path):
+    root = tmp_path / "mcp"
+    evil = tmp_path / "mcp_evil"
+    root.mkdir()
+    evil.mkdir()
+    (evil / "x").write_text("x")
+    for path in (str(evil / "x"), "mcp/x", "x"):
+        p = {"toolCall": {"name": "view_file", "args": {"AbsolutePath": path}}}
+        assert (await _decide(p, roots=[root]))["decision"] == "deny"
+
+
+async def test_view_file_through_link_root_allowed(tmp_path):
+    target = tmp_path / "store"
+    target.mkdir()
+    (target / "f.json").write_text("{}")
+    link = tmp_path / "link"
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        if os.name != "nt":
+            pytest.skip("cannot create symlink")
+        import subprocess
+        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                           capture_output=True)
+        if r.returncode != 0:
+            pytest.skip("cannot create junction or symlink")
+    for path in (link / "f.json", target / "f.json"):
+        p = {"toolCall": {"name": "view_file", "args": {"AbsolutePath": str(path)}}}
+        assert (await _decide(p, roots=[link]))["decision"] == "allow"

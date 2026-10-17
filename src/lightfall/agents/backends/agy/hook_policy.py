@@ -37,6 +37,8 @@ def _under_roots(raw: Any, roots: list[Path]) -> bool:
     if not isinstance(raw, str) or not raw:
         return False
     try:
+        if not Path(raw).is_absolute():
+            return False
         target = Path(raw).resolve()
         for root in roots:
             # roots may be junctions/symlinks: accept the literal or the resolved root

@@ -20,7 +20,9 @@ def _forward(raw: bytes) -> str:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/hook", data=raw, method="POST",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # noqa: S310 - fixed loopback URL
+    # Never honour proxy env/registry settings: the token and payload must stay on loopback.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=_TIMEOUT_S) as resp:
         if resp.status != 200:
             raise RuntimeError(f"HTTP {resp.status}")
         body = resp.read().decode("utf-8")
