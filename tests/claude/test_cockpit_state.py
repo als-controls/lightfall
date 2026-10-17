@@ -48,3 +48,22 @@ def test_reset_clears_everything():
     s.reset()
     assert s.format() == "$0.0000"
     assert s.context_pct is None
+
+
+def test_hidden_cost_omits_dollar_segment():
+    from lightfall.claude.cockpit import CockpitState
+
+    s = CockpitState(show_cost=False)
+    s.add_result({"total_cost_usd": None, "input_tokens": 1200, "output_tokens": 300})
+    assert "$" not in s.format()
+    assert s.format() == "1.5k tok"
+    assert "cost" not in s.tooltip().lower()
+    assert s.cost_usd == 0.0
+
+
+def test_show_cost_survives_reset():
+    from lightfall.claude.cockpit import CockpitState
+
+    s = CockpitState(show_cost=False)
+    s.reset()
+    assert s.show_cost is False and s.format() == ""

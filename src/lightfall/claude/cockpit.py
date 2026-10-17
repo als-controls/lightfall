@@ -19,10 +19,13 @@ class CockpitState:
     output_tokens: int = 0
     context_pct: float | None = None  # 0..100; None until the first reading
     auto_compact: bool = False
+    show_cost: bool = True  # False for backends without real cost (agy); kept across reset()
 
     def add_result(self, info: dict) -> None:
-        """Accumulate one per-turn ResultMessage payload (cost is per-turn)."""
-        self.cost_usd += float(info.get("total_cost_usd") or 0.0)
+        """Accumulate one per-turn ResultMessage payload (cost is per-turn; None = unknown)."""
+        cost = info.get("total_cost_usd")
+        if cost is not None:
+            self.cost_usd += float(cost)
         self.input_tokens += int(info.get("input_tokens") or 0)
         self.output_tokens += int(info.get("output_tokens") or 0)
 
@@ -52,7 +55,7 @@ class CockpitState:
 
     def format(self) -> str:
         """Compact title-bar string; omits segments without data."""
-        segments = [f"${self.cost_usd:.4f}"]
+        segments = [f"${self.cost_usd:.4f}"] if self.show_cost else []
         if self.context_pct is not None:
             segments.append(f"{self.context_pct:.0f}% ctx")
         if self.total_tokens:
@@ -60,10 +63,8 @@ class CockpitState:
         return _SEP.join(segments)
 
     def tooltip(self) -> str:
-        lines = [
-            f"Session cost: ${self.cost_usd:.4f}",
-            f"Tokens: {self.input_tokens:,} in / {self.output_tokens:,} out",
-        ]
+        lines = [f"Session cost: ${self.cost_usd:.4f}"] if self.show_cost else []
+        lines.append(f"Tokens: {self.input_tokens:,} in / {self.output_tokens:,} out")
         if self.context_pct is not None:
             lines.append(f"Context window: {self.context_pct:.1f}% used")
             lines.append(f"Auto-compact: {'on' if self.auto_compact else 'off'}")

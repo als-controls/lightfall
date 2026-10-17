@@ -155,6 +155,10 @@ class TaskCard(QFrame):
             self._usage = dict(usage)
         self._refresh()
 
+    @property
+    def is_running(self) -> bool:
+        return self._status == "running"
+
     # --- Rendering ----------------------------------------------------------
 
     def _refresh(self) -> None:

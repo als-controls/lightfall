@@ -972,14 +972,29 @@ class ClaudeAssistantWidget(QWidget):
         self._append_error_message(error)
         self._set_busy_state(False)
 
+    def _finalize_open_fragments(self, cancelled: bool) -> None:
+        """Close what a turn left open: render streaming bubbles; on cancel, stop task cards.
+
+        Normal completion leaves task cards alone: a background subagent can
+        still report after the turn ends.
+        """
+        for block_id in list(self._streaming_bubbles):
+            self._on_partial_block_finished(block_id)
+        if cancelled:
+            for card in self._task_cards.values():
+                if card.is_running:
+                    card.mark_finished("stopped", "Cancelled", "", {})
+
     @Slot()
     def _on_query_completed(self) -> None:
         """Handle query completion."""
+        self._finalize_open_fragments(cancelled=False)
         self._set_busy_state(False)
 
     @Slot()
     def _on_query_cancelled(self) -> None:
         """Handle query cancellation."""
+        self._finalize_open_fragments(cancelled=True)
         self._append_system_message("Query cancelled")
         self._set_busy_state(False)
 

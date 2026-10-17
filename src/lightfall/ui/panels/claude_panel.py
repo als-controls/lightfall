@@ -609,6 +609,11 @@ class ClaudePanel(BasePanel):
         it stays on the panel because it drives panel chrome (title bar, the
         sidebar icon) rather than the session itself.
         """
+        from lightfall.agents.backends.info import backend_info
+
+        self._cockpit.show_cost = backend_info().caps.cost
+        self._refresh_cockpit_label()
+
         # Title-bar cockpit label (cost / context% / tokens)
         if self._cost_label is None:
             self._cost_label = QLabel(self._cockpit.format())
