@@ -233,3 +233,16 @@ async def test_auth_rejects_unauthenticated_websocket_scope():
               "headers": [(b"authorization", f"Bearer {TOKEN}".encode())]}, receive, send)
     await mw({"type": "lifespan"}, receive, send)
     assert reached == ["websocket", "lifespan"]
+
+
+async def test_request_count_counts_authenticated_requests_only(host):
+    assert host.request_count == 0
+    url = f"http://127.0.0.1:{host.port}/hook"
+    body = {"toolCall": {"name": "view_file", "args": {}}}
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as c:
+        await c.post(url, json=body)  # 401: not counted
+        await c.post(url, json=body, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert host.request_count == 1
+    async with _session(host.port, "qt") as s:
+        await s.call_tool("echo", {"msg": "hi"})
+    assert host.request_count > 1

@@ -17,7 +17,7 @@ import httpx
 import psutil
 import pytest
 
-from lightfall.agents.backend import SessionConfig, TurnErrorEvent
+from lightfall.agents.backend import SessionConfig, TurnCancelledEvent, TurnErrorEvent
 from lightfall.agents.backends.agy import home as agy_home
 from lightfall.agents.backends.agy.backend import AgyCliBackend
 from lightfall.agents.tooling import ToolServer, ToolSpec
@@ -68,13 +68,16 @@ def env(tmp_path, monkeypatch):
     log = tmp_path / "argv.ndjson"
     monkeypatch.setenv("FAKE_AGY_ARGV_LOG", str(log))
     monkeypatch.setenv("FAKE_AGY_SCENARIO", "text")
+    prompts = tmp_path / "prompts.ndjson"
+    monkeypatch.setenv("FAKE_AGY_PROMPT_LOG", str(prompts))
     work = tmp_path / "work"
     work.mkdir()
     (tmp_path / "skills" / "demo").mkdir(parents=True)
     (tmp_path / "skills" / "demo" / "SKILL.md").write_text("# demo\n", encoding="utf-8")
     cfg = SessionConfig(cwd=str(work), system_prompt="You are a test.", tool_servers=_servers(),
                         external_servers={}, allowed_tools=[], subagents=[], skills_dir=tmp_path)
-    return {"root": root, "log": log, "cfg": cfg, "monkeypatch": monkeypatch}
+    return {"root": root, "log": log, "prompts": prompts, "cfg": cfg,
+            "monkeypatch": monkeypatch}
 
 
 def _backend(env, pm=None, require_approval=False):
@@ -86,6 +89,13 @@ def _starts(env):
     if not env["log"].exists():
         return []
     return [json.loads(x) for x in env["log"].read_text(encoding="utf-8").splitlines() if x]
+
+
+def _prompts(env):
+    if not env["prompts"].exists():
+        return []
+    return [json.loads(x)["prompt"]
+            for x in env["prompts"].read_text(encoding="utf-8").splitlines() if x]
 
 
 def _start_worker(qtbot, backend, pm=None):
@@ -370,6 +380,8 @@ def test_child_dead_between_turns_respawns_transparently(qtbot, env, scenario):
         _query(qtbot, w, "two", w.query_completed)
         assert errors == []
         assert "".join(rec["text"]) == "Hello world"
+        if scenario == "text_mute":
+            assert _prompts(env) == ["one", "two", "two"]  # resent to the new child
         first, second = _starts(env)
         assert second["argv"][second["argv"].index("--conversation") + 1] == cid
     finally:
@@ -399,3 +411,95 @@ def test_windows_child_spawned_without_console(qtbot, env, monkeypatch):
             assert flags & subprocess.CREATE_NEW_PROCESS_GROUP
     finally:
         _stop(w)
+
+
+@pytest.mark.parametrize("scenario", ["text_hook_mute", "text_partial_die"])
+def test_no_resend_when_child_may_have_acted(qtbot, env, scenario):
+    # text_hook_mute: the child reached the tool host before dying silently;
+    # text_partial_die: it emitted events before dying. Either way the prompt may
+    # have had side effects, so it is NOT resent: one error, prompt seen once.
+    env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", scenario)
+    w = _start_worker(qtbot, _backend(env))
+    errors, completed = [], []
+    w.error_occurred.connect(errors.append)
+    w.query_completed.connect(lambda: completed.append(1))
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        _query(qtbot, w, "two", w.error_occurred)
+        qtbot.wait(300)
+        assert len(errors) == 1 and errors[0].startswith("agy exited unexpectedly")
+        assert completed == [1]
+        assert _prompts(env) == ["one", "two"]
+        assert len(_starts(env)) == 1
+    finally:
+        _stop(w)
+
+
+def test_cancel_before_retry_spawn_is_cancelled(env):
+    env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", "text_mute")
+    b = _backend(env)
+
+    async def go():
+        await b.connect()
+        try:
+            first = [e async for e in b.run_turn("one", lambda: False, lambda: False)]
+            await asyncio.sleep(0.2)
+            # the user cancels once the dead child has been reaped (before any respawn)
+            second = [e async for e in b.run_turn("two", lambda: b._proc is None,
+                                                  lambda: False)]
+            return first, second
+        finally:
+            await b.close()
+
+    first, second = asyncio.run(go())
+    assert type(first[-2]).__name__ == "TurnResultEvent"
+    assert second == [TurnCancelledEvent()]
+    assert _prompts(env) == ["one", "two"]
+    assert len(_starts(env)) == 1
+
+
+def test_cancel_seen_only_at_retry_point_does_not_respawn(env, monkeypatch):
+    # Pins the guard in _turn itself: the stream reports "retry" while cancel is
+    # already requested -> TurnCancelled, no second spawn or resend.
+    from lightfall.agents.backends.agy import backend as agy_backend
+
+    b = _backend(env)
+    calls = {"start": 0, "send": 0}
+    real_start, real_send = agy_backend.AgyProcess.start, agy_backend.AgyProcess.send
+
+    async def start(self):
+        calls["start"] += 1
+        await real_start(self)
+
+    async def send(self, text):
+        calls["send"] += 1
+        await real_send(self, text)
+
+    monkeypatch.setattr(agy_backend.AgyProcess, "start", start)
+    monkeypatch.setattr(agy_backend.AgyProcess, "send", send)
+
+    async def fake_stream(proc, cancelled, stopping, *, retryable, untouched):
+        yield agy_backend._RETRY
+
+    async def go():
+        await b.connect()
+        try:
+            await b._ensure_child()  # a live, reused child
+            monkeypatch.setattr(b, "_stream", fake_stream)
+            return [e async for e in b.run_turn("two", lambda: True, lambda: False)]
+        finally:
+            await b.close()
+
+    assert asyncio.run(go()) == [TurnCancelledEvent()]
+    assert calls == {"start": 1, "send": 1}
+
+
+def test_no_proxy_merges_existing_value(monkeypatch):
+    from lightfall.agents.backends.agy import backend as agy_backend
+
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.setenv("NO_PROXY", "lbl.gov, localhost")
+    env = agy_backend._no_proxy_env()
+    assert env["NO_PROXY"] == "lbl.gov,localhost,127.0.0.1"
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    assert agy_backend._no_proxy_env()["NO_PROXY"] == "127.0.0.1,localhost"

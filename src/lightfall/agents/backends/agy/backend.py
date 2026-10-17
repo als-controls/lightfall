@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import os
 import secrets
 import sys
 import uuid
@@ -57,10 +58,21 @@ _RETRY = object()  # internal: the reused child died before answering
 
 
 def _no_proxy_env() -> dict[str, str]:
+    """NO_PROXY with 127.0.0.1/localhost added to whatever the user already has."""
+    parts: list[str] = []
+    for name in ("NO_PROXY", "no_proxy"):
+        for p in os.environ.get(name, "").split(","):
+            p = p.strip()
+            if p and p not in parts:
+                parts.append(p)
+    for p in _NO_PROXY.split(","):
+        if p not in parts:
+            parts.append(p)
+    value = ",".join(parts)
     # Windows env names are case-insensitive: one key, or the block has duplicates.
     if sys.platform == "win32":
-        return {"NO_PROXY": _NO_PROXY}
-    return {"NO_PROXY": _NO_PROXY, "no_proxy": _NO_PROXY}
+        return {"NO_PROXY": value}
+    return {"NO_PROXY": value, "no_proxy": value}
 
 
 class AgyCliBackend:
@@ -192,13 +204,22 @@ class AgyCliBackend:
         # fails before producing anything, respawn once (with --conversation).
         for attempt in (0, 1):
             reused = self._proc is not None and self._proc.alive
+            # Resending is only safe if the child provably did nothing with the
+            # prompt: no event on stdout (checked in _stream) and no request reached
+            # the tool host since just before the send (stricter than "after").
+            host = self._host
+            sent_at = host.request_count if host is not None else -1
+
+            def _host_untouched(host=host, sent_at=sent_at) -> bool:
+                return host is not None and host.request_count == sent_at
+
             try:
                 proc = await self._ensure_child()
                 await proc.send(prompt)
             except Exception as e:  # noqa: BLE001 - spawn/write failure ends the turn
                 tail = self._proc.stderr_tail if self._proc is not None else ""
                 await self._drop_child()
-                if reused and attempt == 0 and not cancelled():
+                if reused and attempt == 0 and not cancelled() and _host_untouched():
                     logger.info("agy child unusable at turn start ({}); respawning", e)
                     continue
                 yield TurnErrorEvent(
@@ -206,18 +227,22 @@ class AgyCliBackend:
                 return
             retry = False
             async for ev in self._stream(proc, cancelled, stopping,
-                                         retryable=reused and attempt == 0):
+                                         retryable=reused and attempt == 0,
+                                         untouched=_host_untouched):
                 if ev is _RETRY:
                     retry = True
                     break
                 yield ev
             if not retry:
                 return
+            if cancelled():
+                yield TurnCancelledEvent()
+                return
             logger.info("agy child exited before answering; respawning with --conversation")
 
     async def _stream(self, proc: AgyProcess, cancelled: Callable[[], bool],
                       stopping: Callable[[], bool], *, retryable: bool,
-                      ) -> AsyncIterator[AgentEvent | object]:
+                      untouched: Callable[[], bool]) -> AsyncIterator[AgentEvent | object]:
         loop = asyncio.get_running_loop()
         cancel_deadline: float | None = None
         reader: asyncio.Task[dict | None] | None = None
@@ -250,7 +275,7 @@ class AgyCliBackend:
                     if cancel_deadline is not None or cancelled():
                         # Windows interrupt terminates the child: this is the normal path.
                         yield TurnCancelledEvent()
-                    elif retryable and not got_any:
+                    elif retryable and not got_any and untouched():
                         yield _RETRY
                     else:
                         yield TurnErrorEvent(f"agy exited unexpectedly: {tail}")

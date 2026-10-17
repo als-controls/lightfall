@@ -81,9 +81,11 @@ def _build_mcp_server(key: str, server: ToolServer) -> Server:
 class _BearerAuth:
     """Pure-ASGI middleware: 401 JSON unless the request carries the session token."""
 
-    def __init__(self, app: ASGIApp, token: str) -> None:
+    def __init__(self, app: ASGIApp, token: str,
+                 on_request: Callable[[], None] | None = None) -> None:
         self.app = app
         self._expected = f"Bearer {token}".encode()
+        self._on_request = on_request
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -95,6 +97,8 @@ class _BearerAuth:
                 supplied = value
                 break
         if hmac.compare_digest(supplied, self._expected):
+            if self._on_request is not None:
+                self._on_request()
             await self.app(scope, receive, send)
             return
         if scope["type"] == "http":
@@ -124,6 +128,16 @@ class ToolHost:
         self._task: asyncio.Task[None] | None = None
         self._port = 0
         self._address: tuple[str, int] | None = None
+        self._request_count = 0
+
+    @property
+    def request_count(self) -> int:
+        """Authenticated requests served so far (/hook and /mcp/*): evidence that
+        the agy child reached Lightfall, e.g. before deciding to resend a prompt."""
+        return self._request_count
+
+    def _count_request(self) -> None:
+        self._request_count += 1
 
     @property
     def port(self) -> int:
@@ -169,7 +183,8 @@ class ToolHost:
 
         routes = [Route("/hook", _hook, methods=["POST"])]
         routes += [Mount(f"/mcp/{key}", app=_mcp_endpoint(m)) for key, m in managers]
-        return _BearerAuth(Starlette(routes=routes, lifespan=_lifespan), self._token)
+        return _BearerAuth(Starlette(routes=routes, lifespan=_lifespan), self._token,
+                           self._count_request)
 
     async def start(self) -> int:
         """Bind 127.0.0.1:0, serve on the running loop in the background; return the port."""
