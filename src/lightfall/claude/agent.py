@@ -7,32 +7,26 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk import ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 
-from lightfall.agents.backends.claude_code.tools import to_sdk_server
+from lightfall.agents.backend import SessionConfig
+from lightfall.agents.backends.claude_code.options import (
+    SDK_MAX_BUFFER_SIZE,  # noqa: F401
+    build_claude_options,
+)
 from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
 from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
-from lightfall.agents.tooling import tool_id
+from lightfall.agents.tooling import ToolServer, tool_id
 from lightfall.claude._internal.worker import PersistentClaudeWorker
-from lightfall.claude.permission_manager import (
-    PermissionManager,
-    create_can_use_tool_callback,
-    create_pre_tool_use_hook,
-)
+from lightfall.claude._session_assembly import collect_tool_servers
+from lightfall.claude.permission_manager import PermissionManager
 from lightfall.claude.tools import create_qt_tools_server
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from lightfall.agents.spec import AgentSpec
-
-
-# Single-JSON-message read limit for the SDK transport. The default (1 MiB)
-# is too small for image tool_results (base64 screenshot payloads) and kills
-# the turn with "JSON message exceeded maximum buffer size". 16 MiB bounds
-# runaway messages while leaving ample headroom.
-SDK_MAX_BUFFER_SIZE = 16 * 1024 * 1024
 
 
 def lightfall_agent_cwd() -> str:
@@ -364,7 +358,9 @@ class QtClaudeAgent(QObject):
             )
 
         # Create MCP tools server with Qt tools
-        self.qt_tools = to_sdk_server(create_qt_tools_server(target_window))
+        tool_servers: list[tuple[str, ToolServer]] = [
+            ("qt", create_qt_tools_server(target_window)),
+        ]
 
         # Build allowed tools list - start with Qt tools
         allowed_tools = [tool_id("qt", n) for n in (
@@ -372,7 +368,7 @@ class QtClaudeAgent(QObject):
             "type_text", "show_controller", "get_recent_logs",
         )]
 
-        mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
+        external_servers: dict[str, Any] = {}
 
         # Bus name defaults to the spec name (or "lightfall" on the legacy
         # path); the endpoint layer overwrites this with the actual
@@ -380,14 +376,14 @@ class QtClaudeAgent(QObject):
         # bus tools server reads it live via a closure, so it stays correct
         # even after being overwritten post-construction.
         self.bus_name = spec.name if spec else "lightfall"
-        mcp_servers["bus"] = to_sdk_server(create_bus_tools_server(lambda: self.bus_name))
+        tool_servers.append(("bus", create_bus_tools_server(lambda: self.bus_name)))
         allowed_tools.extend(BUS_ALLOWED_TOOLS)
 
         # The skills server is likewise always-on: any session can propose a
         # skill draft, gated on human approval before it takes effect.
-        mcp_servers["skills"] = to_sdk_server(create_skill_tools_server(
+        tool_servers.append(("skills", create_skill_tools_server(
             lambda: self.bus_name, lambda: self._current_session_id
-        ))
+        )))
         allowed_tools.extend(SKILLS_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir
@@ -395,8 +391,6 @@ class QtClaudeAgent(QObject):
 
         self._session_plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
         init_session_plugin_dir(self._session_plugin_dir)
-
-        agents: dict[str, Any] = {}
 
         if self._spec is not None:
             from lightfall.agents.assembly import assemble_spec_options
@@ -420,21 +414,23 @@ class QtClaudeAgent(QObject):
                 self._spec = None
 
         if self._spec is not None:
-            mcp_servers.update(spec_options["mcp_servers"])
+            tool_servers += [(s.name, s) for s in spec_options["tool_servers"]]
+            external_servers.update(spec_options["external_servers"])
             allowed_tools.extend(spec_options["allowed_tools"])
             system_prompt = spec_options["system_prompt"]
             project_cwd = spec_options["cwd"]
-            agents = spec_options["agents"]
+            subagents = spec_options["subagent_specs"]
         else:
             # Legacy path: no spec available (registry not loaded).
             from lightfall.agents.skills_store import materialize_skills
-            from lightfall.claude._session_assembly import assemble_mcp_servers
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
             enabled = ToolRegistry.get_instance().enabled_plugins()
-            agent_servers, agent_allowed = assemble_mcp_servers(enabled)
-            mcp_servers.update(agent_servers)
-            allowed_tools.extend(agent_allowed)
+            servers, external, allowed = collect_tool_servers(enabled)
+            tool_servers += [(s.name, s) for s in servers]
+            external_servers.update(external)
+            allowed_tools.extend(allowed)
+            subagents = []
             materialize_skills(tuple(p.name for p in enabled), self._session_plugin_dir)
 
             system_prompt = QT_SYSTEM_PROMPT
@@ -449,52 +445,21 @@ class QtClaudeAgent(QObject):
         self._current_session_id: str | None = None
         self._project_cwd = project_cwd
 
-        # Configure Claude options
-        options_dict = {
-            "cwd": self._project_cwd,
-            "plugins": [{"type": "local", "path": str(self._session_plugin_dir)}],
-            "mcp_servers": mcp_servers,
-            "allowed_tools": allowed_tools,
-            "system_prompt": system_prompt,
-            "permission_mode": permission_mode,
-            "max_turns": max_turns,
-            # Opus 4.7's CLI default is --thinking-display omitted, which makes
-            # ThinkingBlock.thinking arrive empty. Opt in to summarized text so
-            # the agent panel's thinking boxes have content.
-            "thinking": {"type": "adaptive", "display": "summarized"},
-            # Stream per-token deltas so the chat bubble grows live instead of
-            # waiting for the whole block. The worker translates these into
-            # partial_* signals and the widget appends as they arrive.
-            "include_partial_messages": True,
-            # See SDK_MAX_BUFFER_SIZE: default 1 MiB rejects screenshot payloads.
-            "max_buffer_size": SDK_MAX_BUFFER_SIZE,
-            # Never let the developer's user-scope Claude settings (global
-            # ~/.claude CLAUDE.md, personal plugins/hooks/skills) leak into an
-            # embedded beamline session. Leaving setting_sources unset (None)
-            # means "all sources" per the SDK. "project" is ALSO unsafe: it
-            # activates the whole CLAUDE.md chain including the user-level
-            # ~/.claude/CLAUDE.md, not just per-cwd project config (verified
-            # empirically 2026-08-03: the operator's personal assistant
-            # persona leaked into an embedded session). Empty setting_sources
-            # ([]) gives true SDK isolation -- no CLAUDE.md chain, no personal
-            # plugins/hooks -- while --plugin-dir and --mcp-config (passed via
-            # options above) still work. Lightfall's own agent/skill scopes
-            # (AgentSpec, per-session plugin dir) are the extension mechanism,
-            # not the CLI's setting_sources.
-            "setting_sources": [],
-        }
-        if agents:
-            options_dict["agents"] = agents
-        if self._model:
-            options_dict["model"] = self._model
-        if self._effort:
-            options_dict["effort"] = self._effort
-        if self._resume_session_id:
-            options_dict["resume"] = self._resume_session_id
-
-        # Add CLI path if provided
-        if cli_path:
-            options_dict["cli_path"] = cli_path
+        self._session_config = SessionConfig(
+            cwd=self._project_cwd,
+            system_prompt=system_prompt,
+            tool_servers=tool_servers,
+            external_servers=external_servers,
+            allowed_tools=allowed_tools,
+            subagents=subagents,
+            skills_dir=self._session_plugin_dir,
+            permission_mode=permission_mode,
+            max_turns=max_turns,
+            model=self._model,
+            effort=self._effort,
+            resume=self._resume_session_id,
+            cli_path=cli_path,
+        )
 
         # Set API key and URL directly in os.environ rather than passing via options.
         # This avoids Windows command line length limits (8191 chars) that occur when
@@ -516,37 +481,11 @@ class QtClaudeAgent(QObject):
             os.environ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         # Note: subprocess will inherit os.environ automatically, no need to pass env
 
-        # Register can_use_tool + PreToolUse hook ALWAYS. They serve two
-        # purposes:
-        # 1. Route ``AskUserQuestion`` to our question UI. This must work
-        #    regardless of ``permission_mode`` — even with
-        #    ``bypassPermissions`` the user wants to see the question.
-        # 2. Gate normal tools through the approval UI when require_approval.
-        #    With require_approval=False (the bypassPermissions path), the
-        #    hook returns ``{}`` for non-AskUserQuestion tools so the CLI's
-        #    auto-allow takes effect.
-        options_dict["can_use_tool"] = create_can_use_tool_callback(
-            self._permission_manager, require_approval=require_approval,
+        self.options = build_claude_options(
+            self._session_config, self._permission_manager, require_approval
         )
-        try:
-            from claude_agent_sdk import HookMatcher
-            options_dict["hooks"] = {
-                "PreToolUse": [
-                    HookMatcher(
-                        matcher=None,  # match all tools
-                        hooks=[create_pre_tool_use_hook(
-                            self._permission_manager,
-                            require_approval=require_approval,
-                        )],
-                    )
-                ],
-            }
-        except ImportError:
-            logger.debug("HookMatcher not available, using can_use_tool only")
-
-        self.options = ClaudeAgentOptions(**options_dict)
-
-        # Create Claude SDK client
+        # Client construction stays here so tests can monkeypatch
+        # lightfall.claude.agent.ClaudeSDKClient.
         self.client = ClaudeSDKClient(options=self.options)
 
         # Persistent worker reference

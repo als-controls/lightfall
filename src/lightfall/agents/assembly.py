@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lightfall.agents.backend import SubagentSpec
 from lightfall.agents.skills_store import materialize_skills
 from lightfall.agents.skills_store import template_variables as _skills_store_template_variables
 from lightfall.agents.spec import AgentSpec, AgentSpecError, resolve_template
@@ -45,6 +46,35 @@ def agent_cwd(spec: AgentSpec) -> str:
     return str(path)
 
 
+def subagent_specs(
+    current: AgentSpec,
+    registry: AgentSpecRegistry,
+    variables: dict[str, str] | None = None,
+) -> list[SubagentSpec]:
+    """Neutral subagent list: every OTHER enabled spec with ``subagent=True``.
+
+    Specs whose prompt fails template resolution are logged and skipped.
+    """
+    if variables is None:
+        variables = template_variables()
+    out: list[SubagentSpec] = []
+    for spec in registry.enabled_specs():
+        if spec.name == current.name or not spec.subagent:
+            continue
+        try:
+            out.append(SubagentSpec(
+                name=spec.name,
+                description=spec.description,
+                prompt=resolve_template(spec.prompt, variables),
+                model=spec.model,
+                effort=spec.effort,
+                memory=spec.memory,
+            ))
+        except AgentSpecError as exc:
+            logger.warning("agent '{}': skipping subagent definition: {}", spec.name, exc)
+    return out
+
+
 def subagent_definitions(
     current: AgentSpec,
     registry: AgentSpecRegistry,
@@ -64,24 +94,13 @@ def subagent_definitions(
     except ImportError:
         logger.debug("AgentDefinition not available; skipping subagent definitions")
         return {}
-
-    if variables is None:
-        variables = template_variables()
-    defs: dict[str, Any] = {}
-    for spec in registry.enabled_specs():
-        if spec.name == current.name or not spec.subagent:
-            continue
-        try:
-            defs[spec.name] = AgentDefinition(
-                description=spec.description,
-                prompt=resolve_template(spec.prompt, variables),
-                model=spec.model,
-                effort=spec.effort,
-                memory=("project" if spec.memory else None),
-            )
-        except AgentSpecError as exc:
-            logger.warning("agent '{}': skipping subagent definition: {}", spec.name, exc)
-    return defs
+    return {
+        s.name: AgentDefinition(
+            description=s.description, prompt=s.prompt, model=s.model,
+            effort=s.effort, memory=("project" if s.memory else None),
+        )
+        for s in subagent_specs(current, registry, variables=variables)
+    }
 
 
 def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry) -> str:
@@ -147,7 +166,7 @@ def assemble_spec_options(
     ``agents``, ``mcp_servers``, and ``allowed_tools``. Callers merge this
     with any always-on tools/servers (e.g. the ``qt`` MCP server).
     """
-    from lightfall.claude._session_assembly import assemble_mcp_servers
+    from lightfall.claude._session_assembly import assemble_mcp_servers, collect_tool_servers
 
     variables = template_variables()
     system_prompt = resolve_template(spec.prompt, variables)
@@ -171,20 +190,24 @@ def assemble_spec_options(
         logger.warning("agent '{}': unknown tool plugin '{}' in spec.tools", spec.name, name)
 
     filtered_plugins = [p for p in tool_registry.enabled_plugins() if p.name in wanted_tools]
-    mcp_servers, allowed_tools = assemble_mcp_servers(filtered_plugins)
+    tool_servers, external_servers, allowed_tools = collect_tool_servers(filtered_plugins)
+    mcp_servers, _ = assemble_mcp_servers(filtered_plugins)
 
     materialize_skills(spec.skills, session_plugin_dir, variables=variables)
 
     try:
-        agents = subagent_definitions(spec, spec_registry, variables=variables)
+        subagents = subagent_specs(spec, spec_registry, variables=variables)
     except Exception as exc:  # noqa: BLE001 - a broken registry must not break assembly
         logger.warning("agent '{}': skipping subagent definitions: {}", spec.name, exc)
-        agents = {}
+        subagents = []
 
     return {
         "system_prompt": system_prompt,
         "cwd": agent_cwd(spec),
-        "agents": agents,
+        "agents": {s.name: s for s in subagents},
+        "subagent_specs": subagents,
         "mcp_servers": mcp_servers,
+        "tool_servers": tool_servers,
+        "external_servers": external_servers,
         "allowed_tools": allowed_tools,
     }

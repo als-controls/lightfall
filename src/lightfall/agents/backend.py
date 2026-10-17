@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
+
+from lightfall.agents.tooling import ToolServer
 
 
 @dataclass(frozen=True)
@@ -133,3 +136,32 @@ class AgentBackend(Protocol):
     async def interrupt(self) -> None: ...
 
     async def set_model(self, model: str | None) -> None: ...
+
+
+@dataclass(frozen=True)
+class SubagentSpec:
+    name: str
+    description: str
+    prompt: str
+    model: str | None = None
+    effort: str | None = None
+    memory: bool | None = None
+
+
+@dataclass
+class SessionConfig:
+    """Everything a backend needs to open one session (backend-neutral)."""
+
+    cwd: str
+    system_prompt: str
+    tool_servers: list[tuple[str, ToolServer]]  # (session key, server)
+    external_servers: dict[str, Any]
+    allowed_tools: list[str]
+    subagents: list[SubagentSpec]
+    skills_dir: Path
+    permission_mode: str = "default"
+    max_turns: int = 20
+    model: str | None = None
+    effort: str | None = None
+    resume: str | None = None
+    cli_path: str | None = None
