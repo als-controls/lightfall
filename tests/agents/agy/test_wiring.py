@@ -452,7 +452,7 @@ def _persisted(monkeypatch):
 
     calls = []
     monkeypatch.setattr(ClaudeSettingsProvider, "set_last_session_id",
-                        staticmethod(lambda sid: calls.append(sid)))
+                        staticmethod(lambda sid, kind=None: calls.append((sid, kind))))
     return calls
 
 
@@ -479,8 +479,9 @@ def test_main_agent_still_stores_and_clears_last_session_id(qtbot, prefs, root, 
         agent._spec = None
         calls = _persisted(monkeypatch)
         agent._store_session_id("main-conv")
-        assert calls == ["main-conv"]
+        assert calls == [("main-conv", "agy")]
         agent.reset_conversation()
-        assert calls == ["main-conv", ""]
+        # Both writes pin the build-time kind, not the live pref.
+        assert calls == [("main-conv", "agy"), ("", "agy")]
     finally:
         agent.stop()

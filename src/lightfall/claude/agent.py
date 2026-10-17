@@ -801,6 +801,12 @@ class QtClaudeAgent(QObject):
             MAIN_AGENT_NAME = "lightfall"
         return self._spec.name == MAIN_AGENT_NAME
 
+    def _backend_kind_for_session(self) -> str:
+        """The backend kind this agent was BUILT for (not the live pref)."""
+        from lightfall.agents.backends.select import AGY, CLAUDE_CODE
+
+        return AGY if getattr(self, "_agy", False) else CLAUDE_CODE
+
     def _store_session_id(self, session_id: str) -> None:
         """Remember + persist the current session id for restore/auto-restore."""
         self._current_session_id = session_id
@@ -808,7 +814,8 @@ class QtClaudeAgent(QObject):
             return  # auto-restore only follows the main assistant's id
         try:
             from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
-            ClaudeSettingsProvider.set_last_session_id(session_id)
+            ClaudeSettingsProvider.set_last_session_id(
+                session_id, kind=self._backend_kind_for_session())
         except Exception as exc:  # noqa: BLE001
             logger.debug("Could not persist last session id: {}", exc)
 
@@ -844,7 +851,8 @@ class QtClaudeAgent(QObject):
             if self._is_main_session():
                 from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 
-                ClaudeSettingsProvider.set_last_session_id("")
+                ClaudeSettingsProvider.set_last_session_id(
+                    "", kind=self._backend_kind_for_session())
         except Exception as exc:  # noqa: BLE001
             logger.debug("Could not clear last session id on reset: {}", exc)
 
