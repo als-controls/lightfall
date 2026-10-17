@@ -327,34 +327,20 @@ class AgentSessionTab(QWidget):
 
     def restore_session(self, session_id: str) -> None:
         """Rebuild the agent resuming ``session_id`` and repaint its chat."""
-        from claude_agent_sdk import get_session_messages
-
+        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
         from lightfall.claude.agent import lightfall_agent_cwd
         self._pending_resume_session_id = session_id
         self.reload_agent()  # _setup_claude_widget passes resume= then clears it
-        try:
-            messages = get_session_messages(
-                session_id, directory=lightfall_agent_cwd()
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not load transcript for {}: {}", session_id, exc)
-            messages = []
+        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
         if self.claude_widget is not None and messages:
             self.claude_widget.load_transcript(messages)
 
     def _repaint_restored(self, session_id: str) -> None:
-        from claude_agent_sdk import get_session_messages
-
+        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
         from lightfall.claude.agent import lightfall_agent_cwd
         if self.claude_widget is None:
             return
-        try:
-            messages = get_session_messages(
-                session_id, directory=lightfall_agent_cwd()
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("auto-restore transcript load failed: {}", exc)
-            return
+        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
         if messages:
             self.claude_widget.load_transcript(messages)
 

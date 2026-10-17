@@ -165,3 +165,22 @@ class SessionConfig:
     effort: str | None = None
     resume: str | None = None
     cli_path: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionInfo:
+    session_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class TranscriptEntry:
+    role: str  # "user" | "assistant"
+    text: str
+    tool_names: list[str]
+
+
+class SessionStore(Protocol):
+    def list_sessions(self, limit: int = 15) -> list[SessionInfo]: ...
+
+    def load_transcript(self, session_id: str) -> list[TranscriptEntry]: ...

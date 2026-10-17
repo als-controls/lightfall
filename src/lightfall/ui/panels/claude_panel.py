@@ -688,51 +688,31 @@ class ClaudePanel(BasePanel):
         unregister_bus_endpoint(self._claude_widget)
 
     def _populate_sessions_menu(self) -> None:
-        from claude_agent_sdk import list_sessions
-
+        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
         from lightfall.claude.agent import lightfall_agent_cwd
         menu = self._sessions_menu
         menu.clear()
-        try:
-            infos = list_sessions(directory=lightfall_agent_cwd(), limit=15)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("list_sessions failed: {}", exc)
-            infos = []
+        infos = ClaudeSessionStore(lightfall_agent_cwd()).list_sessions(limit=15)
         if not infos:
             act = menu.addAction("No saved sessions")
             act.setEnabled(False)
             return
         for info in infos:
-            title = (
-                getattr(info, "custom_title", None)
-                or getattr(info, "first_prompt", None)
-                or getattr(info, "summary", None)
-                or info.session_id[:8]
-            )
-            title = (title[:60] + "…") if len(title) > 60 else title
-            act = menu.addAction(title)
-            sid = info.session_id
+            act = menu.addAction(info.title)
             act.triggered.connect(
-                lambda _checked=False, s=sid: self.restore_session(s)
+                lambda _checked=False, s=info.session_id: self.restore_session(s)
             )
 
     def restore_session(self, session_id: str) -> None:
         """Rebuild the main agent resuming ``session_id`` and repaint its chat."""
-        from claude_agent_sdk import get_session_messages
-
+        from lightfall.agents.backends.claude_code.sessions import ClaudeSessionStore
         from lightfall.claude.agent import lightfall_agent_cwd
         tab = self._lightfall_tab
         if tab is None:
             return
         tab._pending_resume_session_id = session_id
         self._reload_agent()  # the tab passes resume= then clears it
-        try:
-            messages = get_session_messages(
-                session_id, directory=lightfall_agent_cwd()
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not load transcript for {}: {}", session_id, exc)
-            messages = []
+        messages = ClaudeSessionStore(lightfall_agent_cwd()).load_transcript(session_id)
         if self._claude_widget is not None and messages:
             self._claude_widget.load_transcript(messages)
 

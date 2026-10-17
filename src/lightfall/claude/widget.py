@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.agents.backend import TranscriptEntry
 from lightfall.claude.agent import QtClaudeAgent
 from lightfall.claude.bus_endpoint import BusCardEntry, BusCardModel, ClaudeSessionEndpoint
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
@@ -530,7 +531,10 @@ class ClaudeAssistantWidget(QWidget):
         from lightfall.claude.transcript import extract_message_text
 
         for sm in messages:
-            role, text, tools = extract_message_text(sm)
+            if isinstance(sm, TranscriptEntry):
+                role, text, tools = sm.role, sm.text, sm.tool_names
+            else:
+                role, text, tools = extract_message_text(sm)
             if role == "user":
                 if text:
                     self._append_user_message(text)
