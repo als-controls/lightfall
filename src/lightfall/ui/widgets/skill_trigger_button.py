@@ -82,7 +82,7 @@ class SkillTriggerButton(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self._button = QPushButton(label)
-        self._button.setToolTip(f"Run the '{self._skill_name}' skill via Claude")
+        self._button.setToolTip(f"Run the '{self._skill_name}' skill via the assistant")
         self._button.clicked.connect(self._on_clicked)
         layout.addWidget(self._button)
 
@@ -126,10 +126,10 @@ class SkillTriggerButton(QWidget):
         try:
             panel, agent = self._get_claude_panel()
             if panel is None or agent is None:
-                self._fail("Claude Assistant is unavailable")
+                self._fail("Assistant is unavailable")
                 return
             if agent.is_busy():
-                self._fail("Claude is busy — try again in a moment")
+                self._fail("Assistant is busy — try again in a moment")
                 return
             panel.action_send_message(self._prompt)
         except Exception:
@@ -140,7 +140,7 @@ class SkillTriggerButton(QWidget):
             return
 
         logger.info("SkillTriggerButton: dispatched skill '{}' to Claude", self._skill_name)
-        self._set_status(f"Sent to Claude: {self._skill_name}", error=False)
+        self._set_status(f"Sent to the assistant: {self._skill_name}", error=False)
         self._toast_success()
         self.dispatched.emit(self._prompt)
 

@@ -178,6 +178,20 @@ class ClaudeAssistantWidget(QWidget):
     effort_change_requested = Signal(str)  # effort level the user picked
     bus_pending_changed = Signal(int)      # pending agent-message card count
 
+    @property
+    def speaker_name(self) -> str:
+        """The backend's display name ("Claude", "Gemini"); read once per widget."""
+        name = getattr(self, "_speaker", None)
+        if name is None:
+            try:
+                from lightfall.agents.backends.info import backend_info
+
+                name = backend_info().display_name
+            except Exception:  # noqa: BLE001 - naming must never break the widget
+                name = "Assistant"
+            self._speaker = name
+        return name
+
     def __init__(
         self,
         target_window: QWidget,
@@ -305,7 +319,7 @@ class ClaudeAssistantWidget(QWidget):
 
     def _setup_ui(self) -> None:
         """Setup the user interface."""
-        self.setWindowTitle("Claude Assistant")
+        self.setWindowTitle("Assistant")
         self.setMinimumSize(400, 100)
 
         # Main layout
@@ -350,7 +364,7 @@ class ClaudeAssistantWidget(QWidget):
 
         self.input_field = _ChatInput()
         self.input_field.setPlaceholderText(
-            "Hi Claude, Tell me about Lightfall...  (Shift+Enter for a new line)"
+            f"Hi {self.speaker_name}, Tell me about Lightfall...  (Shift+Enter for a new line)"
         )
         self.input_field.submit_requested.connect(self._send_query)
         input_layout.addWidget(self.input_field)
@@ -384,7 +398,7 @@ class ClaudeAssistantWidget(QWidget):
         self._is_busy = False
         # Store default placeholder for restoration
         self._default_placeholder = (
-            "Hi Claude, Tell me about Lightfall...  (Shift+Enter for a new line)"
+            f"Hi {self.speaker_name}, Tell me about Lightfall...  (Shift+Enter for a new line)"
         )
 
     def _setup_error_ui(self, error_message: str) -> None:
@@ -454,7 +468,7 @@ class ClaudeAssistantWidget(QWidget):
         self._append_user_message(prompt)
 
         # Set busy state - disable input and change button to Cancel
-        self._set_busy_state(True, "Claude is thinking...")
+        self._set_busy_state(True, f"{self.speaker_name} is thinking...")
         self.query_started.emit()
 
         # Send to Claude (non-blocking)
@@ -859,7 +873,7 @@ class ClaudeAssistantWidget(QWidget):
             frame = self._create_card(
                 "",  # filled in as deltas arrive
                 accent="#9c27b0",
-                label="Claude",
+                label=self.speaker_name,
                 label_color="#9c27b0",
             )
         elif kind == "thinking":
@@ -1096,7 +1110,7 @@ class ClaudeAssistantWidget(QWidget):
         ):
             self._permission_container.hide()
             # Update placeholder to show working state
-            self.input_field.setPlaceholderText("Claude is working...")
+            self.input_field.setPlaceholderText(f"{self.speaker_name} is working...")
 
     @Slot(str, list)
     def _on_question_requested(
@@ -1290,7 +1304,7 @@ class ClaudeAssistantWidget(QWidget):
         card = self._create_card(
             render_markdown(message),
             accent="#9c27b0",
-            label="Claude",
+            label=self.speaker_name,
             label_color="#9c27b0",
         )
         self._add_widget(card)

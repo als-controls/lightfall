@@ -244,7 +244,7 @@ class FragmentOverlay(QWidget):
             self._claude_btn.setIcon(claude_icon)
         else:
             self._claude_btn.setText("AI")
-        self._claude_btn.setToolTip("Ask Claude about this")
+        self._claude_btn.setToolTip("Ask the assistant about this")
         self._claude_btn.setStyleSheet(btn_style)
         self._claude_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._claude_btn.clicked.connect(lambda: self.claude_clicked.emit(self._fragment_id))
@@ -604,7 +604,7 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
 
     def _render_claude(self, content: str) -> None:
         rendered = _render_markdown(content)
-        self._label.setText(f"<b>🤖 Claude:</b><br>{rendered}")
+        self._label.setText(f"<b>🤖 Assistant:</b><br>{rendered}")
 
     def _render_json(self, meta: dict[str, Any]) -> None:
         raw = json.dumps(meta, indent=2, default=str)[:600]

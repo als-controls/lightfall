@@ -293,7 +293,7 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
 
         # Description label at top
         description = QLabel(
-            "Enable or disable Claude assistant tools and skills. "
+            "Enable or disable assistant tools and skills. "
             "Tools provide specific capabilities, while skills provide "
             "domain expertise and may include additional tools."
         )
@@ -322,7 +322,7 @@ class ClaudeToolsSettingsPlugin(SettingsPlugin):
         # Note label at bottom
         note = QLabel(
             "<i>Hover over a plugin for more details. "
-            "Changes take effect immediately for new Claude conversations.</i>"
+            "Changes take effect immediately for new assistant conversations.</i>"
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")

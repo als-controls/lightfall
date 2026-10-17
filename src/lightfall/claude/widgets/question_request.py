@@ -61,11 +61,14 @@ class QuestionRequestWidget(QFrame):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
+        from lightfall.agents.backends.info import backend_info
+
+        name = backend_info().display_name
         if len(self.questions) == 1:
-            header_text = "❓ <b>Claude is asking…</b>"
+            header_text = f"❓ <b>{name} is asking…</b>"
         else:
             header_text = (
-                f"❓ <b>Claude is asking {len(self.questions)} questions…</b>"
+                f"❓ <b>{name} is asking {len(self.questions)} questions…</b>"
             )
         header = QLabel(header_text)
         header.setTextFormat(Qt.TextFormat.RichText)

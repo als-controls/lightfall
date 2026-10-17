@@ -170,7 +170,7 @@ def _make_tools(sender_name: Callable[[], str]):
     @tool(
         name="launch_agent",
         description=(
-            "Launch (or focus) another agent's session tab in the Claude panel, "
+            "Launch (or focus) another agent's session tab in the assistant panel, "
             "optionally sending it a first message once the session is ready. "
             "The launched session will auto-accept subsequent bus messages from "
             "you (the launcher) without prompting the user."

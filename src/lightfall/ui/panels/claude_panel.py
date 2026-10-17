@@ -179,7 +179,7 @@ class ClaudePanel(BasePanel):
 
     panel_metadata = PanelMetadata(
         id="lightfall.panels.claude",
-        name="Claude Assistant",
+        name="Assistant",
         description="AI assistant for interacting with the control system",
         icon="mdi6.robot",
         category="Tools",
@@ -958,6 +958,8 @@ class ClaudePanel(BasePanel):
             tool_name: Name of the tool requesting permission.
             tool_input: Input parameters for the tool.
         """
+        from lightfall.agents.backends.info import backend_info
+
         # Extract a human-friendly tool name (remove mcp__ prefix if present)
         display_name = tool_name
         if display_name.startswith("mcp__"):
@@ -967,7 +969,7 @@ class ClaudePanel(BasePanel):
         toast_mgr = ToastManager.get_instance()
         toast = toast_mgr.warning(
             "Permission Required",
-            f"Claude wants to use: {display_name}",
+            f"{backend_info().display_name} wants to use: {display_name}",
             duration=30000,
         )
 
@@ -1201,7 +1203,7 @@ class ClaudePanel(BasePanel):
             actions.extend([
                 {
                     "name": "send_message",
-                    "description": "Send a message to Claude",
+                    "description": "Send a message to the assistant",
                     "method": "action_send_message",
                     "parameters": {"message": "string"},
                 },

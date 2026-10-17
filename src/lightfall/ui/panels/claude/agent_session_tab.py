@@ -194,12 +194,13 @@ class AgentSessionTab(QWidget):
             logger.debug("ValueError traceback:\n" + traceback.format_exc())
             self._setup_error_ui(self.error_message)
         except Exception as e:
-            self.error_message = f"Failed to initialize Claude: {e}"
+            self.error_message = f"Failed to initialize the assistant: {e}"
             logger.error(self.error_message)
             self._setup_error_ui(self.error_message)
 
     def _setup_claude_widget(self) -> None:
         """Setup the Claude assistant widget with extended tools."""
+        from lightfall.agents.backends.info import backend_info
         from lightfall.claude import ClaudeAssistantWidget
         from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 
@@ -208,15 +209,15 @@ class AgentSessionTab(QWidget):
             if ClaudeSettingsProvider.get_agent_backend() == "agy":
                 raise ValueError(
                     "agy (Antigravity CLI) not found.\n\n"
-                    "Install agy, put it on PATH, or set the agy_path preference."
+                    "Install agy, put it on PATH, or set its path in Preferences > Assistant."
                 )
             is_oauth, oauth_msg = ClaudeSettingsProvider.get_auth_status()
             raise ValueError(
-                f"Claude authentication not configured.\n\n"
+                f"{backend_info().display_name} authentication not configured.\n\n"
                 f"OAuth Status: {oauth_msg}\n\n"
                 "Options:\n"
                 "1. Run 'claude login' in terminal for OAuth (subscription)\n"
-                "2. Set API key in Preferences > Claude Assistant\n"
+                "2. Set API key in Preferences > Assistant\n"
                 "3. Set ANTHROPIC_API_KEY environment variable"
             )
 
@@ -277,7 +278,7 @@ class AgentSessionTab(QWidget):
 
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available."""
-        error_label = QLabel(f"Claude Assistant Unavailable\n\n{message}")
+        error_label = QLabel(f"Assistant unavailable\n\n{message}")
         error_label.setWordWrap(True)
         error_label.setStyleSheet(f"""
             QLabel {{

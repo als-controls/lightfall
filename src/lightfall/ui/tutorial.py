@@ -1052,7 +1052,7 @@ def _build_welcome_tutorial() -> Tutorial:
             ),
             TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.claude"),
-                title="Claude Assistant",
+                title="Assistant",
                 message=(
                     "An AI assistant that understands your beamline. "
                     "Ask questions about devices, get help writing scan "
@@ -1060,15 +1060,15 @@ def _build_welcome_tutorial() -> Tutorial:
                 ),
                 position=CalloutPosition.RIGHT,
                 padding=4,
-                target_description="Claude sidebar button",
+                target_description="Assistant sidebar button",
             ),
             # ── Outro: try Claude with a real prompt ──────────────
             TutorialStep(
                 target=_find_panel_dock("lightfall.panels.claude"),
-                title="Try the Claude Assistant",
+                title="Try the Assistant",
                 message=(
                     "That covers the basics! To get you started, the "
-                    "Claude Assistant panel is now open with an example "
+                    "Assistant panel is now open with an example "
                     "prompt:\n\n"
                     "\"Why can't I see anything on the detector?\"\n\n"
                     "Click Send (or edit the prompt first) to try it out. "
@@ -1077,7 +1077,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 ),
                 position=CalloutPosition.AUTO,
                 on_enter=_open_claude_with_example_prompt,
-                target_description="Claude Assistant panel",
+                target_description="Assistant panel",
             ),
         ],
     )

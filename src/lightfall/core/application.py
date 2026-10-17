@@ -467,7 +467,7 @@ class LFApplication(QObject):
 
             if agent is None:
                 if reply:
-                    ipc.reply(reply, error_reply("unknown", "Claude agent not available"))
+                    ipc.reply(reply, error_reply("unknown", "Assistant agent not available"))
                 return
 
             agent.query_sync(message)
@@ -477,7 +477,7 @@ class LFApplication(QObject):
         ipc.register_action(
             "commands.agent.message",
             handle_agent_message,
-            description="Send a message to the Claude agent",
+            description="Send a message to the assistant agent",
             schema={"message": "str"},
             trusted=True,
         )
