@@ -777,6 +777,9 @@ class QtClaudeAgent(QObject):
                 continue_conversation=False,
                 plugins=[{"type": "local", "path": str(plugin_dir)}],
             )
+            self._session_config = dataclasses.replace(
+                self._session_config, resume=None, skills_dir=plugin_dir
+            )
             self.client = ClaudeSDKClient(options=self.options)
         except Exception:
             logger.exception("Failed to rebuild Claude client on reset")

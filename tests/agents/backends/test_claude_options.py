@@ -74,3 +74,16 @@ def test_permission_factories_still_importable_from_old_path():
         create_can_use_tool_callback,
         create_pre_tool_use_hook,
     )
+
+
+def test_permission_mode_and_max_turns_flow_through(tmp_path, qtbot):
+    from lightfall.agents.backends.claude_code.options import build_claude_options
+    from lightfall.claude.permission_manager import PermissionManager
+
+    cfg = _cfg(tmp_path, permission_mode="acceptEdits", max_turns=7)
+    opts = build_claude_options(cfg, PermissionManager(), require_approval=False)
+    assert opts.permission_mode == "acceptEdits"
+    assert opts.max_turns == 7
+    # AskUserQuestion routing must work regardless of require_approval.
+    assert opts.can_use_tool is not None
+    assert "PreToolUse" in opts.hooks

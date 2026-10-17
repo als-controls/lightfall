@@ -245,13 +245,10 @@ class AgentWorker(QThread):
         Request cancellation of the current query.
 
         Sets the cancel flag, releases any pending permission prompt, and —
-        critically — dispatches the SDK's ``interrupt()`` control message on
-        the worker's event loop. Without that interrupt, the worker stays
-        blocked in ``async for msg in client.receive_response()`` until the
-        CLI happens to emit the next message, which can be many seconds
-        while the model is generating or running a tool. ``interrupt()``
-        tells the CLI to end the turn now, so the read unblocks promptly
-        and the flag check at the top of the loop fires.
+        critically — dispatches ``backend.interrupt()`` on the worker's event loop so the
+        backend's turn stream unblocks promptly rather than waiting for its next
+        event, which can be many seconds while the model is generating or running
+        a tool. The flag check at the top of the loop then fires.
 
         Returns:
             True if a query was being processed and cancel was requested.
@@ -287,7 +284,7 @@ class AgentWorker(QThread):
         def _log_if_failed(fut: Any) -> None:
             exc = fut.exception()
             if exc is not None:
-                logger.warning("Claude SDK {} raised: {}", label, exc)
+                logger.warning("Agent backend {} raised: {}", label, exc)
 
         future.add_done_callback(_log_if_failed)
 
