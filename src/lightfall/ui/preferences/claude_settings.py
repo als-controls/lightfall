@@ -383,7 +383,7 @@ class ClaudeSettingsProvider:
 
 
 class ClaudeSettingsPlugin(SettingsPlugin):
-    """Settings plugin for Claude Assistant configuration.
+    """Settings plugin for the assistant (Claude Code or Gemini/agy).
 
     Allows users to configure:
     - API endpoint (Anthropic, LBNL cborg, or custom)
@@ -396,6 +396,12 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
     def __init__(self) -> None:
         """Initialize the Claude settings plugin."""
+        from lightfall.ui.preferences.agent_backend_section import AgentBackendSection
+
+        self._backend = AgentBackendSection()
+        self._backend.on_kind_changed = self._apply_backend_visibility
+        self._api_group: QGroupBox | None = None
+        self._model_layout: QFormLayout | None = None
         self._widget: QWidget | None = None
         # API Configuration
         self._endpoint_combo: QComboBox | None = None
@@ -423,7 +429,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
     @property
     def display_name(self) -> str:
         """Return human-readable name for preferences sidebar."""
-        return "Claude Assistant"
+        return "Assistant"
 
     @property
     def icon(self) -> QIcon | None:
@@ -453,9 +459,15 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # API Configuration group
+        layout.addWidget(self._backend.create_backend_group())
+
+        # API Configuration group (Claude only)
         api_group = self._create_api_group()
+        api_group.setObjectName("assistantClaudeApiGroup")
+        self._api_group = api_group
         layout.addWidget(api_group)
+
+        layout.addWidget(self._backend.create_gemini_group())
 
         # Model Configuration group
         model_group = self._create_model_group()
@@ -552,15 +564,16 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         Returns:
             The configured QGroupBox.
         """
-        group = QGroupBox("Model Configuration")
+        group = QGroupBox("Model and Limits")
         layout = QFormLayout(group)
+        self._model_layout = layout
 
         # Model selector (editable combo for custom models)
         self._model_combo = QComboBox()
         self._model_combo.setEditable(True)
         for model in MODEL_OPTIONS:
             self._model_combo.addItem(model)
-        layout.addRow("Model:", self._model_combo)
+        layout.addRow("Claude model:", self._model_combo)
 
         # Reasoning effort selector
         self._effort_combo = QComboBox()
@@ -583,6 +596,14 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         return group
 
+    def _apply_backend_visibility(self, kind: str) -> None:
+        """Show only the selected backend's controls (hidden, not disabled)."""
+        is_claude = kind != "agy"
+        if self._api_group is not None:
+            self._api_group.setVisible(is_claude)
+        if self._model_layout is not None and self._model_combo is not None:
+            self._model_layout.setRowVisible(self._model_combo, is_claude)
+
     def _create_behavior_group(self) -> QGroupBox:
         """Create the Behavior Configuration group box.
 
@@ -600,7 +621,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
 
         # Description
         desc = QLabel(
-            "Permission mode controls how Claude handles tool execution:\n"
+            "Permission mode controls how the assistant handles tool execution:\n"
             "- default: Asks for confirmation before actions\n"
             "- acceptEdits: Auto-accepts file edits\n"
             "- bypassPermissions: No confirmations (use for automation)"
@@ -917,6 +938,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._update_betas_recommendation()
         self._update_oauth_status()
         self._update_auth_status()
+        self._backend.load()
 
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
@@ -962,7 +984,9 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if getattr(self, "_auto_restore_checkbox", None):
             prefs.set("claude_auto_restore", self._auto_restore_checkbox.isChecked())
 
-        logger.info("Claude settings saved")
+        self._backend.save()
+
+        logger.info("Assistant settings saved")
 
     def validate(self) -> list[str]:
         """Validate current widget values.
