@@ -145,3 +145,39 @@ def test_list_sessions_with_special_chars_in_path(tmp_path):
     con.close()
     got = AgySessionStore(root, "/w").list_sessions()
     assert [s.session_id for s in got] == ["c1"]
+
+
+def test_untitled_empty_conversations_are_not_listed(tmp_path):
+    """agy creates a summary row before the first reply; an empty one is not a session."""
+    d = _store_dir(tmp_path)
+    con = sqlite3.connect(d / "conversation_summaries.db")
+    con.execute(_SCHEMA)
+    ws = tmp_path / "w"
+    ws.mkdir()
+    _row(con, "real", "Real", "", "2026-10-16 10:00:00+00:00", [ws.as_uri()])
+    _row(con, "blank", "", "", "2026-10-16 11:00:00+00:00", [ws.as_uri()])
+    con.commit()
+    con.close()
+    assert [i.session_id for i in AgySessionStore(tmp_path, str(ws)).list_sessions()] == ["real"]
+
+
+def test_transcript_rejects_path_like_session_ids(tmp_path):
+    _write_transcript(tmp_path, "ok-1", [
+        {"type": "USER_INPUT", "content": "hi"}])
+    outside = tmp_path / ".gemini" / "antigravity-cli" / "evil"
+    (outside / ".system_generated" / "logs").mkdir(parents=True)
+    (outside / ".system_generated" / "logs" / "transcript.jsonl").write_text(
+        json.dumps({"type": "USER_INPUT", "content": "leak"}) + "\n", encoding="utf-8")
+    store = AgySessionStore(tmp_path, "/w")
+    assert store.load_transcript("ok-1") == [TranscriptEntry("user", "hi", [])]
+    for bad in ("../evil", r"..\evil", "a/b", "", "."):
+        assert store.load_transcript(bad) == []
+
+
+def test_transcript_tool_name_without_server_or_tool(tmp_path):
+    _write_transcript(tmp_path, "c3", [
+        {"type": "PLANNER_RESPONSE", "content": "x", "tool_calls": [
+            {"name": "call_mcp_tool", "args": {"ServerName": "\"\"", "ToolName": "\"t\""}},
+            {"name": "call_mcp_tool", "args": {"ServerName": "\"lightfall_qt\""}}]}])
+    [entry] = AgySessionStore(tmp_path, "/w").load_transcript("c3")
+    assert entry.tool_names == ["call_mcp_tool", "call_mcp_tool"]

@@ -20,6 +20,8 @@ from lightfall.utils.logging import logger
 _PREFIX = "lightfall_"
 _USER_RE = re.compile(r"<USER_REQUEST>(.*?)</USER_REQUEST>", re.DOTALL)
 _DRIVE_RE = re.compile(r"^/[A-Za-z]:")
+# agy conversation ids are UUIDs; anything else must not reach a file path.
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
 def _norm(path: str) -> str:
@@ -48,8 +50,10 @@ def _tool_name(call: dict[str, Any]) -> str:
     name = str(call.get("name") or "unknown")
     args = call.get("args")
     if name == "call_mcp_tool" and isinstance(args, dict) and args:
-        server = _unquote_json(args.get("ServerName"))
-        return tool_id(server.removeprefix(_PREFIX), _unquote_json(args.get("ToolName")))
+        server = _unquote_json(args.get("ServerName")).removeprefix(_PREFIX)
+        tool = _unquote_json(args.get("ToolName"))
+        if server and tool:
+            return tool_id(server, tool)
     return name
 
 
@@ -88,7 +92,9 @@ class AgySessionStore:
         for cid, title, preview, _mtime, uris, parent in rows:
             if parent or not self._in_workspace(uris):
                 continue
-            text = title or preview or cid[:8]
+            if not (title or preview):
+                continue  # summary row created before the first reply: not a session yet
+            text = title or preview
             text = (text[:60] + "…") if len(text) > 60 else text
             out.append(SessionInfo(cid, text))
             if len(out) >= limit:
@@ -96,6 +102,9 @@ class AgySessionStore:
         return out
 
     def load_transcript(self, session_id: str) -> list[TranscriptEntry]:
+        if not _SESSION_ID_RE.match(session_id or ""):
+            logger.warning("Ignoring malformed agy session id {!r}", session_id)
+            return []
         path = (self._root / "brain" / session_id / ".system_generated" / "logs"
                 / "transcript.jsonl")
         try:
