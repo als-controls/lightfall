@@ -202,9 +202,9 @@ class ClaudePanel(BasePanel):
     # the running agent instead of waiting for a lightfall restart.
     # After a reply ends, is_busy() can stay True briefly (the worker finishes
     # post-turn work such as the context-usage fetch). A deferred reload polls
-    # for idleness at this interval and reloads anyway after the cap.
+    # for idleness at this interval, for as long as the reload stays pending (a
+    # new turn just keeps it waiting -- a reply is never torn down).
     _DEFERRED_POLL_MS = 200
-    _DEFERRED_MAX_WAIT_MS = 5000
 
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
@@ -431,6 +431,7 @@ class ClaudePanel(BasePanel):
         if tab is self._lightfall_tab:
             return
         self._deferred_reload.discard(tab)
+        self._deferred_polling.discard(tab)
         tab.close_session()
         self._tab_pending.pop(tab, None)
         self._tabs.removeTab(index)
@@ -597,6 +598,7 @@ class ClaudePanel(BasePanel):
         """
         logger.info("Reloading Claude agent with new tools")
         self._deferred_reload.discard(None)
+        self._deferred_polling.discard(None)
         self._reset_cockpit()
 
         # Clear pending plugins list
@@ -898,6 +900,7 @@ class ClaudePanel(BasePanel):
         agent = getattr(widget, "agent", None) if widget is not None else None
         if agent is None or not agent.is_busy():
             self._deferred_reload.discard(tab)
+            self._deferred_polling.discard(tab)
             if tab is None:
                 self._reload_agent()
             else:
@@ -910,29 +913,26 @@ class ClaudePanel(BasePanel):
         def _fire(*_args, t=tab) -> None:
             if t in self._deferred_reload and t not in self._deferred_polling:
                 self._deferred_polling.add(t)
-                self._poll_deferred_reload(t, 0)
+                self._poll_deferred_reload(t)
 
         agent.query_completed.connect(_fire)
         agent.query_cancelled.connect(_fire)
         agent.error_occurred.connect(_fire)
 
-    def _poll_deferred_reload(self, tab, waited_ms: int) -> None:
-        """After a turn ends, reload ``tab`` once idle (or after the cap)."""
-        if tab not in self._deferred_reload:  # closed / reloaded meanwhile
-            self._deferred_polling.discard(tab)
+    def _poll_deferred_reload(self, tab) -> None:
+        """After a turn ends, reload ``tab`` once it is idle.
+
+        Polls for as long as the reload stays pending: a new turn started in
+        the meantime keeps it waiting, so a reply is never torn down.
+        """
+        if tab not in self._deferred_reload or tab not in self._deferred_polling:
+            self._deferred_polling.discard(tab)  # closed / reloaded meanwhile
             return
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        if (
-            agent is not None
-            and agent.is_busy()
-            and waited_ms < self._DEFERRED_MAX_WAIT_MS
-        ):
+        if agent is not None and agent.is_busy():
             QTimer.singleShot(
-                self._DEFERRED_POLL_MS,
-                lambda: self._poll_deferred_reload(
-                    tab, waited_ms + self._DEFERRED_POLL_MS
-                ),
+                self._DEFERRED_POLL_MS, self, lambda: self._poll_deferred_reload(tab)
             )
             return
         self._deferred_polling.discard(tab)

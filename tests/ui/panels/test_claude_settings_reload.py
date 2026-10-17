@@ -382,16 +382,34 @@ def _busy_extra(panel, monkeypatch):
     monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
     monkeypatch.setattr(panel, "_reload_agent", lambda: None)
     monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
-    monkeypatch.setattr(ClaudePanel, "_DEFERRED_MAX_WAIT_MS", 100)
     return extra
 
 
-def test_stuck_busy_reloads_after_cap(panel, fake_prefs, monkeypatch, qtbot):
+def test_busy_past_many_polls_never_force_reloads(panel, fake_prefs, monkeypatch, qtbot):
     extra = _busy_extra(panel, monkeypatch)
     panel._do_claude_settings_reload()
-    extra.claude_widget.agent.query_completed.emit()  # busy never clears
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()  # still busy: post-turn work / next turn
+    qtbot.wait(150)  # many 10 ms poll intervals
+    assert extra.reloads == 0
+    agent.busy = False
     qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
-    qtbot.wait(100)
+    qtbot.wait(60)
+    assert extra.reloads == 1
+
+
+def test_new_turn_before_poll_keeps_reload_waiting(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()  # turn 1 ends...
+    # ...and turn 2 begins before any poll sees idle: busy simply stays True.
+    qtbot.wait(80)
+    assert extra.reloads == 0
+    agent.query_completed.emit()  # turn 2 ends, agent goes idle
+    agent.busy = False
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+    qtbot.wait(60)
     assert extra.reloads == 1
 
 
