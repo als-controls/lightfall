@@ -727,8 +727,17 @@ class ClaudePanel(BasePanel):
         return build_ncs_system_prompt()
 
     def _on_pick_model(self, preset: str) -> None:
+        from lightfall.agents.backends.select import AGY, backend_kind
         from lightfall.ui.preferences.claude_settings import resolve_model_alias
         from lightfall.ui.preferences.manager import PreferencesManager
+        if backend_kind() == AGY:
+            # The picker offers Claude presets; agy takes its model from the
+            # agy_model preference (a settings UI for it comes in Phase 3).
+            logger.info(
+                "Model picker ignored on the agy backend ({!r}); set the agy_model "
+                "preference instead", preset,
+            )
+            return
         # Persist the raw combo preset (the menu re-checks against it); send the
         # CLI-resolved alias to the live agent.
         PreferencesManager.get_instance().set("claude_model", preset)

@@ -21,7 +21,7 @@ LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
     "telemetry_dsn",
     # This machine's tools, paths and history.
     "code_editor", "suppress_pycharm_warning", "device_happi_path", "recent_files",
-    "claude_last_session_id", "ui.remember_geometry",
+    "claude_last_session_id", "agy_last_session_id", "agy_path", "ui.remember_geometry",
 })
 
 _SECRET_MARKERS = ("api_key", "token", "secret", "password", "dsn")

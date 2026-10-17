@@ -67,6 +67,7 @@ GLOBAL_ONLY_PREFS = {
     "claude_effort",
     "claude_auto_restore",
     "claude_last_session_id",
+    "agy_last_session_id",
     # Plugin settings
     "disabled_plugins",
     # Tool/skill settings (ToolPlugin overrides)

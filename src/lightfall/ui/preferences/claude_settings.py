@@ -322,16 +322,23 @@ class ClaudeSettingsProvider:
         return bool(prefs.get("claude_auto_restore", False))
 
     @staticmethod
+    def _last_session_key() -> str:
+        # Per backend: a Claude session id means nothing to agy (and vice versa).
+        if ClaudeSettingsProvider.get_agent_backend() == "agy":
+            return "agy_last_session_id"
+        return "claude_last_session_id"
+
+    @staticmethod
     def get_last_session_id() -> str:
-        """Get the persisted last-session id ('' if none)."""
+        """Get the persisted last-session id of the active backend ('' if none)."""
         prefs = PreferencesManager.get_instance()
-        return prefs.get("claude_last_session_id", "") or ""
+        return prefs.get(ClaudeSettingsProvider._last_session_key(), "") or ""
 
     @staticmethod
     def set_last_session_id(session_id: str) -> None:
-        """Persist the current session id for auto-restore."""
+        """Persist the current session id (of the active backend) for auto-restore."""
         prefs = PreferencesManager.get_instance()
-        prefs.set("claude_last_session_id", session_id or "")
+        prefs.set(ClaudeSettingsProvider._last_session_key(), session_id or "")
 
     @staticmethod
     def is_oauth_authenticated() -> bool:

@@ -469,7 +469,8 @@ class QtClaudeAgent(QObject):
 
         from lightfall.agents.backends.select import AGY, backend_kind
 
-        if backend_kind() == AGY:
+        self._agy = backend_kind() == AGY
+        if self._agy:
             # agy backend: no Claude SDK client, options or ANTHROPIC_* env.
             self.options = None
             self.client = None
@@ -543,6 +544,14 @@ class QtClaudeAgent(QObject):
             return True
 
         # Create and start persistent worker
+        if self._agy and self._backend is None:
+            # A rebuild failed earlier (e.g. on reset): retry from the current
+            # _session_config, never from a closed backend.
+            try:
+                self._backend = self._make_agy_backend()
+            except ValueError as exc:
+                self.error_occurred.emit(str(exc))
+                return False
         if self._backend is not None:
             from lightfall.agents import worker as agent_worker
 
@@ -716,19 +725,20 @@ class QtClaudeAgent(QObject):
         self._model = model
         if self._worker is not None and self._worker.isRunning() and self._is_connected:
             self._worker.request_set_model(model)
-        elif self._backend is not None and not (
-            self._worker is not None and self._worker.isRunning()
-        ):
+        elif self._agy and not (self._worker is not None and self._worker.isRunning()):
             # No live worker: rebuild the (unconnected) agy backend with the new
             # model, keeping the conversation it would resume.
             import dataclasses
 
+            resume = (self._backend.conversation_id if self._backend is not None
+                      else self._session_config.resume)
             self._session_config = dataclasses.replace(
-                self._session_config, model=model, resume=self._backend.conversation_id
+                self._session_config, model=model, resume=resume
             )
             try:
                 self._backend = self._make_agy_backend()
             except ValueError as exc:
+                self._backend = None  # _ensure_connected retries from _session_config
                 logger.warning("agy model switch: {}", exc)
 
     # --- Permission API ---
@@ -833,13 +843,21 @@ class QtClaudeAgent(QObject):
                 materialize_skills(tuple(p.name for p in enabled), plugin_dir)
             self._session_plugin_dir = plugin_dir
 
-            if self._backend is not None:
-                # agy: the stopped worker already closed the old backend.
+            if self._agy:
+                # agy: the stopped worker already closed the old backend. Drop
+                # it first so a failed rebuild can never resume the cleared
+                # conversation; _ensure_connected retries the build.
+                self._backend = None
                 self._session_config = dataclasses.replace(
                     self._session_config, resume=None, skills_dir=plugin_dir,
                     model=self._model,
                 )
-                self._backend = self._make_agy_backend()
+                try:
+                    self._backend = self._make_agy_backend()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("agy backend rebuild on reset failed: {}", exc)
+                    self.error_occurred.emit(f"Could not start a new agy session: {exc}")
+                    return
                 logger.info("agy conversation reset (new session)")
                 return
 

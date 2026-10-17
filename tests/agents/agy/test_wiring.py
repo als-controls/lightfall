@@ -331,6 +331,8 @@ def test_connect_writes_owner_pid_and_sweeps(root, tmp_path):
     store = agy_home.spec_home("spec-a") / ".gemini" / "antigravity-cli"
     stale = _session("spec-a", "stale", _dead_pid())
     other_spec = _session("spec-b", "stale", _dead_pid())
+    other_live = _session("spec-b", "live", os.getpid())
+    main_young = _session(None, "young", None)
     work = tmp_path / "work"
     work.mkdir()
     cfg = SessionConfig(cwd=str(work), system_prompt="p", tool_servers=[], external_servers={},
@@ -345,9 +347,94 @@ def test_connect_writes_owner_pid_and_sweeps(root, tmp_path):
             home = b.session_home
             assert (home / agy_home.OWNER_FILE).read_text(encoding="utf-8").strip() == str(os.getpid())
             assert not stale.exists()
-            assert other_spec.exists()  # only the backend's own spec is swept
+            assert not other_spec.exists()  # every spec is swept, not just spec-a
+            assert other_live.exists() and main_young.exists()
             assert store.is_dir()
         finally:
             await b.close()
 
     asyncio.run(run())
+
+
+def test_sweep_all_specs(root):
+    a = _session("spec-a", "dead", _dead_pid())
+    b = _session("spec-b", "dead", _dead_pid())
+    keep_b = _session("spec-b", "mine", os.getpid())
+    removed = agy_home.sweep_all_stale_session_homes()
+    assert sorted((p.parent.parent.name, p.name) for p in removed) == [
+        ("spec-a", "dead"), ("spec-b", "dead")]
+    assert not a.exists() and not b.exists() and keep_b.exists()
+    assert (agy_home.spec_home("spec-b") / ".gemini" / "antigravity-cli").is_dir()
+
+
+# -- fix round 1 ----------------------------------------------------------------
+
+def test_last_session_id_per_backend(prefs):
+    p = claude_settings.ClaudeSettingsProvider
+    p.set_last_session_id("claude-sess")
+    assert prefs.values == {"claude_last_session_id": "claude-sess"}
+    prefs.values["agent_backend"] = "agy"
+    assert p.get_last_session_id() == ""
+    p.set_last_session_id("agy-conv")
+    assert prefs.values["agy_last_session_id"] == "agy-conv"
+    assert prefs.values["claude_last_session_id"] == "claude-sess"
+    prefs.values["agent_backend"] = "claude-code"
+    assert p.get_last_session_id() == "claude-sess"
+    p.set_last_session_id("")
+    assert prefs.values["agy_last_session_id"] == "agy-conv"
+
+
+def test_pick_model_noop_on_agy(qtbot, prefs, monkeypatch):
+    from lightfall.ui.panels.claude_panel import ClaudePanel
+
+    monkeypatch.setattr(ClaudePanel, "_setup_ui", lambda self: None)
+    panel = ClaudePanel()
+    qtbot.addWidget(panel)
+    widget = MagicMock()
+    panel._claude_widget = widget
+    prefs.values["agent_backend"] = "agy"
+    panel._on_pick_model("claude-opus")
+    widget.agent.set_model.assert_not_called()
+    assert "claude_model" not in prefs.values
+
+
+def test_agy_reset_rebuild_failure_drops_old_backend(qtbot, prefs, root, sdk, agy_found,
+                                                     monkeypatch):
+    from lightfall.agents import worker as worker_mod
+    from lightfall.agents.backends.agy.backend import AgyCliBackend
+
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, resume="conv-old")
+    errors = []
+    agent.error_occurred.connect(errors.append)
+    real = agent._make_agy_backend
+
+    def boom():
+        raise ValueError("agy (Antigravity CLI) not found")
+
+    monkeypatch.setattr(agent, "_make_agy_backend", boom)
+    agent.reset_conversation()
+    assert agent._backend is None
+    assert agent._session_config.resume is None
+    assert errors and "agy" in errors[-1]
+
+    # Next query: still failing -> no worker, error surfaced, nothing resumed.
+    assert agent._ensure_connected() is False
+    assert agent._worker is None or agent._backend is None
+
+    # Once agy is back, the rebuilt backend starts a NEW conversation.
+    created = []
+
+    def fake_worker(backend, permission_manager=None, parent=None):
+        w = MagicMock()
+        w.isRunning.return_value = False
+        created.append(backend)
+        return w
+
+    monkeypatch.setattr(worker_mod, "AgentWorker", fake_worker)
+    monkeypatch.setattr(agent, "_make_agy_backend", real)
+    agent._ensure_connected()
+    assert isinstance(created[0], AgyCliBackend)
+    assert created[0].conversation_id is None
+    sdk.assert_not_called()
+    agent._worker = None

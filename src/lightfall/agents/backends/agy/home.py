@@ -190,6 +190,19 @@ def _read_owner_pid(session_home: Path) -> int | None:
         return None
 
 
+def sweep_all_stale_session_homes(*, keep: Path | None = None) -> list[Path]:
+    """:func:`sweep_stale_session_homes` for every spec under the agy root."""
+    try:
+        specs = [d.name for d in lightfall_agy_home().iterdir()
+                 if d.is_dir() and not d.is_symlink() and not _is_junction(d)]
+    except OSError:
+        return []
+    removed: list[Path] = []
+    for name in sorted(specs):
+        removed += sweep_stale_session_homes(name, keep=keep)
+    return removed
+
+
 def sweep_stale_session_homes(spec_name: str | None, *, keep: Path | None = None) -> list[Path]:
     """Remove this spec's session homes left behind by dead processes.
 
