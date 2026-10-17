@@ -268,3 +268,58 @@ def test_sign_in_message_not_overwritten_by_stale_check(qtbot, prefs):
     gate.set()
     qtbot.wait(300)
     assert "Complete the Google sign-in" in _status(host)
+
+
+def test_switching_away_from_agy_stops_polling(qtbot, prefs):
+    prefs.values["agent_backend"] = "agy"
+    _agy, infos = _signed_out_infos()
+    sec, host = _section(qtbot, infos, poll_interval_ms=30, poll_timeout_s=30)
+    sec.load()
+    host.findChild(QPushButton, "agySignIn").click()
+    assert sec._poll_timer.isActive()
+    combo = host.findChild(QComboBox, "assistantBackend")
+    combo.setCurrentIndex(combo.findData("claude-code"))
+    assert not sec._poll_timer.isActive()
+
+
+def test_empty_path_field_means_auto_not_saved_pref(qtbot, prefs):
+    prefs.values.update(agent_backend="agy", agy_path="C:/old/agy.exe")
+    seen = []
+    _agy, infos = _signed_out_infos()
+
+    def factory(kind, agy_path=None):
+        seen.append(agy_path)
+        return infos[kind]
+
+    sec = AgentBackendSection(info_factory=factory)
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.addWidget(sec.create_backend_group())
+    lay.addWidget(sec.create_gemini_group())
+    qtbot.addWidget(host)
+    sec.load()
+    host.findChild(QLineEdit, "agyPath").clear()
+    seen.clear()
+    sec.refresh_status()
+    assert seen == [""]  # "" = auto; None would fall back to the saved pref
+    assert AgentBackendSection(info_factory=factory)._path_text() is None  # no widget
+
+
+def test_polling_keeps_sign_in_instruction_until_signed_in(qtbot, prefs):
+    prefs.values["agent_backend"] = "agy"
+    agy, infos = _signed_out_infos()
+    sec, host = _section(qtbot, infos, poll_interval_ms=30, poll_timeout_s=30)
+    sec.load()
+    qtbot.waitUntil(lambda: "Not signed in" in _status(host), timeout=3000)
+    host.findChild(QPushButton, "agySignIn").click()
+    labels = []
+    real_set_text = sec._status.setText
+    sec._status.setText = lambda t: (labels.append(t), real_set_text(t))
+    n = len(agy.refreshes)
+    qtbot.waitUntil(lambda: len(agy.refreshes) >= n + 3, timeout=3000)  # several polls
+    qtbot.wait(50)
+    assert labels == []
+    assert "Complete the Google sign-in" in _status(host)
+    agy._status = AuthStatus(True, "Signed in (2 models)")
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    assert not sec._poll_timer.isActive()

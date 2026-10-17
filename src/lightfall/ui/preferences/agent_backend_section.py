@@ -149,7 +149,8 @@ class AgentBackendSection:
         return self._status is not None and shiboken6.isValid(self._status)
 
     def _path_text(self) -> str | None:
-        return (self._agy_path.text().strip() or None) if self._agy_path else None
+        # "" (empty field) = auto-discover; None (no widget) = use the saved pref.
+        return self._agy_path.text().strip() if self._agy_path is not None else None
 
     def _info(self, kind: str):
         return self._info_factory(kind, agy_path=self._path_text())
@@ -208,17 +209,25 @@ class AgentBackendSection:
         kind = self.selected_kind()
         if self._gemini_group is not None:
             self._gemini_group.setVisible(kind == AGY)
+        if kind != AGY and self._poll_timer is not None and shiboken6.isValid(self._poll_timer):
+            self._poll_timer.stop()  # sign-in polling is agy-only
         if self.on_kind_changed is not None:
             self.on_kind_changed(kind)
         self.refresh_status()
 
     # --- async status --------------------------------------------------------
 
-    def refresh_status(self, refresh: bool = False) -> None:
+    def refresh_status(self, refresh: bool = False, from_poll: bool = False) -> None:
+        """Start an async status check.
+
+        ``from_poll`` (sign-in polling): leave the sign-in instruction on the
+        label; only a successful result replaces it.
+        """
         if not self._alive():
             return
-        self._status.setText("Checking…")
-        self._status.setStyleSheet("color: gray; font-style: italic;")
+        if not from_poll:
+            self._status.setText("Checking…")
+            self._status.setStyleSheet("color: gray; font-style: italic;")
         self._generation += 1
         gen = self._generation
         info = self._info(self.selected_kind())
@@ -235,16 +244,20 @@ class AgentBackendSection:
 
         self._future = QThreadFuture(
             work,
-            callback_slot=lambda result, g=gen: self._on_status(result) if g == self._generation else None,
-            except_slot=lambda exc, g=gen: self._on_status_error(exc) if g == self._generation else None,
+            callback_slot=lambda result, g=gen, p=from_poll: (
+                self._on_status(result, from_poll=p) if g == self._generation else None),
+            except_slot=lambda exc, g=gen, p=from_poll: (
+                self._on_status_error(exc) if g == self._generation and not p else None),
             name="assistant-backend-check", log_exceptions=False,
         )
         self._future.start()
 
-    def _on_status(self, result) -> None:
+    def _on_status(self, result, from_poll: bool = False) -> None:
         if not self._alive():
             return
         status, models = result
+        if from_poll and not status.ok:
+            return  # keep "Complete the Google sign-in…" while polling
         self._status.setText(("✓ " if status.ok else "") + status.detail)
         self._status.setStyleSheet(
             "color: green; font-style: italic;" if status.ok else "color: orange; font-style: italic;"
@@ -296,7 +309,7 @@ class AgentBackendSection:
         if self._future is not None and self._future.isRunning():
             return  # let the in-flight check finish; don't supersede it
         if self.selected_kind() == AGY:
-            self.refresh_status(refresh=True)
+            self.refresh_status(refresh=True, from_poll=True)
 
     def _on_browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
