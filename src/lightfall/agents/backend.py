@@ -137,6 +137,13 @@ class AgentBackend(Protocol):
 
     async def set_model(self, model: str | None) -> None: ...
 
+    async def close(self) -> None:
+        """Release backend resources (child processes, servers).
+
+        Called once when the worker stops; must not raise.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class SubagentSpec:

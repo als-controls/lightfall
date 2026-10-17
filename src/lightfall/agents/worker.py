@@ -122,6 +122,11 @@ class AgentWorker(QThread):
         finally:
             self._should_stop = True
             self._processing_stopped.set()
+            if self._loop and not self._loop.is_closed():
+                try:
+                    self._loop.run_until_complete(self.backend.close())
+                except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+                    logger.warning("AgentWorker: backend close() raised: {}", exc)
             if self._loop:
                 # Cancel pending tasks gracefully
                 try:

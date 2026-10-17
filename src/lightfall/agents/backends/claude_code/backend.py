@@ -79,6 +79,9 @@ class ClaudeCodeBackend:
     async def set_model(self, model: str | None) -> None:
         await self.client.set_model(model)
 
+    async def close(self) -> None:
+        return None
+
     async def run_turn(
         self,
         prompt: str,
