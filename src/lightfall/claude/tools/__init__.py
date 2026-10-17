@@ -9,36 +9,27 @@ from .screenshot import create_screenshot_tool
 
 def create_qt_tools_server(target_window):
     """
-    Create MCP server with all Qt tools.
+    Create the ``qt`` ToolServer with all Qt tools bound to ``target_window``.
 
     Args:
         target_window: The QWidget to interact with
 
     Returns:
-        MCP server instance with Qt tools
+        ToolServer with Qt tools
     """
-    from claude_agent_sdk import create_sdk_mcp_server
+    from lightfall.agents.tooling import ToolServer, as_tool_spec
 
-    # Create all tools bound to the target window
-    screenshot_tool = create_screenshot_tool(target_window)
-    get_tree_tool, find_widget_tool = create_introspection_tools(target_window)
-    click_tool, type_tool = create_interaction_tools(target_window)
-    controller_tool = create_controller_tool(target_window)
-    logs_tool = create_logs_tool()
-
-    # Create and return the server
-    return create_sdk_mcp_server(
+    tools = [
+        create_screenshot_tool(target_window),
+        *create_introspection_tools(target_window),
+        *create_interaction_tools(target_window),
+        create_controller_tool(target_window),
+        create_logs_tool(),
+    ]
+    return ToolServer(
         name="qt-tools",
         version="0.1.0",
-        tools=[
-            screenshot_tool,
-            get_tree_tool,
-            find_widget_tool,
-            click_tool,
-            type_tool,
-            controller_tool,
-            logs_tool,
-        ]
+        tools=tuple(as_tool_spec(t) for t in tools),
     )
 
 

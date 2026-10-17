@@ -13,6 +13,7 @@ from typing import Any
 
 from loguru import logger
 
+from lightfall.agents.tooling import tool_id
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 
 try:
@@ -23,9 +24,9 @@ except ImportError:  # pragma: no cover - SDK-optional / headless environments
 
 
 BUS_ALLOWED_TOOLS = [
-    "mcp__bus__send_message",
-    "mcp__bus__list_agents",
-    "mcp__bus__launch_agent",
+    tool_id("bus", "send_message"),
+    tool_id("bus", "list_agents"),
+    tool_id("bus", "launch_agent"),
 ]
 
 LIST_AGENTS_NOTE = (
@@ -204,20 +205,21 @@ def _make_tools(sender_name: Callable[[], str]):
 
 
 def create_bus_tools_server(sender_name: Callable[[], str]):
-    """Create the always-on ``bus`` SDK MCP server for a session.
+    """Create the always-on ``bus`` ToolServer for a session.
 
     Args:
         sender_name: Callable returning the session's current bus name.
 
     Returns:
-        MCP server instance with the ``send_message`` and ``list_agents`` tools.
+        ToolServer with the ``send_message``, ``list_agents`` and
+        ``launch_agent`` tools.
     """
-    from claude_agent_sdk import create_sdk_mcp_server
+    from lightfall.agents.tooling import ToolServer, as_tool_spec
 
-    return create_sdk_mcp_server(
+    return ToolServer(
         name="bus",
         version="1.0.0",
-        tools=_make_tools(sender_name),
+        tools=tuple(as_tool_spec(t) for t in _make_tools(sender_name)),
     )
 
 

@@ -11,8 +11,10 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
 
+from lightfall.agents.backends.claude_code.tools import to_sdk_server
 from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
 from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
+from lightfall.agents.tooling import tool_id
 from lightfall.claude._internal.worker import PersistentClaudeWorker
 from lightfall.claude.permission_manager import (
     PermissionManager,
@@ -362,18 +364,13 @@ class QtClaudeAgent(QObject):
             )
 
         # Create MCP tools server with Qt tools
-        self.qt_tools = create_qt_tools_server(target_window)
+        self.qt_tools = to_sdk_server(create_qt_tools_server(target_window))
 
         # Build allowed tools list - start with Qt tools
-        allowed_tools = [
-            "mcp__qt__screenshot",
-            "mcp__qt__get_widget_tree",
-            "mcp__qt__find_widget",
-            "mcp__qt__click_widget",
-            "mcp__qt__type_text",
-            "mcp__qt__show_controller",
-            "mcp__qt__get_recent_logs",
-        ]
+        allowed_tools = [tool_id("qt", n) for n in (
+            "screenshot", "get_widget_tree", "find_widget", "click_widget",
+            "type_text", "show_controller", "get_recent_logs",
+        )]
 
         mcp_servers: dict[str, Any] = {"qt": self.qt_tools}
 
@@ -383,14 +380,14 @@ class QtClaudeAgent(QObject):
         # bus tools server reads it live via a closure, so it stays correct
         # even after being overwritten post-construction.
         self.bus_name = spec.name if spec else "lightfall"
-        mcp_servers["bus"] = create_bus_tools_server(lambda: self.bus_name)
+        mcp_servers["bus"] = to_sdk_server(create_bus_tools_server(lambda: self.bus_name))
         allowed_tools.extend(BUS_ALLOWED_TOOLS)
 
         # The skills server is likewise always-on: any session can propose a
         # skill draft, gated on human approval before it takes effect.
-        mcp_servers["skills"] = create_skill_tools_server(
+        mcp_servers["skills"] = to_sdk_server(create_skill_tools_server(
             lambda: self.bus_name, lambda: self._current_session_id
-        )
+        ))
         allowed_tools.extend(SKILLS_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir

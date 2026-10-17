@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
+from lightfall.agents.backends.claude_code.tools import to_sdk_tool
+from lightfall.agents.tooling import ToolServer, ToolSpec, as_tool_spec, tool_id
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -35,55 +37,68 @@ def init_session_plugin_dir(path: Path) -> Path:
     return path
 
 
-def assemble_mcp_servers(
+def collect_tool_servers(
     enabled_plugins: list[ToolPlugin],
-) -> tuple[dict[str, Any], list[str]]:
-    """Build (mcp_servers, allowed_tools) from the enabled ToolPlugins.
+) -> tuple[list[ToolServer], dict[str, Any], list[str]]:
+    """Backend-neutral: (tool servers, external server specs, allowed tool ids).
 
-    The returned dict has one server per plugin that has tools, keyed by
-    plugin.name. Server names follow the SDK convention: tools become
-    `mcp__<plugin.name>__<tool_name>` in `allowed_tools`. It also contains
-    external stdio server entries contributed via `create_external_servers()`,
-    keyed by their declared server name (namespace `mcp__<server_name>__*`).
-
-    Caller is expected to merge this with the always-on `qt` server and
-    its allowed_tools entries.
+    One ToolServer per plugin that has tools (named ``plugin.name``); external
+    stdio/http specs from ``create_external_servers()`` keyed by server name,
+    allowed as the ``tool_id(name, "*")`` namespace. Name collisions with an
+    in-process server are logged and skipped.
     """
-    mcp_servers: dict[str, Any] = {}
-    allowed_tools: list[str] = []
+    servers: list[ToolServer] = []
+    external: dict[str, Any] = {}
+    allowed: list[str] = []
 
     for plugin in enabled_plugins:
         tools = plugin.create_tools()
         if not tools:
             continue
-        server = create_sdk_mcp_server(
-            name=plugin.name, version="1.0.0", tools=tools,
-        )
-        mcp_servers[plugin.name] = server
-        for tool in tools:
-            tool_name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
-            if tool_name is None:
+        specs: list[ToolSpec] = []
+        for obj in tools:
+            spec = as_tool_spec(obj)
+            if spec is None:
                 logger.warning(
                     "agent '{}': tool object {!r} has no name; skipping allowed_tools entry",
-                    plugin.name, tool,
+                    plugin.name, obj,
                 )
                 continue
-            allowed_tools.append(f"mcp__{plugin.name}__{tool_name}")
+            specs.append(spec)
+            allowed.append(tool_id(plugin.name, spec.name))
+        servers.append(ToolServer(name=plugin.name, version="1.0.0", tools=tuple(specs)))
 
-    # External (stdio/http) MCP servers contributed by plugins. Unlike
-    # in-process tools, external tool names aren't known until the server is
-    # launched, so we allow the whole `mcp__<name>__*` namespace and let the
-    # session's PreToolUse hook / PermissionManager gate per call.
+    taken = {s.name for s in servers}
     for plugin in enabled_plugins:
         for server_name, spec in plugin.create_external_servers().items():
-            if server_name in mcp_servers:
+            if server_name in taken or server_name in external:
                 logger.warning(
                     "agent '{}': external MCP server name '{}' collides with an "
                     "existing server; skipping",
                     plugin.name, server_name,
                 )
                 continue
-            mcp_servers[server_name] = spec
-            allowed_tools.append(f"mcp__{server_name}__*")
+            external[server_name] = spec
+            allowed.append(tool_id(server_name, "*"))
 
-    return mcp_servers, allowed_tools
+    return servers, external, allowed
+
+
+def assemble_mcp_servers(
+    enabled_plugins: list[ToolPlugin],
+) -> tuple[dict[str, Any], list[str]]:
+    """Claude-format (mcp_servers, allowed_tools) -- contract unchanged.
+
+    In-process servers go through ``create_sdk_mcp_server`` (kept as a
+    module-level name because tests monkeypatch it).
+    """
+    servers, external, allowed = collect_tool_servers(enabled_plugins)
+    mcp_servers: dict[str, Any] = {}
+    for server in servers:
+        mcp_servers[server.name] = create_sdk_mcp_server(
+            name=server.name,
+            version=server.version,
+            tools=[to_sdk_tool(t) for t in server.tools],
+        )
+    mcp_servers.update(external)
+    return mcp_servers, allowed

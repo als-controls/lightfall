@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from lightfall.agents.tooling import tool_id
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 from lightfall.utils.logging import logger
 
@@ -21,7 +22,7 @@ except ImportError:  # pragma: no cover - SDK-optional / headless environments
         return func(*args)
 
 
-SKILLS_ALLOWED_TOOLS = ["mcp__skills__draft_skill"]
+SKILLS_ALLOWED_TOOLS = [tool_id("skills", "draft_skill")]
 
 
 def _make_tools(author_name: Callable[[], str], session_id: Callable[[], str | None]):
@@ -127,21 +128,21 @@ def _fire_toast(name: str, author: str) -> None:
 def create_skill_tools_server(
     author_name: Callable[[], str], session_id: Callable[[], str | None]
 ):
-    """Create the always-on ``skills`` SDK MCP server for a session.
+    """Create the always-on ``skills`` ToolServer for a session.
 
     Args:
         author_name: Callable returning the session's current author/bus name.
         session_id: Callable returning the session's current session id.
 
     Returns:
-        MCP server instance with the ``draft_skill`` tool.
+        ToolServer with the ``draft_skill`` tool.
     """
-    from claude_agent_sdk import create_sdk_mcp_server
+    from lightfall.agents.tooling import ToolServer, as_tool_spec
 
-    return create_sdk_mcp_server(
+    return ToolServer(
         name="skills",
         version="1.0.0",
-        tools=_make_tools(author_name, session_id),
+        tools=tuple(as_tool_spec(t) for t in _make_tools(author_name, session_id)),
     )
 
 
