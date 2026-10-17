@@ -246,3 +246,23 @@ async def test_request_count_counts_authenticated_requests_only(host):
     async with _session(host.port, "qt") as s:
         await s.call_tool("echo", {"msg": "hi"})
     assert host.request_count > 1
+
+
+@pytest.mark.parametrize("bad", [None, "text", 5])
+async def test_non_dict_handler_result_is_clear_error(bad):
+    from lightfall.agents.backends.agy.host import ToolHost
+
+    async def _bad(args):
+        return bad
+
+    srv = ToolServer("bad", "1.0.0", [ToolSpec("t", "T", {}, _bad)])
+    h = ToolHost([("bad", srv)], _hook, TOKEN)
+    await h.start()
+    try:
+        async with _session(h.port, "bad") as s:
+            r = await s.call_tool("t", {})
+        assert r.isError
+        assert "tool handler returned no result" in r.content[0].text
+        assert "AttributeError" not in r.content[0].text
+    finally:
+        await h.stop()

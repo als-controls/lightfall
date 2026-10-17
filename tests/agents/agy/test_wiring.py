@@ -438,3 +438,44 @@ def test_agy_reset_rebuild_failure_drops_old_backend(qtbot, prefs, root, sdk, ag
     assert created[0].conversation_id is None
     sdk.assert_not_called()
     agent._worker = None
+
+
+# -- last-session id belongs to the main assistant only ---------------------------
+
+def _persisted(monkeypatch):
+    from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+    calls = []
+    monkeypatch.setattr(ClaudeSettingsProvider, "set_last_session_id",
+                        staticmethod(lambda sid: calls.append(sid)))
+    return calls
+
+
+def test_non_main_agent_leaves_last_session_id_alone(qtbot, prefs, root, sdk, agy_found, monkeypatch):
+    from types import SimpleNamespace
+
+    prefs.values.update(agent_backend="agy")
+    agent = _agent(qtbot)
+    try:
+        agent._spec = SimpleNamespace(name="scanner", skills=[])
+        calls = _persisted(monkeypatch)
+        agent._store_session_id("other-conv")
+        assert agent._current_session_id == "other-conv"
+        agent.reset_conversation()
+        assert calls == []
+    finally:
+        agent.stop()
+
+
+def test_main_agent_still_stores_and_clears_last_session_id(qtbot, prefs, root, sdk, agy_found, monkeypatch):
+    prefs.values.update(agent_backend="agy")
+    agent = _agent(qtbot)
+    try:
+        agent._spec = None
+        calls = _persisted(monkeypatch)
+        agent._store_session_id("main-conv")
+        assert calls == ["main-conv"]
+        agent.reset_conversation()
+        assert calls == ["main-conv", ""]
+    finally:
+        agent.stop()

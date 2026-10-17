@@ -72,7 +72,7 @@ class AgySessionStore:
         try:
             if not db.is_file():
                 return []
-            con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+            con = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
             try:
                 rows = con.execute(
                     "SELECT conversation_id, title, preview, last_modified_time, "
@@ -100,7 +100,7 @@ class AgySessionStore:
                 / "transcript.jsonl")
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             logger.warning("Could not load agy transcript for {}: {}", session_id, exc)
             return []
         out: list[TranscriptEntry] = []

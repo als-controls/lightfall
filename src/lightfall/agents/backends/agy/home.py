@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lightfall.utils.logging import logger
+
 PLUGIN_NAME = "lightfall"
 DEFAULT_PROJECT = "lbl-gemini-enterprise-access"
 HOOK_TIMEOUT_S = 290
@@ -38,6 +40,7 @@ OWNER_FILE = "owner.pid"
 STALE_UNOWNED_S = 3600  # a session home with no readable owner.pid is swept after this
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_CREATE_NO_WINDOW = 0x08000000
 
 _OPERATOR_FRONTMATTER = (
     "---\n"
@@ -66,7 +69,10 @@ def lightfall_agy_home() -> Path:
 
 def spec_home(spec_name: str | None) -> Path:
     """Per-AgentSpec home (``lightfall`` for the main assistant); pure path."""
-    return lightfall_agy_home() / (spec_name or "lightfall")
+    name = spec_name or "lightfall"
+    if not _KEY_RE.match(name) or name in (".", ".."):
+        raise ValueError(f"invalid agent spec name {spec_name!r} (allowed: A-Za-z0-9_.-)")
+    return lightfall_agy_home() / name
 
 
 def session_home_path(spec_name: str | None, session_id: str) -> Path:
@@ -97,6 +103,7 @@ def _make_dir_link(link: Path, target: Path) -> None:
                 ["cmd", "/c", "mklink", "/J", str(link), str(target)],
                 check=True,
                 capture_output=True,
+                creationflags=_CREATE_NO_WINDOW,
             )
     else:
         os.symlink(target, link, target_is_directory=True)
@@ -133,7 +140,8 @@ def remove_session_home(path: Path) -> None:
     path = Path(path)
     try:
         _remove_link(path / ".gemini" / "antigravity-cli")
-    except OSError:
+    except OSError as exc:
+        logger.warning("Could not unlink agy store link in {}: {}", path, exc)
         return  # could not unlink safely: never rmtree through a link
     shutil.rmtree(path, ignore_errors=True)
 

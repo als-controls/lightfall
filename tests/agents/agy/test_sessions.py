@@ -116,3 +116,32 @@ def test_transcript_tool_names(tmp_path):
 
 def test_missing_transcript_is_empty(tmp_path):
     assert AgySessionStore(tmp_path, "/w").load_transcript("nope") == []
+
+
+def test_transcript_tolerates_partial_utf8(tmp_path):
+    p = (tmp_path / ".gemini" / "antigravity-cli" / "brain" / "c9" / ".system_generated"
+         / "logs" / "transcript.jsonl")
+    p.parent.mkdir(parents=True)
+    good = json.dumps({"type": "USER_INPUT", "content": "hi"}).encode("utf-8")
+    # A multi-byte character cut in half, as when agy is mid-write.
+    p.write_bytes(good + b"\n" + '{"type":"PLANNER_RESPONSE","content":"é'.encode()[:-1])
+    got = AgySessionStore(tmp_path, "/w").load_transcript("c9")
+    assert isinstance(got, list)
+
+
+def test_list_sessions_with_special_chars_in_path(tmp_path):
+    root = tmp_path / "we ird#dir%20x"
+    root.mkdir()
+    store = root / ".gemini" / "antigravity-cli"
+    store.mkdir(parents=True)
+    con = sqlite3.connect(store / "conversation_summaries.db")
+    con.execute(
+        "CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, preview TEXT, "
+        "last_modified_time INTEGER, workspace_uris TEXT, parent_conversation_id TEXT)"
+    )
+    con.execute("INSERT INTO conversation_summaries VALUES "
+                "('c1','T','',1,?, NULL)", (json.dumps(["file:///w"]),))
+    con.commit()
+    con.close()
+    got = AgySessionStore(root, "/w").list_sessions()
+    assert [s.session_id for s in got] == ["c1"]

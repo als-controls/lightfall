@@ -1,8 +1,8 @@
 """Antigravity CLI (``agy``) agent backend.
 
-Exports are resolved lazily: agy runs ``python -I -m
-lightfall.agents.backends.agy.hook_client`` for every tool call, which imports
-this package first, so it must stay import-cheap (no uvicorn/mcp here).
+Exports are resolved lazily: agy runs ``python -I <path to hook_client.py>`` for
+every tool call (by file path, not ``-m``), so the hook client does not import
+this package; keep the package import-cheap anyway (no uvicorn/mcp here).
 """
 from __future__ import annotations
 

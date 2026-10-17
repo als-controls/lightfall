@@ -331,3 +331,50 @@ def test_invalid_keys_rejected(tmp_path, bad):
         agy_home.write_session_config(tmp_path / "s", _cfg(external_servers={bad: {}}))
     with pytest.raises(ValueError, match="invalid"):
         agy_home.write_spec_settings(tmp_path / "spec", workspace="w", server_keys=[bad])
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "a/b", "a\b", "x y", "../evil", "é"])
+def test_spec_home_rejects_unsafe_names(root, bad):
+    with pytest.raises(ValueError):
+        agy_home.spec_home(bad)
+    with pytest.raises(ValueError):
+        agy_home.session_home_path(bad, "abc")
+
+
+@pytest.mark.parametrize("ok", ["Scanner", "a-b_c.d", "lightfall", "v1.2"])
+def test_spec_home_accepts_safe_names(root, ok):
+    assert agy_home.spec_home(ok) == root / ok
+
+
+def test_mklink_fallback_hides_console_window(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(agy_home.sys, "platform", "win32")
+    import _winapi
+
+    def _boom(*a):
+        raise OSError("no junction")
+
+    monkeypatch.setattr(_winapi, "CreateJunction", _boom, raising=False)
+    monkeypatch.setattr(agy_home.subprocess, "run", lambda *a, **kw: calls.append(kw))
+    agy_home._make_dir_link(tmp_path / "l", tmp_path / "t")
+    assert calls[0]["creationflags"] == 0x08000000
+
+
+def test_remove_session_home_warns_when_unlink_fails(root, monkeypatch):
+    from lightfall.utils.logging import logger
+
+    msgs = []
+    sink = logger.add(lambda m: msgs.append(str(m)), level="WARNING")
+    session = root / "lightfall" / "sessions" / "s1"
+    (session / ".gemini" / "config").mkdir(parents=True)
+
+    def _fail(link):
+        raise OSError("busy")
+
+    monkeypatch.setattr(agy_home, "_remove_link", _fail)
+    try:
+        agy_home.remove_session_home(session)
+    finally:
+        logger.remove(sink)
+    assert session.exists()  # never rmtree'd
+    assert any("Could not unlink" in m for m in msgs)

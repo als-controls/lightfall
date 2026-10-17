@@ -69,6 +69,8 @@ def _build_mcp_server(key: str, server: ToolServer) -> Server:
             return _error_result(f"Unknown tool: {name}")
         try:
             result = await spec.handler(arguments or {})
+            if not isinstance(result, dict):
+                raise TypeError("tool handler returned no result")
             content = [_to_content(b) for b in (result or {}).get("content", [])]
         except Exception as e:  # noqa: BLE001 - every tool failure becomes an MCP error result
             logger.opt(exception=e).debug("agy tool {}/{} raised", key, name)

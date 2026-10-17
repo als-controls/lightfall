@@ -637,7 +637,10 @@ class QtClaudeAgent(QObject):
         """
         # Ensure connected
         if not self._ensure_connected():
-            self.error_occurred.emit("Failed to connect to Claude")
+            self.error_occurred.emit(
+                "Failed to connect to the agent backend" if self._agy
+                else "Failed to connect to Claude"
+            )
             return
 
         # Send query to worker (non-blocking)
@@ -785,9 +788,21 @@ class QtClaudeAgent(QObject):
         if self._permission_manager:
             self._permission_manager.respond_to_question(request_id, answers)
 
+    def _is_main_session(self) -> bool:
+        """True for the main assistant (the only session auto-restore follows)."""
+        if self._spec is None:
+            return True
+        try:
+            from lightfall.ui.panels.claude.agent_session_tab import MAIN_AGENT_NAME
+        except Exception:  # noqa: BLE001
+            MAIN_AGENT_NAME = "lightfall"
+        return self._spec.name == MAIN_AGENT_NAME
+
     def _store_session_id(self, session_id: str) -> None:
         """Remember + persist the current session id for restore/auto-restore."""
         self._current_session_id = session_id
+        if not self._is_main_session():
+            return  # auto-restore only follows the main assistant's id
         try:
             from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
             ClaudeSettingsProvider.set_last_session_id(session_id)
@@ -823,9 +838,10 @@ class QtClaudeAgent(QObject):
         self._resume_session_id = None
         self._current_session_id = None
         try:
-            from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+            if self._is_main_session():
+                from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 
-            ClaudeSettingsProvider.set_last_session_id("")
+                ClaudeSettingsProvider.set_last_session_id("")
         except Exception as exc:  # noqa: BLE001
             logger.debug("Could not clear last session id on reset: {}", exc)
 
