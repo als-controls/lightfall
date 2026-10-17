@@ -139,7 +139,7 @@ def test_agy_live_model_id_and_tool_ref():
     a = info.AgyInfo()
     assert a.live_model_id("") is None
     assert a.live_model_id("gemini-3-pro") == "gemini-3-pro"
-    assert a.tool_ref("bus", "list_agents") == "`list_agents`"
+    assert a.tool_ref("bus", "list_agents") == "`lightfall_bus` / `list_agents`"
     assert info.ClaudeCodeInfo().tool_ref("bus", "list_agents") == "`mcp__bus__list_agents`"
 
 

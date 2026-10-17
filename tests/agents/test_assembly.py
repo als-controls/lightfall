@@ -177,7 +177,7 @@ def test_preamble_agy_has_no_claude_only_wording():
     assert "Agent tool" not in text and "Agent-tool" not in text
     assert "ScheduleWakeup" not in text
     assert "mcp__" not in text
-    assert "`list_agents`" in text and "`launch_agent(" in text
+    assert "`lightfall_bus` / `list_agents`" in text and "`lightfall_bus` / `launch_agent(" in text
     assert "Assistant panel's tab bar" in text
 
 

@@ -266,7 +266,7 @@ def test_rules_and_operator_agent(tmp_path):
         "excludeDefaultComponents: true\n"
         "inheritCustomizations: true\n"
         "inheritMcp: true\n"
-        "tools: []\n"
+        "tools: [view_file]\n"
         "---\n"
         "\n"
         "You are the operator.\n"

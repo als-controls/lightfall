@@ -155,6 +155,14 @@ def test_text_turn_streams_and_completes(qtbot, env):
         plugin = home / ".gemini" / "config" / "plugins" / "lightfall"
         mcp = json.loads((plugin / "mcp_config.json").read_text(encoding="utf-8"))
         assert set(mcp["mcpServers"]) == {"qt", "ask"}
+        # the rules name the real (plugin-prefixed) servers and their tools
+        rules = (plugin / "rules" / "AGENTS.md").read_text(encoding="utf-8")
+        assert rules.startswith("You are a test.")
+        assert "`lightfall_qt`" in rules and "`lightfall_ask`" in rules
+        assert "`screenshot` — Take a screenshot" in rules and "`ask_user`" in rules
+        assert str(home / ".gemini" / "antigravity-cli" / "mcp") in rules
+        operator = (plugin / "agents" / "operator.md").read_text(encoding="utf-8")
+        assert "tools: [view_file]\n" in operator and "`lightfall_qt`" in operator
         assert (plugin / "skills" / "demo" / "SKILL.md").is_file()
         hook = json.loads((plugin / "hooks.json").read_text(encoding="utf-8"))
         assert " -I " in (

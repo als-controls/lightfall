@@ -192,7 +192,9 @@ class AgyInfo:
         return {"USERPROFILE": home, "HOME": home}
 
     def tool_ref(self, server: str, tool: str) -> str:
-        return f"`{tool}`"
+        # agy calls MCP tools as call_mcp_tool(ServerName, ToolName); plugin servers
+        # are named lightfall_<key>.
+        return f"`lightfall_{server}` / `{tool}`"
 
 
 def backend_info(kind: str | None = None, *, agy_path: str | None = None):

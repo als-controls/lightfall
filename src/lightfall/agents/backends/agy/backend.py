@@ -50,6 +50,7 @@ from lightfall.agents.backends.agy.home import (
 from lightfall.agents.backends.agy.hook_policy import decide
 from lightfall.agents.backends.agy.host import ToolHost
 from lightfall.agents.backends.agy.process import AgyProcess
+from lightfall.agents.backends.agy.tool_directory import render_tool_directory
 from lightfall.utils.logging import logger
 
 _CANCEL_GRACE_S = 5.0
@@ -139,10 +140,13 @@ class AgyCliBackend:
             servers = list(cfg.tool_servers) + [(ASK_SERVER_NAME, create_ask_user_server(self._pm))]
             self._host = ToolHost(servers, handler, token)
             port = await self._host.start()
+            # The operator agent drops agy's own MCP listing, so name the servers here.
+            directory = render_tool_directory(
+                servers, [k for k in self._all_keys if k not in self._tool_keys], roots[0])
             write_session_config(home, AgyHomeConfig(
                 servers=self._tool_keys,
                 external_servers=dict(cfg.external_servers),
-                system_prompt=cfg.system_prompt,
+                system_prompt=f"{cfg.system_prompt}\n\n{directory}" if directory else cfg.system_prompt,
                 hook_command=hook_cmd,
                 port=port,
                 token=token,

@@ -51,7 +51,9 @@ _OPERATOR_FRONTMATTER = (
     "excludeDefaultComponents: true\n"
     "inheritCustomizations: true\n"
     "inheritMcp: true\n"
-    "tools: []\n"
+    # view_file lets the model read the per-tool MCP schemas agy writes under
+    # antigravity-cli/mcp/ (the hook allows only that and the skills dir).
+    "tools: [view_file]\n"
     "---\n"
 )
 
