@@ -116,6 +116,37 @@ tools from the assistant entirely.
 - **Reset when switching topics.** Long conversations slow responses; the
   broom button starts a clean one.
 
+## Using Gemini Enterprise (agy)
+
+Instead of the Anthropic API, the assistant can run on Gemini Enterprise through
+the Antigravity CLI (`agy`). Lightfall's tools, permission prompts, skills and
+session history work the same way; only the model backend changes.
+
+### Preferences
+
+| Preference | Default | Meaning |
+| --- | --- | --- |
+| `agent_backend` | `claude-code` | Set to `agy` to use Gemini Enterprise. |
+| `agy_path` | empty | Path to the agy executable. Empty means PATH, then the default install location. |
+| `agy_gcp_project` | `lbl-gemini-enterprise-access` | GCP project that Gemini Enterprise usage is billed to. |
+| `agy_gcp_location` | `global` | GCP location for agy. |
+| `agy_model` | empty | agy model id. Empty means agy's default. |
+
+### Signing in
+
+Sign in once with the agy CLI or the Antigravity app (your Gemini Enterprise
+licence is used); Lightfall reuses that sign-in and never changes it. Lightfall
+keeps its own agy configuration separate from your personal agy settings, so
+your own agy setup is not touched.
+
+### Known limitations
+
+- Subagents are not available on agy; Lightfall subagents are not mapped.
+- agy streams no thinking text, so there are no thinking bubbles.
+- The system prompt is still worded for Claude until a later release.
+- The model picker in the assistant panel is disabled on agy; use `agy_model`.
+- Switching `agent_backend` takes effect after restarting Lightfall.
+
 ## Troubleshooting
 
 ### The assistant doesn't respond
