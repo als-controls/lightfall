@@ -8,9 +8,18 @@ wraps them into SDK MCP servers.
 """
 from __future__ import annotations
 
+import types as builtin_types
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import (
+    Annotated,
+    Any,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -78,3 +87,92 @@ def as_tool_spec(obj: Any) -> ToolSpec | None:
         handler=handler,
         annotations=getattr(obj, "annotations", None),
     )
+
+
+def _py_type_schema(py_type: Any) -> dict[str, Any]:
+    """Convert a Python type annotation to a JSON Schema dict (SDK parity)."""
+    origin = get_origin(py_type)
+
+    # NotRequired/Required/ReadOnly survive include_extras=True; unwrap them
+    if getattr(origin, "_name", None) in ("NotRequired", "Required", "ReadOnly"):
+        return _py_type_schema(get_args(py_type)[0])
+
+    if origin is Annotated:
+        args = get_args(py_type)
+        schema = _py_type_schema(args[0])
+        for meta in args[1:]:
+            if isinstance(meta, str):
+                schema["description"] = meta
+                break
+        return schema
+
+    if py_type is str:
+        return {"type": "string"}
+    if py_type is int:
+        return {"type": "integer"}
+    if py_type is float:
+        return {"type": "number"}
+    if py_type is bool:
+        return {"type": "boolean"}
+
+    origin = getattr(py_type, "__origin__", None)
+
+    if origin is Union or isinstance(py_type, builtin_types.UnionType):
+        args = py_type.__args__
+        non_none = [a for a in args if a is not builtin_types.NoneType]
+        if len(non_none) == 1:
+            return _py_type_schema(non_none[0])
+        return {"anyOf": [_py_type_schema(a) for a in non_none]}
+
+    if origin is list:
+        item_args = getattr(py_type, "__args__", None)
+        if item_args:
+            return {"type": "array", "items": _py_type_schema(item_args[0])}
+        return {"type": "array"}
+    if origin is dict:
+        return {"type": "object"}
+
+    if py_type is list:
+        return {"type": "array"}
+    if py_type is dict:
+        return {"type": "object"}
+
+    if is_typeddict(py_type):
+        return _typeddict_schema(py_type)
+
+    return {"type": "string"}
+
+
+def _typeddict_schema(td_class: type) -> dict[str, Any]:
+    """Convert a TypedDict class to a JSON Schema dict (SDK parity)."""
+    hints = get_type_hints(td_class, include_extras=True)
+
+    properties: dict[str, Any] = {}
+    for field_name, field_type in hints.items():
+        properties[field_name] = _py_type_schema(field_type)
+
+    required_keys = getattr(td_class, "__required_keys__", set(properties.keys()))
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+    }
+    if required_keys:
+        schema["required"] = sorted(required_keys)
+    return schema
+
+
+def json_schema(spec: ToolSpec) -> dict[str, Any]:
+    """The JSON Schema a backend sends for ``spec``'s input (SDK wire parity)."""
+    source = spec.input_schema
+    if isinstance(source, dict):
+        if "type" in source and "properties" in source and isinstance(source["type"], str):
+            return source
+        properties = {name: _py_type_schema(ptype) for name, ptype in source.items()}
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties.keys()),
+        }
+    if is_typeddict(source):
+        return _typeddict_schema(source)
+    return {"type": "object", "properties": {}}
