@@ -28,7 +28,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from lightfall.ui.panels.claude_panel import ClaudePanel
 
@@ -283,6 +283,7 @@ def test_pick_model_live_switch_updates_active_config(panel, fake_prefs, monkeyp
 class _FakeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()
+    error_occurred = Signal(str)
 
     def __init__(self, busy: bool):
         super().__init__()
@@ -342,8 +343,12 @@ def test_busy_extra_tab_reloads_after_completion(panel, fake_prefs, monkeypatch,
     panel._do_claude_settings_reload()
     assert extra.reloads == 0  # mid-reply: not torn down
 
-    extra.claude_widget.agent.busy = False
-    extra.claude_widget.agent.query_completed.emit()
+    # Real ordering: the signal fires while is_busy() is still True.
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()
+    QTimer.singleShot(300, lambda: setattr(agent, "busy", False))
+    qtbot.wait(100)
+    assert extra.reloads == 0
     qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
     extra.claude_widget.agent.query_completed.emit()  # a later turn: no second reload
     qtbot.wait(50)
@@ -364,6 +369,47 @@ def test_busy_main_tab_banner_then_auto_reload(panel, fake_prefs, monkeypatch, q
     panel._do_claude_settings_reload()
     assert calls == ["banner"]
 
-    agent.busy = False
     agent.query_cancelled.emit()
+    QTimer.singleShot(300, lambda: setattr(agent, "busy", False))
     qtbot.waitUntil(lambda: calls == ["banner", "reload"], timeout=2000)
+
+
+def _busy_extra(panel, monkeypatch):
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+    panel._active_agent_config = _STALE_CONFIG
+    extra = _FakeTab(busy=True)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
+    monkeypatch.setattr(panel, "_reload_agent", lambda: None)
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_MAX_WAIT_MS", 100)
+    return extra
+
+
+def test_stuck_busy_reloads_after_cap(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    extra.claude_widget.agent.query_completed.emit()  # busy never clears
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+    qtbot.wait(100)
+    assert extra.reloads == 1
+
+
+def test_closed_tab_not_reloaded_after_signal(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()
+    panel._deferred_reload.discard(extra)  # tab closed between signal and timer
+    agent.busy = False
+    qtbot.wait(150)
+    assert extra.reloads == 0
+
+
+def test_error_occurred_ends_deferral(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.error_occurred.emit("boom")
+    agent.busy = False
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)

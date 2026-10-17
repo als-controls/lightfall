@@ -197,8 +197,15 @@ class ClaudePanel(BasePanel):
     )
 
     # Preference keys that determine which backend/model/behavior the agent
-    # connects with (including the backend choice and its agy settings). A change to any of these (e.g. from the Preferences dialog)
-    # must rebuild the running agent instead of waiting for a lightfall restart.
+    # connects with (including the backend choice and its agy settings). A
+    # change to any of these (e.g. from the Preferences dialog) must rebuild
+    # the running agent instead of waiting for a lightfall restart.
+    # After a reply ends, is_busy() can stay True briefly (the worker finishes
+    # post-turn work such as the context-usage fetch). A deferred reload polls
+    # for idleness at this interval and reloads anyway after the cap.
+    _DEFERRED_POLL_MS = 200
+    _DEFERRED_MAX_WAIT_MS = 5000
+
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
         "claude_effort",
@@ -243,6 +250,7 @@ class ClaudePanel(BasePanel):
         self._active_agent_config: tuple | None = None
         # Tabs (main or "+") whose reload waits for their in-flight reply to end.
         self._deferred_reload: set = set()
+        self._deferred_polling: set = set()  # tabs with a poll chain running
 
         # Session restore state
         self._pending_resume_session_id: str | None = None
@@ -900,11 +908,39 @@ class ClaudePanel(BasePanel):
         self._deferred_reload.add(tab)
 
         def _fire(*_args, t=tab) -> None:
-            if t in self._deferred_reload:
-                QTimer.singleShot(0, lambda: self._reload_tab_when_idle(t))
+            if t in self._deferred_reload and t not in self._deferred_polling:
+                self._deferred_polling.add(t)
+                self._poll_deferred_reload(t, 0)
 
         agent.query_completed.connect(_fire)
         agent.query_cancelled.connect(_fire)
+        agent.error_occurred.connect(_fire)
+
+    def _poll_deferred_reload(self, tab, waited_ms: int) -> None:
+        """After a turn ends, reload ``tab`` once idle (or after the cap)."""
+        if tab not in self._deferred_reload:  # closed / reloaded meanwhile
+            self._deferred_polling.discard(tab)
+            return
+        widget = self._claude_widget if tab is None else tab.claude_widget
+        agent = getattr(widget, "agent", None) if widget is not None else None
+        if (
+            agent is not None
+            and agent.is_busy()
+            and waited_ms < self._DEFERRED_MAX_WAIT_MS
+        ):
+            QTimer.singleShot(
+                self._DEFERRED_POLL_MS,
+                lambda: self._poll_deferred_reload(
+                    tab, waited_ms + self._DEFERRED_POLL_MS
+                ),
+            )
+            return
+        self._deferred_polling.discard(tab)
+        self._deferred_reload.discard(tab)
+        if tab is None:
+            self._reload_agent()
+        else:
+            tab.reload_agent()
 
     def _show_settings_reload_banner(self) -> None:
         """Offer a reload (rather than interrupting a running query)."""
