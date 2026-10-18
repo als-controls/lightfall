@@ -23,6 +23,11 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor (PySide6 <6.12 there); 3.13 runs the newest PySide6.
+        python-version: ["3.11", "3.13"]
     env:
       QT_QPA_PLATFORM: offscreen
       QT_OPENGL: software
@@ -34,7 +39,7 @@ jobs:
           fetch-depth: 0  # hatch-vcs derives the version from git tags
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install Qt system libraries
         run: |
@@ -53,7 +58,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: test-results-py${{ matrix.python-version }}
           path: |
             coverage.xml
             results.xml

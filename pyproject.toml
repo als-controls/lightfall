@@ -32,9 +32,11 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    # <6.12: PySide6 6.12.0 aborts (none_dealloc) when a QThread subclass that emitted a
-    # Signal(object) to a lambda is garbage-collected, which is every QThreadFuture.
-    "PySide6>=6.6,<6.12",
+    # PySide6 6.12.0 drops a reference to None on every void-returning call. Python 3.12+
+    # has an immortal None, so it is harmless there; on 3.11 None is freed after a few
+    # thousand calls and Python aborts ("none_dealloc"). Keep 3.11 below 6.12.
+    "PySide6>=6.6,<6.12; python_version < '3.12'",
+    "PySide6>=6.6; python_version >= '3.12'",
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "loguru>=0.7",
@@ -206,9 +208,11 @@ icon = "resources/lightfall"
 sources = ["src/lightfall"]
 requires = [
     # Core UI
-    # <6.12: PySide6 6.12.0 aborts (none_dealloc) when a QThread subclass that emitted a
-    # Signal(object) to a lambda is garbage-collected, which is every QThreadFuture.
-    "PySide6>=6.6,<6.12",
+    # PySide6 6.12.0 drops a reference to None on every void-returning call. Python 3.12+
+    # has an immortal None, so it is harmless there; on 3.11 None is freed after a few
+    # thousand calls and Python aborts ("none_dealloc"). Keep 3.11 below 6.12.
+    "PySide6>=6.6,<6.12; python_version < '3.12'",
+    "PySide6>=6.6; python_version >= '3.12'",
     "pyqtgraph>=0.13",
     "qtawesome>=1.3",
     "pyqttoast-enhanced>=2.0",
