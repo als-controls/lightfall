@@ -178,7 +178,7 @@ def assemble_spec_options(
 ) -> dict[str, Any]:
     """Assemble the spec-driven (backend-neutral) portion of a session config.
 
-    Returns a partial dict with ``system_prompt``, ``cwd``, ``agents``,
+    Returns a partial dict with ``system_prompt``, ``cwd``,
     ``subagent_specs``, ``tool_servers``, ``external_servers`` and
     ``allowed_tools``. Each enabled plugin's ``create_tools()`` and
     ``create_external_servers()`` run exactly once. Callers merge this with
@@ -222,7 +222,6 @@ def assemble_spec_options(
     return {
         "system_prompt": system_prompt,
         "cwd": agent_cwd(spec),
-        "agents": {s.name: s for s in subagents},
         "subagent_specs": subagents,
         "tool_servers": tool_servers,
         "external_servers": external_servers,
