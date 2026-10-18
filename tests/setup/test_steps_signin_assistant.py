@@ -254,6 +254,70 @@ def test_assistant_page_rechecks_after_leave_and_reenter(qtbot, ctx):
     assert page.summary() == "Claude · signed in"
 
 
+def test_assistant_page_first_entry_does_not_start_a_second_check(qtbot, ctx):
+    import threading
+
+    from lightfall.setup.pages.assistant import AssistantPage
+
+    gate = threading.Event()
+    calls = []
+
+    class CountingInfo(_SectionInfo):
+        def auth_status(self, refresh=False):
+            calls.append(1)
+            gate.wait(5)
+            return self._status
+
+    infos = {"agy": CountingInfo("agy", True), "claude-code": CountingInfo("claude-code", True)}
+    section = AgentBackendSection(info_factory=lambda kind, agy_path=None: infos[kind],
+                                  spawn=lambda *a, **k: None)
+    page = AssistantPage(ctx, section)  # construction starts the first check
+    qtbot.addWidget(page)
+    page.show()
+    assert section.checking
+    qtbot.waitUntil(lambda: len(calls) == 1, timeout=3000)
+    try:
+        page.on_enter()  # the wizard's first entry: the check is already in flight
+        assert section.checking
+        assert len(calls) == 1
+    finally:
+        gate.set()
+    qtbot.waitUntil(lambda: section.last_status is not None, timeout=3000)
+    assert len(calls) == 1
+    page.on_leave()
+    page.on_enter()  # re-entry still refreshes
+    qtbot.waitUntil(lambda: len(calls) == 2, timeout=3000)
+    qtbot.waitUntil(lambda: section.last_status is not None, timeout=3000)
+
+
+def test_assistant_page_reentry_mid_check_refreshes(qtbot, ctx):
+    import threading
+
+    from lightfall.setup.pages.assistant import AssistantPage
+
+    gate = threading.Event()
+    calls = []
+
+    class CountingInfo(_SectionInfo):
+        def auth_status(self, refresh=False):
+            calls.append(1)
+            gate.wait(5)
+            return self._status
+
+    infos = {"agy": CountingInfo("agy", True), "claude-code": CountingInfo("claude-code", True)}
+    section = AgentBackendSection(info_factory=lambda kind, agy_path=None: infos[kind],
+                                  spawn=lambda *a, **k: None)
+    page = AssistantPage(ctx, section)
+    qtbot.addWidget(page)
+    page.show()
+    page.on_enter()  # first entry mid-check: skipped
+    page.on_leave()  # drops the in-flight check
+    page.on_enter()  # re-entry: a fresh check must start
+    gate.set()
+    qtbot.waitUntil(lambda: len(calls) >= 2, timeout=3000)
+    qtbot.waitUntil(lambda: section.last_status is not None, timeout=3000)
+
+
 def test_signin_provider_mismatch_asks_for_the_new_provider(qtbot, ctx):
     from lightfall.auth.providers.local import LocalAuthProvider
 

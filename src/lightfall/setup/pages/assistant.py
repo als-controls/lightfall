@@ -14,6 +14,7 @@ class AssistantPage(StepPage):
         super().__init__(ctx)
         self.section = section or AgentBackendSection()
         self._buttons: dict[str, QPushButton] = {}
+        self._entered = False
         group = QButtonGroup(self)
         group.setExclusive(True)
         row = QHBoxLayout()
@@ -57,7 +58,11 @@ class AssistantPage(StepPage):
         return f"{name} · {'signed in' if signed_in else 'not signed in'}"
 
     def on_enter(self) -> None:
-        self.section.refresh_status()  # on_leave dropped any in-flight check
+        first = not self._entered
+        self._entered = True
+        if first and self.section.checking:
+            return  # the check the section started when it loaded is still running
+        self.section.refresh_status()  # on re-entry: on_leave dropped any in-flight check
 
     def on_leave(self) -> None:
         self.section.stop()  # drop any in-flight check and stop sign-in polling
