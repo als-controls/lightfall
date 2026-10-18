@@ -296,7 +296,10 @@ def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
 
 
 def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
-    """Apply the bootstrap allow-list to a bootstrap.yaml read from disk."""
+    """Apply the bootstrap allow-list to a bootstrap.yaml read from disk.
+
+    Dropped values are logged by type only: a hand-edited file may hold a secret.
+    """
     out: dict[str, Any] = {}
     for key in data:
         if key not in ("setup", "auth", "preferences"):
@@ -314,13 +317,14 @@ def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
                 if key in _FACILITY_FIELDS and isinstance(value, str):
                     kept[key] = value
                 else:
-                    logger.warning("Ignoring bootstrap.yaml setup.facility.{} {!r}", key, value)
+                    logger.warning("Ignoring bootstrap.yaml setup.facility.{} ({})", key,
+                                   type(value).__name__)
             if kept:
                 out["setup"] = {"facility": kept}
         elif "facility" in setup:
-            logger.warning("Ignoring bootstrap.yaml setup.facility {!r}", facility)
+            logger.warning("Ignoring bootstrap.yaml setup.facility ({})", type(facility).__name__)
     elif "setup" in data:
-        logger.warning("Ignoring bootstrap.yaml setup {!r}", setup)
+        logger.warning("Ignoring bootstrap.yaml setup ({})", type(setup).__name__)
 
     auth = data.get("auth")
     if isinstance(auth, dict):
@@ -333,15 +337,16 @@ def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
             for name, value in provider.items():
                 clean = _provider_value(name, value) if isinstance(name, str) else None
                 if clean is None:
-                    logger.warning("Ignoring bootstrap.yaml auth.provider.{} {!r}", name, value)
+                    logger.warning("Ignoring bootstrap.yaml auth.provider.{} ({})", name,
+                                   type(value).__name__)
                 else:
                     kept[name] = clean
             if kept:
                 out["auth"] = {"provider": kept}
         elif "provider" in auth:
-            logger.warning("Ignoring bootstrap.yaml auth.provider {!r}", provider)
+            logger.warning("Ignoring bootstrap.yaml auth.provider ({})", type(provider).__name__)
     elif "auth" in data:
-        logger.warning("Ignoring bootstrap.yaml auth {!r}", auth)
+        logger.warning("Ignoring bootstrap.yaml auth ({})", type(auth).__name__)
 
     prefs = data.get("preferences")
     if isinstance(prefs, dict):
@@ -350,13 +355,15 @@ def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
             rule = _PREF_RULES.get(key) if isinstance(key, str) else None
             clean = rule.clean(value) if rule is not None else None
             if clean is None:
-                logger.warning("Ignoring bootstrap.yaml preferences.{} {!r}", key, value)
+                logger.warning("Ignoring bootstrap.yaml preferences.{} ({})", key,
+                               type(value).__name__)
             else:
                 kept[key] = clean
         if kept:
             out["preferences"] = kept
     elif "preferences" in data:
-        logger.warning("Ignoring bootstrap.yaml preferences {!r}: not a mapping", prefs)
+        logger.warning("Ignoring bootstrap.yaml preferences ({}): not a mapping",
+                       type(prefs).__name__)
     return _validated_layer(out)
 
 
