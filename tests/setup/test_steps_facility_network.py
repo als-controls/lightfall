@@ -21,6 +21,19 @@ def test_facility_detect(ctx):
     assert step.detect(ctx) == StepState(StepStatus.SATISFIED, "Advanced Light Source")
 
 
+def test_facility_detect_shows_the_long_name_of_a_packaged_facility(ctx):
+    from lightfall.setup.facilities import load_facilities
+
+    (packaged,) = [f for f in load_facilities() if f.id == "als"]
+    # The server labels itself with the short name; the rail shows the packaged long one.
+    apply_bootstrap(Bootstrap(packaged.server_url, {"schema": 1, "facility": {
+        "id": "als", "name": "ALS"}}), ctx.config)
+    assert FacilityStep().detect(ctx) == StepState(StepStatus.SATISFIED, "Advanced Light Source")
+    apply_bootstrap(Bootstrap("http://other.example:8000", {"schema": 1, "facility": {
+        "id": "x", "name": "ALS"}}), ctx.config)
+    assert FacilityStep().detect(ctx) == StepState(StepStatus.SATISFIED, "ALS")
+
+
 def test_facility_validate_and_apply(ctx):
     step = FacilityStep()
     assert "Choose your facility" in step.validate(ctx)

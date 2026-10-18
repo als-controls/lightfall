@@ -28,7 +28,12 @@ class FacilityStep:
     def detect(self, ctx: SetupContext) -> StepState:
         if not has_bootstrap(ctx.config):
             return StepState(StepStatus.NEEDS_INPUT, "Choose where you work")
-        return StepState(StepStatus.SATISFIED, ctx.facility_name() or "Facility settings loaded")
+        # The server labels itself with a short name ("ALS"); a packaged facility with the
+        # same server URL shows its long name.
+        server = ctx.server_url()
+        packaged = next((f.name for f in self.facilities() if f.server_url == server), "")
+        return StepState(StepStatus.SATISFIED,
+                         packaged or ctx.facility_name() or "Facility settings loaded")
 
     def widget(self, ctx: SetupContext) -> QWidget:
         from lightfall.setup.pages.facility import FacilityPage
