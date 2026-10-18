@@ -417,13 +417,24 @@ class SetupWizard(QDialog):
             target = self._landing_index()
             if target is not None:
                 self._landed = True
+                in_flight = target < len(self._steps) and self._states[target] is None
                 self._go(target, animate=False)
+                self._pending = target if in_flight else None
 
     def _landing_index(self) -> int | None:
-        """First step neither satisfied nor skipped, once every step before it is known."""
+        """First step neither satisfied nor skipped, once every step before it is known.
+
+        The last step may still be detecting (the Assistant check can take 30 s): when
+        every step before it is set up, a Help re-run lands on the ready page if progress
+        says the last step was completed, else on the last step, which moves on by itself
+        if its detect then comes back satisfied.
+        """
+        last = len(self._steps) - 1
         for index, step in enumerate(self._steps):
             state = self._states[index]
             if state is None:
+                if index == last and index > 0:
+                    return len(self._steps) if step.id in self._progress.completed else index
                 return None
             if state.satisfied or step.id in self._progress.skipped:
                 continue
