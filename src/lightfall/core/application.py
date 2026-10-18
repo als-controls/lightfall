@@ -287,11 +287,12 @@ class LFApplication(QObject):
         When ``ipc_use_local_nats`` is set, start a bundled local nats-server
         and connect to it instead of the site broker.
         """
+        from lightfall.ipc.defaults import DEFAULT_IPC_NATS_URL, DEFAULT_IPC_TOPIC_PREFIX
         from lightfall.ipc.local_server import LocalNatsServer
         from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
-        topic_prefix = prefs.get("ipc_topic_prefix", "als.7011")
+        topic_prefix = prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX)
         self._local_nats = None
 
         if prefs.get("ipc_use_local_nats", False):
@@ -310,7 +311,7 @@ class LFApplication(QObject):
                 logger.exception("Failed to start local nats-server; IPC disabled")
                 nats_url = ""
         else:
-            nats_url = prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222")
+            nats_url = prefs.get("ipc_nats_url", DEFAULT_IPC_NATS_URL)
 
         svc = IPCService(nats_url=nats_url, topic_prefix=topic_prefix)
         svc.set_trust_manager(trust_manager)

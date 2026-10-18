@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.ipc.defaults import DEFAULT_IPC_NATS_URL, DEFAULT_IPC_TOPIC_PREFIX
 from lightfall.ipc.local_server import (
     nats_binary_version,
     probe_nats,
@@ -121,7 +122,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         connection_layout.addRow("Server URL:", self._url_edit)
 
         self._prefix_edit = QLineEdit()
-        self._prefix_edit.setPlaceholderText("als.7011")
+        self._prefix_edit.setPlaceholderText(DEFAULT_IPC_TOPIC_PREFIX)
         connection_layout.addRow("Topic Prefix:", self._prefix_edit)
 
         self._display_name_edit = QLineEdit()
@@ -244,9 +245,9 @@ class IPCSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
 
         if self._url_edit:
-            self._url_edit.setText(prefs.get("ipc_nats_url", "nats://bcgnats.als.private.lbl.gov:4222"))
+            self._url_edit.setText(prefs.get("ipc_nats_url", DEFAULT_IPC_NATS_URL))
         if self._prefix_edit:
-            self._prefix_edit.setText(prefs.get("ipc_topic_prefix", "als.7011"))
+            self._prefix_edit.setText(prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX))
         if self._display_name_edit:
             self._display_name_edit.setText(prefs.get("ipc_display_name", ""))
         if self._local_enable_cb:

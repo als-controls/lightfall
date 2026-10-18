@@ -511,7 +511,7 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
         app: The NCS application instance.
         config: The configuration manager.
     """
-    from lightfall.services.tiled_service import TiledAuthMode, TiledService
+    from lightfall.services.tiled_service import TILED_DEFAULTS, TiledAuthMode, TiledService
 
     services = app.services
     prefs = PreferencesManager.get_instance()
@@ -520,14 +520,14 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
     service = TiledService.get_instance()
 
     # Configure from preferences
-    enabled = prefs.get("tiled_enabled", False)
-    url = prefs.get("tiled_url", "")
+    enabled = prefs.get("tiled_enabled", TILED_DEFAULTS["tiled_enabled"])
+    url = prefs.get("tiled_url", TILED_DEFAULTS["tiled_url"])
     api_key = prefs.get("tiled_api_key") or None
 
     # Determine auth mode
     # If tiled_auth_mode is set in preferences, use that
     # Otherwise, auto-detect: use KEYCLOAK if auth provider is keycloak
-    auth_mode_pref = prefs.get("tiled_auth_mode", "")
+    auth_mode_pref = prefs.get("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"])
     if auth_mode_pref:
         auth_mode = TiledAuthMode(auth_mode_pref)
     elif config.model.auth.provider.type == "keycloak":

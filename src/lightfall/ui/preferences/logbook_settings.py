@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.logbook.url import DEFAULT_LOGBOOK_URL
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
@@ -85,7 +86,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         connection_layout.addRow(self._enabled_check)
 
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("http://bcglightfalllogbook.dhcp.lbl.gov:8000")
+        self._url_edit.setPlaceholderText(DEFAULT_LOGBOOK_URL)
         connection_layout.addRow("Server URL:", self._url_edit)
 
         # Test connection
@@ -193,7 +194,7 @@ class LogbookSettingsPlugin(SettingsPlugin):
         if self._enabled_check:
             self._enabled_check.setChecked(prefs.get("logbook_enabled", True))
         if self._url_edit:
-            self._url_edit.setText(prefs.get("logbook_url", "http://bcglightfalllogbook.dhcp.lbl.gov:8000"))
+            self._url_edit.setText(prefs.get("logbook_url", DEFAULT_LOGBOOK_URL))
         if self._offline_check:
             self._offline_check.setChecked(prefs.get("logbook_offline_only", False))
         if self._status_label:

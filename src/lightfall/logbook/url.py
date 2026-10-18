@@ -6,7 +6,7 @@ prefs lookup.
 """
 from __future__ import annotations
 
-DEFAULT_LOGBOOK_URL = "http://bcglightfalllogbook.dhcp.lbl.gov"
+DEFAULT_LOGBOOK_URL = "http://bcglucidlogbook.dhcp.lbl.gov:8000"
 
 
 def _load_pref() -> str | None:

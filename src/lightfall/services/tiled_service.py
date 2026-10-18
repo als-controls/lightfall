@@ -23,6 +23,14 @@ if TYPE_CHECKING:
 
 DEFAULT_TILED_URL = "http://bcgtiled.dhcp.lbl.gov:8000"
 
+# Startup and the Tiled settings page read these (spec section 6). Tiled is off until
+# configured; DEFAULT_TILED_URL is only a placeholder and the get_tiled_base_url fallback.
+TILED_DEFAULTS: dict[str, Any] = {
+    "tiled_enabled": False,
+    "tiled_url": "",
+    "tiled_auth_mode": "",
+}
+
 
 def _load_tiled_url_pref() -> str | None:
     """Read the configured Tiled URL from PreferencesManager.

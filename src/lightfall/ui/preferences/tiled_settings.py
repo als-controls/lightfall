@@ -138,7 +138,9 @@ class TiledSettingsPlugin(SettingsPlugin):
 
         # Server URL
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("http://localhost:8000")
+        from lightfall.services.tiled_service import DEFAULT_TILED_URL
+
+        self._url_edit.setPlaceholderText(DEFAULT_TILED_URL)
         self._url_edit.editingFinished.connect(self._validate_url)
         self._url_error_label = QLabel()
         self._url_error_label.setStyleSheet(f"color: #f44336; font-size: {scaled_pt(9)}pt;")
@@ -148,6 +150,7 @@ class TiledSettingsPlugin(SettingsPlugin):
 
         # Authentication mode
         self._auth_mode_combo = QComboBox()
+        self._auth_mode_combo.addItem("Automatic (match sign-in)", "")
         self._auth_mode_combo.addItem("None", "none")
         self._auth_mode_combo.addItem("API Key", "api_key")
         self._auth_mode_combo.addItem("Keycloak (use Lightfall session)", "keycloak")
@@ -354,14 +357,18 @@ class TiledSettingsPlugin(SettingsPlugin):
         """
         prefs = PreferencesManager.get_instance()
 
+        from lightfall.services.tiled_service import TILED_DEFAULTS
+
         if self._enabled_check:
-            self._enabled_check.setChecked(prefs.get("tiled_enabled", True))
+            self._enabled_check.setChecked(
+                prefs.get("tiled_enabled", TILED_DEFAULTS["tiled_enabled"])
+            )
 
         if self._url_edit:
-            self._url_edit.setText(prefs.get("tiled_url", "http://bcgtiled.dhcp.lbl.gov:8000/"))
+            self._url_edit.setText(prefs.get("tiled_url", TILED_DEFAULTS["tiled_url"]))
 
         if self._auth_mode_combo:
-            auth_mode = prefs.get("tiled_auth_mode", "keycloak")
+            auth_mode = prefs.get("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"])
             index = self._auth_mode_combo.findData(auth_mode)
             if index >= 0:
                 self._auth_mode_combo.setCurrentIndex(index)
