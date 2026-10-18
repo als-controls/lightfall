@@ -1,7 +1,6 @@
 """SetupWizard: the step-rail dialog (spec sections 3 and 5)."""
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 
 import shiboken6
@@ -35,6 +34,7 @@ from lightfall.setup.progress import load_progress, mark_setup_completed, save_p
 from lightfall.setup.registry import SetupRegistry
 from lightfall.setup.step import StepError, StepState, StepStatus
 from lightfall.ui.style import modern
+from lightfall.ui.style.windows_frame import suppress_windows_frame
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
@@ -43,32 +43,6 @@ RAIL_WIDTH = 208
 SURFACE_MIN_WIDTH = 720
 SURFACE_MIN_HEIGHT = 400
 SHADOW_MARGIN = 28
-
-
-# DwmSetWindowAttribute ids and values (dwmapi.h, Windows 11 22000+).
-_DWMWA_WINDOW_CORNER_PREFERENCE = 33
-_DWMWCP_DONOTROUND = 1
-_DWMWA_BORDER_COLOR = 34
-_DWMWA_COLOR_NONE = 0xFFFFFFFE
-
-
-def _suppress_windows_frame(window: QWidget) -> None:
-    """Windows 11 draws a 1 px border and rounds the corners of every top-level window,
-    frameless ones included. Here that border would outline the transparent shadow
-    margin around the card, so turn both off. A no-op elsewhere and on older Windows."""
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-
-        hwnd = ctypes.c_void_p(int(window.winId()))
-        dwm = ctypes.windll.dwmapi
-        for attribute, value in ((_DWMWA_BORDER_COLOR, _DWMWA_COLOR_NONE),
-                                 (_DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_DONOTROUND)):
-            data = ctypes.c_uint(value)
-            dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data))
-    except Exception as exc:  # noqa: BLE001 - cosmetic; never break the wizard over it
-        logger.debug("Could not remove the Windows window border: {}", exc)
 
 
 class DimOverlay(QWidget):
@@ -651,7 +625,7 @@ class SetupWizard(QDialog):
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - Qt API
         super().showEvent(event)
-        _suppress_windows_frame(self)
+        suppress_windows_frame(self)
         parent = self.parentWidget()
         if self._overlay is None and parent is not None and parent.isVisible():
             self._overlay = DimOverlay(parent.window())

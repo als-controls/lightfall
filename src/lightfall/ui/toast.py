@@ -15,6 +15,7 @@ from pyqttoast import Toast, ToastPosition, ToastPreset
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 
+from lightfall.ui.style.windows_frame import suppress_windows_frame
 from lightfall.ui.theme import Theme, ThemeManager
 from lightfall.utils.logging import logger
 
@@ -163,6 +164,7 @@ class ToastManager(QObject):
             except RuntimeError:
                 logger.warning("Could not show toast: {}", title)
                 return toast
+        suppress_windows_frame(toast)
 
         logger.debug("Showing toast: {}{}", title, f" — {text}" if text else "")
 
