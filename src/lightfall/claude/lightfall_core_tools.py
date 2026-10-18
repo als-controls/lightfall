@@ -88,11 +88,7 @@ class LFCoreToolPlugin(ToolPlugin):
             List of tool functions.
         """
         # Import here to avoid circular imports and ensure availability
-        try:
-            from lightfall.agents.tooling import tool
-        except ImportError:
-            logger.warning("claude_agent_sdk not available, NCS core tools disabled")
-            return []
+        from lightfall.agents.tooling import tool
 
         @tool(
             name="lightfall_list_panels",

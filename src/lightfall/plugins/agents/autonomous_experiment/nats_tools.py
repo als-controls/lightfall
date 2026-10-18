@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from lightfall.plugins.agents._mcp_helpers import mcp_result
-from lightfall.utils.logging import logger
 
 
 def _ipc_request(subject: str, payload: dict, *, timeout: float = 5.0) -> dict | None:
@@ -50,13 +49,7 @@ def _wire_error_response(subject: str, reply: dict | None) -> dict | None:
 
 
 def build_tools() -> list[Any]:
-    try:
-        from lightfall.agents.tooling import tool
-    except ImportError:
-        logger.warning(
-            "claude_agent_sdk not available; autonomous_experiment tools disabled"
-        )
-        return []
+    from lightfall.agents.tooling import tool
 
     @tool(
         name="tsuchinoko_discover",

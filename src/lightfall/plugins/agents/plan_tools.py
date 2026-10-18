@@ -260,11 +260,7 @@ class PlanToolsAgent(ToolPlugin):
         Returns:
             List of tool functions.
         """
-        try:
-            from lightfall.agents.tooling import tool
-        except ImportError:
-            logger.warning("claude_agent_sdk not available, plan tools disabled")
-            return []
+        from lightfall.agents.tooling import tool
 
         @tool(
             name="lightfall_create_user_plan",

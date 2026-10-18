@@ -497,11 +497,7 @@ class EngineToolsAgent(ToolPlugin):
         return True, None
 
     def create_tools(self) -> list[Any]:
-        try:
-            from lightfall.agents.tooling import tool
-        except ImportError:
-            logger.warning("claude_agent_sdk not available, engine tools disabled")
-            return []
+        from lightfall.agents.tooling import tool
 
         @tool(
             name="lightfall_get_run_status",

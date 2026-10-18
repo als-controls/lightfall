@@ -1,4 +1,4 @@
-﻿"""Panel builder skill plugin with MCP tools.
+"""Panel builder skill plugin with MCP tools.
 
 Provides MCP tools for Claude to create and manage user-defined plugins,
 particularly panel plugins. Includes tools for creating, listing, reloading,
@@ -144,11 +144,7 @@ class PanelBuilderAgent(ToolPlugin):
         Returns:
             List of tool functions.
         """
-        try:
-            from lightfall.agents.tooling import tool
-        except ImportError:
-            logger.warning("claude_agent_sdk not available, panel builder tools disabled")
-            return []
+        from lightfall.agents.tooling import tool
 
         @tool(
             name="lightfall_create_user_plugin",
