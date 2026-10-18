@@ -118,7 +118,7 @@ class IPCSettingsPlugin(SettingsPlugin):
         connection_layout = QFormLayout(connection_group)
 
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("nats://broker.als.lbl.gov:4222")
+        self._url_edit.setPlaceholderText(DEFAULT_IPC_NATS_URL)
         connection_layout.addRow("Server URL:", self._url_edit)
 
         self._prefix_edit = QLineEdit()

@@ -18,6 +18,13 @@ class TestIPCSettingsPlugin:
         plugin = IPCSettingsPlugin()
         assert plugin.display_name == "IPC"
 
+    def test_url_placeholder_is_the_default_broker(self, qapp):
+        from lightfall.ipc.defaults import DEFAULT_IPC_NATS_URL
+
+        plugin = IPCSettingsPlugin()
+        plugin.create_widget()
+        assert plugin._url_edit.placeholderText() == DEFAULT_IPC_NATS_URL
+
     def test_validate_empty_url_is_valid(self, qapp):
         plugin = IPCSettingsPlugin()
         plugin.create_widget()
