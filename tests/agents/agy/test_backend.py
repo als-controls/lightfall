@@ -62,6 +62,13 @@ class _FakePM:
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
+    for var in (
+        "NO_PROXY", "no_proxy",
+        "HTTP_PROXY", "http_proxy",
+        "HTTPS_PROXY", "https_proxy",
+        "ALL_PROXY", "all_proxy",
+    ):
+        monkeypatch.delenv(var, raising=False)
     root = tmp_path / "agy-root"
     root.mkdir()
     monkeypatch.setattr(agy_home, "lightfall_agy_home", lambda: root)
@@ -554,7 +561,6 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
     from lightfall.agents.backends.agy import backend as backend_mod
 
     seen = {}
-    real = backend_mod.write_session_config
 
     def boom(home, cfg):
         seen["home"], seen["port"] = home, cfg.port
@@ -564,7 +570,7 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
     b = _backend(env)
     with pytest.raises(OSError, match="disk full"):
         asyncio.run(b.connect())
-    assert real is not boom
+    assert b._host is None and b.session_home is None
     assert not seen["home"].exists()
     with pytest.raises(OSError), socket.create_connection(("127.0.0.1", seen["port"]), timeout=2):
         pass

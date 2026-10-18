@@ -57,6 +57,17 @@ async def _hook(payload):
     return {"decision": "allow", "reason": "ok", "seen": payload}
 
 
+@pytest.fixture(autouse=True)
+def _clear_proxy_env(monkeypatch):
+    for var in (
+        "NO_PROXY", "no_proxy",
+        "HTTP_PROXY", "http_proxy",
+        "HTTPS_PROXY", "https_proxy",
+        "ALL_PROXY", "all_proxy",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 async def host():
     from lightfall.agents.backends.agy.host import ToolHost
