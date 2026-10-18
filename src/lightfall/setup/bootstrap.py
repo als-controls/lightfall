@@ -174,6 +174,25 @@ def fetch_bootstrap(server_url: str, *, proxy: str | None | _Proxy = FROM_SETTIN
     return Bootstrap(server_url=base, data=data)
 
 
+def _drop_invalid_prefs(prefs: dict[str, Any]) -> dict[str, Any]:
+    """Drop preference values that PreferencesConfig's declared field types reject."""
+    from pydantic import TypeAdapter, ValidationError
+
+    from lightfall.config.schema import PreferencesConfig
+
+    fields = PreferencesConfig.model_fields
+    for key in list(prefs):
+        field = fields.get(key)
+        if field is None:
+            continue
+        try:
+            TypeAdapter(field.annotation).validate_python(prefs[key])
+        except ValidationError:
+            logger.warning("Ignoring bootstrap preferences.{} {!r}", key, prefs[key])
+            del prefs[key]
+    return prefs
+
+
 def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
     """Map the bootstrap document onto config keys, dropping anything invalid."""
     data = bootstrap.data
@@ -186,7 +205,7 @@ def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
     provider: dict[str, Any] = {}
     auth = _section(data, "auth")
     ptype = auth.get("provider")
-    if ptype in AUTH_PROVIDER_TYPES:
+    if isinstance(ptype, str) and ptype in AUTH_PROVIDER_TYPES:
         provider["type"] = ptype
     elif ptype is not None:
         logger.warning("Ignoring bootstrap auth.provider {!r}", ptype)
@@ -203,25 +222,35 @@ def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
     if "tiled_url" in prefs:
         prefs["tiled_enabled"] = True
     agent = _section(data, "agent")
-    if agent.get("backend") in AGENT_BACKENDS:
-        prefs["agent_backend"] = agent["backend"]
+    backend = agent.get("backend")
+    if isinstance(backend, str) and backend in AGENT_BACKENDS:
+        prefs["agent_backend"] = backend
     for key, value in agent.items():
         if isinstance(key, str) and key.startswith("agy_") and _pref_key(key) and _text(value):
             prefs[key] = value
     domains = bootstrap.proxy_domains
     if domains:
         prefs["proxy_auto_detect_domains"] = domains
+    prefs = _drop_invalid_prefs(prefs)
     if prefs:
         layer["preferences"] = prefs
     return layer
 
 
 def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
-    """Drop a hand-edited auth.provider.type the config schema would reject."""
+    """Drop a hand-edited auth.provider.type or preference the config schema would reject."""
     provider = _section(_section(data, "auth"), "provider")
-    if "type" in provider and provider["type"] not in AUTH_PROVIDER_TYPES:
+    if "type" in provider and (
+        not isinstance(provider["type"], str) or provider["type"] not in AUTH_PROVIDER_TYPES
+    ):
         logger.warning("Ignoring bootstrap auth.provider.type {!r}", provider["type"])
         del provider["type"]
+    prefs = data.get("preferences")
+    if isinstance(prefs, dict):
+        _drop_invalid_prefs(prefs)
+    elif "preferences" in data:
+        logger.warning("Ignoring bootstrap preferences {!r}: not a mapping", prefs)
+        del data["preferences"]
     return data
 
 
@@ -271,5 +300,9 @@ def load_bootstrap_layer(config: ConfigManager) -> bool:
     if not isinstance(data, dict):
         logger.warning("Ignoring {}: not a mapping", path)
         return False
-    _install_layer(config, _sanitize_layer(data), path)
+    try:
+        _install_layer(config, _sanitize_layer(data), path)
+    except Exception as exc:  # noqa: BLE001 - a broken file must not stop startup
+        logger.warning("Ignoring unusable {}: {}", path, exc)
+        return False
     return True

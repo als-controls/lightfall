@@ -17,6 +17,7 @@ from lightfall.setup.bootstrap import (
     NetworkError,
     apply_bootstrap,
     bootstrap_path,
+    bootstrap_to_layer,
     fetch_bootstrap,
     load_bootstrap_layer,
     probe_health,
@@ -274,3 +275,58 @@ def test_setup_services_loads_the_bootstrap_layer_first(monkeypatch):
     with pytest.raises(_Stop):
         main_mod._setup_services(object(), "CFG")
     assert seen == ["CFG"]
+
+
+def test_bootstrap_to_layer_drops_unhashable_provider_and_backend():
+    layer = bootstrap_to_layer(
+        Bootstrap(
+            "http://s",
+            {
+                "schema": 1,
+                "auth": {"provider": ["keycloak"]},
+                "agent": {"backend": {"x": 1}},
+            },
+        )
+    )
+    assert "type" not in layer.get("auth", {}).get("provider", {})
+    assert "agent_backend" not in layer.get("preferences", {})
+
+
+def test_load_bootstrap_layer_drops_unhashable_provider_type(cfg):
+    path = bootstrap_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("auth: {provider: {type: [x]}}\n", encoding="utf-8")
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.model.auth.provider.type == "local"
+
+
+def test_apply_bootstrap_drops_invalid_typed_preference_without_breaking_model(cfg):
+    default_font_size = cfg.model.preferences.font_size
+    apply_bootstrap(
+        Bootstrap(
+            "http://s",
+            {
+                "schema": 1,
+                "auth": {"provider": "keycloak"},
+                "services": {"font_size": "big"},
+            },
+        ),
+        cfg,
+    )
+    assert cfg.model.auth.provider.type == "keycloak"
+    assert cfg.model.preferences.font_size == default_font_size
+    assert cfg.validation_errors == []
+
+
+def test_load_bootstrap_layer_drops_invalid_typed_preference_without_breaking_model(cfg):
+    default_font_size = cfg.model.preferences.font_size
+    path = bootstrap_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "auth:\n  provider:\n    type: keycloak\npreferences:\n  font_size: big\n",
+        encoding="utf-8",
+    )
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.model.auth.provider.type == "keycloak"
+    assert cfg.model.preferences.font_size == default_font_size
+    assert cfg.validation_errors == []
