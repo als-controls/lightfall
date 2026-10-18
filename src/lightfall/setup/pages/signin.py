@@ -7,7 +7,12 @@ from PySide6.QtCore import Qt
 
 from lightfall.setup.context import SetupContext
 from lightfall.setup.page import StepPage, Tile
-from lightfall.setup.steps.signin import provider_label, signed_in_label
+from lightfall.setup.steps.signin import (
+    is_signed_in,
+    provider_label,
+    session_provider_label,
+    signed_in_label,
+)
 from lightfall.ui.dialogs.login_dialog import LoginDialog, LoginResult
 
 
@@ -27,7 +32,7 @@ class SignInPage(StepPage):
                 "beamline and personal settings.")
 
     def primary_label(self) -> str:
-        if self.ctx.session.is_authenticated:
+        if is_signed_in(self.ctx):
             return "Continue"
         return f"Sign in with {self.ctx.facility_label()}"
 
@@ -35,7 +40,7 @@ class SignInPage(StepPage):
         return "Continue as guest"
 
     def summary(self) -> str:
-        return signed_in_label(self.ctx) if self.ctx.session.is_authenticated else ""
+        return signed_in_label(self.ctx) if is_signed_in(self.ctx) else ""
 
     def on_enter(self) -> None:
         self._refresh()  # the Network step may have changed the sign-on config
@@ -44,7 +49,8 @@ class SignInPage(StepPage):
     def _refresh(self) -> None:
         provider = self.ctx.config.model.auth.provider
         label = provider_label(self.ctx.config)
-        if self.ctx.session.is_authenticated:
+        mismatch = self.ctx.session.is_authenticated and not is_signed_in(self.ctx)
+        if is_signed_in(self.ctx):
             user = self.ctx.session.current_user.username
             self._card.set_text(f"Signed in as {user}", label)
         elif provider.type == "keycloak":
@@ -53,14 +59,18 @@ class SignInPage(StepPage):
                                 f"{label} · {host} · opens your browser")
         else:
             self._card.set_text(label, "Sign in with your account")
-        if self.ctx.bootstrap is not None:
+        if mismatch:
+            old = session_provider_label(self.ctx) or "another provider"
+            self.note.show_note(
+                "warn", f"You're signed in with {old}; sign in with {label} to continue.")
+        elif self.ctx.bootstrap is not None:
             loaded = ", ".join(self.ctx.bootstrap.summary())
             if loaded:
                 name = self.ctx.facility_name() or self.ctx.facility_label()
                 self.note.show_note("ok", f"Loaded from {name}: {loaded}.")
 
     def on_primary(self) -> None:
-        if self.ctx.session.is_authenticated:
+        if is_signed_in(self.ctx):
             self.completed.emit()
             return
         dialog = LoginDialog(parent=self.window(), title="Sign in", allow_guest=True,

@@ -63,6 +63,7 @@ class AgentBackendSection:
         self._poll_timer: QTimer | None = None
         self._poll_deadline = 0.0
         self._last_status: AuthStatus | None = None
+        self._checking = False
 
     # --- widgets -------------------------------------------------------------
 
@@ -147,6 +148,7 @@ class AgentBackendSection:
         if timer is not None and shiboken6.isValid(timer):
             timer.stop()
         self._generation += 1
+        self._checking = False
 
     def selected_kind(self) -> str:
         return self._kind_combo.currentData() if self._kind_combo else CLAUDE_CODE
@@ -163,6 +165,11 @@ class AgentBackendSection:
     def last_status(self) -> AuthStatus | None:
         """The most recent status check result for the selected backend, if any."""
         return self._last_status
+
+    @property
+    def checking(self) -> bool:
+        """True while a (non-poll) status check is in flight and its result will be used."""
+        return self._checking
 
     def _alive(self) -> bool:
         return self._status is not None and shiboken6.isValid(self._status)
@@ -246,6 +253,7 @@ class AgentBackendSection:
             return
         if not from_poll:
             self._last_status = None
+            self._checking = True
             self._status.setText("Checking…")
             self._status.setStyleSheet("color: gray; font-style: italic;")
         self._generation += 1
@@ -276,6 +284,7 @@ class AgentBackendSection:
         if not self._alive():
             return
         status, models = result
+        self._checking = False
         if from_poll and not status.ok:
             return  # keep "Complete the Google sign-in…" while polling
         self._last_status = status
@@ -289,6 +298,7 @@ class AgentBackendSection:
             self._poll_timer.stop()
 
     def _on_status_error(self, exc: Exception) -> None:
+        self._checking = False
         if not self._alive():
             return
         self._status.setText(f"Couldn't check: {exc}")
@@ -304,6 +314,7 @@ class AgentBackendSection:
             self._status.setStyleSheet("color: orange; font-style: italic;")
             return
         self._generation += 1  # supersede any in-flight check so it can't overwrite our message
+        self._checking = False
         kwargs: dict = {"env": {**os.environ, **info.sign_in_env()}}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE

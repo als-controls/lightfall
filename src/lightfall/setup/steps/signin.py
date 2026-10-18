@@ -35,7 +35,20 @@ def _session_matches_provider(ctx: SetupContext) -> bool:
     return ptype in type(provider).__name__.lower()
 
 
-def _signed_in(ctx: SetupContext) -> bool:
+def session_provider_label(ctx: SetupContext) -> str:
+    """Label of the provider the live session came from ("" if unknown)."""
+    provider = getattr(ctx.session, "_provider", None)
+    if provider is None:
+        return ""
+    name = type(provider).__name__.lower()
+    for ptype, label in PROVIDER_LABELS.items():
+        if ptype in name:
+            return label
+    return type(provider).__name__
+
+
+def is_signed_in(ctx: SetupContext) -> bool:
+    """Signed in with the provider that is configured now."""
     return ctx.session.is_authenticated and _session_matches_provider(ctx)
 
 
@@ -44,7 +57,7 @@ class SignInStep:
     title = "Sign in"
 
     def detect(self, ctx: SetupContext) -> StepState:
-        if _signed_in(ctx):
+        if is_signed_in(ctx):
             return StepState(StepStatus.SATISFIED, signed_in_label(ctx))
         return StepState(StepStatus.NEEDS_INPUT, "Not signed in")
 
@@ -54,7 +67,7 @@ class SignInStep:
         return SignInPage(ctx)
 
     def validate(self, ctx: SetupContext) -> str | None:
-        return None if ctx.session.is_authenticated else "You're not signed in yet."
+        return None if is_signed_in(ctx) else "You're not signed in yet."
 
     def apply(self, ctx: SetupContext) -> None:
         return None  # LoginDialog already attached the session

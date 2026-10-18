@@ -211,12 +211,61 @@ def test_signin_not_satisfied_by_a_session_from_another_provider(ctx):
     assert step.detect(ctx).status is StepStatus.NEEDS_INPUT
 
 
-def test_leaving_the_assistant_page_stops_the_section(qtbot, ctx):
+def test_assistant_page_rechecks_after_leave_and_reenter(qtbot, ctx):
+    import threading
+
+    from PySide6.QtWidgets import QLabel
+
     from lightfall.setup.pages.assistant import AssistantPage
 
+    gate = threading.Event()
+    gate.set()  # the first (construction-time) check returns at once
     stops = []
-    page = AssistantPage(ctx, _section(stops))
+
+    class GatedInfo(_SectionInfo):
+        def auth_status(self, refresh=False):
+            gate.wait(5)
+            return self._status
+
+    infos = {"agy": GatedInfo("agy", True), "claude-code": GatedInfo("claude-code", True)}
+
+    class Counting(AgentBackendSection):
+        def stop(self):
+            stops.append(1)
+            super().stop()
+
+    section = Counting(info_factory=lambda kind, agy_path=None: infos[kind],
+                       spawn=lambda *a, **k: None)
+    page = AssistantPage(ctx, section)
     qtbot.addWidget(page)
+    page.show()
+    qtbot.waitUntil(lambda: section.last_status is not None, timeout=3000)
+    gate.clear()
+    page.on_enter()  # starts a check that blocks on the gate
+    assert section.last_status is None
+    assert page.summary().endswith("checking…")  # neutral while in flight
     stops.clear()
     page.on_leave()
-    assert stops
+    assert stops  # stopped on leave; the in-flight result is dropped
+    page.on_enter()  # re-enter: a fresh check starts
+    gate.set()
+    status = page.findChild(QLabel, "assistantBackendStatus")
+    qtbot.waitUntil(lambda: status.text().startswith("✓"), timeout=3000)
+    assert page.summary() == "Claude · signed in"
+
+
+def test_signin_provider_mismatch_asks_for_the_new_provider(qtbot, ctx):
+    from lightfall.auth.providers.local import LocalAuthProvider
+
+    apply_bootstrap(KEYCLOAK, ctx.config)
+    ctx.bootstrap = KEYCLOAK
+    ctx.session.set_provider(LocalAuthProvider())
+    ctx.session.attach_session(Session(user=User(username="ron")))
+    step = SignInStep()
+    assert step.validate(ctx) == "You're not signed in yet."
+    page = _signin_page(qtbot, ctx)
+    assert page.primary_label() == "Sign in with ALS"
+    assert page.summary() == ""
+    assert page.note.kind() == "warn"
+    assert "Local account" in page.note.text() and "Keycloak" in page.note.text()
+    assert page.findChild(Tile, "setupSsoCard").title_label.text() == "ALS single sign-on"

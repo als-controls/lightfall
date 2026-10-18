@@ -51,8 +51,13 @@ class AssistantPage(StepPage):
     def summary(self) -> str:
         name = "Gemini" if self.section.selected_kind() == AGY else "Claude"
         status = self.section.last_status
+        if status is None and self.section.checking:
+            return f"{name} · checking…"
         signed_in = status is not None and status.ok
         return f"{name} · {'signed in' if signed_in else 'not signed in'}"
+
+    def on_enter(self) -> None:
+        self.section.refresh_status()  # on_leave dropped any in-flight check
 
     def on_leave(self) -> None:
         self.section.stop()  # drop any in-flight check and stop sign-in polling
