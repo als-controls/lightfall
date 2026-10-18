@@ -9,8 +9,8 @@ the scoped settings still win.
 from __future__ import annotations
 
 import os
-import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -32,8 +32,6 @@ BOOTSTRAP_PRIORITY = 15
 WELL_KNOWN_PATH = "/.well-known/lightfall"
 AUTH_PROVIDER_TYPES = frozenset({"local", "keycloak", "pam"})
 AGENT_BACKENDS = frozenset({"claude-code", "agy"})
-_PREF_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
-_SECRET_MARKERS = ("api_key", "token", "secret", "password", "dsn")
 
 
 class NetworkError(Exception):
@@ -58,11 +56,6 @@ def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
 
 def _text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
-
-
-def _pref_key(key: object) -> bool:
-    return (isinstance(key, str) and bool(_PREF_NAME.match(key))
-            and not any(m in key for m in _SECRET_MARKERS))
 
 
 @dataclass(frozen=True)
@@ -174,27 +167,91 @@ def fetch_bootstrap(server_url: str, *, proxy: str | None | _Proxy = FROM_SETTIN
     return Bootstrap(server_url=base, data=data)
 
 
-def _drop_invalid_prefs(prefs: dict[str, Any]) -> dict[str, Any]:
-    """Drop preference values that PreferencesConfig's declared field types reject."""
-    from pydantic import TypeAdapter, ValidationError
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
 
-    from lightfall.config.schema import PreferencesConfig
 
-    fields = PreferencesConfig.model_fields
-    for key in list(prefs):
-        field = fields.get(key)
-        if field is None:
-            continue
+def _backend(value: object) -> str | None:
+    return value if isinstance(value, str) and value in AGENT_BACKENDS else None
+
+
+def _true(value: object) -> bool | None:
+    return True if value is True else None
+
+
+def _domains(value: object) -> list[str] | None:
+    return as_domain_list(value) or None
+
+
+@dataclass(frozen=True)
+class _Pref:
+    """One allow-listed bootstrap preference: where it comes from and how it is checked."""
+
+    target: str  # the key under ``preferences``
+    source: tuple[str, str] | None  # (section, name) in the bootstrap document
+    clean: Callable[[object], object | None]  # the value to keep, or None to drop it
+
+
+# The only preferences a bootstrap may set. Mirrors the server's SECTIONS in
+# lightfall-logbook well_known.py; tiled_enabled is derived from tiled_url.
+BOOTSTRAP_PREFS: tuple[_Pref, ...] = (
+    _Pref("tiled_url", ("services", "tiled_url"), _str_or_none),
+    _Pref("logbook_url", ("services", "logbook_url"), _str_or_none),
+    _Pref("ipc_nats_url", ("services", "ipc_nats_url"), _str_or_none),
+    _Pref("tiled_enabled", None, _true),
+    _Pref("agent_backend", ("agent", "backend"), _backend),
+    _Pref("agy_gcp_project", ("agent", "agy_gcp_project"), _str_or_none),
+    _Pref("agy_gcp_location", ("agent", "agy_gcp_location"), _str_or_none),
+    _Pref("proxy_auto_detect_domains", ("network", "proxy_domains"), _domains),
+)
+_PREF_RULES = {p.target: p for p in BOOTSTRAP_PREFS}
+_PREF_SOURCES = frozenset(p.source for p in BOOTSTRAP_PREFS if p.source is not None)
+_PROVIDER_FIELDS = ("server_url", "realm", "client_id")
+_FACILITY_FIELDS = ("id", "name", "server_url")
+
+
+def _provider_value(name: str, value: object) -> object | None:
+    """The auth.provider value to keep, or None to drop it."""
+    if name == "type":
+        return value if isinstance(value, str) and value in AUTH_PROVIDER_TYPES else None
+    if name in _PROVIDER_FIELDS:
+        return _str_or_none(value)
+    return None
+
+
+def _validated_layer(layer: dict[str, Any]) -> dict[str, Any]:
+    """Check the layer on its own against LFConfig; drop what would invalidate it.
+
+    A failing top-level section is dropped with a warning; if what is left still fails,
+    the whole layer is dropped. A bad bootstrap must never invalidate LFConfig.
+    """
+    from lightfall.config import schema
+
+    def failures(candidate: dict[str, Any]) -> set[str] | None:
         try:
-            TypeAdapter(field.annotation).validate_python(prefs[key])
-        except ValidationError:
-            logger.warning("Ignoring bootstrap preferences.{} {!r}", key, prefs[key])
-            del prefs[key]
-    return prefs
+            schema.LFConfig.model_validate(candidate)
+        except Exception as exc:  # noqa: BLE001 - any failure means "not usable"
+            try:
+                return {str(e["loc"][0]) for e in exc.errors() if e.get("loc")}  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - not a ValidationError: blame nothing
+                return set()
+        return None
+
+    bad = failures(layer)
+    if bad is None:
+        return layer
+    for section in sorted(bad & set(layer)):
+        logger.warning("Ignoring bootstrap section {!r}: it does not fit the config schema",
+                       section)
+    layer = {k: v for k, v in layer.items() if k not in bad}
+    if failures(layer) is not None:
+        logger.warning("Ignoring the bootstrap layer: it does not fit the config schema")
+        return {}
+    return layer
 
 
 def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
-    """Map the bootstrap document onto config keys, dropping anything invalid."""
+    """Map the bootstrap document onto config keys, keeping only the allow-list."""
     data = bootstrap.data
     layer: dict[str, Any] = {"setup": {"facility": {
         "id": bootstrap.facility_id,
@@ -204,54 +261,103 @@ def bootstrap_to_layer(bootstrap: Bootstrap) -> dict[str, Any]:
 
     provider: dict[str, Any] = {}
     auth = _section(data, "auth")
-    ptype = auth.get("provider")
-    if isinstance(ptype, str) and ptype in AUTH_PROVIDER_TYPES:
-        provider["type"] = ptype
-    elif ptype is not None:
-        logger.warning("Ignoring bootstrap auth.provider {!r}", ptype)
-    for name in ("server_url", "realm", "client_id"):
-        if _text(auth.get(name)):
-            provider[name] = auth[name]
+    for name, key in (("type", "provider"), *((n, n) for n in _PROVIDER_FIELDS)):
+        if key not in auth:
+            continue
+        value = _provider_value(name, auth[key])
+        if value is None:
+            logger.warning("Ignoring bootstrap auth.{} {!r}", key, auth[key])
+        else:
+            provider[name] = value
     if provider:
         layer["auth"] = {"provider": provider}
 
+    for section in sorted({s for s, _ in _PREF_SOURCES}):
+        for key in _section(data, section):
+            if (section, key) not in _PREF_SOURCES:
+                logger.warning("Ignoring bootstrap {}.{}: not a setting a bootstrap may set",
+                               section, key)
     prefs: dict[str, Any] = {}
-    for key, value in _section(data, "services").items():
-        if _pref_key(key) and _text(value):
-            prefs[key] = value
+    for pref in BOOTSTRAP_PREFS:
+        if pref.source is None:
+            continue
+        section, name = pref.source
+        raw = _section(data, section).get(name)
+        value = pref.clean(raw)
+        if value is not None:
+            prefs[pref.target] = value
+        elif raw is not None:
+            logger.warning("Ignoring bootstrap {}.{} {!r}", section, name, raw)
     if "tiled_url" in prefs:
         prefs["tiled_enabled"] = True
-    agent = _section(data, "agent")
-    backend = agent.get("backend")
-    if isinstance(backend, str) and backend in AGENT_BACKENDS:
-        prefs["agent_backend"] = backend
-    for key, value in agent.items():
-        if isinstance(key, str) and key.startswith("agy_") and _pref_key(key) and _text(value):
-            prefs[key] = value
-    domains = bootstrap.proxy_domains
-    if domains:
-        prefs["proxy_auto_detect_domains"] = domains
-    prefs = _drop_invalid_prefs(prefs)
     if prefs:
         layer["preferences"] = prefs
-    return layer
+    return _validated_layer(layer)
 
 
 def _sanitize_layer(data: dict[str, Any]) -> dict[str, Any]:
-    """Drop a hand-edited auth.provider.type or preference the config schema would reject."""
-    provider = _section(_section(data, "auth"), "provider")
-    if "type" in provider and (
-        not isinstance(provider["type"], str) or provider["type"] not in AUTH_PROVIDER_TYPES
-    ):
-        logger.warning("Ignoring bootstrap auth.provider.type {!r}", provider["type"])
-        del provider["type"]
+    """Apply the bootstrap allow-list to a bootstrap.yaml read from disk."""
+    out: dict[str, Any] = {}
+    for key in data:
+        if key not in ("setup", "auth", "preferences"):
+            logger.warning("Ignoring bootstrap.yaml section {!r}", key)
+
+    setup = data.get("setup")
+    if isinstance(setup, dict):
+        for key in setup:
+            if key != "facility":
+                logger.warning("Ignoring bootstrap.yaml setup.{}", key)
+        facility = setup.get("facility")
+        if isinstance(facility, dict):
+            kept = {}
+            for key, value in facility.items():
+                if key in _FACILITY_FIELDS and isinstance(value, str):
+                    kept[key] = value
+                else:
+                    logger.warning("Ignoring bootstrap.yaml setup.facility.{} {!r}", key, value)
+            if kept:
+                out["setup"] = {"facility": kept}
+        elif "facility" in setup:
+            logger.warning("Ignoring bootstrap.yaml setup.facility {!r}", facility)
+    elif "setup" in data:
+        logger.warning("Ignoring bootstrap.yaml setup {!r}", setup)
+
+    auth = data.get("auth")
+    if isinstance(auth, dict):
+        for key in auth:
+            if key != "provider":
+                logger.warning("Ignoring bootstrap.yaml auth.{}", key)
+        provider = auth.get("provider")
+        if isinstance(provider, dict):
+            kept = {}
+            for name, value in provider.items():
+                clean = _provider_value(name, value) if isinstance(name, str) else None
+                if clean is None:
+                    logger.warning("Ignoring bootstrap.yaml auth.provider.{} {!r}", name, value)
+                else:
+                    kept[name] = clean
+            if kept:
+                out["auth"] = {"provider": kept}
+        elif "provider" in auth:
+            logger.warning("Ignoring bootstrap.yaml auth.provider {!r}", provider)
+    elif "auth" in data:
+        logger.warning("Ignoring bootstrap.yaml auth {!r}", auth)
+
     prefs = data.get("preferences")
     if isinstance(prefs, dict):
-        _drop_invalid_prefs(prefs)
+        kept = {}
+        for key, value in prefs.items():
+            rule = _PREF_RULES.get(key) if isinstance(key, str) else None
+            clean = rule.clean(value) if rule is not None else None
+            if clean is None:
+                logger.warning("Ignoring bootstrap.yaml preferences.{} {!r}", key, value)
+            else:
+                kept[key] = clean
+        if kept:
+            out["preferences"] = kept
     elif "preferences" in data:
-        logger.warning("Ignoring bootstrap preferences {!r}: not a mapping", prefs)
-        del data["preferences"]
-    return data
+        logger.warning("Ignoring bootstrap.yaml preferences {!r}: not a mapping", prefs)
+    return _validated_layer(out)
 
 
 def bootstrap_path(config: ConfigManager) -> Path:

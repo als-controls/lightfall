@@ -330,3 +330,188 @@ def test_load_bootstrap_layer_drops_invalid_typed_preference_without_breaking_mo
     assert cfg.model.auth.provider.type == "keycloak"
     assert cfg.model.preferences.font_size == default_font_size
     assert cfg.validation_errors == []
+
+
+# --- C1: only the allow-listed keys reach the config -------------------------------------
+
+@pytest.mark.parametrize(("section", "key", "value"), [
+    ("agent", "agy_path", "C:/evil/agy.exe"),
+    ("services", "tiled_auth_mode", "oidc"),
+    ("services", "proxy_host", "evil.example"),
+    ("services", "agent_backend", "claude-code"),
+])
+def test_bootstrap_to_layer_drops_keys_outside_the_allow_list(cfg, section, key, value):
+    doc = {"schema": 1, "facility": {"id": "als", "name": "ALS"}, section: {key: value}}
+    layer = bootstrap_to_layer(Bootstrap("http://s", doc))
+    assert key not in layer.get("preferences", {})
+    apply_bootstrap(Bootstrap("http://s", doc), cfg)
+    assert cfg.get(f"preferences.{key}") is None
+    assert cfg.validation_errors == []
+
+
+def test_bootstrap_to_layer_maps_exactly_the_allow_list():
+    layer = bootstrap_to_layer(Bootstrap("http://s", {
+        **FULL,
+        "services": {**FULL["services"], "tiled_auth_mode": "oidc", "proxy_host": "evil",
+                     "agent_backend": "claude-code", "tiled_api_key": "k"},
+        "agent": {**FULL["agent"], "agy_path": "C:/evil.exe", "agy_model": "m"},
+        "network": {"proxy_domains": ["*.lbl.gov"], "proxy_host": "evil"},
+    }))
+    assert layer["preferences"] == {
+        "tiled_url": "https://tiled.example",
+        "logbook_url": "http://lb.example:8000",
+        "ipc_nats_url": "nats://nats.example:4222",
+        "tiled_enabled": True,
+        "agent_backend": "agy",
+        "agy_gcp_project": "proj",
+        "agy_gcp_location": "global",
+        "proxy_auto_detect_domains": ["*.lbl.gov"],
+    }
+
+
+def _write_bootstrap(cfg, text):
+    path = bootstrap_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+ON_DISK_HOSTILE = """\
+setup:
+  facility: {id: als, name: ALS, server_url: 'http://s', extra: x}
+  other: {x: 1}
+auth:
+  provider: {type: keycloak, server_url: 'https://kc', realm: als, client_id: lf,
+             client_secret: s, redirect_uri: 'http://evil/cb'}
+  auto_login: true
+preferences:
+  tiled_url: 'https://tiled'
+  tiled_enabled: true
+  agent_backend: agy
+  agy_path: 'C:/evil/agy.exe'
+  tiled_auth_mode: oidc
+  proxy_host: evil.example
+  font_size: 20
+logging: {level: TRACE}
+site: {bind: 'branch:7.0.1.1'}
+"""
+
+
+def test_load_bootstrap_layer_keeps_only_the_allow_list(cfg):
+    _write_bootstrap(cfg, ON_DISK_HOSTILE)
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.layers.get_layer("bootstrap").data == {
+        "setup": {"facility": {"id": "als", "name": "ALS", "server_url": "http://s"}},
+        "auth": {"provider": {"type": "keycloak", "server_url": "https://kc", "realm": "als",
+                              "client_id": "lf"}},
+        "preferences": {"tiled_url": "https://tiled", "tiled_enabled": True,
+                        "agent_backend": "agy"},
+    }
+    for key in ("agy_path", "tiled_auth_mode", "proxy_host"):
+        assert cfg.get(f"preferences.{key}") is None
+    assert cfg.model.auth.provider.redirect_uri == "http://localhost:8089/callback"
+    assert cfg.model.auth.auto_login is False
+    assert cfg.validation_errors == []
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("agent_backend", "gpt"),
+    ("agent_backend", ["agy"]),
+    ("tiled_enabled", "yes"),
+    ("tiled_url", 5),
+    ("tiled_url", ""),
+    ("agy_gcp_project", {"x": 1}),
+    ("proxy_auto_detect_domains", 7),
+])
+def test_load_bootstrap_layer_drops_bad_allow_listed_values(cfg, key, value):
+    import yaml
+
+    _write_bootstrap(cfg, yaml.safe_dump({"preferences": {key: value, "logbook_url": "http://l"}}))
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.layers.get_layer("bootstrap").data == {"preferences": {"logbook_url": "http://l"}}
+    assert cfg.validation_errors == []
+
+
+def test_load_bootstrap_layer_normalizes_proxy_domains(cfg):
+    _write_bootstrap(cfg, "preferences:\n  proxy_auto_detect_domains: '*.LBL.gov'\n")
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.get("preferences.proxy_auto_detect_domains") == ["*.lbl.gov"]
+
+
+@pytest.fixture
+def tiled_service(qapp):
+    from lightfall.services.tiled_service import TiledService
+
+    TiledService.reset()
+    yield TiledService.get_instance()
+    TiledService.reset()
+
+
+@pytest.mark.parametrize("via", ["apply", "load"])
+def test_hostile_tiled_auth_mode_never_reaches_startup(prefs, cfg, tiled_service, via):
+    from lightfall.setup.services import configure_tiled
+
+    if via == "apply":
+        apply_bootstrap(Bootstrap("http://s", {"schema": 1,
+                                               "services": {"tiled_auth_mode": "oidc"}}), cfg)
+    else:
+        _write_bootstrap(cfg, "preferences:\n  tiled_auth_mode: oidc\n")
+        assert load_bootstrap_layer(cfg) is True
+    assert not prefs.get("tiled_auth_mode", "")
+    configure_tiled(cfg)  # raised ValueError('oidc' is not a valid TiledAuthMode) before
+    assert cfg.validation_errors == []
+
+
+# --- M2: a bad auth section never invalidates LFConfig -----------------------------------
+
+@pytest.mark.parametrize("text", [
+    "auth: x\n",
+    "auth: {provider: x}\n",
+    "auth: {provider: [keycloak]}\n",
+])
+def test_load_bootstrap_layer_drops_a_malformed_auth_section(cfg, text):
+    _write_bootstrap(cfg, text + "preferences: {logbook_url: 'http://l'}\n")
+    assert load_bootstrap_layer(cfg) is True
+    assert "auth" not in cfg.layers.get_layer("bootstrap").data
+    assert cfg.validation_errors == []
+    assert cfg.model.auth.provider.type == "local"
+    assert cfg.get("preferences.logbook_url") == "http://l"
+
+
+@pytest.mark.parametrize("name", ["server_url", "realm", "client_id"])
+def test_load_bootstrap_layer_drops_a_non_string_provider_field(cfg, name):
+    _write_bootstrap(cfg, f"auth:\n  provider: {{type: keycloak, {name}: 5}}\n")
+    assert load_bootstrap_layer(cfg) is True
+    assert cfg.layers.get_layer("bootstrap").data == {"auth": {"provider": {"type": "keycloak"}}}
+    assert cfg.validation_errors == []
+    assert cfg.model.auth.provider.type == "keycloak"
+
+
+@pytest.mark.parametrize("auth", ["x", {"provider": "x"}, {"provider": 5},
+                                  {"provider": "keycloak", "server_url": 5}])
+def test_apply_bootstrap_drops_a_malformed_auth_section(cfg, auth):
+    apply_bootstrap(Bootstrap("http://s", {"schema": 1, "auth": auth}), cfg)
+    assert cfg.validation_errors == []
+    keycloak = isinstance(auth, dict) and auth.get("provider") == "keycloak"
+    assert cfg.model.auth.provider.type == ("keycloak" if keycloak else "local")
+    assert cfg.model.auth.provider.server_url == "https://bcgkyclk.als.lbl.gov"
+
+
+def test_whole_layer_check_drops_the_offending_section():
+    layer = bs._validated_layer({
+        "auth": {"session_timeout_minutes": 1},  # violates ge=5
+        "preferences": {"tiled_url": "https://t"},
+    })
+    assert layer == {"preferences": {"tiled_url": "https://t"}}
+
+
+def test_whole_layer_check_drops_everything_when_still_invalid(monkeypatch):
+    from pydantic import BaseModel
+
+    from lightfall.config import schema
+
+    class Never(BaseModel):
+        must: int
+
+    monkeypatch.setattr(schema, "LFConfig", Never)
+    assert bs._validated_layer({"preferences": {"tiled_url": "https://t"}}) == {}
