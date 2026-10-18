@@ -159,3 +159,15 @@ def test_step_index_reuse_across_turns():
     assert second == first
     assert isinstance(second[0], PartialStartedEvent)
     assert sum(isinstance(e, ToolCallEvent) for e in second) == 1
+
+
+def test_mcp_call_without_server_or_tool_name_keeps_its_own_name():
+    def step(params):
+        return json.dumps({"event": "step_update", "step_update": {
+            "conversation_id": CID, "step_index": 9, "state": "ERROR", "step_type": "tool",
+            "tool_info": {"name": "call_mcp_tool", "parameters": params,
+                          "error": "tool call denied by pre-tool hook"}}})
+
+    for params in ({"ServerName": "", "ToolName": "list_agents"}, {"ServerName": "lightfall_qt"}):
+        ev = _feed(_tr(), step(params))
+        assert ev[0] == ToolCallEvent("call_mcp_tool", params)

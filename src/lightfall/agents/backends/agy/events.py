@@ -112,9 +112,11 @@ class AgyEventTranslator:
         if name == "call_mcp_tool":
             server = str(params.get("ServerName") or "")
             key = self._session_keys.get(server, server.removeprefix(_PREFIX))
+            tool = str(params.get("ToolName") or "")
+            if not key or not tool:
+                return ToolCallEvent("call_mcp_tool", params)  # no usable id (e.g. a guess the hook denied)
             args = params.get("Arguments")
-            return ToolCallEvent(tool_id(key, str(params.get("ToolName") or "")),
-                                 args if isinstance(args, dict) else {})
+            return ToolCallEvent(tool_id(key, tool), args if isinstance(args, dict) else {})
         return ToolCallEvent(str(name), params)
 
     def _tool_step(self, bid: str, su: dict[str, Any], state: Any) -> list[AgentEvent]:
