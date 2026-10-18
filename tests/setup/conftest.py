@@ -36,3 +36,13 @@ def prefs(qapp, cfg, monkeypatch):
     manager.set_config_manager(cfg)
     yield manager
     PreferencesManager.reset()
+
+
+@pytest.fixture
+def ctx(cfg, prefs):
+    from lightfall.auth.session import SessionManager
+    from lightfall.setup.context import SetupContext
+
+    SessionManager.reset()
+    yield SetupContext(config=cfg, session=SessionManager.get_instance(), prefs=prefs)
+    SessionManager.reset()
