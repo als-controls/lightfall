@@ -96,6 +96,7 @@ def configure_tiled(config: ConfigManager) -> None:
         TILED_DEFAULTS,
         TiledAuthMode,
         TiledConfig,
+        TiledConnectionState,
         TiledService,
     )
     from lightfall.ui.preferences.manager import PreferencesManager
@@ -122,7 +123,15 @@ def configure_tiled(config: ConfigManager) -> None:
     active = bool(enabled and url)
     wanted = TiledConfig(url=url, api_key=api_key, enabled=active, auth_mode=auth_mode)
     if service.config == wanted:
-        logger.debug("Tiled configuration unchanged")
+        # Unchanged, but a failed or dropped connection is retried (a wizard re-run after
+        # moving networks); a live or in-flight one is left alone.
+        failed = service.state in (TiledConnectionState.ERROR, TiledConnectionState.DISCONNECTED)
+        signed_in = SessionManager.get_instance().is_authenticated
+        if active and failed and (auth_mode != TiledAuthMode.KEYCLOAK or signed_in):
+            logger.info("Tiled configuration unchanged; retrying the connection")
+            service.connect_async()
+        else:
+            logger.debug("Tiled configuration unchanged")
         return
 
     service.configure(url=url, api_key=api_key, enabled=active, auth_mode=auth_mode)

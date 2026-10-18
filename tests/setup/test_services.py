@@ -38,7 +38,14 @@ def calls(session, tiled, monkeypatch):
         real_configure(**kwargs)
 
     monkeypatch.setattr(tiled, "configure", configure)
-    monkeypatch.setattr(tiled, "connect_async", lambda: record["connects"].append(1))
+    def connect_async():
+        # Like the real one: the state is CONNECTING as soon as the call returns.
+        from lightfall.services.tiled_service import TiledConnectionState
+
+        record["connects"].append(1)
+        tiled._set_state(TiledConnectionState.CONNECTING, "test")
+
+    monkeypatch.setattr(tiled, "connect_async", connect_async)
     return record
 
 
@@ -104,3 +111,76 @@ def test_reconfigure_reports_errors_instead_of_raising(prefs, cfg, calls):
     prefs.set("tiled_auth_mode", "bogus")
     errors = reconfigure_services(cfg)
     assert len(errors) == 1 and errors[0].startswith("Tiled:")
+
+
+def _set_tiled_state(tiled, state):
+    tiled._set_state(state, "test")
+
+
+@pytest.mark.parametrize("state", ["ERROR", "DISCONNECTED"])
+def test_rerun_retries_a_failed_tiled_connection(prefs, cfg, tiled, calls, state):
+    from lightfall.services.tiled_service import TiledConnectionState
+    from lightfall.setup.services import reconfigure_services
+
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example")
+    prefs.set("tiled_auth_mode", "none")
+    reconfigure_services(cfg)
+    assert calls["connects"] == [1]
+    _set_tiled_state(tiled, TiledConnectionState[state])
+    assert reconfigure_services(cfg) == []
+    assert len(calls["configures"]) == 1  # config unchanged: not re-configured
+    assert calls["connects"] == [1, 1]  # but the failed connection is retried
+
+
+@pytest.mark.parametrize("state", ["CONNECTED", "CONNECTING"])
+def test_rerun_leaves_a_live_tiled_connection_alone(prefs, cfg, tiled, calls, state):
+    from lightfall.services.tiled_service import TiledConnectionState
+    from lightfall.setup.services import reconfigure_services
+
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example")
+    prefs.set("tiled_auth_mode", "none")
+    reconfigure_services(cfg)
+    _set_tiled_state(tiled, TiledConnectionState[state])
+    assert reconfigure_services(cfg) == []
+    assert calls["connects"] == [1]
+
+
+def test_rerun_does_not_retry_keycloak_tiled_while_signed_out(prefs, cfg, tiled, calls):
+    from lightfall.services.tiled_service import TiledConnectionState
+    from lightfall.setup.services import reconfigure_services
+
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example")
+    prefs.set("tiled_auth_mode", "keycloak")
+    reconfigure_services(cfg)
+    _set_tiled_state(tiled, TiledConnectionState.ERROR)
+    assert reconfigure_services(cfg) == []
+    assert calls["connects"] == []
+
+
+def test_rerun_retries_keycloak_tiled_when_signed_in(prefs, cfg, session, tiled, calls):
+    from lightfall.services.tiled_service import TiledConnectionState
+    from lightfall.setup.services import reconfigure_services
+
+    session.attach_session(Session(user=User(username="ron")))
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example")
+    prefs.set("tiled_auth_mode", "keycloak")
+    reconfigure_services(cfg)
+    _set_tiled_state(tiled, TiledConnectionState.ERROR)
+    assert reconfigure_services(cfg) == []
+    assert calls["connects"] == [1, 1]
+
+
+def test_rerun_does_not_connect_a_disabled_tiled(prefs, cfg, tiled, calls):
+    from lightfall.services.tiled_service import TiledConnectionState
+    from lightfall.setup.services import reconfigure_services
+
+    prefs.set("tiled_enabled", False)
+    prefs.set("tiled_url", "http://tiled.example")
+    reconfigure_services(cfg)
+    _set_tiled_state(tiled, TiledConnectionState.ERROR)
+    assert reconfigure_services(cfg) == []
+    assert calls["connects"] == []
