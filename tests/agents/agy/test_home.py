@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -351,6 +352,7 @@ def test_spec_home_accepts_safe_names(root, ok):
     assert agy_home.spec_home(ok) == root / ok
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="needs _winapi (Windows only)")
 def test_mklink_fallback_hides_console_window(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(agy_home.sys, "platform", "win32")

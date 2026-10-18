@@ -295,7 +295,7 @@ def test_references_dir_uses_source_sibling(tmp_path, monkeypatch):
     """Bridge path: gpcam installed from source keeps skills at the repo root,
     a sibling of the importable package — resolve them without a gpcam.skills
     package."""
-    import gpcam
+    gpcam = pytest.importorskip("gpcam", reason="gpcam not installed")
 
     # Fake a source checkout: <root>/gpcam/__init__.py  +  <root>/skills/...
     pkg = tmp_path / "gpcam"

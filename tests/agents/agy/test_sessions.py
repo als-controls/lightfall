@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 
 from lightfall.agents.backend import TranscriptEntry
@@ -64,8 +63,8 @@ def test_windows_drive_uri_matches_case_insensitively(tmp_path):
     con.commit()
     con.close()
     store = AgySessionStore(tmp_path, "c:/users/RP/appdata/temp/scratch/work")
-    expected = ["a"] if os.name == "nt" else []
-    assert [i.session_id for i in store.list_sessions()] == expected
+    # Paths are casefolded on every platform (agy runs on Windows).
+    assert [i.session_id for i in store.list_sessions()] == ["a"]
 
 
 def test_missing_db_is_empty(tmp_path):

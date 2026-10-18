@@ -71,6 +71,8 @@ dependencies = [
     "qtconsole>=5.5",
     "ipykernel>=6.0",
     "claude-agent-sdk>=0.2.93",
+    # agy host uses the low-level Server.list_tools API, removed in mcp 2
+    "mcp>=1.27,<2",
     "happi>=2.0",
     "nats-py>=2.0",
     "lightfall-utils>=0.2.0",
@@ -261,6 +263,8 @@ requires = [
     "bidict>=0.23",
 
     "claude-agent-sdk>=0.2.93",
+    # agy host uses the low-level Server.list_tools API, removed in mcp 2
+    "mcp>=1.27,<2",
     "lightfall-utils>=0.2.0",
     "lightfall-settings>=0.1.3,<0.2",
 ]
