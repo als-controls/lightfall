@@ -74,3 +74,15 @@ def test_other_facility_uses_the_host_as_its_name():
 ])
 def test_as_domain_list(value, expected):
     assert as_domain_list(value) == expected
+
+
+@pytest.mark.parametrize("text", ["h.example:abc", "http://h.example:abc/x", "h.example:99999"])
+def test_normalize_server_url_rejects_a_bad_port(text):
+    with pytest.raises(ValueError, match="port"):
+        normalize_server_url(text)
+
+
+def test_other_facility_remembers_an_assumed_scheme():
+    assert other_facility("h.example:8000").scheme_assumed is True
+    assert other_facility("https://h.example").scheme_assumed is False
+    assert other_facility("http://h.example:8000").scheme_assumed is False

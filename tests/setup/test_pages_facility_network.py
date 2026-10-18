@@ -156,3 +156,32 @@ def test_auto_detect_fills_localhost_1080(qtbot, als, monkeypatch):
     page.findChild(QPushButton, "setupProxyDetect").click()
     qtbot.waitUntil(lambda: port.value() == 1080, timeout=3000)
     assert page.note.kind() == "ok"
+
+
+def _unreachable_page(qtbot, ctx, monkeypatch, facility):
+    ctx.facility = facility
+
+    def fake_connect(server, proxy):
+        raise NetworkError("could not connect")
+
+    monkeypatch.setattr(net, "connect", fake_connect)
+    page = _network_page(qtbot, ctx)
+    page.on_enter()
+    qtbot.waitUntil(lambda: page.note.kind() == "warn", timeout=3000)
+    return page
+
+
+def test_unreachable_assumed_https_suggests_the_http_form(qtbot, ctx, monkeypatch):
+    from lightfall.setup.facilities import other_facility
+
+    page = _unreachable_page(qtbot, ctx, monkeypatch, other_facility("srv.example:8000"))
+    assert "didn't answer" in page.note.text()
+    assert "If the server doesn't use HTTPS, try http://srv.example:8000." in page.note.text()
+
+
+@pytest.mark.parametrize("typed", ["http://srv.example:8000", "https://srv.example:8000"])
+def test_unreachable_with_a_typed_scheme_has_no_http_hint(qtbot, ctx, monkeypatch, typed):
+    from lightfall.setup.facilities import other_facility
+
+    page = _unreachable_page(qtbot, ctx, monkeypatch, other_facility(typed))
+    assert "try http://" not in page.note.text()

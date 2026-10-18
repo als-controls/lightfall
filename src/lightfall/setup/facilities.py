@@ -20,6 +20,7 @@ class Facility:
     short_name: str = ""
     subtitle: str = ""
     proxy_domains: tuple[str, ...] = ()
+    scheme_assumed: bool = False  # typed without http(s)://, so https was assumed
 
     @property
     def label(self) -> str:
@@ -46,6 +47,11 @@ def normalize_server_url(text: str) -> str:
         raise ValueError("The server URL must start with http:// or https://.")
     if not parts.hostname:
         raise ValueError("The server URL needs a host name.")
+    try:
+        parts.port  # noqa: B018 - raises ValueError for a non-numeric or out-of-range port
+    except ValueError:
+        raise ValueError("The server URL's port must be a number from 1 to 65535, "
+                         "like host:8000.") from None
     path = parts.path.rstrip("/")
     for suffix in _STRIP_SUFFIXES:
         if path.endswith(suffix):
@@ -55,7 +61,8 @@ def normalize_server_url(text: str) -> str:
 
 def other_facility(server_url: str) -> Facility:
     url = normalize_server_url(server_url)
-    return Facility(id="other", name=urlsplit(url).hostname or url, server_url=url)
+    return Facility(id="other", name=urlsplit(url).hostname or url, server_url=url,
+                    scheme_assumed="://" not in server_url)
 
 
 def load_facilities(text: str | None = None) -> list[Facility]:

@@ -1,6 +1,8 @@
 """Network page: probe the facility server; off-site, offer the SOCKS proxy."""
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import shiboken6
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -178,6 +180,11 @@ class NetworkPage(StepPage):
             return
         self._set_state("unreachable")
         message = f"{self._host} didn't answer ({exc})."
+        server = self.ctx.server_url() or ""
+        if (self.ctx.facility is not None and self.ctx.facility.scheme_assumed
+                and server.startswith("https://")):
+            message += (" If the server doesn't use HTTPS, try "
+                        f"http://{urlsplit(server).netloc}.")
         if self._proxy_offered():
             message += (f" Off-site machines reach {', '.join(self._domains())} through a "
                         "SOCKS proxy.")
