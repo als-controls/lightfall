@@ -323,3 +323,26 @@ def test_polling_keeps_sign_in_instruction_until_signed_in(qtbot, prefs):
     agy._status = AuthStatus(True, "Signed in (2 models)")
     qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
     assert not sec._poll_timer.isActive()
+
+
+def test_hidden_selector_set_kind_and_last_status(qtbot, prefs):
+    from PySide6.QtWidgets import QGroupBox
+
+    infos = {"agy": _Info("agy", AuthStatus(True, "Signed in (1 models)")),
+             "claude-code": _Info("claude-code", AuthStatus(False, "Not signed in"))}
+    sec = AgentBackendSection(info_factory=lambda kind, agy_path=None: infos[kind],
+                              spawn=lambda *a, **k: None)
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.addWidget(sec.create_backend_group(show_selector=False))
+    lay.addWidget(sec.create_gemini_group())
+    qtbot.addWidget(host)
+    host.show()
+    combo = host.findChild(QComboBox, "assistantBackend")
+    assert combo is not None and not combo.isVisible()
+    sec.load()
+    sec.set_kind("agy")
+    assert sec.selected_kind() == "agy"
+    assert host.findChild(QGroupBox, "assistantGeminiGroup").isVisible()
+    qtbot.waitUntil(lambda: sec.last_status is not None, timeout=3000)
+    assert sec.last_status.ok

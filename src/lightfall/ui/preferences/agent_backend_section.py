@@ -26,13 +26,13 @@ from PySide6.QtWidgets import (
     QToolButton,
 )
 
-from lightfall.agents.backends.info import backend_info
+from lightfall.agents.backends.info import AuthStatus, backend_info
 from lightfall.agents.backends.select import AGY, CLAUDE_CODE
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
-_KINDS = ((CLAUDE_CODE, "Claude Code"), (AGY, "Gemini (agy)"))
+BACKEND_KINDS = ((CLAUDE_CODE, "Claude Code"), (AGY, "Gemini (agy)"))
 
 
 class AgentBackendSection:
@@ -62,19 +62,25 @@ class AgentBackendSection:
         self._generation = 0
         self._poll_timer: QTimer | None = None
         self._poll_deadline = 0.0
+        self._last_status: AuthStatus | None = None
 
     # --- widgets -------------------------------------------------------------
 
-    def create_backend_group(self) -> QGroupBox:
+    def create_backend_group(self, *, show_selector: bool = True) -> QGroupBox:
+        """``show_selector=False``: the caller shows its own selector (the setup wizard's
+        segmented control) and calls ``set_kind``."""
         self.stop()  # a new page replaces the old one: its poll must not drive this one
         group = QGroupBox("Backend")
         layout = QFormLayout(group)
-        self._kind_combo = QComboBox()
+        self._kind_combo = QComboBox(group)
         self._kind_combo.setObjectName("assistantBackend")
-        for kind, label in _KINDS:
+        for kind, label in BACKEND_KINDS:
             self._kind_combo.addItem(label, kind)
         self._kind_combo.currentIndexChanged.connect(self._on_kind_changed)
-        layout.addRow("Assistant backend:", self._kind_combo)
+        if show_selector:
+            layout.addRow("Assistant backend:", self._kind_combo)
+        else:
+            self._kind_combo.hide()
 
         row = QHBoxLayout()
         self._status = QLabel("")
@@ -144,6 +150,19 @@ class AgentBackendSection:
 
     def selected_kind(self) -> str:
         return self._kind_combo.currentData() if self._kind_combo else CLAUDE_CODE
+
+    def set_kind(self, kind: str) -> None:
+        """Select a backend (for an external selector); refreshes the status."""
+        if self._kind_combo is None:
+            return
+        index = self._kind_combo.findData(kind)
+        if index >= 0 and index != self._kind_combo.currentIndex():
+            self._kind_combo.setCurrentIndex(index)
+
+    @property
+    def last_status(self) -> AuthStatus | None:
+        """The most recent status check result for the selected backend, if any."""
+        return self._last_status
 
     def _alive(self) -> bool:
         return self._status is not None and shiboken6.isValid(self._status)
@@ -226,6 +245,7 @@ class AgentBackendSection:
         if not self._alive():
             return
         if not from_poll:
+            self._last_status = None
             self._status.setText("Checking…")
             self._status.setStyleSheet("color: gray; font-style: italic;")
         self._generation += 1
@@ -258,6 +278,7 @@ class AgentBackendSection:
         status, models = result
         if from_poll and not status.ok:
             return  # keep "Complete the Google sign-in…" while polling
+        self._last_status = status
         self._status.setText(("✓ " if status.ok else "") + status.detail)
         self._status.setStyleSheet(
             "color: green; font-style: italic;" if status.ok else "color: orange; font-style: italic;"

@@ -20,3 +20,16 @@ class SetupRegistry:
 
     def __len__(self) -> int:
         return len(self._steps)
+
+
+def default_registry() -> SetupRegistry:
+    """W1 steps in order: Facility, Network, Sign in, Assistant (plugins come in W3)."""
+    from lightfall.setup.steps.assistant import AssistantStep
+    from lightfall.setup.steps.facility import FacilityStep
+    from lightfall.setup.steps.network import NetworkStep
+    from lightfall.setup.steps.signin import SignInStep
+
+    registry = SetupRegistry()
+    for step in (FacilityStep(), NetworkStep(), SignInStep(), AssistantStep()):
+        registry.register(step)
+    return registry
