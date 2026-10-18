@@ -128,6 +128,7 @@ class SetupWizard(QDialog):
         self._pages: dict[int, StepPage] = {}
         self._current: int | None = None
         self._landed = False
+        self._pending: int | None = None  # step moved to whose re-detect may auto-skip it
         self._closed = False
         self._progress = load_progress(ctx.config)
         self._overlay: DimOverlay | None = None
@@ -325,6 +326,11 @@ class SetupWizard(QDialog):
             state = StepState(StepStatus.FAILED, "Couldn't check")
         self._states[index] = state
         self._paint_rail(index)
+        if index == self._pending:
+            self._pending = None
+            if state.satisfied and self._current == index:
+                self._advance_from(index)  # still there, and already set up: skip it
+                return
         if not self._landed:
             target = self._landing_index()
             if target is not None:
@@ -341,6 +347,14 @@ class SetupWizard(QDialog):
                 continue
             return index
         return len(self._steps)
+
+    def _advance_from(self, index: int) -> None:
+        """Go to the step after ``index``; if its re-detect is still running and it turns
+        out satisfied, ``_on_detected`` moves on again unless the user navigates first."""
+        target = self._next_index(index)
+        in_flight = target < len(self._steps) and self._states[target] is None
+        self._go(target)
+        self._pending = target if in_flight else None
 
     def _next_index(self, index: int) -> int:
         for later in range(index + 1, len(self._steps)):
@@ -444,11 +458,13 @@ class SetupWizard(QDialog):
             self._fade.start()
 
     def _on_rail_clicked(self, index: int) -> None:
+        self._pending = None
         self._landed = True
         if index != self._current:
             self._go(index)
 
     def _on_back(self) -> None:
+        self._pending = None
         if self._current is not None and self._current > 0:
             self._go(self._current - 1)
 
@@ -470,6 +486,7 @@ class SetupWizard(QDialog):
         self._progress.mark_skipped(self._steps[index].id)
         self._save_progress()
         self._states[index] = StepState(StepStatus.SKIPPED, "Skipped")
+        self._pending = None
         self._go(self._next_index(index))
 
     def _on_completed(self, index: int) -> None:
@@ -497,7 +514,7 @@ class SetupWizard(QDialog):
         self._progress.mark_completed(step.id)
         self._save_progress()
         self._start_detect(index + 1)  # later steps may depend on this one
-        self._go(self._next_index(index))
+        self._advance_from(index)
 
     def _save_progress(self) -> None:
         try:
@@ -530,15 +547,20 @@ class SetupWizard(QDialog):
             overlay.deleteLater()
 
     def done(self, result: int) -> None:
-        if not self._closed:
-            self._closed = True
-            self._detect_gen = [gen + 1 for gen in self._detect_gen]
-            self._checking_spinner.stop()
-            for page in self._pages.values():
-                try:
-                    page.on_leave()
-                    page.close_page()
-                except Exception:  # noqa: BLE001
-                    logger.exception("Setup page cleanup failed")
-            self._remove_overlay()
-        super().done(result)
+        try:
+            if not self._closed:
+                self._closed = True
+                self._pending = None
+                self._detect_gen = [gen + 1 for gen in self._detect_gen]
+                self._checking_spinner.stop()
+                for page in self._pages.values():
+                    try:
+                        page.on_leave()
+                        page.close_page()
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Setup page cleanup failed")
+                self._remove_overlay()
+        except Exception:  # noqa: BLE001 - the dialog must still close and emit finished
+            logger.exception("Setup wizard cleanup failed")
+        finally:
+            super().done(result)

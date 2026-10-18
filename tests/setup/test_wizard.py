@@ -204,8 +204,57 @@ def test_close_drops_late_detect_results(qtbot, make_wizard):
         assert a.closed == 1
     finally:
         gate.set()
-    qtbot.wait(300)
+    qtbot.waitUntil(lambda: all(not f.isRunning() for f in wizard._futures), timeout=3000)
+    qtbot.wait(50)  # let any queued result slot run
     assert wizard.state("b") is None
+
+
+def test_continue_auto_skips_a_satisfied_later_step(qtbot, make_wizard):
+    wizard = make_wizard(FakeStep("a"), FakeStep("b", SAT, "B ok"), FakeStep("c"))
+    _at(qtbot, wizard, "a")
+    qtbot.waitUntil(lambda: wizard.state("b") is not None, timeout=3000)
+    _click(wizard, "setupPrimary")
+    _at(qtbot, wizard, "c")
+    assert wizard.rail_item("b").state() == "done"
+
+
+def test_continue_chains_to_ready_when_the_rest_is_satisfied(qtbot, make_wizard):
+    wizard = make_wizard(FakeStep("a"), FakeStep("b", SAT), FakeStep("c", SAT))
+    _at(qtbot, wizard, "a")
+    _click(wizard, "setupPrimary")
+    _at(qtbot, wizard, "ready")
+
+
+@pytest.mark.parametrize("navigate", ["back", "rail"])
+def test_navigation_cancels_the_pending_auto_skip(qtbot, make_wizard, navigate):
+    gate = threading.Event()
+    try:
+        wizard = make_wizard(FakeStep("a"), FakeStep("b", SAT, gate=gate), FakeStep("c"))
+        _at(qtbot, wizard, "a")
+        _click(wizard, "setupPrimary")
+        assert wizard.current_step_id() == "b"
+        if navigate == "back":
+            _click(wizard, "setupBack")
+        else:
+            qtbot.mouseClick(wizard.rail_item("a"), Qt.MouseButton.LeftButton)
+        assert wizard.current_step_id() == "a"
+    finally:
+        gate.set()
+    qtbot.waitUntil(lambda: wizard.state("b") is not None, timeout=3000)
+    qtbot.wait(50)
+    assert wizard.current_step_id() == "a"
+
+
+def test_cleanup_failure_still_finishes(qtbot, make_wizard, monkeypatch):
+    wizard = make_wizard(FakeStep("a"))
+    _at(qtbot, wizard, "a")
+
+    def boom():
+        raise RuntimeError("overlay")
+
+    monkeypatch.setattr(wizard, "_remove_overlay", boom)
+    with qtbot.waitSignal(wizard.finished, timeout=1000):
+        wizard.reject()
 
 
 def test_dim_overlay_covers_the_parent(qtbot, make_wizard):
