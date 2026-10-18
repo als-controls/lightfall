@@ -30,8 +30,8 @@ def test_toolserver_is_hashable_tuple_of_tools():
         return {"content": []}
 
     srv = ToolServer(name="x", version="1.0.0", tools=(a,))
+    assert isinstance(srv.tools, tuple)
     assert srv.tools[0].name == "a"
-    assert srv.tool_ids() == ["mcp__x__a"]
 
 
 def test_as_tool_spec_passthrough_for_toolspec():

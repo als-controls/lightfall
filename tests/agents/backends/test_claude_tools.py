@@ -1,7 +1,7 @@
 """Claude adapter turns neutral ToolServers into SDK MCP servers unchanged."""
 from __future__ import annotations
 
-from lightfall.agents.tooling import ToolServer, tool
+from lightfall.agents.tooling import ToolServer, tool, tool_id
 
 
 @tool("ping", "Ping", {})
@@ -37,8 +37,8 @@ def test_bus_and_skills_factories_return_toolservers():
     skills = create_skill_tools_server(lambda: "lightfall", lambda: None)
     assert isinstance(bus, ToolServer) and bus.name == "bus"
     assert isinstance(skills, ToolServer) and skills.name == "skills"
-    assert sorted(bus.tool_ids()) == sorted(BUS_ALLOWED_TOOLS)
-    assert skills.tool_ids() == SKILLS_ALLOWED_TOOLS
+    assert sorted(tool_id(bus.name, t.name) for t in bus.tools) == sorted(BUS_ALLOWED_TOOLS)
+    assert [tool_id(skills.name, t.name) for t in skills.tools] == SKILLS_ALLOWED_TOOLS
 
 
 def test_mixed_plugin_tools_assemble():

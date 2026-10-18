@@ -62,9 +62,6 @@ class ToolServer:
     version: str
     tools: tuple[ToolSpec, ...]
 
-    def tool_ids(self) -> list[str]:
-        return [tool_id(self.name, t.name) for t in self.tools]
-
 
 def as_tool_spec(obj: Any) -> ToolSpec | None:
     """Normalise a tool object to ``ToolSpec``.
