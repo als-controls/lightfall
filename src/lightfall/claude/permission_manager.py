@@ -6,6 +6,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
+from lightfall.agents.tooling import tool_id
+
 
 class PermissionManager(QObject):
     """
@@ -51,33 +53,33 @@ class PermissionManager(QObject):
         "LS", "ls",
         "ListFiles", "list_files",
         # Qt inspection tools
-        "mcp__qt__screenshot",
-        "mcp__qt__get_widget_tree",
-        "mcp__qt__find_widget",
-        "mcp__qt__get_recent_logs",
+        tool_id("qt", "screenshot"),
+        tool_id("qt", "get_widget_tree"),
+        tool_id("qt", "find_widget"),
+        tool_id("qt", "get_recent_logs"),
         # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).
         # LFCoreToolPlugin is manifest-driven via ToolRegistry (lightfall_core_tools server).
-        "mcp__lightfall_core_tools__lightfall_list_panels",
-        "mcp__lightfall_core_tools__lightfall_get_panel_info",
-        "mcp__lightfall_core_tools__lightfall_get_application_info",
-        "mcp__lightfall_core_tools__lightfall_set_emotion",
+        tool_id("lightfall_core_tools", "lightfall_list_panels"),
+        tool_id("lightfall_core_tools", "lightfall_get_panel_info"),
+        tool_id("lightfall_core_tools", "lightfall_get_application_info"),
+        tool_id("lightfall_core_tools", "lightfall_set_emotion"),
         # device_tools agent
-        "mcp__device_tools__lightfall_list_devices",
-        "mcp__device_tools__lightfall_get_device",
-        "mcp__device_tools__lightfall_read_device",
-        "mcp__device_tools__lightfall_get_device_state",
-        "mcp__device_tools__lightfall_get_catalog_info",
+        tool_id("device_tools", "lightfall_list_devices"),
+        tool_id("device_tools", "lightfall_get_device"),
+        tool_id("device_tools", "lightfall_read_device"),
+        tool_id("device_tools", "lightfall_get_device_state"),
+        tool_id("device_tools", "lightfall_get_catalog_info"),
         # plan_tools agent
-        "mcp__plan_tools__lightfall_list_plans",
-        "mcp__plan_tools__lightfall_get_user_plan",
+        tool_id("plan_tools", "lightfall_list_plans"),
+        tool_id("plan_tools", "lightfall_get_user_plan"),
         # engine_tools agent
-        "mcp__engine_tools__lightfall_get_run_status",
-        "mcp__engine_tools__lightfall_get_run_history",
-        "mcp__engine_tools__lightfall_get_scan_data",
-        "mcp__engine_tools__lightfall_get_last_run",
-        "mcp__engine_tools__lightfall_wait_for_idle",
+        tool_id("engine_tools", "lightfall_get_run_status"),
+        tool_id("engine_tools", "lightfall_get_run_history"),
+        tool_id("engine_tools", "lightfall_get_scan_data"),
+        tool_id("engine_tools", "lightfall_get_last_run"),
+        tool_id("engine_tools", "lightfall_wait_for_idle"),
         # ipython_tools agent
-        "mcp__ipython_tools__lightfall_ipython_get_namespace",
+        tool_id("ipython_tools", "lightfall_ipython_get_namespace"),
         # Bare names (fallback for SDK that may dispatch without prefix)
         "lightfall_set_emotion",
     })
