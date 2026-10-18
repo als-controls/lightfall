@@ -4,8 +4,17 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import shiboken6
-from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QShowEvent
+from PySide6.QtCore import (
+    QEvent,
+    QObject,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -33,8 +42,6 @@ RAIL_WIDTH = 208
 SURFACE_MIN_WIDTH = 720
 SURFACE_MIN_HEIGHT = 400
 SHADOW_MARGIN = 28
-RAIL_ICONS = {"done": "✓", "current": "●", "warn": "!", "todo": "", "skipped": "–",
-              "checking": "…"}
 
 
 class DimOverlay(QWidget):
@@ -58,6 +65,75 @@ class DimOverlay(QWidget):
         painter.end()
 
 
+def _round_pen(color: QColor) -> QPen:
+    pen = QPen(color, 2)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    return pen
+
+
+class RailDot(QWidget):
+    """The rail's status mark, painted rather than drawn as a font glyph: glyph metrics
+    (✓, ●) differ between fonts and DPI scales and left the mark off-centre. It is
+    centred vertically on its anchor (the step title's line)."""
+
+    SIZE = 18
+
+    def __init__(self, anchor: QWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._anchor = anchor
+        self._state = "checking"
+        self.setFixedWidth(self.SIZE)
+        self.setMinimumHeight(self.SIZE)
+
+    def state(self) -> str:
+        return self._state
+
+    def set_state(self, state: str) -> None:
+        self._state = state
+        self.update()
+
+    def _center_y(self) -> float:
+        anchor = self._anchor.geometry()
+        if anchor.height() > 0 and self.parentWidget() is self._anchor.parentWidget():
+            return anchor.center().y() + 0.5 - self.geometry().top()
+        return self.SIZE / 2
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+        t = modern.current_tokens()
+        ring = {"done": t["ok"], "current": t["acc"], "warn": t["warn"]}.get(
+            self._state, t["line"])
+        r = self.SIZE / 2
+        cy = self._center_y()
+        box = QRectF(1, cy - r + 1, self.SIZE - 2, self.SIZE - 2)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._state == "done":
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(ring))
+            painter.drawRoundedRect(box, 6, 6)
+            painter.setPen(_round_pen(QColor(t["ok_txt"])))
+            painter.drawPolyline([QPointF(r - 4, cy), QPointF(r - 1, cy + 3),
+                                  QPointF(r + 4, cy - 3)])
+        else:
+            painter.setPen(QPen(QColor(ring), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box, 6, 6)
+            mark = QColor(ring if self._state in ("current", "warn") else t["dim"])
+            if self._state == "current":
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(mark)
+                painter.drawEllipse(QPointF(r, cy), 2.5, 2.5)
+            elif self._state == "warn":
+                painter.setPen(_round_pen(mark))
+                painter.drawLine(QPointF(r, cy - 4), QPointF(r, cy + 1))
+                painter.drawPoint(QPointF(r, cy + 4))
+            elif self._state == "skipped":
+                painter.setPen(_round_pen(mark))
+                painter.drawLine(QPointF(r - 3, cy), QPointF(r + 3, cy))
+        painter.end()
+
+
 class RailItem(QFrame):
     """One step in the rail: status icon, title, muted value line."""
 
@@ -73,9 +149,6 @@ class RailItem(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(8, 8, 8, 8)
         row.setSpacing(10)
-        self.icon_label = QLabel(self)
-        self.icon_label.setProperty("railRole", "icon")
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         column = QVBoxLayout()
         column.setSpacing(1)
         self.title_label = QLabel(title, self)
@@ -84,14 +157,15 @@ class RailItem(QFrame):
         self.value_label.setProperty("railRole", "value")
         column.addWidget(self.title_label)
         column.addWidget(self.value_label)
-        row.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignTop)
+        self.dot = RailDot(self.title_label, self)
+        row.addWidget(self.dot)
         row.addLayout(column, 1)
         self.set_state("checking", "Checking…", current=False)
 
     def set_state(self, state: str, value: str, *, current: bool) -> None:
         self.setProperty("railState", state)
         self.setProperty("railCurrent", "true" if current else "false")
-        self.icon_label.setText(RAIL_ICONS[state])
+        self.dot.set_state(state)
         self.value_label.setText(value)
         self.value_label.setVisible(bool(value))
         modern.repolish(self)
@@ -214,13 +288,17 @@ class SetupWizard(QDialog):
         main_layout.addSpacing(12)
 
         self._stack = QStackedWidget(main)
+        # The opacity effect is enabled only while a fade runs: left enabled, it
+        # mispaints the stack's children (facility tiles drawn over the footer).
         self._opacity = QGraphicsOpacityEffect(self._stack)
         self._opacity.setOpacity(1.0)
+        self._opacity.setEnabled(False)
         self._stack.setGraphicsEffect(self._opacity)
         self._fade = QPropertyAnimation(self._opacity, b"opacity", self)
         self._fade.setDuration(FADE_MS)
         self._fade.setStartValue(0.0)
         self._fade.setEndValue(1.0)
+        self._fade.finished.connect(self._end_fade)
         self._checking = self._make_checking_page()
         self._ready = self._make_ready_page()
         self._stack.addWidget(self._checking)
@@ -456,8 +534,17 @@ class SetupWizard(QDialog):
         if index < len(self._steps) and previous != index:
             self._pages[index].on_enter()
         if animate:
-            self._fade.stop()
-            self._fade.start()
+            self._start_fade()
+
+    def _start_fade(self) -> None:
+        self._fade.stop()
+        self._opacity.setOpacity(0.0)
+        self._opacity.setEnabled(True)
+        self._fade.start()
+
+    def _end_fade(self) -> None:
+        if shiboken6.isValid(self._opacity):
+            self._opacity.setEnabled(False)
 
     def _on_rail_clicked(self, index: int) -> None:
         self._pending = None

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 import shiboken6
 from PySide6.QtCore import QPropertyAnimation, Qt
-from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QStackedWidget, QWidget
 
 from lightfall.setup.page import StepPage
 from lightfall.setup.progress import is_setup_completed, load_progress
@@ -99,7 +99,31 @@ def test_opens_at_the_first_unsatisfied_step(qtbot, make_wizard):
     surface = wizard.findChild(QFrame, "setupSurface")
     assert surface.minimumWidth() >= 720 and surface.minimumHeight() >= 400
     assert wizard.findChild(QFrame, "setupRail").width() == RAIL_WIDTH
-    assert wizard.findChild(QPropertyAnimation).duration() == FADE_MS == 150
+    assert FADE_MS == 150
+
+
+def test_fade_effect_is_removed_after_the_fade(qtbot, make_wizard):
+    # A QGraphicsOpacityEffect left on the page stack mispaints its children
+    # (facility tiles drawn over the footer), so it must only live during the fade.
+    from lightfall.setup.wizard import FADE_MS
+
+    wizard = make_wizard(FakeStep("a"), FakeStep("b"))
+    _at(qtbot, wizard, "a")
+    effect = wizard.findChild(QStackedWidget).graphicsEffect()
+    qtbot.waitUntil(lambda: not effect.isEnabled(), timeout=FADE_MS * 10)
+    assert wizard.findChild(QPropertyAnimation).duration() == FADE_MS
+
+
+def test_rail_dot_is_centred_on_the_step_title(qtbot, make_wizard):
+    wizard = make_wizard(FakeStep("a", SAT, "A ok"), FakeStep("b"))
+    _at(qtbot, wizard, "b")
+    for step_id in ("a", "b"):
+        item = wizard.rail_item(step_id)
+        dot, title = item.dot, item.title_label
+        assert abs(dot.geometry().top() + dot._center_y()
+                   - (title.geometry().center().y() + 0.5)) < 1
+    assert wizard.rail_item("a").dot.state() == "done"
+    assert wizard.rail_item("b").dot.state() == "current"
 
 
 def test_all_satisfied_opens_the_ready_page(qtbot, make_wizard):
