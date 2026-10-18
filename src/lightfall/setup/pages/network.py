@@ -46,6 +46,7 @@ class NetworkPage(StepPage):
         self._proxy_toggle = QCheckBox(self._proxy_box)
         self._proxy_toggle.setObjectName("setupProxyToggle")
         self._proxy_toggle.setChecked(True)
+        self._proxy_toggle.toggled.connect(lambda _checked: self.primary_changed.emit())
         host_label = QLabel("Host · port", self._proxy_box)
         host_label.setProperty("modern", "muted")
         self._proxy_host = QLineEdit(self._proxy_box)
@@ -81,7 +82,7 @@ class NetworkPage(StepPage):
         if self._state == "checking":
             return "Checking…"
         if self._state == "unreachable":
-            return "Test & continue" if self._proxy_offered() else "Try again"
+            return "Test & continue" if self._will_use_proxy() else "Try again"
         if self._state == "failed":
             return "Try again"
         return "Continue"
@@ -100,6 +101,7 @@ class NetworkPage(StepPage):
         self._socks_generation += 1
         if self._state == "checking":
             self._set_state("idle")
+            self.note.clear()  # the busy "Testing connection…" note is stale now
 
     def close_page(self) -> None:
         self.on_leave()
@@ -107,8 +109,7 @@ class NetworkPage(StepPage):
     def on_primary(self) -> None:
         if self._state == "ok":
             self.completed.emit()
-        elif (self._state == "unreachable" and self._proxy_offered()
-              and self._proxy_toggle.isChecked()):
+        elif self._state == "unreachable" and self._will_use_proxy():
             self._check(self._proxy_url(), persist_proxy=True)
         else:
             self._check(FROM_SETTINGS, persist_proxy=False)
@@ -122,6 +123,10 @@ class NetworkPage(StepPage):
 
     def _proxy_offered(self) -> bool:
         return bool(self._domains())
+
+    def _will_use_proxy(self) -> bool:
+        """Will the primary button retry through the SOCKS proxy (not a plain retry)?"""
+        return self._proxy_offered() and self._proxy_toggle.isChecked()
 
     def _proxy_url(self) -> str:
         host = self._proxy_host.text().strip() or DEFAULT_PROXY_HOST

@@ -185,3 +185,40 @@ def test_unreachable_with_a_typed_scheme_has_no_http_hint(qtbot, ctx, monkeypatc
 
     page = _unreachable_page(qtbot, ctx, monkeypatch, other_facility(typed))
     assert "try http://" not in page.note.text()
+
+
+def test_primary_label_matches_the_proxy_toggle(qtbot, als, monkeypatch):
+    from PySide6.QtWidgets import QCheckBox
+
+    def down(server, proxy):
+        raise NetworkError("could not connect")
+
+    monkeypatch.setattr(net, "connect", down)
+    page = _network_page(qtbot, als)
+    page.on_enter()
+    qtbot.waitUntil(lambda: page.primary_label() == "Test & continue", timeout=3000)
+    changed = []
+    page.primary_changed.connect(lambda: changed.append(1))
+    page.findChild(QCheckBox, "setupProxyToggle").setChecked(False)
+    assert page.primary_label() == "Try again"  # a plain retry, no proxy
+    assert changed
+    page.findChild(QCheckBox, "setupProxyToggle").setChecked(True)
+    assert page.primary_label() == "Test & continue"
+
+
+def test_leaving_the_page_clears_the_busy_note(qtbot, als, monkeypatch):
+    gate = threading.Event()
+
+    def slow(server, proxy):
+        gate.wait(5)
+        return BOOT
+
+    monkeypatch.setattr(net, "connect", slow)
+    page = _network_page(qtbot, als)
+    try:
+        page.on_enter()
+        assert "Testing connection" in page.note.text()
+        page.on_leave()
+        assert not page.note.isVisible()
+    finally:
+        gate.set()
