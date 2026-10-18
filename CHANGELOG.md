@@ -5,6 +5,7 @@
 ### Added
 
 - Assistant: choose Claude Code or Gemini (agy) in Preferences → Assistant, with sign-in, model picker and switching without a restart.
+- First-run setup wizard: pick your facility, reach its server (SOCKS proxy off-site), sign in and set up the assistant; facility settings load from the server's `/.well-known/lightfall`. Re-run from Help → Setup wizard….
 
 ### Fixed
 

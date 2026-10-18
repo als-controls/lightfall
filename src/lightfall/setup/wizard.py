@@ -1,8 +1,10 @@
 """SetupWizard: the step-rail dialog (spec sections 3 and 5)."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import shiboken6
-from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
@@ -564,3 +566,38 @@ class SetupWizard(QDialog):
             logger.exception("Setup wizard cleanup failed")
         finally:
             super().done(result)
+
+
+def open_setup_wizard(
+    parent: QWidget | None,
+    *,
+    on_closed: Callable[[], None] | None = None,
+    ctx: SetupContext | None = None,
+    registry: SetupRegistry | None = None,
+) -> SetupWizard:
+    """Open the wizard modally over ``parent`` (non-blocking); ``on_closed`` runs on close."""
+    from lightfall.setup.registry import default_registry
+
+    wizard = SetupWizard(parent, ctx or SetupContext.from_services(),
+                         registry or default_registry())
+    wizard.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    if on_closed is not None:
+        wizard.finished.connect(lambda _result: on_closed())
+    wizard.open()
+    return wizard
+
+
+def schedule_first_run_wizard(window: QWidget, *, on_closed: Callable[[], None]) -> None:
+    """Open the wizard on the first event-loop turn, once app.run() has shown ``window``.
+
+    ``on_closed`` (the post-login plugin wave) always runs: when the wizard closes, or
+    at once if it cannot be opened, so a broken wizard never leaves an empty window.
+    """
+    def _open() -> None:
+        try:
+            open_setup_wizard(window, on_closed=on_closed)
+        except Exception:  # noqa: BLE001 - startup must go on without the wizard
+            logger.exception("Couldn't open the setup wizard")
+            on_closed()
+
+    QTimer.singleShot(0, _open)

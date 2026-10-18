@@ -723,6 +723,29 @@ def _show_startup_login(window: LFMainWindow) -> None:
         logger.info("User cancelled login dialog")
 
 
+def _startup_login(
+    window: LFMainWindow, config: ConfigManager, fire_plugin_wave: Callable[[], None]
+) -> None:
+    """Startup sign-in. First run (``setup.completed`` unset): skip the login dialog and
+    open the setup wizard over the shown window; its Sign-in step logs in. Later runs:
+    the usual login dialog."""
+    from lightfall.setup.progress import is_setup_completed
+
+    if is_setup_completed(config):
+        _show_startup_login(window)
+        # Guest / cancelled login never reaches AUTHENTICATED, but the app still runs
+        # anonymously: start the wave now that the login screen is dismissed (no-op if
+        # the AUTHENTICATED transition already started it).
+        fire_plugin_wave()
+        return
+
+    from lightfall.setup import wizard
+
+    # app.run() shows the window; the wizard opens on the first event-loop turn. The
+    # wave starts on AUTHENTICATED (Sign-in step) or when the wizard closes.
+    wizard.schedule_first_run_wizard(window, on_closed=fire_plugin_wave)
+
+
 def _setup_session_expiry_handler(window: LFMainWindow) -> None:
     """Setup handler to show login dialog when session expires.
 
@@ -946,13 +969,8 @@ def main() -> int:
         def fire_plugin_wave() -> None:
             return None
 
-    # Show login dialog on startup
-    _show_startup_login(window)
-
-    # Guest / cancelled login never reaches AUTHENTICATED, but the app still
-    # runs anonymously — start the wave now that the login screen is dismissed
-    # (no-op if the AUTHENTICATED transition already started it).
-    fire_plugin_wave()
+    # Startup sign-in: the login dialog, or on first run the setup wizard
+    _startup_login(window, config, fire_plugin_wave)
 
     # Register cleanup on exit — order matters:
     # 1. Stop CA tunnel (kills relay sockets, stops new data arriving)

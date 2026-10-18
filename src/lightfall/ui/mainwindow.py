@@ -175,6 +175,11 @@ class LFMainWindow(QMainWindow):
         tutorial_action.triggered.connect(self._on_welcome_tutorial)
         help_menu.addAction(tutorial_action)
 
+        # Setup wizard (first-run setup; can be re-run at any time)
+        setup_action = QAction("Setup &wizard…", self)
+        setup_action.triggered.connect(self._on_setup_wizard)
+        help_menu.addAction(setup_action)
+
         help_menu.addSeparator()
 
         # Report Bug action
@@ -819,6 +824,12 @@ class LFMainWindow(QMainWindow):
 
         manager = TutorialManager.get_instance()
         manager.start("welcome", self)
+
+    def _on_setup_wizard(self) -> None:
+        """Open the setup wizard (Help → Setup wizard…)."""
+        from lightfall.setup import wizard
+
+        wizard.open_setup_wizard(self)
 
     def _on_about(self) -> None:
         """Show about dialog."""

@@ -46,11 +46,24 @@ pip install -e ".[dev]"
 lightfall
 ```
 
-On first launch you are greeted by the login dialog. Sign in, or click
-**Continue as Guest** to look around with read-only access — see
-[Logging In](login.md) for the full set of options.
+On first launch the **setup wizard** opens over the main window. It has four steps,
+shown in a rail on the left; a ✓ marks steps that are already done, and they are
+skipped:
 
-> 🖼️ **Image placeholder** — *Screenshot: the login dialog with the Lightfall logo, "Login with Keycloak" and "Continue as Guest" buttons*
+1. **Facility**: pick your facility (for example the Advanced Light Source), or
+   choose *Other facility* and enter its Lightfall server URL.
+2. **Network**: Lightfall checks that it can reach the facility server and loads the
+   facility's settings (sign-on, Tiled, logbook, assistant). Off-site, if the server
+   doesn't answer, turn on the SOCKS proxy (usually `localhost:1080`; *Auto-detect*
+   looks for it) and click **Test & continue**.
+3. **Sign in**: the usual single sign-on in your browser. *Continue as guest* skips it.
+4. **Assistant**: choose Gemini or Claude and sign in.
+
+Click **Finish** on the last page. Later launches go straight to the login dialog —
+see [Logging In](login.md). If you close the wizard early, Lightfall stays usable and
+the wizard picks up where you left off next time.
+
+> 🖼️ **Image placeholder** — *Screenshot: the setup wizard's Network step with the SOCKS proxy fields*
 
 ## What works out of the box
 
@@ -129,6 +142,9 @@ example prompt in the Claude Assistant. It is the fastest way to learn where
 things are.
 
 > 🖼️ **Image placeholder** — *Screenshot: the welcome tutorial overlay spotlighting the icon sidebar with its callout box*
+
+**Help → Setup wizard…** opens the setup wizard again at any time, for example after
+moving to another facility or network; completed steps show ✓.
 
 ## Keyboard shortcuts
 
