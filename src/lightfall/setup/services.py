@@ -110,8 +110,14 @@ def configure_tiled(config: ConfigManager) -> None:
 
     # tiled_auth_mode wins; otherwise Keycloak sign-on implies Keycloak for Tiled.
     auth_mode_pref = prefs.get("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"])
+    explicit_mode = None
     if auth_mode_pref:
-        auth_mode = TiledAuthMode(auth_mode_pref)
+        try:
+            explicit_mode = TiledAuthMode(auth_mode_pref)
+        except ValueError:
+            logger.warning("Ignoring invalid tiled_auth_mode {!r}; auto-detecting", auth_mode_pref)
+    if explicit_mode is not None:
+        auth_mode = explicit_mode
     elif config.model.auth.provider.type == "keycloak":
         auth_mode = TiledAuthMode.KEYCLOAK
         logger.info("Auto-detected Keycloak auth mode for Tiled")

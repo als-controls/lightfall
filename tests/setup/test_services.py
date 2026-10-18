@@ -105,10 +105,15 @@ def test_keycloak_tiled_waits_for_login_when_signed_out(prefs, cfg, calls):
     assert calls["connects"] == []
 
 
-def test_reconfigure_reports_errors_instead_of_raising(prefs, cfg, calls):
+def test_reconfigure_reports_errors_instead_of_raising(prefs, cfg, tiled, calls, monkeypatch):
     from lightfall.setup.services import reconfigure_services
 
-    prefs.set("tiled_auth_mode", "bogus")
+    def boom(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(tiled, "configure", boom)
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example:8000")
     errors = reconfigure_services(cfg)
     assert len(errors) == 1 and errors[0].startswith("Tiled:")
 
@@ -184,3 +189,15 @@ def test_rerun_does_not_connect_a_disabled_tiled(prefs, cfg, tiled, calls):
     _set_tiled_state(tiled, TiledConnectionState.ERROR)
     assert reconfigure_services(cfg) == []
     assert calls["connects"] == []
+
+
+def test_configure_tiled_treats_an_invalid_auth_mode_as_auto_detect(prefs, cfg, calls):
+    from lightfall.services.tiled_service import TiledAuthMode
+    from lightfall.setup.services import configure_tiled
+
+    prefs.set("tiled_enabled", True)
+    prefs.set("tiled_url", "http://tiled.example:8000")
+    prefs.set("tiled_api_key", "k")
+    prefs.set("tiled_auth_mode", "oidc")
+    configure_tiled(cfg)  # raised ValueError("'oidc' is not a valid TiledAuthMode") before
+    assert calls["configures"][0]["auth_mode"] == TiledAuthMode.API_KEY
