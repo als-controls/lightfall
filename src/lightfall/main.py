@@ -108,68 +108,11 @@ def _setup_auth(config: ConfigManager) -> None:
     """Setup authentication provider based on configuration.
 
     Set environment variable NCS_AUTH=local to force local auth for development.
+    The logic lives in lightfall.setup.services.configure_auth (the setup wizard re-runs it).
     """
-    import os
+    from lightfall.setup.services import configure_auth
 
-    session_manager = SessionManager.get_instance()
-
-    auth_config = config.model.auth
-    provider_type = auth_config.provider.type
-
-    # Allow environment variable override for development
-    env_auth = os.environ.get("NCS_AUTH", "").lower()
-    if env_auth in ("local", "pam", "keycloak"):
-        provider_type = env_auth
-        logger.info("Using {} auth (NCS_AUTH={})", provider_type, env_auth)
-
-    from lightfall.auth.provider_registry import AuthProviderRegistry
-    from lightfall.auth.providers.builtin_plugins import (
-        register_builtin_auth_plugins,
-        seed_default_disabled_plugins,
-    )
-
-    # Apply ship-disabled-by-default plugin state once, before registration so
-    # the disabled ones (e.g. local) are honored here and by the plugin loader.
-    seed_default_disabled_plugins()
-
-    registry = AuthProviderRegistry.get_instance()
-    register_builtin_auth_plugins(
-        registry, config=config, include_pam=(sys.platform != "win32")
-    )
-
-    # Pick the startup default provider (used for token refresh before any
-    # dialog login). The dialog will call set_provider again on actual login.
-    default_name = provider_type if registry.has(provider_type) else "local"
-    # Keycloak needs a configured server_url; otherwise fall back to local
-    # (parity with the previous _setup_auth guard).
-    if default_name == "keycloak" and not auth_config.provider.server_url:
-        default_name = "local"
-    default_plugin = registry.get(default_name) or registry.get("local")
-
-    provider = None
-    if default_plugin is not None:
-        try:
-            provider = default_plugin.create_provider()
-            logger.info("Default auth provider: {}", default_plugin.name)
-        except Exception as exc:
-            logger.warning(
-                "Failed to create '{}' auth provider ({}); falling back to local",
-                default_plugin.name, exc,
-            )
-    if provider is None:
-        # The chosen provider may be unregistered/disabled (e.g. local ships
-        # disabled by default and nothing else is configured). Use a direct
-        # LocalAuthProvider purely for pre-login session plumbing — this does
-        # not add a login button (those come from the registry).
-        from lightfall.auth.providers.local import LocalAuthProvider
-        from lightfall.ui.preferences.login_settings import LoginSettingsProvider
-
-        provider = LocalAuthProvider(
-            session_duration=LoginSettingsProvider.get_session_duration()
-        )
-        logger.info("Default auth provider: local (direct fallback)")
-
-    session_manager.set_provider(provider)
+    configure_auth(config)
 
 
 def _setup_services(app: LFApplication, config: ConfigManager) -> None:
@@ -517,53 +460,11 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
         app: The NCS application instance.
         config: The configuration manager.
     """
-    from lightfall.services.tiled_service import TILED_DEFAULTS, TiledAuthMode, TiledService
+    from lightfall.services.tiled_service import TiledService
+    from lightfall.setup.services import configure_tiled
 
-    services = app.services
-    prefs = PreferencesManager.get_instance()
-
-    # Create service singleton
-    service = TiledService.get_instance()
-
-    # Configure from preferences
-    enabled = prefs.get("tiled_enabled", TILED_DEFAULTS["tiled_enabled"])
-    url = prefs.get("tiled_url", TILED_DEFAULTS["tiled_url"])
-    api_key = prefs.get("tiled_api_key") or None
-
-    # Determine auth mode
-    # If tiled_auth_mode is set in preferences, use that
-    # Otherwise, auto-detect: use KEYCLOAK if auth provider is keycloak
-    auth_mode_pref = prefs.get("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"])
-    if auth_mode_pref:
-        auth_mode = TiledAuthMode(auth_mode_pref)
-    elif config.model.auth.provider.type == "keycloak":
-        # Auto-detect: if using Keycloak auth, use Keycloak for Tiled too
-        auth_mode = TiledAuthMode.KEYCLOAK
-        logger.info("Auto-detected Keycloak auth mode for Tiled")
-    elif api_key:
-        auth_mode = TiledAuthMode.API_KEY
-    else:
-        auth_mode = TiledAuthMode.NONE
-
-    if enabled and url:
-        service.configure(url=url, api_key=api_key, enabled=True, auth_mode=auth_mode)
-
-        if auth_mode == TiledAuthMode.KEYCLOAK:
-            # For Keycloak, connect to SessionManager and defer connection
-            service.connect_session_manager()
-            logger.info(
-                "Tiled service initialized with Keycloak auth, waiting for user login"
-            )
-        else:
-            # For API key or no auth, connect immediately
-            service.connect_async()
-            logger.info("Tiled service initialized, connecting in background")
-    else:
-        service.configure(url=url, api_key=api_key, enabled=False, auth_mode=auth_mode)
-        logger.debug("Tiled service initialized (disabled)")
-
-    # Register service
-    services.register(TiledService, TiledService.get_instance)
+    configure_tiled(config)
+    app.services.register(TiledService, TiledService.get_instance)
 
 
 def _setup_monitor(app, window) -> None:
