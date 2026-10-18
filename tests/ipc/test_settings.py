@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
 
@@ -48,7 +46,7 @@ class TestIPCSettingsPlugin:
 class TestDisplayNameField:
     def test_display_name_field_exists(self, qapp):
         plugin = IPCSettingsPlugin()
-        widget = plugin.create_widget()
+        plugin.create_widget()
         assert plugin._display_name_edit is not None
 
     def test_load_saves_display_name(self, qapp, monkeypatch):

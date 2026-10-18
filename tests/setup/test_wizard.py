@@ -156,7 +156,7 @@ def test_help_rerun_lands_before_a_slow_last_detect(qtbot, make_wizard):
     assert wizard.current_step_id() == "c"  # c needs input: still the page the user needs
 
 
-def test_help_rerun_with_a_slow_satisfied_last_step_ends_on_ready(qtbot, make_wizard, cfg):
+def test_help_rerun_with_a_slow_satisfied_last_step_advances_to_ready(qtbot, make_wizard, cfg):
     from lightfall.setup.progress import SetupProgress, save_progress
 
     gate = threading.Event()
@@ -164,8 +164,36 @@ def test_help_rerun_with_a_slow_satisfied_last_step_ends_on_ready(qtbot, make_wi
     try:
         wizard = make_wizard(FakeStep("a", SAT), FakeStep("b", SAT),
                              FakeStep("c", SAT, gate=gate))
-        _at(qtbot, wizard, "ready")  # lands before c's detect finishes
+        _at(qtbot, wizard, "c")  # lands on the pending step, not the ready page
         assert wizard.state("c") is None
+    finally:
+        gate.set()
+    _at(qtbot, wizard, "ready")
+
+
+def test_slow_last_step_needing_input_never_ends_on_ready(qtbot, make_wizard, cfg):
+    from lightfall.setup.progress import SetupProgress, save_progress
+
+    gate = threading.Event()
+    save_progress(cfg, SetupProgress(completed=["a", "b", "c"]))  # stale: c has lapsed
+    try:
+        wizard = make_wizard(FakeStep("a", SAT), FakeStep("b", SAT), FakeStep("c", gate=gate))
+        _at(qtbot, wizard, "c")
+    finally:
+        gate.set()
+    qtbot.waitUntil(lambda: wizard.state("c") is not None, timeout=3000)
+    qtbot.wait(200)
+    assert wizard.current_step_id() == "c"
+
+
+def test_skipped_slow_last_step_is_passed_over(qtbot, make_wizard, cfg):
+    from lightfall.setup.progress import SetupProgress, save_progress
+
+    gate = threading.Event()
+    save_progress(cfg, SetupProgress(skipped=["c"]))
+    try:
+        wizard = make_wizard(FakeStep("a", SAT), FakeStep("b", SAT), FakeStep("c", gate=gate))
+        _at(qtbot, wizard, "ready")
     finally:
         gate.set()
 

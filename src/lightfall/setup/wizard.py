@@ -425,16 +425,18 @@ class SetupWizard(QDialog):
         """First step neither satisfied nor skipped, once every step before it is known.
 
         The last step may still be detecting (the Assistant check can take 30 s): when
-        every step before it is set up, a Help re-run lands on the ready page if progress
-        says the last step was completed, else on the last step, which moves on by itself
-        if its detect then comes back satisfied.
+        every step before it is set up, a Help re-run lands on the last step (unless it
+        was skipped), which moves on by itself if its detect then comes back satisfied
+        and stays put if it needs input. Saved progress is never trusted over detection.
         """
         last = len(self._steps) - 1
         for index, step in enumerate(self._steps):
             state = self._states[index]
             if state is None:
                 if index == last and index > 0:
-                    return len(self._steps) if step.id in self._progress.completed else index
+                    if step.id in self._progress.skipped:
+                        continue  # passed over, as for any skipped step
+                    return index
                 return None
             if state.satisfied or step.id in self._progress.skipped:
                 continue
