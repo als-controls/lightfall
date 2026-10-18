@@ -40,6 +40,19 @@ class ConfigManager(_BaseConfigManager):
         self._layered.add_layer(layer)
         self._model = None
 
+    def reload(self) -> None:
+        """Reload every file layer, then re-install the bootstrap layer sanitized.
+
+        The base reload re-reads bootstrap.yaml raw; a hand-edited bad file would come
+        back unsanitized, so the bootstrap loader runs again over it.
+        """
+        super().reload()
+        from lightfall.setup.bootstrap import BOOTSTRAP_LAYER, load_bootstrap_layer
+
+        if self._layered.get_layer(BOOTSTRAP_LAYER) is not None:
+            load_bootstrap_layer(self)
+            self._rebuild_model()
+
     @property
     def model(self) -> LFConfig:
         """The validated configuration model, typed as LFConfig."""

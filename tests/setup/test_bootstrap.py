@@ -515,3 +515,14 @@ def test_whole_layer_check_drops_everything_when_still_invalid(monkeypatch):
 
     monkeypatch.setattr(schema, "LFConfig", Never)
     assert bs._validated_layer({"preferences": {"tiled_url": "https://t"}}) == {}
+
+
+def test_reload_keeps_the_bootstrap_layer_sanitized(cfg):
+    _write_bootstrap(cfg, "preferences:\n  tiled_auth_mode: oidc\n  logbook_url: 'http://l'\n"
+                          "auth: x\n")
+    assert load_bootstrap_layer(cfg) is True
+    cfg.reload()  # re-read bootstrap.yaml raw before the fix
+    assert cfg.layers.get_layer("bootstrap").data == {"preferences": {"logbook_url": "http://l"}}
+    assert cfg.validation_errors == []
+    assert cfg.model.auth.provider.type == "local"
+    assert cfg.get("preferences.logbook_url") == "http://l"
