@@ -74,7 +74,7 @@ dependencies = [
     "happi>=2.0",
     "nats-py>=2.0",
     "lightfall-utils>=0.2.0",
-    "lightfall-settings>=0.1.2,<0.2",
+    "lightfall-settings>=0.1.3,<0.2",
 ]
 
 [project.optional-dependencies]
@@ -262,7 +262,7 @@ requires = [
 
     "claude-agent-sdk>=0.2.93",
     "lightfall-utils>=0.2.0",
-    "lightfall-settings>=0.1.2,<0.2",
+    "lightfall-settings>=0.1.3,<0.2",
 ]
 
 [tool.briefcase.app.lightfall.macOS]

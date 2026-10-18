@@ -57,7 +57,8 @@ CLIENT_SPECS: tuple[SettingSpec, ...] = (
 
 def client_registry() -> SpecRegistry:
     reg = core_registry()
-    reg.register_all(CLIENT_SPECS)
+    # Core specs win: lightfall-settings >= 0.1.3 declares tiled_url (public, all scopes).
+    reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))
     return reg
 
 

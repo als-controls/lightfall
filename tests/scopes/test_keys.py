@@ -49,3 +49,20 @@ def test_flatten_preferences_expands_dotted_groups_only():
         "ui.remember_geometry": True,
         "monitor_feed_intervals": {"a": 5},
     }
+
+
+def test_client_registry_defers_to_core_specs():
+    """lightfall-settings 0.1.3 declares tiled_url in core; the client must not re-register it."""
+    from lightfall_settings import CORE_SPECS
+
+    reg = client_registry()
+    for spec in CORE_SPECS:
+        assert reg.get(spec.key) == spec
+    assert reg.get("tiled_url").allows("facility")
+    assert reg.get("device_favorites").allows("branch")  # client specs still added
+
+
+def test_lightfall_settings_has_the_public_flag():
+    from lightfall_settings import SettingSpec
+
+    assert SettingSpec("x").public is False
