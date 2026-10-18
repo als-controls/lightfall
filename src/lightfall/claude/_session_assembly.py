@@ -106,6 +106,7 @@ def assemble_mcp_servers(
     servers, external, allowed = collect_tool_servers(enabled_plugins)
     mcp_servers: dict[str, Any] = {}
     for server in servers:
+        # Duplicates to_sdk_server's body on purpose: tests monkeypatch create_sdk_mcp_server on this module.
         mcp_servers[server.name] = create_sdk_mcp_server(
             name=server.name,
             version=server.version,
