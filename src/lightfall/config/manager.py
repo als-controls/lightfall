@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from lightfall.config.schema import LFConfig
+from lightfall_utils.config.layers import ConfigLayer
 from lightfall_utils.config.manager import ConfigManager as _BaseConfigManager
 
 
@@ -33,6 +34,11 @@ class ConfigManager(_BaseConfigManager):
         layer = self._layered.get_layer("user")
         prefs = layer.get("preferences", {}) if layer is not None else {}
         return dict(prefs) if isinstance(prefs, dict) else {}
+
+    def add_layer(self, layer: ConfigLayer) -> None:
+        """Add or replace a config layer (by name) and invalidate the cached model."""
+        self._layered.add_layer(layer)
+        self._model = None
 
     @property
     def model(self) -> LFConfig:

@@ -9,6 +9,7 @@ Previously, proxy was auto-detected for *.lbl.gov URLs.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import socket
 from typing import TYPE_CHECKING
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.setup.facilities import as_domain_list
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
@@ -47,6 +49,10 @@ PROXY_TYPES = {
 # Default proxy configuration
 DEFAULT_PROXY_HOST = "localhost"
 DEFAULT_PROXY_PORT = 1080
+
+# Auto-detect proxies these hosts; a facility bootstrap replaces the list
+# (preference proxy_auto_detect_domains).
+DEFAULT_PROXY_DOMAINS: tuple[str, ...] = ("*.lbl.gov",)
 
 
 class ProxySettingsProvider:
@@ -111,6 +117,18 @@ class ProxySettingsProvider:
         return prefs.get("proxy_auto_detect", False)
 
     @staticmethod
+    def get_auto_detect_domains() -> list[str]:
+        """Host patterns auto-detect sends through the proxy (fnmatch, lower case)."""
+        prefs = PreferencesManager.get_instance()
+        domains = as_domain_list(prefs.get("proxy_auto_detect_domains", None))
+        return domains or list(DEFAULT_PROXY_DOMAINS)
+
+    @staticmethod
+    def host_matches(hostname: str, patterns: list[str]) -> bool:
+        host = hostname.lower().rstrip(".")
+        return any(fnmatch.fnmatchcase(host, pattern) for pattern in patterns)
+
+    @staticmethod
     def get_proxy_url() -> str | None:
         """Get the full proxy URL if proxy is enabled.
 
@@ -145,12 +163,13 @@ class ProxySettingsProvider:
         if ProxySettingsProvider.is_enabled():
             return ProxySettingsProvider.get_proxy_url()
 
-        # Check auto-detect for *.lbl.gov
+        # Auto-detect: proxy only the facility's domains (default *.lbl.gov)
         if ProxySettingsProvider.is_auto_detect_enabled():
             try:
                 parsed = urlparse(url)
-                if parsed.hostname and parsed.hostname.endswith(".lbl.gov"):
-                    # Auto-detect enabled - use configured proxy for lbl.gov
+                if parsed.hostname and ProxySettingsProvider.host_matches(
+                    parsed.hostname, ProxySettingsProvider.get_auto_detect_domains()
+                ):
                     proxy_type = ProxySettingsProvider.get_proxy_type()
                     host = ProxySettingsProvider.get_proxy_host()
                     port = ProxySettingsProvider.get_proxy_port()

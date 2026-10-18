@@ -1,0 +1,10 @@
+# Facilities offered by the first-run setup wizard (Facility step).
+# server_url serves GET /.well-known/lightfall (lightfall-logbook) and /health.
+facilities:
+  - id: als
+    name: Advanced Light Source
+    short_name: ALS
+    subtitle: Lawrence Berkeley National Lab
+    server_url: http://bcglucidlogbook.dhcp.lbl.gov:8000
+    reach:
+      proxy_domains: ["*.lbl.gov"]   # off-site: SOCKS proxy for these

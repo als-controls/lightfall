@@ -10,7 +10,7 @@ from lightfall.scopes.keys import client_registry, flatten_preferences, is_local
     "logbook_url", "proxy_host", "proxy_port", "ipc_nats_url", "code_editor",
     "recent_files", "claude_last_session_id", "ui.remember_geometry", "telemetry_dsn",
     "claude_api_key", "tiled_api_key", "tiled_alshub_api_key", "caproxy_token",
-    "some_plugin_password", "_internal",
+    "some_plugin_password", "_internal", "proxy_auto_detect_domains",
 ])
 def test_local_only(key):
     assert is_local_only(key)

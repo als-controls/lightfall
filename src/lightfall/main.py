@@ -174,6 +174,12 @@ def _setup_auth(config: ConfigManager) -> None:
 
 def _setup_services(app: LFApplication, config: ConfigManager) -> None:
     """Setup application services."""
+    # Facility bootstrap (setup wizard): layer bootstrap.yaml in before anything reads
+    # config, in particular before _setup_auth.
+    from lightfall.setup.bootstrap import load_bootstrap_layer
+
+    load_bootstrap_layer(config)
+
     # Register additional services
     services = app.services
 
