@@ -24,7 +24,7 @@ def test_tool_id_matches_claude_wire_names():
     assert tool_id("bus", "*") == "mcp__bus__*"
 
 
-def test_toolserver_is_hashable_tuple_of_tools():
+def test_toolserver_holds_tuple_of_tools():
     @tool("a", "A", {})
     async def a(args):
         return {"content": []}
