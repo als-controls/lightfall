@@ -11,7 +11,8 @@ ALLOWED = {
     "claude/agent.py",                      # ClaudeSDKClient + Windows cmdline patch
     "claude/_session_assembly.py",          # create_sdk_mcp_server monkeypatch point
     "agents/assembly.py",                   # subagent_definitions() test-compat wrapper
-    "monitor/advisor.py",                   # guarded type aliases for collect_reply (unit-tested there)
+    # guarded type aliases for collect_reply (unit-tested there)
+    "monitor/advisor.py",
 }
 PATTERN = re.compile(r"^\s*(from|import)\s+claude_agent_sdk\b", re.MULTILINE)
 
