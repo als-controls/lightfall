@@ -52,7 +52,7 @@ class SignInPage(StepPage):
         mismatch = self.ctx.session.is_authenticated and not is_signed_in(self.ctx)
         if is_signed_in(self.ctx):
             user = self.ctx.session.current_user.username
-            self._card.set_text(f"Signed in as {user}", label)
+            self._card.set_text(f"Signed in as {user}", session_provider_label(self.ctx) or label)
         elif provider.type == "keycloak":
             host = urlsplit(provider.server_url).hostname or provider.server_url
             self._card.set_text(f"{self.ctx.facility_label()} single sign-on",
@@ -78,6 +78,9 @@ class SignInPage(StepPage):
         dialog.exec()
         result = dialog.login_result
         if result == LoginResult.AUTHENTICATED:
+            # The user chose among every offered provider: this session counts even if it
+            # is not the configured one (is_signed_in checks it is still the live session).
+            self.ctx.signed_in_session = self.ctx.session.session
             self._refresh()
             self.primary_changed.emit()
             self.completed.emit()

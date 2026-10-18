@@ -20,6 +20,8 @@ class SetupContext:
     facility: Facility | None = None
     bootstrap: Bootstrap | None = None
     via_proxy: bool = False
+    # The Session this wizard run's sign-in created (SignInPage, LoginResult.AUTHENTICATED).
+    signed_in_session: Any = None
 
     @classmethod
     def from_services(cls) -> SetupContext:

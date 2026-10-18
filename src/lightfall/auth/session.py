@@ -225,6 +225,11 @@ class SessionManager(QObject):
         return self._session
 
     @property
+    def provider(self) -> AuthProvider | None:
+        """The auth provider set by ``set_provider`` (read-only; None until one is set)."""
+        return self._provider
+
+    @property
     def current_user(self) -> User:
         """Current user (anonymous if not authenticated)."""
         if self._session and self._session.is_valid:

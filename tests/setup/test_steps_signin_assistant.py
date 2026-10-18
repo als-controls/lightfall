@@ -269,3 +269,64 @@ def test_signin_provider_mismatch_asks_for_the_new_provider(qtbot, ctx):
     assert page.note.kind() == "warn"
     assert "Local account" in page.note.text() and "Keycloak" in page.note.text()
     assert page.findChild(Tile, "setupSsoCard").title_label.text() == "ALS single sign-on"
+
+
+class OtherProviderLogin(FakeLogin):
+    """LoginDialog offers every registered provider: the user picks a non-configured one."""
+
+    def exec(self):
+        from lightfall.auth.providers.local import LocalAuthProvider
+
+        manager = SessionManager.get_instance()
+        manager.set_provider(LocalAuthProvider())
+        manager.attach_session(Session(user=User(username="ron")))
+        return 0
+
+
+def test_signin_in_this_run_with_another_offered_provider_counts(qtbot, ctx, fake_login,
+                                                                  monkeypatch):
+    from lightfall.setup.pages import signin as page_mod
+
+    monkeypatch.setattr(page_mod, "LoginDialog", OtherProviderLogin)
+    apply_bootstrap(KEYCLOAK, ctx.config)
+    ctx.bootstrap = KEYCLOAK
+    step = SignInStep()
+    page = _signin_page(qtbot, ctx)
+    done = []
+    page.completed.connect(lambda: done.append(1))
+    page.on_primary()
+    assert done == [1]
+    assert step.validate(ctx) is None
+    assert step.detect(ctx) == StepState(StepStatus.SATISFIED, "ron · Local account")
+    assert page.primary_label() == "Continue"
+    assert page.note.kind() != "warn"
+    card = page.findChild(Tile, "setupSsoCard")
+    assert card.title_label.text() == "Signed in as ron"
+    assert card.subtitle_label.text() == "Local account"
+
+
+def test_a_later_session_from_another_provider_needs_sign_in_again(qtbot, ctx, fake_login,
+                                                                    monkeypatch):
+    from lightfall.auth.providers.local import LocalAuthProvider
+    from lightfall.setup.pages import signin as page_mod
+
+    monkeypatch.setattr(page_mod, "LoginDialog", OtherProviderLogin)
+    apply_bootstrap(KEYCLOAK, ctx.config)
+    page = _signin_page(qtbot, ctx)
+    page.on_primary()
+    assert SignInStep().validate(ctx) is None
+    # A different session (not the one this run's sign-in made) gets no pass.
+    ctx.session.set_provider(LocalAuthProvider())
+    ctx.session.attach_session(Session(user=User(username="mallory")))
+    assert SignInStep().validate(ctx) == "You're not signed in yet."
+
+
+def test_session_manager_exposes_its_provider_read_only(ctx):
+    from lightfall.auth.providers.local import LocalAuthProvider
+
+    assert ctx.session.provider is None
+    provider = LocalAuthProvider()
+    ctx.session.set_provider(provider)
+    assert ctx.session.provider is provider
+    with pytest.raises(AttributeError):
+        ctx.session.provider = None
