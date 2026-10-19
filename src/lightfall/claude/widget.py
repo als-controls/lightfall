@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import qtawesome as qta
+import shiboken6
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent, QPalette
 from PySide6.QtWidgets import (
@@ -28,6 +29,24 @@ from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
 from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 from lightfall.ui.theme import scaled_pt
+from lightfall.utils.crash_diagnostics import gui_thread_only
+from lightfall.utils.logging import logger
+
+
+def _resolve_backend_info(agent=None):
+    """The descriptor for ``agent``'s backend (or the selected one, before the agent
+    exists); Claude Code's if the lookup fails."""
+    from lightfall.agents.backends import info
+    from lightfall.agents.backends.select import AGY, CLAUDE_CODE
+
+    try:
+        if agent is not None:
+            # Match the backend the agent actually built, not a fresh pref read.
+            return info.backend_info(AGY if agent._agy else CLAUDE_CODE)
+        return info.backend_info()
+    except Exception as exc:  # noqa: BLE001 - naming/menus must never break the widget
+        logger.warning("Assistant: backend lookup failed ({}); using Claude Code's", exc)
+        return info.ClaudeCodeInfo()
 
 
 @dataclass
@@ -178,19 +197,31 @@ class ClaudeAssistantWidget(QWidget):
     effort_change_requested = Signal(str)  # effort level the user picked
     bus_pending_changed = Signal(int)      # pending agent-message card count
 
+    # Snapshotted in __init__ (class defaults cover widgets built without it).
+    _backend_info = None
+    _speaker: str | None = None
+    _sign_in_hint: QFrame | None = None
+    _auth_future = None
+    _auth_generation = 0
+
+    @property
+    def backend_info(self):
+        """The ``BackendInfo`` this widget's agent was built with.
+
+        Fixed for the widget's lifetime: a backend switch saved while a reply
+        runs only takes effect when the panel rebuilds the widget, so until then
+        the tune menu, toasts and names keep describing the live agent.
+        """
+        if self._backend_info is None:
+            self._backend_info = _resolve_backend_info()
+        return self._backend_info
+
     @property
     def speaker_name(self) -> str:
-        """The backend's display name ("Claude", "Gemini"); read once per widget."""
-        name = getattr(self, "_speaker", None)
-        if name is None:
-            try:
-                from lightfall.agents.backends.info import backend_info
-
-                name = backend_info().display_name
-            except Exception:  # noqa: BLE001 - naming must never break the widget
-                name = "Assistant"
-            self._speaker = name
-        return name
+        """The backend's display name ("Claude", "Gemini")."""
+        if self._speaker is None:
+            self._speaker = self.backend_info.display_name
+        return self._speaker
 
     def __init__(
         self,
@@ -239,6 +270,8 @@ class ClaudeAssistantWidget(QWidget):
 
         self.target_window = target_window
         self._require_approval = require_approval
+        # Read the backend once, with the agent below: see ``backend_info``.
+        self._backend_info = _resolve_backend_info()
 
         # Track pending permission widgets by request_id
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
@@ -288,6 +321,7 @@ class ClaudeAssistantWidget(QWidget):
             # API key not provided
             self._setup_error_ui(str(e))
             return
+        self._backend_info = _resolve_backend_info(self.agent)
 
         # Bus-message cards: pure-logic bookkeeping (see BusCardModel), plus
         # a card-entry -> live QFrame map so signal handlers can update or
@@ -316,6 +350,9 @@ class ClaudeAssistantWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self.agent.query_completed.connect(self._flush_bus_on_completion)
+        # A finished turn proves the backend is signed in.
+        self.agent.query_completed.connect(self._on_turn_completed_sign_in)
+        self._check_sign_in()
 
     def _setup_ui(self) -> None:
         """Setup the user interface."""
@@ -566,16 +603,12 @@ class ClaudeAssistantWidget(QWidget):
 
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
-        from lightfall.agents.backends.info import ModelOption, backend_info
-        from lightfall.ui.preferences.claude_settings import (
-            EFFORT_OPTIONS,
-            ClaudeSettingsProvider,
-        )
+        from lightfall.agents.backends.info import ModelOption
         menu = self._tune_menu
         menu.clear()
-        info = backend_info()
+        info = self.backend_info
         current_model = info.current_model()
-        current_effort = ClaudeSettingsProvider.get_effort()
+        current_effort = info.current_effort()
 
         menu.addSection("Model (live)" if info.caps.live_set_model else "Model (next turn)")
         models = list(info.cached_models())
@@ -594,14 +627,14 @@ class ClaudeAssistantWidget(QWidget):
         refresh_act = menu.addAction("↻ Refresh models")
         refresh_act.triggered.connect(self._refresh_models)
 
-        menu.addSection("Effort (restarts conversation)")
-        for level in EFFORT_OPTIONS:
-            act = menu.addAction(level or "Default (high)")
+        menu.addSection("Effort (next turn)" if info.caps.live_set_effort
+                        else "Effort (restarts conversation)")
+        # The backend knows which levels the model offers (Claude: xhigh/max
+        # are Opus-only; agy: the levels `agy models` lists for the model).
+        for level in info.effort_options(current_model):
+            act = menu.addAction(level or "Default")
             act.setCheckable(True)
             act.setChecked(level == current_effort)
-            # xhigh/max are Opus-only; disable them for non-opus models.
-            if level in ("xhigh", "max") and "opus" not in (current_model or ""):
-                act.setEnabled(False)
             act.triggered.connect(
                 lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
             )
@@ -819,7 +852,6 @@ class ClaudeAssistantWidget(QWidget):
 
     def _warm_models(self, info) -> None:
         """Fill a cold model cache once, off the GUI thread (no-op while one runs)."""
-        from lightfall.utils.logging import logger
         from lightfall.utils.threads import QThreadFuture
 
         running = getattr(self, "_models_future", None)
@@ -837,17 +869,98 @@ class ClaudeAssistantWidget(QWidget):
 
         The next menu open shows the refreshed cache.
         """
-        from lightfall.agents.backends.info import backend_info
-        from lightfall.utils.logging import logger
         from lightfall.utils.threads import QThreadFuture
 
-        info = backend_info()
+        info = self.backend_info
         self._models_future = QThreadFuture(
             lambda: info.list_models(refresh=True),
             except_slot=lambda exc: logger.info("Model refresh failed: {}", exc),
             name="assistant-refresh-models", log_exceptions=False,
         )
         self._models_future.start()
+
+    # --- sign-in hint (agy) ------------------------------------------------------
+
+    def _check_sign_in(self, refresh: bool = False) -> None:
+        """agy only: check sign-in off the GUI thread; hint if signed out.
+
+        Claude's credentials are checked before the widget is built. agy's check
+        runs ``agy models`` (up to 30 s), so without this a signed-out user only
+        learns it from the first turn's error.
+        """
+        from lightfall.agents.backends.select import AGY
+        from lightfall.utils.threads import QThreadFuture
+
+        info = self.backend_info
+        if info.kind != AGY:
+            return
+        self._auth_generation += 1
+        gen = self._auth_generation
+        self._auth_future = QThreadFuture(
+            lambda: info.auth_status(refresh=refresh),
+            callback_slot=lambda status, g=gen: self._on_auth_status(status, g),
+            except_slot=lambda exc: logger.info("Assistant sign-in check failed: {}", exc),
+            name="assistant-auth-check", log_exceptions=False,
+        )
+        self._auth_future.start()
+
+    @gui_thread_only
+    def _on_auth_status(self, status, generation: int) -> None:
+        """Result of ``_check_sign_in``; dropped if superseded or the widget is gone."""
+        if not shiboken6.isValid(self) or generation != self._auth_generation:
+            return
+        if status.ok:
+            self._clear_sign_in_hint()
+        else:
+            self._show_sign_in_hint(status.detail)
+
+    def _on_turn_completed_sign_in(self) -> None:
+        """A turn worked, so agy is signed in: drop the hint and any check still out."""
+        self._auth_generation += 1
+        self._clear_sign_in_hint()
+
+    def _show_sign_in_hint(self, detail: str) -> None:
+        hint = self._sign_in_hint
+        if hint is not None and shiboken6.isValid(hint):
+            return
+        name = self.backend_info.display_name
+        card = QFrame()
+        card.setObjectName("assistantSignInHint")
+        card.setStyleSheet(
+            "QFrame#assistantSignInHint { border-left: 4px solid #f9a825; "
+            "border-radius: 4px; padding: 8px 12px; }"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        # AgyInfo.auth_status reports a real sign-in failure as "Not signed in: ...";
+        # other failures (agy missing, a timed-out check) must not blame sign-in.
+        action = (f"Sign in to {name}" if detail.startswith("Not signed in")
+                  else f"Check {name}")
+        text = QLabel(f"{detail}\n{action} in Settings → Assistant.")
+        text.setWordWrap(True)
+        layout.addWidget(text)
+        row = QHBoxLayout()
+        button = QPushButton("Open Settings…")
+        button.clicked.connect(self._open_assistant_settings)
+        row.addWidget(button)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self._sign_in_hint = card
+        self._add_widget(card)
+
+    def _clear_sign_in_hint(self) -> None:
+        hint, self._sign_in_hint = self._sign_in_hint, None
+        if hint is not None and shiboken6.isValid(hint):
+            hint.hide()
+            hint.setParent(None)
+            hint.deleteLater()
+
+    def _open_assistant_settings(self) -> None:
+        """Open Settings → Assistant, then check sign-in again (bypassing the cache)."""
+        from lightfall.ui.preferences import dialog as prefs_dialog
+
+        prefs_dialog.PreferencesDialog(self.window(), initial_page="claude").exec()
+        self._check_sign_in(refresh=True)
 
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.
@@ -1150,7 +1263,7 @@ class ClaudeAssistantWidget(QWidget):
         self, request_id: str, questions: list
     ) -> None:
         """Render an AskUserQuestion in the permission container."""
-        widget = QuestionRequestWidget(request_id, questions)
+        widget = QuestionRequestWidget(request_id, questions, speaker=self.speaker_name)
         widget.submitted.connect(self._on_question_submitted)
         widget.cancelled.connect(self._on_question_cancelled)
         self._pending_question_widgets[request_id] = widget

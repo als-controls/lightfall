@@ -55,8 +55,8 @@ def test_cancel_stops_running_task_cards(widget):
     widget._on_query_cancelled()
 
     assert widget._task_cards["task-1"].is_running is False
-    assert widget._task_cards["task-1"]._status == "stopped"
-    assert done._status == "completed"
+    assert widget._task_cards["task-1"].status == "stopped"
+    assert done.status == "completed"
 
 
 def test_completion_flushes_bubbles_but_keeps_task_cards_running(widget):

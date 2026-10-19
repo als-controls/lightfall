@@ -68,15 +68,17 @@ def fake_prefs(monkeypatch):
     return store
 
 
-def _idle_widget() -> MagicMock:
+def _idle_widget(backend_info=None) -> MagicMock:
     w = MagicMock()
     w.agent.is_busy.return_value = False
+    w.backend_info = backend_info  # None: the panel falls back to the live pref
     return w
 
 
 def _busy_widget() -> MagicMock:
     w = MagicMock()
     w.agent.is_busy.return_value = True
+    w.backend_info = None
     return w
 
 
@@ -316,7 +318,7 @@ def test_backend_switch_changes_config(panel, fake_prefs):
     fake_prefs.set("agent_backend", "agy")
     assert panel._current_claude_config() != before
     fake_prefs.set("agy_model", "gemini-3-pro")
-    assert panel._current_claude_config()[-1] == "gemini-3-pro"
+    assert panel._current_claude_config()[-2] == "gemini-3-pro"  # (..., agy_model, agy_effort)
 
 
 def test_settings_change_reloads_idle_extra_tabs(panel, fake_prefs, monkeypatch):
@@ -456,3 +458,236 @@ def test_pick_default_on_agy_sends_none(panel, fake_prefs):
     panel._claude_widget = _idle_widget()
     panel._on_pick_model("")
     panel._claude_widget.agent.set_model.assert_called_once_with(None)
+
+
+# --- effort picker: live on agy, dialog + rebuild on Claude --------------------
+
+
+def test_agy_effort_is_watched_and_in_config(panel, fake_prefs):
+    assert "agy_effort" in ClaudePanel._WATCHED_CLAUDE_KEYS
+    before = panel._current_claude_config()
+    fake_prefs.set("agy_effort", "high")
+    assert panel._current_claude_config() != before
+
+
+def test_pick_effort_on_agy_applies_live_without_dialog(panel, fake_prefs, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: pytest.fail("no dialog on agy"))
+    fake_prefs.set("agent_backend", "agy")
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+
+    panel._on_pick_effort("high")
+
+    assert fake_prefs.values["agy_effort"] == "high"
+    assert "claude_effort" not in fake_prefs.values
+    panel._claude_widget.agent.set_effort.assert_called_once_with("high")
+    panel._settings_reload_pending = True
+    panel._do_claude_settings_reload()
+    assert calls == []  # neither the pick nor the debounced subscription rebuilds
+
+
+def test_pick_default_effort_on_agy_sends_none(panel, fake_prefs, monkeypatch):
+    fake_prefs.set("agent_backend", "agy")
+    fake_prefs.set("agy_effort", "high")
+    panel._claude_widget = _idle_widget()
+    panel._on_pick_effort("")
+    assert fake_prefs.values["agy_effort"] == ""
+    panel._claude_widget.agent.set_effort.assert_called_once_with(None)
+
+
+@pytest.mark.parametrize("answer,expect_reload", [(True, True), (False, False)])
+def test_pick_effort_on_claude_asks_and_rebuilds(panel, fake_prefs, monkeypatch,
+                                                 answer, expect_reload):
+    from PySide6.QtWidgets import QMessageBox
+
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a) or (
+        QMessageBox.StandardButton.Yes if answer else QMessageBox.StandardButton.No))
+    panel._claude_widget = _idle_widget()
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+
+    panel._on_pick_effort("low")
+
+    assert len(asked) == 1
+    assert calls == (["reload"] if expect_reload else [])
+    assert fake_prefs.values.get("claude_effort") == ("low" if expect_reload else None)
+    panel._claude_widget.agent.set_effort.assert_not_called()
+
+
+# --- pending reload: picks and toasts follow the live agent's backend ---------
+
+
+def test_pick_model_while_reload_pending_targets_the_live_backend(panel, fake_prefs):
+    from lightfall.agents.backends.info import ClaudeCodeInfo
+
+    fake_prefs.set("agent_backend", "agy")  # saved mid-reply; Claude agent still live
+    panel._claude_widget = _idle_widget(ClaudeCodeInfo())
+    panel._on_pick_model("claude-opus")
+    assert fake_prefs.values["claude_model"] == "claude-opus"
+    assert "agy_model" not in fake_prefs.values
+    panel._claude_widget.agent.set_model.assert_called_once_with("opus")
+
+
+def test_pick_effort_while_reload_pending_targets_the_live_backend(panel, fake_prefs,
+                                                                   monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from lightfall.agents.backends.info import AgyInfo
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: pytest.fail("live agy agent: no dialog"))
+    fake_prefs.set("agent_backend", "claude-code")  # saved mid-reply; agy agent still live
+    panel._claude_widget = _idle_widget(AgyInfo())
+    panel._on_pick_effort("high")
+    assert fake_prefs.values["agy_effort"] == "high"
+    assert "claude_effort" not in fake_prefs.values
+    panel._claude_widget.agent.set_effort.assert_called_once_with("high")
+
+
+def test_approval_toast_names_the_live_backend(panel, fake_prefs, monkeypatch, qtbot):
+    from PySide6.QtWidgets import QWidget
+
+    from lightfall.agents.backends.info import AgyInfo
+    from lightfall.ui.panels import claude_panel as cp
+
+    shown = []
+
+    class _Toasts:
+        def warning(self, title, text, duration=0):
+            shown.append(text)
+            toast = QWidget()
+            qtbot.addWidget(toast)
+            return toast
+
+    monkeypatch.setattr(cp.ToastManager, "get_instance", classmethod(lambda cls: _Toasts()))
+    fake_prefs.set("agent_backend", "claude-code")
+    panel._claude_widget = _idle_widget(AgyInfo())
+    panel._on_approval_needed("r1", "mcp__bus__send_message", {})
+    assert shown == ["Gemini wants to use: Bus  Send Message"]
+
+
+def test_cockpit_cost_follows_the_built_widget(panel, fake_prefs):
+    from lightfall.agents.backends.info import AgyInfo, ClaudeCodeInfo
+
+    fake_prefs.set("agent_backend", "claude-code")
+    panel._wire_main_widget(_idle_widget(AgyInfo()))
+    assert panel._cockpit.show_cost is False
+    panel._wire_main_widget(_idle_widget(ClaudeCodeInfo()))
+    assert panel._cockpit.show_cost is True
+
+
+# --- deferral bookkeeping -------------------------------------------------------
+
+
+def _receivers(agent) -> int:
+    from PySide6.QtCore import SIGNAL
+
+    return sum(agent.receivers(SIGNAL(sig)) for sig in
+               ("query_completed()", "query_cancelled()", "error_occurred(QString)"))
+
+
+def test_end_signal_handler_disconnects_once_fired(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    agent = extra.claude_widget.agent
+    before = _receivers(agent)
+    panel._do_claude_settings_reload()
+    assert _receivers(agent) == before + 3
+    agent.query_completed.emit()
+    assert _receivers(agent) == before  # one-shot: nothing accumulates per deferral
+    agent.busy = False
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+
+
+def test_tab_gone_without_close_request_stops_polling(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()
+    assert extra in panel._deferred_polling
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])  # removed some other way
+    qtbot.waitUntil(lambda: extra not in panel._deferred_polling, timeout=2000)
+    assert extra not in panel._deferred_reload
+    agent.busy = False
+    qtbot.wait(100)
+    assert extra.reloads == 0
+
+
+def test_end_signal_for_a_gone_tab_does_not_poll(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+    extra.claude_widget.agent.busy = False
+    extra.claude_widget.agent.query_completed.emit()
+    qtbot.wait(100)
+    assert extra.reloads == 0
+    assert extra not in panel._deferred_reload and extra not in panel._deferred_polling
+
+
+def test_busy_idle_busy_flip_before_a_poll_keeps_waiting(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()  # turn 1 ends; the first poll still sees busy
+    agent.busy = False            # idle for a moment...
+    agent.busy = True             # ...then turn 2 starts before the next poll
+    qtbot.wait(80)                # several 10 ms polls, all busy
+    assert extra.reloads == 0
+    agent.busy = False
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+
+
+def test_banner_reload_clears_the_main_deferral(panel, fake_prefs, monkeypatch, qtbot):
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
+    builds = []
+    monkeypatch.setattr(panel, "_initialize_claude_widget", lambda: builds.append(1))
+    monkeypatch.setattr(panel, "_reset_cockpit", lambda: None)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+    panel._is_agent_ready = True
+    agent = _FakeAgent(busy=True)
+    panel._claude_widget = MagicMock()
+    panel._claude_widget.agent = agent
+    panel._active_agent_config = _STALE_CONFIG
+
+    panel._do_claude_settings_reload()
+    assert panel._reload_banner is not None and None in panel._deferred_reload
+    panel._reload_agent()  # the banner's Reload button
+    assert builds == [1]
+    assert None not in panel._deferred_reload and panel._reload_banner is None
+    agent.busy = False
+    agent.query_completed.emit()  # the old agent's reply ends after the manual reload
+    qtbot.wait(80)
+    assert builds == [1]  # no second rebuild
+
+
+def test_main_and_extra_both_busy_reload_independently(panel, fake_prefs, monkeypatch, qtbot):
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
+    main_reloads = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: main_reloads.append(1))
+    monkeypatch.setattr(panel, "_show_settings_reload_banner", lambda: None)
+    panel._is_agent_ready = True
+    main_agent = _FakeAgent(busy=True)
+    panel._claude_widget = MagicMock()
+    panel._claude_widget.agent = main_agent
+    panel._active_agent_config = _STALE_CONFIG
+    extra = _FakeTab(busy=True)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
+
+    panel._do_claude_settings_reload()
+    assert main_reloads == [] and extra.reloads == 0
+
+    main_agent.busy = False
+    main_agent.query_completed.emit()
+    qtbot.waitUntil(lambda: main_reloads == [1], timeout=2000)
+    assert extra.reloads == 0  # the extra tab is still mid-reply
+
+    extra.claude_widget.agent.busy = False
+    extra.claude_widget.agent.query_completed.emit()
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+    assert main_reloads == [1]

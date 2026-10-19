@@ -162,6 +162,43 @@ def test_agy_set_model_unconnected_rebuilds_backend(qtbot, prefs, root, sdk, agy
         agent.stop()
 
 
+def test_agy_backend_takes_effort_from_config(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", effort="low")
+    try:
+        assert agent._backend._effort == "low"
+    finally:
+        agent.stop()
+
+
+def test_agy_set_effort_unconnected_rebuilds_backend(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", resume="conv-1")
+    try:
+        agent.set_effort("high")
+        assert agent._backend._effort == "high"
+        assert agent._backend._model == "gemini-4-argon"
+        assert agent._backend.conversation_id == "conv-1"
+        agent.set_effort(None)
+        assert agent._backend._effort is None
+    finally:
+        agent.stop()
+
+
+def test_agy_set_effort_connected_goes_to_worker(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon")
+    try:
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        agent._worker, agent._is_connected = worker, True
+        agent.set_effort("medium")
+        worker.request_set_effort.assert_called_once_with("medium")
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
+
+
 def test_agy_ensure_connected_uses_agent_worker(qtbot, prefs, root, sdk, agy_found, monkeypatch):
     from lightfall.agents import worker as worker_mod
     from lightfall.claude import agent as agent_mod
@@ -275,6 +312,17 @@ def test_session_tab_model_by_backend(prefs):
     assert session_model() is None
     prefs.values["agy_model"] = "gemini-3-pro"
     assert session_model() == "gemini-3-pro"
+
+
+def test_session_tab_effort_by_backend(prefs):
+    from lightfall.ui.panels.claude.agent_session_tab import session_effort
+
+    prefs.values.update(claude_effort="max", agy_effort="low")
+    assert session_effort() == "max"
+    prefs.values["agent_backend"] = "agy"
+    assert session_effort() == "low"
+    prefs.values["agy_effort"] = ""
+    assert session_effort() is None
 
 
 # -- stale session-home sweep -------------------------------------------------------
@@ -395,6 +443,7 @@ def test_pick_model_writes_agy_model_on_agy(qtbot, prefs, monkeypatch):
     panel = ClaudePanel()
     qtbot.addWidget(panel)
     widget = MagicMock()
+    widget.backend_info = None  # no snapshot: the panel reads the backend pref
     panel._claude_widget = widget
     prefs.values["agent_backend"] = "agy"
     panel._on_pick_model("gemini-3-pro")
@@ -484,4 +533,74 @@ def test_main_agent_still_stores_and_clears_last_session_id(qtbot, prefs, root, 
         # Both writes pin the build-time kind, not the live pref.
         assert calls == [("main-conv", "agy"), ("", "agy")]
     finally:
+        agent.stop()
+
+
+def _connect_mock_worker(agent):
+    worker = MagicMock()
+    worker.isRunning.return_value = True
+    agent._worker, agent._is_connected = worker, True
+    return worker
+
+
+def test_agy_live_effort_survives_reset(qtbot, prefs, root, sdk, agy_found):
+    """set_effort on a connected agent, then Reset: the new backend keeps the new effort."""
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", effort="low")
+    try:
+        _connect_mock_worker(agent)
+        agent.set_effort("high")
+        assert agent._session_config.effort == "high"
+        agent.reset_conversation()
+        assert agent._backend._effort == "high"
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
+
+
+def test_agy_live_model_survives_reset(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon")
+    try:
+        _connect_mock_worker(agent)
+        agent.set_model("gemini-flash")
+        assert agent._session_config.model == "gemini-flash"
+        agent.reset_conversation()
+        assert agent._backend._model == "gemini-flash"
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
+
+
+def test_agy_set_model_while_connecting_reaches_worker(qtbot, prefs, root, sdk, agy_found):
+    """Worker started but not yet connected: the model goes to the worker (which
+    holds it until connect finishes) and into _session_config, not just _model."""
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon")
+    try:
+        worker = _connect_mock_worker(agent)
+        agent._is_connected = False  # connect still in progress
+        backend = agent._backend
+        agent.set_model("gemini-flash")
+        worker.request_set_model.assert_called_once_with("gemini-flash")
+        assert agent._session_config.model == "gemini-flash"
+        assert agent._backend is backend  # the worker's backend is not replaced
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
+
+
+def test_agy_set_effort_while_connecting_reaches_worker(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", effort="low")
+    try:
+        worker = _connect_mock_worker(agent)
+        agent._is_connected = False  # connect still in progress
+        backend = agent._backend
+        agent.set_effort("high")
+        worker.request_set_effort.assert_called_once_with("high")
+        assert agent._session_config.effort == "high"
+        assert agent._backend is backend
+    finally:
+        agent._worker, agent._is_connected = None, False
         agent.stop()

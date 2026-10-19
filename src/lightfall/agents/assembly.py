@@ -17,6 +17,7 @@ from lightfall.agents.spec import AgentSpec, AgentSpecError, resolve_template
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
+    from lightfall.agents.backends.info import BackendInfo
     from lightfall.agents.registry import AgentSpecRegistry
     from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
@@ -103,12 +104,15 @@ def subagent_definitions(
     }
 
 
-def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None) -> str:
+def identity_preamble(
+    spec: AgentSpec, registry: AgentSpecRegistry, backend: BackendInfo | None = None,
+) -> str:
     """Markdown preamble telling ``spec`` who it is and how to reach peers.
 
     Lists every OTHER enabled spec in ``registry``, tagging each with
-    ``[openable as a session]`` and, when ``backend`` runs subagents,
-    ``[Agent-tool delegable]``. ``backend`` is a ``BackendInfo``; None means
+    ``[openable as a session]`` and, when ``backend`` runs subagents, the
+    backend's ``subagent_tag`` (Claude: ``[Agent-tool delegable]``) plus its
+    ``subagent_note`` naming the delegation tool. ``backend`` is a ``BackendInfo``; None means
     Claude Code wording. Callers should treat any failure here as non-fatal
     (see ``assemble_spec_options``).
     """
@@ -122,6 +126,7 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         return backend.tool_ref("bus", tool)
 
     peer_lines: list[str] = []
+    any_delegable = False
     for peer in registry.enabled_specs():
         if peer.name == spec.name:
             continue
@@ -129,17 +134,26 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         if peer.openable:
             tags.append("openable as a session")
         if peer.subagent and delegable:
-            tags.append("Agent-tool delegable")
+            # Same check the backend applies when it writes the subagent files.
+            problem = backend.subagent_name_problem(peer.name)
+            if problem:
+                tags.append(f"not delegable on this backend: {problem}")
+            else:
+                tags.append(backend.subagent_tag)
+                any_delegable = True
         tag_suffix = f" [{', '.join(tags)}]" if tags else ""
         peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
 
     peers_section = "\n".join(peer_lines) if peer_lines else "- (no other agents are currently enabled)"
-    launch = bus("launch_agent").rstrip("`")  # `launch_agent  -> `launch_agent(name=...)`
-    delegation = (
-        "\n- Peers marked Agent-tool delegable also appear as agent types in your Agent tool for\n"
-        "  background subagent runs (isolated, report-back; no session tab)."
-        if delegable else ""
-    )
+    # The call goes inside the reference's code span: `x` -> `x(name=...)`.
+    launch_ref = bus("launch_agent")
+    launch_args = '(name="<name>", first_message="optional")'
+    if launch_ref.endswith("`"):
+        launch = f"{launch_ref[:-1]}{launch_args}`"
+    else:
+        launch = f"{launch_ref}{launch_args}"
+    # The backend names its own delegation tool (Claude: Agent tool; agy: invoke_subagent).
+    delegation = f"\n- {backend.subagent_note}" if any_delegable else ""
     notes = f"\n\n{backend.prompt_notes}" if backend.prompt_notes else ""
 
     return f"""## Your identity
@@ -162,7 +176,7 @@ name on the agent bus is "{spec.name}".
   messages a running peer (delivery honors their accept policy).
 - The peer list above is a snapshot from session start; call {bus("list_agents")} for the
   live roster, including agents defined after this session began.
-- To LAUNCH a peer that isn't running, use {launch}(name="<name>", first_message="optional")`.
+- To LAUNCH a peer that isn't running, use {launch}.
   The launched session will auto-accept your subsequent bus messages without prompting the user
   (it whitelists you as its launcher). Focusing an already-running peer this way delivers
   `first_message` but grants no such whitelist.
@@ -174,7 +188,7 @@ def assemble_spec_options(
     tool_registry: ToolRegistry,
     spec_registry: AgentSpecRegistry,
     session_plugin_dir: Path,
-    backend=None,
+    backend: BackendInfo | None = None,
 ) -> dict[str, Any]:
     """Assemble the spec-driven (backend-neutral) portion of a session config.
 

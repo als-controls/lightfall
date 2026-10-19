@@ -30,7 +30,7 @@ BUS_ALLOWED_TOOLS = [
 ]
 
 LIST_AGENTS_NOTE = (
-    "Agents marked subagent_eligible appear in your Agent tool only from session "
+    "Agents marked subagent_eligible are available as subagents only from session "
     "start; delegating to a newly created one requires a session restart. Launch "
     "non-running openable agents via launch_agent(name, first_message)."
 )

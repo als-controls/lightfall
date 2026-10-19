@@ -9,8 +9,19 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[3]
 TOKEN = "tok-123"
+
+
+@pytest.fixture(autouse=True)
+def _clear_proxy_env(monkeypatch):
+    """_run copies os.environ: an ambient NO_PROXY=127.0.0.1 would let the proxy
+    test pass against a client that honours proxies; a proxy var would reroute."""
+    for var in ("NO_PROXY", "no_proxy", "HTTP_PROXY", "http_proxy",
+                "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
 
 
 def _run(stdin: str, env_extra: dict[str, str]) -> subprocess.CompletedProcess:

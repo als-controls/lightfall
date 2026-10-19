@@ -154,6 +154,22 @@ def test_assemble_spec_options_prepends_preamble(monkeypatch, tmp_path):
     assert options["system_prompt"].endswith("p ron")
 
 
+def test_assemble_spec_options_agy_roster_and_subagents(monkeypatch, tmp_path):
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("saxs", subagent=True)])
+    monkeypatch.setattr("lightfall.agents.assembly.template_variables",
+                        lambda: {"user": "ron", "beamline": "", "endstation": ""})
+    options = assemble_spec_options(lightfall, _FakeToolRegistry(), reg, tmp_path,
+                                    backend=AgyInfo())
+    assert [s.name for s in options["subagent_specs"]] == ["saxs"]
+    prompt = options["system_prompt"]
+    assert "**saxs** — d-saxs [openable as a session, subagent delegable]" in prompt
+    assert "`invoke_subagent`" in prompt
+    assert "Task" not in prompt and "Agent tool" not in prompt
+
+
 def test_assemble_spec_options_tolerates_registry_enumeration_failure(monkeypatch, tmp_path):
     lightfall = _spec("lightfall")
     reg = _FailingRegistry()
@@ -181,6 +197,25 @@ def test_preamble_agy_has_no_claude_only_wording():
     assert "Assistant panel's tab bar" in text
 
 
+def test_preamble_agy_delegates_with_invoke_subagent():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall, reg = _reg_with_delegable_peer()
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    assert "**saxs** — d-saxs [openable as a session, subagent delegable]" in text
+    assert "`invoke_subagent`" in text
+    assert "Task" not in text
+
+
+def test_preamble_agy_without_subagent_peers_has_no_delegation_note():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("saxs", openable=True, subagent=False)])
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    assert "invoke_subagent" not in text and "delegable" not in text
+
+
 def test_preamble_claude_keeps_delegation_and_notes():
     from lightfall.agents.backends.info import ClaudeCodeInfo
 
@@ -200,3 +235,24 @@ def test_lightfall_spec_prompt_is_backend_neutral():
 
     md = (Path(agents_pkg.__file__).parent / "builtin" / "lightfall.md").read_text(encoding="utf-8")
     assert "ScheduleWakeup" not in md
+
+
+def test_preamble_agy_marks_invalid_subagent_name_not_delegable():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("SAXS Analyst", openable=False, subagent=True)])
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    line = next(ln for ln in text.splitlines() if "**SAXS Analyst**" in ln)
+    assert "subagent delegable" not in line
+    assert "not delegable on this backend" in line and "A-Za-z0-9_.-" in line
+    assert "invoke_subagent" not in text  # no delegable peer, so no delegation note
+
+
+def test_preamble_claude_keeps_any_subagent_name_delegable():
+    from lightfall.agents.backends.info import ClaudeCodeInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("SAXS Analyst", openable=False, subagent=True)])
+    text = identity_preamble(lightfall, reg, ClaudeCodeInfo())
+    assert "**SAXS Analyst** — d-SAXS Analyst [Agent-tool delegable]" in text

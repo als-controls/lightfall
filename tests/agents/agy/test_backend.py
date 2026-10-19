@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
 import sys
 import threading
 import time
@@ -326,14 +325,13 @@ def test_close_kills_child_and_stops_host(qtbot, env):
     b = _backend(env)
     w = _start_worker(qtbot, b)
     _query(qtbot, w, "hi", w.query_completed)
-    port, home = b._host.port, b.session_home
+    sock, home = b._host._sock, b.session_home
     (start,) = _starts(env)
     assert psutil.pid_exists(start["pid"])
     _stop(w)
     assert not psutil.pid_exists(start["pid"]) or (
         psutil.Process(start["pid"]).status() == psutil.STATUS_ZOMBIE)
-    with pytest.raises(OSError):
-        socket.create_connection(("127.0.0.1", port), timeout=1).close()
+    assert sock.fileno() == -1  # listening socket closed (port reuse cannot flake this)
     assert not home.exists()
     # the shared per-spec store survives the session home's removal
     assert (env["root"] / "lightfall" / ".gemini" / "antigravity-cli" / "settings.json").is_file()
@@ -563,7 +561,7 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
     seen = {}
 
     def boom(home, cfg):
-        seen["home"], seen["port"] = home, cfg.port
+        seen["home"], seen["sock"] = home, b._host._sock
         raise OSError("disk full")
 
     monkeypatch.setattr(backend_mod, "write_session_config", boom)
@@ -572,5 +570,407 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
         asyncio.run(b.connect())
     assert b._host is None and b.session_home is None
     assert not seen["home"].exists()
-    with pytest.raises(OSError), socket.create_connection(("127.0.0.1", seen["port"]), timeout=2):
+    # The host's own listening socket is closed. (A refused connect to its old
+    # port would flake if another process reused the port meanwhile.)
+    assert seen["sock"].fileno() == -1
+
+
+def _with_subagents(env, subagents):
+    import dataclasses
+
+    env["cfg"] = dataclasses.replace(env["cfg"], subagents=subagents)
+
+
+def _agent_files(env):
+    """Connect and close on one loop; return {file name: text} of the session's agents/."""
+    b = _backend(env)
+    out = {}
+
+    async def go():
+        await b.connect()
+        try:
+            agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
+            out.update({p.name: p.read_text(encoding="utf-8") for p in agents.iterdir()})
+        finally:
+            await b.close()
+
+    asyncio.run(go())
+    return out
+
+
+def test_connect_writes_subagent_files(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    probed = []
+    monkeypatch.setattr(backend_mod, "agy_model_ids",
+                        lambda agy: probed.append(agy) or frozenset({"gemini-x"}))
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x"),
+                          SubagentSpec("saxs", "SAXS.", "You reduce.", model="sonnet")])
+    files = _agent_files(env)
+    assert sorted(files) == ["echoer.md", "operator.md", "saxs.md"]
+    assert "model: gemini-x\n" in files["echoer.md"]
+    assert "model: inherit\n" in files["saxs.md"]
+    assert probed == [AGY]
+
+
+def test_connect_skips_model_probe_when_no_subagent_needs_it(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise AssertionError("agy models must not run")
+
+    monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo."),
+                          SubagentSpec("fast", "Fast.", "Quick.", model="flash")])
+    assert "model: flash\n" in _agent_files(env)["fast.md"]
+
+
+def test_connect_survives_model_probe_failure(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise RuntimeError("not signed in")
+
+    monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x")])
+    assert "model: inherit\n" in _agent_files(env)["echoer.md"]
+
+
+def test_connect_puts_tool_directory_in_subagent_files(env):
+    from lightfall.agents.backend import SubagentSpec
+
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.")])
+    text = _agent_files(env)["echoer.md"]
+    assert "## Calling Lightfall tools" in text and "### `lightfall_qt`" in text
+    assert text.index("You echo.") < text.index("## Calling Lightfall tools")
+
+
+# ---- subagent auto-continue ---------------------------------------------------
+
+
+def _drive(env, scenario, *, cancel_on=None, pm=None, require_approval=False,
+           after_round=None, on_event=None):
+    """One Lightfall turn straight through run_turn; returns (events, prompts sent).
+
+    ``after_round(n, flag)`` runs when agy round ``n`` ends; ``on_event(ev, flag)``
+    for every event. ``flag`` holds the "cancel" / "stop" switches.
+    """
+    from lightfall.agents.backend import ToolCallEvent
+
+    env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", scenario)
+    b = _backend(env, pm=pm, require_approval=require_approval)
+    flag = {"cancel": False, "stop": False}
+    events = []
+    if after_round is not None:
+        inner = b._turn
+        rounds = {"n": 0}
+
+        async def counted(*a, **k):
+            async for ev in inner(*a, **k):
+                yield ev
+            after_round(rounds["n"], flag)
+            rounds["n"] += 1
+
+        b._turn = counted
+
+    async def go():
+        await b.connect()
+        try:
+            async for ev in b.run_turn("Ask the echoer to echo persimmon.",
+                                       lambda: flag["cancel"], lambda: flag["stop"]):
+                events.append(ev)
+                if (cancel_on and isinstance(ev, ToolCallEvent) and ev.name == cancel_on):
+                    flag["cancel"] = True
+                if on_event is not None:
+                    on_event(ev, flag)
+        finally:
+            await b.close()
+
+    asyncio.run(asyncio.wait_for(go(), 30))
+    return events, _prompts(env)
+
+
+def _text(events):
+    from lightfall.agents.backend import PartialTextEvent
+
+    return "".join(e.delta for e in events if isinstance(e, PartialTextEvent))
+
+
+def _results(events):
+    from lightfall.agents.backend import TurnResultEvent
+
+    return [e for e in events if isinstance(e, TurnResultEvent)]
+
+
+def test_subagent_report_auto_continues_once(env):
+    from lightfall.agents.backends.agy.events import SUBAGENT_CONTINUE_PROMPT
+
+    events, prompts = _drive(env, "subagent")
+    assert prompts == ["Ask the echoer to echo persimmon.", SUBAGENT_CONTINUE_PROMPT]
+    assert "Waiting for the echoer." in _text(events) and "ECHOER: persimmon" in _text(events)
+    [res] = _results(events)
+    # Usage is summed over both agy turns (fake: 100 in / 10 out per result).
+    assert (res.info["input_tokens"], res.info["output_tokens"]) == (200, 20)
+    # Exactly one terminal event, and it is the last apart from trailing session ids.
+    from lightfall.agents.backend import SessionIdEvent
+    tail = [type(e).__name__ for e in events if not isinstance(e, SessionIdEvent)]
+    assert tail[-1] == "TurnResultEvent" and tail.count("TurnResultEvent") == 1
+
+
+def test_subagent_answered_in_turn_does_not_continue(env):
+    events, prompts = _drive(env, "subagent_inturn")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert len(_results(events)) == 1
+
+
+def test_turn_without_subagent_never_continues(env):
+    events, prompts = _drive(env, "tool")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert len(_results(events)) == 1
+
+
+def test_subagent_continuations_are_capped(env):
+    from lightfall.agents.backends.agy.backend import (
+        MAX_SUBAGENT_CONTINUATIONS,
+        SUBAGENT_CONTINUE_PROMPT,
+    )
+
+    events, prompts = _drive(env, "subagent_loop")
+    assert MAX_SUBAGENT_CONTINUATIONS == 3
+    assert prompts == ["Ask the echoer to echo persimmon."] + [SUBAGENT_CONTINUE_PROMPT] * 3
+    [res] = _results(events)
+    assert res.info["input_tokens"] == 400
+
+
+def test_cancel_stops_subagent_continuation(env):
+    events, prompts = _drive(env, "subagent", cancel_on="invoke_subagent")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert any(isinstance(e, TurnCancelledEvent) for e in events)
+    assert _results(events) == []
+
+
+# ---- effort -------------------------------------------------------------------
+
+_LEVELS = {"gemini-4-argon": ("low", "medium", "high"), "gemini-3.1-pro": ("low", "high"),
+           "gemini-plain": ()}
+
+
+def test_effort_flag_rules():
+    from lightfall.agents.backends.agy.backend import effort_flag
+
+    assert effort_flag("gemini-4-argon", "low", _LEVELS) == "low"
+    assert effort_flag("gemini-3.1-pro", "medium", _LEVELS) is None   # not offered
+    assert effort_flag("gemini-4-argon", "xhigh", _LEVELS) is None
+    assert effort_flag("gemini-4-argon", "", _LEVELS) is None
+    assert effort_flag("gemini-4-argon", None, _LEVELS) is None
+    assert effort_flag("gemini-4-argon-low", "high", _LEVELS) is None  # variant id
+    assert effort_flag("gemini-plain", "low", _LEVELS) is None
+    assert effort_flag(None, "low", _LEVELS) is None                    # agy's default model
+    assert effort_flag("gemini-4-argon", "low", None) is None           # levels unknown
+
+
+def test_process_argv_effort():
+    from lightfall.agents.backends.agy.process import AgyProcess
+
+    def argv(**kw):
+        return AgyProcess("agy", Path("h"), ".", {}, conversation=None, **kw).argv
+
+    a = argv(model="gemini-4-argon", effort="low")
+    assert a[a.index("--model") + 1] == "gemini-4-argon"
+    assert a[a.index("--effort") + 1] == "low"
+    assert "--effort" not in argv(model="gemini-4-argon", effort=None)
+    assert "--effort" not in argv(model="gemini-4-argon")
+
+
+def _with_model(env, model, effort):
+    import dataclasses
+
+    env["cfg"] = dataclasses.replace(env["cfg"], model=model, effort=effort)
+
+
+def _patch_levels(env, calls=None):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def levels(agy):
+        if calls is not None:
+            calls.append(agy)
+        return dict(_LEVELS)
+
+    env["monkeypatch"].setattr(backend_mod, "agy_effort_levels", levels)
+
+
+@pytest.mark.parametrize("model,effort,expected", [
+    ("gemini-4-argon", "low", "low"),
+    ("gemini-3.1-pro", "medium", None),     # invalid for the model: dropped
+    ("gemini-4-argon", "", None),           # default: no flag
+    ("gemini-4-argon-low", "high", None),   # variant id never gets --effort
+])
+def test_spawn_effort_flag(env, model, effort, expected):
+    _with_model(env, model, effort)
+    _patch_levels(env)
+    events, _ = _drive(env, "text")
+    assert _results(events)
+    [start] = _starts(env)
+    argv = start["argv"]
+    assert argv[argv.index("--model") + 1] == model
+    if expected is None:
+        assert "--effort" not in argv
+    else:
+        assert argv[argv.index("--effort") + 1] == expected
+
+
+def test_no_effort_means_no_model_probe(env):
+    _with_model(env, "gemini-4-argon", None)
+    calls = []
+    _patch_levels(env, calls)
+    _drive(env, "text")
+    assert calls == []
+
+
+def test_effort_probe_failure_drops_the_flag(env):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise RuntimeError("not signed in")
+
+    _with_model(env, "gemini-4-argon", "low")
+    env["monkeypatch"].setattr(backend_mod, "agy_effort_levels", boom)
+    events, _ = _drive(env, "text")
+    assert _results(events)
+    [start] = _starts(env)
+    assert "--effort" not in start["argv"]
+
+
+def test_set_effort_respawns_with_effort(qtbot, env):
+    _with_model(env, "gemini-4-argon", "low")
+    _patch_levels(env)
+    b = _backend(env)
+    w = _start_worker(qtbot, b)
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        cid = b.conversation_id
+        w.request_set_effort("high")
+        qtbot.waitUntil(lambda: b._proc is None, timeout=8000)
+        rec = _record_partials(w)
+        _query(qtbot, w, "two", w.query_completed)
+        assert len(rec["started"]) == 1 and "".join(rec["text"]) == "Hello world"
+        first, second = _starts(env)
+        assert first["argv"][first["argv"].index("--effort") + 1] == "low"
+        argv = second["argv"]
+        assert argv[argv.index("--model") + 1] == "gemini-4-argon"
+        assert argv[argv.index("--effort") + 1] == "high"
+        assert argv[argv.index("--conversation") + 1] == cid
+    finally:
+        _stop(w)
+
+
+def test_set_effort_to_default_drops_the_flag(qtbot, env):
+    _with_model(env, "gemini-4-argon", "low")
+    _patch_levels(env)
+    b = _backend(env)
+    w = _start_worker(qtbot, b)
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        w.request_set_effort("")
+        qtbot.waitUntil(lambda: b._proc is None, timeout=8000)
+        _query(qtbot, w, "two", w.query_completed)
+        _, second = _starts(env)
+        assert "--effort" not in second["argv"] and "--conversation" in second["argv"]
+    finally:
+        _stop(w)
+
+
+class _DenyPM:
+    def __init__(self):
+        self.calls = []
+
+    def is_auto_approved(self, tool):
+        return False
+
+    async def request_permission(self, tool, tool_input):
+        self.calls.append(tool)
+        return False, "User denied permission"
+
+    async def request_question(self, questions):
+        return False, {}
+
+    def cancel_all_pending(self):
         pass
+
+
+def test_denied_delegation_does_not_continue(env):
+    pm = _DenyPM()
+    events, prompts = _drive(env, "subagent_denied", pm=pm, require_approval=True)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert pm.calls == ["Task"]
+    assert len(_results(events)) == 1
+    assert "The delegation was denied." in _text(events)
+
+
+def test_cancel_between_rounds_stops_continuation(env):
+    def after(n, flag):
+        if n == 0:
+            flag["cancel"] = True  # the user cancels while the report is still owed
+
+    events, prompts = _drive(env, "subagent", after_round=after)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    terminal = [type(e).__name__ for e in events
+                if type(e).__name__ in ("TurnResultEvent", "TurnCancelledEvent", "TurnErrorEvent")]
+    assert terminal == ["TurnCancelledEvent"]
+    # round 0's session id is not lost, and it comes before the terminal event
+    from lightfall.agents.backend import SessionIdEvent
+    kinds = [type(e).__name__ for e in events]
+    assert any(isinstance(e, SessionIdEvent) for e in events)
+    assert kinds[-1] == "TurnCancelledEvent"
+
+
+def test_stopping_between_rounds_sends_no_continuation(env):
+    def after(n, flag):
+        if n == 0:
+            flag["stop"] = True
+
+    events, prompts = _drive(env, "subagent", after_round=after)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert not any(type(e).__name__ in ("TurnCancelledEvent", "TurnErrorEvent") for e in events)
+
+
+def test_stopping_during_continuation_ends_quietly(env):
+    from lightfall.agents.backend import PartialTextEvent
+
+    def on_event(ev, flag):
+        if isinstance(ev, PartialTextEvent) and "ECHOER" in ev.delta:
+            flag["stop"] = True
+
+    events, prompts = _drive(env, "subagent", on_event=on_event)
+    assert len(prompts) == 2  # the continuation was under way
+    # stopping() ends the turn without a terminal event (the worker is shutting down)
+    assert not any(type(e).__name__ in ("TurnResultEvent", "TurnCancelledEvent", "TurnErrorEvent")
+                   for e in events)
+
+
+def test_invoke_subagent_card_gets_a_result(env):
+    from lightfall.agents.backend import ToolCallEvent, ToolResultEvent
+
+    events, _ = _drive(env, "subagent")
+    calls = [e for e in events if isinstance(e, ToolCallEvent) and e.name == "invoke_subagent"]
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(calls) == 1 and len(results) == 1
+    assert results[0].payload["is_error"] is False and "echoer" in results[0].payload["content"]
+
+
+def test_cancel_during_continuation_keeps_round0_session_id(env):
+    from lightfall.agents.backend import PartialTextEvent, SessionIdEvent
+
+    def on_event(ev, flag):
+        if isinstance(ev, PartialTextEvent) and "ECHOER" in ev.delta:
+            flag["cancel"] = True
+
+    events, prompts = _drive(env, "subagent", on_event=on_event)
+    assert len(prompts) == 2
+    kinds = [type(e).__name__ for e in events]
+    assert kinds[-1] == "TurnCancelledEvent" and kinds.count("TurnCancelledEvent") == 1
+    assert "TurnResultEvent" not in kinds
+    assert any(isinstance(e, SessionIdEvent) for e in events)

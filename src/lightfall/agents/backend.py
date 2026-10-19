@@ -137,6 +137,10 @@ class AgentBackend(Protocol):
 
     async def set_model(self, model: str | None) -> None: ...
 
+    async def set_effort(self, effort: str | None) -> None:
+        """Reasoning effort for the next turn. Only called when ``caps.live_set_effort``."""
+        ...
+
     async def close(self) -> None:
         """Release backend resources (child processes, servers).
 

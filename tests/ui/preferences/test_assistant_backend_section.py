@@ -346,3 +346,123 @@ def test_hidden_selector_set_kind_and_last_status(qtbot, prefs):
     assert host.findChild(QGroupBox, "assistantGeminiGroup").isVisible()
     qtbot.waitUntil(lambda: sec.last_status is not None, timeout=3000)
     assert sec.last_status.ok
+
+
+# ---- effort combo -------------------------------------------------------------
+
+_ARGON = ModelOption("gemini-4-argon", "Gemini 4 Argon", ("low", "medium", "high"))
+_PRO = ModelOption("gemini-3.1-pro", "Gemini 3.1 Pro", ("low", "high"))
+
+
+def _effort_items(host):
+    combo = host.findChild(QComboBox, "agyEffort")
+    return [combo.itemData(i) for i in range(combo.count())], combo.currentData()
+
+
+def _loaded_agy(qtbot, prefs, **values):
+    prefs.values.update(agent_backend="agy", **values)
+    infos = {"agy": _Info("agy", AuthStatus(True, "Signed in (5 models)"), [_ARGON, _PRO]),
+             "claude-code": _Info("claude-code", AuthStatus(True, "Using API key"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    return sec, host
+
+
+def test_effort_combo_follows_the_model(qtbot, prefs):
+    sec, host = _loaded_agy(qtbot, prefs, agy_model="gemini-4-argon", agy_effort="medium")
+    assert _effort_items(host) == (["", "low", "medium", "high"], "medium")
+    model = host.findChild(QComboBox, "agyModel")
+    model.setCurrentIndex(model.findData("gemini-3.1-pro"))
+    # medium is not offered by pro: back to the default.
+    assert _effort_items(host) == (["", "low", "high"], "")
+    effort = host.findChild(QComboBox, "agyEffort")
+    effort.setCurrentIndex(effort.findData("high"))
+    sec.save()
+    assert prefs.values["agy_model"] == "gemini-3.1-pro"
+    assert prefs.values["agy_effort"] == "high"
+
+
+def test_effort_combo_default_model_has_no_levels(qtbot, prefs):
+    _, host = _loaded_agy(qtbot, prefs)
+    assert _effort_items(host) == ([""], "")
+
+
+def test_saved_effort_survives_before_models_load(qtbot, prefs):
+    prefs.values.update(agent_backend="agy", agy_model="gemini-4-argon", agy_effort="low")
+    infos = {"agy": _Info("agy", AuthStatus(False, "Not signed in: x")),
+             "claude-code": _Info("claude-code", AuthStatus(True, "Using API key"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()
+    assert _effort_items(host)[1] == "low"  # model list unknown yet: keep the saved level
+    sec.save()
+    assert prefs.values["agy_effort"] == "low"
+
+
+# ---- check-again button, poll timeout, model ids, hidden Claude row ------------
+
+
+def _recheck(host):
+    from PySide6.QtWidgets import QToolButton
+
+    return next(b for b in host.findChildren(QToolButton) if b.toolTip() == "Check again")
+
+
+def test_rapid_recheck_clicks_do_not_stack_checks(qtbot, prefs):
+    import threading
+
+    gate = threading.Event()
+    prefs.values["agent_backend"] = "agy"
+    agy = _Info("agy", AuthStatus(True, "Signed in (1 models)"), gate=gate)
+    infos = {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()  # initial check in flight, gated
+    qtbot.waitUntil(lambda: len(agy.refreshes) == 1, timeout=3000)
+    for _ in range(3):
+        _recheck(host).click()
+    qtbot.wait(100)
+    assert agy.refreshes == [False]  # one agy run, not four
+    gate.set()
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    _recheck(host).click()  # idle again: a click starts a fresh, cache-bypassing check
+    qtbot.waitUntil(lambda: agy.refreshes == [False, True], timeout=3000)
+
+
+def test_sign_in_poll_times_out_with_try_again(qtbot, prefs):
+    prefs.values["agent_backend"] = "agy"
+    _agy, infos = _signed_out_infos()
+    sec, host = _section(qtbot, infos, poll_interval_ms=20, poll_timeout_s=0.1)
+    sec.load()
+    qtbot.waitUntil(lambda: "Not signed in" in _status(host), timeout=3000)
+    host.findChild(QPushButton, "agySignIn").click()
+    qtbot.waitUntil(lambda: _status(host) == "Not signed in — try again", timeout=3000)
+    assert not sec._poll_timer.isActive()
+
+
+def test_model_id_maps_labels_and_keeps_custom_text(qtbot, prefs):
+    sec, host = _loaded_agy(qtbot, prefs)
+    model = host.findChild(QComboBox, "agyModel")
+    model.setCurrentIndex(model.findText("Gemini 4 Argon"))
+    assert sec._model_id() == "gemini-4-argon"
+    model.setEditText("Gemini 3.1 Pro")  # typed a listed label
+    assert sec._model_id() == "gemini-3.1-pro"
+    model.setEditText("gemini-9-experimental")  # typed a custom id
+    assert sec._model_id() == "gemini-9-experimental"
+    model.setCurrentIndex(0)
+    assert sec._model_id() == ""  # Default (agy)
+
+
+def test_claude_model_row_hidden_on_agy(qtbot, prefs, monkeypatch):
+    from lightfall.ui.preferences import agent_backend_section as abs_mod
+
+    prefs.values["agent_backend"] = "agy"
+    monkeypatch.setattr(abs_mod, "backend_info",
+                        lambda kind=None, agy_path=None: _Info(kind, AuthStatus(False, "x")))
+    plugin = cs.ClaudeSettingsPlugin()
+    w = plugin.create_widget()
+    qtbot.addWidget(w)
+    plugin.load_settings()
+    assert not plugin._model_layout.isRowVisible(plugin._model_combo)
+    combo = w.findChild(QComboBox, "assistantBackend")
+    combo.setCurrentIndex(combo.findData("claude-code"))
+    assert plugin._model_layout.isRowVisible(plugin._model_combo)

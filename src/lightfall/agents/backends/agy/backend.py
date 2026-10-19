@@ -8,7 +8,7 @@ One backend = one Lightfall chat session:
   writes the plugin config.  The agy child is spawned lazily on the first turn.
 * Each turn writes one ``user`` line and translates NDJSON events until a
   terminal event.  Interrupt makes agy exit, so the next turn respawns with
-  ``--conversation <id>``; so does a model switch.  On Windows interrupt kills
+  ``--conversation <id>``; so does a model or effort switch.  On Windows interrupt kills
   the child outright (CTRL_BREAK cannot reach it from a console-less GUI), and
   the turn ends cancelled as soon as its stdout closes.
 
@@ -31,12 +31,18 @@ from lightfall.agents.backend import (
     SessionConfig,
     TurnCancelledEvent,
     TurnErrorEvent,
+    TurnResultEvent,
 )
 from lightfall.agents.backends.agy import hook_client
 from lightfall.agents.backends.agy.ask_tool import ASK_SERVER_NAME, create_ask_user_server
 from lightfall.agents.backends.agy.discover import console_python, hook_command
-from lightfall.agents.backends.agy.events import TERMINAL_EVENTS, AgyEventTranslator
+from lightfall.agents.backends.agy.events import (
+    SUBAGENT_CONTINUE_PROMPT,
+    TERMINAL_EVENTS,
+    AgyEventTranslator,
+)
 from lightfall.agents.backends.agy.home import (
+    AGY_MODEL_ALIASES,
     PLUGIN_NAME,
     AgyHomeConfig,
     prepare_session_home,
@@ -51,6 +57,7 @@ from lightfall.agents.backends.agy.hook_policy import decide
 from lightfall.agents.backends.agy.host import ToolHost
 from lightfall.agents.backends.agy.process import AgyProcess
 from lightfall.agents.backends.agy.tool_directory import render_tool_directory
+from lightfall.agents.backends.info import agy_effort_levels, agy_model_ids
 from lightfall.utils.logging import logger
 
 _CANCEL_GRACE_S = 5.0
@@ -58,6 +65,45 @@ _POLL_S = 0.1
 _EXIT_WAIT_S = 2.0
 _NO_PROXY = "127.0.0.1,localhost"
 _RETRY = object()  # internal: the reused child died before answering
+
+# SUBAGENT_CONTINUE_PROMPT (events.py) is the synthetic input that lets agy deliver
+# a pending subagent report; see _turn_with_subagents.
+MAX_SUBAGENT_CONTINUATIONS = 3
+
+
+def _merge_usage(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Two TurnResultEvent infos as one: token counts summed, the later session id."""
+    out = {**a, **b}
+    for k in ("input_tokens", "output_tokens"):
+        out[k] = (a.get(k) or 0) + (b.get(k) or 0)
+    if a.get("total_cost_usd") is not None or b.get("total_cost_usd") is not None:
+        out["total_cost_usd"] = (a.get("total_cost_usd") or 0) + (b.get("total_cost_usd") or 0)
+    return out
+
+
+def effort_flag(model: str | None, effort: str | None,
+                levels: dict[str, tuple[str, ...]] | None) -> str | None:
+    """The ``--effort`` value for this spawn, or None to omit the flag.
+
+    Only a base model id with ``effort`` among its listed levels gets one. agy
+    rejects ``--effort`` with a variant id (``gemini-4-argon-low``), with a level
+    the model does not offer, and the default model's levels are unknown.
+    """
+    if not effort:
+        return None
+    if model and levels is not None and effort in levels.get(model, ()):
+        return effort
+    logger.debug("agy: dropping --effort {!r} (not offered by model {!r})", effort, model)
+    return None
+
+
+def _latest_of_each(events: list[AgentEvent]) -> list[AgentEvent]:
+    """The last event of each type, in the order those last ones arrived."""
+    latest: dict[type, AgentEvent] = {}
+    for ev in events:
+        latest.pop(type(ev), None)
+        latest[type(ev)] = ev
+    return list(latest.values())
 
 
 def _no_proxy_env() -> dict[str, str]:
@@ -92,6 +138,8 @@ class AgyCliBackend:
         self._project = project
         self._location = location
         self._model: str | None = cfg.model
+        self._effort: str | None = cfg.effort or None
+        self._effort_levels: dict[str, tuple[str, ...]] | None = None  # from `agy models`
         self._conversation_id: str | None = None
         self._session_home: Path | None = None
         self._token: str | None = None
@@ -114,6 +162,17 @@ class AgyCliBackend:
         return self._conversation_id or self._cfg.resume
 
     # -- lifecycle ------------------------------------------------------------
+
+    async def _subagent_model_ids(self) -> frozenset[str]:
+        """agy model ids, fetched only if a subagent names a model that is not an alias."""
+        if not any((s.model or "").strip() not in ("", *AGY_MODEL_ALIASES)
+                   for s in self._cfg.subagents):
+            return frozenset()
+        try:
+            return await asyncio.to_thread(agy_model_ids, self._agy)
+        except Exception as e:  # noqa: BLE001 - unknown models just become ``inherit``
+            logger.warning("agy: could not list models for subagents: {}", e)
+            return frozenset()
 
     async def connect(self) -> None:
         cfg = self._cfg
@@ -150,6 +209,9 @@ class AgyCliBackend:
                 port=port,
                 token=token,
                 skills_src=Path(cfg.skills_dir) / "skills",
+                subagents=list(cfg.subagents),
+                model_ids=await self._subagent_model_ids(),
+                tool_directory=directory,
             ))
             logger.info("agy backend connected: home={} port={}", home, port)
         except BaseException:
@@ -185,16 +247,27 @@ class AgyCliBackend:
         if proc is not None:
             await proc.kill()
 
+    async def _spawn_effort(self) -> str | None:
+        """``--effort`` for the next spawn; lists models once (only if an effort is set)."""
+        if self._effort and self._model and self._effort_levels is None:
+            try:
+                self._effort_levels = await asyncio.to_thread(agy_effort_levels, self._agy)
+            except Exception as e:  # noqa: BLE001 - no level list: spawn without --effort
+                logger.warning("agy: could not list models for --effort: {}", e)
+        return effort_flag(self._model, self._effort, self._effort_levels)
+
     async def _ensure_child(self) -> AgyProcess:
         if self._proc is not None and self._proc.alive:
             return self._proc
         await self._drop_child()
         assert self._session_home is not None and self._host is not None
+        effort = await self._spawn_effort()
         proc = AgyProcess(
             self._agy, self._session_home, self._cfg.cwd,
             env_extra={"LF_AGY_PORT": str(self._host.port), "LF_AGY_TOKEN": self._token or "",
                        **_no_proxy_env()},
-            model=self._model, conversation=self._conversation_id or self._cfg.resume)
+            model=self._model, conversation=self._conversation_id or self._cfg.resume,
+            effort=effort)
         await proc.start()
         self._translator.reset_usage()
         self._proc = proc
@@ -209,10 +282,64 @@ class AgyCliBackend:
             return
         self._in_turn = True
         try:
-            async for ev in self._turn(prompt, cancelled, stopping):
+            async for ev in self._turn_with_subagents(prompt, cancelled, stopping):
                 yield ev
         finally:
             self._in_turn = False
+
+    async def _turn_with_subagents(self, prompt: str, cancelled: Callable[[], bool],
+                                   stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:
+        """One Lightfall turn: an agy turn, plus up to MAX_SUBAGENT_CONTINUATIONS
+        synthetic follow-ups when it ended with a subagent report still unread.
+
+        agy 1.4.2 holds the turn's ``result`` until the subagent finishes but
+        often hands the report to the operator only with the next input (as a
+        ``system_message`` step). The follow-up line is that next input. The
+        intermediate results are merged into one TurnResultEvent (usage summed);
+        their SessionIdEvents follow it.
+        """
+        held: TurnResultEvent | None = None
+        trailing: list[AgentEvent] = []  # SessionIdEvent / ContextUsageEvent after a result
+        for round_no in range(MAX_SUBAGENT_CONTINUATIONS + 1):
+            result: TurnResultEvent | None = None
+            async for ev in self._turn(prompt if round_no == 0 else SUBAGENT_CONTINUE_PROMPT,
+                                       cancelled, stopping):
+                if isinstance(ev, TurnResultEvent):
+                    result = ev
+                elif result is not None:
+                    trailing.append(ev)
+                elif isinstance(ev, (TurnCancelledEvent, TurnErrorEvent)):
+                    # A continuation ended the turn: earlier rounds' session ids go
+                    # first. Their usage cannot ride along (these events carry none).
+                    for t in _latest_of_each(trailing):
+                        yield t
+                    trailing = []
+                    yield ev
+                else:
+                    yield ev
+            if result is None:
+                return  # cancelled, errored or stopping: _turn already ended the turn
+            held = result if held is None else TurnResultEvent(_merge_usage(held.info, result.info))
+            if not self._translator.subagent_report_pending or stopping():
+                break
+            if cancelled():
+                # The user cancelled while the report was still owed: end as
+                # cancelled (the child stays; agy hands the report over next input).
+                logger.debug("agy: cancelled before subagent continuation {}", round_no + 1)
+                for t in _latest_of_each(trailing):
+                    yield t
+                yield TurnCancelledEvent()
+                return
+            if round_no == MAX_SUBAGENT_CONTINUATIONS:
+                logger.debug("agy: subagent continuation cap ({}) reached; ending the turn",
+                             MAX_SUBAGENT_CONTINUATIONS)
+                break
+            logger.debug("agy: subagent report not yet delivered; continuation {}/{}",
+                         round_no + 1, MAX_SUBAGENT_CONTINUATIONS)
+        assert held is not None
+        yield held
+        for ev in _latest_of_each(trailing):
+            yield ev
 
     async def _turn(self, prompt: str, cancelled: Callable[[], bool],
                     stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:
@@ -329,4 +456,14 @@ class AgyCliBackend:
         self._model = model
         if self._proc is not None and not self._in_turn:
             # agy takes --model only at spawn: respawn on the next turn.
+            await self._drop_child()
+
+    async def set_effort(self, effort: str | None) -> None:
+        """Reasoning level for the next spawn (``""``/None = the model's default).
+
+        Like ``set_model``: agy takes ``--effort`` only at spawn, so the child is
+        dropped and the next turn respawns with ``--conversation`` (history kept).
+        """
+        self._effort = effort or None
+        if self._proc is not None and not self._in_turn:
             await self._drop_child()

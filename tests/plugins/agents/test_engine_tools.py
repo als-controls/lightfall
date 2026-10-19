@@ -435,3 +435,14 @@ def test_abort_payload_reports_success_when_dispatched(monkeypatch):
     assert payload["success"] is True
     assert "beam dump" in payload["message"]
     assert payload["state"] == "aborting"
+
+
+def test_wait_for_idle_description_is_backend_neutral():
+    """No Claude-only assumptions: the ScheduleWakeup caveat lives in the Claude
+    backend's prompt_notes, not in a tool every backend sees."""
+    tools = et.EngineToolsAgent().create_tools()
+    if not tools:
+        pytest.skip("claude_agent_sdk not available")
+    tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_wait_for_idle")
+    assert "Claude" not in tool.description and "ScheduleWakeup" not in tool.description
+    assert "polling" in tool.description and "lightfall_get_run_status" in tool.description

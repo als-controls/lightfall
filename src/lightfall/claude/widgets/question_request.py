@@ -40,9 +40,11 @@ class QuestionRequestWidget(QFrame):
         request_id: str,
         questions: list[dict],
         parent: QWidget | None = None,
+        speaker: str = "Assistant",
     ) -> None:
         super().__init__(parent)
         self.request_id = request_id
+        self._speaker = speaker  # who is asking, e.g. "Gemini"
         self.questions = list(questions)
         self._is_resolved = False
         # Per-question widget tracking: (question_dict, QButtonGroup-or-list[QCheckBox])
@@ -61,9 +63,7 @@ class QuestionRequestWidget(QFrame):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
-        from lightfall.agents.backends.info import backend_info
-
-        name = backend_info().display_name
+        name = self._speaker
         if len(self.questions) == 1:
             header_text = f"❓ <b>{name} is asking…</b>"
         else:

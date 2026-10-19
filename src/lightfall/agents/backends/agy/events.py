@@ -29,6 +29,11 @@ from lightfall.utils.logging import logger
 _PREFIX = "lightfall_"
 _USAGE_KEYS = ("input_tokens", "output_tokens")
 TERMINAL_EVENTS = (TurnResultEvent, TurnCancelledEvent, TurnErrorEvent)
+# Synthetic input the backend sends so agy delivers a pending subagent report
+# (AgyCliBackend._turn_with_subagents); sessions.py hides it on restore.
+SUBAGENT_CONTINUE_PROMPT = (
+    "(Lightfall, automatic) Subagent results are ready. Continue: use them to finish "
+    "answering my previous request.")
 
 
 def _int(v: Any) -> int:
@@ -46,10 +51,15 @@ class AgyEventTranslator:
         self._tools_done: set[str] = set()
         self._prev_usage: dict[str, int] = {}
         self.conversation_id: str | None = None
+        # True from an invoke_subagent step until a system_message step: agy
+        # delivers a subagent's report to the operator as a system message, and
+        # (agy 1.4.2, verified live) often only at the start of the NEXT input.
+        self.subagent_report_pending = False
 
     def begin_turn(self) -> None:
         """Forget per-step state: a step never spans turns, and agy may reuse
         ``step_index`` under the same conversation id after a respawn."""
+        self.subagent_report_pending = False
         self._started.clear()
         self._finished.clear()
         self._tools_called.clear()
@@ -86,6 +96,12 @@ class AgyEventTranslator:
         bid = f"{cid}:{su.get('step_index')}"
         step_type = su.get("step_type")
         state = su.get("state")
+        if step_type == "subagent":
+            # Only this step proves a subagent is running. A denied or failed
+            # invoke_subagent ends as an ERROR tool step and owes no report.
+            return self._subagent_step(bid, su, state)
+        if step_type == "system_message":
+            self.subagent_report_pending = False
         if step_type == "agent_response":
             return self._response_step(bid, su, state)
         if step_type == "tool":
@@ -104,6 +120,24 @@ class AgyEventTranslator:
             self._finished.add(bid)
             out.append(PartialFinishedEvent(bid))
         return out
+
+    def _subagent_step(self, bid: str, su: dict[str, Any], state: Any) -> list[AgentEvent]:
+        """agy's update for an invoke_subagent call once the subagent exists.
+
+        It shares the tool step's ``step_index``, so it closes that tool card.
+        """
+        if state == "ERROR":
+            return []
+        self.subagent_report_pending = True
+        # Close the card only for a call we announced, and only once.
+        if state != "DONE" or bid not in self._tools_called or bid in self._tools_done:
+            return []
+        self._tools_done.add(bid)
+        info = su.get("subagent_info") if isinstance(su.get("subagent_info"), dict) else {}
+        subs = info.get("subagents") if isinstance(info.get("subagents"), list) else []
+        names = [str(s.get("type_name")) for s in subs if isinstance(s, dict) and s.get("type_name")]
+        return [ToolResultEvent(bid, {"content": f"Started subagent: {', '.join(names) or '?'}",
+                                      "is_error": False})]
 
     def _tool_call(self, su: dict[str, Any]) -> ToolCallEvent:
         info = su.get("tool_info") if isinstance(su.get("tool_info"), dict) else {}

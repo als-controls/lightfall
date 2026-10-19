@@ -208,8 +208,8 @@ the tool call until the engine returns to IDLE, then optionally returns the
 most recent run's metadata in the same response (`include_last_run=True` by
 default), so you can pipe straight into `lightfall_get_scan_data(uid=...)` without
 another round-trip. Prefer this over polling `lightfall_get_run_status` in a loop,
-and **do not use `ScheduleWakeup` for this** — `ScheduleWakeup` currently does
-not fire in Lightfall's embedded Claude session, so any wakeup you schedule will
+and **do not use a scheduled wakeup (such as `ScheduleWakeup`) for this** — scheduled
+wakeups do not fire in Lightfall's embedded session, so any wakeup you schedule will
 silently drop and the conversation will stall waiting for the user to nudge
 you. `lightfall_wait_for_idle` keeps the model suspended inside the tool call,
 which is the right pattern here.
@@ -399,19 +399,24 @@ class QtClaudeAgent(QObject):
 
         if self._spec is not None:
             from lightfall.agents.assembly import assemble_spec_options
+            from lightfall.agents.backends import info as backend_infos
             from lightfall.agents.registry import AgentSpecRegistry
             from lightfall.agents.spec import AgentSpecError
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
             try:
-                from lightfall.agents.backends.info import backend_info
-
+                backend = backend_infos.backend_info()
+            except Exception as exc:  # noqa: BLE001 - only the preamble wording depends on it
+                logger.warning("agent '{}': backend lookup failed ({}); "
+                               "using Claude Code preamble wording", self._spec.name, exc)
+                backend = None
+            try:
                 spec_options = assemble_spec_options(
                     self._spec,
                     ToolRegistry.get_instance(),
                     AgentSpecRegistry.get_instance(),
                     self._session_plugin_dir,
-                    backend=backend_info(),
+                    backend=backend,
                 )
             except AgentSpecError as exc:
                 logger.warning(
@@ -733,9 +738,16 @@ class QtClaudeAgent(QObject):
         is picked up by ``_ensure_connected`` via the options.
         """
         self._model = model
-        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+        running = self._worker is not None and self._worker.isRunning()
+        # agy: a worker still connecting holds the request until connect() is done.
+        if running and (self._is_connected or self._agy):
             self._worker.request_set_model(model)
-        elif self._agy and not (self._worker is not None and self._worker.isRunning()):
+            if self._agy:
+                import dataclasses
+
+                # Reset and reconnects rebuild from _session_config.
+                self._session_config = dataclasses.replace(self._session_config, model=model)
+        elif self._agy and not running:
             # No live worker: rebuild the (unconnected) agy backend with the new
             # model, keeping the conversation it would resume.
             import dataclasses
@@ -750,6 +762,37 @@ class QtClaudeAgent(QObject):
             except ValueError as exc:
                 self._backend = None  # _ensure_connected retries from _session_config
                 logger.warning("agy model switch: {}", exc)
+
+    def set_effort(self, effort: str | None) -> None:
+        """Switch the reasoning effort live, for backends with ``caps.live_set_effort``
+        (agy: the next turn respawns with ``--conversation``, history kept).
+
+        Claude reads effort at construction only; its callers rebuild the agent.
+        """
+        self._effort = effort or None
+        running = self._worker is not None and self._worker.isRunning()
+        # agy: a worker still connecting holds the request until connect() is done.
+        if running and (self._is_connected or self._agy):
+            self._worker.request_set_effort(self._effort)
+            if self._agy:
+                import dataclasses
+
+                # Reset and reconnects rebuild from _session_config.
+                self._session_config = dataclasses.replace(
+                    self._session_config, effort=self._effort)
+        elif self._agy and not running:
+            import dataclasses
+
+            resume = (self._backend.conversation_id if self._backend is not None
+                      else self._session_config.resume)
+            self._session_config = dataclasses.replace(
+                self._session_config, effort=self._effort, resume=resume
+            )
+            try:
+                self._backend = self._make_agy_backend()
+            except ValueError as exc:
+                self._backend = None  # _ensure_connected retries from _session_config
+                logger.warning("agy effort switch: {}", exc)
 
     # --- Permission API ---
 
@@ -881,7 +924,7 @@ class QtClaudeAgent(QObject):
                 self._backend = None
                 self._session_config = dataclasses.replace(
                     self._session_config, resume=None, skills_dir=plugin_dir,
-                    model=self._model,
+                    model=self._model, effort=self._effort,
                 )
                 try:
                     self._backend = self._make_agy_backend()

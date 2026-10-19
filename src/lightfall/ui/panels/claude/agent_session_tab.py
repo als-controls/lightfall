@@ -39,6 +39,14 @@ def session_model() -> str | None:
     return resolve_model_alias(ClaudeSettingsProvider.get_model())
 
 
+def session_effort() -> str | None:
+    """Reasoning effort to construct the agent with: the selected backend's own
+    pref (``claude_effort`` or ``agy_effort``), None for the default."""
+    from lightfall.agents.backends.info import backend_info
+
+    return backend_info().current_effort() or None
+
+
 def _session_store():
     from lightfall.agents.backends.select import backend_kind, make_session_store
     from lightfall.claude.agent import lightfall_agent_cwd
@@ -252,7 +260,7 @@ class AgentSessionTab(QWidget):
             permission_mode=permission_mode,
             require_approval=(permission_mode != "bypassPermissions"),
             model=session_model(),
-            effort=ClaudeSettingsProvider.get_effort() or None,
+            effort=session_effort(),
             resume=resume,
             disable_betas=ClaudeSettingsProvider.get_disable_betas(),
             spec=self.spec,
