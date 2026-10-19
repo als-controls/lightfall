@@ -652,23 +652,41 @@ def test_connect_puts_tool_directory_in_subagent_files(env):
 # ---- subagent auto-continue ---------------------------------------------------
 
 
-def _drive(env, scenario, *, cancel_on=None):
-    """One Lightfall turn straight through run_turn; returns (events, prompts sent)."""
+def _drive(env, scenario, *, cancel_on=None, pm=None, require_approval=False,
+           after_round=None, on_event=None):
+    """One Lightfall turn straight through run_turn; returns (events, prompts sent).
+
+    ``after_round(n, flag)`` runs when agy round ``n`` ends; ``on_event(ev, flag)``
+    for every event. ``flag`` holds the "cancel" / "stop" switches.
+    """
     from lightfall.agents.backend import ToolCallEvent
 
     env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", scenario)
-    b = _backend(env)
-    flag = {"cancel": False}
+    b = _backend(env, pm=pm, require_approval=require_approval)
+    flag = {"cancel": False, "stop": False}
     events = []
+    if after_round is not None:
+        inner = b._turn
+        rounds = {"n": 0}
+
+        async def counted(*a, **k):
+            async for ev in inner(*a, **k):
+                yield ev
+            after_round(rounds["n"], flag)
+            rounds["n"] += 1
+
+        b._turn = counted
 
     async def go():
         await b.connect()
         try:
             async for ev in b.run_turn("Ask the echoer to echo persimmon.",
-                                       lambda: flag["cancel"], lambda: False):
+                                       lambda: flag["cancel"], lambda: flag["stop"]):
                 events.append(ev)
                 if (cancel_on and isinstance(ev, ToolCallEvent) and ev.name == cancel_on):
                     flag["cancel"] = True
+                if on_event is not None:
+                    on_event(ev, flag)
         finally:
             await b.close()
 
@@ -864,3 +882,96 @@ def test_set_effort_to_default_drops_the_flag(qtbot, env):
         assert "--effort" not in second["argv"] and "--conversation" in second["argv"]
     finally:
         _stop(w)
+
+
+class _DenyPM:
+    def __init__(self):
+        self.calls = []
+
+    def is_auto_approved(self, tool):
+        return False
+
+    async def request_permission(self, tool, tool_input):
+        self.calls.append(tool)
+        return False, "User denied permission"
+
+    async def request_question(self, questions):
+        return False, {}
+
+    def cancel_all_pending(self):
+        pass
+
+
+def test_denied_delegation_does_not_continue(env):
+    pm = _DenyPM()
+    events, prompts = _drive(env, "subagent_denied", pm=pm, require_approval=True)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert pm.calls == ["Task"]
+    assert len(_results(events)) == 1
+    assert "The delegation was denied." in _text(events)
+
+
+def test_cancel_between_rounds_stops_continuation(env):
+    def after(n, flag):
+        if n == 0:
+            flag["cancel"] = True  # the user cancels while the report is still owed
+
+    events, prompts = _drive(env, "subagent", after_round=after)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    terminal = [type(e).__name__ for e in events
+                if type(e).__name__ in ("TurnResultEvent", "TurnCancelledEvent", "TurnErrorEvent")]
+    assert terminal == ["TurnCancelledEvent"]
+    # round 0's session id is not lost, and it comes before the terminal event
+    from lightfall.agents.backend import SessionIdEvent
+    kinds = [type(e).__name__ for e in events]
+    assert any(isinstance(e, SessionIdEvent) for e in events)
+    assert kinds[-1] == "TurnCancelledEvent"
+
+
+def test_stopping_between_rounds_sends_no_continuation(env):
+    def after(n, flag):
+        if n == 0:
+            flag["stop"] = True
+
+    events, prompts = _drive(env, "subagent", after_round=after)
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert not any(type(e).__name__ in ("TurnCancelledEvent", "TurnErrorEvent") for e in events)
+
+
+def test_stopping_during_continuation_ends_quietly(env):
+    from lightfall.agents.backend import PartialTextEvent
+
+    def on_event(ev, flag):
+        if isinstance(ev, PartialTextEvent) and "ECHOER" in ev.delta:
+            flag["stop"] = True
+
+    events, prompts = _drive(env, "subagent", on_event=on_event)
+    assert len(prompts) == 2  # the continuation was under way
+    # stopping() ends the turn without a terminal event (the worker is shutting down)
+    assert not any(type(e).__name__ in ("TurnResultEvent", "TurnCancelledEvent", "TurnErrorEvent")
+                   for e in events)
+
+
+def test_invoke_subagent_card_gets_a_result(env):
+    from lightfall.agents.backend import ToolCallEvent, ToolResultEvent
+
+    events, _ = _drive(env, "subagent")
+    calls = [e for e in events if isinstance(e, ToolCallEvent) and e.name == "invoke_subagent"]
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(calls) == 1 and len(results) == 1
+    assert results[0].payload["is_error"] is False and "echoer" in results[0].payload["content"]
+
+
+def test_cancel_during_continuation_keeps_round0_session_id(env):
+    from lightfall.agents.backend import PartialTextEvent, SessionIdEvent
+
+    def on_event(ev, flag):
+        if isinstance(ev, PartialTextEvent) and "ECHOER" in ev.delta:
+            flag["cancel"] = True
+
+    events, prompts = _drive(env, "subagent", on_event=on_event)
+    assert len(prompts) == 2
+    kinds = [type(e).__name__ for e in events]
+    assert kinds[-1] == "TurnCancelledEvent" and kinds.count("TurnCancelledEvent") == 1
+    assert "TurnResultEvent" not in kinds
+    assert any(isinstance(e, SessionIdEvent) for e in events)

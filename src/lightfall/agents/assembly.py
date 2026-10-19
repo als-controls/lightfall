@@ -131,8 +131,13 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         if peer.openable:
             tags.append("openable as a session")
         if peer.subagent and delegable:
-            tags.append(backend.subagent_tag)
-            any_delegable = True
+            # Same check the backend applies when it writes the subagent files.
+            problem = backend.subagent_name_problem(peer.name)
+            if problem:
+                tags.append(f"not delegable on this backend: {problem}")
+            else:
+                tags.append(backend.subagent_tag)
+                any_delegable = True
         tag_suffix = f" [{', '.join(tags)}]" if tags else ""
         peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
 

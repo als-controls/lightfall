@@ -170,6 +170,9 @@ class ClaudeCodeInfo:
     def tool_ref(self, server: str, tool: str) -> str:
         return f"`{tool_id(server, tool)}`"
 
+    def subagent_name_problem(self, name: str) -> str | None:
+        return None  # SDK AgentDefinitions take any name
+
 
 # `agy models` result per executable for 60 s: {agy: (monotonic, (rows, detail))}.
 _AGY_TTL_S = 60.0
@@ -281,6 +284,12 @@ class AgyInfo:
         # agy calls MCP tools as call_mcp_tool(ServerName, ToolName); plugin servers
         # are named lightfall_<key>.
         return f"`lightfall_{server}` / `{tool}`"
+
+    def subagent_name_problem(self, name: str) -> str | None:
+        """Why a peer named ``name`` cannot be a subagent here (None = it can)."""
+        from lightfall.agents.backends.agy.home import subagent_name_problem
+
+        return subagent_name_problem(name)
 
 
 def agy_model_ids(agy: str | list[str]) -> frozenset[str]:

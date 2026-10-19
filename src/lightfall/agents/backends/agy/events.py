@@ -23,7 +23,6 @@ from lightfall.agents.backend import (
     TurnErrorEvent,
     TurnResultEvent,
 )
-from lightfall.agents.backends.agy.hook_policy import SUBAGENT_TOOL
 from lightfall.agents.tooling import tool_id
 from lightfall.utils.logging import logger
 
@@ -97,10 +96,11 @@ class AgyEventTranslator:
         bid = f"{cid}:{su.get('step_index')}"
         step_type = su.get("step_type")
         state = su.get("state")
-        if step_type == "subagent" or (step_type == "tool"
-                                       and su.get("tool_name") == SUBAGENT_TOOL):
-            self.subagent_report_pending = True
-        elif step_type == "system_message":
+        if step_type == "subagent":
+            # Only this step proves a subagent is running. A denied or failed
+            # invoke_subagent ends as an ERROR tool step and owes no report.
+            return self._subagent_step(bid, su, state)
+        if step_type == "system_message":
             self.subagent_report_pending = False
         if step_type == "agent_response":
             return self._response_step(bid, su, state)
@@ -120,6 +120,24 @@ class AgyEventTranslator:
             self._finished.add(bid)
             out.append(PartialFinishedEvent(bid))
         return out
+
+    def _subagent_step(self, bid: str, su: dict[str, Any], state: Any) -> list[AgentEvent]:
+        """agy's update for an invoke_subagent call once the subagent exists.
+
+        It shares the tool step's ``step_index``, so it closes that tool card.
+        """
+        if state == "ERROR":
+            return []
+        self.subagent_report_pending = True
+        # Close the card only for a call we announced, and only once.
+        if state != "DONE" or bid not in self._tools_called or bid in self._tools_done:
+            return []
+        self._tools_done.add(bid)
+        info = su.get("subagent_info") if isinstance(su.get("subagent_info"), dict) else {}
+        subs = info.get("subagents") if isinstance(info.get("subagents"), list) else []
+        names = [str(s.get("type_name")) for s in subs if isinstance(s, dict) and s.get("type_name")]
+        return [ToolResultEvent(bid, {"content": f"Started subagent: {', '.join(names) or '?'}",
+                                      "is_error": False})]
 
     def _tool_call(self, su: dict[str, Any]) -> ToolCallEvent:
         info = su.get("tool_info") if isinstance(su.get("tool_info"), dict) else {}

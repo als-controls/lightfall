@@ -97,6 +97,15 @@ def effort_flag(model: str | None, effort: str | None,
     return None
 
 
+def _latest_of_each(events: list[AgentEvent]) -> list[AgentEvent]:
+    """The last event of each type, in the order those last ones arrived."""
+    latest: dict[type, AgentEvent] = {}
+    for ev in events:
+        latest.pop(type(ev), None)
+        latest[type(ev)] = ev
+    return list(latest.values())
+
+
 def _no_proxy_env() -> dict[str, str]:
     """NO_PROXY with 127.0.0.1/localhost added to whatever the user already has."""
     parts: list[str] = []
@@ -290,7 +299,7 @@ class AgyCliBackend:
         their SessionIdEvents follow it.
         """
         held: TurnResultEvent | None = None
-        trailing: list[AgentEvent] = []
+        trailing: list[AgentEvent] = []  # SessionIdEvent / ContextUsageEvent after a result
         for round_no in range(MAX_SUBAGENT_CONTINUATIONS + 1):
             result: TurnResultEvent | None = None
             async for ev in self._turn(prompt if round_no == 0 else SUBAGENT_CONTINUE_PROMPT,
@@ -298,14 +307,29 @@ class AgyCliBackend:
                 if isinstance(ev, TurnResultEvent):
                     result = ev
                 elif result is not None:
-                    trailing.append(ev)  # SessionIdEvent / ContextUsageEvent after the result
+                    trailing.append(ev)
+                elif isinstance(ev, (TurnCancelledEvent, TurnErrorEvent)):
+                    # A continuation ended the turn: earlier rounds' session ids go
+                    # first. Their usage cannot ride along (these events carry none).
+                    for t in _latest_of_each(trailing):
+                        yield t
+                    trailing = []
+                    yield ev
                 else:
                     yield ev
             if result is None:
                 return  # cancelled, errored or stopping: _turn already ended the turn
             held = result if held is None else TurnResultEvent(_merge_usage(held.info, result.info))
-            if not self._translator.subagent_report_pending or cancelled() or stopping():
+            if not self._translator.subagent_report_pending or stopping():
                 break
+            if cancelled():
+                # The user cancelled while the report was still owed: end as
+                # cancelled (the child stays; agy hands the report over next input).
+                logger.debug("agy: cancelled before subagent continuation {}", round_no + 1)
+                for t in _latest_of_each(trailing):
+                    yield t
+                yield TurnCancelledEvent()
+                return
             if round_no == MAX_SUBAGENT_CONTINUATIONS:
                 logger.debug("agy: subagent continuation cap ({}) reached; ending the turn",
                              MAX_SUBAGENT_CONTINUATIONS)
@@ -314,11 +338,7 @@ class AgyCliBackend:
                          round_no + 1, MAX_SUBAGENT_CONTINUATIONS)
         assert held is not None
         yield held
-        latest: dict[type, AgentEvent] = {}  # one of each kind, the latest
-        for ev in trailing:
-            latest.pop(type(ev), None)
-            latest[type(ev)] = ev
-        for ev in latest.values():
+        for ev in _latest_of_each(trailing):
             yield ev
 
     async def _turn(self, prompt: str, cancelled: Callable[[], bool],

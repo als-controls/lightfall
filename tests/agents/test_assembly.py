@@ -235,3 +235,24 @@ def test_lightfall_spec_prompt_is_backend_neutral():
 
     md = (Path(agents_pkg.__file__).parent / "builtin" / "lightfall.md").read_text(encoding="utf-8")
     assert "ScheduleWakeup" not in md
+
+
+def test_preamble_agy_marks_invalid_subagent_name_not_delegable():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("SAXS Analyst", openable=False, subagent=True)])
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    line = next(ln for ln in text.splitlines() if "**SAXS Analyst**" in ln)
+    assert "subagent delegable" not in line
+    assert "not delegable on this backend" in line and "A-Za-z0-9_.-" in line
+    assert "invoke_subagent" not in text  # no delegable peer, so no delegation note
+
+
+def test_preamble_claude_keeps_any_subagent_name_delegable():
+    from lightfall.agents.backends.info import ClaudeCodeInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("SAXS Analyst", openable=False, subagent=True)])
+    text = identity_preamble(lightfall, reg, ClaudeCodeInfo())
+    assert "**SAXS Analyst** — d-SAXS Analyst [Agent-tool delegable]" in text

@@ -222,3 +222,37 @@ def test_plain_turn_never_pending():
     t.begin_turn()
     _feed(t, TOOL_ACTIVE, TOOL_DONE, *TEXT_LINES, RESULT_OK)
     assert t.subagent_report_pending is False
+
+
+SUB_DENIED = ('{"event":"step_update","step_update":{"conversation_id":"' + SUB_CID + '",'
+              '"step_index":2,"state":"ERROR","step_type":"tool","tool_name":"invoke_subagent",'
+              '"tool_info":{"name":"invoke_subagent","parameters":{},"error":{"type":"TOOL_ERROR",'
+              '"message":"Encountered error in step execution: tool call denied by pre-tool hook"}}}}')
+
+
+def test_invoke_without_subagent_step_is_not_pending():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    _feed(t, SUB_INVOKE)
+    assert t.subagent_report_pending is False
+
+
+def test_denied_invoke_never_pending():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    events = _feed(t, SUB_INVOKE, SUB_DENIED)
+    assert t.subagent_report_pending is False
+    [res] = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert res.payload["is_error"] is True
+
+
+def test_subagent_step_done_closes_the_invoke_card():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    events = _feed(t, SUB_INVOKE, SUB_DONE)
+    [call] = [e for e in events if isinstance(e, ToolCallEvent)]
+    [res] = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert call.name == "invoke_subagent"
+    assert res.tool_use_id == f"{SUB_CID}:2"
+    assert res.payload == {"content": "Started subagent: echoer", "is_error": False}
+    assert _feed(t, SUB_DONE) == []  # a repeated DONE does not re-close it

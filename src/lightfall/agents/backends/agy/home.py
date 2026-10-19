@@ -66,6 +66,11 @@ _OPERATOR_FRONTMATTER = (
     "---\n"
 )
 
+# Subagents otherwise try the bus's send_message to reach their parent, which the
+# hook denies (a wasted 5-10 s step); the report is the subagent's final text.
+SUBAGENT_FINISH_NOTE = (
+    "Finish by giving your final answer as plain text; do not call send_message.")
+
 # Model aliases agy accepts in an agent file besides the ids `agy models` lists.
 AGY_MODEL_ALIASES = frozenset({"inherit", "flash", "flash_lite", "pro"})
 
@@ -394,6 +399,16 @@ def _subagent_model(spec: SubagentSpec, model_ids: Iterable[str]) -> str:
     return "inherit"
 
 
+def subagent_name_problem(name: str) -> str | None:
+    """Why ``name`` cannot be an agy subagent (it becomes the file name and the
+    TypeName), or None. The preamble (via ``AgyInfo``) and the file writer share it."""
+    if not isinstance(name, str) or not _KEY_RE.fullmatch(name) or name in (".", ".."):
+        return "invalid name (allowed: A-Za-z0-9_.-)"
+    if name.casefold() == "operator":
+        return "the name is reserved for the operator agent"
+    return None
+
+
 def _write_subagents(agents_dir: Path, cfg: AgyHomeConfig) -> None:
     """Write ``<name>.md`` per subagent; agy uses the file's ``name`` as TypeName.
 
@@ -403,13 +418,9 @@ def _write_subagents(agents_dir: Path, cfg: AgyHomeConfig) -> None:
     taken = {"operator"}  # casefolded: Windows file names are case-insensitive
     for spec in cfg.subagents:
         name = spec.name
-        if not _KEY_RE.fullmatch(name) or name in (".", ".."):
-            logger.warning("agy: skipping subagent {!r}: invalid name (allowed: A-Za-z0-9_.-)",
-                           name)
-            continue
-        if name.casefold() == "operator":
-            logger.warning("agy: skipping subagent {!r}: the name is reserved for the operator",
-                           name)
+        problem = subagent_name_problem(name)
+        if problem is not None:
+            logger.warning("agy: skipping subagent {!r}: {}", name, problem)
             continue
         if name.casefold() in taken:
             logger.warning("agy: skipping subagent {!r}: duplicate name", name)
@@ -422,7 +433,7 @@ def _write_subagents(agents_dir: Path, cfg: AgyHomeConfig) -> None:
             description=json.dumps(description, ensure_ascii=False),
             model=_subagent_model(spec, cfg.model_ids),
         )
-        body = spec.prompt + "\n"
+        body = spec.prompt + "\n\n" + SUBAGENT_FINISH_NOTE + "\n"
         if cfg.tool_directory:
             # The operator gets this via its prompt; without it a subagent hunts
             # for the MCP server names with Glob/LS/Read first.

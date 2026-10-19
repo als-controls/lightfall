@@ -197,7 +197,10 @@ def test_live_subagent_delegation(tmp_path, monkeypatch):
             assert "Task" in pm.requests  # the delegation itself was gated
             assert "mcp__probe__echo" in pm.requests  # ...and so was the subagent's tool call
             assert any("persimmon" in w.lower() for w in echoed)
-            assert "persimmon" in text.lower()
+            # "persimmon" is in the prompt; the subagent's own marker proves its report
+            # reached the operator in this Lightfall turn.
+            assert "ECHOER:" in text and "persimmon" in text.lower()
+            assert sum(isinstance(e, TurnResultEvent) for e in events) == 1
         finally:
             await backend.close()
 

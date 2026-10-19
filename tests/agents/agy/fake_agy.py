@@ -138,10 +138,10 @@ def scenario_text_mute() -> None:
     scenario_text()
 
 
-def _post_hook() -> None:
+def _post_hook(tool_call: dict | None = None) -> dict:
     import urllib.request
 
-    body = json.dumps({"conversationId": CID, "stepIdx": _step, "toolCall": {
+    body = json.dumps({"conversationId": CID, "stepIdx": _step, "toolCall": tool_call or {
         "name": "call_mcp_tool",
         "args": {"ServerName": "lightfall_qt", "ToolName": "screenshot", "Arguments": {}}}})
     req = urllib.request.Request(
@@ -149,7 +149,7 @@ def _post_hook() -> None:
         headers={"Authorization": f"Bearer {os.environ['LF_AGY_TOKEN']}",
                  "Content-Type": "application/json"}, method="POST")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    opener.open(req, timeout=10).read()
+    return json.loads(opener.open(req, timeout=10).read() or b"{}")
 
 
 def scenario_text_hook_mute() -> None:
@@ -228,7 +228,28 @@ def scenario_subagent_loop() -> None:
     result(response="Delegating again.")
 
 
-SCENARIOS = {"text": scenario_text, "tool": scenario_tool, "die": scenario_die,
+def scenario_subagent_denied() -> None:
+    """invoke_subagent goes through the hook; on a deny agy records an ERROR step."""
+    begin_turn()
+    args = {"Subagents": [{"Model": "inherit", "Prompt": "Echo persimmon.", "Role": "Echoer",
+                           "TypeName": "echoer"}]}
+    info = {"name": "invoke_subagent", "parameters": args}
+    step("ACTIVE", "tool", tool_name="invoke_subagent", tool_info=info)
+    decision = _post_hook({"name": "invoke_subagent", "args": args})
+    if decision.get("decision") == "allow":
+        step("DONE", "subagent", tool_name="invoke_subagent",
+             subagent_info={"subagents": [{"type_name": "echoer"}]})
+    else:
+        step("ERROR", "tool", tool_name="invoke_subagent", tool_info={**info, "error": {
+            "type": "TOOL_ERROR", "message": "Encountered error in step execution: "
+                                             "tool call denied by pre-tool hook"}})
+    next_step()
+    text_reply(["The delegation was denied."])
+    result(response="The delegation was denied.")
+
+
+SCENARIOS = {"subagent_denied": scenario_subagent_denied,
+             "text": scenario_text, "tool": scenario_tool, "die": scenario_die,
              "subagent": scenario_subagent, "subagent_inturn": scenario_subagent_inturn,
              "subagent_loop": scenario_subagent_loop,
              "slow": scenario_slow, "deaf": scenario_slow, "text_exit": scenario_text_exit,

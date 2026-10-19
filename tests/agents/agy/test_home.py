@@ -395,6 +395,9 @@ _SUB_TOOLS = ("tools: [view_file, list_dir, grep_search, find_by_name, write_to_
               "read_url_content, search_web]\n")
 
 
+FINISH = ("Finish by giving your final answer as plain text; do not call send_message.")
+
+
 def _sub(name, description="d", prompt="p", model=None, **kw):
     from lightfall.agents.backend import SubagentSpec
 
@@ -436,6 +439,7 @@ def test_subagent_files_exact(tmp_path):
         "---\n"
         "\n"
         "You echo.\n"
+        "\n" + FINISH + "\n"
     )
     assert (agents / "saxs.md").read_text(encoding="utf-8") == (
         "---\n"
@@ -451,6 +455,7 @@ def test_subagent_files_exact(tmp_path):
         "---\n"
         "\n"
         "You reduce SAXS.\nCarefully.\n"
+        "\n" + FINISH + "\n"
     )
 
 
@@ -516,7 +521,7 @@ def test_invalid_and_duplicate_subagent_names_skipped(tmp_path):
         done()
     assert _agents(session) == ["good.md", "operator.md"]
     text = (_plugin(session) / "agents" / "good.md").read_text(encoding="utf-8")
-    assert text.endswith("\nfirst\n")
+    assert "---\n\nfirst\n" in text
     assert sum("subagent" in m for m in msgs) == 6
     assert not (_plugin(session) / "evil.md").exists()
 
@@ -551,11 +556,29 @@ def test_subagent_body_carries_tool_directory(tmp_path):
     agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", prompt="You echo.")],
                                                 tool_directory=directory))
     text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
-    assert text.endswith("---\n\nYou echo.\n\n" + directory)
+    assert text.endswith("---\n\nYou echo.\n\n" + FINISH + "\n\n" + directory)
 
 
-def test_subagent_body_without_tool_directory_is_just_the_prompt(tmp_path):
+def test_subagent_body_without_tool_directory(tmp_path):
     session = tmp_path / "s"
     agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", prompt="You echo.")]))
     text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
-    assert text.endswith("---\n\nYou echo.\n")
+    assert text.endswith("---\n\nYou echo.\n\n" + FINISH + "\n")
+
+
+def test_subagent_body_says_finish_in_plain_text(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", prompt="You echo.")]))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert FINISH in text and agy_home.SUBAGENT_FINISH_NOTE == FINISH
+
+
+@pytest.mark.parametrize("name,ok", [("echoer", True), ("a-b_c.d", True), ("SAXS Analyst", False),
+                                     ("..", False), ("operator", False), ("OPERATOR", False),
+                                     ("x\n", False), ("", False)])
+def test_subagent_name_problem_is_shared_with_backend_info(name, ok):
+    from lightfall.agents.backends.info import AgyInfo, ClaudeCodeInfo
+
+    assert (agy_home.subagent_name_problem(name) is None) is ok
+    assert AgyInfo().subagent_name_problem(name) == agy_home.subagent_name_problem(name)
+    assert ClaudeCodeInfo().subagent_name_problem(name) is None
