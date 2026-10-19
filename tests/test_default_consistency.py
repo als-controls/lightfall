@@ -19,6 +19,12 @@ class _EmptyPrefs:
     def set(self, key, value):
         pass
 
+    def derived_value(self, key):
+        return None  # an unbound console: nothing derives from site.bind
+
+    def explicit(self, key, default=None):
+        return self.get(key, default)
+
 
 @pytest.fixture
 def empty_prefs(monkeypatch):
