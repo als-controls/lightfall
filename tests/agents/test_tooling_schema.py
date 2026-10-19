@@ -1,7 +1,7 @@
 """json_schema() matches the Claude SDK's wire schema for every input form."""
 from __future__ import annotations
 
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated, NotRequired, Required, TypedDict
 
 import pytest
 
@@ -14,6 +14,21 @@ class _TD(TypedDict):
     tags: NotRequired[list[str]]
 
 
+class _Inner(TypedDict):
+    x: float
+    y: float
+
+
+class _Partial(TypedDict, total=False):
+    name: Required[str]
+    note: str
+
+
+class _Nested(TypedDict):
+    origin: _Inner
+    points: list[_Inner]
+
+
 async def _h(args):
     return {"content": []}
 
@@ -23,6 +38,9 @@ CASES = [
     {"text": str, "n": int, "x": float, "ok": bool, "xs": list[int], "d": dict, "opt": str | None},
     {"either": int | str},
     _TD,
+    _Partial,  # Required[] inside total=False
+    _Nested,  # TypedDict nested in a TypedDict and in a list
+    {"xs": list, "pairs": list[list[int]]},  # bare list, list of lists
     "not-a-schema",
 ]
 
