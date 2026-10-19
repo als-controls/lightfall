@@ -735,6 +735,11 @@ class QtClaudeAgent(QObject):
         self._model = model
         if self._worker is not None and self._worker.isRunning() and self._is_connected:
             self._worker.request_set_model(model)
+            if self._agy:
+                import dataclasses
+
+                # Reset and reconnects rebuild from _session_config.
+                self._session_config = dataclasses.replace(self._session_config, model=model)
         elif self._agy and not (self._worker is not None and self._worker.isRunning()):
             # No live worker: rebuild the (unconnected) agy backend with the new
             # model, keeping the conversation it would resume.
@@ -760,6 +765,12 @@ class QtClaudeAgent(QObject):
         self._effort = effort or None
         if self._worker is not None and self._worker.isRunning() and self._is_connected:
             self._worker.request_set_effort(self._effort)
+            if self._agy:
+                import dataclasses
+
+                # Reset and reconnects rebuild from _session_config.
+                self._session_config = dataclasses.replace(
+                    self._session_config, effort=self._effort)
         elif self._agy and not (self._worker is not None and self._worker.isRunning()):
             import dataclasses
 
@@ -904,7 +915,7 @@ class QtClaudeAgent(QObject):
                 self._backend = None
                 self._session_config = dataclasses.replace(
                     self._session_config, resume=None, skills_dir=plugin_dir,
-                    model=self._model,
+                    model=self._model, effort=self._effort,
                 )
                 try:
                     self._backend = self._make_agy_backend()

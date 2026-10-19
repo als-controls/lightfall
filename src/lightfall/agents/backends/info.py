@@ -292,8 +292,8 @@ class AgyInfo:
         return subagent_name_problem(name)
 
 
-def agy_model_ids(agy: str | list[str]) -> frozenset[str]:
-    """Model ids ``agy models`` lists (cached 60 s per executable; blocks on a miss).
+def _agy_rows(agy: str | list[str]):
+    """``agy models`` rows (cached 60 s per executable; blocks on a miss).
 
     Raises when agy cannot list models. An argv list (a dev/test wrapper) is not cached.
     """
@@ -306,7 +306,12 @@ def agy_model_ids(agy: str | list[str]) -> frozenset[str]:
         rows, detail = discover.agy_models(agy, spec_home(None))
     if rows is None:
         raise RuntimeError(detail)
-    return frozenset(model_id for model_id, _ in rows)
+    return rows
+
+
+def agy_model_ids(agy: str | list[str]) -> frozenset[str]:
+    """Model ids ``agy models`` lists (cached; raises when agy cannot list models)."""
+    return frozenset(model_id for model_id, _ in _agy_rows(agy))
 
 
 def agy_effort_levels(agy: str | list[str]) -> dict[str, tuple[str, ...]]:
@@ -314,16 +319,7 @@ def agy_effort_levels(agy: str | list[str]) -> dict[str, tuple[str, ...]]:
 
     Raises when agy cannot list models.
     """
-    if isinstance(agy, str):
-        rows, detail = AgyInfo()._probe(agy, refresh=False)
-    else:
-        from lightfall.agents.backends.agy import discover
-        from lightfall.agents.backends.agy.home import spec_home
-
-        rows, detail = discover.agy_models(agy, spec_home(None))
-    if rows is None:
-        raise RuntimeError(detail)
-    return {opt.id: opt.efforts for opt in group_agy_models(rows)}
+    return {opt.id: opt.efforts for opt in group_agy_models(_agy_rows(agy))}
 
 
 def backend_info(kind: str | None = None, *, agy_path: str | None = None):

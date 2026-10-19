@@ -79,6 +79,9 @@ class ClaudeCodeBackend:
     async def set_model(self, model: str | None) -> None:
         await self.client.set_model(model)
 
+    async def set_effort(self, effort: str | None) -> None:
+        return None  # read at construction only; callers rebuild the agent
+
     async def close(self) -> None:
         return None
 

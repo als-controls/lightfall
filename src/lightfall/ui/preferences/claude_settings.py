@@ -274,6 +274,8 @@ class ClaudeSettingsProvider:
         value = prefs.get("agy_model", "") or ""
         base, level = split_effort_variant(value)
         if level:
+            # Deliberate: a variant typed into the editable model combo wins over
+            # whatever the Effort combo held; the user named that level explicitly.
             logger.info("agy_model {!r} is an effort variant; saving model {!r}, effort {!r}",
                         value, base, level)
             prefs.set("agy_effort", level)

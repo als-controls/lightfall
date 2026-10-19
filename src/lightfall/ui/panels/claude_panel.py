@@ -840,8 +840,10 @@ class ClaudePanel(BasePanel):
             p.get_agy_path(),
             p.get_agy_project(),
             p.get_agy_location(),
-            p.get_agy_effort(),
+            # Model first: its read migrates a saved variant id into agy_effort,
+            # which must happen before effort is read or the snapshot changes once.
             p.get_agy_model(),
+            p.get_agy_effort(),
         )
 
     def _on_claude_pref_changed(self, value: object) -> None:

@@ -142,8 +142,10 @@ Notes for Gemini:
 - Costs are not shown (the cockpit shows tokens and context only).
 - A model change applies from the next message.
 - Reasoning effort is per model: the **Effort** list (in Settings and in the input
-  row's tune menu) shows only the levels the selected model offers. A change applies
-  from the next message and keeps the conversation (on Claude it starts a fresh one).
+  row's tune menu) shows only the levels the selected model offers. A change in the
+  tune menu applies from the next message and keeps the conversation (on Claude it
+  starts a fresh one). A change in Settings restarts the assistant, as a model change
+  in Settings does.
 - Background subagents ("Agent tool") are not available yet.
 
 ### Preference keys

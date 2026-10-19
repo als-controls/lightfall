@@ -316,7 +316,7 @@ def test_backend_switch_changes_config(panel, fake_prefs):
     fake_prefs.set("agent_backend", "agy")
     assert panel._current_claude_config() != before
     fake_prefs.set("agy_model", "gemini-3-pro")
-    assert panel._current_claude_config()[-1] == "gemini-3-pro"
+    assert panel._current_claude_config()[-2] == "gemini-3-pro"  # (..., agy_model, agy_effort)
 
 
 def test_settings_change_reloads_idle_extra_tabs(panel, fake_prefs, monkeypatch):

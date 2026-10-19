@@ -533,3 +533,39 @@ def test_main_agent_still_stores_and_clears_last_session_id(qtbot, prefs, root, 
         assert calls == [("main-conv", "agy"), ("", "agy")]
     finally:
         agent.stop()
+
+
+def _connect_mock_worker(agent):
+    worker = MagicMock()
+    worker.isRunning.return_value = True
+    agent._worker, agent._is_connected = worker, True
+    return worker
+
+
+def test_agy_live_effort_survives_reset(qtbot, prefs, root, sdk, agy_found):
+    """set_effort on a connected agent, then Reset: the new backend keeps the new effort."""
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", effort="low")
+    try:
+        _connect_mock_worker(agent)
+        agent.set_effort("high")
+        assert agent._session_config.effort == "high"
+        agent.reset_conversation()
+        assert agent._backend._effort == "high"
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
+
+
+def test_agy_live_model_survives_reset(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon")
+    try:
+        _connect_mock_worker(agent)
+        agent.set_model("gemini-flash")
+        assert agent._session_config.model == "gemini-flash"
+        agent.reset_conversation()
+        assert agent._backend._model == "gemini-flash"
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()
