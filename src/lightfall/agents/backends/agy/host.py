@@ -41,9 +41,14 @@ _STOP_TIMEOUT_S = 3.0
 
 
 def _to_content(block: dict[str, Any]) -> types.TextContent | types.ImageContent:
-    if block.get("type") == "image":
+    kind = block.get("type")
+    if kind == "image":
         return types.ImageContent(type="image", data=block["data"], mime_type=block["mimeType"])
-    return types.TextContent(type="text", text=str(block.get("text", "")))
+    if kind == "text" or "text" in block:
+        return types.TextContent(type="text", text=str(block.get("text", "")))
+    # Say what was dropped rather than hand the model an empty string.
+    return types.TextContent(type="text",
+                             text=f"[{kind!r} content block not supported by the agy backend]")
 
 
 def _error_result(text: str) -> types.CallToolResult:
@@ -193,7 +198,10 @@ class ToolHost:
     async def start(self) -> int:
         """Bind 127.0.0.1:0, serve on the running loop in the background; return the port."""
         if self._task is not None:
-            return self._port
+            if not self._task.done():
+                return self._port
+            logger.warning("agy tool host had stopped; restarting it")
+            await self.stop()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -220,8 +228,10 @@ class ToolHost:
         except TimeoutError:
             pass
         if not self._uvicorn.started:
+            task = self._task
+            cause = (task.exception() if task.done() and not task.cancelled() else None)
             await self.stop()
-            raise RuntimeError("agy tool host failed to start")
+            raise RuntimeError("agy tool host failed to start") from cause
         return self._port
 
     async def stop(self) -> None:

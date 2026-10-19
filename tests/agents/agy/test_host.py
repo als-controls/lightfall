@@ -13,6 +13,7 @@ import httpx2
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 
 from lightfall.agents.tooling import ToolServer, ToolSpec, json_schema
 
@@ -161,10 +162,12 @@ async def test_hook_requires_token(host):
 
 async def test_mcp_requires_token(host):
     for token in (None, "wrong"):
-        with pytest.raises(BaseException):  # noqa: B017 - transport wraps the 401 in an ExceptionGroup
+        # The transport's task groups wrap the 401 as MCPError in ExceptionGroups.
+        with pytest.raises(ExceptionGroup) as info:
             async with asyncio.timeout(10):
                 async with _session(host.port, "qt", token=token):
                     pass
+        assert info.group_contains(MCPError, depth=None)
 
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -278,3 +281,57 @@ async def test_non_dict_handler_result_is_clear_error(bad):
         assert "AttributeError" not in r.content[0].text
     finally:
         await h.stop()
+
+
+async def test_unknown_content_block_is_not_silently_empty():
+    from lightfall.agents.backends.agy.host import ToolHost
+
+    async def _odd(args):
+        return {"content": [{"type": "audio", "data": "AAAA", "mimeType": "audio/wav"},
+                            {"type": "text", "text": "ok"}]}
+
+    srv = ToolServer("odd", "1.0.0", [ToolSpec("t", "T", {}, _odd)])
+    h = ToolHost([("odd", srv)], _hook, TOKEN)
+    await h.start()
+    try:
+        async with _session(h.port, "odd") as s:
+            r = await s.call_tool("t", {})
+        assert not r.is_error
+        texts = [c.text for c in r.content]
+        assert texts[1] == "ok"
+        assert "audio" in texts[0] and "not supported" in texts[0]
+        assert "AAAA" not in texts[0]  # the payload itself is not dumped
+    finally:
+        await h.stop()
+
+
+async def test_start_restarts_after_the_serve_task_died():
+    from lightfall.agents.backends.agy.host import ToolHost
+
+    h = ToolHost(_servers(), _hook, TOKEN)
+    first = await h.start()
+    try:
+        h._uvicorn.should_exit = True  # the serve task ends on its own
+        await asyncio.wait({h._task}, timeout=5)
+        assert h._task.done()
+        second = await h.start()
+        assert h._task is not None and not h._task.done()
+        with socket.create_connection(("127.0.0.1", second), timeout=2):
+            pass
+        assert first > 0 and second > 0
+    finally:
+        await h.stop()
+
+
+async def test_start_failure_chains_the_serve_error(monkeypatch):
+    from lightfall.agents.backends.agy import host as host_mod
+
+    async def _dies(self, sockets=None):
+        raise OSError("lifespan exploded")
+
+    monkeypatch.setattr(host_mod._Server, "serve", _dies)
+    h = host_mod.ToolHost(_servers(), _hook, TOKEN)
+    with pytest.raises(RuntimeError, match="failed to start") as info:
+        await h.start()
+    assert isinstance(info.value.__cause__, OSError)
+    assert "lifespan exploded" in str(info.value.__cause__)
