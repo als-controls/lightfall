@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
 import sys
 import threading
 import time
@@ -326,14 +325,13 @@ def test_close_kills_child_and_stops_host(qtbot, env):
     b = _backend(env)
     w = _start_worker(qtbot, b)
     _query(qtbot, w, "hi", w.query_completed)
-    port, home = b._host.port, b.session_home
+    sock, home = b._host._sock, b.session_home
     (start,) = _starts(env)
     assert psutil.pid_exists(start["pid"])
     _stop(w)
     assert not psutil.pid_exists(start["pid"]) or (
         psutil.Process(start["pid"]).status() == psutil.STATUS_ZOMBIE)
-    with pytest.raises(OSError):
-        socket.create_connection(("127.0.0.1", port), timeout=1).close()
+    assert sock.fileno() == -1  # listening socket closed (port reuse cannot flake this)
     assert not home.exists()
     # the shared per-spec store survives the session home's removal
     assert (env["root"] / "lightfall" / ".gemini" / "antigravity-cli" / "settings.json").is_file()
@@ -563,7 +561,7 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
     seen = {}
 
     def boom(home, cfg):
-        seen["home"], seen["port"] = home, cfg.port
+        seen["home"], seen["sock"] = home, b._host._sock
         raise OSError("disk full")
 
     monkeypatch.setattr(backend_mod, "write_session_config", boom)
@@ -572,8 +570,9 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
         asyncio.run(b.connect())
     assert b._host is None and b.session_home is None
     assert not seen["home"].exists()
-    with pytest.raises(OSError), socket.create_connection(("127.0.0.1", seen["port"]), timeout=2):
-        pass
+    # The host's own listening socket is closed. (A refused connect to its old
+    # port would flake if another process reused the port meanwhile.)
+    assert seen["sock"].fileno() == -1
 
 
 def _with_subagents(env, subagents):
