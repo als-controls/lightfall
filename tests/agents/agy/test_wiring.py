@@ -569,3 +569,21 @@ def test_agy_live_model_survives_reset(qtbot, prefs, root, sdk, agy_found):
     finally:
         agent._worker, agent._is_connected = None, False
         agent.stop()
+
+
+def test_agy_set_model_while_connecting_reaches_worker(qtbot, prefs, root, sdk, agy_found):
+    """Worker started but not yet connected: the model goes to the worker (which
+    holds it until connect finishes) and into _session_config, not just _model."""
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon")
+    try:
+        worker = _connect_mock_worker(agent)
+        agent._is_connected = False  # connect still in progress
+        backend = agent._backend
+        agent.set_model("gemini-flash")
+        worker.request_set_model.assert_called_once_with("gemini-flash")
+        assert agent._session_config.model == "gemini-flash"
+        assert agent._backend is backend  # the worker's backend is not replaced
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()

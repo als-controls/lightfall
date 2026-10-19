@@ -109,3 +109,30 @@ def test_set_model_during_turn_applies_after(qtbot):
     finally:
         w.stop()
         w.wait(3000)
+
+
+class _SlowConnectBackend(_FakeBackend):
+    def __init__(self):
+        super().__init__([])
+        self.connected = False
+        self.models = []  # (model, connected-at-the-time)
+
+    async def connect(self):
+        await asyncio.sleep(0.3)
+        self.connected = True
+
+    async def set_model(self, model):
+        self.models.append((model, self.connected))
+
+
+def test_set_model_while_connecting_applies_after_connect(qtbot):
+    backend = _SlowConnectBackend()
+    w = AgentWorker(backend)
+    try:
+        with qtbot.waitSignal(w.connected, timeout=5000):
+            w.start()
+            w.request_set_model("m2")  # before connect() has finished
+        qtbot.waitUntil(lambda: backend.models == [("m2", True)], timeout=3000)
+    finally:
+        w.stop()
+        w.wait(3000)

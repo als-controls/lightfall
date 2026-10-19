@@ -89,7 +89,10 @@ class AgentWorker(QThread):
         self._is_connected = False
         self._is_processing = False  # True when actively processing a query
         self._cancel_requested = False  # True when cancel is requested
-        self._pending_model: tuple[str | None] | None = None  # set_model requested mid-turn
+        # set_model requested mid-turn or before connect() finished
+        self._pending_model: tuple[str | None] | None = None
+        # Orders _is_connected against request_set_model's deferral check.
+        self._connect_lock = threading.Lock()
         self._pending_effort: tuple[str | None] | None = None  # set_effort requested mid-turn
         self._shutdown_event: asyncio.Event | None = None  # Created in run()
         self._processing_stopped = threading.Event()  # Signals when loop exits
@@ -107,7 +110,9 @@ class AgentWorker(QThread):
             # Connect the backend
             logger.debug("AgentWorker: Attempting to connect...")
             self._loop.run_until_complete(self._connect())
-            self._is_connected = True
+            with self._connect_lock:
+                self._is_connected = True
+            self._loop.run_until_complete(self._apply_deferred_model())
             logger.debug("AgentWorker: Connected successfully")
             self.connected.emit()
 
@@ -193,18 +198,22 @@ class AgentWorker(QThread):
         finally:
             self._is_processing = False
             self._cancel_requested = False
-            pending, self._pending_model = self._pending_model, None
-            if pending is not None:
-                try:
-                    await self.backend.set_model(pending[0])
-                except Exception:  # noqa: BLE001 - never kill the worker loop
-                    logger.exception("AgentWorker: deferred set_model failed")
+            await self._apply_deferred_model()
             pending, self._pending_effort = self._pending_effort, None
             if pending is not None:
                 try:
                     await self.backend.set_effort(pending[0])
                 except Exception:  # noqa: BLE001 - never kill the worker loop
                     logger.exception("AgentWorker: deferred set_effort failed")
+
+    async def _apply_deferred_model(self) -> None:
+        with self._connect_lock:
+            pending, self._pending_model = self._pending_model, None
+        if pending is not None:
+            try:
+                await self.backend.set_model(pending[0])
+            except Exception:  # noqa: BLE001 - never kill the worker loop
+                logger.exception("AgentWorker: deferred set_model failed")
 
     def _emit(self, ev: AgentEvent) -> None:
         """Map one neutral event onto the legacy signal set."""
@@ -315,12 +324,14 @@ class AgentWorker(QThread):
         """Schedule ``backend.set_model(model)`` on the worker's event loop.
 
         Live model switch — no reconnect. Takes effect on the next turn. A
-        request during a turn is held and applied when the turn ends.
+        request during a turn, or before ``connect()`` has finished, is held and
+        applied when the turn ends / the connection is up.
         """
-        if self._is_processing:
-            logger.debug("set_model({}) deferred until the current turn ends", model)
-            self._pending_model = (model,)
-            return
+        with self._connect_lock:
+            if self._is_processing or not self._is_connected:
+                logger.debug("set_model({}) deferred until the worker is idle", model)
+                self._pending_model = (model,)
+                return
         self._run_on_loop(lambda: self.backend.set_model(model), f"set_model({model})")
 
     def request_set_effort(self, effort: str | None) -> None:

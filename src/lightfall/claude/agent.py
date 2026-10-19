@@ -733,14 +733,16 @@ class QtClaudeAgent(QObject):
         is picked up by ``_ensure_connected`` via the options.
         """
         self._model = model
-        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+        running = self._worker is not None and self._worker.isRunning()
+        # agy: a worker still connecting holds the request until connect() is done.
+        if running and (self._is_connected or self._agy):
             self._worker.request_set_model(model)
             if self._agy:
                 import dataclasses
 
                 # Reset and reconnects rebuild from _session_config.
                 self._session_config = dataclasses.replace(self._session_config, model=model)
-        elif self._agy and not (self._worker is not None and self._worker.isRunning()):
+        elif self._agy and not running:
             # No live worker: rebuild the (unconnected) agy backend with the new
             # model, keeping the conversation it would resume.
             import dataclasses
