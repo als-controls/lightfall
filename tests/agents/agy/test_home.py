@@ -582,3 +582,37 @@ def test_subagent_name_problem_is_shared_with_backend_info(name, ok):
     assert (agy_home.subagent_name_problem(name) is None) is ok
     assert AgyInfo().subagent_name_problem(name) == agy_home.subagent_name_problem(name)
     assert ClaudeCodeInfo().subagent_name_problem(name) is None
+
+
+# ---- junction detection without os.path.isjunction (Python 3.11) -----------
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are Windows only")
+def test_is_junction_falls_back_without_isjunction(root, monkeypatch):
+    target = root / "target"
+    target.mkdir()
+    link = root / "link"
+    agy_home._make_dir_link(link, target)
+    plain = root / "plain"
+    plain.mkdir()
+    monkeypatch.delattr(agy_home.os.path, "isjunction", raising=False)
+    assert agy_home._is_junction(link)
+    assert not agy_home._is_junction(plain)
+    assert not agy_home._is_junction(root / "missing")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are Windows only")
+def test_remove_session_home_keeps_store_without_isjunction(root, monkeypatch):
+    session = agy_home.prepare_session_home(None, "s1")
+    store = root / "lightfall" / ".gemini" / "antigravity-cli"
+    (store / "sentinel").write_text("keep", encoding="utf-8")
+    monkeypatch.delattr(agy_home.os.path, "isjunction", raising=False)
+    agy_home.remove_session_home(session)
+    assert not session.exists()
+    assert (store / "sentinel").read_text(encoding="utf-8") == "keep"
+
+
+def test_is_junction_false_without_isjunction_on_plain_dir(tmp_path, monkeypatch):
+    monkeypatch.delattr(agy_home.os.path, "isjunction", raising=False)
+    assert not agy_home._is_junction(tmp_path)
+    assert not agy_home._is_junction(tmp_path / "missing")

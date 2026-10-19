@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -122,7 +123,18 @@ def session_home_path(spec_name: str | None, session_id: str) -> Path:
 
 def _is_junction(p: Path) -> bool:
     isj = getattr(os.path, "isjunction", None)
-    return bool(isj and isj(p))
+    if isj is not None:
+        return bool(isj(p))
+    # Python 3.11 has no os.path.isjunction: read the reparse tag directly.
+    if sys.platform != "win32":
+        return False
+    try:
+        st = os.lstat(p)
+    except (OSError, ValueError):
+        return False
+    attrs = getattr(st, "st_file_attributes", 0)
+    return bool(attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT) and (
+        getattr(st, "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT)
 
 
 def _link_points_at(link: Path, target: Path) -> bool:
