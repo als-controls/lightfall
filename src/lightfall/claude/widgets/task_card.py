@@ -156,6 +156,11 @@ class TaskCard(QFrame):
         self._refresh()
 
     @property
+    def status(self) -> str:
+        """Task state: "running", or how it ended ("completed", "stopped", ...)."""
+        return self._status
+
+    @property
     def is_running(self) -> bool:
         return self._status == "running"
 

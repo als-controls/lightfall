@@ -628,3 +628,66 @@ def test_end_signal_for_a_gone_tab_does_not_poll(panel, fake_prefs, monkeypatch,
     qtbot.wait(100)
     assert extra.reloads == 0
     assert extra not in panel._deferred_reload and extra not in panel._deferred_polling
+
+
+def test_busy_idle_busy_flip_before_a_poll_keeps_waiting(panel, fake_prefs, monkeypatch, qtbot):
+    extra = _busy_extra(panel, monkeypatch)
+    panel._do_claude_settings_reload()
+    agent = extra.claude_widget.agent
+    agent.query_completed.emit()  # turn 1 ends; the first poll still sees busy
+    agent.busy = False            # idle for a moment...
+    agent.busy = True             # ...then turn 2 starts before the next poll
+    qtbot.wait(80)                # several 10 ms polls, all busy
+    assert extra.reloads == 0
+    agent.busy = False
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+
+
+def test_banner_reload_clears_the_main_deferral(panel, fake_prefs, monkeypatch, qtbot):
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
+    builds = []
+    monkeypatch.setattr(panel, "_initialize_claude_widget", lambda: builds.append(1))
+    monkeypatch.setattr(panel, "_reset_cockpit", lambda: None)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+    panel._is_agent_ready = True
+    agent = _FakeAgent(busy=True)
+    panel._claude_widget = MagicMock()
+    panel._claude_widget.agent = agent
+    panel._active_agent_config = _STALE_CONFIG
+
+    panel._do_claude_settings_reload()
+    assert panel._reload_banner is not None and None in panel._deferred_reload
+    panel._reload_agent()  # the banner's Reload button
+    assert builds == [1]
+    assert None not in panel._deferred_reload and panel._reload_banner is None
+    agent.busy = False
+    agent.query_completed.emit()  # the old agent's reply ends after the manual reload
+    qtbot.wait(80)
+    assert builds == [1]  # no second rebuild
+
+
+def test_main_and_extra_both_busy_reload_independently(panel, fake_prefs, monkeypatch, qtbot):
+    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
+    main_reloads = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: main_reloads.append(1))
+    monkeypatch.setattr(panel, "_show_settings_reload_banner", lambda: None)
+    panel._is_agent_ready = True
+    main_agent = _FakeAgent(busy=True)
+    panel._claude_widget = MagicMock()
+    panel._claude_widget.agent = main_agent
+    panel._active_agent_config = _STALE_CONFIG
+    extra = _FakeTab(busy=True)
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [extra])
+
+    panel._do_claude_settings_reload()
+    assert main_reloads == [] and extra.reloads == 0
+
+    main_agent.busy = False
+    main_agent.query_completed.emit()
+    qtbot.waitUntil(lambda: main_reloads == [1], timeout=2000)
+    assert extra.reloads == 0  # the extra tab is still mid-reply
+
+    extra.claude_widget.agent.busy = False
+    extra.claude_widget.agent.query_completed.emit()
+    qtbot.waitUntil(lambda: extra.reloads == 1, timeout=2000)
+    assert main_reloads == [1]

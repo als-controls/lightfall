@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from lightfall.agents.backend import (
     ContextUsageEvent,
@@ -85,28 +86,43 @@ def test_worker_cancel_emits_cancelled_once(qtbot):
         w.wait(3000)
 
 
-class _SlowBackend(_FakeBackend):
+class _GatedTurnBackend(_FakeBackend):
+    """A turn that only ends once the test releases it (no timing assumptions)."""
+
     def __init__(self):
         super().__init__([])
-        self.models = []
+        self.models = []  # (model, in-turn-at-the-time)
+        self.release = threading.Event()
+        self.in_turn = False
 
     async def run_turn(self, prompt, cancelled, stopping):
+        self.in_turn = True
         yield TextBlockEvent("first")
-        await asyncio.sleep(0.3)
+        while not self.release.is_set():
+            await asyncio.sleep(0.01)
+        self.in_turn = False
         yield TurnResultEvent({})
 
     async def set_model(self, model):
-        self.models.append(model)
+        self.models.append((model, self.in_turn))
 
 
 def test_set_model_during_turn_applies_after(qtbot):
-    backend = _SlowBackend()
+    backend = _GatedTurnBackend()
     w = AgentWorker(backend)
-    w.message_received.connect(lambda _t: w.request_set_model("m2"))
+    requested = []
+    w.message_received.connect(lambda _t: (w.request_set_model("m2"), requested.append(1)))
     try:
-        _run(qtbot, w)
-        qtbot.waitUntil(lambda: backend.models == ["m2"], timeout=3000)
+        with qtbot.waitSignal(w.connected, timeout=5000):
+            w.start()
+        w.send_query("hi")
+        qtbot.waitUntil(lambda: requested == [1], timeout=3000)  # requested mid-turn
+        qtbot.wait(100)
+        assert backend.models == []  # held, not applied during the turn
+        backend.release.set()
+        qtbot.waitUntil(lambda: backend.models == [("m2", False)], timeout=3000)
     finally:
+        backend.release.set()
         w.stop()
         w.wait(3000)
 

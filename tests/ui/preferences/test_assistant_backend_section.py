@@ -426,3 +426,43 @@ def test_rapid_recheck_clicks_do_not_stack_checks(qtbot, prefs):
     qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
     _recheck(host).click()  # idle again: a click starts a fresh, cache-bypassing check
     qtbot.waitUntil(lambda: agy.refreshes == [False, True], timeout=3000)
+
+
+def test_sign_in_poll_times_out_with_try_again(qtbot, prefs):
+    prefs.values["agent_backend"] = "agy"
+    _agy, infos = _signed_out_infos()
+    sec, host = _section(qtbot, infos, poll_interval_ms=20, poll_timeout_s=0.1)
+    sec.load()
+    qtbot.waitUntil(lambda: "Not signed in" in _status(host), timeout=3000)
+    host.findChild(QPushButton, "agySignIn").click()
+    qtbot.waitUntil(lambda: _status(host) == "Not signed in — try again", timeout=3000)
+    assert not sec._poll_timer.isActive()
+
+
+def test_model_id_maps_labels_and_keeps_custom_text(qtbot, prefs):
+    sec, host = _loaded_agy(qtbot, prefs)
+    model = host.findChild(QComboBox, "agyModel")
+    model.setCurrentIndex(model.findText("Gemini 4 Argon"))
+    assert sec._model_id() == "gemini-4-argon"
+    model.setEditText("Gemini 3.1 Pro")  # typed a listed label
+    assert sec._model_id() == "gemini-3.1-pro"
+    model.setEditText("gemini-9-experimental")  # typed a custom id
+    assert sec._model_id() == "gemini-9-experimental"
+    model.setCurrentIndex(0)
+    assert sec._model_id() == ""  # Default (agy)
+
+
+def test_claude_model_row_hidden_on_agy(qtbot, prefs, monkeypatch):
+    from lightfall.ui.preferences import agent_backend_section as abs_mod
+
+    prefs.values["agent_backend"] = "agy"
+    monkeypatch.setattr(abs_mod, "backend_info",
+                        lambda kind=None, agy_path=None: _Info(kind, AuthStatus(False, "x")))
+    plugin = cs.ClaudeSettingsPlugin()
+    w = plugin.create_widget()
+    qtbot.addWidget(w)
+    plugin.load_settings()
+    assert not plugin._model_layout.isRowVisible(plugin._model_combo)
+    combo = w.findChild(QComboBox, "assistantBackend")
+    combo.setCurrentIndex(combo.findData("claude-code"))
+    assert plugin._model_layout.isRowVisible(plugin._model_combo)
