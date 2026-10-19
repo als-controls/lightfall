@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from lightfall_settings import SpecRegistry, spec_to_dict
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 
 from lightfall.scopes.cache import SnapshotCache
 from lightfall.scopes.client import is_transient
@@ -38,6 +38,15 @@ def _is_json(value: Any) -> bool:
     return True
 
 
+SETTINGS_SUBJECT = "lightfall.settings.changed"  # lightfall_logbook.scoped_api.SETTINGS_SUBJECT
+
+
+def _default_ipc() -> Any:
+    from lightfall.ipc.service import get_ipc_service
+
+    return get_ipc_service()
+
+
 Runner = Callable[[Callable[[], Any], Callable[[Any], None], Callable[[Exception], None]], None]
 
 
@@ -57,11 +66,14 @@ def _toast(title: str, text: str) -> None:
 
 
 class ScopedBackend(PreferenceBackend):
+    chain_changed = Signal(object)  # ChainInfo, when the resolved chain changes
+
     def __init__(self, local: Any, *, client: Any, cache: SnapshotCache, journal: WriteJournal,
                  bind: str, identity: str, registry: SpecRegistry | None = None,
                  user_preferences: Callable[[], Mapping[str, Any]] = dict,
                  run: Runner | None = None, notify: Callable[[str, str], None] | None = None,
-                 poll_ms: int = 300_000) -> None:
+                 poll_ms: int = 60_000, ipc: Callable[[], Any] | None = None,
+                 debounce_ms: int = 500) -> None:
         super().__init__()
         self._local = local
         self._client = client
@@ -87,12 +99,62 @@ class ScopedBackend(PreferenceBackend):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._poll_ms = poll_ms
+        self._fallback: Callable[[str, Any], Any] = local.get
+        self._refresh_again = False
+        # Live updates: server change events (notify-and-pull), debounced.
+        self._ipc_get = ipc or _default_ipc
+        self._ipc: Any = None
+        self._debounce_ms = debounce_ms
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.timeout.connect(self.refresh)
 
     # ── state ───────────────────────────────────────────────────────────
 
     @property
     def active(self) -> bool:
         return self._active
+
+    def _subscribe_events(self) -> None:
+        try:
+            ipc = self._ipc_get()
+        except Exception as e:
+            logger.debug("No IPC service for settings events: {}", e)
+            ipc = None
+        if ipc is None:
+            return
+        try:
+            ipc.subscribe(SETTINGS_SUBJECT, self._on_settings_event, main_thread=True)
+            ipc.sigConnectionChanged.connect(self._on_ipc_connection)
+        except Exception as e:
+            logger.warning("Could not subscribe to settings events: {}", e)
+            return
+        self._ipc = ipc
+
+    def _unsubscribe_events(self) -> None:
+        ipc, self._ipc = self._ipc, None
+        if ipc is None:
+            return
+        try:
+            ipc.unsubscribe(SETTINGS_SUBJECT)
+            ipc.sigConnectionChanged.disconnect(self._on_ipc_connection)
+        except Exception:
+            pass
+
+    def _on_settings_event(self, subject: str, data: Any, reply: str | None) -> None:
+        if not self._active or not isinstance(data, dict):
+            return
+        scope = data.get("scope")
+        if self._store is not None and scope not in self._store.chain:
+            return  # another user's scope, or outside this chain
+        if self._debounce_ms <= 0:
+            self.refresh()
+        else:
+            self._debounce.start(self._debounce_ms)
+
+    def _on_ipc_connection(self, connected: bool) -> None:
+        if connected and self._active:
+            self.refresh()
 
     @property
     def store(self) -> ScopedStore | None:
@@ -105,6 +167,7 @@ class ScopedBackend(PreferenceBackend):
         self._active = True
         if self._poll_ms:
             self._timer.start(self._poll_ms)
+        self._subscribe_events()
         self.refresh()
 
     def deactivate(self) -> None:
@@ -117,6 +180,9 @@ class ScopedBackend(PreferenceBackend):
         self._migrating = False
         self._written.clear()
         self._timer.stop()
+        self._debounce.stop()
+        self._refresh_again = False
+        self._unsubscribe_events()
         for key in sorted(keys):
             after = self._local.get(key, None)
             if after != before[key]:
@@ -142,7 +208,13 @@ class ScopedBackend(PreferenceBackend):
                 return value
         if self._yaml_foreign():
             return default  # the YAML caches another user's values
-        return self._local.get(key, default)
+        return self._fallback(key, default)
+
+    def set_fallback(self, reader: Callable[[str, Any], Any]) -> None:
+        """Read path for keys no scope sets (default: the YAML). The manager passes one
+        that consults local scope files first, so their values and locks survive an
+        offline login."""
+        self._fallback = reader
 
     def _yaml_foreign(self) -> bool:
         owner = self._local.get(_OWNER_KEY, None)
@@ -271,7 +343,10 @@ class ScopedBackend(PreferenceBackend):
     # ── refresh ─────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        if not self._active or self._refreshing:
+        if not self._active:
+            return
+        if self._refreshing:
+            self._refresh_again = True  # e.g. an event during a poll: fetch once more after
             return
         self._refreshing = True
         client, cache, bind, identity = self._client, self._cache, self._bind, self._identity
@@ -281,9 +356,16 @@ class ScopedBackend(PreferenceBackend):
     def _on_state_failed(self, exc: Exception) -> None:
         self._refreshing = False
         logger.info("Scoped settings unavailable: {}", exc)
+        self._maybe_refresh_again()
+
+    def _maybe_refresh_again(self) -> None:
+        if self._refresh_again:
+            self._refresh_again = False
+            self.refresh()
 
     def _on_state(self, state: FetchedState) -> None:
         self._refreshing = False
+        old_chain = self._store.chain if self._store is not None else None
         old_keys = self._store.keys() if self._store is not None else set()
         old_user = self._store.user_settings() if self._store is not None else {}
         new_keys = {k for snap in state.snapshots.values() for k in snap.settings}
@@ -316,8 +398,11 @@ class ScopedBackend(PreferenceBackend):
             after = self.get(key)
             if after != before.get(key):
                 self.changed.emit(key, after)
+        if tuple(state.chain.chain) != old_chain:
+            self.chain_changed.emit(state.chain)
         if not state.offline and user_ok:
             self._after_online(scope, state)
+        self._maybe_refresh_again()
 
     def _overlay_written(self, store: ScopedStore, scope: str,
                          server_versions: Mapping[str, int]) -> None:

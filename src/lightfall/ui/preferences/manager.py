@@ -13,6 +13,7 @@ import os
 import threading
 import weakref
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -181,6 +182,15 @@ class _Topic(QObject):
             del self._slots[i]
 
 
+@dataclass(frozen=True)
+class ScopeInfo:
+    """Which scope chain preferences resolve against."""
+
+    mode: str  # "server" | "local" | "off"
+    chain: tuple[str, ...] = ()
+    roles: dict[str, str | None] = field(default_factory=dict)
+
+
 class PreferencesManager(QObject):
     """
     Manager for NCS user preferences.
@@ -209,6 +219,8 @@ class PreferencesManager(QObject):
         >>> prefs.subscribe("theme", on_theme_changed)
         >>> prefs.save_window_state(main_window)
     """
+
+    scopes_changed = Signal(object)  # ScopeInfo
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -247,6 +259,8 @@ class PreferencesManager(QObject):
         self._backends: tuple = (self._user_portable, self._local)
         self._topics: dict[str, _Topic] = {}
         self._scoped: Any = None
+        self._local_scopes: Any = None
+        self._scope_info = ScopeInfo("off")
         for b in self._backends:
             b.changed.connect(self._on_backend_changed)
 
@@ -277,6 +291,7 @@ class PreferencesManager(QObject):
         self._config_manager = config_manager
         # Rebuild the local backend so it uses the new ConfigManager.
         self._local._cm = config_manager
+        self.load_local_scopes()
 
     def set_beamline(self, beamline: str | None) -> None:
         """Set the current beamline for beamline-specific preferences."""
@@ -294,6 +309,28 @@ class PreferencesManager(QObject):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a preference value. Dispatches to the owning backend.
 
+        Identity keys (tiled_beamline, ipc_topic_prefix) fall back to values derived
+        from the machine's site.bind when nothing sets them; blank or removed (None)
+        counts as unset for those keys.
+        """
+        value = self._get_raw(key, self._MISSING)
+        from lightfall.scopes.identity import DERIVED_KEYS
+
+        if key in DERIVED_KEYS and (value is self._MISSING or value in ("", None)):
+            derived = self.derived_value(key)
+            if derived is not None:
+                return derived
+        return default if value is self._MISSING else value
+
+    def _site(self) -> Any:
+        try:
+            return self._config_manager.model.site  # type: ignore[union-attr]
+        except Exception:
+            return None
+
+    def _get_raw(self, key: str, default: Any = None) -> Any:
+        """Get a preference value. Dispatches to the owning backend.
+
         While scoped settings are active, every non-local key resolves through the
         scope chain. For keys in `_USER_PORTABLE_WITH_LOCAL_FALLBACK`, a user-portable
         cache miss falls through to LocalPreferenceBackend so site or beamline
@@ -301,6 +338,8 @@ class PreferencesManager(QObject):
         """
         if self._scoped is not None and self._scoped.owns(key):
             return self._scoped.get(key, default)
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.get(key, default)
         if key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
             value = self._user_portable.get(key, self._MISSING)
             if value is self._MISSING:
@@ -363,6 +402,8 @@ class PreferencesManager(QObject):
         """Pick the backend that owns `key` (scoped, then user-portable, then local)."""
         if self._scoped is not None and self._scoped.owns(key):
             return self._scoped
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes
         for b in self._backends:
             if b.owns(key):
                 return b
@@ -397,18 +438,106 @@ class PreferencesManager(QObject):
         backend = sb.build_scoped_backend(self._local, identity=identity, bind=bind,
                                           user_preferences=self._user_preferences)
         backend.changed.connect(self._on_backend_changed)
+        backend.chain_changed.connect(self._on_scoped_chain)
+        backend.set_fallback(self._pre_scope_get)
         self._scoped = backend
         backend.activate()
         logger.info("Scoped preferences active for {} at {}", identity, bind)
         return True
 
     def deactivate_scopes(self) -> None:
-        backend, self._scoped = self._scoped, None
+        backend = self._scoped
         if backend is None:
             return
-        backend.deactivate()  # emits YAML values for keys that change back
+        keys = set(backend.store.keys()) if backend.store is not None else set()
+        if self._local_scopes is not None:
+            keys |= self._local_scopes.keys()
+        before = {k: self.get(k) for k in keys}
+        # The manager reports the net change itself: one emission per key that moved.
         backend.changed.disconnect(self._on_backend_changed)
+        backend.chain_changed.disconnect(self._on_scoped_chain)
+        self._scoped = None
+        backend.deactivate()
         backend.deleteLater()
+        for key in sorted(keys):
+            after = self.get(key)
+            if after != before[key]:
+                self._on_backend_changed(key, after)
+        self._set_scope_info(self._local_or_off())
+
+    def _pre_scope_get(self, key: str, default: Any = None) -> Any:
+        """What a key reads as without server scopes: local scope files, then the YAML."""
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.get(key, default)
+        return self._local.get(key, default)
+
+    def explicit(self, key: str, default: Any = None) -> Any:
+        """The stored value, without identity derivation (for settings pages)."""
+        value = self._get_raw(key, self._MISSING)
+        return default if value is self._MISSING or value == "" else value
+
+    def derived_value(self, key: str) -> str | None:
+        """What ``key`` derives to from site.bind, or None."""
+        from lightfall.scopes.identity import derived_default
+
+        site = self._site()
+        return derived_default(key, getattr(site, "bind", None),
+                               getattr(site, "facility", "") or "")
+
+    def set_unless_derived(self, key: str, value: str) -> None:
+        """Save a settings-page field; blank or the derived value means "use the default"
+        and is not stored, so a console's identity never follows the user elsewhere."""
+        derived = self.derived_value(key)
+        if derived is not None and value in ("", derived):
+            self.remove(key)
+        else:
+            self.set(key, value)
+
+    @property
+    def scope_info(self) -> ScopeInfo:
+        return self._scope_info
+
+    def _set_scope_info(self, info: ScopeInfo) -> None:
+        if info != self._scope_info:
+            self._scope_info = info
+            self.scopes_changed.emit(info)
+
+    def _on_scoped_chain(self, chain_info: Any) -> None:
+        self._set_scope_info(ScopeInfo("server", tuple(chain_info.chain), dict(chain_info.roles)))
+
+    def _local_or_off(self) -> ScopeInfo:
+        if self._local_scopes is not None:
+            return ScopeInfo("local", self._local_scopes.chain)
+        return ScopeInfo("off")
+
+    def load_local_scopes(self, directory: Path | None = None) -> bool:
+        loaded = self._load_local_scopes(directory)
+        if self._scoped is None:
+            self._set_scope_info(self._local_or_off())
+        return loaded
+
+    def _load_local_scopes(self, directory: Path | None = None) -> bool:
+        """Serve read-only facility/beamline/branch files while server scopes are off."""
+        if self._local_scopes is not None:
+            self._local_scopes.changed.disconnect(self._on_backend_changed)
+            self._local_scopes = None
+        if os.environ.get("LIGHTFALL_SCOPES_DISABLED") == "1":
+            return False
+        from lightfall.scopes import scopes_available
+
+        if not scopes_available():
+            return False
+        from lightfall.scopes.local_files import load_local_state, local_scopes_dir
+        from lightfall.ui.preferences.local_scopes_backend import LocalScopesBackend
+
+        site = self._site()
+        state = load_local_state(directory or local_scopes_dir(), getattr(site, "bind", None))
+        if state is None:
+            return False
+        self._local_scopes = LocalScopesBackend(self._local, state)
+        self._local_scopes.changed.connect(self._on_backend_changed)
+        logger.info("Local scope files active: {}", ", ".join(self._local_scopes.chain))
+        return True
 
     @Slot(str, object)
     def _on_backend_changed(self, key: str, value: Any) -> None:
