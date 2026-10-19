@@ -104,7 +104,7 @@ def test_hint_button_opens_assistant_settings_and_rechecks(qtbot, monkeypatch):
     assert desc.calls[-1][0] is True  # the re-check bypasses the cache
 
 
-def test_late_result_after_widget_is_gone_is_ignored(qtbot, monkeypatch):
+def test_superseded_result_is_ignored(qtbot, monkeypatch):
     gate = threading.Event()
 
     class _Slow(_Info):
@@ -127,6 +127,48 @@ def test_a_completed_turn_clears_the_hint(qtbot, monkeypatch):
 
     w = _build(qtbot, monkeypatch, _Info())
     qtbot.waitUntil(lambda: _hint(w) is not None, timeout=3000)
-    assert call(w._clear_sign_in_hint) in w.agent.query_completed.connect.call_args_list
-    w._clear_sign_in_hint()
+    assert call(w._on_turn_completed_sign_in) in w.agent.query_completed.connect.call_args_list
+    w._on_turn_completed_sign_in()
     qtbot.waitUntil(lambda: _hint(w) is None, timeout=3000)
+
+
+def test_late_check_after_a_completed_turn_does_not_bring_the_hint_back(qtbot, monkeypatch):
+    """A slow startup check (e.g. a timeout) must not re-show the hint after a turn worked."""
+    gate = threading.Event()
+
+    class _Slow(_Info):
+        def auth_status(self, refresh=False):
+            gate.wait(3)
+            return super().auth_status(refresh)
+
+    w = _build(qtbot, monkeypatch, _Slow())
+    future = w._auth_future
+    w._on_turn_completed_sign_in()  # the first turn succeeded
+    gate.set()
+    qtbot.waitUntil(lambda: not future.isRunning(), timeout=3000)
+    qtbot.wait(50)
+    assert _hint(w) is None
+
+
+def test_failed_check_does_not_blame_sign_in(qtbot, monkeypatch):
+    w = _build(qtbot, monkeypatch, _Info(status=AuthStatus(False, "Couldn't check: timed out")))
+    qtbot.waitUntil(lambda: _hint(w) is not None, timeout=3000)
+    text = " ".join(lb.text() for lb in _hint(w).findChildren(QLabel))
+    assert "Couldn't check: timed out" in text
+    assert "Sign in to" not in text
+    assert "Check Gemini in Settings → Assistant" in text
+
+
+def test_descriptor_follows_the_agent_not_a_fresh_pref_read(monkeypatch):
+    """If the pref lookup fails, the widget still describes the backend the agent built."""
+    from lightfall.agents.backends import select
+
+    def boom():
+        raise RuntimeError("prefs unavailable")
+
+    monkeypatch.setattr(select, "backend_kind", boom)
+    monkeypatch.setattr(info_mod, "backend_kind", boom, raising=False)
+    agent = SimpleNamespace(_agy=True)
+    assert isinstance(widget_mod._resolve_backend_info(agent), info_mod.AgyInfo)
+    agent = SimpleNamespace(_agy=False)
+    assert isinstance(widget_mod._resolve_backend_info(agent), info_mod.ClaudeCodeInfo)

@@ -204,6 +204,9 @@ class AgyProcess:
             **kwargs,
         )
         if sys.platform == "win32":
+            # Attached after the spawn: anything agy starts in that first instant
+            # escapes the job (subprocess can't spawn suspended). Hooks only run
+            # during turns, so in practice nothing does.
             self._job = KillOnCloseJob.attach(self._proc.pid)
         else:
             self._pgid = self._proc.pid

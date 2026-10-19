@@ -33,11 +33,16 @@ from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.utils.logging import logger
 
 
-def _resolve_backend_info():
-    """The selected backend's descriptor; Claude Code's if the lookup fails."""
+def _resolve_backend_info(agent=None):
+    """The descriptor for ``agent``'s backend (or the selected one, before the agent
+    exists); Claude Code's if the lookup fails."""
     from lightfall.agents.backends import info
+    from lightfall.agents.backends.select import AGY, CLAUDE_CODE
 
     try:
+        if agent is not None:
+            # Match the backend the agent actually built, not a fresh pref read.
+            return info.backend_info(AGY if agent._agy else CLAUDE_CODE)
         return info.backend_info()
     except Exception as exc:  # noqa: BLE001 - naming/menus must never break the widget
         logger.warning("Assistant: backend lookup failed ({}); using Claude Code's", exc)
@@ -316,6 +321,7 @@ class ClaudeAssistantWidget(QWidget):
             # API key not provided
             self._setup_error_ui(str(e))
             return
+        self._backend_info = _resolve_backend_info(self.agent)
 
         # Bus-message cards: pure-logic bookkeeping (see BusCardModel), plus
         # a card-entry -> live QFrame map so signal handlers can update or
@@ -345,7 +351,7 @@ class ClaudeAssistantWidget(QWidget):
         self._connect_signals()
         self.agent.query_completed.connect(self._flush_bus_on_completion)
         # A finished turn proves the backend is signed in.
-        self.agent.query_completed.connect(self._clear_sign_in_hint)
+        self.agent.query_completed.connect(self._on_turn_completed_sign_in)
         self._check_sign_in()
 
     def _setup_ui(self) -> None:
@@ -908,6 +914,11 @@ class ClaudeAssistantWidget(QWidget):
         else:
             self._show_sign_in_hint(status.detail)
 
+    def _on_turn_completed_sign_in(self) -> None:
+        """A turn worked, so agy is signed in: drop the hint and any check still out."""
+        self._auth_generation += 1
+        self._clear_sign_in_hint()
+
     def _show_sign_in_hint(self, detail: str) -> None:
         hint = self._sign_in_hint
         if hint is not None and shiboken6.isValid(hint):
@@ -921,7 +932,11 @@ class ClaudeAssistantWidget(QWidget):
         )
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 0)
-        text = QLabel(f"{detail}\nSign in to {name} in Settings → Assistant.")
+        # AgyInfo.auth_status reports a real sign-in failure as "Not signed in: ...";
+        # other failures (agy missing, a timed-out check) must not blame sign-in.
+        action = (f"Sign in to {name}" if detail.startswith("Not signed in")
+                  else f"Check {name}")
+        text = QLabel(f"{detail}\n{action} in Settings → Assistant.")
         text.setWordWrap(True)
         layout.addWidget(text)
         row = QHBoxLayout()

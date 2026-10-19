@@ -200,6 +200,9 @@ class ToolHost:
         if self._task is not None:
             if not self._task.done():
                 return self._port
+            # Not reached today: AgyCliBackend.connect builds a new ToolHost each
+            # time. A restart binds a new port, so a caller reusing one must also
+            # rewrite the session config (LF_AGY_PORT) and respawn the agy child.
             logger.warning("agy tool host had stopped; restarting it")
             await self.stop()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
