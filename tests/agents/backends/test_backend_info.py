@@ -308,3 +308,117 @@ def test_agy_effort_levels_raises_when_not_signed_in(monkeypatch):
     monkeypatch.setattr(discover.subprocess, "run", run)
     with pytest.raises(RuntimeError, match="sign in"):
         info.agy_effort_levels("C:/x/agy.exe")
+
+
+# ---- Claude auth / model list, TTL, agy_models edge cases ---------------------
+
+def test_claude_auth_status_prefers_api_key(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    monkeypatch.setattr(cs.ClaudeSettingsProvider, "get_api_key", staticmethod(lambda: "sk"))
+    monkeypatch.setattr(cs, "check_oauth_status", lambda: pytest.fail("oauth checked"))
+    assert info.ClaudeCodeInfo().auth_status() == info.AuthStatus(True, "Using API key")
+
+
+def test_claude_auth_status_falls_back_to_oauth(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    monkeypatch.setattr(cs.ClaudeSettingsProvider, "get_api_key", staticmethod(lambda: None))
+    monkeypatch.setattr(cs, "check_oauth_status", lambda: (False, "not logged in"))
+    assert info.ClaudeCodeInfo().auth_status() == info.AuthStatus(False, "not logged in")
+
+
+def test_claude_auth_status_never_raises(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    def boom():
+        raise RuntimeError("kaput")
+
+    monkeypatch.setattr(cs.ClaudeSettingsProvider, "get_api_key", staticmethod(boom))
+    assert info.ClaudeCodeInfo().auth_status() == info.AuthStatus(False, "Couldn't check: kaput")
+
+
+def test_claude_list_models_fetches_then_serves_cache(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    calls = []
+    monkeypatch.setattr(cs, "_MODELS_CACHE", {})
+    monkeypatch.setattr(cs.ClaudeSettingsProvider, "get_base_url", staticmethod(lambda: "https://x"))
+    monkeypatch.setattr(cs.ClaudeSettingsProvider, "get_api_key", staticmethod(lambda: "k"))
+    monkeypatch.setattr(cs, "fetch_available_models",
+                        lambda url, key, **kw: calls.append((url, key)) or ["m1", "m2"])
+    c = info.ClaudeCodeInfo()
+    assert [m.id for m in c.list_models()] == ["", "m1", "m2"]
+    assert [m.id for m in c.cached_models()] == ["", "m1", "m2"]
+    c.list_models()
+    assert calls == [("https://x", "k")]  # second call served from the cache
+    c.list_models(refresh=True)
+    assert len(calls) == 2
+
+
+def test_cached_model_ids_accessor(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    monkeypatch.setattr(cs, "_MODELS_CACHE", {"https://x": ["m1"]})
+    assert cs.cached_model_ids("https://x") == ["m1"]
+    assert cs.cached_model_ids("https://y") is None
+    assert cs.cached_model_ids(None) is None
+
+
+def test_agy_cache_expires_after_ttl(monkeypatch):
+    _agy_found(monkeypatch)
+    run, calls = _fake_run(stdout=ROWS)
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    now = [1000.0]
+    monkeypatch.setattr(info.time, "monotonic", lambda: now[0])
+    a = info.AgyInfo()
+    a.auth_status()
+    now[0] += info._AGY_TTL_S - 1
+    a.auth_status()
+    assert len(calls) == 1
+    now[0] += 2
+    a.auth_status()
+    assert len(calls) == 2
+
+
+def test_agy_models_oserror(monkeypatch, tmp_path):
+    run, _ = _fake_run(exc=OSError("access denied"))
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    rows, detail = discover.agy_models("agy", tmp_path)
+    assert rows is None and detail == "could not run agy: access denied"
+
+
+def test_agy_models_rc0_without_rows(monkeypatch, tmp_path):
+    run, _ = _fake_run(stdout="Fetching available models...\n")
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    rows, detail = discover.agy_models("agy", tmp_path)
+    assert rows is None and detail == "Fetching available models..."
+
+
+def test_concurrent_agy_probes_run_agy_once(monkeypatch):
+    import threading
+    import time
+
+    _agy_found(monkeypatch)
+    calls = []
+
+    def slow_run(argv, **kw):
+        calls.append(argv)
+        time.sleep(0.2)
+        return SimpleNamespace(stdout=ROWS, stderr="", returncode=0)
+
+    monkeypatch.setattr(discover.subprocess, "run", slow_run)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(info.AgyInfo().auth_status()))
+               for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(calls) == 1
+    assert all(r.ok for r in results) and len(results) == 3
+
+
+def test_backend_info_satisfies_protocol():
+    assert isinstance(info.AgyInfo(), info.BackendInfo)
+    assert isinstance(info.ClaudeCodeInfo(), info.BackendInfo)

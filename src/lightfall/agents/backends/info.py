@@ -10,9 +10,11 @@ This module must not import ``claude_agent_sdk``.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from lightfall.agents.backends.select import AGY, CLAUDE_CODE, backend_kind
 from lightfall.agents.tooling import tool_id
@@ -77,6 +79,46 @@ def effort_options_for(models: Iterable[ModelOption], model_id: str) -> list[str
     return [""]
 
 
+@runtime_checkable
+class BackendInfo(Protocol):
+    """What the UI, preamble and settings page read about a backend.
+
+    ``auth_status`` and ``list_models`` may block (agy runs ``agy models``):
+    call them off the GUI thread. Everything else is cheap.
+    """
+
+    kind: str
+    display_name: str
+    caps: BackendCaps
+    prompt_notes: str
+    subagent_tag: str
+    subagent_note: str
+    model_pref_key: str
+    effort_pref_key: str
+
+    def auth_status(self, refresh: bool = False) -> AuthStatus: ...
+
+    def list_models(self, refresh: bool = False) -> list[ModelOption]: ...
+
+    def cached_models(self) -> list[ModelOption]: ...
+
+    def current_model(self) -> str: ...
+
+    def effort_options(self, model_id: str) -> list[str]: ...
+
+    def current_effort(self) -> str: ...
+
+    def live_model_id(self, preset: str) -> str | None: ...
+
+    def sign_in_argv(self) -> list[str] | None: ...
+
+    def sign_in_env(self) -> dict[str, str]: ...
+
+    def tool_ref(self, server: str, tool: str) -> str: ...
+
+    def subagent_name_problem(self, name: str) -> str | None: ...
+
+
 _CLAUDE_PROMPT_NOTES = """### Waiting
 
 Do not use `ScheduleWakeup` to wait for the engine: it does not fire in Lightfall's
@@ -108,6 +150,8 @@ class ClaudeCodeInfo:
     effort_pref_key = "claude_effort"
 
     def auth_status(self, refresh: bool = False) -> AuthStatus:
+        # ``refresh`` is accepted for the protocol only: nothing is cached here
+        # (the API key and the CLI's OAuth state are read fresh on every call).
         from lightfall.ui.preferences.claude_settings import (
             ClaudeSettingsProvider,
             check_oauth_status,
@@ -134,7 +178,7 @@ class ClaudeCodeInfo:
     def cached_models(self) -> list[ModelOption]:
         from lightfall.ui.preferences import claude_settings as cs
 
-        found = cs._MODELS_CACHE.get(cs.ClaudeSettingsProvider.get_base_url() or "")
+        found = cs.cached_model_ids(cs.ClaudeSettingsProvider.get_base_url())
         ids = found if found else [m for m in cs.MODEL_OPTIONS if m]
         return [ModelOption("", "Default (CLI)")] + [ModelOption(m, m) for m in ids]
 
@@ -177,6 +221,9 @@ class ClaudeCodeInfo:
 # `agy models` result per executable for 60 s: {agy: (monotonic, (rows, detail))}.
 _AGY_TTL_S = 60.0
 _AGY_CACHE: dict[str, tuple[float, tuple[list[tuple[str, str]] | None, str]]] = {}
+# Serialises probes so concurrent callers (settings check, backend connect) share
+# one `agy models` run. Probes run off the GUI thread; cached_models only reads.
+_AGY_LOCK = threading.Lock()
 
 
 def clear_caches() -> None:
@@ -211,15 +258,16 @@ class AgyInfo:
         return discover.find_agy(pref or None)
 
     def _probe(self, agy: str, refresh: bool) -> tuple[list[tuple[str, str]] | None, str]:
-        hit = _AGY_CACHE.get(agy)
-        if not refresh and hit is not None and time.monotonic() - hit[0] < _AGY_TTL_S:
-            return hit[1]
         from lightfall.agents.backends.agy import discover
         from lightfall.agents.backends.agy.home import spec_home
 
-        result = discover.agy_models(agy, spec_home(None))
-        _AGY_CACHE[agy] = (time.monotonic(), result)
-        return result
+        with _AGY_LOCK:
+            hit = _AGY_CACHE.get(agy)
+            if not refresh and hit is not None and time.monotonic() - hit[0] < _AGY_TTL_S:
+                return hit[1]
+            result = discover.agy_models(agy, spec_home(None))
+            _AGY_CACHE[agy] = (time.monotonic(), result)
+            return result
 
     def auth_status(self, refresh: bool = False) -> AuthStatus:
         try:
@@ -322,7 +370,7 @@ def agy_effort_levels(agy: str | list[str]) -> dict[str, tuple[str, ...]]:
     return {opt.id: opt.efforts for opt in group_agy_models(_agy_rows(agy))}
 
 
-def backend_info(kind: str | None = None, *, agy_path: str | None = None):
+def backend_info(kind: str | None = None, *, agy_path: str | None = None) -> BackendInfo:
     """Descriptor for ``kind`` (default: the ``agent_backend`` preference)."""
     if (kind or backend_kind()) == AGY:
         return AgyInfo(agy_path=agy_path)

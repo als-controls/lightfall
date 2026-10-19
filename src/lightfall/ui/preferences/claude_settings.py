@@ -163,6 +163,11 @@ def get_cached_models(
     return models
 
 
+def cached_model_ids(base_url: str | None) -> list[str] | None:
+    """Model ids already discovered for ``base_url`` (never fetches; None if unknown)."""
+    return _MODELS_CACHE.get(base_url) if base_url else None
+
+
 # Permission mode options
 PERMISSION_MODES = {
     "default": "Requires confirmation for actions",

@@ -17,6 +17,7 @@ from lightfall.agents.spec import AgentSpec, AgentSpecError, resolve_template
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
+    from lightfall.agents.backends.info import BackendInfo
     from lightfall.agents.registry import AgentSpecRegistry
     from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
@@ -103,7 +104,9 @@ def subagent_definitions(
     }
 
 
-def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None) -> str:
+def identity_preamble(
+    spec: AgentSpec, registry: AgentSpecRegistry, backend: BackendInfo | None = None,
+) -> str:
     """Markdown preamble telling ``spec`` who it is and how to reach peers.
 
     Lists every OTHER enabled spec in ``registry``, tagging each with
@@ -142,7 +145,13 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
 
     peers_section = "\n".join(peer_lines) if peer_lines else "- (no other agents are currently enabled)"
-    launch = bus("launch_agent").rstrip("`")  # `launch_agent  -> `launch_agent(name=...)`
+    # The call goes inside the reference's code span: `x` -> `x(name=...)`.
+    launch_ref = bus("launch_agent")
+    launch_args = '(name="<name>", first_message="optional")'
+    if launch_ref.endswith("`"):
+        launch = f"{launch_ref[:-1]}{launch_args}`"
+    else:
+        launch = f"{launch_ref}{launch_args}"
     # The backend names its own delegation tool (Claude: Agent tool; agy: invoke_subagent).
     delegation = f"\n- {backend.subagent_note}" if any_delegable else ""
     notes = f"\n\n{backend.prompt_notes}" if backend.prompt_notes else ""
@@ -167,7 +176,7 @@ name on the agent bus is "{spec.name}".
   messages a running peer (delivery honors their accept policy).
 - The peer list above is a snapshot from session start; call {bus("list_agents")} for the
   live roster, including agents defined after this session began.
-- To LAUNCH a peer that isn't running, use {launch}(name="<name>", first_message="optional")`.
+- To LAUNCH a peer that isn't running, use {launch}.
   The launched session will auto-accept your subsequent bus messages without prompting the user
   (it whitelists you as its launcher). Focusing an already-running peer this way delivers
   `first_message` but grants no such whitelist.
@@ -179,7 +188,7 @@ def assemble_spec_options(
     tool_registry: ToolRegistry,
     spec_registry: AgentSpecRegistry,
     session_plugin_dir: Path,
-    backend=None,
+    backend: BackendInfo | None = None,
 ) -> dict[str, Any]:
     """Assemble the spec-driven (backend-neutral) portion of a session config.
 
