@@ -24,7 +24,65 @@ import pyqtgraph as _pg  # noqa: E402
 
 _pg.setConfigOption("imageAxisOrder", "row-major")
 
+import gc  # noqa: E402
+
 import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _gc_only_on_main_thread():
+    """Run Python's cyclic garbage collector only on the main (GUI) thread.
+
+    Widgets, pyqtgraph items and QObject services that tests drop often sit in
+    reference cycles, so refcounting alone does not free them: the cyclic GC
+    does, on whichever thread happens to cross the allocation threshold. Many
+    tests run worker threads that allocate heavily (``OphydImageView``'s
+    ``imageview-poll`` thread reading MagicMock devices, Bluesky engine
+    processors, asyncio portals, ...). When one of them triggers the GC, it
+    runs the C++ destructors of an *earlier* test's QWidgets and native windows
+    off the GUI thread, and Qt segfaults with an access violation. The crash
+    lands in whatever test owns that worker thread (typically
+    ``tests/test_ophyd_image_view.py`` during ``close()``) and grows more
+    likely the more tests run before it, because more cyclic Qt garbage has
+    piled up. Disabling automatic collection and collecting after every test
+    (below) keeps every such destructor on the main thread. Reproduced outside
+    pytest: cyclic QWidget/QPixmap/PlotWidget garbage reclaimed by an
+    allocating worker thread while the GUI thread pumps events crashes
+    (access violation, heap corruption 0xc0000374) or hangs; collecting only
+    on the GUI thread does not.
+    """
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    gc.collect()
+    if was_enabled:
+        gc.enable()
+
+
+_tests_since_full_collect = 0
+
+
+@pytest.fixture(autouse=True)
+def _collect_garbage_on_main_thread():
+    """Collect each test's cyclic garbage on the main thread.
+
+    Defined before the other autouse fixtures so its teardown runs after
+    theirs, picking up the singletons and widgets they release too. With
+    automatic collection off, everything a test allocates is still in the
+    young generation at teardown, so a cheap ``collect(1)`` reclaims it; a
+    full collection every 100 tests catches garbage that reached the old
+    generation. A full collection after every test would roughly triple the
+    suite's run time. See ``_gc_only_on_main_thread``.
+    """
+    global _tests_since_full_collect
+    yield
+    _tests_since_full_collect += 1
+    if _tests_since_full_collect >= 100:
+        _tests_since_full_collect = 0
+        gc.collect()
+    else:
+        gc.collect(1)
+
 
 # pytest-qt provides the `qapp` and `qtbot` fixtures automatically.
 # No custom qapp fixture needed - pytest-qt handles QApplication lifecycle
