@@ -399,19 +399,24 @@ class QtClaudeAgent(QObject):
 
         if self._spec is not None:
             from lightfall.agents.assembly import assemble_spec_options
+            from lightfall.agents.backends import info as backend_infos
             from lightfall.agents.registry import AgentSpecRegistry
             from lightfall.agents.spec import AgentSpecError
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
             try:
-                from lightfall.agents.backends.info import backend_info
-
+                backend = backend_infos.backend_info()
+            except Exception as exc:  # noqa: BLE001 - only the preamble wording depends on it
+                logger.warning("agent '{}': backend lookup failed ({}); "
+                               "using Claude Code preamble wording", self._spec.name, exc)
+                backend = None
+            try:
                 spec_options = assemble_spec_options(
                     self._spec,
                     ToolRegistry.get_instance(),
                     AgentSpecRegistry.get_instance(),
                     self._session_plugin_dir,
-                    backend=backend_info(),
+                    backend=backend,
                 )
             except AgentSpecError as exc:
                 logger.warning(

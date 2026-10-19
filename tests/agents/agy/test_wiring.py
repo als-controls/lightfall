@@ -443,6 +443,7 @@ def test_pick_model_writes_agy_model_on_agy(qtbot, prefs, monkeypatch):
     panel = ClaudePanel()
     qtbot.addWidget(panel)
     widget = MagicMock()
+    widget.backend_info = None  # no snapshot: the panel reads the backend pref
     panel._claude_widget = widget
     prefs.values["agent_backend"] = "agy"
     panel._on_pick_model("gemini-3-pro")

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.agents.backends import info as backend_infos
 from lightfall.claude.cockpit import CockpitState
 from lightfall.ui.panels.base import BasePanel, PanelMetadata
 from lightfall.ui.panels.claude.agent_session_tab import (
@@ -629,9 +630,7 @@ class ClaudePanel(BasePanel):
         it stays on the panel because it drives panel chrome (title bar, the
         sidebar icon) rather than the session itself.
         """
-        from lightfall.agents.backends.info import backend_info
-
-        self._cockpit.show_cost = backend_info().caps.cost
+        self._cockpit.show_cost = self._session_info(claude_widget).caps.cost
         self._refresh_cockpit_label()
 
         # Title-bar cockpit label (cost / context% / tokens)
@@ -751,11 +750,28 @@ class ClaudePanel(BasePanel):
         """
         return build_ncs_system_prompt()
 
+    def _session_info(self, widget=None) -> backend_infos.BackendInfo:
+        """The descriptor the main session (or ``widget``) was built with.
+
+        During a pending reload the backend preference may already name a new
+        backend while the old agent is still live; picks and toasts must follow
+        the live agent. Falls back to the preference when the widget has none
+        (not built yet, or a test stub).
+        """
+        widget = self._claude_widget if widget is None else widget
+        info = getattr(widget, "backend_info", None)
+        if info is not None:
+            return info
+        try:
+            return backend_infos.backend_info()
+        except Exception as exc:  # noqa: BLE001 - fall back like the widget does
+            logger.warning("Assistant panel: backend lookup failed ({})", exc)
+            return backend_infos.ClaudeCodeInfo()
+
     def _on_pick_model(self, preset: str) -> None:
-        from lightfall.agents.backends.info import backend_info
         from lightfall.ui.preferences.manager import PreferencesManager
 
-        info = backend_info()
+        info = self._session_info()
         # Persist the raw preset under the active backend's key (the menu
         # re-checks against it); send the backend's live id to the agent.
         PreferencesManager.get_instance().set(info.model_pref_key, preset)
@@ -769,10 +785,9 @@ class ClaudePanel(BasePanel):
     def _on_pick_effort(self, level: str) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lightfall.agents.backends.info import backend_info
         from lightfall.ui.preferences.manager import PreferencesManager
 
-        info = backend_info()
+        info = self._session_info()
         if level == info.current_effort():
             return
         if info.caps.live_set_effort:
@@ -917,15 +932,32 @@ class ClaudePanel(BasePanel):
         if tab in self._deferred_reload:
             return
         self._deferred_reload.add(tab)
+        end_signals = (agent.query_completed, agent.query_cancelled, agent.error_occurred)
 
         def _fire(*_args, t=tab) -> None:
+            # One-shot: the poll takes over from here, so drop all three hooks.
+            for sig in end_signals:
+                try:
+                    sig.disconnect(_fire)
+                except (RuntimeError, TypeError):  # already gone with the agent
+                    pass
             if t in self._deferred_reload and t not in self._deferred_polling:
                 self._deferred_polling.add(t)
                 self._poll_deferred_reload(t)
 
-        agent.query_completed.connect(_fire)
-        agent.query_cancelled.connect(_fire)
-        agent.error_occurred.connect(_fire)
+        for sig in end_signals:
+            sig.connect(_fire)
+
+    def _deferred_tab_gone(self, tab) -> bool:
+        """True (and the deferral dropped) if extra tab ``tab`` left the panel.
+
+        Covers tabs removed other than through ``_on_tab_close_requested``.
+        """
+        if tab is None or tab in self._session_tabs():
+            return False
+        self._deferred_reload.discard(tab)
+        self._deferred_polling.discard(tab)
+        return True
 
     def _poll_deferred_reload(self, tab) -> None:
         """After a turn ends, reload ``tab`` once it is idle.
@@ -935,6 +967,8 @@ class ClaudePanel(BasePanel):
         """
         if tab not in self._deferred_reload or tab not in self._deferred_polling:
             self._deferred_polling.discard(tab)  # closed / reloaded meanwhile
+            return
+        if self._deferred_tab_gone(tab):
             return
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
@@ -973,8 +1007,6 @@ class ClaudePanel(BasePanel):
             tool_name: Name of the tool requesting permission.
             tool_input: Input parameters for the tool.
         """
-        from lightfall.agents.backends.info import backend_info
-
         # Extract a human-friendly tool name (remove mcp__ prefix if present)
         display_name = tool_name
         if display_name.startswith("mcp__"):
@@ -984,7 +1016,7 @@ class ClaudePanel(BasePanel):
         toast_mgr = ToastManager.get_instance()
         toast = toast_mgr.warning(
             "Permission Required",
-            f"{backend_info().display_name} wants to use: {display_name}",
+            f"{self._session_info().display_name} wants to use: {display_name}",
             duration=30000,
         )
 

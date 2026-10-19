@@ -28,6 +28,18 @@ from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
 from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 from lightfall.ui.theme import scaled_pt
+from lightfall.utils.logging import logger
+
+
+def _resolve_backend_info():
+    """The selected backend's descriptor; Claude Code's if the lookup fails."""
+    from lightfall.agents.backends import info
+
+    try:
+        return info.backend_info()
+    except Exception as exc:  # noqa: BLE001 - naming/menus must never break the widget
+        logger.warning("Assistant: backend lookup failed ({}); using Claude Code's", exc)
+        return info.ClaudeCodeInfo()
 
 
 @dataclass
@@ -178,19 +190,28 @@ class ClaudeAssistantWidget(QWidget):
     effort_change_requested = Signal(str)  # effort level the user picked
     bus_pending_changed = Signal(int)      # pending agent-message card count
 
+    # Snapshotted in __init__ (class defaults cover widgets built without it).
+    _backend_info = None
+    _speaker: str | None = None
+
+    @property
+    def backend_info(self):
+        """The ``BackendInfo`` this widget's agent was built with.
+
+        Fixed for the widget's lifetime: a backend switch saved while a reply
+        runs only takes effect when the panel rebuilds the widget, so until then
+        the tune menu, toasts and names keep describing the live agent.
+        """
+        if self._backend_info is None:
+            self._backend_info = _resolve_backend_info()
+        return self._backend_info
+
     @property
     def speaker_name(self) -> str:
-        """The backend's display name ("Claude", "Gemini"); read once per widget."""
-        name = getattr(self, "_speaker", None)
-        if name is None:
-            try:
-                from lightfall.agents.backends.info import backend_info
-
-                name = backend_info().display_name
-            except Exception:  # noqa: BLE001 - naming must never break the widget
-                name = "Assistant"
-            self._speaker = name
-        return name
+        """The backend's display name ("Claude", "Gemini")."""
+        if self._speaker is None:
+            self._speaker = self.backend_info.display_name
+        return self._speaker
 
     def __init__(
         self,
@@ -239,6 +260,8 @@ class ClaudeAssistantWidget(QWidget):
 
         self.target_window = target_window
         self._require_approval = require_approval
+        # Read the backend once, with the agent below: see ``backend_info``.
+        self._backend_info = _resolve_backend_info()
 
         # Track pending permission widgets by request_id
         self._pending_permission_widgets: dict[str, PermissionRequestWidget] = {}
@@ -566,10 +589,10 @@ class ClaudeAssistantWidget(QWidget):
 
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
-        from lightfall.agents.backends.info import ModelOption, backend_info
+        from lightfall.agents.backends.info import ModelOption
         menu = self._tune_menu
         menu.clear()
-        info = backend_info()
+        info = self.backend_info
         current_model = info.current_model()
         current_effort = info.current_effort()
 
@@ -815,7 +838,6 @@ class ClaudeAssistantWidget(QWidget):
 
     def _warm_models(self, info) -> None:
         """Fill a cold model cache once, off the GUI thread (no-op while one runs)."""
-        from lightfall.utils.logging import logger
         from lightfall.utils.threads import QThreadFuture
 
         running = getattr(self, "_models_future", None)
@@ -833,11 +855,9 @@ class ClaudeAssistantWidget(QWidget):
 
         The next menu open shows the refreshed cache.
         """
-        from lightfall.agents.backends.info import backend_info
-        from lightfall.utils.logging import logger
         from lightfall.utils.threads import QThreadFuture
 
-        info = backend_info()
+        info = self.backend_info
         self._models_future = QThreadFuture(
             lambda: info.list_models(refresh=True),
             except_slot=lambda exc: logger.info("Model refresh failed: {}", exc),
@@ -1146,7 +1166,7 @@ class ClaudeAssistantWidget(QWidget):
         self, request_id: str, questions: list
     ) -> None:
         """Render an AskUserQuestion in the permission container."""
-        widget = QuestionRequestWidget(request_id, questions)
+        widget = QuestionRequestWidget(request_id, questions, speaker=self.speaker_name)
         widget.submitted.connect(self._on_question_submitted)
         widget.cancelled.connect(self._on_question_cancelled)
         self._pending_question_widgets[request_id] = widget
