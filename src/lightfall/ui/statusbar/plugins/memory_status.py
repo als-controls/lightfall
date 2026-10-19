@@ -6,14 +6,13 @@ cyclic-garbage counts. Cyclic GC runs on a GUI-thread timer (see
 the indicator turns to the warning color when generation 0 is far past its threshold.
 Clicking runs a full collection on the GUI thread and reports what it freed.
 
-Hidden unless ``LIGHTFALL_SHOW_MEMORY=1`` or the ``show_memory_status`` preference is
-true. One ``psutil`` RSS read every few seconds costs microseconds.
+Ships disabled (``DEFAULT_DISABLED_PLUGIN_IDS``); enable it in Settings → Plugins.
+One ``psutil`` RSS read every few seconds costs microseconds.
 """
 
 from __future__ import annotations
 
 import gc
-import os
 from typing import ClassVar
 
 import psutil
@@ -22,8 +21,6 @@ from PySide6.QtCore import QTimer
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 from lightfall.utils.logging import logger
 
-SHOW_ENV = "LIGHTFALL_SHOW_MEMORY"
-SHOW_PREF = "show_memory_status"
 REFRESH_MS = 2000
 # Warn when generation 0 holds this many times its collection threshold.
 BACKLOG_FACTOR = 10
@@ -33,17 +30,6 @@ def format_bytes(n: float) -> str:
     """Whole MB below 1 GiB, two decimals above (e.g. "412 MB", "1.37 GB")."""
     mb = n / 2**20
     return f"{mb:.0f} MB" if mb < 1024 else f"{mb / 1024:.2f} GB"
-
-
-def should_show() -> bool:
-    if os.environ.get(SHOW_ENV, "").strip().lower() in ("1", "true", "yes"):
-        return True
-    try:
-        from lightfall.ui.preferences.manager import PreferencesManager
-
-        return bool(PreferencesManager.get_instance().get(SHOW_PREF, False))
-    except Exception:  # noqa: BLE001 - no preferences yet: stay hidden
-        return False
 
 
 class MemoryStatusPlugin(StatusBarPlugin):
@@ -72,10 +58,6 @@ class MemoryStatusPlugin(StatusBarPlugin):
     # -- wiring ---------------------------------------------------------------
 
     def connect_signals(self) -> None:
-        shown = should_show()
-        self.set_visible(shown)
-        if not shown:
-            return
         self._timer = QTimer()
         self._timer.setInterval(REFRESH_MS)
         self._timer.timeout.connect(self.update)

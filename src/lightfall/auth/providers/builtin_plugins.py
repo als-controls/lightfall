@@ -140,11 +140,17 @@ class PamAuthPlugin(AuthProviderPlugin):
         return PamAuthProvider(pam_config)
 
 
-# Plugins that ship disabled by default. Seeded into the disabled_plugins
+# Plugins that ship disabled by default. Each is seeded into the disabled_plugins
 # preference once (see seed_default_disabled_plugins); after that the user's
 # explicit Plugins-settings choices are authoritative.
-DEFAULT_DISABLED_PLUGIN_IDS = ("auth_provider:local",)
+DEFAULT_DISABLED_PLUGIN_IDS = (
+    "auth_provider:local",
+    "statusbar:memory_status",  # developer memory indicator
+)
+# The ids already seeded (a list). Older installs stored True, which meant only
+# the original default, auth_provider:local.
 _DEFAULTS_SEEDED_PREF = "default_disabled_plugins_seeded"
+_LEGACY_SEEDED_IDS = ("auth_provider:local",)
 
 
 def _disabled_plugin_ids() -> set[str]:
@@ -167,12 +173,14 @@ def _disabled_plugin_ids() -> set[str]:
 
 
 def seed_default_disabled_plugins() -> None:
-    """One-time: turn off plugins that should ship disabled by default.
+    """Turn off plugins that ship disabled by default, each exactly once.
 
-    Adds DEFAULT_DISABLED_PLUGIN_IDS to the ``disabled_plugins`` preference
-    exactly once (gated by a marker pref). Afterward the user is free to
-    re-enable them in the Plugins settings page and the choice sticks — we
-    never re-disable. Safe to call before preferences are usable (no-op).
+    Adds each DEFAULT_DISABLED_PLUGIN_IDS entry not seeded before to the
+    ``disabled_plugins`` preference, and records it in a marker pref. A default
+    added in a later release is therefore seeded on existing installs too.
+    Afterward the user is free to re-enable it in the Plugins settings page and
+    the choice sticks — we never re-disable. Safe to call before preferences are
+    usable (no-op).
     """
     try:
         from lightfall.ui.preferences.manager import PreferencesManager
@@ -181,13 +189,21 @@ def seed_default_disabled_plugins() -> None:
     except Exception as e:
         logger.debug("Cannot seed default-disabled plugins: {}", e)
         return
-    if prefs.get(_DEFAULTS_SEEDED_PREF, False):
+    marker = prefs.get(_DEFAULTS_SEEDED_PREF, [])
+    if marker is True:
+        seeded = set(_LEGACY_SEEDED_IDS)
+    elif isinstance(marker, list):
+        seeded = {str(x) for x in marker}
+    else:
+        seeded = set()
+    new = [pid for pid in DEFAULT_DISABLED_PLUGIN_IDS if pid not in seeded]
+    if not new:
         return
     disabled = set(prefs.get("disabled_plugins", []) or [])
-    disabled.update(DEFAULT_DISABLED_PLUGIN_IDS)
+    disabled.update(new)
     prefs.set("disabled_plugins", sorted(disabled))
-    prefs.set(_DEFAULTS_SEEDED_PREF, True)
-    logger.info("Seeded default-disabled plugins: {}", list(DEFAULT_DISABLED_PLUGIN_IDS))
+    prefs.set(_DEFAULTS_SEEDED_PREF, sorted(seeded | set(new)))
+    logger.info("Seeded default-disabled plugins: {}", new)
 
 
 def register_builtin_auth_plugins(

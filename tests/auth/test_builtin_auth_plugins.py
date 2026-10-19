@@ -100,11 +100,39 @@ def test_seed_default_disabled_plugins(monkeypatch):
     )
 
     bp.seed_default_disabled_plugins()
-    assert "auth_provider:local" in store["disabled_plugins"]
-    assert store[bp._DEFAULTS_SEEDED_PREF] is True
+    assert set(bp.DEFAULT_DISABLED_PLUGIN_IDS) <= set(store["disabled_plugins"])
+    assert store[bp._DEFAULTS_SEEDED_PREF] == sorted(bp.DEFAULT_DISABLED_PLUGIN_IDS)
 
-    # User re-enables local; seeding must not undo it on a later run.
+    # User re-enables everything; seeding must not undo it on a later run.
     store["disabled_plugins"] = []
+    bp.seed_default_disabled_plugins()
+    assert store["disabled_plugins"] == []
+
+
+def test_seed_adds_new_defaults_on_existing_installs(monkeypatch):
+    """An install seeded by the old boolean marker (only auth_provider:local)
+    still gets a default added later, once, without re-disabling local."""
+    import lightfall.auth.providers.builtin_plugins as bp
+
+    store: dict = {bp._DEFAULTS_SEEDED_PREF: True, "disabled_plugins": []}
+
+    class _FakePrefs:
+        def get(self, key, default=None):
+            return store.get(key, default)
+
+        def set(self, key, value):
+            store[key] = value
+
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.manager.PreferencesManager",
+        type("_M", (), {"get_instance": staticmethod(lambda: _FakePrefs())}),
+    )
+
+    bp.seed_default_disabled_plugins()
+    assert store["disabled_plugins"] == ["statusbar:memory_status"]  # local stays enabled
+    assert "statusbar:memory_status" in store[bp._DEFAULTS_SEEDED_PREF]
+
+    store["disabled_plugins"] = []  # user turns the memory indicator on
     bp.seed_default_disabled_plugins()
     assert store["disabled_plugins"] == []
 
