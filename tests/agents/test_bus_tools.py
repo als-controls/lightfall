@@ -162,3 +162,9 @@ def test_agent_roster_falls_back_when_registry_fails(bus, registry, monkeypatch)
             "subagent_eligible": False,
         }
     ]
+
+
+def test_list_agents_note_is_backend_neutral():
+    assert "Agent tool" not in bus_tools.LIST_AGENTS_NOTE
+    assert "session restart" in bus_tools.LIST_AGENTS_NOTE
+    assert "launch_agent(name, first_message)" in bus_tools.LIST_AGENTS_NOTE

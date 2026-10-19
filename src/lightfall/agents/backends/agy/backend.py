@@ -37,6 +37,7 @@ from lightfall.agents.backends.agy.ask_tool import ASK_SERVER_NAME, create_ask_u
 from lightfall.agents.backends.agy.discover import console_python, hook_command
 from lightfall.agents.backends.agy.events import TERMINAL_EVENTS, AgyEventTranslator
 from lightfall.agents.backends.agy.home import (
+    AGY_MODEL_ALIASES,
     PLUGIN_NAME,
     AgyHomeConfig,
     prepare_session_home,
@@ -51,6 +52,7 @@ from lightfall.agents.backends.agy.hook_policy import decide
 from lightfall.agents.backends.agy.host import ToolHost
 from lightfall.agents.backends.agy.process import AgyProcess
 from lightfall.agents.backends.agy.tool_directory import render_tool_directory
+from lightfall.agents.backends.info import agy_model_ids
 from lightfall.utils.logging import logger
 
 _CANCEL_GRACE_S = 5.0
@@ -115,6 +117,17 @@ class AgyCliBackend:
 
     # -- lifecycle ------------------------------------------------------------
 
+    async def _subagent_model_ids(self) -> frozenset[str]:
+        """agy model ids, fetched only if a subagent names a model that is not an alias."""
+        if not any((s.model or "").strip() not in ("", *AGY_MODEL_ALIASES)
+                   for s in self._cfg.subagents):
+            return frozenset()
+        try:
+            return await asyncio.to_thread(agy_model_ids, self._agy)
+        except Exception as e:  # noqa: BLE001 - unknown models just become ``inherit``
+            logger.warning("agy: could not list models for subagents: {}", e)
+            return frozenset()
+
     async def connect(self) -> None:
         cfg = self._cfg
         # Anything that can raise from config comes first, before resources exist.
@@ -150,6 +163,8 @@ class AgyCliBackend:
                 port=port,
                 token=token,
                 skills_src=Path(cfg.skills_dir) / "skills",
+                subagents=list(cfg.subagents),
+                model_ids=await self._subagent_model_ids(),
             ))
             logger.info("agy backend connected: home={} port={}", home, port)
         except BaseException:

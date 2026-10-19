@@ -70,7 +70,7 @@ def _agy_found(monkeypatch, path="C:/x/agy.exe"):
 def test_agy_info_caps_and_names():
     a = info.AgyInfo()
     assert (a.kind, a.display_name, a.model_pref_key) == ("agy", "Gemini", "agy_model")
-    assert a.caps == info.BackendCaps(cost=False, live_set_model=False, subagents=False)
+    assert a.caps == info.BackendCaps(cost=False, live_set_model=False, subagents=True)
     c = info.ClaudeCodeInfo()
     assert (c.kind, c.display_name, c.model_pref_key) == ("claude-code", "Claude", "claude_model")
     assert c.caps == info.BackendCaps(cost=True, live_set_model=True, subagents=True)
@@ -169,3 +169,33 @@ def test_backend_info_dispatch(monkeypatch):
     assert isinstance(info.backend_info("claude-code"), info.ClaudeCodeInfo)
     monkeypatch.setattr(info, "backend_kind", lambda: "agy")
     assert isinstance(info.backend_info(), info.AgyInfo)
+
+
+def test_agy_model_ids_uses_the_models_cache(monkeypatch):
+    run, calls = _fake_run(stdout=ROWS)
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    assert info.agy_model_ids("C:/x/agy.exe") == frozenset({"gemini-3-pro", "gemini-3-flash"})
+    info.AgyInfo(agy_path="C:/x/agy.exe")  # same cache as the settings page
+    assert info.agy_model_ids("C:/x/agy.exe") == frozenset({"gemini-3-pro", "gemini-3-flash"})
+    assert len(calls) == 1
+
+
+def test_agy_model_ids_argv_list(monkeypatch):
+    run, calls = _fake_run(stdout=ROWS)
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    assert info.agy_model_ids(["py", "fake_agy.py"]) == frozenset({"gemini-3-pro", "gemini-3-flash"})
+    assert calls[0][:2] == ["py", "fake_agy.py"]
+
+
+def test_agy_model_ids_raises_when_not_signed_in(monkeypatch):
+    run, _ = _fake_run(stderr="please sign in", rc=1)
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="sign in"):
+        info.agy_model_ids("C:/x/agy.exe")
+
+
+def test_subagent_wording_per_backend():
+    a, c = info.AgyInfo(), info.ClaudeCodeInfo()
+    assert "invoke_subagent" in a.subagent_note and "invoke_subagent" in a.subagent_tag + a.subagent_note
+    assert "Agent tool" not in a.subagent_note and "Task" not in a.subagent_note
+    assert c.subagent_tag == "Agent-tool delegable" and "Agent tool" in c.subagent_note

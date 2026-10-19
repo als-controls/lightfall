@@ -107,8 +107,9 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
     """Markdown preamble telling ``spec`` who it is and how to reach peers.
 
     Lists every OTHER enabled spec in ``registry``, tagging each with
-    ``[openable as a session]`` and, when ``backend`` runs subagents,
-    ``[Agent-tool delegable]``. ``backend`` is a ``BackendInfo``; None means
+    ``[openable as a session]`` and, when ``backend`` runs subagents, the
+    backend's ``subagent_tag`` (Claude: ``[Agent-tool delegable]``) plus its
+    ``subagent_note`` naming the delegation tool. ``backend`` is a ``BackendInfo``; None means
     Claude Code wording. Callers should treat any failure here as non-fatal
     (see ``assemble_spec_options``).
     """
@@ -122,6 +123,7 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         return backend.tool_ref("bus", tool)
 
     peer_lines: list[str] = []
+    any_delegable = False
     for peer in registry.enabled_specs():
         if peer.name == spec.name:
             continue
@@ -129,17 +131,15 @@ def identity_preamble(spec: AgentSpec, registry: AgentSpecRegistry, backend=None
         if peer.openable:
             tags.append("openable as a session")
         if peer.subagent and delegable:
-            tags.append("Agent-tool delegable")
+            tags.append(backend.subagent_tag)
+            any_delegable = True
         tag_suffix = f" [{', '.join(tags)}]" if tags else ""
         peer_lines.append(f"- **{peer.name}** — {peer.description}{tag_suffix}")
 
     peers_section = "\n".join(peer_lines) if peer_lines else "- (no other agents are currently enabled)"
     launch = bus("launch_agent").rstrip("`")  # `launch_agent  -> `launch_agent(name=...)`
-    delegation = (
-        "\n- Peers marked Agent-tool delegable also appear as agent types in your Agent tool for\n"
-        "  background subagent runs (isolated, report-back; no session tab)."
-        if delegable else ""
-    )
+    # The backend names its own delegation tool (Claude: Agent tool; agy: invoke_subagent).
+    delegation = f"\n- {backend.subagent_note}" if any_delegable else ""
     notes = f"\n\n{backend.prompt_notes}" if backend.prompt_notes else ""
 
     return f"""## Your identity

@@ -208,8 +208,8 @@ the tool call until the engine returns to IDLE, then optionally returns the
 most recent run's metadata in the same response (`include_last_run=True` by
 default), so you can pipe straight into `lightfall_get_scan_data(uid=...)` without
 another round-trip. Prefer this over polling `lightfall_get_run_status` in a loop,
-and **do not use `ScheduleWakeup` for this** — `ScheduleWakeup` currently does
-not fire in Lightfall's embedded Claude session, so any wakeup you schedule will
+and **do not use a scheduled wakeup (such as `ScheduleWakeup`) for this** — scheduled
+wakeups do not fire in Lightfall's embedded session, so any wakeup you schedule will
 silently drop and the conversation will stall waiting for the user to nudge
 you. `lightfall_wait_for_idle` keeps the model suspended inside the tool call,
 which is the right pattern here.

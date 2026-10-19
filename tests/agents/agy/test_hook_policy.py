@@ -144,3 +144,48 @@ async def test_empty_and_unlisted_server_keys_denied():
 async def test_read_resource_on_foreign_server_denied():
     p = {"toolCall": {"name": "read_resource", "args": {"ServerName": "evil"}}}
     assert (await _decide(p))["decision"] == "deny"
+
+
+# ---- invoke_subagent (agy's subagent tool, gated as Claude's Task) -----------
+
+
+def _invoke(**extra):
+    args = {"Subagents": [{"Model": "inherit", "Prompt": "echo it", "Role": "r",
+                           "TypeName": "echoer"}],
+            "toolAction": "Delegating", "toolSummary": "echoer"}
+    args.update(extra)
+    return {"toolCall": {"name": "invoke_subagent", "args": args}}
+
+
+async def test_invoke_subagent_gated_as_task():
+    pm = FakePM()
+    r = await _decide(_invoke(), pm)
+    assert r["decision"] == "allow"
+    # Display-only meta args are stripped, like the other built-ins.
+    assert pm.calls == [("Task", {"Subagents": [{"Model": "inherit", "Prompt": "echo it",
+                                                 "Role": "r", "TypeName": "echoer"}]})]
+
+
+async def test_invoke_subagent_auto_approved_skips_pm():
+    pm = FakePM(auto=True)
+    r = await _decide(_invoke(), pm)
+    assert r["decision"] == "allow" and pm.calls == []
+
+
+async def test_invoke_subagent_denied_by_user():
+    pm = FakePM(result=(False, "No delegation"))
+    assert await _decide(_invoke(), pm) == {"decision": "deny", "reason": "No delegation"}
+
+
+async def test_invoke_subagent_without_approval_allowed():
+    pm = FakePM(result=(False, "unused"))
+    r = await _decide(_invoke(), pm, require_approval=False)
+    assert r["decision"] == "allow" and pm.calls == []
+
+
+def test_agy_builtin_tools_offer_invoke_subagent():
+    from lightfall.agents.backends.agy.hook_policy import AGY_BUILTIN_TOOLS, BUILTIN_PERMISSION_IDS
+
+    assert BUILTIN_PERMISSION_IDS["invoke_subagent"] == "Task"
+    assert "invoke_subagent" in AGY_BUILTIN_TOOLS
+    assert set(AGY_BUILTIN_TOOLS) == set(BUILTIN_PERMISSION_IDS)

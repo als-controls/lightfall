@@ -27,11 +27,13 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lightfall.agents.backends.agy.hook_policy import AGY_BUILTIN_TOOLS
+from lightfall.agents.backend import SubagentSpec
+from lightfall.agents.backends.agy.hook_policy import AGY_BUILTIN_TOOLS, SUBAGENT_TOOL
 from lightfall.utils.logging import logger
 
 PLUGIN_NAME = "lightfall"
@@ -61,6 +63,30 @@ _OPERATOR_FRONTMATTER = (
     # The same built-ins a Claude session gets (read, edit, shell, web); every
     # call is gated by the PreToolUse hook through PermissionManager.
     f"tools: [{', '.join(AGY_BUILTIN_TOOLS)}]\n"
+    "---\n"
+)
+
+# Model aliases agy accepts in an agent file besides the ids `agy models` lists.
+AGY_MODEL_ALIASES = frozenset({"inherit", "flash", "flash_lite", "pro"})
+
+# A subagent gets the operator's built-ins minus the delegation tool: no nested
+# delegation. Deliberately stricter than Claude Code, whose subagents may nest
+# (CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, default 3 since CLI 2.1.219).
+_SUBAGENT_TOOLS = tuple(t for t in AGY_BUILTIN_TOOLS if t != SUBAGENT_TOOL)
+
+_SUBAGENT_FRONTMATTER = (
+    "---\n"
+    "name: {name}\n"
+    "description: {description}\n"
+    "mainAgent: false\n"
+    "subagent: true\n"
+    "excludeDefaultComponents: true\n"
+    # Both inherit flags route the subagent's tool calls to Lightfall's MCP
+    # servers and through the PreToolUse hook (verified live, agy 1.4.2).
+    "inheritCustomizations: true\n"
+    "inheritMcp: true\n"
+    f"tools: [{', '.join(_SUBAGENT_TOOLS)}]\n"
+    "model: {model}\n"
     "---\n"
 )
 
@@ -348,6 +374,52 @@ class AgyHomeConfig:
     port: int
     token: str
     skills_src: Path | None = None
+    subagents: list[SubagentSpec] = field(default_factory=list)
+    # Model ids `agy models` lists; a subagent model outside these and
+    # AGY_MODEL_ALIASES becomes ``inherit``.
+    model_ids: frozenset[str] = frozenset()
+
+
+def _subagent_model(spec: SubagentSpec, model_ids: Iterable[str]) -> str:
+    model = (spec.model or "").strip()
+    if model and (model in AGY_MODEL_ALIASES or model in model_ids):
+        return model
+    if model:
+        # Claude names (sonnet/haiku/opus, claude-*) and unknown ids land here.
+        logger.debug("agy subagent '{}': model {!r} is not an agy model; using inherit",
+                     spec.name, model)
+    return "inherit"
+
+
+def _write_subagents(agents_dir: Path, cfg: AgyHomeConfig) -> None:
+    """Write ``<name>.md`` per subagent; agy uses the file's ``name`` as TypeName.
+
+    ``SubagentSpec.effort`` and ``.memory`` have no agy agent-file equivalent (no
+    known ``effort`` key, no per-agent memory), so they are ignored.
+    """
+    taken = {"operator"}  # casefolded: Windows file names are case-insensitive
+    for spec in cfg.subagents:
+        name = spec.name
+        if not _KEY_RE.fullmatch(name) or name in (".", ".."):
+            logger.warning("agy: skipping subagent {!r}: invalid name (allowed: A-Za-z0-9_.-)",
+                           name)
+            continue
+        if name.casefold() == "operator":
+            logger.warning("agy: skipping subagent {!r}: the name is reserved for the operator",
+                           name)
+            continue
+        if name.casefold() in taken:
+            logger.warning("agy: skipping subagent {!r}: duplicate name", name)
+            continue
+        taken.add(name.casefold())
+        description = (spec.description or "").strip() or name  # agy rejects an empty one
+        # JSON strings are valid YAML double-quoted scalars, safe for any text.
+        front = _SUBAGENT_FRONTMATTER.format(
+            name=json.dumps(name),
+            description=json.dumps(description, ensure_ascii=False),
+            model=_subagent_model(spec, cfg.model_ids),
+        )
+        _write_text(agents_dir / f"{name}.md", front + "\n" + spec.prompt + "\n")
 
 
 def write_session_config(session_home: Path, cfg: AgyHomeConfig) -> Path:
@@ -392,10 +464,12 @@ def write_session_config(session_home: Path, cfg: AgyHomeConfig) -> Path:
         },
     )
     _write_text(plugin / "rules" / "AGENTS.md", cfg.system_prompt)
-    _write_text(
-        plugin / "agents" / "operator.md",
-        _OPERATOR_FRONTMATTER + "\n" + cfg.system_prompt + "\n",
-    )
+    # agents/ holds exactly operator.md plus this session's subagents.
+    agents = plugin / "agents"
+    if agents.exists():
+        shutil.rmtree(agents)
+    _write_text(agents / "operator.md", _OPERATOR_FRONTMATTER + "\n" + cfg.system_prompt + "\n")
+    _write_subagents(agents, cfg)
 
     skills = plugin / "skills"
     if skills.exists():

@@ -9,6 +9,8 @@ payload to ``{"decision": "allow"|"deny", "reason": str}``.
   through ``PermissionManager`` under the name of the matching Claude Code
   built-in, so the read-only auto-approvals, ``acceptEdits`` and "Always allow"
   behave exactly as they do on the Claude backend.
+- ``invoke_subagent`` (agy's delegation tool) is gated as ``Task``; the
+  subagent's own tool calls come through this hook too.
 - Everything else is denied.
 
 This module must not import ``claude_agent_sdk``.
@@ -41,8 +43,12 @@ BUILTIN_PERMISSION_IDS: dict[str, str] = {
     "run_command": "Bash",
     "read_url_content": "WebFetch",
     "search_web": "WebSearch",
+    # agy's subagent delegation (verified live against agy 1.4.2) is gated like
+    # Claude's subagent tool, so the same approval rules apply.
+    "invoke_subagent": "Task",
 }
 AGY_BUILTIN_TOOLS: tuple[str, ...] = tuple(BUILTIN_PERMISSION_IDS)
+SUBAGENT_TOOL = "invoke_subagent"
 
 # Display-only keys agy adds to every tool call's args.
 _META_ARGS = ("toolAction", "toolSummary")

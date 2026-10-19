@@ -41,12 +41,26 @@ Do not use `ScheduleWakeup` to wait for the engine: it does not fire in Lightfal
 embedded session, so a scheduled wakeup silently drops and the conversation stalls
 until the user nudges you. Use `lightfall_wait_for_idle` instead."""
 
+# How the preamble tags and explains peers the backend can run as subagents
+# (only used when ``caps.subagents``). The note continues a markdown bullet.
+_CLAUDE_SUBAGENT_TAG = "Agent-tool delegable"
+_CLAUDE_SUBAGENT_NOTE = (
+    "Peers marked Agent-tool delegable also appear as agent types in your Agent tool for\n"
+    "  background subagent runs (isolated, report-back; no session tab).")
+_AGY_SUBAGENT_TAG = "subagent delegable"
+_AGY_SUBAGENT_NOTE = (
+    "Peers marked subagent delegable can be delegated to with your `invoke_subagent` tool\n"
+    "  (TypeName = the peer's name) for background subagent runs (isolated, report-back;\n"
+    "  no session tab).")
+
 
 class ClaudeCodeInfo:
     kind = CLAUDE_CODE
     display_name = "Claude"
     caps = BackendCaps(cost=True, live_set_model=True, subagents=True)
     prompt_notes = _CLAUDE_PROMPT_NOTES
+    subagent_tag = _CLAUDE_SUBAGENT_TAG
+    subagent_note = _CLAUDE_SUBAGENT_NOTE
     model_pref_key = "claude_model"
 
     def auth_status(self, refresh: bool = False) -> AuthStatus:
@@ -112,8 +126,11 @@ def clear_caches() -> None:
 class AgyInfo:
     kind = AGY
     display_name = "Gemini"
-    caps = BackendCaps(cost=False, live_set_model=False, subagents=False)
+    # Subagents: agent files in the session plugin, delegated with invoke_subagent.
+    caps = BackendCaps(cost=False, live_set_model=False, subagents=True)
     prompt_notes = ""
+    subagent_tag = _AGY_SUBAGENT_TAG
+    subagent_note = _AGY_SUBAGENT_NOTE
     model_pref_key = "agy_model"
 
     def __init__(self, agy_path: str | None = None) -> None:
@@ -195,6 +212,23 @@ class AgyInfo:
         # agy calls MCP tools as call_mcp_tool(ServerName, ToolName); plugin servers
         # are named lightfall_<key>.
         return f"`lightfall_{server}` / `{tool}`"
+
+
+def agy_model_ids(agy: str | list[str]) -> frozenset[str]:
+    """Model ids ``agy models`` lists (cached 60 s per executable; blocks on a miss).
+
+    Raises when agy cannot list models. An argv list (a dev/test wrapper) is not cached.
+    """
+    if isinstance(agy, str):
+        rows, detail = AgyInfo()._probe(agy, refresh=False)
+    else:
+        from lightfall.agents.backends.agy import discover
+        from lightfall.agents.backends.agy.home import spec_home
+
+        rows, detail = discover.agy_models(agy, spec_home(None))
+    if rows is None:
+        raise RuntimeError(detail)
+    return frozenset(model_id for model_id, _ in rows)
 
 
 def backend_info(kind: str | None = None, *, agy_path: str | None = None):

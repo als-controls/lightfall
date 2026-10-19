@@ -58,3 +58,12 @@ def test_no_hardcoded_claude_in_ui_strings():
                     and id(node) not in skip and WORD.search(node.value)):
                 hits.append(f"{rel}:{node.lineno}: {node.value[:60]!r}")
     assert hits == [], "\n".join(hits)
+
+
+def test_legacy_system_prompt_is_backend_neutral():
+    """QT_SYSTEM_PROMPT may drive any backend: no claim that the model is Claude."""
+    from lightfall.claude.agent import QT_SYSTEM_PROMPT
+
+    assert not WORD.search(QT_SYSTEM_PROMPT)
+    assert "Agent tool" not in QT_SYSTEM_PROMPT and "Task tool" not in QT_SYSTEM_PROMPT
+    assert "lightfall_wait_for_idle" in QT_SYSTEM_PROMPT

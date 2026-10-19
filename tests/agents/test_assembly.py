@@ -154,6 +154,22 @@ def test_assemble_spec_options_prepends_preamble(monkeypatch, tmp_path):
     assert options["system_prompt"].endswith("p ron")
 
 
+def test_assemble_spec_options_agy_roster_and_subagents(monkeypatch, tmp_path):
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("saxs", subagent=True)])
+    monkeypatch.setattr("lightfall.agents.assembly.template_variables",
+                        lambda: {"user": "ron", "beamline": "", "endstation": ""})
+    options = assemble_spec_options(lightfall, _FakeToolRegistry(), reg, tmp_path,
+                                    backend=AgyInfo())
+    assert [s.name for s in options["subagent_specs"]] == ["saxs"]
+    prompt = options["system_prompt"]
+    assert "**saxs** — d-saxs [openable as a session, subagent delegable]" in prompt
+    assert "`invoke_subagent`" in prompt
+    assert "Task" not in prompt and "Agent tool" not in prompt
+
+
 def test_assemble_spec_options_tolerates_registry_enumeration_failure(monkeypatch, tmp_path):
     lightfall = _spec("lightfall")
     reg = _FailingRegistry()
@@ -179,6 +195,25 @@ def test_preamble_agy_has_no_claude_only_wording():
     assert "mcp__" not in text
     assert "`lightfall_bus` / `list_agents`" in text and "`lightfall_bus` / `launch_agent(" in text
     assert "Assistant panel's tab bar" in text
+
+
+def test_preamble_agy_delegates_with_invoke_subagent():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall, reg = _reg_with_delegable_peer()
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    assert "**saxs** — d-saxs [openable as a session, subagent delegable]" in text
+    assert "`invoke_subagent`" in text
+    assert "Task" not in text
+
+
+def test_preamble_agy_without_subagent_peers_has_no_delegation_note():
+    from lightfall.agents.backends.info import AgyInfo
+
+    lightfall = _spec("lightfall")
+    reg = _FakeRegistry([lightfall, _spec("saxs", openable=True, subagent=False)])
+    text = identity_preamble(lightfall, reg, AgyInfo())
+    assert "invoke_subagent" not in text and "delegable" not in text
 
 
 def test_preamble_claude_keeps_delegation_and_notes():

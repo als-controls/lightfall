@@ -574,3 +574,63 @@ def test_connect_failure_after_host_start_cleans_up(env, monkeypatch):
     assert not seen["home"].exists()
     with pytest.raises(OSError), socket.create_connection(("127.0.0.1", seen["port"]), timeout=2):
         pass
+
+
+def _with_subagents(env, subagents):
+    import dataclasses
+
+    env["cfg"] = dataclasses.replace(env["cfg"], subagents=subagents)
+
+
+def test_connect_writes_subagent_files(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    probed = []
+    monkeypatch.setattr(backend_mod, "agy_model_ids",
+                        lambda agy: probed.append(agy) or frozenset({"gemini-x"}))
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x"),
+                          SubagentSpec("saxs", "SAXS.", "You reduce.", model="sonnet")])
+    b = _backend(env)
+    asyncio.run(b.connect())
+    try:
+        agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
+        assert sorted(p.name for p in agents.iterdir()) == ["echoer.md", "operator.md", "saxs.md"]
+        assert "model: gemini-x\n" in (agents / "echoer.md").read_text(encoding="utf-8")
+        assert "model: inherit\n" in (agents / "saxs.md").read_text(encoding="utf-8")
+        assert probed == [AGY]
+    finally:
+        asyncio.run(b.close())
+
+
+def test_connect_skips_model_probe_when_no_subagent_needs_it(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise AssertionError("agy models must not run")
+
+    monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo."),
+                          SubagentSpec("fast", "Fast.", "Quick.", model="flash")])
+    b = _backend(env)
+    asyncio.run(b.connect())
+    asyncio.run(b.close())
+
+
+def test_connect_survives_model_probe_failure(env, monkeypatch):
+    from lightfall.agents.backend import SubagentSpec
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise RuntimeError("not signed in")
+
+    monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x")])
+    b = _backend(env)
+    asyncio.run(b.connect())
+    try:
+        agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
+        assert "model: inherit\n" in (agents / "echoer.md").read_text(encoding="utf-8")
+    finally:
+        asyncio.run(b.close())

@@ -272,7 +272,8 @@ def test_rules_and_operator_agent(tmp_path):
         "inheritCustomizations: true\n"
         "inheritMcp: true\n"
         "tools: [view_file, list_dir, grep_search, find_by_name, write_to_file, replace_file_content, "
-        "multi_replace_file_content, edit_file, run_command, read_url_content, search_web]\n"
+        "multi_replace_file_content, edit_file, run_command, read_url_content, search_web, "
+        "invoke_subagent]\n"
         "---\n"
         "\n"
         "You are the operator.\n"
@@ -385,3 +386,160 @@ def test_remove_session_home_warns_when_unlink_fails(root, monkeypatch):
         logger.remove(sink)
     assert session.exists()  # never rmtree'd
     assert any("Could not unlink" in m for m in msgs)
+
+
+# ---- subagents -------------------------------------------------------------
+
+_SUB_TOOLS = ("tools: [view_file, list_dir, grep_search, find_by_name, write_to_file, "
+              "replace_file_content, multi_replace_file_content, edit_file, run_command, "
+              "read_url_content, search_web]\n")
+
+
+def _sub(name, description="d", prompt="p", model=None, **kw):
+    from lightfall.agents.backend import SubagentSpec
+
+    return SubagentSpec(name=name, description=description, prompt=prompt, model=model, **kw)
+
+
+def _agents(session):
+    return sorted(p.name for p in (_plugin(session) / "agents").iterdir())
+
+
+def _capture(level="DEBUG"):
+    from lightfall.utils.logging import logger
+
+    msgs: list[str] = []
+    sink = logger.add(lambda m: msgs.append(str(m)), level=level)
+    return msgs, lambda: logger.remove(sink)
+
+
+def test_subagent_files_exact(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(
+        subagents=[_sub("echoer", "Echoes a word.", "You echo.", model="gemini-3-flash",
+                        effort="high", memory=True),
+                   _sub("saxs", "SAXS reduction: q-space", "You reduce SAXS.\nCarefully.")],
+        model_ids=frozenset({"gemini-3-flash", "gemini-3-pro"})))
+    assert _agents(session) == ["echoer.md", "operator.md", "saxs.md"]
+    agents = _plugin(session) / "agents"
+    assert (agents / "echoer.md").read_text(encoding="utf-8") == (
+        "---\n"
+        'name: "echoer"\n'
+        'description: "Echoes a word."\n'
+        "mainAgent: false\n"
+        "subagent: true\n"
+        "excludeDefaultComponents: true\n"
+        "inheritCustomizations: true\n"
+        "inheritMcp: true\n"
+        + _SUB_TOOLS +
+        "model: gemini-3-flash\n"
+        "---\n"
+        "\n"
+        "You echo.\n"
+    )
+    assert (agents / "saxs.md").read_text(encoding="utf-8") == (
+        "---\n"
+        'name: "saxs"\n'
+        'description: "SAXS reduction: q-space"\n'
+        "mainAgent: false\n"
+        "subagent: true\n"
+        "excludeDefaultComponents: true\n"
+        "inheritCustomizations: true\n"
+        "inheritMcp: true\n"
+        + _SUB_TOOLS +
+        "model: inherit\n"
+        "---\n"
+        "\n"
+        "You reduce SAXS.\nCarefully.\n"
+    )
+
+
+def test_operator_offers_invoke_subagent_but_subagents_do_not(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer")]))
+    agents = _plugin(session) / "agents"
+
+    def tools_line(f):
+        return next(ln for ln in (agents / f).read_text(encoding="utf-8").splitlines()
+                    if ln.startswith("tools:"))
+
+    assert "invoke_subagent" in tools_line("operator.md")
+    assert "invoke_subagent" not in tools_line("echoer.md")
+
+
+@pytest.mark.parametrize("claude_model", ["sonnet", "haiku", "opus", "claude-opus-4-1"])
+def test_claude_model_becomes_inherit(tmp_path, claude_model):
+    session = tmp_path / "s"
+    msgs, done = _capture()
+    try:
+        agy_home.write_session_config(session, _cfg(
+            subagents=[_sub("echoer", model=claude_model)],
+            model_ids=frozenset({"gemini-3-flash"})))
+    finally:
+        done()
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert "model: inherit\n" in text and claude_model not in text
+    assert any(claude_model in m and "DEBUG" in m for m in msgs)
+
+
+@pytest.mark.parametrize("alias", ["inherit", "flash", "flash_lite", "pro"])
+def test_agy_model_aliases_kept(tmp_path, alias):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", model=alias)]))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert f"model: {alias}\n" in text
+
+
+@pytest.mark.parametrize("desc", ["", "   "])
+def test_empty_description_falls_back_to_name(tmp_path, desc):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", desc)]))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert 'description: "echoer"\n' in text
+
+
+def test_multiline_description_stays_one_yaml_line(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", 'say "hi"\nthen go')]))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert 'description: "say \\"hi\\"\\nthen go"\n' in text
+
+
+def test_invalid_and_duplicate_subagent_names_skipped(tmp_path):
+    session = tmp_path / "s"
+    msgs, done = _capture("WARNING")
+    try:
+        agy_home.write_session_config(session, _cfg(subagents=[
+            _sub("good", prompt="first"), _sub("a b"), _sub("../evil"), _sub(""), _sub(".."),
+            _sub("good", prompt="second"), _sub("GOOD", prompt="third")]))
+    finally:
+        done()
+    assert _agents(session) == ["good.md", "operator.md"]
+    text = (_plugin(session) / "agents" / "good.md").read_text(encoding="utf-8")
+    assert text.endswith("\nfirst\n")
+    assert sum("subagent" in m for m in msgs) == 6
+    assert not (_plugin(session) / "evil.md").exists()
+
+
+@pytest.mark.parametrize("name", ["operator", "Operator"])
+def test_subagent_named_operator_rejected(tmp_path, name):
+    session = tmp_path / "s"
+    msgs, done = _capture("WARNING")
+    try:
+        agy_home.write_session_config(session, _cfg(subagents=[_sub(name, prompt="EVIL")]))
+    finally:
+        done()
+    assert _agents(session) == ["operator.md"]
+    op = (_plugin(session) / "agents" / "operator.md").read_text(encoding="utf-8")
+    assert "mainAgent: true" in op and "EVIL" not in op
+    assert any("operator" in m for m in msgs)
+
+
+def test_stale_subagent_files_removed(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("old"), _sub("keep")]))
+    (_plugin(session) / "agents" / "leftover.md").write_text("x", encoding="utf-8")
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("keep"), _sub("new")]))
+    assert _agents(session) == ["keep.md", "new.md", "operator.md"]
+    agy_home.write_session_config(session, _cfg())
+    assert _agents(session) == ["operator.md"]
