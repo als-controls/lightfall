@@ -80,11 +80,11 @@ NATS message-broker connection for inter-process features (e.g. Tsuchinoko
 adaptive experiments, cross-instance notifications): server URL, topic
 prefix, display name, with a connection status indicator.
 
-## Claude Assistant
+## Assistant
 
 API endpoint and credentials (API key or Claude Code OAuth), model
 selection, max turns, and the permission mode. Covered in
-[Claude Assistant](claude-assistant.md).
+[Assistant](claude-assistant.md).
 
 ## Assistant Tools
 

@@ -203,7 +203,7 @@ an image.
 Where to go from here:
 
 - [Running Plans](running-plans.md) — every plan, plus writing your own
-- [Claude Assistant](claude-assistant.md) — do all of the above by asking
+- [Assistant](claude-assistant.md) — do all of the above by asking
   in plain language
 - [Customizing Lightfall with the Agent](agent-customization.md) — have the
   assistant build you a custom panel

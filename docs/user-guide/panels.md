@@ -41,7 +41,7 @@ automatically when you quit and restored on the next launch.
 | Devices | Core | Left | Device tree and controllers |
 | Data Browser | Data | Left | Tiled catalog search |
 | Documents | Acquisition | Left | Raw Bluesky document stream |
-| Claude Assistant | Tools | Bottom | Embedded agent chat |
+| Assistant | Tools | Bottom | Embedded agent chat |
 | IPython Console | Tools | Bottom | Interactive Python REPL |
 | Visualization | Acquisition | Bottom | Plots of run data |
 | Logging | System | Bottom | Application log viewer |
@@ -103,14 +103,14 @@ See [Using the Logbook](logbook.md).
 
 ---
 
-### Claude Assistant
+### Assistant
 
 **Purpose:** the embedded agent — help, natural-language control, and
 building new panels and plans.
 
 Chat interface with a **Send** button and a broom button to reset the
 conversation. Requires Claude credentials (see
-[Claude Assistant](claude-assistant.md)).
+[Assistant](claude-assistant.md)).
 
 ---
 

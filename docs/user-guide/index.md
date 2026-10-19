@@ -22,7 +22,7 @@ involve writing code (user plans, for example), it says so up front.
    docking system works.
 5. **[Running Plans](running-plans.md)** — plan selection, parameters,
    pause/resume/abort, and writing your own user plans.
-6. **[Claude Assistant](claude-assistant.md)** — the embedded agent: asking
+6. **[Assistant](claude-assistant.md)** — the embedded agent: asking
    questions, controlling the application in plain language, and approving
    tool use.
 7. **[Customizing Lightfall with the Agent](agent-customization.md)** — have

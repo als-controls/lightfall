@@ -7,12 +7,12 @@ queue. This page walks through the workflow and explains what happens behind
 each step.
 
 Prerequisite: a working assistant (see
-[Claude Assistant](claude-assistant.md) for credentials and approval
+[Assistant](claude-assistant.md) for credentials and approval
 basics).
 
 ## A worked example
 
-Open the **Claude Assistant** panel and describe what you want. Be concrete
+Open the **Assistant** panel and describe what you want. Be concrete
 about the devices and the behavior:
 
 > Build me a panel that shows the current positions of motor, motor1, and

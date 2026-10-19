@@ -81,7 +81,7 @@ Two things require configuration:
 
 - **The Claude assistant** needs credentials: set the `ANTHROPIC_API_KEY`
   environment variable, or use an existing Claude Code OAuth login. See
-  [Claude Assistant](claude-assistant.md).
+  [Assistant](claude-assistant.md).
 - **The Data Browser and Visualization panels** read runs from a
   [Tiled](https://blueskyproject.io/tiled/) data server, configured under
   **File → Settings → Tiled Data Catalog**. Without one, scans still run —
@@ -138,7 +138,7 @@ layout is saved automatically between sessions.
 
 **Help → Welcome Tutorial** starts an interactive overlay tour that walks
 through the status bar, the sidebar, and each major panel, ending with an
-example prompt in the Claude Assistant. It is the fastest way to learn where
+example prompt in the Assistant. It is the fastest way to learn where
 things are.
 
 > 🖼️ **Image placeholder** — *Screenshot: the welcome tutorial overlay spotlighting the icon sidebar with its callout box*
