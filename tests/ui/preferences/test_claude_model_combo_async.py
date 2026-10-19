@@ -151,4 +151,3 @@ def _alive(obj):
     import shiboken6
 
     return shiboken6.isValid(obj)
-
