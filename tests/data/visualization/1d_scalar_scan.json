@@ -1,0 +1,45 @@
+{
+  "description": "1d_scalar_scan",
+  "expected_viz": "plot_1d",
+  "expected_score": 80,
+  "start": {
+    "uid": "test-1d-scalar-start-001",
+    "time": 1707600000.0,
+    "plan_name": "scan",
+    "scan_id": 1,
+    "num_points": 11,
+    "motors": ["motor"],
+    "hints": {
+      "dimensions": [[["motor"], "primary"]]
+    }
+  },
+  "descriptor": {
+    "uid": "test-1d-scalar-desc-001",
+    "run_start": "test-1d-scalar-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "motor": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor",
+        "units": "mm"
+      },
+      "motor_setpoint": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor_setpoint",
+        "units": "mm"
+      },
+      "det": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:det",
+        "units": "counts"
+      }
+    },
+    "hints": {
+      "det": {"fields": ["det"]}
+    }
+  }
+}

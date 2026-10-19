@@ -1,0 +1,38 @@
+{
+  "description": "scan_with_3d_volume",
+  "expected_viz": "scan_viewer",
+  "expected_score": 90,
+  "start": {
+    "uid": "test-3d-volume-start-001",
+    "time": 1707600000.0,
+    "plan_name": "tomo_scan",
+    "scan_id": 1,
+    "num_points": 180,
+    "motors": ["rotation"],
+    "hints": {
+      "dimensions": [[["rotation"], "primary"]]
+    }
+  },
+  "descriptor": {
+    "uid": "test-3d-volume-desc-001",
+    "run_start": "test-3d-volume-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "rotation": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:rotation",
+        "units": "deg"
+      },
+      "volume_data": {
+        "dtype": "array",
+        "shape": [256, 256, 256],
+        "source": "SIM:volume_data"
+      }
+    },
+    "hints": {
+      "detector": {"fields": ["volume_data"]}
+    }
+  }
+}
