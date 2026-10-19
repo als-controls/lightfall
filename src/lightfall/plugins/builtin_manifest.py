@@ -204,6 +204,11 @@ builtin_manifest = PluginManifest(
             name="nats_status",
             import_path="lightfall.ui.statusbar.plugins.nats_status:NatsStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="memory_status",
+            import_path="lightfall.ui.statusbar.plugins.memory_status:MemoryStatusPlugin",
+        ),
         # Agent plugins (skill prompts and/or MCP tool bags).
         # Each contributes via ToolRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lightfall/claude/agent.py.
