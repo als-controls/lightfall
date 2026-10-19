@@ -582,6 +582,23 @@ def _with_subagents(env, subagents):
     env["cfg"] = dataclasses.replace(env["cfg"], subagents=subagents)
 
 
+def _agent_files(env):
+    """Connect and close on one loop; return {file name: text} of the session's agents/."""
+    b = _backend(env)
+    out = {}
+
+    async def go():
+        await b.connect()
+        try:
+            agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
+            out.update({p.name: p.read_text(encoding="utf-8") for p in agents.iterdir()})
+        finally:
+            await b.close()
+
+    asyncio.run(go())
+    return out
+
+
 def test_connect_writes_subagent_files(env, monkeypatch):
     from lightfall.agents.backend import SubagentSpec
     from lightfall.agents.backends.agy import backend as backend_mod
@@ -591,16 +608,11 @@ def test_connect_writes_subagent_files(env, monkeypatch):
                         lambda agy: probed.append(agy) or frozenset({"gemini-x"}))
     _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x"),
                           SubagentSpec("saxs", "SAXS.", "You reduce.", model="sonnet")])
-    b = _backend(env)
-    asyncio.run(b.connect())
-    try:
-        agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
-        assert sorted(p.name for p in agents.iterdir()) == ["echoer.md", "operator.md", "saxs.md"]
-        assert "model: gemini-x\n" in (agents / "echoer.md").read_text(encoding="utf-8")
-        assert "model: inherit\n" in (agents / "saxs.md").read_text(encoding="utf-8")
-        assert probed == [AGY]
-    finally:
-        asyncio.run(b.close())
+    files = _agent_files(env)
+    assert sorted(files) == ["echoer.md", "operator.md", "saxs.md"]
+    assert "model: gemini-x\n" in files["echoer.md"]
+    assert "model: inherit\n" in files["saxs.md"]
+    assert probed == [AGY]
 
 
 def test_connect_skips_model_probe_when_no_subagent_needs_it(env, monkeypatch):
@@ -613,9 +625,7 @@ def test_connect_skips_model_probe_when_no_subagent_needs_it(env, monkeypatch):
     monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
     _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo."),
                           SubagentSpec("fast", "Fast.", "Quick.", model="flash")])
-    b = _backend(env)
-    asyncio.run(b.connect())
-    asyncio.run(b.close())
+    assert "model: flash\n" in _agent_files(env)["fast.md"]
 
 
 def test_connect_survives_model_probe_failure(env, monkeypatch):
@@ -627,10 +637,99 @@ def test_connect_survives_model_probe_failure(env, monkeypatch):
 
     monkeypatch.setattr(backend_mod, "agy_model_ids", boom)
     _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.", model="gemini-x")])
+    assert "model: inherit\n" in _agent_files(env)["echoer.md"]
+
+
+def test_connect_puts_tool_directory_in_subagent_files(env):
+    from lightfall.agents.backend import SubagentSpec
+
+    _with_subagents(env, [SubagentSpec("echoer", "Echoes.", "You echo.")])
+    text = _agent_files(env)["echoer.md"]
+    assert "## Calling Lightfall tools" in text and "### `lightfall_qt`" in text
+    assert text.index("You echo.") < text.index("## Calling Lightfall tools")
+
+
+# ---- subagent auto-continue ---------------------------------------------------
+
+
+def _drive(env, scenario, *, cancel_on=None):
+    """One Lightfall turn straight through run_turn; returns (events, prompts sent)."""
+    from lightfall.agents.backend import ToolCallEvent
+
+    env["monkeypatch"].setenv("FAKE_AGY_SCENARIO", scenario)
     b = _backend(env)
-    asyncio.run(b.connect())
-    try:
-        agents = b.session_home / ".gemini" / "config" / "plugins" / "lightfall" / "agents"
-        assert "model: inherit\n" in (agents / "echoer.md").read_text(encoding="utf-8")
-    finally:
-        asyncio.run(b.close())
+    flag = {"cancel": False}
+    events = []
+
+    async def go():
+        await b.connect()
+        try:
+            async for ev in b.run_turn("Ask the echoer to echo persimmon.",
+                                       lambda: flag["cancel"], lambda: False):
+                events.append(ev)
+                if (cancel_on and isinstance(ev, ToolCallEvent) and ev.name == cancel_on):
+                    flag["cancel"] = True
+        finally:
+            await b.close()
+
+    asyncio.run(asyncio.wait_for(go(), 30))
+    return events, _prompts(env)
+
+
+def _text(events):
+    from lightfall.agents.backend import PartialTextEvent
+
+    return "".join(e.delta for e in events if isinstance(e, PartialTextEvent))
+
+
+def _results(events):
+    from lightfall.agents.backend import TurnResultEvent
+
+    return [e for e in events if isinstance(e, TurnResultEvent)]
+
+
+def test_subagent_report_auto_continues_once(env):
+    from lightfall.agents.backends.agy.events import SUBAGENT_CONTINUE_PROMPT
+
+    events, prompts = _drive(env, "subagent")
+    assert prompts == ["Ask the echoer to echo persimmon.", SUBAGENT_CONTINUE_PROMPT]
+    assert "Waiting for the echoer." in _text(events) and "ECHOER: persimmon" in _text(events)
+    [res] = _results(events)
+    # Usage is summed over both agy turns (fake: 100 in / 10 out per result).
+    assert (res.info["input_tokens"], res.info["output_tokens"]) == (200, 20)
+    # Exactly one terminal event, and it is the last apart from trailing session ids.
+    from lightfall.agents.backend import SessionIdEvent
+    tail = [type(e).__name__ for e in events if not isinstance(e, SessionIdEvent)]
+    assert tail[-1] == "TurnResultEvent" and tail.count("TurnResultEvent") == 1
+
+
+def test_subagent_answered_in_turn_does_not_continue(env):
+    events, prompts = _drive(env, "subagent_inturn")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert len(_results(events)) == 1
+
+
+def test_turn_without_subagent_never_continues(env):
+    events, prompts = _drive(env, "tool")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert len(_results(events)) == 1
+
+
+def test_subagent_continuations_are_capped(env):
+    from lightfall.agents.backends.agy.backend import (
+        MAX_SUBAGENT_CONTINUATIONS,
+        SUBAGENT_CONTINUE_PROMPT,
+    )
+
+    events, prompts = _drive(env, "subagent_loop")
+    assert MAX_SUBAGENT_CONTINUATIONS == 3
+    assert prompts == ["Ask the echoer to echo persimmon."] + [SUBAGENT_CONTINUE_PROMPT] * 3
+    [res] = _results(events)
+    assert res.info["input_tokens"] == 400
+
+
+def test_cancel_stops_subagent_continuation(env):
+    events, prompts = _drive(env, "subagent", cancel_on="invoke_subagent")
+    assert prompts == ["Ask the echoer to echo persimmon."]
+    assert any(isinstance(e, TurnCancelledEvent) for e in events)
+    assert _results(events) == []

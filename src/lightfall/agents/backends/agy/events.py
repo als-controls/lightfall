@@ -23,12 +23,18 @@ from lightfall.agents.backend import (
     TurnErrorEvent,
     TurnResultEvent,
 )
+from lightfall.agents.backends.agy.hook_policy import SUBAGENT_TOOL
 from lightfall.agents.tooling import tool_id
 from lightfall.utils.logging import logger
 
 _PREFIX = "lightfall_"
 _USAGE_KEYS = ("input_tokens", "output_tokens")
 TERMINAL_EVENTS = (TurnResultEvent, TurnCancelledEvent, TurnErrorEvent)
+# Synthetic input the backend sends so agy delivers a pending subagent report
+# (AgyCliBackend._turn_with_subagents); sessions.py hides it on restore.
+SUBAGENT_CONTINUE_PROMPT = (
+    "(Lightfall, automatic) Subagent results are ready. Continue: use them to finish "
+    "answering my previous request.")
 
 
 def _int(v: Any) -> int:
@@ -46,10 +52,15 @@ class AgyEventTranslator:
         self._tools_done: set[str] = set()
         self._prev_usage: dict[str, int] = {}
         self.conversation_id: str | None = None
+        # True from an invoke_subagent step until a system_message step: agy
+        # delivers a subagent's report to the operator as a system message, and
+        # (agy 1.4.2, verified live) often only at the start of the NEXT input.
+        self.subagent_report_pending = False
 
     def begin_turn(self) -> None:
         """Forget per-step state: a step never spans turns, and agy may reuse
         ``step_index`` under the same conversation id after a respawn."""
+        self.subagent_report_pending = False
         self._started.clear()
         self._finished.clear()
         self._tools_called.clear()
@@ -86,6 +97,11 @@ class AgyEventTranslator:
         bid = f"{cid}:{su.get('step_index')}"
         step_type = su.get("step_type")
         state = su.get("state")
+        if step_type == "subagent" or (step_type == "tool"
+                                       and su.get("tool_name") == SUBAGENT_TOOL):
+            self.subagent_report_pending = True
+        elif step_type == "system_message":
+            self.subagent_report_pending = False
         if step_type == "agent_response":
             return self._response_step(bid, su, state)
         if step_type == "tool":

@@ -180,3 +180,21 @@ def test_transcript_tool_name_without_server_or_tool(tmp_path):
             {"name": "call_mcp_tool", "args": {"ServerName": "\"lightfall_qt\""}}]}])
     [entry] = AgySessionStore(tmp_path, "/w").load_transcript("c3")
     assert entry.tool_names == ["call_mcp_tool", "call_mcp_tool"]
+
+
+def test_transcript_hides_synthetic_subagent_continuation(tmp_path):
+    from lightfall.agents.backends.agy.events import SUBAGENT_CONTINUE_PROMPT
+
+    _write_transcript(tmp_path, "c4", [
+        {"type": "USER_INPUT", "content": "<USER_REQUEST>\nAsk the echoer\n</USER_REQUEST>"},
+        {"type": "PLANNER_RESPONSE", "content": "Waiting."},
+        {"type": "USER_INPUT",
+         "content": f"<USER_REQUEST>\n{SUBAGENT_CONTINUE_PROMPT}\n</USER_REQUEST>\n"
+                    "<ADDITIONAL_METADATA>\nx\n</ADDITIONAL_METADATA>"},
+        {"type": "PLANNER_RESPONSE", "content": "ECHOER: persimmon"},
+    ])
+    assert AgySessionStore(tmp_path, "/w").load_transcript("c4") == [
+        TranscriptEntry("user", "Ask the echoer", []),
+        TranscriptEntry("assistant", "Waiting.", []),
+        TranscriptEntry("assistant", "ECHOER: persimmon", []),
+    ]

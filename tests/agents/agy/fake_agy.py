@@ -171,7 +171,66 @@ def scenario_text_partial_die() -> None:
     scenario_text()
 
 
+# Subagents (agy 1.4.2 shapes): the report is owed until a later input, where it
+# arrives as a system_message step before that input's user_input step.
+_report_owed = False
+
+
+def _delegate() -> None:
+    global _report_owed
+    info = {"name": "invoke_subagent", "parameters": {"Subagents": [
+        {"Model": "inherit", "Prompt": "Echo persimmon.", "Role": "Echoer", "TypeName": "echoer"}]}}
+    step("ACTIVE", "tool", tool_name="invoke_subagent", tool_info=info)
+    step("DONE", "subagent", tool_name="invoke_subagent",
+         subagent_info={"subagents": [{"type_name": "echoer"}]})
+    next_step()
+    _report_owed = True
+
+
+def _deliver_report() -> None:
+    global _report_owed
+    if _report_owed:
+        step("DONE", "system_message")
+        next_step()
+        _report_owed = False
+
+
+def scenario_subagent() -> None:
+    """First input delegates and stops; the next input gets the report and answers."""
+    global _turns
+    _turns += 1
+    _deliver_report()
+    begin_turn()
+    if _turns == 1:
+        _delegate()
+        text_reply(["Waiting for the echoer."])
+        result(response="Waiting for the echoer.")
+    else:
+        text_reply(["ECHOER: persimmon"])
+        result(response="ECHOER: persimmon")
+
+
+def scenario_subagent_inturn() -> None:
+    """Delegates and answers with the report inside the same input."""
+    begin_turn()
+    _delegate()
+    _deliver_report()
+    text_reply(["ECHOER: persimmon"])
+    result(response="ECHOER: persimmon")
+
+
+def scenario_subagent_loop() -> None:
+    """Every input (report or not) delegates again."""
+    _deliver_report()
+    begin_turn()
+    _delegate()
+    text_reply(["Delegating again."])
+    result(response="Delegating again.")
+
+
 SCENARIOS = {"text": scenario_text, "tool": scenario_tool, "die": scenario_die,
+             "subagent": scenario_subagent, "subagent_inturn": scenario_subagent_inturn,
+             "subagent_loop": scenario_subagent_loop,
              "slow": scenario_slow, "deaf": scenario_slow, "text_exit": scenario_text_exit,
              "text_mute": scenario_text_mute, "text_hook_mute": scenario_text_hook_mute,
              "text_partial_die": scenario_text_partial_die}

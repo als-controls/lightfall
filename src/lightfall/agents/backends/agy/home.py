@@ -378,6 +378,9 @@ class AgyHomeConfig:
     # Model ids `agy models` lists; a subagent model outside these and
     # AGY_MODEL_ALIASES becomes ``inherit``.
     model_ids: frozenset[str] = frozenset()
+    # The "Calling Lightfall tools" section (tool_directory.py), appended to each
+    # subagent's body.
+    tool_directory: str = ""
 
 
 def _subagent_model(spec: SubagentSpec, model_ids: Iterable[str]) -> str:
@@ -419,7 +422,12 @@ def _write_subagents(agents_dir: Path, cfg: AgyHomeConfig) -> None:
             description=json.dumps(description, ensure_ascii=False),
             model=_subagent_model(spec, cfg.model_ids),
         )
-        _write_text(agents_dir / f"{name}.md", front + "\n" + spec.prompt + "\n")
+        body = spec.prompt + "\n"
+        if cfg.tool_directory:
+            # The operator gets this via its prompt; without it a subagent hunts
+            # for the MCP server names with Glob/LS/Read first.
+            body += "\n" + cfg.tool_directory
+        _write_text(agents_dir / f"{name}.md", front + "\n" + body)
 
 
 def write_session_config(session_home: Path, cfg: AgyHomeConfig) -> Path:

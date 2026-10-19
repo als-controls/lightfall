@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from lightfall.agents.backend import SessionInfo, TranscriptEntry
+from lightfall.agents.backends.agy.events import SUBAGENT_CONTINUE_PROMPT
 from lightfall.agents.tooling import tool_id
 from lightfall.utils.logging import logger
 
@@ -124,7 +125,10 @@ class AgySessionStore:
             content = rec.get("content")
             if kind == "USER_INPUT" and isinstance(content, str):
                 m = _USER_RE.search(content)
-                out.append(TranscriptEntry("user", (m.group(1) if m else content).strip(), []))
+                text = (m.group(1) if m else content).strip()
+                if text == SUBAGENT_CONTINUE_PROMPT:
+                    continue  # the backend's synthetic follow-up, never typed by the user
+                out.append(TranscriptEntry("user", text, []))
             elif kind == "PLANNER_RESPONSE" and isinstance(content, str) and content:
                 calls = rec.get("tool_calls")
                 names = ([_tool_name(c) for c in calls if isinstance(c, dict)]

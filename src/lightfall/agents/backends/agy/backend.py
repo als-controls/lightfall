@@ -31,11 +31,16 @@ from lightfall.agents.backend import (
     SessionConfig,
     TurnCancelledEvent,
     TurnErrorEvent,
+    TurnResultEvent,
 )
 from lightfall.agents.backends.agy import hook_client
 from lightfall.agents.backends.agy.ask_tool import ASK_SERVER_NAME, create_ask_user_server
 from lightfall.agents.backends.agy.discover import console_python, hook_command
-from lightfall.agents.backends.agy.events import TERMINAL_EVENTS, AgyEventTranslator
+from lightfall.agents.backends.agy.events import (
+    SUBAGENT_CONTINUE_PROMPT,
+    TERMINAL_EVENTS,
+    AgyEventTranslator,
+)
 from lightfall.agents.backends.agy.home import (
     AGY_MODEL_ALIASES,
     PLUGIN_NAME,
@@ -60,6 +65,20 @@ _POLL_S = 0.1
 _EXIT_WAIT_S = 2.0
 _NO_PROXY = "127.0.0.1,localhost"
 _RETRY = object()  # internal: the reused child died before answering
+
+# SUBAGENT_CONTINUE_PROMPT (events.py) is the synthetic input that lets agy deliver
+# a pending subagent report; see _turn_with_subagents.
+MAX_SUBAGENT_CONTINUATIONS = 3
+
+
+def _merge_usage(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Two TurnResultEvent infos as one: token counts summed, the later session id."""
+    out = {**a, **b}
+    for k in ("input_tokens", "output_tokens"):
+        out[k] = (a.get(k) or 0) + (b.get(k) or 0)
+    if a.get("total_cost_usd") is not None or b.get("total_cost_usd") is not None:
+        out["total_cost_usd"] = (a.get("total_cost_usd") or 0) + (b.get("total_cost_usd") or 0)
+    return out
 
 
 def _no_proxy_env() -> dict[str, str]:
@@ -165,6 +184,7 @@ class AgyCliBackend:
                 skills_src=Path(cfg.skills_dir) / "skills",
                 subagents=list(cfg.subagents),
                 model_ids=await self._subagent_model_ids(),
+                tool_directory=directory,
             ))
             logger.info("agy backend connected: home={} port={}", home, port)
         except BaseException:
@@ -224,10 +244,53 @@ class AgyCliBackend:
             return
         self._in_turn = True
         try:
-            async for ev in self._turn(prompt, cancelled, stopping):
+            async for ev in self._turn_with_subagents(prompt, cancelled, stopping):
                 yield ev
         finally:
             self._in_turn = False
+
+    async def _turn_with_subagents(self, prompt: str, cancelled: Callable[[], bool],
+                                   stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:
+        """One Lightfall turn: an agy turn, plus up to MAX_SUBAGENT_CONTINUATIONS
+        synthetic follow-ups when it ended with a subagent report still unread.
+
+        agy 1.4.2 holds the turn's ``result`` until the subagent finishes but
+        often hands the report to the operator only with the next input (as a
+        ``system_message`` step). The follow-up line is that next input. The
+        intermediate results are merged into one TurnResultEvent (usage summed);
+        their SessionIdEvents follow it.
+        """
+        held: TurnResultEvent | None = None
+        trailing: list[AgentEvent] = []
+        for round_no in range(MAX_SUBAGENT_CONTINUATIONS + 1):
+            result: TurnResultEvent | None = None
+            async for ev in self._turn(prompt if round_no == 0 else SUBAGENT_CONTINUE_PROMPT,
+                                       cancelled, stopping):
+                if isinstance(ev, TurnResultEvent):
+                    result = ev
+                elif result is not None:
+                    trailing.append(ev)  # SessionIdEvent / ContextUsageEvent after the result
+                else:
+                    yield ev
+            if result is None:
+                return  # cancelled, errored or stopping: _turn already ended the turn
+            held = result if held is None else TurnResultEvent(_merge_usage(held.info, result.info))
+            if not self._translator.subagent_report_pending or cancelled() or stopping():
+                break
+            if round_no == MAX_SUBAGENT_CONTINUATIONS:
+                logger.debug("agy: subagent continuation cap ({}) reached; ending the turn",
+                             MAX_SUBAGENT_CONTINUATIONS)
+                break
+            logger.debug("agy: subagent report not yet delivered; continuation {}/{}",
+                         round_no + 1, MAX_SUBAGENT_CONTINUATIONS)
+        assert held is not None
+        yield held
+        latest: dict[type, AgentEvent] = {}  # one of each kind, the latest
+        for ev in trailing:
+            latest.pop(type(ev), None)
+            latest[type(ev)] = ev
+        for ev in latest.values():
+            yield ev
 
     async def _turn(self, prompt: str, cancelled: Callable[[], bool],
                     stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:

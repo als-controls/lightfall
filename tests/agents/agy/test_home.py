@@ -543,3 +543,19 @@ def test_stale_subagent_files_removed(tmp_path):
     assert _agents(session) == ["keep.md", "new.md", "operator.md"]
     agy_home.write_session_config(session, _cfg())
     assert _agents(session) == ["operator.md"]
+
+
+def test_subagent_body_carries_tool_directory(tmp_path):
+    session = tmp_path / "s"
+    directory = "## Calling Lightfall tools\n\n### `lightfall_probe`\n- `echo` — Echo\n"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", prompt="You echo.")],
+                                                tool_directory=directory))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert text.endswith("---\n\nYou echo.\n\n" + directory)
+
+
+def test_subagent_body_without_tool_directory_is_just_the_prompt(tmp_path):
+    session = tmp_path / "s"
+    agy_home.write_session_config(session, _cfg(subagents=[_sub("echoer", prompt="You echo.")]))
+    text = (_plugin(session) / "agents" / "echoer.md").read_text(encoding="utf-8")
+    assert text.endswith("---\n\nYou echo.\n")

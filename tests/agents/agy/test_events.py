@@ -171,3 +171,54 @@ def test_mcp_call_without_server_or_tool_name_keeps_its_own_name():
     for params in ({"ServerName": "", "ToolName": "list_agents"}, {"ServerName": "lightfall_qt"}):
         ev = _feed(_tr(), step(params))
         assert ev[0] == ToolCallEvent("call_mcp_tool", params)
+
+
+# ---- subagent report tracking (shapes from agy 1.4.2 live captures) ----------
+
+SUB_CID = "26765274-7129-46cc-b015-473f48b54596"
+SUB_INVOKE = ('{"event":"step_update","step_update":{"conversation_id":"' + SUB_CID + '",'
+              '"step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"invoke_subagent",'
+              '"tool_info":{"name":"invoke_subagent","parameters":{"Subagents":[{"Model":"inherit",'
+              '"Prompt":"Echo the word.","Role":"Word Echoer","TypeName":"echoer"}]}}}}')
+SUB_DONE = ('{"event":"step_update","step_update":{"conversation_id":"' + SUB_CID + '",'
+            '"step_index":2,"state":"DONE","step_type":"subagent","tool_name":"invoke_subagent",'
+            '"subagent_info":{"subagents":[{"type_name":"echoer"}]}}}')
+SUB_REPORT = ('{"event":"step_update","step_update":{"conversation_id":"' + SUB_CID + '",'
+              '"step_index":5,"state":"DONE","step_type":"system_message"}}')
+
+
+def _feed(t, *lines):
+    out = []
+    for ln in lines:
+        out += t.feed(json.loads(ln))
+    return out
+
+
+def test_subagent_report_pending_after_invoke():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    assert t.subagent_report_pending is False
+    events = _feed(t, SUB_INVOKE, SUB_DONE)
+    assert [e.name for e in events if isinstance(e, ToolCallEvent)] == ["invoke_subagent"]
+    assert t.subagent_report_pending is True
+
+
+def test_system_message_consumes_pending_report():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    _feed(t, SUB_INVOKE, SUB_DONE, SUB_REPORT)
+    assert t.subagent_report_pending is False
+
+
+def test_begin_turn_clears_pending_report():
+    t = AgyEventTranslator({})
+    _feed(t, SUB_INVOKE)
+    t.begin_turn()
+    assert t.subagent_report_pending is False
+
+
+def test_plain_turn_never_pending():
+    t = AgyEventTranslator({})
+    t.begin_turn()
+    _feed(t, TOOL_ACTIVE, TOOL_DONE, *TEXT_LINES, RESULT_OK)
+    assert t.subagent_report_pending is False
