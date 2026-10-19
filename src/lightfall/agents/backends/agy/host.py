@@ -23,7 +23,7 @@ from typing import Any
 
 import uvicorn
 from mcp import types
-from mcp.server.lowlevel import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -42,28 +42,29 @@ _STOP_TIMEOUT_S = 3.0
 
 def _to_content(block: dict[str, Any]) -> types.TextContent | types.ImageContent:
     if block.get("type") == "image":
-        return types.ImageContent(type="image", data=block["data"], mimeType=block["mimeType"])
+        return types.ImageContent(type="image", data=block["data"], mime_type=block["mimeType"])
     return types.TextContent(type="text", text=str(block.get("text", "")))
 
 
 def _error_result(text: str) -> types.CallToolResult:
-    return types.CallToolResult(content=[types.TextContent(type="text", text=text)], isError=True)
+    return types.CallToolResult(content=[types.TextContent(type="text", text=text)], is_error=True)
 
 
 def _build_mcp_server(key: str, server: ToolServer) -> Server:
-    srv: Server = Server(f"lightfall_{key}", version=server.version)
     specs = {s.name: s for s in server.tools}
 
-    @srv.list_tools()
-    async def _list_tools() -> list[types.Tool]:
-        return [
+    async def _list_tools(_ctx: ServerRequestContext,
+                          _params: types.PaginatedRequestParams | None) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[
             types.Tool(name=s.name, description=s.description,
-                       inputSchema=copy.deepcopy(json_schema(s)))
+                       input_schema=copy.deepcopy(json_schema(s)))
             for s in server.tools
-        ]
+        ])
 
-    @srv.call_tool(validate_input=False)
-    async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+    async def _call_tool(_ctx: ServerRequestContext,
+                         params: types.CallToolRequestParams) -> types.CallToolResult:
+        # mcp 2 dropped the low-level server's input validation; we never used it.
+        name, arguments = params.name, params.arguments
         spec = specs.get(name)
         if spec is None:
             return _error_result(f"Unknown tool: {name}")
@@ -75,9 +76,10 @@ def _build_mcp_server(key: str, server: ToolServer) -> Server:
         except Exception as e:  # noqa: BLE001 - every tool failure becomes an MCP error result
             logger.opt(exception=e).debug("agy tool {}/{} raised", key, name)
             return _error_result(f"{type(e).__name__}: {e}")
-        return types.CallToolResult(content=content, isError=bool(result.get("is_error")))
+        return types.CallToolResult(content=content, is_error=bool(result.get("is_error")))
 
-    return srv
+    return Server(f"lightfall_{key}", version=server.version,
+                  on_list_tools=_list_tools, on_call_tool=_call_tool)
 
 
 class _BearerAuth:

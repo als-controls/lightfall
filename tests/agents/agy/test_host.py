@@ -9,6 +9,7 @@ import zlib
 from contextlib import asynccontextmanager
 
 import httpx
+import httpx2
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -83,9 +84,9 @@ async def host():
 @asynccontextmanager
 async def _session(port: int, key: str, token: str | None = TOKEN):
     headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
-    async with httpx.AsyncClient(headers=headers, timeout=10) as client:
+    async with httpx2.AsyncClient(headers=headers, timeout=httpx2.Timeout(10, read=30)) as client:
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp/{key}/",
-                                          http_client=client) as (read, write, _):
+                                          http_client=client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 yield session
@@ -97,33 +98,33 @@ async def test_list_tools_uses_json_schema(host):
     assert [t.name for t in tools] == ["echo", "snap", "boom"]
     spec = _servers()[0][1].tools[0]
     assert tools[0].description == "Echo a message"
-    assert tools[0].inputSchema == json_schema(spec)
+    assert tools[0].input_schema == json_schema(spec)
 
     async with _session(host.port, "bus") as s:
         (move,) = (await s.list_tools()).tools
     assert move.name == "move"
-    assert move.inputSchema == json_schema(_servers()[1][1].tools[0])
+    assert move.input_schema == json_schema(_servers()[1][1].tools[0])
 
 
 async def test_call_tool_text_and_image(host):
     async with _session(host.port, "qt") as s:
         r = await s.call_tool("echo", {"msg": "hi"})
-        assert not r.isError
+        assert not r.is_error
         assert [(c.type, c.text) for c in r.content] == [("text", "echo hi")]
 
         r = await s.call_tool("snap", {})
-        assert not r.isError
+        assert not r.is_error
         (img,) = r.content
-        assert (img.type, img.mimeType, img.data) == ("image", "image/png", PNG_B64)
+        assert (img.type, img.mime_type, img.data) == ("image", "image/png", PNG_B64)
 
 
 async def test_tool_error_becomes_iserror(host):
     async with _session(host.port, "qt") as s:
         r = await s.call_tool("boom", {})
-        assert r.isError
+        assert r.is_error
         assert "ValueError: bad" in r.content[0].text
         r = await s.call_tool("echo", {"msg": "still alive"})
-        assert not r.isError
+        assert not r.is_error
         assert r.content[0].text == "echo still alive"
 
 
@@ -139,7 +140,7 @@ async def test_is_error_dict_becomes_iserror():
     try:
         async with _session(h.port, "ask") as s:
             r = await s.call_tool("ask_user", {})
-        assert r.isError
+        assert r.is_error
         assert r.content[0].text == "User declined"
     finally:
         await h.stop()
@@ -272,7 +273,7 @@ async def test_non_dict_handler_result_is_clear_error(bad):
     try:
         async with _session(h.port, "bad") as s:
             r = await s.call_tool("t", {})
-        assert r.isError
+        assert r.is_error
         assert "tool handler returned no result" in r.content[0].text
         assert "AttributeError" not in r.content[0].text
     finally:
