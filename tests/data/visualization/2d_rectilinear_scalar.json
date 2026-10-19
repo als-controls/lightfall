@@ -1,0 +1,63 @@
+{
+  "description": "2d_rectilinear_scalar",
+  "expected_viz": "heatmap",
+  "expected_score": 85,
+  "start": {
+    "uid": "test-2d-rect-start-001",
+    "time": 1707600000.0,
+    "plan_name": "grid_scan",
+    "scan_id": 1,
+    "num_points": 25,
+    "motors": ["motor1", "motor2"],
+    "shape": [5, 5],
+    "extents": [[-1.0, 1.0], [-2.0, 2.0]],
+    "hints": {
+      "dimensions": [
+        [["motor1"], "primary"],
+        [["motor2"], "primary"]
+      ],
+      "gridding": "rectilinear"
+    }
+  },
+  "descriptor": {
+    "uid": "test-2d-rect-desc-001",
+    "run_start": "test-2d-rect-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "motor1": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor1",
+        "units": "mm"
+      },
+      "motor2": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor2",
+        "units": "mm"
+      },
+      "motor1_setpoint": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor1_setpoint",
+        "units": "mm"
+      },
+      "motor2_setpoint": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor2_setpoint",
+        "units": "mm"
+      },
+      "det": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:det",
+        "units": "counts"
+      }
+    },
+    "hints": {
+      "det": {"fields": ["det"]}
+    }
+  }
+}

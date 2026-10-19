@@ -1,0 +1,50 @@
+{
+  "description": "1d_with_2d_array",
+  "expected_viz": "scan_viewer",
+  "expected_score": 90,
+  "start": {
+    "uid": "test-1d-camera-start-001",
+    "time": 1707600000.0,
+    "plan_name": "scan",
+    "scan_id": 1,
+    "num_points": 10,
+    "motors": ["motor"],
+    "hints": {
+      "dimensions": [[["motor"], "primary"]]
+    }
+  },
+  "descriptor": {
+    "uid": "test-1d-camera-desc-001",
+    "run_start": "test-1d-camera-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "motor": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor",
+        "units": "mm"
+      },
+      "motor_setpoint": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor_setpoint",
+        "units": "mm"
+      },
+      "camera_image": {
+        "dtype": "array",
+        "shape": [1024, 1024],
+        "source": "SIM:camera_image"
+      },
+      "camera_stats_total": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:camera_stats_total",
+        "units": "counts"
+      }
+    },
+    "hints": {
+      "camera": {"fields": ["camera_image"]}
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "description": "count_only",
+  "expected_viz": "plot_1d",
+  "expected_score": 80,
+  "start": {
+    "uid": "test-count-start-001",
+    "time": 1707600000.0,
+    "plan_name": "count",
+    "scan_id": 1,
+    "num_points": 1,
+    "hints": {
+      "dimensions": []
+    }
+  },
+  "descriptor": {
+    "uid": "test-count-desc-001",
+    "run_start": "test-count-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "det": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:det",
+        "units": "counts"
+      },
+      "det_stats_total": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:det_stats_total",
+        "units": "counts"
+      }
+    },
+    "hints": {
+      "det": {"fields": ["det"]}
+    }
+  }
+}

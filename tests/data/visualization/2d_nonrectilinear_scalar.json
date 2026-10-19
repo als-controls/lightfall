@@ -1,0 +1,48 @@
+{
+  "description": "2d_nonrectilinear_scalar",
+  "expected_viz": "scatter",
+  "expected_score": 70,
+  "start": {
+    "uid": "test-2d-nonrect-start-001",
+    "time": 1707600000.0,
+    "plan_name": "spiral_scan",
+    "scan_id": 1,
+    "num_points": 100,
+    "motors": ["motor_x", "motor_y"],
+    "hints": {
+      "dimensions": [
+        [["motor_x"], "primary"],
+        [["motor_y"], "primary"]
+      ]
+    }
+  },
+  "descriptor": {
+    "uid": "test-2d-nonrect-desc-001",
+    "run_start": "test-2d-nonrect-start-001",
+    "time": 1707600001.0,
+    "name": "primary",
+    "data_keys": {
+      "motor_x": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor_x",
+        "units": "mm"
+      },
+      "motor_y": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:motor_y",
+        "units": "mm"
+      },
+      "det": {
+        "dtype": "number",
+        "shape": [],
+        "source": "SIM:det",
+        "units": "counts"
+      }
+    },
+    "hints": {
+      "det": {"fields": ["det"]}
+    }
+  }
+}
